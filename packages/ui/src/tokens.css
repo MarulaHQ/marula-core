@@ -141,7 +141,7 @@
   --m-status-success-bg: #14532d;
   --m-status-warning-fg: #fbbf24;
   --m-status-warning-bg: #78350f;
-  --m-status-danger-fg: #f87171;
+  --m-status-danger-fg: #fca5a5;
   --m-status-danger-bg: #7f1d1d;
   --m-status-danger-fg-hover: color-mix(in srgb, var(--m-status-danger-fg) 88%, var(--m-paper));
   --m-status-danger: var(--m-status-danger-fg);
@@ -166,4 +166,15 @@
   --m-shadow: rgba(0, 0, 0, 0.30);
   --m-shadow-strong: rgba(0, 0, 0, 0.45);
   --m-shadow-overlay: 0px 4px 6px -1px rgba(0, 0, 0, 0.30), 0px 2px 4px -1px rgba(0, 0, 0, 0.30);
+}
+
+/* Touch-target floor (p29-accessibility-deep, WCAG 2.5.5 guidance): on
+   coarse pointers (tablets/phones) the shared control heights grow to a
+   44px hit target in-token. Pointer-precise desktop keeps 32px density. */
+@media (pointer: coarse) {
+  :root {
+    --m-control-height: 44px;
+    --m-control-height-sm: 40px;
+    --m-row-height: 40px;
+  }
 }

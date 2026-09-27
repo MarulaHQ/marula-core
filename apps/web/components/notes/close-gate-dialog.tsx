@@ -18,9 +18,11 @@
 "use client";
 
 import type { components } from "@meridian/sdk";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";
+import { useDialogA11y } from "../../lib/a11y/use-dialog-a11y";
+import { announce } from "../../components/a11y/live-region";
 import { requestWorkbarPanel } from "./workbar-bridge";
 
 type TaskGateItem = components["schemas"]["TaskGateItem"];
@@ -52,12 +54,11 @@ export function TasksGateDialog({
 }: GateBlocks): ReactNode {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-
+  // Modal semantics: trap + Escape + focus restore via the shared hook.
+  const dialogRef = useDialogA11y<HTMLDivElement>(true, onDismiss);
   useEffect(() => {
-    // Focus trap semantics: dialog is modal.
-    dialogRef.current?.focus();
-  }, []);
+    if (error) announce(error, "assertive");
+  }, [error]);
 
   async function closeAllAutomatically(): Promise<void> {
     if (busy) return;

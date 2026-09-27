@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { resultErrorText } from "../../lib/error-copy";
+import { announce } from "../a11y/live-region";
 
 type SuggestionAnswer = {
   question_id: string;
@@ -125,6 +126,10 @@ export function DecisionSuggestionsCard({
     if (res.data !== undefined) {
       setData(res.data as unknown as DecisionSuggestions);
       setError(null);
+      const fresh = (res.data as unknown as DecisionSuggestions).suggestions?.length ?? 0;
+      if (fresh > 0) {
+        announce(`${fresh} AI suggestion${fresh === 1 ? "" : "s"} ready for review`, "polite");
+      }
     } else {
       setError(resultErrorText(res as never, "Couldn't load AI suggestions."));
     }

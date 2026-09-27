@@ -94,6 +94,7 @@ export function SaveBar({
       {saved && !error && (
         <span
           className="text-[12px]"
+          role="status"
           style={{ color: "var(--m-status-success-fg)" }}
           data-testid="settings-save-confirm"
         >

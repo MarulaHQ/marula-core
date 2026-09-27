@@ -1,0 +1,7 @@
+{
+  "_meta": {
+    "updated": "",
+    "note": "Snapshot of axe violations per surface. NEW criticals not listed here FAIL the E2E gate; fix or re-snapshot deliberately (AXE_UPDATE_BASELINE=1 pnpm e2e). Owners name the lane accountable for each fix; p29-accessibility-deep seeds them and Wave 35 re-verifies."
+  },
+  "surfaces": {}
+}

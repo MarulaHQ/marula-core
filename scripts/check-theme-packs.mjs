@@ -93,7 +93,10 @@ function validateThemeValues(label, values) {
     const fg = values[`status_${tone}_fg`];
     const bg = values[`status_${tone}_bg`];
     if (!fg || !bg) continue;
-    check(contrastRatio(fg, bg) >= 3.0, `${label}: status_${tone}_fg on its bg ≥ 3:1`);
+    // p29-accessibility-deep: status fg/bg pairs carry TEXT (error copy,
+    // save confirmations, warnings) so they must meet the AA text floor,
+    // not just the 3:1 non-text indicator floor.
+    check(contrastRatio(fg, bg) >= 4.5, `${label}: status_${tone}_fg on its bg ≥ 4.5:1 (${contrastRatio(fg, bg).toFixed(2)})`);
   }
 }
 

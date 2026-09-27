@@ -27,6 +27,7 @@ import { Button, Label, StatusTag, Textarea } from "@meridian/ui";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";
+import { useDialogA11y } from "../../lib/a11y/use-dialog-a11y";
 import { LocalStoragePanelStateStore } from "@meridian/layout";
 import { PaperclipIcon } from "./icons";
 import type { NoteKindWire } from "./notes-composer";
@@ -124,6 +125,8 @@ function CloseFlowInner({
   onChangeStatus,
   onCloseDialog,
 }: CloseFlowProps): ReactNode {
+  // Modal shell: trap + Escape + focus restore via the shared hook.
+  const dialogRef = useDialogA11y<HTMLDivElement>(true, onCloseDialog);
   const [step, setStep] = useState<Step>("merge");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -228,30 +231,7 @@ function CloseFlowInner({
   }
 
   if (step === "done") {
-    return (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        style={{ background: "var(--m-scrim)" }}
-        role="dialog"
-        aria-label="Close validation complete"
-        data-testid="close-flow"
-      >
-        <div
-          className="grid w-full max-w-md gap-3 rounded-[var(--m-radius-container)] border p-4"
-          style={{ background: "var(--m-overlay-surface)", borderColor: "var(--m-border)" }}
-        >
-          <h2 className="text-sm font-semibold">Ticket validated for close</h2>
-          <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-            {ticketNumber} — the final note is posted and the status is applied.
-          </p>
-          <div className="flex justify-end">
-            <Button size="sm" onClick={onCloseDialog} data-testid="close-flow-finish">
-              Done
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
+    return <CloseFlowDone ticketNumber={ticketNumber} onCloseDialog={onCloseDialog} />;
   }
 
   return (
@@ -264,6 +244,8 @@ function CloseFlowInner({
       data-testid="close-flow"
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="grid max-h-[90vh] w-full max-w-xl gap-3 overflow-y-auto rounded-[var(--m-radius-container)] border p-4"
         style={{ background: "var(--m-overlay-surface)", borderColor: "var(--m-border)" }}
       >
@@ -502,6 +484,46 @@ function CloseFlowInner({
         {error !== null && (
           <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">{error}</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Done screen is its OWN component so the dialog hook binds to the element
+// actually on screen (the step swap would otherwise strand the trap on a
+// detached node). Focus restore returns to the close trigger on dismiss.
+function CloseFlowDone({
+  ticketNumber,
+  onCloseDialog,
+}: {
+  ticketNumber: string;
+  onCloseDialog: () => void;
+}): ReactNode {
+  const dialogRef = useDialogA11y<HTMLDivElement>(true, onCloseDialog);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "var(--m-scrim)" }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Close validation complete"
+      data-testid="close-flow"
+    >
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="grid w-full max-w-md gap-3 rounded-[var(--m-radius-container)] border p-4"
+        style={{ background: "var(--m-overlay-surface)", borderColor: "var(--m-border)" }}
+      >
+        <h2 className="text-sm font-semibold">Ticket validated for close</h2>
+        <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+          {ticketNumber} — the final note is posted and the status is applied.
+        </p>
+        <div className="flex justify-end">
+          <Button size="sm" onClick={onCloseDialog} data-testid="close-flow-finish">
+            Done
+          </Button>
+        </div>
       </div>
     </div>
   );

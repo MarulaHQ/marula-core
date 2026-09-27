@@ -8,9 +8,9 @@
 
 "use client";
 
-import { useEffect, useRef } from "react";
 import { registryGroups } from "@/lib/commands/registry";
 import { displayChord } from "@/lib/commands/chords";
+import { useDialogA11y } from "@/lib/a11y/use-dialog-a11y";
 
 /** Machine chord → OS-native label for the search palette row. */
 function kbdLabel(spec: string): string {
@@ -19,13 +19,8 @@ function kbdLabel(spec: string): string {
 }
 
 export function CheatSheetDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-
-  // Escape closes (native dialog semantics); alt+x clicks the same close
-  // control below, exactly like a click on it would.
-  useEffect(() => {
-    if (open) dialogRef.current?.focus();
-  }, [open]);
+  // Trap + Escape + focus restore via the shared hook (W29 lane 2).
+  const dialogRef = useDialogA11y<HTMLDivElement>(open, onClose);
 
   if (!open) return null;
   const groups = registryGroups();
@@ -37,9 +32,6 @@ export function CheatSheetDialog({ open, onClose }: { open: boolean; onClose: ()
       data-testid="shortcut-cheatsheet-scrim"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
       }}
     >
       <div

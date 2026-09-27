@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**564 paths · 761 operations · 1154 schemas.**
+**574 paths · 774 operations · 1172 schemas.**
 
 ## agent-proposals
 
@@ -761,6 +761,8 @@
 | `GET` | `/api/v1/portal/appointment-requests` <a id="portal_list_appointment_requests"></a> | GET /api/portal/appointment-requests — the caller's OWN requests, newest first. | — |
 | `POST` | `/api/v1/portal/appointment-requests` <a id="portal_create_appointment_request"></a> | POST /api/portal/appointment-requests — ask for a slot on a staff member's calendar. The slot must be FULLY inside one free interval of that staff member's PUBLISHED availability (windows minus time-off minus bookings) — requests are intents, so several clients may hold overlapping pending requests; the staff approval is the single point that books the calendar (and re-validates everything). | [PortalCreateAppointmentRequest](#schema-portalcreateappointmentrequest) |
 | `POST` | `/api/v1/portal/appointment-requests/{id}/cancel` <a id="portal_cancel_appointment_request"></a> | POST /api/portal/appointment-requests/{id}/cancel — the requester withdraws their own still-pending request. Terminal; decided requests cannot be cancelled here (staff owns the calendar once decided). | [PortalCancelRequest](#schema-portalcancelrequest) |
+| `GET` | `/api/v1/portal/csat/{token}` <a id="portal_csat_view"></a> | GET /api/portal/csat/{token} — validity check for the in-app response view. Scoped TWICE: the survey row must belong to the caller's client, and the token must be live (sent, unexpired). Read-only — rendering the form never burns the single-use token. | — |
+| `POST` | `/api/v1/portal/csat/{token}` <a id="portal_csat_submit"></a> | POST /api/portal/csat/{token} — the single-use consume + score record. The consume UPDATE wins exactly once per token; the event (and the audit row) ride the same transaction, so `csat.response_recorded` never fires for a replayed or expired link. | [PortalCsatSubmit](#schema-portalcsatsubmit) |
 | `GET` | `/api/v1/portal/invoices` <a id="portal_list_invoices"></a> | GET /api/portal/invoices — the caller's client's invoices (issued and paid only), newest issued first. | — |
 | `GET` | `/api/v1/portal/invoices/{id}` <a id="portal_get_invoice"></a> | GET /api/portal/invoices/{id} — one of the caller's client's invoices with lines and payment receipts. Another client's document (or a voided one) is a 404, indistinguishable from absent. | — |
 | `GET` | `/api/v1/portal/invoices/{id}/document` <a id="portal_invoice_document"></a> | GET /api/portal/invoices/{id}/document — the SAME print-ready HTML document staff print (shared renderer), client-scoped: another client's (or a void) invoice is a plain 404. | — |
@@ -771,6 +773,10 @@
 | `GET` | `/api/v1/portal/kb/search` <a id="portal_kb_search"></a> | GET /api/portal/kb/search — FTS over client-visible published articles only (websearch query + trigram fallback, ranked the same way the unified search ranks). | — |
 | `POST` | `/api/v1/portal/login` <a id="portal_login"></a> | POST /api/portal/login — argon2 verify against `portal_users`. No MFA in portal v1 (documented deferral). Disabled accounts resolve to nothing → uniform 401, never revealing which half failed. | [PortalLoginRequest](#schema-portalloginrequest) |
 | `GET` | `/api/v1/portal/me` <a id="portal_me"></a> | GET /api/portal/me — the signed-in portal identity. | — |
+| `GET` | `/api/v1/portal/quotes` <a id="portal_list_quotes"></a> | GET /api/portal/quotes — the caller's client's quotes (non-draft only), newest first. | — |
+| `GET` | `/api/v1/portal/quotes/{id}` <a id="portal_get_quote"></a> | GET /api/portal/quotes/{id} — one quote of the caller's client with its lines. A foreign quote or a draft is a bare 404 (no existence leak). | — |
+| `POST` | `/api/v1/portal/quotes/{id}/approve` <a id="portal_approve_quote"></a> | POST /api/portal/quotes/{id}/approve — the client accepts a sent quote. Same `sent → accepted` leg as the staff flow; the provider can then run the conversion-to-invoice seam. | [PortalQuoteDecisionRequest](#schema-portalquotedecisionrequest) |
+| `POST` | `/api/v1/portal/quotes/{id}/decline` <a id="portal_decline_quote"></a> | POST /api/portal/quotes/{id}/decline — the client declines a sent quote. Same `sent → declined` leg as the staff flow; the optional reason is audit-only, never shown back as validation. | [PortalQuoteDecisionRequest](#schema-portalquotedecisionrequest) |
 | `POST` | `/api/v1/portal/refresh` <a id="portal_refresh"></a> | POST /api/portal/refresh — rotation within the portal session family. A presented token resolves ONLY via its live session row; rotation revokes that row, so replaying an old refresh token fails. | [PortalRefreshRequest](#schema-portalrefreshrequest) |
 | `GET` | `/api/v1/portal/schedule/slots` <a id="portal_schedule_slots"></a> | GET /api/portal/schedule/slots — published availability as FREE intervals per staff member: weekly windows minus time-off minus already-booked time (appointments + on-call). Slots that already started are dropped; anything shorter than 30 minutes is noise. | — |
 | `GET` | `/api/v1/portal/tickets` <a id="portal_list_tickets"></a> | GET /api/portal/tickets — the caller's client's tickets across EXPOSED boards only. Unexposed boards are invisible, not empty-filtered. | — |
@@ -880,6 +886,17 @@
 | `POST` | `/api/v1/quotes/{id}/expire` <a id="quotes_expire"></a> | POST /api/quotes/{id}/expire — explicitly expire a quote PAST its validity window (decline is the in-window exit). | [QuoteLifecycleRequest](#schema-quotelifecyclerequest) |
 | `POST` | `/api/v1/quotes/{id}/send` <a id="quotes_send"></a> | One lifecycle leg: shared shape for send/accept/decline (expire has a POST /api/quotes/{id}/send — draft → sent. Locks the document. | [QuoteLifecycleRequest](#schema-quotelifecyclerequest) |
 
+## reply-snippets
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/reply-snippets` <a id="list"></a> | GET /api/v1/reply-snippets — the org's snippet library with the search-in-composer predicate applied (`board_id` offer filter + `q` case-insensitive substring over name and body). | — |
+| `POST` | `/api/v1/reply-snippets` <a id="create"></a> | POST /api/v1/reply-snippets — add a snippet to the library. | [CreateReplySnippetRequest](#schema-createreplysnippetrequest) |
+| `DELETE` | `/api/v1/reply-snippets/{id}` <a id="delete"></a> | DELETE /api/v1/reply-snippets/{id} — remove a snippet from the library. | — |
+| `PATCH` | `/api/v1/reply-snippets/{id}` <a id="update"></a> | PATCH /api/v1/reply-snippets/{id} — edit a snippet in place (the library is org-owned data; fork-on-edit applies when orgs want a divergent copy, via the fork endpoint). | [UpdateReplySnippetRequest](#schema-updatereplysnippetrequest) |
+| `POST` | `/api/v1/reply-snippets/{id}/fork` <a id="fork"></a> | POST /api/v1/reply-snippets/{id}/fork — duplicate a snippet into a new editable copy (templates fork-on-edit provenance pattern). The origin is untouched; the copy records `forked_from`. | [ForkReplySnippetRequest](#schema-forkreplysnippetrequest) |
+| `POST` | `/api/v1/reply-snippets/{id}/render` <a id="render"></a> | POST /api/v1/reply-snippets/{id}/render — resolve the snippet's variable tokens against a real ticket context and return the rendered body (the composer inserts the RENDERED text; the portal reply renders the result). Out-of-vocabulary placeholders are typed 400s. | [RenderReplySnippetRequest](#schema-renderreplysnippetrequest) |
+
 ## report-catalog
 
 | Method | Path | Operation | Request body |
@@ -963,6 +980,7 @@
 |---|---|---|---|
 | `GET` | `/api/v1/scorecards` <a id="scorecard_list_team"></a> | GET /api/scorecards?from&to — every active staff member's scorecard in one org-wide read (owner/admin only; R5 private-by-default means a plain tech never sees anyone else's card here, including via query tricks — the scope is derived from the principal, never the request). | — |
 | `GET` | `/api/v1/scorecards/{user_id}` <a id="scorecard_get_user"></a> | GET /api/scorecards/{user_id}?from&to — one member's scorecard; a member may read their own, owner/admin may read anyone's. | — |
+| `GET` | `/api/v1/scorecards/clients` <a id="scorecard_client_rollups"></a> | GET /api/scorecards/clients?from&to — per-client CSAT rollups over the window (owner/admin only). `available: false` until the org records its first survey, matching the per-tech section's honesty gate. | — |
 | `GET` | `/api/v1/scorecards/me` <a id="scorecard_get_own"></a> | GET /api/scorecards/me?from&to — the caller's own scorecard. | — |
 | `GET` | `/api/v1/scorecards/me/settings` <a id="scorecard_get_settings"></a> | GET /api/scorecards/me/settings — the caller's scorecard settings (absent row reads as the private-by-defaults). | — |
 | `PATCH` | `/api/v1/scorecards/me/settings` <a id="scorecard_update_settings"></a> | PATCH /api/scorecards/me/settings — flip the R5 opt-in gamification toggle. Only ever touches the CALLER's row (no user_id in the body by design); emits `scorecard.settings_updated` in the same transaction. | [UpdateScorecardSettingsRequest](#schema-updatescorecardsettingsrequest) |
@@ -1459,6 +1477,8 @@
 | <a id="schema-claimsharelinkrequest"></a>`ClaimShareLinkRequest` | object |  |
 | <a id="schema-client"></a>`Client` | object |  |
 | <a id="schema-clientcompletenessview"></a>`ClientCompletenessView` | object | The backend documentation-completeness read model — the weights live here; the web card renders the facts. |
+| <a id="schema-clientcsatrollup"></a>`ClientCsatRollup` | object | One client's CSAT rollup over the window (responses scored 1-5; "low" = score ≤ 2). |
+| <a id="schema-clientcsatrollupresponse"></a>`ClientCsatRollupResponse` | object |  |
 | <a id="schema-clientloandetailresponse"></a>`ClientLoanDetailResponse` | object |  |
 | <a id="schema-clientloanlineview"></a>`ClientLoanLineView` | object |  |
 | <a id="schema-clientloanmutationresponse"></a>`ClientLoanMutationResponse` | object |  |
@@ -1558,6 +1578,7 @@
 | <a id="schema-createproviderrequest"></a>`CreateProviderRequest` | composite |  |
 | <a id="schema-createpushsessionrequest"></a>`CreatePushSessionRequest` | object | POST /api/migration/push/sessions body. |
 | <a id="schema-createquoterequest"></a>`CreateQuoteRequest` | composite | POST /api/quotes body. |
+| <a id="schema-createreplysnippetrequest"></a>`CreateReplySnippetRequest` | composite |  |
 | <a id="schema-createreportdefinitionrequest"></a>`CreateReportDefinitionRequest` | composite | POST /api/report-definitions body. |
 | <a id="schema-createreportschedulerequest"></a>`CreateReportScheduleRequest` | composite | POST /api/report-schedules body. |
 | <a id="schema-createrulerequest"></a>`CreateRuleRequest` | object |  |
@@ -1594,7 +1615,7 @@
 | <a id="schema-creditnotelistquery"></a>`CreditNoteListQuery` | object | GET /api/credit-notes query. |
 | <a id="schema-creditnotemutationresponse"></a>`CreditNoteMutationResponse` | composite | Instant-first mutation response (IF2) for credit-note mutations. |
 | <a id="schema-creditnotestatus"></a>`CreditNoteStatus` | string | Document lifecycle of a credit note. `applied` / `refunded` / `partially applied` are DERIVED from the counters, never stored — allocation moves continuously; only a void is a state. |
-| <a id="schema-csatsection"></a>`CsatSection` | object | CSAT inputs slot. The surveys-on-resolution source does not exist yet (later TASKLIST item); the scorecard reserves the field and reports `available: false` rather than inventing data. |
+| <a id="schema-csatsection"></a>`CsatSection` | object | CSAT inputs slot (Wave 34 lane 2): `available` is the honest feature gate — true only once the org has real survey data, never fabricated from a zero-window. Scores are 1-5; "low" means score ≤ 2. |
 | <a id="schema-curatefieldsrequest"></a>`CurateFieldsRequest` | composite |  |
 | <a id="schema-customizationmanifest"></a>`CustomizationManifest` | object | The customization manifest envelope, `manifest_version` 1. |
 | <a id="schema-daycapacity"></a>`DayCapacity` | object | One technician's capacity for one day of the horizon. |
@@ -1728,6 +1749,7 @@
 | <a id="schema-fieldresolution"></a>`FieldResolution` | string | Per-field resolution: which side's value wins when the tickets disagree. `"survivor"` (the default) keeps the survivor's value. |
 | <a id="schema-filterop"></a>`FilterOp` | string | Filter operators supported by the v1 compiled reports. Operand typing is enforced through [`ValueType`] matches in the builder, so e.g. a bool operand can never reach a timestamp column. The serde enc |
 | <a id="schema-filtervalue"></a>`FilterValue` | object | A typed filter operand. The variant must match the catalog [`ValueType`] of the filtered column (`Int` covers both Int and BigInt columns) — enforced by [`ReportSpec::validate`], so a mismatched opera |
+| <a id="schema-forkreplysnippetrequest"></a>`ForkReplySnippetRequest` | composite |  |
 | <a id="schema-forkrolerequest"></a>`ForkRoleRequest` | composite |  |
 | <a id="schema-forksecretfolderrequest"></a>`ForkSecretFolderRequest` | object |  |
 | <a id="schema-forktemplaterequest"></a>`ForkTemplateRequest` | composite |  |
@@ -1958,6 +1980,8 @@
 | <a id="schema-portalattachmentview"></a>`PortalAttachmentView` | object | Portal attachment view: metadata only (bytes stream on download). |
 | <a id="schema-portalcancelrequest"></a>`PortalCancelRequest` | composite | Body for the portal cancel (idempotency parameters only). |
 | <a id="schema-portalcreateappointmentrequest"></a>`PortalCreateAppointmentRequest` | composite |  |
+| <a id="schema-portalcsatsubmit"></a>`PortalCsatSubmit` | object |  |
+| <a id="schema-portalcsatview"></a>`PortalCsatView` | object | Portal CSAT survey state as the in-app response route sees it. |
 | <a id="schema-portalinvoice"></a>`PortalInvoice` | object | The client-facing invoice document view. Deliberately NOT the staff entity: dunning internals and staff notes never reach the portal. |
 | <a id="schema-portalinvoicedetail"></a>`PortalInvoiceDetail` | object | The client-facing invoice aggregate. |
 | <a id="schema-portalkbsearchhit"></a>`PortalKbSearchHit` | object |  |
@@ -1968,6 +1992,11 @@
 | <a id="schema-portalpayrequest"></a>`PortalPayRequest` | composite |  |
 | <a id="schema-portalpayresponse"></a>`PortalPayResponse` | object | Instant-first mutation response (IF2) for a portal payment: the receipt, the refreshed client-facing invoice, and the additive `mutation` metadata. Stored/replayed byte-identically under the key. |
 | <a id="schema-portalprofile"></a>`PortalProfile` | object | The signed-in portal identity (also served by GET /api/portal/me). |
+| <a id="schema-portalquote"></a>`PortalQuote` | object | The client-facing quote view. Deliberately NOT the staff entity: the creator provenance and conversion seam ids stay staff-internal — the portal sees the document, its validity, and its lifecycle stat |
+| <a id="schema-portalquotedecisionrequest"></a>`PortalQuoteDecisionRequest` | composite | A quote decision body (approve/decline): envelope params only; the target status is the URL. The SAME instant-first envelope the staff lifecycle legs use. |
+| <a id="schema-portalquotedecisionresponse"></a>`PortalQuoteDecisionResponse` | composite | Instant-first mutation response (IF2) for a portal quote decision. |
+| <a id="schema-portalquotedetail"></a>`PortalQuoteDetail` | composite | The quote aggregate as the portal sees it: document + lines. |
+| <a id="schema-portalquoteline"></a>`PortalQuoteLine` | object | A client-facing quote line: description/qty/price/amount only. |
 | <a id="schema-portalrefreshrequest"></a>`PortalRefreshRequest` | object |  |
 | <a id="schema-portalreplyrequest"></a>`PortalReplyRequest` | object |  |
 | <a id="schema-portalrole"></a>`PortalRole` | string | Portal role tiers. `contact` is the default read/reply tier; `approver` is behaviorally identical in v1 but exists so approval grants (Stage 3 quote approval / Stage 4 optional client approvals) can b |
@@ -2099,8 +2128,10 @@
 | <a id="schema-regeneraterecoveryrequest"></a>`RegenerateRecoveryRequest` | object |  |
 | <a id="schema-registerrequest"></a>`RegisterRequest` | object |  |
 | <a id="schema-registryresponse"></a>`RegistryResponse` | object |  |
+| <a id="schema-renderedreplysnippet"></a>`RenderedReplySnippet` | object |  |
 | <a id="schema-renderedtemplate"></a>`RenderedTemplate` | object |  |
 | <a id="schema-renderlabelrequest"></a>`RenderLabelRequest` | object |  |
+| <a id="schema-renderreplysnippetrequest"></a>`RenderReplySnippetRequest` | object |  |
 | <a id="schema-rendertemplaterequest"></a>`RenderTemplateRequest` | object |  |
 | <a id="schema-reparentcategoryrequest"></a>`ReparentCategoryRequest` | composite |  |
 | <a id="schema-replacecontactsrequest"></a>`ReplaceContactsRequest` | composite |  |
@@ -2108,6 +2139,9 @@
 | <a id="schema-replaceticketskillsrequest"></a>`ReplaceTicketSkillsRequest` | composite | PUT /api/dispatch/tickets/{ticket_id}/required-skills body. |
 | <a id="schema-replaceuserskillsrequest"></a>`ReplaceUserSkillsRequest` | composite | PUT /api/dispatch/users/{user_id}/skills body. |
 | <a id="schema-replybyemailview"></a>`ReplyByEmailView` | object |  |
+| <a id="schema-replysnippetmutationresponse"></a>`ReplySnippetMutationResponse` | composite | Instant-first mutation response (IF2): the snippet at the top level plus the additive `mutation` metadata. |
+| <a id="schema-replysnippetslistresponse"></a>`ReplySnippetsListResponse` | object |  |
+| <a id="schema-replysnippetview"></a>`ReplySnippetView` | object | One canned reply in the org's snippet library. |
 | <a id="schema-reportcatalog"></a>`ReportCatalog` | object | GET /api/report-catalog envelope. |
 | <a id="schema-reportdefinitionlist"></a>`ReportDefinitionList` | object | GET /api/report-definitions envelope. |
 | <a id="schema-reportdefinitionmutationresponse"></a>`ReportDefinitionMutationResponse` | composite | Mutation envelope: applied definition (flattened) + read-your-write metadata (IF2). |
@@ -2189,6 +2223,7 @@
 | <a id="schema-secretsharelink"></a>`SecretShareLink` | object | A one-time share link row (`secret_share_links`, migration 0096). The token NEVER round-trips here: the DB stores a SHA-256 hash and the raw token exists exactly once, inside the create response (`Sec |
 | <a id="schema-secretsharelinkissued"></a>`SecretShareLinkIssued` | object | The create response — the ONLY place the raw token exists on the wire; the URL is resolved by the web app at `/{app}/share?token=…`. (Named `Issued` because `SecretShareLinkCreated` is the domain-EVEN |
 | <a id="schema-segmentend"></a>`SegmentEnd` | string | Why a timer segment ended. Preserved forever — the pause reason is billable-work metadata, not a transient UI state. |
+| <a id="schema-selfhostlinksview"></a>`SelfHostLinksView` | object |  |
 | <a id="schema-selfhostview"></a>`SelfHostView` | object |  |
 | <a id="schema-sendstatementrequest"></a>`SendStatementRequest` | composite | POST /api/invoices/{id}/dunning/statement body. |
 | <a id="schema-sendstatementresponse"></a>`SendStatementResponse` | object | POST /api/invoices/{id}/dunning/statement response. |
@@ -2385,6 +2420,7 @@
 | <a id="schema-updateproposalview"></a>`UpdateProposalView` | object |  |
 | <a id="schema-updateproviderrequest"></a>`UpdateProviderRequest` | composite |  |
 | <a id="schema-updatequoterequest"></a>`UpdateQuoteRequest` | composite | PATCH /api/quotes/{id} body — draft-only. Absent fields keep their value; `lines` present replaces the whole line list. |
+| <a id="schema-updatereplysnippetrequest"></a>`UpdateReplySnippetRequest` | composite |  |
 | <a id="schema-updatereportdefinitionrequest"></a>`UpdateReportDefinitionRequest` | composite | PUT /api/report-definitions/{id} body — full-replace semantics: every member is applied; `description: null` clears it. |
 | <a id="schema-updatereportschedulerequest"></a>`UpdateReportScheduleRequest` | composite | PUT /api/report-schedules/{id} body — full-replace semantics; every member is applied and the next-run preview recomputes. |
 | <a id="schema-updaterolerequest"></a>`UpdateRoleRequest` | composite |  |
@@ -2445,4 +2481,4 @@
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1154 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1172 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

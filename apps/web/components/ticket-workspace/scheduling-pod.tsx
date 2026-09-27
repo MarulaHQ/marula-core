@@ -21,6 +21,7 @@ import { Button, Input, Label, Spinner, StatusTag } from "@meridian/ui";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";
+import { useDialogA11y } from "../../lib/a11y/use-dialog-a11y";
 
 type MeetingType = components["schemas"]["MeetingType"];
 type SchedulingLink = components["schemas"]["SchedulingLink"];
@@ -57,6 +58,8 @@ export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): Re
   const [busy, setBusy] = useState(false);
   const [freshToken, setFreshToken] = useState<{ url: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  // Copy-once dialog: trap + Escape + focus restore while freshToken is set.
+  const tokenDialogRef = useDialogA11y<HTMLDivElement>(freshToken !== null, () => setFreshToken(null));
   const [expandedBookings, setExpandedBookings] = useState<Record<string, SchedulingLinkBooking[] | "loading" | "error">>({});
   const [confirmingRevoke, setConfirmingRevoke] = useState<string | null>(null);
 
@@ -322,6 +325,8 @@ export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): Re
           data-testid="scheduling-copy-once"
         >
           <div
+            ref={tokenDialogRef}
+            tabIndex={-1}
             className="grid w-full max-w-md gap-3 rounded-[var(--m-radius-container)] border p-4"
             style={{ background: "var(--m-overlay-surface)", borderColor: "var(--m-border)" }}
           >

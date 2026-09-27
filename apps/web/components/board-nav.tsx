@@ -12,6 +12,7 @@ import type { components } from "@meridian/sdk";
 import { Button } from "@meridian/ui";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { useDialogA11y } from "../lib/a11y/use-dialog-a11y";
 
 type NavEntry = components["schemas"]["BoardNavEntry"];
 
@@ -31,6 +32,9 @@ export function BoardNav() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Mobile boards drawer is modal: trap + Escape + focus restore.
+  const drawerClose = useCallback(() => setDrawerOpen(false), []);
+  const drawerRef = useDialogA11y<HTMLDivElement>(drawerOpen, drawerClose);
 
   const refresh = useCallback(async () => {
     try {
@@ -213,6 +217,8 @@ export function BoardNav() {
       {drawerScrim}
       {drawerOpen && (
         <div
+          ref={drawerRef}
+          tabIndex={-1}
           data-testid="board-nav-drawer"
           role="dialog"
           aria-modal="true"

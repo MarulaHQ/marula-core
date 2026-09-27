@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { api } from "../../lib/api";
 import { runChatTurn } from "../../lib/agent-chat";
+import { announce } from "../a11y/live-region";
 import { ModelPicker, useLazySurfacePick } from "../ai/model-picker";
 
 type KbArticle = components["schemas"]["KbArticle"];
@@ -161,6 +162,9 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
 
   const respond = (text: string) => {
     setChat((prev) => [...prev, { id: `c-${Date.now()}-a`, role: "agent", text }]);
+    // Async answer lands out of the focus stream; announce the settled
+    // first sentence (4.1.3) instead of every streaming tick.
+    announce(text.split("\n")[0] ?? "", "polite");
     bumpLog();
   };
 
@@ -213,6 +217,7 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
     setChatDraft("");
     pushYou(text);
     try {
+      announce("Assistant is thinking");
       const live = await submitLiveTurn(text, chat.slice(0, -1));
       if (live) return;
       const lower = text.toLowerCase();

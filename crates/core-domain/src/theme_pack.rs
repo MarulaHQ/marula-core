@@ -245,7 +245,8 @@ impl ThemePackManifest {
     /// - text / text_secondary / text_muted over background AND surface:
     ///   AA text floor 4.5:1.
     /// - on_accent over accent: 3:1 UI floor (the docs/theme.md §2.6 tradeoff).
-    /// - each status fg over its bg: 3:1 tag floor.
+    /// - each status fg over its bg: AA text floor 4.5:1 (the pair carries
+    ///   error/warning copy, not just a non-text indicator; p29 lane).
     fn assert_contrast_floors(&self) -> Result<(), DomainError> {
         for (mode, values) in [("light", self.light.as_ref()), ("dark", self.dark.as_ref())] {
             let Some(values) = values else { continue };
@@ -281,9 +282,9 @@ impl ThemePackManifest {
                     continue;
                 };
                 let ratio = contrast_ratio(fg, bg);
-                if ratio < 3.0 {
+                if ratio < 4.5 {
                     return Err(DomainError::Validation(format!(
-                        "{mode} values: status_{tone}_fg over its tag bg is {ratio:.2}:1 (tag floor is 3:1)"
+                        "{mode} values: status_{tone}_fg over its bg is {ratio:.2}:1 (AA text floor is 4.5:1; the pair carries error/warning copy, not just an indicator)"
                     )));
                 }
             }

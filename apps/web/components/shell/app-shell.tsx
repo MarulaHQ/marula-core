@@ -23,6 +23,7 @@ import { NavRail } from "./nav-rail";
 import { ThemePresetSync } from "../theme-preset-sync";
 import { TourScheduler } from "../help/tour-scheduler";
 import { ShortcutLayer } from "../shortcuts/shortcut-layer";
+import { LiveRegion } from "../a11y/live-region";
 
 
 const RAIL_COLLAPSE_KEY = "meridian-rail-collapsed";
@@ -128,6 +129,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <TourScheduler />
       <ShortcutLayer authed={auth.status === "authed"} />
+      <LiveRegion />
     </div>
   );
 }

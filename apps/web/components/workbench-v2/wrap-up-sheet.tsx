@@ -24,6 +24,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
+import { useDialogA11y } from "../../lib/a11y/use-dialog-a11y";
 import {
   formatElapsed,
   sessionElapsedSecs,
@@ -83,6 +84,9 @@ function WrapUpSheetInner({
   onChangeStatus,
   onRefresh,
 }: WrapUpSheetProps): ReactNode {
+  // Inner mounts only while open; the hook traps focus, closes on Escape,
+  // and restores focus to the trigger on unmount.
+  const sheetRef = useDialogA11y<HTMLElement>(true, onCloseSheet);
   const [next, setNext] = useState<WrapNext>("resolve");
   const [draft, setDraft] = useState("");
   const [workType, setWorkType] = useState("Remote Support");
@@ -199,6 +203,8 @@ function WrapUpSheetInner({
       }}
     >
       <aside
+        ref={sheetRef}
+        tabIndex={-1}
         className="m-wb-sheet absolute bottom-0 right-0 top-0 flex w-full max-w-[420px] flex-col border-l"
         style={{ background: "var(--m-surface)", borderColor: "var(--m-border)", boxShadow: "var(--m-shadow-overlay)" }}
       >
