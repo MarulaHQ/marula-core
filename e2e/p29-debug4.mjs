@@ -1,0 +1,16 @@
+import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
+const env = Object.fromEntries(readFileSync("e2e/.e2e-stack.env","utf8").split("\n").filter(l=>l.includes("=")).map(l=>[l.slice(0,l.indexOf("=")), l.slice(l.indexOf("=")+1)]));
+const API = env.E2E_API_URL.replace(/\/+$/,"");
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+const tokens = await (await ctx.request.post(`${API}/api/v1/auth/login`, { data: { email: "owner@demo.local", password: "demo-password-123" } })).json();
+const page = await ctx.newPage();
+await page.addInitScript(([raw]) => { window.localStorage.setItem("meridian-tokens", raw); }, [JSON.stringify(tokens)]);
+page.on("response", r => { if (r.status() >= 400 || r.url().includes("/boards/")) console.log("HTTP", r.status(), r.url().slice(52,150)); });
+await page.goto(env.E2E_WEB_URL + "/boards/6d657269-6469-616e-0000-00000000003c", { waitUntil: "networkidle" });
+await page.waitForTimeout(3000);
+const tour = await page.getByText("step 1 of").count();
+const empty = await page.getByText("This board has no statuses yet").count();
+console.log("TOUR:", tour, "EMPTY:", empty);
+process.exit(0);

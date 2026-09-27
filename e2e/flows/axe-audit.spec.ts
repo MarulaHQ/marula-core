@@ -18,7 +18,8 @@ test.describe("axe full-matrix audit", () => {
   test("every shipped surface passes WCAG 2.x A/AA with no NEW critical violations", async ({
     authedPage,
   }, testInfo) => {
-    test.setTimeout(600_000);
+    // 29 surfaces × (goto + networkidle + axe analyze) ≈ 10–12 min per theme.
+    test.setTimeout(1_500_000);
     const pages = SURFACES.map((s) => ({
       surface: s.label,
       route: s.path,

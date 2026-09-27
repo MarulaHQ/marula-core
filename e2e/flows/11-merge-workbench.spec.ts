@@ -14,7 +14,10 @@
 import { expect, test } from "../helpers/harness";
 import { authedFetch } from "../helpers/api";
 
-const API = process.env["MERIDIAN_API_URL"] ?? "http://localhost:8080";
+const API =
+  process.env["MERIDIAN_API_URL"] ??
+  process.env["E2E_API_URL"]?.replace(/\/+$/, "") ??
+  "http://localhost:8080";
 
 async function apiPost(token: string, path: string, body: unknown): Promise<any> {
   const response = await fetch(`${API}${path}`, {

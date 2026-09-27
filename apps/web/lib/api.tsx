@@ -93,6 +93,29 @@ const AuthContext = createContext<AuthState>({
   logout: async () => {},
 });
 
+// --- auth-ready gate (p29-accessibility-deep) --------------------------------
+// Full page loads race AuthProvider's cookie-driven refresh against view
+// hydration; the loser fires bearer-less requests whose 401s the instant
+// store then caches as an empty snapshot (the "board has no statuses" bug).
+// Hydrates await this once so the first snapshot carries credentials.
+let authReadyResolve: (() => void) | null = null;
+const authReadyPromise = new Promise<void>((resolve) => {
+  authReadyResolve = resolve;
+});
+
+/** Resolves when the first auth restore settles (authed OR anonymous, so a
+ * genuinely signed-out page never hangs). Instant-store hydrates await it. */
+export function authReady(timeoutMs = 5_000): Promise<void> {
+  const timer = setTimeout(() => authReadyResolve?.(), timeoutMs);
+  void timer;
+  return authReadyPromise;
+}
+
+function notifyAuthSettled(): void {
+  authReadyResolve?.();
+  authReadyResolve = null;
+}
+
 /**
  * Wraps the app: restores stored tokens, fetches /api/v1/me once, and rotates
  * the refresh token when the access token has expired. Exposes the identity
@@ -115,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           if (cancelled) return;
           setStatus("anonymous");
+          notifyAuthSettled();
           return;
         }
       } else if (Date.now() >= memoryTokensExpAtMs) {
@@ -126,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (cancelled) return;
           clearTokens();
           setStatus("anonymous");
+          notifyAuthSettled();
           return;
         }
       }
@@ -134,10 +159,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error !== undefined) {
         clearTokens();
         setStatus("anonymous");
+        notifyAuthSettled();
         return;
       }
       setMe(data);
       setStatus("authed");
+      notifyAuthSettled();
     }
     void restore();
     return () => {

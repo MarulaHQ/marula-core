@@ -11,8 +11,20 @@
 
 import type { components } from "@meridian/sdk";
 import { MeridianClient } from "@meridian/sdk";
+import { authReady } from "../api";
 import type { InstantEvent } from "./events";
 import type { ReadModelSpec } from "./instant-store";
+
+/**
+ * Full page loads race AuthProvider's cookie refresh against hydration; a
+ * bearer-less hydrate 401s and the store caches the empty snapshot forever
+ * ("board has no statuses yet"). Every hydrate awaits this first — settled
+ * auth OR the timeout, never a hang.
+ */
+async function withAuthReady<T>(fetch: () => Promise<T>): Promise<T> {
+  await authReady();
+  return fetch();
+}
 
 /** The SDK client's typed query surface (openapi-fetch per-path overloads). */
 export type ApiClient = MeridianClient["api"];
@@ -60,6 +72,7 @@ export function makeBoardSpec(
   }
   return {
     async hydrate() {
+      return withAuthReady(async () => {
       const [statuses, tickets] = await Promise.all([
         client.GET("/api/v1/boards/{id}/statuses", { params: { path: { id: boardId } } }),
         client.GET("/api/v1/tickets", {
@@ -67,6 +80,7 @@ export function makeBoardSpec(
         }),
       ]);
       return { statuses: statuses.data ?? [], tickets: tickets.data ?? [] };
+      });
     },
     relevant: (event) => {
       // Board channel = the scoped WS legacy; `org:<id>` = the org-wide
@@ -134,6 +148,7 @@ export function makeTicketDetailSpec(
   }
   return {
     async hydrate() {
+      return withAuthReady(async () => {
       const [bundle, comments, checklist, attachments] = await Promise.all([
         fetchTicketBundle(),
         client.GET("/api/v1/tickets/{id}/comments", {
@@ -165,6 +180,7 @@ export function makeTicketDetailSpec(
         statuses,
         workflow,
       };
+      });
     },
     relevant: (event) => {
       if (event.entity === "ticket" && event.entity_id === ticketId) return true;
@@ -230,8 +246,10 @@ export const MY_WORK_KEY = "my-work";
 export function makeMyWorkSpec(client: ApiClient): ReadModelSpec<MyWorkItem[]> {
   return {
     async hydrate() {
-      const { data } = await client.GET("/api/v1/tickets/my-work");
-      return data ?? [];
+      return withAuthReady(async () => {
+        const { data } = await client.GET("/api/v1/tickets/my-work");
+        return data ?? [];
+      });
     },
     relevant: (event) => event.entity === "ticket",
     async revalidate(items) {
@@ -253,16 +271,18 @@ export function makeCalendarSpec(
 ): ReadModelSpec<CalendarView | null> {
   return {
     async hydrate() {
-      if (params.mode === "personal") {
-        const { data } = await client.GET("/api/v1/calendar/week", {
-          params: { query: { date: params.date } },
+      return withAuthReady(async () => {
+        if (params.mode === "personal") {
+          const { data } = await client.GET("/api/v1/calendar/week", {
+            params: { query: { date: params.date } },
+          });
+          return (data as CalendarView | undefined) ?? null;
+        }
+        const { data } = await client.GET("/api/v1/calendar/team", {
+          params: { query: { from: params.from, to: params.to } },
         });
         return (data as CalendarView | undefined) ?? null;
-      }
-      const { data } = await client.GET("/api/v1/calendar/team", {
-        params: { query: { from: params.from, to: params.to } },
       });
-      return (data as CalendarView | undefined) ?? null;
     },
     relevant: (event) =>
       event.entity === "appointment" || event.entity === "availability",

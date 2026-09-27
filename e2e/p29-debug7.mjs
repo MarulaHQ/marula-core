@@ -1,0 +1,13 @@
+import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
+const env = Object.fromEntries(readFileSync("e2e/.e2e-stack.env","utf8").split("\n").filter(l=>l.includes("=")).map(l=>[l.slice(0,l.indexOf("=")), l.slice(l.indexOf("=")+1)]));
+const API = env.E2E_API_URL.replace(/\/+$/,"");
+const browser = await chromium.launch();
+const ctx = await browser.newContext();
+await ctx.request.post(`${API}/api/v1/auth/login`, { data: { email: "owner@demo.local", password: "demo-password-123" } });
+const page = await ctx.newPage();
+await page.goto(env.E2E_WEB_URL + "/settings", { waitUntil: "networkidle" });
+await page.waitForTimeout(2500);
+const combos = await page.locator("[role=combobox]").evaluateAll(els => els.map(e => e.getAttribute("aria-label")));
+console.log("combos:", JSON.stringify(combos));
+process.exit(0);

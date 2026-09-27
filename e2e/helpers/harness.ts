@@ -59,6 +59,17 @@ export const test = base.extend<Fixtures>({
     // session — log in through the context's request jar (shares the cookie
     // store with pages) instead of seeding localStorage.
     await loginContext(ctx);
+    // Order-independence (p37 doctrine): the demo stack resets per-user
+    // tours rows at boot, so the FIRST data-flow spec to visit a surface
+    // gets the modal onboarding tour over its content and every later one
+    // doesn't — run-order flake. Default the account to tours-off here;
+    // 13-contextual-help re-arms (disabled=false, completed="") when it
+    // asserts on tour behavior. (p29-accessibility-deep: found while the
+    // tour modal blocked flow 02's board.)
+    await ctx.request.put(`${API_URL}/api/v1/settings/user`, {
+      data: { key: "tours.disabled", value: true },
+      headers: { authorization: `Bearer ${ownerTokens.access_token}` },
+    });
     await seedAuth(page, ownerTokens, theme, preset);
     await use(page);
     await ctx.close();

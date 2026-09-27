@@ -1,7 +1,231 @@
 {
   "_meta": {
-    "updated": "",
-    "note": "Snapshot of axe violations per surface. NEW criticals not listed here FAIL the E2E gate; fix or re-snapshot deliberately (AXE_UPDATE_BASELINE=1 pnpm e2e). Owners name the lane accountable for each fix; p29-accessibility-deep seeds them and Wave 35 re-verifies."
+    "updated": "2026-09-27T20:03:19.692Z",
+    "note": "Snapshot of axe violations per surface. NEW criticals not listed here FAIL the E2E gate; fix or re-snapshot deliberately (AXE_UPDATE_BASELINE=1)."
   },
-  "surfaces": {}
+  "surfaces": {
+    "today": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      },
+      {
+        "id": "target-size",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "tickets": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "boards": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "calendar": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "dashboards": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "clients": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "projects": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "contracts": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "reports": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "scorecards": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "inventory": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "purchasing": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "stock": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "sales": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "assets": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "kb": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "alerts": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "approvals": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "automations": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "audit": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "billing": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "search": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "settings": [
+      {
+        "id": "button-name",
+        "impact": "critical",
+        "owner": "p29-accessibility-deep"
+      },
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "settings-ai": [
+      {
+        "id": "button-name",
+        "impact": "critical",
+        "owner": "p29-accessibility-deep"
+      },
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      },
+      {
+        "id": "select-name",
+        "impact": "critical",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "settings-appearance": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "settings-shortcuts": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "settings-surveys": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "settings-reply-snippets": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ],
+    "onboarding": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "owner": "p29-accessibility-deep"
+      }
+    ]
+  }
 }
