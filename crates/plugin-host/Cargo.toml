@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 core-domain = { path = "../core-domain" }
+core-db = { path = "../core-db" }
 uuid = { workspace = true }
 chrono = { workspace = true }
 sha2 = { workspace = true }
@@ -13,3 +14,4 @@ zip = { workspace = true }
 hex = { workspace = true }
 serde_json = { workspace = true }
 ed25519-dalek = { workspace = true }
+sqlx = { workspace = true }

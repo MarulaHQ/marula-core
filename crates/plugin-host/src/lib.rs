@@ -31,6 +31,7 @@
 //!   append-only `audit_events` table.
 
 pub mod distribution;
+pub mod surface;
 
 use core_domain::entities::{
     PluginCapability, PluginInstall, PluginInstallStatus, PLUGIN_RUNTIME_INTERFACE_VERSION,

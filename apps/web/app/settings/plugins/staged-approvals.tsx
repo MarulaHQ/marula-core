@@ -147,6 +147,7 @@ function StagedRow({
             artifact={{ ...consent, uploaded_by: item.uploaded_by }}
             settingsSchema={consent.settings_schema}
             connectorProfile={consent.connector_profile}
+            surfaceProfile={consent.surface_profile}
             grants={grants}
             onToggleGrant={
               canManage

@@ -21,6 +21,7 @@
 import { Button, Card, EmptyState, Spinner } from "@meridian/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ReportWidget } from "../../components/dashboards/report-widget";
+import { PluginWidgetsSection } from "../../components/dashboards/plugin-widget";
 import {
   WIDGET_CATALOG,
   WIDGET_ROWS_KEY,
@@ -230,6 +231,7 @@ export default function DashboardsPage() {
           })}
         </div>
       )}
+      <PluginWidgetsSection slot="dashboard" />
     </main>
   );
 }

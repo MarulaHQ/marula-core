@@ -4344,11 +4344,13 @@ name = "plugin-host"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "core-db",
  "core-domain",
  "ed25519-dalek",
  "hex",
  "serde_json",
  "sha2 0.10.9",
+ "sqlx 0.8.6",
  "uuid",
  "zip",
 ]

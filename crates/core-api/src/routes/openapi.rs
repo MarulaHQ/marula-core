@@ -349,6 +349,7 @@ use utoipa::OpenApi;
         crate::routes::templates::render,
         // canned responses/snippets close-out (Wave 34 lane 3)
         crate::routes::reply_snippets::list,
+        crate::routes::reply_snippets::get_by_id,
         crate::routes::reply_snippets::create,
         crate::routes::reply_snippets::fork,
         crate::routes::reply_snippets::update,
@@ -402,6 +403,11 @@ use utoipa::OpenApi;
         crate::routes::plugins::create_install,
         crate::routes::plugins::update_install,
         crate::routes::plugins::delete_install,
+        // §4.6 plugin surface registry (Wave 34 lane 4)
+        crate::routes::plugin_surface::list_widgets,
+        crate::routes::plugin_surface::list_automation_actions,
+        crate::routes::plugin_surface::list_report_renders,
+        crate::routes::plugin_surface::list_field_validators,
         // ADR 0009 plugin & skill distribution (Wave 16 lane 7)
         crate::routes::plugin_distribution::stage_from_registry,
         crate::routes::plugin_distribution::stage_from_github,
@@ -1573,6 +1579,9 @@ use utoipa::OpenApi;
         crate::routes::plugins::RevokeCatalogEntryRequest,
         crate::routes::plugins::InstallPluginRequest,
         crate::routes::plugins::UpdateInstallRequest,
+        // §4.6 plugin surface registry (Wave 34 lane 4)
+        crate::routes::plugin_surface::SurfaceEntryView,
+        crate::routes::plugin_surface::SurfaceEntryList,
         // ADR 0009 distribution lifecycle (Wave 16 lane 7) + Wave 24 theme packs
         crate::routes::plugin_distribution::ThemePackList,
         crate::routes::plugin_distribution::ThemePackView,

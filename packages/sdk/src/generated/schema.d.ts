@@ -6817,6 +6817,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plugins/surface/automation-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/surface/automation-actions — the org's registered
+         *     plugin automation action kinds (the automations editor lists them
+         *     alongside the built-ins).
+         */
+        get: operations["plugin_surface_automation_actions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/surface/field-validators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/surface/field-validators — the org's registered
+         *     plugin schema validators for board custom fields.
+         */
+        get: operations["plugin_surface_field_validators"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/surface/report-renders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/surface/report-renders — the org's registered
+         *     plugin render kinds for the report builder.
+         */
+        get: operations["plugin_surface_report_renders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/surface/widgets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/surface/widgets — the org's registered plugin
+         *     widgets (dashboard + ticket-pane slots), enabled installs only.
+         */
+        get: operations["plugin_surface_widgets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pm-schedules": {
         parameters: {
             query?: never;
@@ -8220,7 +8301,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix,
+         *     Wave 34 lane 4: the fork-on-edit flow reads the origin after forking;
+         *     the route was missing so reads 405'd).
+         */
+        get: operations["get_by_id"];
         put?: never;
         post?: never;
         /** DELETE /api/v1/reply-snippets/{id} — remove a snippet from the library. */
@@ -12657,6 +12743,11 @@ export interface components {
             /** @enum {string} */
             type: "notify_users";
             user_ids: string[];
+        } | {
+            entry_key: string;
+            params?: unknown;
+            /** @enum {string} */
+            type: "plugin_action";
         };
         /**
          * @description One predicate; a rule matches only when EVERY condition holds.
@@ -14253,6 +14344,13 @@ export interface components {
             settings_schema?: unknown;
             source_kind: string;
             source_url: string;
+            /**
+             * @description §4.6 (Wave 34 lane 4) — the declarative UI-surface profile
+             *     (widgets / automation action kinds / report render kinds /
+             *     field validators), rendered on consent verbatim so an admin
+             *     consents to exactly the surfaces the plugin contributes.
+             */
+            surface_profile?: unknown;
         };
         ConsumeRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
@@ -14886,6 +14984,12 @@ export interface components {
             required?: boolean;
             /** Format: int32 */
             sort_order?: number;
+            /**
+             * @description §4.6: registry key of a plugin field_validator entry
+             *     (`plugin.<slug>.<id>`); stored in config and enforced on every
+             *     value write (fail-closed when the entry disappears).
+             */
+            validator_entry_key?: string | null;
         };
         CreateGroupRequest: {
             description?: string | null;
@@ -19968,7 +20072,7 @@ export interface components {
          *     no key for them).
          * @enum {string}
          */
-        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone";
+        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate";
         /**
          * @description Install lifecycle. Deny-by-default: `Disabled` until an explicit
          *     admin enable; `Revoked` is terminal (registry revocation or explicit
@@ -19987,6 +20091,7 @@ export interface components {
             description?: string;
             /** @description ADR 0009 §4 — optional JSON-Schema for manifest-rendered settings. */
             settings_schema?: unknown;
+            surface_profile?: null | components["schemas"]["PluginSurfaceProfile"];
         };
         /**
          * @description The declarative v2 plugin manifest: name/version/capabilities — a
@@ -20021,6 +20126,7 @@ export interface components {
              *     consent/enable/disable only. Additive to the v2 shape.
              */
             settings_schema?: unknown;
+            surface_profile?: null | components["schemas"]["PluginSurfaceProfile"];
             version: string;
         };
         /**
@@ -20214,6 +20320,25 @@ export interface components {
             reviewed_by: string;
             /** Format: uuid */
             staged_item_id: string;
+        };
+        /**
+         * @description Wave 34 lane 4 (§4.6): the modeled UI-surface profile a WASM manifest
+         *     may declare — dashboard/ticket-pane WIDGETS, automation ACTION KINDS,
+         *     report RENDER KINDS, and custom-field VALIDATORS. Everything here is
+         *     DECLARATIVE: closed render/effect vocabularies plus JSON-Schema
+         *     subsets the core validates and executes. A plugin ships declarations,
+         *     never code the browser or the rule engine runs raw (agent-safety
+         *     §4.8).
+         */
+        PluginSurfaceProfile: {
+            /** @description Automation action kinds registered alongside the built-ins. */
+            actions?: components["schemas"]["SurfaceAction"][];
+            /** @description JSON-Schema validators for board custom fields. */
+            field_validators?: components["schemas"]["SurfaceFieldValidator"][];
+            /** @description Render kinds contributed to the report builder. */
+            render_kinds?: components["schemas"]["SurfaceRenderKind"][];
+            /** @description Widgets the plugin registers (dashboard or ticket-pane slots). */
+            widgets?: components["schemas"]["SurfaceWidget"][];
         };
         /**
          * @description `plugin.update_pending` — an update proposal is waiting on the
@@ -24167,6 +24292,98 @@ export interface components {
             recorded_at: string;
             surface: string;
         };
+        /** @description One declared automation action kind. */
+        SurfaceAction: {
+            /** @description One-line description shown in the editor and on consent. */
+            description: string;
+            /** @description The consented effect the engine executes. */
+            effect: components["schemas"]["SurfaceActionEffect"];
+            /**
+             * @description Plugin-local id, `[a-z][a-z0-9_]{0,63}`. Registry key:
+             *     `plugin.<install-slug>.<id>`.
+             */
+            id: string;
+            /** @description Label shown in the automations editor. */
+            label: string;
+            /** @description Optional JSON-Schema subset for the action's params. */
+            params_schema?: unknown;
+        };
+        /**
+         * @description The built-in EFFECT a declared automation action maps onto. Closed
+         *     vocabulary: the rule engine executes the effect with the action's
+         *     validated params — the plugin contributes the kind, never custom
+         *     execution.
+         * @enum {string}
+         */
+        SurfaceActionEffect: "add_internal_comment";
+        SurfaceEntryList: {
+            entries: components["schemas"]["SurfaceEntryView"][];
+        };
+        /** @description One registered entry as the web consumes it. */
+        SurfaceEntryView: {
+            definition: unknown;
+            entry_key: string;
+            /** Format: uuid */
+            install_id: string;
+            label: string;
+        };
+        /** @description One declared custom-field validator. */
+        SurfaceFieldValidator: {
+            /**
+             * @description Plugin-local id, `[a-z][a-z0-9_]{0,63}`. Registry key:
+             *     `plugin.<install-slug>.<id>`.
+             */
+            id: string;
+            /** @description Label shown in the board field editor. */
+            label: string;
+            /** @description The JSON-Schema subset applied to the field's value on write. */
+            schema: unknown;
+        };
+        /** @description One declared report render kind. */
+        SurfaceRenderKind: {
+            /** @description One-line description. */
+            description: string;
+            /**
+             * @description Plugin-local id, `[a-z][a-z0-9_]{0,63}`. Registry key:
+             *     `plugin.<install-slug>.<id>`.
+             */
+            id: string;
+            /** @description Label shown in the report builder. */
+            label: string;
+        };
+        /**
+         * @description Where a declared widget may render. Closed vocabulary.
+         * @enum {string}
+         */
+        SurfaceSlot: "dashboard" | "ticket_pane";
+        /** @description One declared widget. */
+        SurfaceWidget: {
+            /** @description Optional defaults applied under props_schema before render. */
+            default_props?: unknown;
+            /**
+             * @description Plugin-local id, `[a-z][a-z0-9_]{0,63}`. The registry key is
+             *     `plugin.<install-slug>.<id>` — collision-free by construction.
+             */
+            id: string;
+            /** @description The trusted render kind. */
+            kind: components["schemas"]["SurfaceWidgetKind"];
+            /**
+             * @description Optional JSON-Schema subset the widget's per-board props must
+             *     satisfy (same subset as settings_schema).
+             */
+            props_schema?: unknown;
+            /** @description Where the widget renders. */
+            slot: components["schemas"]["SurfaceSlot"];
+            /** @description Human label shown on the widget chrome and the consent screen. */
+            title: string;
+        };
+        /**
+         * @description What a declared widget RENDERS AS. Closed vocabulary — each kind maps
+         *     onto one trusted core component; a plugin cannot introduce a new
+         *     render shape.
+         * @enum {string}
+         */
+        SurfaceWidgetKind: "stat" | "metric" | "list";
         SyncForceQuery: {
             /** @description Force a poll even when the connection is disabled (admin repair). */
             force?: boolean;
@@ -25608,6 +25825,11 @@ export interface components {
             required?: boolean | null;
             /** Format: int32 */
             sort_order?: number | null;
+            /**
+             * @description §4.6: `Some(None)` clears the plugin validator; `Some(Some(key))`
+             *     sets it; absent leaves it untouched.
+             */
+            validator_entry_key?: string | null;
         };
         UpdateGroupRequest: components["schemas"]["MutationParams"] & {
             description?: string | null;
@@ -39276,6 +39498,82 @@ export interface operations {
             };
         };
     };
+    plugin_surface_automation_actions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SurfaceEntryList"];
+                };
+            };
+        };
+    };
+    plugin_surface_field_validators: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SurfaceEntryList"];
+                };
+            };
+        };
+    };
+    plugin_surface_report_renders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SurfaceEntryList"];
+                };
+            };
+        };
+    };
+    plugin_surface_widgets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SurfaceEntryList"];
+                };
+            };
+        };
+    };
     pm_schedules_list: {
         parameters: {
             query?: never;
@@ -42286,6 +42584,40 @@ export interface operations {
             };
             /** @description validation failure (name/body, or out-of-vocabulary variable) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_by_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplySnippetView"];
+                };
+            };
+            /** @description requires tickets:view or admin:view */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

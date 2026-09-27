@@ -221,6 +221,11 @@ pub struct ConsentView {
     /// profile (webhook endpoints + scopes) when the manifest declared
     /// one, for verbatim consent rendering.
     pub connector_profile: Option<serde_json::Value>,
+    /// §4.6 (Wave 34 lane 4) — the declarative UI-surface profile
+    /// (widgets / automation action kinds / report render kinds /
+    /// field validators), rendered on consent verbatim so an admin
+    /// consents to exactly the surfaces the plugin contributes.
+    pub surface_profile: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -883,6 +888,13 @@ pub async fn get_staged_consent(
             .get("connector_profile")
             .cloned()
             .filter(|v| !v.is_null()),
+        // §4.6 — the surface declarations render on consent verbatim
+        // (the same posture connector_profile holds for connectors).
+        surface_profile: item
+            .manifest
+            .get("surface_profile")
+            .cloned()
+            .filter(|v| !v.is_null()),
     }))
 }
 
@@ -960,7 +972,10 @@ pub async fn approve_staged(
                     })
                     .collect();
                 let slug = slug.trim_matches('-').to_string();
-                let entry = match core_db::plugins::get_catalog_entry(&mut tx.tx, &slug).await {
+                let entry = match core_db::plugins::get_catalog_entry(&mut tx.tx, &slug)
+                    .await
+                    .map_err(core_db::DbError::normalized)
+                {
                     Ok(existing) => {
                         if existing.revoked_at.is_some() {
                             return Err(ApiError::Conflict(
@@ -1027,6 +1042,12 @@ pub async fn approve_staged(
                     revoked_by: None,
                 };
                 core_db::plugins::create_install(&mut tx.tx, &install).await?;
+                // §4.6: the adopt's surface registrations derive from the
+                // staged manifest's surface_profile under the approved
+                // grants (data rows; they render nowhere until enable).
+                plugin_host::surface::sync_install_surface(&mut tx.tx, &install, &manifest)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
                 // The provenance chain — the SAME shape every source
                 // produces, appended right at adoption time.
                 core_db::plugin_distribution::insert_provenance(
@@ -1467,6 +1488,18 @@ pub async fn consent_update(
         let before = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
         core_db::plugin_distribution::commit_pending_version(&mut tx.tx, org_id, id).await?;
         let updated = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
+        // §4.6: the re-consented manifest rewrites the surface
+        // registrations to the NEW pinned profile under the same grants.
+        let target_manifest = core_db::plugins::get_version(
+            &mut tx.tx,
+            updated.catalog_id,
+            &updated.version,
+        )
+        .await?
+        .manifest;
+        plugin_host::surface::sync_install_surface(&mut tx.tx, &updated, &target_manifest)
+            .await
+            .map_err(anyhow::Error::msg)?;
         let last = core_db::plugin_distribution::latest_provenance(&mut tx.tx, org_id, id).await;
         let (last_kind, last_url) = match &last {
             Ok(l) => (l.source_kind, l.source_url.clone()),

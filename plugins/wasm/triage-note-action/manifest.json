@@ -1,0 +1,29 @@
+{
+  "name": "Triage Note Action",
+  "version": "1.0.1",
+  "interface_version": 1,
+  "description": "Ships the triage-note automation action kind: a typed wrapper around the built-in internal-comment effect the rule engine executes.",
+  "artifact_kind": "wasm",
+  "capabilities": [
+    "automation.actions"
+  ],
+  "surface_profile": {
+    "actions": [
+      {
+        "id": "triage_note",
+        "label": "Triage note",
+        "description": "Adds the internal triage note the rule configures (templates interpolation applies).",
+        "effect": "add_internal_comment",
+        "params_schema": {
+          "type": "object",
+          "properties": {
+            "body": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
+        }
+      }
+    ]
+  }
+}

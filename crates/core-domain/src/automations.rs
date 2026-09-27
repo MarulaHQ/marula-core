@@ -298,6 +298,18 @@ pub enum AutomationAction {
         kind: NotificationKind,
         title: String,
     },
+    /// §4.6 (Wave 34 lane 4): a plugin-contributed action kind. `entry_key`
+    /// names a `plugin_surface_entries` row (`plugin.<slug>.<id>`); the
+    /// executor re-reads the registry entry AT EXECUTION TIME — a consented
+    /// effect runs only while its install is enabled and the grant stands,
+    /// and a missing entry degrades to a typed skip, never a guess.
+    /// `params` validate against the entry's `params_schema` before the
+    /// effect runs.
+    PluginAction {
+        entry_key: String,
+        #[serde(default)]
+        params: serde_json::Value,
+    },
 }
 
 /// A rule as stored (`automation_rules`) with its JSONB documents still
@@ -385,6 +397,20 @@ pub fn validate_actions(actions: &[AutomationAction]) -> Result<(), crate::Domai
                 if title.trim().is_empty() {
                     return Err(DomainError::Validation(
                         "automation notification title must not be empty".into(),
+                    ));
+                }
+            }
+            AutomationAction::PluginAction { entry_key, .. } => {
+                // Shape check only — the KEY's liveness (registry row +
+                // enabled install + grant) is re-verified at execution
+                // time against the surface registry.
+                let ok = entry_key.starts_with("plugin.")
+                    && entry_key
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '_' || c == '-');
+                if !ok {
+                    return Err(DomainError::Validation(
+                        "plugin action entry_key must be a plugin.<slug>.<id> registry key".into(),
                     ));
                 }
             }

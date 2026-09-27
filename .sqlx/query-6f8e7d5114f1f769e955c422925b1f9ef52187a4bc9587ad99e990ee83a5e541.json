@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM plugin_surface_entries WHERE org_id = $1 AND install_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6f8e7d5114f1f769e955c422925b1f9ef52187a4bc9587ad99e990ee83a5e541"
+}
