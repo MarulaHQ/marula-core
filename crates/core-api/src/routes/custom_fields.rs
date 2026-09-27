@@ -86,6 +86,11 @@ pub struct CreateFieldDefRequest {
     pub required: bool,
     #[serde(default)]
     pub sort_order: i32,
+    /// §4.6: registry key of a plugin field_validator entry
+    /// (`plugin.<slug>.<id>`); stored in config and enforced on every
+    /// value write (fail-closed when the entry disappears).
+    #[serde(default)]
+    pub validator_entry_key: Option<String>,
 }
 
 /// The definition kinds (mirror of migration 0009's CHECK set). Kept as a
@@ -129,6 +134,19 @@ pub struct UpdateFieldDefRequest {
     pub options: Option<Vec<String>>,
     pub required: Option<bool>,
     pub sort_order: Option<i32>,
+    /// §4.6: `Some(None)` clears the plugin validator; `Some(Some(key))`
+    /// sets it; absent leaves it untouched.
+    #[serde(default, deserialize_with = "double_option")]
+    pub validator_entry_key: Option<Option<String>>,
+}
+
+/// Serde helper: distinguishes an absent key from an explicit `null`.
+fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: serde::Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    serde::Deserialize::deserialize(de).map(Some)
 }
 
 /// One value assignment on a ticket create/patch: raw JSON validated against
@@ -260,6 +278,32 @@ async fn governing_def(
         .map_err(|_| ApiError::Validation("definition has an unknown kind".into()))?;
     let config = FieldConfig::from_json(&def.config);
     Ok((def, kind, config))
+}
+
+/// §4.6: shape-checks a validator registry key and returns the config
+/// json with the key set (or removed when `key` is None).
+fn config_with_validator(base: &serde_json::Value, key: Option<&String>) -> ApiResult<serde_json::Value> {
+    let mut config = base.clone();
+    match key {
+        Some(key) => {
+            let ok = key.starts_with("plugin.")
+                && key.chars().all(|c| {
+                    c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '_' || c == '-'
+                });
+            if !ok {
+                return Err(ApiError::Validation(
+                    "validator_entry_key must be a plugin.<slug>.<id> registry key".into(),
+                ));
+            }
+            config["validator_entry_key"] = serde_json::json!(key);
+        }
+        None => {
+            if let Some(obj) = config.as_object_mut() {
+                obj.remove("validator_entry_key");
+            }
+        }
+    }
+    Ok(config)
 }
 
 fn def_error(err: FieldError) -> ApiError {
@@ -408,6 +452,11 @@ pub async fn create_def(
     };
     let (name, config) =
         custom_fields::validate_def(&req.name, kind, &config).map_err(def_error)?;
+    let mut config_json = config.to_json();
+    if req.validator_entry_key.is_some() {
+        config_json =
+            config_with_validator(&config_json, req.validator_entry_key.as_ref())?;
+    }
 
     let def = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         // The path board must belong to the caller's org (foreign ids 404).
@@ -424,7 +473,7 @@ pub async fn create_def(
                 entity: "ticket".into(),
                 name: name.clone(),
                 kind: kind.as_str().to_string(),
-                config: config.to_json(),
+                config: config_json,
                 required: req.required,
                 sort_order: req.sort_order,
             },
@@ -493,7 +542,7 @@ pub async fn update_def(
             let (_, _) = custom_fields::validate_def(name, kind, &FieldConfig::default())
                 .map_err(def_error)?;
         }
-        let config_json = match (&req.options, kind.is_choice()) {
+        let mut config_json = match (&req.options, kind.is_choice()) {
             (Some(options), true) => {
                 let config = FieldConfig {
                     options: options.clone(),
@@ -509,6 +558,12 @@ pub async fn update_def(
             }
             (None, _) => None,
         };
+        if let Some(validator) = &req.validator_entry_key {
+            let base = config_json
+                .clone()
+                .unwrap_or_else(|| current.config.clone());
+            config_json = Some(config_with_validator(&base, validator.as_ref())?);
+        }
 
         let updated = core_db::custom_fields::update_def(
             &mut ctx.tx,
@@ -623,6 +678,39 @@ pub async fn set_ticket_value(
             governing_def(&mut ctx.tx, org_id, field_id, ticket.board_id).await?;
         let parsed = custom_fields::parse_value(kind, &config, &req.value).map_err(def_error)?;
         let canonical = parsed.to_json();
+        // §4.6: a configured plugin validator runs on EVERY write,
+        // fail-closed — an unavailable validator blocks the write rather
+        // than waving it through.
+        if let Some(key) = def
+            .config
+            .get("validator_entry_key")
+            .and_then(|v| v.as_str())
+        {
+            let entry = core_db::plugin_surface::get_entry_by_key(
+                &mut *ctx.tx,
+                org_id,
+                "field_validator",
+                key,
+            )
+            .await
+            .map_err(ApiError::from)?;
+            let schema_value = entry
+                .as_ref()
+                .and_then(|e| e.definition.get("schema"))
+                .cloned();
+            let Some(schema_value) = schema_value else {
+                return Err(ApiError::Validation(format!(
+                    "field validator {key} is not currently available"
+                )));
+            };
+            let schema =
+                core_domain::entities::plugins::SettingsSchema::new(schema_value.clone())
+                    .map_err(|e| ApiError::Validation(e.to_string()))?;
+            let wrapped = serde_json::json!({ "value": canonical });
+            schema
+                .validate_config(&wrapped)
+                .map_err(|e| ApiError::Validation(e.to_string()))?;
+        }
         core_db::custom_fields::upsert_value(&mut ctx.tx, org_id, field_id, id, &canonical).await?;
         ctx.emit(
             types::TICKET_FIELD_SET,

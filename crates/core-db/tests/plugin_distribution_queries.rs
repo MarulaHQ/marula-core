@@ -232,6 +232,7 @@ async fn provenance_chain_should_survive_terminal_uninstall() {
         settings_schema: None,
         artifact_kind: None,
         connector_profile: None,
+        surface_profile: None,
     };
     let version = core_domain::entities::PluginVersion {
         id: fixed_uuid(6912),
@@ -340,6 +341,7 @@ async fn update_proposal_should_pin_the_old_version_until_consented() {
         settings_schema: None,
         artifact_kind: None,
         connector_profile: None,
+        surface_profile: None,
     };
     let manifest_v2 = core_domain::entities::PluginManifestV2 {
         name: "Consent Plugin".into(),
@@ -354,6 +356,7 @@ async fn update_proposal_should_pin_the_old_version_until_consented() {
         })),
         artifact_kind: None,
         connector_profile: None,
+        surface_profile: None,
     };
     plugins::create_catalog_entry(
         &mut tx,
@@ -478,6 +481,7 @@ async fn install_settings_should_validate_against_the_manifest_schema() {
         settings_schema: Some(schema),
         artifact_kind: None,
         connector_profile: None,
+        surface_profile: None,
     };
     let entry = core_domain::entities::PluginCatalogEntry {
         id: fixed_uuid(6931),

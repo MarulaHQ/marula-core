@@ -59,10 +59,33 @@ pub enum PluginCapability {
     RoutingRoute,
     RoutingGeocode,
     RoutingIsochrone,
+    /// Wave 34 lane 4 (§4.6): dashboard/ticket-pane widget registration.
+    /// A widget is a DECLARATIVE spec (closed render kind + JSON-Schema
+    /// props) rendered by trusted core components — a plugin holding this
+    /// capability contributes widget entries; it never ships code the
+    /// browser executes (agent-safety §4.8: untrusted content never
+    /// renders raw).
+    UiWidgets,
+    /// Wave 34 lane 4 (§4.6): plugin-provided automation ACTION KINDS.
+    /// Each declared action maps a typed parameter schema onto a
+    /// consented built-in EFFECT (e.g. add an internal comment) — the
+    /// engine executes the effect; the plugin contributes the kind, the
+    /// typed params, and the label. Resolves onto the tickets-edit gate
+    /// the effect itself requires.
+    AutomationActions,
+    /// Wave 34 lane 4 (§4.6): plugin-contributed render kinds on the
+    /// report builder. Registration only — the rendering stays in the
+    /// core's trusted component set.
+    ReportsRender,
+    /// Wave 34 lane 4 (§4.6): JSON-Schema validators the plugin
+    /// contributes for board custom fields. The core runs the schema on
+    /// every write of a field wired to the validator; the plugin never
+    /// sees the value.
+    FieldsValidate,
 }
 
 impl PluginCapability {
-    pub const ALL: [PluginCapability; 19] = [
+    pub const ALL: [PluginCapability; 23] = [
         PluginCapability::TicketsRead,
         PluginCapability::TicketsWrite,
         PluginCapability::ClientsRead,
@@ -82,6 +105,10 @@ impl PluginCapability {
         PluginCapability::RoutingRoute,
         PluginCapability::RoutingGeocode,
         PluginCapability::RoutingIsochrone,
+        PluginCapability::UiWidgets,
+        PluginCapability::AutomationActions,
+        PluginCapability::ReportsRender,
+        PluginCapability::FieldsValidate,
     ];
 
     /// The capability key as declared in a manifest / grant list.
@@ -110,6 +137,10 @@ impl PluginCapability {
             PluginCapability::RoutingRoute => "routing.route",
             PluginCapability::RoutingGeocode => "routing.geocode",
             PluginCapability::RoutingIsochrone => "routing.isochrone",
+            PluginCapability::UiWidgets => "ui.widgets",
+            PluginCapability::AutomationActions => "automation.actions",
+            PluginCapability::ReportsRender => "reports.render",
+            PluginCapability::FieldsValidate => "fields.validate",
         }
     }
 
@@ -200,6 +231,25 @@ impl PluginCapability {
                 module: Module::Scheduling,
                 action: Action::View,
             },
+            // §4.6 surface capabilities resolve onto the gates the
+            // SURFACE itself already sits behind: widgets and render
+            // kinds display reporting data (reports view); a plugin
+            // automation action executes a tickets-edit effect; a field
+            // validator only shapes what a tickets editor may save
+            // (view-level participation, never a write of its own). No
+            // surface grant invents authority beyond the gate it lands on.
+            PluginCapability::UiWidgets | PluginCapability::ReportsRender => Permission::Matrix {
+                module: Module::Reporting,
+                action: Action::View,
+            },
+            PluginCapability::AutomationActions => Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::Edit,
+            },
+            PluginCapability::FieldsValidate => Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::View,
+            },
         }
     }
 }
@@ -252,6 +302,16 @@ pub struct PluginManifestV2 {
     /// connector asks for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_profile: Option<ConnectorProfile>,
+    /// Wave 34 lane 4 (§4.6) — the declarative UI-surface profile:
+    /// widgets, automation action kinds, report render kinds, custom-field
+    /// validators. Valid and OPTIONAL ONLY on `wasm` manifests (a
+    /// connector has no in-product UI surface); an EMPTY profile carries
+    /// no consent weight. Consent renders the declarations verbatim, and
+    /// each section only registers when its capability
+    /// (`ui.widgets` / `automation.actions` / `reports.render` /
+    /// `fields.validate`) is granted. Additive to the v2 shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface_profile: Option<PluginSurfaceProfile>,
 }
 
 /// The plugin-side artifact vocabulary for the roster tabs (WASM vs HTTP
@@ -515,6 +575,340 @@ impl ConnectorProfile {
     }
 }
 
+/// Wave 34 lane 4 (§4.6): the modeled UI-surface profile a WASM manifest
+/// may declare — dashboard/ticket-pane WIDGETS, automation ACTION KINDS,
+/// report RENDER KINDS, and custom-field VALIDATORS. Everything here is
+/// DECLARATIVE: closed render/effect vocabularies plus JSON-Schema
+/// subsets the core validates and executes. A plugin ships declarations,
+/// never code the browser or the rule engine runs raw (agent-safety
+/// §4.8).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PluginSurfaceProfile {
+    /// Widgets the plugin registers (dashboard or ticket-pane slots).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub widgets: Vec<SurfaceWidget>,
+    /// Automation action kinds registered alongside the built-ins.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<SurfaceAction>,
+    /// Render kinds contributed to the report builder.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub render_kinds: Vec<SurfaceRenderKind>,
+    /// JSON-Schema validators for board custom fields.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_validators: Vec<SurfaceFieldValidator>,
+}
+
+/// Where a declared widget may render. Closed vocabulary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SurfaceSlot {
+    Dashboard,
+    TicketPane,
+}
+
+impl SurfaceSlot {
+    pub const ALL: [SurfaceSlot; 2] = [SurfaceSlot::Dashboard, SurfaceSlot::TicketPane];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Dashboard => "dashboard",
+            Self::TicketPane => "ticket_pane",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "dashboard" => Some(Self::Dashboard),
+            "ticket_pane" => Some(Self::TicketPane),
+            _ => None,
+        }
+    }
+}
+
+/// What a declared widget RENDERS AS. Closed vocabulary — each kind maps
+/// onto one trusted core component; a plugin cannot introduce a new
+/// render shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SurfaceWidgetKind {
+    /// Single number + label + optional comparison line.
+    Stat,
+    /// Metric card backed by a report kind (value sourced from the
+    /// reporting seam the viewer already passes).
+    Metric,
+    /// Read-only list of label/value rows.
+    List,
+}
+
+impl SurfaceWidgetKind {
+    pub const ALL: [SurfaceWidgetKind; 3] = [
+        SurfaceWidgetKind::Stat,
+        SurfaceWidgetKind::Metric,
+        SurfaceWidgetKind::List,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stat => "stat",
+            Self::Metric => "metric",
+            Self::List => "list",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "stat" => Some(Self::Stat),
+            "metric" => Some(Self::Metric),
+            "list" => Some(Self::List),
+            _ => None,
+        }
+    }
+}
+
+/// The built-in EFFECT a declared automation action maps onto. Closed
+/// vocabulary: the rule engine executes the effect with the action's
+/// validated params — the plugin contributes the kind, never custom
+/// execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum SurfaceActionEffect {
+    /// Adds an internal comment whose body is the action's validated
+    /// `body` param (templates interpolation applies, same dialect as
+    /// the canned-templates engine).
+    AddInternalComment,
+}
+
+impl SurfaceActionEffect {
+    pub const ALL: [SurfaceActionEffect; 1] = [SurfaceActionEffect::AddInternalComment];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AddInternalComment => "add_internal_comment",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "add_internal_comment" => Some(Self::AddInternalComment),
+            _ => None,
+        }
+    }
+}
+
+/// One declared widget.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SurfaceWidget {
+    /// Plugin-local id, `[a-z][a-z0-9_]{0,63}`. The registry key is
+    /// `plugin.<install-slug>.<id>` — collision-free by construction.
+    pub id: String,
+    /// Human label shown on the widget chrome and the consent screen.
+    pub title: String,
+    /// Where the widget renders.
+    pub slot: SurfaceSlot,
+    /// The trusted render kind.
+    pub kind: SurfaceWidgetKind,
+    /// Optional JSON-Schema subset the widget's per-board props must
+    /// satisfy (same subset as settings_schema).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub props_schema: Option<serde_json::Value>,
+    /// Optional defaults applied under props_schema before render.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_props: Option<serde_json::Value>,
+}
+
+/// One declared automation action kind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SurfaceAction {
+    /// Plugin-local id, `[a-z][a-z0-9_]{0,63}`. Registry key:
+    /// `plugin.<install-slug>.<id>`.
+    pub id: String,
+    /// Label shown in the automations editor.
+    pub label: String,
+    /// One-line description shown in the editor and on consent.
+    pub description: String,
+    /// The consented effect the engine executes.
+    pub effect: SurfaceActionEffect,
+    /// Optional JSON-Schema subset for the action's params.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params_schema: Option<serde_json::Value>,
+}
+
+/// One declared report render kind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SurfaceRenderKind {
+    /// Plugin-local id, `[a-z][a-z0-9_]{0,63}`. Registry key:
+    /// `plugin.<install-slug>.<id>`.
+    pub id: String,
+    /// Label shown in the report builder.
+    pub label: String,
+    /// One-line description.
+    pub description: String,
+}
+
+/// One declared custom-field validator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SurfaceFieldValidator {
+    /// Plugin-local id, `[a-z][a-z0-9_]{0,63}`. Registry key:
+    /// `plugin.<install-slug>.<id>`.
+    pub id: String,
+    /// Label shown in the board field editor.
+    pub label: String,
+    /// The JSON-Schema subset applied to the field's value on write.
+    pub schema: serde_json::Value,
+}
+
+const MAX_SURFACE_ENTRIES_PER_SECTION: usize = 8;
+const MAX_SURFACE_LABEL_BYTES: usize = 120;
+const MAX_SURFACE_DESCRIPTION_BYTES: usize = 400;
+
+impl PluginSurfaceProfile {
+    /// True when the profile declares nothing — an absent/unusable
+    /// profile that carries no consent weight.
+    pub fn is_empty(&self) -> bool {
+        self.widgets.is_empty()
+            && self.actions.is_empty()
+            && self.render_kinds.is_empty()
+            && self.field_validators.is_empty()
+    }
+
+    /// The registry key prefix for this profile's install (slug is the
+    /// install-safe name approve minted).
+    pub fn entry_key(prefix: &str, local_id: &str) -> String {
+        format!("plugin.{prefix}.{local_id}")
+    }
+
+    fn validate_id(id: &str, what: &str) -> Result<(), crate::error::DomainError> {
+        let ok = !id.is_empty()
+            && id.len() <= 64
+            && id.starts_with(|c: char| c.is_ascii_lowercase())
+            && id
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+        if ok {
+            Ok(())
+        } else {
+            Err(crate::error::DomainError::Validation(format!(
+                "{what} id {id:?} must match [a-z][a-z0-9_]{{0,63}}"
+            )))
+        }
+    }
+
+    fn validate_label(label: &str, what: &str) -> Result<(), crate::error::DomainError> {
+        if label.trim().is_empty() || label.len() > MAX_SURFACE_LABEL_BYTES {
+            return Err(crate::error::DomainError::Validation(format!(
+                "{what} label must be 1..={MAX_SURFACE_LABEL_BYTES} bytes"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validates the whole profile: per-section size caps, id/label
+    /// shapes, unique ids, and the JSON-Schema subsets (props_schema,
+    /// params_schema, validator schema) through the same
+    /// [`SettingsSchema`] gate settings_schema passes.
+    pub fn validate(&self) -> Result<(), crate::error::DomainError> {
+        let err = |m: String| Err(crate::error::DomainError::Validation(m));
+        if self.widgets.len() > MAX_SURFACE_ENTRIES_PER_SECTION {
+            return err(format!(
+                "surface profile declares {} widgets (max {MAX_SURFACE_ENTRIES_PER_SECTION})",
+                self.widgets.len()
+            ));
+        }
+        if self.actions.len() > MAX_SURFACE_ENTRIES_PER_SECTION {
+            return err(format!(
+                "surface profile declares {} actions (max {MAX_SURFACE_ENTRIES_PER_SECTION})",
+                self.actions.len()
+            ));
+        }
+        if self.render_kinds.len() > MAX_SURFACE_ENTRIES_PER_SECTION {
+            return err(format!(
+                "surface profile declares {} render kinds (max {MAX_SURFACE_ENTRIES_PER_SECTION})",
+                self.render_kinds.len()
+            ));
+        }
+        if self.field_validators.len() > MAX_SURFACE_ENTRIES_PER_SECTION {
+            return err(format!(
+                "surface profile declares {} field validators (max {MAX_SURFACE_ENTRIES_PER_SECTION})",
+                self.field_validators.len()
+            ));
+        }
+        let mut seen_widgets = std::collections::HashSet::new();
+        for w in &self.widgets {
+            Self::validate_id(&w.id, "widget")?;
+            Self::validate_label(&w.title, "widget")?;
+            if !seen_widgets.insert(&w.id) {
+                return err(format!("widget id {:?} is declared twice", w.id));
+            }
+            if let Some(schema) = &w.props_schema {
+                SettingsSchema::new(schema.clone())?;
+            }
+            if let Some(props) = &w.default_props {
+                if let Some(schema) = &w.props_schema {
+                    let schema = SettingsSchema::new(schema.clone())?;
+                    schema.validate_config(props)?;
+                } else {
+                    return err(format!(
+                        "widget {:?} declares default_props without props_schema",
+                        w.id
+                    ));
+                }
+            }
+        }
+        let mut seen_actions = std::collections::HashSet::new();
+        for a in &self.actions {
+            Self::validate_id(&a.id, "action")?;
+            Self::validate_label(&a.label, "action")?;
+            if a.description.trim().is_empty() || a.description.len() > MAX_SURFACE_DESCRIPTION_BYTES
+            {
+                return err(format!(
+                    "action {:?} description must be 1..={MAX_SURFACE_DESCRIPTION_BYTES} bytes",
+                    a.id
+                ));
+            }
+            if !seen_actions.insert(&a.id) {
+                return err(format!("action id {:?} is declared twice", a.id));
+            }
+            if let Some(schema) = &a.params_schema {
+                SettingsSchema::new(schema.clone())?;
+            }
+        }
+        let mut seen_renders = std::collections::HashSet::new();
+        for r in &self.render_kinds {
+            Self::validate_id(&r.id, "render kind")?;
+            Self::validate_label(&r.label, "render kind")?;
+            if r.description.trim().is_empty()
+                || r.description.len() > MAX_SURFACE_DESCRIPTION_BYTES
+            {
+                return err(format!(
+                    "render kind {:?} description must be 1..={MAX_SURFACE_DESCRIPTION_BYTES} bytes",
+                    r.id
+                ));
+            }
+            if !seen_renders.insert(&r.id) {
+                return err(format!("render kind id {:?} is declared twice", r.id));
+            }
+        }
+        let mut seen_validators = std::collections::HashSet::new();
+        for v in &self.field_validators {
+            Self::validate_id(&v.id, "field validator")?;
+            Self::validate_label(&v.label, "field validator")?;
+            if !seen_validators.insert(&v.id) {
+                return err(format!("field validator id {:?} is declared twice", v.id));
+            }
+            SettingsSchema::new(v.schema.clone())?;
+        }
+        Ok(())
+    }
+}
+
 impl PluginManifestV2 {
     /// Validates the manifest against the closed vocabulary and the
     /// pinned interface version. Unknown capability keys and interface
@@ -562,6 +956,25 @@ impl PluginManifestV2 {
                 if self.connector_profile.is_some() {
                     return Err(crate::error::DomainError::Validation(
                         "wasm manifests must not declare a connector_profile".into(),
+                    ));
+                }
+            }
+        }
+        // §4.6 kind-coherence: the surface profile is a WASM-manifest
+        // declaration — a connector has no in-product UI surface to
+        // govern, so declaring the field refuses rather than being
+        // ignored (the same deny-by-default posture connector_profile
+        // holds on wasm manifests).
+        match self.runtime_kind() {
+            PluginRuntimeKind::Wasm => {
+                if let Some(profile) = &self.surface_profile {
+                    profile.validate()?;
+                }
+            }
+            PluginRuntimeKind::HttpConnector => {
+                if self.surface_profile.is_some() {
+                    return Err(crate::error::DomainError::Validation(
+                        "http_connector manifests must not declare a surface_profile".into(),
                     ));
                 }
             }
@@ -1447,6 +1860,7 @@ mod tests {
             settings_schema: None,
             artifact_kind: None,
             connector_profile: None,
+            surface_profile: None,
         }
     }
 
@@ -1455,6 +1869,184 @@ mod tests {
         let m = manifest(&["tickets.read", "financial.read"]);
         assert!(m.validate().is_ok());
         assert_eq!(m.declared().len(), 2);
+    }
+
+    #[test]
+    fn surface_capabilities_should_round_trip_and_resolve_onto_existing_gates() {
+        for key in ["ui.widgets", "automation.actions", "reports.render", "fields.validate"] {
+            let parsed = PluginCapability::parse(key).expect("surface capability parses");
+            assert_eq!(parsed.as_str(), key);
+        }
+        assert_eq!(
+            PluginCapability::UiWidgets.permission(),
+            Permission::Matrix {
+                module: Module::Reporting,
+                action: Action::View
+            }
+        );
+        assert_eq!(
+            PluginCapability::AutomationActions.permission(),
+            Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::Edit
+            }
+        );
+        assert_eq!(
+            PluginCapability::FieldsValidate.permission(),
+            Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::View
+            }
+        );
+    }
+
+    #[test]
+    fn surface_profile_should_validate_declarations_and_closed_vocabularies() {
+        let good = PluginSurfaceProfile {
+            widgets: vec![SurfaceWidget {
+                id: "csat_today".into(),
+                title: "CSAT today".into(),
+                slot: SurfaceSlot::Dashboard,
+                kind: SurfaceWidgetKind::Stat,
+                props_schema: Some(json!({
+                    "type": "object",
+                    "properties": {"suffix": {"type": "string", "maxLength": 12}}
+                })),
+                default_props: Some(json!({"suffix": "%"})),
+            }],
+            actions: vec![SurfaceAction {
+                id: "triage_note".into(),
+                label: "Triage note".into(),
+                description: "Adds the triage note the rule configures.".into(),
+                effect: SurfaceActionEffect::AddInternalComment,
+                params_schema: Some(json!({
+                    "type": "object",
+                    "properties": {"body": {"type": "string", "maxLength": 500}}
+                })),
+            }],
+            render_kinds: vec![SurfaceRenderKind {
+                id: "gauges".into(),
+                label: "Gauges".into(),
+                description: "Horizontal gauge rows for bounded metrics.".into(),
+            }],
+            field_validators: vec![SurfaceFieldValidator {
+                id: "asset_tag".into(),
+                label: "Asset tag".into(),
+                schema: json!({
+                    "type": "object",
+                    "properties": {"value": {"type": "string", "maxLength": 32}}
+                }),
+            }],
+        };
+        assert!(good.validate().is_ok());
+
+        // Unknown slot / kind / effect vocabularies cannot even serialize.
+        assert!(SurfaceSlot::parse("portal").is_none());
+        assert!(SurfaceWidgetKind::parse("iframe").is_none());
+        assert!(SurfaceActionEffect::parse("run_code").is_none());
+
+        // Bad shapes refuse.
+        let bad_id = PluginSurfaceProfile {
+            widgets: vec![SurfaceWidget {
+                id: "Bad-Id".into(),
+                title: "x".into(),
+                slot: SurfaceSlot::Dashboard,
+                kind: SurfaceWidgetKind::Stat,
+                props_schema: None,
+                default_props: None,
+            }],
+            ..PluginSurfaceProfile::default()
+        };
+        assert!(bad_id.validate().is_err());
+
+        // default_props without props_schema refuses.
+        let orphan_props = PluginSurfaceProfile {
+            widgets: vec![SurfaceWidget {
+                id: "w".into(),
+                title: "w".into(),
+                slot: SurfaceSlot::TicketPane,
+                kind: SurfaceWidgetKind::List,
+                props_schema: None,
+                default_props: Some(json!({"a": 1})),
+            }],
+            ..PluginSurfaceProfile::default()
+        };
+        assert!(orphan_props.validate().is_err());
+
+        // default_props violating props_schema refuses.
+        let violating_props = PluginSurfaceProfile {
+            widgets: vec![SurfaceWidget {
+                id: "w".into(),
+                title: "w".into(),
+                slot: SurfaceSlot::TicketPane,
+                kind: SurfaceWidgetKind::List,
+                props_schema: Some(json!({
+                    "type": "object",
+                    "properties": {"rows": {"type": "integer", "maximum": 10}}
+                })),
+                default_props: Some(json!({"rows": 99})),
+            }],
+            ..PluginSurfaceProfile::default()
+        };
+        assert!(violating_props.validate().is_err());
+
+        // Duplicate ids refuse.
+        let dup = PluginSurfaceProfile {
+            actions: vec![
+                SurfaceAction {
+                    id: "a".into(),
+                    label: "A".into(),
+                    description: "d".into(),
+                    effect: SurfaceActionEffect::AddInternalComment,
+                    params_schema: None,
+                },
+                SurfaceAction {
+                    id: "a".into(),
+                    label: "A2".into(),
+                    description: "d".into(),
+                    effect: SurfaceActionEffect::AddInternalComment,
+                    params_schema: None,
+                },
+            ],
+            ..PluginSurfaceProfile::default()
+        };
+        assert!(dup.validate().is_err());
+
+        // Over-cap sections refuse.
+        let many_validators: Vec<SurfaceFieldValidator> = (0..9)
+            .map(|i| SurfaceFieldValidator {
+                id: format!("v{i}"),
+                label: "v".into(),
+                schema: json!({"type": "object", "properties": {}}),
+            })
+            .collect();
+        assert!(PluginSurfaceProfile {
+            field_validators: many_validators,
+            ..PluginSurfaceProfile::default()
+        }
+        .validate()
+        .is_err());
+    }
+
+    #[test]
+    fn surface_profile_should_be_wasm_only_and_consent_visible() {
+        let mut m = manifest(&["ui.widgets", "automation.actions"]);
+        m.surface_profile = Some(PluginSurfaceProfile {
+            widgets: vec![SurfaceWidget {
+                id: "w".into(),
+                title: "W".into(),
+                slot: SurfaceSlot::Dashboard,
+                kind: SurfaceWidgetKind::Stat,
+                props_schema: None,
+                default_props: None,
+            }],
+            ..PluginSurfaceProfile::default()
+        });
+        // WASM baseline (absent kind) accepts the profile.
+        assert!(m.validate().is_ok());
+        // A connector declaring a surface profile refuses.
+        m.artifact_kind = Some(PluginRuntimeKind::HttpConnector);
+        assert!(m.validate().is_err());
     }
 
     #[test]

@@ -27,6 +27,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { TicketCustomFields } from "../ticket-custom-fields";
+import { PluginWidgetsSection } from "../dashboards/plugin-widget";
 import { TicketUndo } from "../ticket-undo";
 import {
   api,
@@ -792,6 +793,7 @@ export function TicketWorkspaceClassic(): ReactNode {
           onChanged={() => void refresh()}
         />
       )}
+      <PluginWidgetsSection slot="ticket_pane" />
       <div className="grid gap-1 text-xs">
         <dt className="font-medium">Board</dt>
         <dd className="flex flex-wrap items-center gap-2" data-testid="details-board">

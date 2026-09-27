@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, install_id, surface, entry_key, label, definition, enabled\n           FROM plugin_surface_entries\n           WHERE org_id = $1 AND install_id = $2\n           ORDER BY surface, entry_key",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "install_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "surface",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "entry_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "definition",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5e4d6ab256c55f12336f409c7b962822354cc0620f709bd4f19bcec4b6414a81"
+}

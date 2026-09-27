@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**574 paths · 774 operations · 1172 schemas.**
+**578 paths · 779 operations · 1182 schemas.**
 
 ## agent-proposals
 
@@ -742,6 +742,10 @@
 | `PATCH` | `/api/v1/plugins/installed/{id}/settings` <a id="plugin_install_settings_put"></a> | PATCH /api/plugins/installed/{id}/settings — the config is validated against the pinned manifest's schema AT THE WRITE BOUNDARY (the typed-registry doctrine: no hand-authored per-plugin pages, and a plugin with no declared schema gets consent/enable/disable only — this endpoint refuses its config writes). Every write is audited. | [PutInstallSettingsRequest](#schema-putinstallsettingsrequest) |
 | `GET` | `/api/v1/plugins/installed/{id}/update` <a id="plugin_install_update_get"></a> | GET /api/plugins/installed/{id}/update — the pending-state read (the consent screen shows exactly what consent would do). | — |
 | `POST` | `/api/v1/plugins/installed/{id}/update` <a id="plugin_install_update_propose"></a> | POST /api/plugins/installed/{id}/update — propose the update: the candidate version lands in the pending columns while the OLD version keeps running; the response IS the re-consent diff the consent screen renders. | [ProposeUpdateRequest](#schema-proposeupdaterequest) |
+| `GET` | `/api/v1/plugins/surface/automation-actions` <a id="plugin_surface_automation_actions"></a> | GET /api/plugins/surface/automation-actions — the org's registered plugin automation action kinds (the automations editor lists them alongside the built-ins). | — |
+| `GET` | `/api/v1/plugins/surface/field-validators` <a id="plugin_surface_field_validators"></a> | GET /api/plugins/surface/field-validators — the org's registered plugin schema validators for board custom fields. | — |
+| `GET` | `/api/v1/plugins/surface/report-renders` <a id="plugin_surface_report_renders"></a> | GET /api/plugins/surface/report-renders — the org's registered plugin render kinds for the report builder. | — |
+| `GET` | `/api/v1/plugins/surface/widgets` <a id="plugin_surface_widgets"></a> | GET /api/plugins/surface/widgets — the org's registered plugin widgets (dashboard + ticket-pane slots), enabled installs only. | — |
 
 ## pm-schedules
 
@@ -893,6 +897,7 @@
 | `GET` | `/api/v1/reply-snippets` <a id="list"></a> | GET /api/v1/reply-snippets — the org's snippet library with the search-in-composer predicate applied (`board_id` offer filter + `q` case-insensitive substring over name and body). | — |
 | `POST` | `/api/v1/reply-snippets` <a id="create"></a> | POST /api/v1/reply-snippets — add a snippet to the library. | [CreateReplySnippetRequest](#schema-createreplysnippetrequest) |
 | `DELETE` | `/api/v1/reply-snippets/{id}` <a id="delete"></a> | DELETE /api/v1/reply-snippets/{id} — remove a snippet from the library. | — |
+| `GET` | `/api/v1/reply-snippets/{id}` <a id="get_by_id"></a> | GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix, Wave 34 lane 4: the fork-on-edit flow reads the origin after forking; the route was missing so reads 405'd). | — |
 | `PATCH` | `/api/v1/reply-snippets/{id}` <a id="update"></a> | PATCH /api/v1/reply-snippets/{id} — edit a snippet in place (the library is org-owned data; fork-on-edit applies when orgs want a divergent copy, via the fork endpoint). | [UpdateReplySnippetRequest](#schema-updatereplysnippetrequest) |
 | `POST` | `/api/v1/reply-snippets/{id}/fork` <a id="fork"></a> | POST /api/v1/reply-snippets/{id}/fork — duplicate a snippet into a new editable copy (templates fork-on-edit provenance pattern). The origin is untouched; the copy records `forked_from`. | [ForkReplySnippetRequest](#schema-forkreplysnippetrequest) |
 | `POST` | `/api/v1/reply-snippets/{id}/render` <a id="render"></a> | POST /api/v1/reply-snippets/{id}/render — resolve the snippet's variable tokens against a real ticket context and return the rendered body (the composer inserts the RENDERED text; the portal reply renders the result). Out-of-vocabulary placeholders are typed 400s. | [RenderReplySnippetRequest](#schema-renderreplysnippetrequest) |
@@ -1970,6 +1975,7 @@
 | <a id="schema-pluginstagedimportapproved"></a>`PluginStagedImportApproved` | object | `plugin.staged_import_approved` — an owner/admin reviewed the consent diff and the wait ended in adoption: the catalog entry/version + install were minted (plugins) or the agent skill was imported (sk |
 | <a id="schema-pluginstagedimportcreated"></a>`PluginStagedImportCreated` | object | `plugin.staged_import_created` — a member upload (skill or plugin) landed staged: validated, never executed, visible only to its uploader and admins. Capabilities are the staged manifest's DECLARED ke |
 | <a id="schema-pluginstagedimportrefused"></a>`PluginStagedImportRefused` | object | `plugin.staged_import_refused` — the reviewer declined the staged import (terminal for that row; the uploader may re-stage fresh). |
+| <a id="schema-pluginsurfaceprofile"></a>`PluginSurfaceProfile` | object | Wave 34 lane 4 (§4.6): the modeled UI-surface profile a WASM manifest may declare — dashboard/ticket-pane WIDGETS, automation ACTION KINDS, report RENDER KINDS, and custom-field VALIDATORS. Everything |
 | <a id="schema-pluginupdatepending"></a>`PluginUpdatePending` | object | `plugin.update_pending` — an update proposal is waiting on the re-consent diff: the OLD version stays pinned and running until the owner/admin consents; consent commits the swap. |
 | <a id="schema-pmrun"></a>`PmRun` | object | One append-only PM run ledger row. |
 | <a id="schema-pmschedule"></a>`PmSchedule` | object | A recurring/scheduled ticket (PM schedule): a ticket template plus the typed cadence (same shape as report schedules). The worker claims due rows; core-api generates the instance and advances the cade |
@@ -2290,6 +2296,15 @@
 | <a id="schema-suggestionanswer"></a>`SuggestionAnswer` | object |  |
 | <a id="schema-suggestionsetview"></a>`SuggestionSetView` | object |  |
 | <a id="schema-suggestionsurface"></a>`SuggestionSurface` | object |  |
+| <a id="schema-surfaceaction"></a>`SurfaceAction` | object | One declared automation action kind. |
+| <a id="schema-surfaceactioneffect"></a>`SurfaceActionEffect` | string | The built-in EFFECT a declared automation action maps onto. Closed vocabulary: the rule engine executes the effect with the action's validated params — the plugin contributes the kind, never custom ex |
+| <a id="schema-surfaceentrylist"></a>`SurfaceEntryList` | object |  |
+| <a id="schema-surfaceentryview"></a>`SurfaceEntryView` | object | One registered entry as the web consumes it. |
+| <a id="schema-surfacefieldvalidator"></a>`SurfaceFieldValidator` | object | One declared custom-field validator. |
+| <a id="schema-surfacerenderkind"></a>`SurfaceRenderKind` | object | One declared report render kind. |
+| <a id="schema-surfaceslot"></a>`SurfaceSlot` | string | Where a declared widget may render. Closed vocabulary. |
+| <a id="schema-surfacewidget"></a>`SurfaceWidget` | object | One declared widget. |
+| <a id="schema-surfacewidgetkind"></a>`SurfaceWidgetKind` | string | What a declared widget RENDERS AS. Closed vocabulary — each kind maps onto one trusted core component; a plugin cannot introduce a new render shape. |
 | <a id="schema-syncforcequery"></a>`SyncForceQuery` | object |  |
 | <a id="schema-syncoutcomeresponse"></a>`SyncOutcomeResponse` | object |  |
 | <a id="schema-syncoutcomewire"></a>`SyncOutcomeWire` | object |  |
@@ -2481,4 +2496,4 @@
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1172 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1182 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

@@ -69,6 +69,7 @@ pub mod passwords;
 pub mod pipeline;
 pub mod plugin_distribution;
 pub mod plugin_signing_keys;
+pub mod plugin_surface;
 pub mod plugins;
 pub mod portal;
 pub mod projects;
@@ -122,6 +123,20 @@ pub enum DbError {
     /// already-billed cost line). The API layer maps this to 409.
     #[error("conflict: {0}")]
     Conflict(String),
+}
+
+impl DbError {
+    /// Normalizes a raw driver error for typed matching: a `fetch_one`
+    /// miss arrives as `Sql(RowNotFound)`, but every caller that branches
+    /// on absence matches `DbError::NotFound` (e.g. the staged-plugin
+    /// adopt's mint arm — Wave 34 lane 4 cross-lane fix). Idempotent on
+    /// already-normalized values.
+    pub fn normalized(self) -> Self {
+        match self {
+            DbError::Sql(sqlx::Error::RowNotFound) => DbError::NotFound,
+            other => other,
+        }
+    }
 }
 
 pub type DbResult<T> = Result<T, DbError>;

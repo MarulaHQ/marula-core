@@ -148,6 +148,29 @@ function FieldDialog({
   const [nameError, setNameError] = useState<string | null>(null);
   const [optionError, setOptionError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // §4.6: plugin-contributed validators for this org — the picker offers
+  // registered field_validator entries; the server re-checks the entry on
+  // every value write (fail-closed).
+  const [pluginValidators, setPluginValidators] = useState<{ entry_key: string; label: string }[]>([]);
+  const [validatorKey, setValidatorKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.api.GET("/api/v1/plugins/surface/field-validators", {});
+        if (cancelled) return;
+        setPluginValidators(
+          (res.data?.entries ?? []).map((e) => ({ entry_key: e.entry_key, label: e.label })),
+        );
+      } catch {
+        if (!cancelled) setPluginValidators([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const isChoice = CHOICE_KINDS.includes(kind);
 
@@ -184,6 +207,7 @@ function FieldDialog({
               required,
               sort_order: nextSortOrder,
               ...(isChoice ? { options } : {}),
+              ...(validatorKey !== null ? { validator_entry_key: validatorKey } : {}),
             },
           })
         : await api.api.PATCH("/api/v1/boards/{id}/fields/{field_id}", {
@@ -192,6 +216,7 @@ function FieldDialog({
               name: trimmed,
               required,
               ...(isChoice ? { options } : {}),
+              validator_entry_key: validatorKey,
             },
           });
     setBusy(false);
@@ -295,6 +320,26 @@ function FieldDialog({
             />
             Required on every ticket
           </label>
+          {pluginValidators.length > 0 ? (
+            <label className="grid gap-1 text-xs">
+              <span style={{ color: "var(--m-text-secondary)" }}>Plugin validator</span>
+              <select
+                className="rounded-md border px-2 py-1 text-xs"
+                style={{ borderColor: "var(--m-border)" }}
+                value={validatorKey ?? ""}
+                onChange={(e) => setValidatorKey(e.target.value === "" ? null : e.target.value)}
+                aria-label="Plugin validator"
+                data-testid="field-validator"
+              >
+                <option value="">None</option>
+                {pluginValidators.map((v) => (
+                  <option key={v.entry_key} value={v.entry_key}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           {saveError !== null && (
             <p role="alert" className="text-xs" style={{ color: "var(--m-status-danger-fg)" }}>
               {saveError}

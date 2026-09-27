@@ -245,6 +245,32 @@ pub async fn list(
     }))
 }
 
+/// GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix,
+/// Wave 34 lane 4: the fork-on-edit flow reads the origin after forking;
+/// the route was missing so reads 405'd).
+#[utoipa::path(get, path = "/api/reply-snippets/{id}", tag = "admin", security(("bearer" = [])),
+    params(("id" = uuid::Uuid, Path)),
+    responses((status = 200, body = ReplySnippetView),
+              (status = 404),
+              (status = 403, description = "requires tickets:view or admin:view")))]
+pub async fn get_by_id(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<ReplySnippetView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_staff_reader(&authed.principal)?;
+    let org_id = authed.principal.user.org_id;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let snippet = core_db::reply_snippets::get(&mut *tx, org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(ReplySnippetView::from(snippet)))
+}
+
 /// POST /api/v1/reply-snippets — add a snippet to the library.
 #[utoipa::path(post, path = "/api/reply-snippets", tag = "admin", security(("bearer" = [])),
     request_body = CreateReplySnippetRequest,

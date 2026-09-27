@@ -41,6 +41,15 @@ type Priority = components["schemas"]["Priority"];
 type TicketStatusCategory = components["schemas"]["TicketStatusCategory"];
 type AutomationCondition = components["schemas"]["AutomationCondition"];
 type AutomationAction = components["schemas"]["AutomationAction"];
+// §4.6: plugin-contributed action kinds ride the same action list. The
+// SDK's closed vocabulary gains `plugin_action` when the pins regen; the
+// local draft type keeps the editor honest in the meantime.
+type PluginActionDraft = {
+  type: "plugin_action";
+  entry_key: string;
+  params: Record<string, unknown>;
+};
+type AutomationActionDraft = AutomationAction | PluginActionDraft;
 type BoardNavEntry = components["schemas"]["BoardNavEntry"];
 type OrgUser = components["schemas"]["OrgUser"];
 type NotificationKind = components["schemas"]["NotificationKind"];
@@ -106,7 +115,11 @@ function conditionText(c: AutomationCondition): string {
   return "Ticket is unassigned";
 }
 
-function actionText(a: AutomationAction, userName: (id: string) => string): string {
+function actionText(a: AutomationActionDraft, userName: (id: string) => string): string {
+  if (a.type === "plugin_action") {
+    const params = a.params as { body?: unknown };
+    return `${a.entry_key} “${String(params.body ?? "")}”`;
+  }
   if (a.type === "set_priority") return `Set priority to ${PRIORITY_LABEL[a.priority]}`;
   if (a.type === "add_internal_comment") return `Add internal note “${a.body}”`;
   if (a.type === "assign_user") return `Assign to ${userName(a.user_id)}`;
@@ -120,7 +133,14 @@ function emptyCondition(c: AutomationCondition): string | null {
   return null;
 }
 
-function emptyAction(a: AutomationAction, users: OrgUser[]): string | null {
+function emptyAction(a: AutomationActionDraft, users: OrgUser[]): string | null {
+  if (a.type === "plugin_action") {
+    if (a.entry_key === "") return "Plugin action needs a registered kind.";
+    const body = (a.params as { body?: unknown }).body;
+    if (typeof body !== "string" || body.trim() === "")
+      return "Plugin action needs a note body.";
+    return null;
+  }
   if (a.type === "add_internal_comment" && a.body.trim() === "")
     return "Internal note needs a body.";
   if (a.type === "assign_user" && !UUID_RE.test(a.user_id)) return "Assign needs a user.";
@@ -134,6 +154,29 @@ function emptyAction(a: AutomationAction, users: OrgUser[]): string | null {
 
 export default function AutomationsPage() {
   const auth = useRequireAuth();
+
+  // §4.6 surface registry: the org's plugin action kinds for the picker.
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.api.GET("/api/v1/plugins/surface/automation-actions", {});
+        if (cancelled) return;
+        setPluginActions(
+          (res.data?.entries ?? []).map((e) => ({
+            entry_key: e.entry_key,
+            label: e.label,
+          })),
+        );
+      } catch {
+        if (!cancelled) setPluginActions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status]);
 
   const [rules, setRules] = useState<AutomationRuleView[] | null>(null);
   const [boards, setBoards] = useState<BoardNavEntry[]>([]);
@@ -158,7 +201,10 @@ export default function AutomationsPage() {
   const [conditions, setConditions] = useState<AutomationCondition[]>([]);
 
   // Action builder state
-  const [actType, setActType] = useState<"set_priority" | "add_internal_comment" | "assign_user" | "notify_users">("set_priority");
+  const [actType, setActType] = useState<string>("set_priority");
+  // §4.6: registered plugin action kinds (entry_key + label), listed
+  // after the built-ins in the action picker.
+  const [pluginActions, setPluginActions] = useState<{ entry_key: string; label: string }[]>([]);
   const [actPriority, setActPriority] = useState<Priority>("p1");
   const [actBody, setActBody] = useState("");
   const [actUserId, setActUserId] = useState("");
@@ -166,7 +212,7 @@ export default function AutomationsPage() {
   const [actNotifyKind, setActNotifyKind] = useState<NotificationKind>("ticket_update");
   const [actNotifyTitle, setActNotifyTitle] = useState("");
   const [actError, setActError] = useState<string | null>(null);
-  const [actions, setActions] = useState<AutomationAction[]>([]);
+  const [actions, setActions] = useState<AutomationActionDraft[]>([]);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -277,19 +323,25 @@ export default function AutomationsPage() {
   };
 
   const handleAddAction = () => {
-    const act: AutomationAction =
-      actType === "set_priority"
+    const act: AutomationActionDraft =
+      actType.startsWith("plugin:")
+        ? {
+            type: "plugin_action",
+            entry_key: actType.slice("plugin:".length),
+            params: { body: actBody.trim() },
+          }
+        : actType === "set_priority"
         ? { type: "set_priority", priority: actPriority }
         : actType === "add_internal_comment"
-          ? { type: "add_internal_comment", body: actBody.trim() }
-          : actType === "assign_user"
-            ? { type: "assign_user", user_id: actUserId.trim() }
-            : {
-                type: "notify_users",
-                user_ids: actNotifyUsers,
-                kind: actNotifyKind,
-                title: actNotifyTitle.trim(),
-              };
+        ? { type: "add_internal_comment", body: actBody.trim() }
+        : actType === "assign_user"
+        ? { type: "assign_user", user_id: actUserId.trim() }
+        : {
+            type: "notify_users",
+            user_ids: actNotifyUsers,
+            kind: actNotifyKind,
+            title: actNotifyTitle.trim(),
+          };
     const problem = emptyAction(act, users);
     setActError(problem);
     if (problem !== null) return;
@@ -666,6 +718,11 @@ export default function AutomationsPage() {
                       <SelectItem value="add_internal_comment">Add internal note</SelectItem>
                       <SelectItem value="assign_user">Assign to user</SelectItem>
                       <SelectItem value="notify_users">Notify users</SelectItem>
+                      {pluginActions.map((p) => (
+                        <SelectItem key={p.entry_key} value={`plugin:${p.entry_key}`}>
+                          {p.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -684,14 +741,14 @@ export default function AutomationsPage() {
                   </div>
                 ) : null}
 
-                {actType === "add_internal_comment" ? (
+                {actType === "add_internal_comment" || actType.startsWith("plugin:") ? (
                   <div className="w-56">
                     <Label htmlFor="ar-act-body">Note body</Label>
                     <Input
                       id="ar-act-body"
                       value={actBody}
                       onChange={(e) => setActBody(e.target.value)}
-                      placeholder="Automated triage note"
+                      placeholder={actType.startsWith("plugin:") ? "Note the plugin action adds" : "Automated triage note"}
                     />
                   </div>
                 ) : null}

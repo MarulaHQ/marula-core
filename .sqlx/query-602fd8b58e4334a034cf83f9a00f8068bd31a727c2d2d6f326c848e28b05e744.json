@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO plugin_surface_entries\n                 (id, org_id, install_id, surface, entry_key, label, definition)\n               VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "602fd8b58e4334a034cf83f9a00f8068bd31a727c2d2d6f326c848e28b05e744"
+}

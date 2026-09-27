@@ -5,12 +5,12 @@
   "routes": {
     "today": {
       "docs": [
-          {
-            "path": "how-to/technician-service-day",
-            "audience": "both",
-            "updated": "2026-09-26",
-            "title": "How to run a service day from the phone"
-          },
+        {
+          "path": "how-to/technician-service-day",
+          "audience": "both",
+          "updated": "2026-09-26",
+          "title": "How to run a service day from the phone"
+        },
         {
           "path": "how-to/technician-field-ops",
           "audience": "both",
@@ -51,18 +51,18 @@
           "updated": "2026-09-26",
           "title": "How to use reply snippets"
         },
-          {
-            "path": "how-to/technician-tools-and-parts",
-            "audience": "both",
-            "updated": "2026-09-26",
-            "title": "How to check out tools and use parts on site"
-          },
-          {
-            "path": "how-to/technician-service-day",
-            "audience": "both",
-            "updated": "2026-09-26",
-            "title": "How to run a service day from the phone"
-          },
+        {
+          "path": "how-to/technician-tools-and-parts",
+          "audience": "both",
+          "updated": "2026-09-26",
+          "title": "How to check out tools and use parts on site"
+        },
+        {
+          "path": "how-to/technician-service-day",
+          "audience": "both",
+          "updated": "2026-09-26",
+          "title": "How to run a service day from the phone"
+        },
         {
           "path": "how-to/staff-work-a-ticket",
           "audience": "both",
@@ -139,12 +139,12 @@
     },
     "inventory": {
       "docs": [
-          {
-            "path": "how-to/technician-tools-and-parts",
-            "audience": "both",
-            "updated": "2026-09-26",
-            "title": "How to check out tools and use parts on site"
-          },
+        {
+          "path": "how-to/technician-tools-and-parts",
+          "audience": "both",
+          "updated": "2026-09-26",
+          "title": "How to check out tools and use parts on site"
+        },
         {
           "path": "how-to/technician-field-ops",
           "audience": "both",
@@ -586,6 +586,16 @@
           "audience": "admin",
           "updated": "2026-09-26",
           "title": "How to watch your self-hosted services"
+        }
+      ]
+    },
+    "settings-plugin-surfaces": {
+      "docs": [
+        {
+          "path": "how-to/admin-plugin-surfaces",
+          "audience": "admin",
+          "updated": "2026-09-27",
+          "title": "How to extend Meridian with plugin surfaces"
         }
       ]
     }
