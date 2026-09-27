@@ -97,6 +97,7 @@ pub mod org_users;
 pub mod passwords;
 pub mod pipeline;
 pub mod plugin_distribution;
+pub mod plugin_surface;
 pub mod plugins;
 pub mod portal;
 pub mod portal_admin;
@@ -612,7 +613,9 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         )
         .route(
             &rp("/reply-snippets/{id}"),
-            axum::routing::patch(reply_snippets::update).delete(reply_snippets::delete),
+            get(reply_snippets::get_by_id)
+                .patch(reply_snippets::update)
+                .delete(reply_snippets::delete),
         )
         .route(&rp("/reply-snippets/{id}/fork"), post(reply_snippets::fork))
         .route(
@@ -1571,6 +1574,25 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/plugins/installed/{id}"),
             axum::routing::patch(plugins::update_install).delete(plugins::delete_install),
+        )
+        // §4.6 plugin surface registry (Wave 34 lane 4): reads are any
+        // authed org member (declarations carry no org data; each
+        // consuming surface keeps its own data gates).
+        .route(
+            &rp("/plugins/surface/widgets"),
+            get(plugin_surface::list_widgets),
+        )
+        .route(
+            &rp("/plugins/surface/automation-actions"),
+            get(plugin_surface::list_automation_actions),
+        )
+        .route(
+            &rp("/plugins/surface/report-renders"),
+            get(plugin_surface::list_report_renders),
+        )
+        .route(
+            &rp("/plugins/surface/field-validators"),
+            get(plugin_surface::list_field_validators),
         )
         // ADR 0009 distribution lifecycle (Wave 16 lane 7): sources,
         // staged imports, update re-consent, settings-from-manifest,

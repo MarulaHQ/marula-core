@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT e.id, e.install_id, e.surface, e.entry_key, e.label,\n                  e.definition, e.enabled\n           FROM plugin_surface_entries e\n           JOIN plugin_installs i ON i.id = e.install_id AND i.org_id = e.org_id\n           WHERE e.org_id = $1 AND e.surface = $2 AND e.entry_key = $3 AND e.enabled\n             AND i.status = 'enabled' AND i.revoked_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "install_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "surface",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "entry_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "definition",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "697c9cbdfe2200b99f086a42f38b64cffc4d3987c5f7ccb5fe6b8c67c1f9f200"
+}

@@ -78,6 +78,35 @@ const VIZ_OPTIONS: { value: VizHint; label: string }[] = [
   { value: "table", label: "Table" },
 ];
 
+/** §4.6: plugin-contributed render kinds shown under the chart picker.
+ * Registration is visible here; the selectable vocabulary stays the
+ * core's trusted set until a plugin kind maps onto one of its
+ * components. */
+function PluginRenderKindsNote() {
+  const [kinds, setKinds] = useState<{ entry_key: string; label: string }[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.api.GET("/api/v1/plugins/surface/report-renders", {});
+        if (cancelled) return;
+        setKinds((res.data?.entries ?? []).map((e) => ({ entry_key: e.entry_key, label: e.label })));
+      } catch {
+        if (!cancelled) setKinds([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (kinds === null || kinds.length === 0) return null;
+  return (
+    <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }} data-testid="plugin-render-kinds">
+      Plugin render kinds registered: {kinds.map((k) => k.label).join(", ")}
+    </p>
+  );
+}
+
 const FILTER_OPS: FilterOp[] = ["eq", "not_eq", "lt", "lt_eq", "gt", "gt_eq", "is_null", "is_not_null"];
 
 export function ReportBuilder({
@@ -444,6 +473,7 @@ export function ReportBuilder({
                 ))}
               </SelectContent>
             </Select>
+            <PluginRenderKindsNote />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>

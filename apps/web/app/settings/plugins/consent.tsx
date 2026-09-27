@@ -185,6 +185,14 @@ const CAPABILITY_NOTES: Record<string, string> = {
     "Ciphertext-only ingress — the plugin may submit ENCRYPTED payloads into a scoped vault folder. The core never accepts plaintext secrets, and the folder's existing RBAC grants still gate reads.",
   "routing.matrix":
     "Routing provider — reads scheduling context (coordinates, times) and returns travel durations and distances. Routing scopes resolve to the scheduling VIEW gate and never confer scheduling edits.",
+  "ui.widgets":
+    "Widgets — the plugin may register dashboard and ticket-pane widgets. Widgets are declarative cards rendered by Meridian's own components; the plugin ships no code the browser runs.",
+  "automation.actions":
+    "Automation actions — the plugin may register action kinds for the automations editor. Each action runs a consented built-in effect (such as adding an internal comment) with typed parameters.",
+  "reports.render":
+    "Report renders — the plugin may contribute render kinds to the report builder. Rendering stays in Meridian's trusted component set.",
+  "fields.validate":
+    "Field validators — the plugin may contribute JSON-Schema validators for board custom fields. Meridian runs the checks; the plugin never sees field values.",
 };
 
 /** The capability notes block — prints the vault:ingress posture under
@@ -206,6 +214,55 @@ export function CapabilityNotes({ capabilities }: { capabilities: string[] | nul
   );
 }
 
+/** §4.6 (Wave 34 lane 4) — the declarative UI-surface profile rendered
+ * VERBATIM on consent: the widgets, automation action kinds, report
+ * render kinds, and field validators the plugin contributes. Absent or
+ * empty profiles render nothing (a plugin with no surface declarations
+ * gets the baseline consent only). */
+export function SurfaceProfileBlock({ surfaceProfile }: { surfaceProfile?: unknown }) {
+  const profile = surfaceProfile as
+    | {
+        widgets?: { id: string; title: string; slot: string; kind: string }[];
+        actions?: { id: string; label: string; description: string; effect: string }[];
+        render_kinds?: { id: string; label: string; description: string }[];
+        field_validators?: { id: string; label: string }[];
+      }
+    | null
+    | undefined;
+  if (!profile) return null;
+  const sections: [string, string[]][] = [
+    ["Widgets", (profile.widgets ?? []).map((w) => `${w.title} — ${w.kind} on ${w.slot.replace("_", " ")}`)],
+    ["Automation actions", (profile.actions ?? []).map((a) => `${a.label} — runs "${a.effect}"`)],
+    ["Report render kinds", (profile.render_kinds ?? []).map((r) => `${r.label} — ${r.description}`)],
+    ["Field validators", (profile.field_validators ?? []).map((v) => v.label)],
+  ];
+  const total = sections.reduce((n, [, rows]) => n + rows.length, 0);
+  if (total === 0) return null;
+  return (
+    <div className="rounded-md border border-dashed p-3" style={{ borderColor: "var(--m-border)" }}>
+      <p className="text-[11px] uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+        UI surfaces
+      </p>
+      <ul className="mt-2 grid gap-1">
+        {sections
+          .filter(([, rows]) => rows.length > 0)
+          .map(([name, rows]) => (
+            <li key={name} className="text-[12px]">
+              <span style={{ color: "var(--m-text-secondary)" }}>{name}:</span>{" "}
+              {rows.join("; ")}
+            </li>
+          ))}
+      </ul>
+      <p className="mt-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+        Declarative registrations only — widgets render through Meridian&apos;s
+        own components, automation actions run consented built-in effects,
+        and validators are JSON-Schema checks. The plugin contributes no
+        executable code to these surfaces.
+      </p>
+    </div>
+  );
+}
+
 /**
  * The consent surface itself: provenance chain + capability consent +
  * declared settings schema. `diff` present ⇒ renders Added / Removed /
@@ -218,6 +275,7 @@ export function ConsentSummary({
   diff,
   settingsSchema,
   connectorProfile,
+  surfaceProfile,
   grants,
   onToggleGrant,
 }: {
@@ -225,6 +283,7 @@ export function ConsentSummary({
   diff?: ConsentDiffView | null;
   settingsSchema?: unknown;
   connectorProfile?: unknown;
+  surfaceProfile?: unknown;
   grants?: string[] | null;
   onToggleGrant?: (capability: string) => void;
 }) {
@@ -303,6 +362,7 @@ export function ConsentSummary({
           />
         )}
         <ConnectorProfileBlock connectorProfile={connectorProfile} />
+        <SurfaceProfileBlock surfaceProfile={surfaceProfile} />
         <SettingsSchemaBlock schema={settingsSchema} />
       </div>
     </div>

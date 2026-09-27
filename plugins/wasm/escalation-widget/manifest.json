@@ -1,0 +1,42 @@
+{
+  "name": "Escalation Policy Widget",
+  "version": "1.0.0",
+  "interface_version": 1,
+  "description": "Ships the escalation-policy widget: a read-only list card on the ticket pane carrying the org's published escalation ladder.",
+  "artifact_kind": "wasm",
+  "capabilities": [
+    "ui.widgets"
+  ],
+  "surface_profile": {
+    "widgets": [
+      {
+        "id": "escalation_policy",
+        "title": "Escalation policy",
+        "slot": "ticket_pane",
+        "kind": "list",
+        "props_schema": {
+          "type": "object",
+          "properties": {
+            "Tier 1": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "Tier 2": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "After hours": {
+              "type": "string",
+              "maxLength": 80
+            }
+          }
+        },
+        "default_props": {
+          "Tier 1": "Board owner, within 2 hours",
+          "Tier 2": "Duty manager, within 8 hours",
+          "After hours": "On-call rota, page via phone"
+        }
+      }
+    ]
+  }
+}

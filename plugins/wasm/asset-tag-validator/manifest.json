@@ -1,0 +1,22 @@
+{
+  "name": "Asset Tag Validator",
+  "version": "1.0.0",
+  "interface_version": 1,
+  "description": "Ships the asset-tag field validator: a JSON-Schema check Meridian runs on every write of any custom field wired to it.",
+  "artifact_kind": "wasm",
+  "capabilities": ["fields.validate"],
+  "surface_profile": {
+    "field_validators": [
+      {
+        "id": "asset_tag",
+        "label": "Asset tag",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "value": { "type": "string", "minLength": 6, "maxLength": 32 }
+          }
+        }
+      }
+    ]
+  }
+}

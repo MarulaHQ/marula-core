@@ -973,6 +973,82 @@ pub async fn effects(
                         .await?;
                     }
                 }
+                core_domain::automations::AutomationAction::PluginAction {
+                    entry_key,
+                    params,
+                } => {
+                    // The registry row is the WHOLE authorization: it
+                    // exists only while the install is enabled, the grant
+                    // stands, and the entry is enabled. A missing entry
+                    // skips, never fails the batch.
+                    let entry = core_db::plugin_surface::get_entry_by_key(
+                        &mut *ctx.tx,
+                        req.org_id,
+                        "automation_action",
+                        entry_key,
+                    )
+                    .await
+                    .ok()
+                    .flatten();
+                    let Some(entry) = entry else {
+                        continue;
+                    };
+                    // The consented effect vocabulary — currently ONE
+                    // effect; unknown effects skip (deny-by-default).
+                    if entry.definition.get("effect").and_then(|v| v.as_str())
+                        != Some("add_internal_comment")
+                    {
+                        continue;
+                    }
+                    // Typed params: validated against the entry's own
+                    // declared JSON-Schema subset at execution time.
+                    if let Some(schema_value) =
+                        entry.definition.get("params_schema").filter(|v| !v.is_null())
+                    {
+                        let Ok(schema) =
+                            core_domain::entities::plugins::SettingsSchema::new(schema_value.clone())
+                        else {
+                            continue;
+                        };
+                        if schema.validate_config(params).is_err() {
+                            continue;
+                        }
+                    }
+                    let Some(body) = params.get("body").and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    if body.trim().is_empty() || body.len() > 4000 {
+                        continue;
+                    }
+                    let comment = core_db::tickets::insert_comment(
+                        &mut *ctx.tx,
+                        core_db::tickets::NewTicketComment {
+                            id: Uuid::now_v7(),
+                            org_id: req.org_id,
+                            ticket_id: req.ticket_id,
+                            author_id: None,
+                            kind: core_domain::status::NoteKind::Internal,
+                            body: body.trim(),
+                            workflow_meta: None,
+                        },
+                    )
+                    .await?;
+                    let mut payload =
+                        serde_json::to_value(core_domain::events::TicketCommentAdded {
+                            comment: comment.clone(),
+                            mentioned_user_ids: vec![],
+                        })
+                        .unwrap_or_default();
+                    payload["via_automation"] = marker["via_automation"].clone();
+                    payload["plugin_action"] = serde_json::json!(entry_key);
+                    ctx.emit(
+                        types::TICKET_COMMENT_ADDED,
+                        "ticket_comment",
+                        Some(comment.id.to_string().as_str()),
+                        &payload,
+                    )
+                    .await?;
+                }
             }
         }
 

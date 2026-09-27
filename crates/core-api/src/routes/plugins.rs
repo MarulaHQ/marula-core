@@ -88,6 +88,11 @@ pub struct PluginManifestBody {
     /// Valid only on http_connector manifests; wasm manifests refuse it.
     #[serde(default)]
     pub connector_profile: Option<core_domain::entities::ConnectorProfile>,
+    /// §4.6 (Wave 34 lane 4) — the declarative UI-surface profile
+    /// (widgets / automation actions / report render kinds / field
+    /// validators). Valid only on wasm manifests.
+    #[serde(default)]
+    pub surface_profile: Option<core_domain::entities::PluginSurfaceProfile>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -245,6 +250,7 @@ fn build_manifest(
         settings_schema: body.settings_schema.clone(),
         artifact_kind: None,
         connector_profile: body.connector_profile.clone(),
+        surface_profile: body.surface_profile.clone(),
     };
     manifest.validate().map_err(ApiError::from)?;
     Ok(manifest)
@@ -555,6 +561,7 @@ fn fallback_manifest(install: &PluginInstall) -> PluginManifestV2 {
         settings_schema: None,
         artifact_kind: None,
         connector_profile: None,
+        surface_profile: None,
     }
 }
 
@@ -610,6 +617,12 @@ pub async fn create_install(
             revoked_by: None,
         };
         core_db::plugins::create_install(&mut tx.tx, &install).await?;
+        // §4.6: derive + persist the surface registrations the pinned
+        // manifest declares under the granted capabilities (data rows
+        // only; they render nowhere until the install enables).
+        plugin_host::surface::sync_install_surface(&mut tx.tx, &install, &pinned.manifest)
+            .await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!(e.to_string())))?;
         core_db::audit::insert(
             &mut *tx.tx,
             &core_domain::entities::AuditEvent {
@@ -713,6 +726,12 @@ pub async fn update_install(
         )
         .await?;
         let updated = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
+        // §4.6: grant/version changes rewrite the surface registrations
+        // to exactly what the new (manifest, grants) pair declares — the
+        // deny-by-default residue is deletion, not retention.
+        plugin_host::surface::sync_install_surface(&mut tx.tx, &updated, &target_manifest)
+            .await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!(e.to_string())))?;
         core_db::audit::insert(
             &mut *tx.tx,
             &core_domain::entities::AuditEvent {
