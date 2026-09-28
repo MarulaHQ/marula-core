@@ -86,6 +86,12 @@
           "audience": "both",
           "updated": "2026-09-24",
           "title": "How to scan barcodes and QR codes"
+        },
+        {
+          "path": "how-to/staff-multi-window",
+          "audience": "both",
+          "updated": "2026-09-28",
+          "title": "How to use multiple windows"
         }
       ]
     },
@@ -118,6 +124,12 @@
           "audience": "both",
           "updated": "2026-09-22",
           "title": "How to dispatch from the board"
+        },
+        {
+          "path": "how-to/staff-multi-window",
+          "audience": "both",
+          "updated": "2026-09-28",
+          "title": "How to use multiple windows"
         }
       ]
     },

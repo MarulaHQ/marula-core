@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AuthBrand } from "../../components/auth/auth-brand";
 import { api, resolveApiBaseUrl, saveTokens, useAuth } from "../../lib/api";
+import { broadcastSession } from "../../lib/popout/window-bus";
 
 const API_BASE = resolveApiBaseUrl();
 
@@ -90,6 +91,8 @@ export default function LoginPage() {
           return;
         }
         saveTokens(result);
+        // Wave 38 session honesty: restore every sibling window too.
+        broadcastSession("restored");
       } else {
         saveTokens(
           await api.register({

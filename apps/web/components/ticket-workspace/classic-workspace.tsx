@@ -36,6 +36,7 @@ import {
   useRequireAuth,
 } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
+import { windowScopedKey } from "../../lib/popout/window-key";
 import {
   makeMyWorkSpec,
   makeTicketDetailSpec,
@@ -99,9 +100,11 @@ export function TicketWorkspaceClassic(): ReactNode {
   const router = useRouter();
   const ticketId = params?.id ?? "";
 
-  // Layout: persisted three-pane row split.
+  // Layout: persisted three-pane row split. Inside a popout window the
+  // key is window-scoped (`<user>@@ticket-workspace`) so screen 2's
+  // arrangement is remembered per window role, never clobbering main.
   const controller = usePanelLayout({
-    userId: auth.me?.user_id ?? "anonymous",
+    userId: windowScopedKey(auth.me?.user_id ?? "anonymous"),
     fallback: {
       kind: "split",
       id: "root",
@@ -434,6 +437,9 @@ export function TicketWorkspaceClassic(): ReactNode {
       const result = await mutate({
         describe: `Note on ${ticket.number}`,
         entityId: tempId,
+        // Window-bus echo carries the REAL entity (pending matches nothing
+        // on the receiving side).
+        echoEntities: [ticketId],
         method: "POST",
         path: `/api/v1/tickets/${ticketId}/comments`,
         buildBody: (base) => ({
@@ -512,6 +518,7 @@ export function TicketWorkspaceClassic(): ReactNode {
     const result = await mutate({
       describe: "Add checklist item",
       entityId: tempId,
+      echoEntities: [ticketId],
       method: "POST",
       path: `/api/v1/tickets/${ticketId}/checklist`,
       buildBody: (base) => ({ text, ...base }),

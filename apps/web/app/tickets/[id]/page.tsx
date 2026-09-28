@@ -55,6 +55,7 @@ import {
   type MoveBoardOutcome,
 } from "../../../components/ticket-workspace/move-board";
 import { TasksPanel } from "../../../components/ticket-workspace/tasks-panel";
+import { PopoutButton } from "../../../components/popout/popout-button";
 import { SchedulingPod } from "../../../components/ticket-workspace/scheduling-pod";
 import { TicketStatusBar, transitionAllowed } from "../../../components/ticket-status-bar";
 import { keywordsOf } from "../../../components/workbench-v2/agent-panel";
@@ -573,6 +574,10 @@ async function changeStatus(statusId: string): Promise<void> {
       const result = await mutate({
         describe: `Note on ${ticket.number}`,
         entityId: tempId,
+        // The window-bus echo carries the REAL entity (a sibling window
+        // re-snapshots models holding the ticket id) — the pending marker
+        // matches nothing on the receiving side.
+        echoEntities: [ticketId],
         method: "POST",
         path: `/api/v1/tickets/${ticketId}/comments`,
         buildBody: (base) => ({
@@ -633,6 +638,7 @@ async function changeStatus(statusId: string): Promise<void> {
     const result = await mutate({
       describe: "Add checklist item",
       entityId: tempId,
+      echoEntities: [ticketId],
       method: "POST",
       path: `/api/v1/tickets/${ticketId}/checklist`,
       buildBody: (base) => ({ text, ...base }),
@@ -989,6 +995,7 @@ async function changeStatus(statusId: string): Promise<void> {
               >
                 {iconOnlyActions ? "◫" : "Classic"}
               </Link>
+              <PopoutButton iconOnly={iconOnlyActions} params={{ id: ticket.id }} />
               <button
                 type="button"
                 className="flex h-[30px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-semibold"

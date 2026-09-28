@@ -13,6 +13,7 @@ import { MeridianClient } from "@meridian/sdk";
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { broadcastSession, onBusMessage } from "./popout/window-bus";
 
 const TOKENS_KEY = "meridian-tokens";
 
@@ -125,6 +126,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [status, setStatus] = useState<AuthState["status"]>("loading");
 
+  // Wave 38 session honesty: one logout expires EVERY window (soft
+  // sign-out here, matching the local logout path); one re-login restores
+  // every window (reload re-bootstraps from the shared session cookie).
+  useEffect(() => {
+    return onBusMessage((message) => {
+      if (message.kind !== "session") return;
+      if (message.state === "expired") {
+        clearTokens();
+        setMe(null);
+        setStatus("anonymous");
+        notifyAuthSettled();
+        return;
+      }
+      // restored elsewhere: the cookie session is shared, so a reload
+      // re-runs the cookie-driven rotation and this window comes back.
+      if (typeof window !== "undefined") window.location.reload();
+    });
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function restore() {
@@ -179,6 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTokens();
       setMe(null);
       setStatus("anonymous");
+      broadcastSession("expired");
     }
   }, []);
 

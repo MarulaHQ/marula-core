@@ -16,7 +16,8 @@ export type CommandVerb =
   | "copy-link"
   | "close"
   | "share"
-  | "palette";
+  | "palette"
+  | "popout";
 
 /** Parsed, canonical chord — lowercased key + explicit modifiers. */
 export interface Chord {

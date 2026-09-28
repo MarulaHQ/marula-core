@@ -20,6 +20,9 @@ import { TimerDock } from "../timer-dock";
 import { isHeaderlessPath } from "./chrome";
 import { DesktopUpdateStrip } from "./desktop-update-strip";
 import { NavRail } from "./nav-rail";
+import { PopoutShell } from "./popout-shell";
+import { currentPopoutKey, currentShownEntity } from "../../lib/popout/window-key";
+import { announceWindow, updateShownEntities } from "../../lib/popout/window-bus";
 import { ThemePresetSync } from "../theme-preset-sync";
 import { TourScheduler } from "../help/tour-scheduler";
 import { ShortcutLayer } from "../shortcuts/shortcut-layer";
@@ -80,8 +83,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const auth = useAuth();
   const headerless = isHeaderlessPath(pathname);
-  const openCount = useOpenTicketCount(auth.status === "authed" && !headerless);
+  // Wave 38: popout windows (route-keyed) render the compact shell — no
+  // nav rail, slim workbar. The flag comes from openPopout's URL.
+  const [popoutKey, setPopoutKey] = useState<string | null>(null);
+  useEffect(() => {
+    setPopoutKey(currentPopoutKey());
+  }, []);
+  const openCount = useOpenTicketCount(
+    auth.status === "authed" && !headerless && popoutKey === null,
+  );
   const [collapsed, setCollapsed] = useState(false);
+
+  // Window registry (Wave 38): the main window announces itself and keeps
+  // its shown entity current, so notification routing can FOCUS the window
+  // already showing a target instead of duplicating it.
+  useEffect(() => {
+    if (currentPopoutKey() !== null) return;
+    announceWindow(null, [currentShownEntity()].filter((e): e is string => e !== null));
+  }, []);
+  useEffect(() => {
+    if (currentPopoutKey() !== null) return;
+    updateShownEntities([currentShownEntity()].filter((e): e is string => e !== null));
+  }, [pathname]);
 
   useEffect(() => {
     try {
@@ -102,6 +125,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return next;
     });
   }, []);
+
+  // Popout windows render the compact shell AFTER all hooks (hook-order
+  // safety): no rail, slim bar, slim workbar.
+  if (popoutKey !== null) {
+    return <PopoutShell authed={auth.status === "authed"}>{children}</PopoutShell>;
+  }
 
   if (headerless) return (
     <>

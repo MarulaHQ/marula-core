@@ -15,6 +15,12 @@
 // Non-purpose: no React (use-instant.ts binds hooks), no page wiring.
 
 import { api, loadTokens, resolveApiBaseUrl } from "../api";
+import {
+  answerClaims,
+  broadcastEntityChange,
+  claimFlight,
+  onBusMessage,
+} from "../popout/window-bus";
 import { EventBus } from "./event-bus";
 import { InstantStore, type MutationMetaLike } from "./instant-store";
 import {
@@ -128,24 +134,49 @@ function buildRuntime(): Runtime {
 
   // Queue invoker: every replay attempt reconciles the store from the
   // server's verdict — accepted snapshots apply through the ledger,
-  // rejections restore the captured pre-optimistic entity.
+  // rejections restore the captured pre-optimistic entity. Accepted
+  // shared mutations ALSO broadcast on the window bus (Wave 38): sibling
+  // windows apply the same envelope through the ledger-deduped optimistic
+  // path, so one window's write surfaces in the others the moment
+  // optimistic sync lands — never a stale mirror.
+  const inFlightKeys = new Set<string>();
   const invoke = async (op: QueuedWrite): Promise<InvokeResult> => {
-    const result = await transport.request(op.method, op.path, op.body);
-    if (result.outcome === "network") return { outcome: "network" };
-    if (result.outcome === "rejected") {
+    const flightKey =
+      typeof op.body === "object" && op.body !== null && "idempotency_key" in op.body
+        ? String((op.body as { idempotency_key: unknown }).idempotency_key)
+        : "";
+    // Single-flight: a sibling window already flying THIS idempotency key
+    // wins; we skip instead of double-applying (the server-side key stays
+    // the hard guarantee underneath).
+    if (flightKey !== "" && !(await claimFlight(flightKey))) {
+      return { outcome: "accepted", mutation: null };
+    }
+    if (flightKey !== "") inFlightKeys.add(flightKey);
+    try {
+      const result = await transport.request(op.method, op.path, op.body);
+      if (result.outcome === "network") return { outcome: "network" };
+      if (result.outcome === "rejected") {
+        if (op.entityId !== undefined) {
+          store.revertEntity(op.entityId, op.before);
+          store.ledger.endPending(op.entityId);
+        }
+        return {
+          outcome: "rejected",
+          reason: result.reason ?? "conflict",
+          message: result.message,
+        };
+      }
       if (op.entityId !== undefined) {
-        store.revertEntity(op.entityId, op.before);
         store.ledger.endPending(op.entityId);
+        if (result.mutation !== undefined && result.mutation !== null) {
+          store.applyMutation(op.entityId, result.mutation);
+          broadcastEntityChange(op.echoEntities ?? [op.entityId], result.mutation);
+        }
       }
-      return { outcome: "rejected", reason: result.reason ?? "conflict", message: result.message };
+      return { outcome: "accepted", mutation: result.mutation };
+    } finally {
+      if (flightKey !== "") inFlightKeys.delete(flightKey);
     }
-    if (op.entityId !== undefined) {
-      store.ledger.endPending(op.entityId);
-      if (result.mutation !== undefined && result.mutation !== null) {
-        store.applyMutation(op.entityId, result.mutation);
-      }
-    }
-    return { outcome: "accepted", mutation: result.mutation };
   };
 
   const queue = new OfflineQueue({
@@ -157,6 +188,44 @@ function buildRuntime(): Runtime {
   // subscribes. Presence frames never touch the bus (ephemeral — the
   // stream's presence listeners own them).
   bus.subscribe((event) => store.applyEvent(event));
+  // Wave 38 cross-window leg: sibling windows' accepted writes apply here
+  // through the same ledger-deduped path (the authoritative reconcile is
+  // still each window's own SSE stream — this is the instant local echo).
+  if (typeof window !== "undefined") {
+    const offEcho = onBusMessage((message) => {
+      if (message.kind !== "entity-changed") return;
+      const meta = message.meta as {
+        after: unknown; before: unknown; seq: number; updated_at: string; version: number;
+        idempotency_key?: string | null;
+      } | null;
+      if (meta === null || typeof meta.seq !== "number" || meta.after === null || meta.after === undefined) {
+        return;
+      }
+      // Only merge the envelope when `after` IS the entity named by
+      // entityId (ticket updates). Comment posts carry the COMMENT as
+      // `after` against the ticket id — merging would fold a comment into
+      // the ticket model; re-snapshot instead.
+      const afterIsEntity =
+        (meta.after as { id?: unknown } | null)?.id === null
+          ? false
+          : message.entityIds.some((entityId) => entityId === (meta.after as { id?: unknown }).id);
+      for (const entityId of message.entityIds) {
+        if (typeof entityId === "string" && entityId !== "") {
+          if (afterIsEntity) store.applyMutation(entityId, meta);
+          // Comment posts and structured payloads can't merge through the
+          // envelope alone — re-snapshot the models holding this entity
+          // (bounded, inflight-deduped; SSE reconciles authoritatively).
+          void store.refreshHolding(entityId);
+        }
+      }
+    });
+    // Answer sibling single-flight claims while our writes are in flight.
+    const offClaims = answerClaims((key) => inFlightKeys.has(key));
+    window.addEventListener("pagehide", () => {
+      offEcho();
+      offClaims();
+    }, { once: true });
+  }
   // Reconnect triggers: replay the durable queue when the wire returns
   // or the browser regains network. replay() is reentrancy-guarded.
   stream.onStatus((status) => {

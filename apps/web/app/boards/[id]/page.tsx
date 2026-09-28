@@ -55,6 +55,7 @@ import {
   type BoardTransitions,
 } from "../../../lib/board-view";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { openPopout } from "../../../lib/popout/popout";
 import {
   boardModelKey,
   makeBoardSpec,
@@ -308,6 +309,8 @@ function KanbanCard({
 }: KanbanCardProps): ReactNode {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  // Popup-blocker fallback: an honest inline hint, never silent failure.
+  const [popoutHint, setPopoutHint] = useState<string | null>(null);
   const tone = categoryTone(ticket.category);
   const due = dueChip(ticket.due_at, Date.now());
   const current = statuses.find((s) => s.id === ticket.status_id) ?? null;
@@ -330,6 +333,20 @@ function KanbanCard({
       }}
       onDragEnd={onDragEnd}
     >
+      {popoutHint !== null && (
+        <p
+          role="status"
+          data-testid="popout-blocked-hint"
+          className="px-3 py-1.5 text-[11px]"
+          style={{ color: "var(--m-text-secondary)" }}
+        >
+          Pop-up blocked —{" "}
+          <a href={popoutHint} target="_blank" rel="noreferrer" className="underline">
+            open the window directly
+          </a>
+          .
+        </p>
+      )}
       <span
         aria-hidden
         className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full"
@@ -414,6 +431,23 @@ function KanbanCard({
                       {s.name}
                     </Button>
                   ))}
+                  <div className="my-1 border-t" style={{ borderColor: "var(--m-border)" }} />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    data-testid={`kanban-popout-${ticket.number}`}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      const result = openPopout("ticket-detail", { id: ticket.id });
+                      if (!result.ok) {
+                        setPopoutHint(
+                          `${window.location.origin}/tickets/${ticket.id}?popout=ticket-detail`,
+                        );
+                      }
+                    }}
+                  >
+                    ⧉ Pop out ticket
+                  </Button>
                 </div>
               )}
             </span>

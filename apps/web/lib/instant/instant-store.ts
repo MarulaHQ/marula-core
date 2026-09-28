@@ -133,6 +133,26 @@ export class InstantStore {
   }
 
   /**
+   * Wave 38 cross-window leg: re-snapshot every hydrated read model that
+   * currently holds `entityId` — the receiving side of a window-bus
+   * entity-changed ping when the mutation envelope alone cannot merge the
+   * change (comment posts, structured payloads). Concurrent pings dedupe
+   * through each entry's inflight promise; failures leave the next SSE
+   * frame to reconcile.
+   */
+  async refreshHolding(entityId: string): Promise<void> {
+    for (const [key, entry] of this.entries.entries()) {
+      if (!entry.hydrated || entry.data === undefined) continue;
+      if (!entry.spec.entityIds(entry.data).includes(entityId)) continue;
+      try {
+        await this.refresh(key, entry.spec);
+      } catch {
+        // The next event (or a user action) reconciles — never wedged.
+      }
+    }
+  }
+
+  /**
    * Synchronous optimistic/authoritative patch. No-op when the collection
    * is not hydrated yet (hydration will carry the truth).
    */

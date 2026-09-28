@@ -12,6 +12,7 @@ import { Button } from "@meridian/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { kindLabel, useNotifications, type NotificationItem } from "../lib/use-notifications";
+import { requestFocus } from "../lib/popout/window-bus";
 
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -130,7 +131,12 @@ export function NotificationDock() {
       return;
     }
     if (item.ticket_id) {
-      router.push(`/tickets/${item.ticket_id}`);
+      const path = `/tickets/${item.ticket_id}`;
+      // Wave 38 dock routing: if another window already shows this entity,
+      // FOCUS it there — never duplicate navigation (or toasts) in two
+      // windows at once. Falls back to in-window navigation.
+      if (requestFocus(path)) return;
+      router.push(path);
     }
   };
 

@@ -20,6 +20,11 @@ export interface QueuedWrite {
   /** Human label for surfacing ("Set status Waiting on MER-12"). */
   describe: string;
   entityId?: string;
+  /**
+   * Real entity ids the mutation touches, for the Wave 38 window-bus echo
+   * when `entityId` is a synthetic optimistic marker (`pending-…`).
+   */
+  echoEntities?: string[];
   /** Entity snapshot captured before the optimistic patch (durable revert). */
   before?: unknown;
   queuedAt: string;

@@ -10,6 +10,7 @@
 //
 // Non-purpose: no transport (runtime.ts adapts the SDK client), no UI.
 
+import { broadcastEntityChange } from "../popout/window-bus";
 import type { InstantStore, MutationMetaLike } from "./instant-store";
 import type { OfflineQueue } from "./offline-queue";
 
@@ -42,6 +43,13 @@ export interface WriteSpec {
   describe: string;
   /** The written entity's id, when known before the response (updates). */
   entityId?: string;
+  /**
+   * Real entity ids the mutation touches, for the Wave 38 window-bus echo
+   * when `entityId` is a synthetic optimistic marker (`pending-…`): sibling
+   * windows re-snapshot the models holding THESE ids. Defaults to
+   * `[entityId]`.
+   */
+  echoEntities?: string[];
   method: "POST" | "PATCH" | "PUT";
   path: string;
   /**
@@ -93,6 +101,7 @@ export function executeInstantWrite(
         body,
         describe: spec.describe,
         entityId: spec.entityId,
+        echoEntities: spec.echoEntities,
         before,
       });
       return { status: "queued", key } as WriteResult;
@@ -107,9 +116,14 @@ export function executeInstantWrite(
         details: result.details,
       } as WriteResult;
     }
-    // Accepted: reconcile the authoritative snapshot through the ledger.
+    // Accepted: reconcile the authoritative snapshot through the ledger,
+    // then broadcast on the window bus (Wave 38) so sibling windows apply
+    // the same envelope and re-snapshot models holding the entity — one
+    // window's write surfaces in the others the moment optimistic sync
+    // lands (replayed ops broadcast through the queue invoker instead).
     if (spec.entityId !== undefined && result.mutation !== undefined && result.mutation !== null) {
       store.applyMutation(spec.entityId, result.mutation);
+      broadcastEntityChange(spec.echoEntities ?? [spec.entityId], result.mutation);
     }
     return { status: "accepted", mutation: result.mutation ?? null } as WriteResult;
   });

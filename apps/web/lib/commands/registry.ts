@@ -15,6 +15,8 @@
 //   is one navigation tree whether you click or press.
 
 import { RAIL_SECTIONS } from "@/components/shell/rail-model";
+import { openPopout } from "@/lib/popout/popout";
+import { paramsFor, popoutRouteFor } from "@/lib/popout/registry";
 import type { CommandContext, CommandDef, CommandVerb } from "./types";
 
 /** Click-parity target for surfaces that expose their own create control. */
@@ -118,10 +120,45 @@ const COPY_LINK_COMMANDS: CommandDef[] = [
   },
 ];
 
+/**
+ * Popout commands (Wave 38): open the current surface as a route-keyed
+ * secondary window (multi-monitor), exactly as the in-context "Pop out"
+ * affordance does. Blocked pop-ups surface the same honest inline hint.
+ */
+const POPOUT_COMMANDS: CommandDef[] = [
+  {
+    id: "popout.ticket",
+    verb: "popout",
+    label: "Pop out ticket",
+    description: "Open this ticket in its own window (compact shell, for a second monitor).",
+    chord: "alt+p",
+    surfaces: ["/tickets/[id]", "/tickets/classic/[id]"],
+    run: () => {
+      const def = popoutRouteFor(window.location.pathname);
+      if (def === null) return;
+      openPopout(def.key, paramsFor(def, window.location.pathname));
+    },
+  },
+  {
+    id: "popout.surface",
+    verb: "popout",
+    label: "Pop out surface",
+    description: "Open this surface (dispatch board, stock lookup, decisions) in its own window.",
+    chord: "alt+shift+p",
+    surfaces: ["/dispatch", "/stock", "/approvals"],
+    run: () => {
+      const def = popoutRouteFor(window.location.pathname);
+      if (def === null) return;
+      openPopout(def.key, paramsFor(def, window.location.pathname));
+    },
+  },
+];
+
 /** The registry, in dispatch order: surface-scoped rows first, then global. */
 export const COMMAND_REGISTRY: ReadonlyArray<CommandDef> = [
   ...NEW_RECORD_COMMANDS,
   ...COPY_LINK_COMMANDS,
+  ...POPOUT_COMMANDS,
   ...GLOBAL_COMMANDS,
   ...RAIL_COMMANDS,
 ];
@@ -142,6 +179,7 @@ export function registryGroups(): ReadonlyArray<{ title: string; commands: Reado
       commands: RAIL_COMMANDS,
     },
     { title: "On specific surfaces", commands: [...NEW_RECORD_COMMANDS, ...COPY_LINK_COMMANDS] },
+    { title: "Multi-window (pop out)", commands: POPOUT_COMMANDS },
   ];
 }
 
