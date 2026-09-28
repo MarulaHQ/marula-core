@@ -1382,6 +1382,67 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     )
     .await?;
 
+    // --- Wave 39: a per-incident P1 band + a prepaid block ----------------
+    let contract_incident = demo_uuid(172);
+    sqlx::query(
+        "INSERT INTO contracts (id, org_id, client_id, number, name, contract_type, status,
+                                currency, effective_from, incident_price_minor,
+                                incident_priority, po_number, notes)
+         VALUES ($1, $2, $3, 'CT-1003', 'Globex P1 Coverage', 'per_incident', 'active',
+                 'USD', $4, 45000, 'p1', 'PO-88231',
+                 'Demo per-incident: 450.00 per closed P1 ticket.')",
+    )
+    .bind(contract_incident)
+    .bind(DEMO_ORG_ID)
+    .bind(globex)
+    .bind(anchor_two_months_back(now.date_naive()))
+    .execute(&mut *tx)
+    .await?;
+    trail_system_write(
+        &mut tx,
+        "contract",
+        contract_incident,
+        serde_json::json!({ "number": "CT-1003", "contract_type": "per_incident" }),
+    )
+    .await?;
+    let contract_retainer = demo_uuid(173);
+    sqlx::query(
+        "INSERT INTO contracts (id, org_id, client_id, number, name, contract_type, status,
+                                currency, effective_from, billing_frequency, billing_anchor,
+                                amount_minor, included_minutes, overage_rate_minor, po_number, notes)
+         VALUES ($1, $2, $3, 'CT-1004', 'Northwind Care Retainer', 'retainer', 'active',
+                 'USD', $4, 'monthly', $4, 120000, 600, 16000, 'PO-55107',
+                 'Demo retainer: 1200.00/month, 10 included hours, 160.00/h overage.')",
+    )
+    .bind(contract_retainer)
+    .bind(DEMO_ORG_ID)
+    .bind(northwind)
+    .bind(anchor_two_months_back(now.date_naive()))
+    .execute(&mut *tx)
+    .await?;
+    // A prepaid 10-hour block sold against the retainer (block rate
+    // undercuts the overage card on purpose).
+    sqlx::query(
+        "INSERT INTO contract_blocks (id, org_id, contract_id, label, total_minutes,
+                                      sale_price_minor, block_rate_minor, expires_on,
+                                      rollover_policy)
+         VALUES ($1, $2, $3, '10-hour prepaid block (this quarter)', 600, 100000,
+                 12000, $4, 'expire')",
+    )
+    .bind(demo_uuid(174))
+    .bind(DEMO_ORG_ID)
+    .bind(contract_retainer)
+    .bind(now.date_naive() + Duration::days(60))
+    .execute(&mut *tx)
+    .await?;
+    trail_system_write(
+        &mut tx,
+        "contract",
+        contract_retainer,
+        serde_json::json!({ "number": "CT-1004", "contract_type": "retainer" }),
+    )
+    .await?;
+
     // --- invoice run over the past period → 2 invoices -------------------
     let run_number = crate::invoices::next_number(&mut *tx, DEMO_ORG_ID, "RUN-").await?;
     let run_id = demo_uuid(190);
@@ -2911,7 +2972,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         checklist_items: checklist_count,
         timer_sessions: 3,
         time_entries: time_entry_count,
-        contracts: 2,
+        contracts: 4,
         invoices: 2,
         kb_articles: kb_articles.len(),
         documents: 1,

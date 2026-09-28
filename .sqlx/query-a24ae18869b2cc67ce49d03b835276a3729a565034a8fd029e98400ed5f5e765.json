@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO contract_block_draws (id, org_id, block_id, time_entry_id,\n                                             invoice_id, minutes, drawn_on)\n           VALUES ($1, $2, $3, $4, $5, $6, now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a24ae18869b2cc67ce49d03b835276a3729a565034a8fd029e98400ed5f5e765"
+}

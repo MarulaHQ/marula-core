@@ -27,6 +27,11 @@ MSP admin, MSP staff, or both.
   Audience: both.
 - [Instant-first interaction](instant-first.md) — the binding interaction
   doctrine and its support contract. Audience: both.
+- [Contract relationship types](contract-relationship-types.md) — the six
+  MSP-client agreement shapes Meridian bills, the configuration that
+  rides them (prepaid blocks, NTE caps, minimums, escalators, change
+  orders, SLA credits), and why tax stays at the accounting-export
+  boundary. Audience: both.
 - [Customizations are data](customizations-are-data.md) — why declarative
   rows make upgrades boring. Audience: both.
 - [The upgrade compatibility policy](upgrade-policy.md) — bounded promises,

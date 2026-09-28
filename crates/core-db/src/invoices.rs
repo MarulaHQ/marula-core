@@ -171,9 +171,9 @@ where
                                  currency, period_from, period_to, issued_at, due_on,
                                  total_minor, total_paid_minor, dunning_state,
                                  fx_rate_used, fx_rate_date, fx_source, base_total_minor,
-                                 created_by)
+                                 po_number, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                   $16::text::numeric, $17, $18, $19, $20)"#,
+                   $16::text::numeric, $17, $18, $19, $20, $21)"#,
         invoice.id,
         invoice.org_id,
         invoice.run_id,
@@ -193,6 +193,7 @@ where
         invoice.fx_rate_date,
         invoice.fx_source,
         invoice.base_total_minor,
+        invoice.po_number,
         invoice.created_by,
     )
     .execute(executor)
@@ -337,6 +338,7 @@ struct InvoiceRow {
     dunning_state: String,
     dunning_updated_at: Option<chrono::DateTime<chrono::Utc>>,
     dunning_note: Option<String>,
+    po_number: Option<String>,
     notes: Option<String>,
     fx_rate_used: Option<String>,
     fx_rate_date: Option<chrono::NaiveDate>,
@@ -368,6 +370,7 @@ fn invoice_row(row: InvoiceRow) -> Invoice {
             .expect("CHECK constraint guarantees a valid dunning state"),
         dunning_updated_at: row.dunning_updated_at,
         dunning_note: row.dunning_note,
+        po_number: row.po_number,
         notes: row.notes,
         fx_rate_used: row.fx_rate_used,
         fx_rate_date: row.fx_rate_date,
@@ -398,7 +401,7 @@ where
         InvoiceRow,
         r#"SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,
                   period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
-                  dunning_state, dunning_updated_at, dunning_note, notes, created_by,
+                  dunning_state, dunning_updated_at, dunning_note, po_number, notes, created_by,
                   fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
                   created_at, updated_at
            FROM invoices WHERE org_id = $1 AND id = $2"#,
@@ -424,7 +427,7 @@ where
         InvoiceRow,
         r#"SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,
                   period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
-                  dunning_state, dunning_updated_at, dunning_note, notes, created_by,
+                  dunning_state, dunning_updated_at, dunning_note, po_number, notes, created_by,
                   fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
                   created_at, updated_at
            FROM invoices
@@ -466,7 +469,7 @@ where
         InvoiceRow,
         r#"SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,
                   period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
-                  dunning_state, dunning_updated_at, dunning_note, notes, created_by,
+                  dunning_state, dunning_updated_at, dunning_note, po_number, notes, created_by,
                   fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
                   created_at, updated_at
            FROM invoices
@@ -499,7 +502,7 @@ where
         InvoiceRow,
         r#"SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,
                   period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
-                  dunning_state, dunning_updated_at, dunning_note, notes, created_by,
+                  dunning_state, dunning_updated_at, dunning_note, po_number, notes, created_by,
                   fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
                   created_at, updated_at
            FROM invoices
@@ -634,7 +637,7 @@ where
            WHERE org_id = $1 AND id = $2 AND status = 'issued'
            RETURNING id, org_id, run_id, client_id, contract_id, number, status, currency,
                      period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
-                     dunning_state, dunning_updated_at, dunning_note, notes,
+                     dunning_state, dunning_updated_at, dunning_note, po_number, notes,
                      fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
                      created_by, created_at, updated_at"#,
         org_id,
@@ -665,7 +668,7 @@ where
            WHERE org_id = $1 AND id = $2 AND status = 'issued'
            RETURNING id, org_id, run_id, client_id, contract_id, number, status, currency,
                      period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
-                     dunning_state, dunning_updated_at, dunning_note, notes,
+                     dunning_state, dunning_updated_at, dunning_note, po_number, notes,
                      fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
                      created_by, created_at, updated_at"#,
         org_id,
@@ -755,7 +758,7 @@ where
            WHERE org_id = $1 AND id = $2 AND status = 'issued'
            RETURNING id, org_id, run_id, client_id, contract_id, number, status, currency,
                      period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,
-                     dunning_state, dunning_updated_at, dunning_note, notes,
+                     dunning_state, dunning_updated_at, dunning_note, po_number, notes,
                      fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,
                      created_by, created_at, updated_at"#,
         org_id,

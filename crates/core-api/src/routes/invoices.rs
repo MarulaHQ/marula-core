@@ -57,6 +57,7 @@ use core_domain::events::{
 use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::str::FromStr;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -347,21 +348,30 @@ pub async fn create_run(
         let contract_ids: Vec<Uuid> = contracts.iter().map(|c| c.id).collect();
         let billed_keys =
             core_db::invoices::list_billed_keys(&mut *ctx.tx, org_id, &contract_ids).await?;
-        // Period lines dedupe on (contract, kind, period_start); fixed
-        // fees on (contract, due date, label) — two sets because their
-        // identity rules differ.
+        // Period lines dedupe on (contract, kind, period_start); the
+        // description-keyed kinds (fixed fees, block sales/drawdowns, cap
+        // overages, change orders, SLA credits, per-incident, escalators)
+        // dedupe on (contract, period_start, description). Per-unit and
+        // minimum true-up are kind+period-identity kinds.
+        let period_kinds = |kind: &str| {
+            matches!(
+                core_domain::entities::BillingLineKind::from_str(kind),
+                Ok(k) if k.is_period_kind()
+            )
+        };
         let billed_periods: std::collections::HashSet<(Uuid, String, chrono::NaiveDate)> =
             billed_keys
                 .iter()
-                .filter(|k| {
-                    k.kind != BillingLineKind::FixedFee.as_str()
-                        && k.kind != BillingLineKind::TimeMaterials.as_str()
-                })
+                .filter(|k| period_kinds(&k.kind))
                 .map(|k| (k.contract_id, k.kind.clone(), k.period_start))
                 .collect();
         let billed_fees: std::collections::HashSet<(Uuid, chrono::NaiveDate, String)> = billed_keys
             .iter()
-            .filter(|k| k.kind == BillingLineKind::FixedFee.as_str())
+            .filter(|k| !period_kinds(&k.kind))
+            .filter(|k| {
+                k.kind != BillingLineKind::TimeMaterials.as_str()
+                    && k.kind != BillingLineKind::RetainerOverage.as_str()
+            })
             .map(|k| (k.contract_id, k.period_start, k.description.clone()))
             .collect();
 
@@ -417,9 +427,19 @@ pub async fn create_run(
                 .collect();
             let rates = core_db::contracts::list_rates(&mut *ctx.tx, org_id, contract.id).await?;
             let fees = core_db::contracts::list_fees(&mut *ctx.tx, org_id, contract.id).await?;
-            let evaluation =
-                core_billing::rules::evaluate(contract, &rates, &fees, &inputs, window.0, window.1)
-                    .map_err(engine_error)?;
+            let eval_inputs =
+                crate::routes::billing::load_eval_inputs(&mut ctx.tx, org_id, contract, window.0, window.1)
+                    .await?;
+            let evaluation = core_billing::rules::evaluate_with(
+                contract,
+                &rates,
+                &fees,
+                &inputs,
+                window.0,
+                window.1,
+                &eval_inputs,
+            )
+            .map_err(engine_error)?;
 
             // Skip already-billed candidates; the partial unique indexes
             // remain the concurrency backstop.
@@ -503,6 +523,9 @@ pub async fn create_run(
                 _ => Vec::new(),
             };
 
+            // Invoice carries the contract's PO reference forward (F):
+            // each document shows what the client's AP matches it to.
+            let po_number = contract.po_number.clone();
             let number = core_db::invoices::next_number(&mut *ctx.tx, org_id, "INV-").await?;
             let (period_from, period_to) = match contract.contract_type {
                 ContractType::FixedFee => (None, None),
@@ -607,6 +630,7 @@ pub async fn create_run(
                 dunning_state: DunningState::None,
                 dunning_updated_at: None,
                 dunning_note: None,
+                po_number: po_number.clone(),
                 notes: None,
                 created_by: Some(user_id),
                 created_at: chrono::Utc::now(),
@@ -643,6 +667,72 @@ pub async fn create_run(
             if !consumed.is_empty() {
                 core_db::invoices::insert_entry_links(&mut *ctx.tx, org_id, invoice.id, &consumed)
                     .await?;
+            }
+            // Wave-39 aggregate side effects (same transaction: a failure
+            // rolls the whole run back):
+            // * block draws persist per consumed entry (the verification
+            //   read model computes remaining balances from this ledger),
+            // * applied SLA credits flip pending → applied with the
+            //   consuming invoice (never silent, never double-applied),
+            // * billed change orders flip approved → billed.
+            if let Some(consumption) = &evaluation.block_consumption {
+                for draw in &consumption.draws {
+                    let Some(entry_id) = draw.time_entry_id else {
+                        continue;
+                    };
+                    core_db::contracts::insert_block_draw(
+                        &mut ctx.tx,
+                        org_id,
+                        draw.block_id,
+                        entry_id,
+                        invoice.id,
+                        draw.minutes,
+                    )
+                    .await?;
+                }
+            }
+            let applied_credit_ids: Vec<Uuid> = evaluation
+                .lines
+                .iter()
+                .filter(|l| l.kind == BillingLineKind::SlaCredit)
+                .filter_map(|l| {
+                    l.description
+                        .split('[')
+                        .nth(1)
+                        .and_then(|rest| rest.split(']').next())
+                        .and_then(|id| Uuid::parse_str(id).ok())
+                })
+                .collect();
+            core_db::contracts::mark_sla_credits_applied(
+                &mut *ctx.tx,
+                org_id,
+                &applied_credit_ids,
+                invoice.id,
+            )
+            .await?;
+            let billed_order_ids: Vec<Uuid> = eval_inputs
+                .change_orders
+                .iter()
+                .filter(|o| o.status == "approved")
+                .filter(|o| {
+                    o.approved_at
+                        .map(|a| a.date_naive() >= window.0 && a.date_naive() <= window.1)
+                        .unwrap_or(false)
+                })
+                .map(|o| o.id)
+                .collect();
+            for order_id in billed_order_ids {
+                core_db::contracts::update_change_order_status(
+                    &mut *ctx.tx,
+                    org_id,
+                    contract.id,
+                    order_id,
+                    "billed",
+                    None,
+                    None,
+                    Some(invoice.id),
+                )
+                .await?;
             }
             ctx.emit(
                 types::INVOICE_CREATED,

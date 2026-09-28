@@ -190,6 +190,11 @@ pub struct Invoice {
     pub dunning_state: DunningState,
     pub dunning_updated_at: Option<chrono::DateTime<Utc>>,
     pub dunning_note: Option<String>,
+    /// Client purchase-order reference (Wave 39 F): copied from the
+    /// producing contract at run time so the document carries what the
+    /// client's AP system matches against. TAX STAYS OUT by design —
+    /// the 0036 boundary stands (tax is an accounting-export concern).
+    pub po_number: Option<String>,
     pub notes: Option<String>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub created_by: Option<uuid::Uuid>,
@@ -360,6 +365,7 @@ mod tests {
             dunning_state: DunningState::None,
             dunning_updated_at: None,
             dunning_note: None,
+            po_number: None,
             notes: None,
             created_by: None,
             created_at: Utc::now(),

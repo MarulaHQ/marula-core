@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE contract_sla_credits SET status = 'applied',\n              applied_invoice_id = $3, updated_at = now()\n           WHERE org_id = $1 AND id = ANY($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7db72676654fca93a4ed829c2667e4e72e30534193d784a8432cf59618836db0"
+}

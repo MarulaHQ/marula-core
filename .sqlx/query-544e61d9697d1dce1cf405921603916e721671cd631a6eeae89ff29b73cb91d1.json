@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM contract_minimums WHERE org_id = $1 AND contract_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "544e61d9697d1dce1cf405921603916e721671cd631a6eeae89ff29b73cb91d1"
+}

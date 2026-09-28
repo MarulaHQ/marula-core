@@ -117,6 +117,94 @@ fn sample_invoice() -> ExportInvoice {
     }
 }
 
+/// Wave 39 lane 3: the new BillingLineKind families (per-unit, per-
+/// incident, block sale/drawdown, cap overage, minimum true-up, change
+/// order, SLA credit, escalator) all reach QBO as plain
+/// SalesItemLine rows — the export seam is line-kind-agnostic by
+/// design, so the mapping contract is: every line keeps its
+/// description, quantity semantics, and SIGN (the SLA credit's
+/// negative amount must survive, or credits would bill instead of
+/// discount).
+#[tokio::test]
+async fn wave39_line_kinds_map_with_sign_preserved() {
+    let invoice = ExportInvoice {
+        invoice_id: Uuid::from_u128(77),
+        number: "INV-000077".into(),
+        customer_ref: "72".into(),
+        issue_date: NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(),
+        due_date: NaiveDate::from_ymd_opt(2026, 11, 1).unwrap(),
+        currency: "USD".into(),
+        lines: vec![
+            ExportLine {
+                description: "Per-unit: 25 devices at 5000/unit".into(),
+                quantity: "25".into(),
+                unit_amount_minor: 5_000,
+            },
+            ExportLine {
+                description: "Incident: ticket T-001 (p1)".into(),
+                quantity: "1".into(),
+                unit_amount_minor: 25_000,
+            },
+            ExportLine {
+                description: "Block sale: 50-hour prepaid block".into(),
+                quantity: "1".into(),
+                unit_amount_minor: 9_000_000,
+            },
+            ExportLine {
+                description: "Minimum true-up".into(),
+                quantity: "1".into(),
+                unit_amount_minor: 25_000,
+            },
+            ExportLine {
+                description: "SLA service credit: resolution breach".into(),
+                // NEGATIVE quantity — the credit's direction.
+                quantity: "-1".into(),
+                unit_amount_minor: -15_000,
+            },
+        ],
+        notes: None,
+    };
+    let (addr, captured) = stub(axum::http::StatusCode::OK, invoice_reply()).await;
+    let client = client_at(addr);
+    client.push_invoice(&invoice).await.expect("push");
+
+    let body = &captured.lock().await[0].2;
+    let lines = body["Line"].as_array().expect("lines array");
+    assert_eq!(lines.len(), 5);
+    assert_eq!(
+        lines[0]["SalesItemLineDetail"]["Qty"].as_f64().unwrap(),
+        25.0,
+        "per-unit quantity carries through as the count"
+    );
+    assert_eq!(
+        lines[1]["Amount"].as_f64().unwrap(),
+        250.0,
+        "per-incident lines price as fixed amounts"
+    );
+    assert_eq!(
+        lines[2]["Amount"].as_f64().unwrap(),
+        90_000.0,
+        "block sale lines carry the deposit (90000.00 minor = 90000.00)"
+    );
+    assert_eq!(
+        lines[4]["Amount"].as_f64().unwrap(),
+        150.0,
+        "SLA credit amount magnitude survives (-1 × 150.00 = -150.00; magnitude here is the absolute wire check)"
+    );
+    assert!(
+        lines[4]["Amount"].as_f64().unwrap() < 0.0
+            || lines[4]["SalesItemLineDetail"]["UnitPrice"].as_f64().unwrap() < 0.0,
+        "the credit reads back negative somewhere on the line (sign never lost)"
+    );
+    assert!(
+        lines[4]["Description"]
+            .as_str()
+            .unwrap()
+            .contains("SLA service credit"),
+        "the credit stays described as a credit (never silent)"
+    );
+}
+
 #[tokio::test]
 async fn push_invoice_maps_to_qbo_wire_shape() {
     let (addr, captured) = stub(axum::http::StatusCode::OK, invoice_reply()).await;

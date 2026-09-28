@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE invoices SET status = 'void', updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND status = 'issued'\n           RETURNING id, org_id, run_id, client_id, contract_id, number, status, currency,\n                     period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,\n                     dunning_state, dunning_updated_at, dunning_note, notes,\n                     fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,\n                     created_by, created_at, updated_at",
+  "query": "SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,\n                  period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,\n                  dunning_state, dunning_updated_at, dunning_note, po_number, notes, created_by,\n                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,\n                  created_at, updated_at\n           FROM invoices\n           WHERE org_id = $1 AND client_id = $2 AND status IN ('issued', 'paid')\n           ORDER BY issued_at DESC, number DESC\n           LIMIT $3",
   "describe": {
     "columns": [
       {
@@ -90,41 +90,46 @@
       },
       {
         "ordinal": 17,
-        "name": "notes",
+        "name": "po_number",
         "type_info": "Text"
       },
       {
         "ordinal": 18,
-        "name": "fx_rate_used",
+        "name": "notes",
         "type_info": "Text"
       },
       {
         "ordinal": 19,
-        "name": "fx_rate_date",
-        "type_info": "Date"
-      },
-      {
-        "ordinal": 20,
-        "name": "fx_source",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 21,
-        "name": "base_total_minor",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 22,
         "name": "created_by",
         "type_info": "Uuid"
       },
       {
+        "ordinal": 20,
+        "name": "fx_rate_used",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 21,
+        "name": "fx_rate_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 22,
+        "name": "fx_source",
+        "type_info": "Text"
+      },
+      {
         "ordinal": 23,
+        "name": "base_total_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 24,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -132,7 +137,8 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid"
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -154,8 +160,9 @@
       true,
       true,
       true,
-      null,
       true,
+      true,
+      null,
       true,
       true,
       true,
@@ -163,5 +170,5 @@
       false
     ]
   },
-  "hash": "6cc3b450467d3539fdced08d608d2c42990fcf005147d03d65a2b07c374a8dac"
+  "hash": "30785844fb288333b0fd5366c3ba35fc7a3bbc79ac5aff80c0c20cdd4f6c6db0"
 }

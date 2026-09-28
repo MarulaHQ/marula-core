@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, client_id, number, name, contract_type, status, currency,\n                  effective_from, effective_until, billing_frequency, billing_anchor,\n                  amount_minor, hourly_rate_minor, included_minutes, overage_rate_minor,\n                  notes, created_at, updated_at\n           FROM contracts\n           WHERE org_id = $1\n             AND status <> $2\n             AND effective_from <= $4\n             AND (effective_until IS NULL OR effective_until >= $3)\n           ORDER BY number",
+  "query": "SELECT id, org_id, client_id, number, name, contract_type, status, currency,\n                  effective_from, effective_until, billing_frequency, billing_anchor,\n                  amount_minor, hourly_rate_minor, included_minutes, overage_rate_minor,\n                  unit_price_minor, unit_basis, incident_price_minor, incident_priority,\n                  po_number, notes, created_at, updated_at\n           FROM contracts\n           WHERE org_id = $1\n             AND status <> $2\n             AND effective_from <= $4\n             AND (effective_until IS NULL OR effective_until >= $3)\n           ORDER BY number",
   "describe": {
     "columns": [
       {
@@ -85,16 +85,41 @@
       },
       {
         "ordinal": 16,
+        "name": "unit_price_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "unit_basis",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "incident_price_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 19,
+        "name": "incident_priority",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 20,
+        "name": "po_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 21,
         "name": "notes",
         "type_info": "Text"
       },
       {
-        "ordinal": 17,
+        "ordinal": 22,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 18,
+        "ordinal": 23,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -125,9 +150,14 @@
       true,
       true,
       true,
+      true,
+      true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "4579de77c3089087698813260be91dd2a231516bd887978c890628a1004ea63b"
+  "hash": "ffe2630871479ae7dfece4225648d6ca6f50bc1023a020ec2f6dbcc90a37f12c"
 }

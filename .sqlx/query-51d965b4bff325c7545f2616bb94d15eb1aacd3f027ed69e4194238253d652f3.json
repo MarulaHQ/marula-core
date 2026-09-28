@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO invoices (id, org_id, run_id, client_id, contract_id, number, status,\n                                 currency, period_from, period_to, issued_at, due_on,\n                                 total_minor, total_paid_minor, dunning_state,\n                                 fx_rate_used, fx_rate_date, fx_source, base_total_minor,\n                                 po_number, created_by)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,\n                   $16::text::numeric, $17, $18, $19, $20, $21)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Date",
+        "Date",
+        "Date",
+        "Date",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Date",
+        "Text",
+        "Int8",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51d965b4bff325c7545f2616bb94d15eb1aacd3f027ed69e4194238253d652f3"
+}

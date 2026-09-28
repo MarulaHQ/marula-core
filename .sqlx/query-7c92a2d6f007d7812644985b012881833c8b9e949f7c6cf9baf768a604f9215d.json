@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,\n                  period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,\n                  dunning_state, dunning_updated_at, dunning_note, notes, created_by,\n                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,\n                  created_at, updated_at\n           FROM invoices\n           WHERE org_id = $1 AND id = $2 AND client_id = $3\n             AND status IN ('issued', 'paid')",
+  "query": "UPDATE invoices SET dunning_state = $3, dunning_updated_at = now(),\n                               dunning_note = $4, updated_at = now()\n           WHERE org_id = $1 AND id = $2 AND status = 'issued'\n           RETURNING id, org_id, run_id, client_id, contract_id, number, status, currency,\n                     period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,\n                     dunning_state, dunning_updated_at, dunning_note, po_number, notes,\n                     fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,\n                     created_by, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -90,13 +90,13 @@
       },
       {
         "ordinal": 17,
-        "name": "notes",
+        "name": "po_number",
         "type_info": "Text"
       },
       {
         "ordinal": 18,
-        "name": "created_by",
-        "type_info": "Uuid"
+        "name": "notes",
+        "type_info": "Text"
       },
       {
         "ordinal": 19,
@@ -120,11 +120,16 @@
       },
       {
         "ordinal": 23,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 24,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -133,7 +138,8 @@
       "Left": [
         "Uuid",
         "Uuid",
-        "Uuid"
+        "Text",
+        "Text"
       ]
     },
     "nullable": [
@@ -160,9 +166,10 @@
       true,
       true,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "4df8dade7d4d5710869a529cde9c88815bb14afd1e097ad86cd9b396de8b82c3"
+  "hash": "7c92a2d6f007d7812644985b012881833c8b9e949f7c6cf9baf768a604f9215d"
 }

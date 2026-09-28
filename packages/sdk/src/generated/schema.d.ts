@@ -3139,6 +3139,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/contracts/{id}/change-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/contracts/{id}/change-orders — create a DRAFT order. The
+         *     lifecycle forward-path (approve → billed at run time) keeps billing
+         *     honest: only APPROVED orders ever price, and the run itself records
+         *     which invoice consumed them.
+         */
+        post: operations["contracts_change_orders_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/change-orders/{order_id}/transition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/contracts/{id}/change-orders/{order_id}/transition — move a
+         *     draft order through its lifecycle. `approve` stamps the approver +
+         *     time (the audit trail's who/when); `reject`/`cancel` are terminal.
+         */
+        post: operations["contracts_change_orders_transition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/sla-credits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/contracts/{id}/sla-credits — record a pending service
+         *     credit. NEGATIVE at billing: the next run whose window covers
+         *     `applies_on` prices it as the invoice's `sla_credit` line.
+         */
+        post: operations["contracts_sla_credits_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/sla-credits/{credit_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/contracts/{id}/sla-credits/{credit_id}/cancel — withdraw a
+         *     pending credit before any run consumes it. Applied credits are
+         *     immutable (additive-ledger rule: corrections issue NEW credits).
+         */
+        post: operations["contracts_sla_credits_cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/credit-notes": {
         parameters: {
             query?: never;
@@ -12930,6 +13015,9 @@ export interface components {
             /**
              * Format: int64
              * @description Line total in minor units (currency on the parent evaluation).
+             *     NEGATIVE only for `sla_credit` lines — the one line kind whose
+             *     signed amount is meaningful; everything else is ≥ 0 and the
+             *     engine's i128 total fold accepts the mix.
              */
             amount_minor: number;
             /** Format: uuid */
@@ -12963,6 +13051,13 @@ export interface components {
         };
         /** @description The result of evaluating one contract's billing rules over a window. */
         BillingEvaluation: {
+            block_consumption?: null | components["schemas"]["BlockConsumption"];
+            /**
+             * @description Cap warnings (`warn` behavior): one human-readable marker per
+             *     (cap, period) whose labor reached the cap. `stop`/`overage_billable`
+             *     communicate through their line shapes instead.
+             */
+            cap_warnings?: string[];
             /** Format: uuid */
             client_id: string;
             /** Format: uuid */
@@ -12996,7 +13091,7 @@ export interface components {
          * @description Which billing rule produced a candidate line.
          * @enum {string}
          */
-        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee";
+        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee" | "per_unit_base" | "per_incident" | "block_sale" | "block_drawdown" | "cap_overage" | "minimum_trueup" | "change_order" | "sla_credit" | "escalator";
         /**
          * @description How the project turns delivered work into money. The value rides the
          *     milestone event payload so core-billing can route without re-reading the
@@ -13004,6 +13099,34 @@ export interface components {
          * @enum {string}
          */
         BillingMethod: "milestone" | "time_and_materials" | "fixed_fee" | "non_billable";
+        /**
+         * @description The per-period consumption summary a block contract's evaluation
+         *     carries back: draws in order, blocks that expired unused inside the
+         *     window (for depletion/expiry alerts), and any minutes that found no
+         *     open block (`unblocked_minutes` — they bill as T&M).
+         */
+        BlockConsumption: {
+            draws: string[];
+            /** Format: int64 */
+            unblocked_minutes: number;
+        };
+        /** @description Prepaid-block spec (A): an hour bank sold up front. */
+        BlockSpec: {
+            /**
+             * Format: int64
+             * @description Optional discounted draw-down rate, minor units per hour.
+             */
+            block_rate_minor?: number | null;
+            /** Format: date */
+            expires_on?: string | null;
+            label: string;
+            /** @description `expire|rollover|none`. */
+            rollover_policy: string;
+            /** Format: int64 */
+            sale_price_minor: number;
+            /** Format: int32 */
+            total_minutes: number;
+        };
         Board: {
             /**
              * Format: date-time
@@ -13496,6 +13619,25 @@ export interface components {
         CandidateView: components["schemas"]["CiMergeCandidate"] & {
             candidate_tag: string;
             primary_tag: string;
+        };
+        /**
+         * @description What evaluation does when a T&M contract's cap is reached (B: never a
+         *     silent cutoff — the behavior is a typed choice on the cap).
+         * @enum {string}
+         */
+        CapReachedBehavior: "stop" | "warn" | "overage_billable";
+        /** @description NTE cap spec (B): typed not-to-exceed behavior. */
+        CapSpec: {
+            /** Format: int64 */
+            cap_minor: number;
+            /** Format: int64 */
+            overage_rate_minor?: number | null;
+            /** @description `stop|warn|overage_billable`. */
+            reached_behavior: components["schemas"]["CapReachedBehavior"];
+            /** @description `period|contract`. */
+            scope: string;
+            /** @description Optional work_type bucket the cap covers (`None` = all labor). */
+            work_type?: string | null;
         };
         CapabilityGrantList: {
             grants: components["schemas"]["CapabilityGrantView"][];
@@ -14473,11 +14615,28 @@ export interface components {
             /** Format: uuid */
             id: string;
             /**
+             * Format: int64
+             * @description Per-incident: the fixed price per closed ticket in the covered
+             *     band, minor units.
+             */
+            incident_price_minor?: number | null;
+            /**
+             * @description Per-incident: which closed tickets price — the four-tier priority
+             *     (`p1|p2|p3|p4`), or `any` for every closed ticket. `NULL` = any.
+             */
+            incident_priority?: string | null;
+            /**
              * Format: int32
              * @description Retainer: labor minutes included in each period's base price.
              */
             included_minutes?: number | null;
             name: string;
+            /**
+             * @description Per-ticket capped bands (T&M, retainer, per-incident on the same
+             *     contract type is fine too): when set, evaluation enforces the cap.
+             *     Stored denormalized from `contract_caps` for read-path simplicity
+             *     (the cap rows carry the authoritative state).
+             */
             notes?: string | null;
             /** @description Human contract number, unique per org (e.g. "C-2026-014"). */
             number: string;
@@ -14488,17 +14647,184 @@ export interface components {
              * @description Retainer: hourly rate for minutes beyond the included block.
              */
             overage_rate_minor?: number | null;
+            /**
+             * @description Client purchase-order reference printed on the invoices this
+             *     contract produces (F: PO number rides the contract so runs carry
+             *     it forward without per-invoice entry).
+             */
+            po_number?: string | null;
             status: components["schemas"]["ContractStatus"];
+            unit_basis?: null | components["schemas"]["UnitBasis"];
+            /**
+             * Format: int64
+             * @description Per-unit recurring: the price per unit per period, minor units.
+             */
+            unit_price_minor?: number | null;
             /** Format: date-time */
             updated_at: string;
         };
         /**
-         * @description The contract aggregate as one view: the agreement plus its rate card
-         *     and fee schedule.
+         * @description A prepaid block (hour bank): sold up front, drawn down on use, with
+         *     expiry + rollover policies (A). Rows are immutable once sold —
+         *     rollover MINTS a successor block at expiry, it never edits the old
+         *     row (additive-ledger doctrine).
+         */
+        ContractBlock: {
+            /**
+             * Format: int64
+             * @description Optional discounted hourly rate for labor priced against this
+             *     block; `None` bills draws at the card/default rate with the block
+             *     absorbing the minutes (a pure prepaid balance).
+             */
+            block_rate_minor?: number | null;
+            /** Format: uuid */
+            contract_id: string;
+            /**
+             * Format: date-time
+             * @description Draw-down ledger: each consumption row subtracts from the block.
+             *     The remaining balance is computed, never stored.
+             */
+            created_at: string;
+            /**
+             * Format: date
+             * @description Last day draws may land inside this block.
+             */
+            expires_on?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description Human label ("50-hour prepaid block, March 2026"). */
+            label: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * @description `expire` — unused minutes lapse at expiry; `rollover` — unused
+             *     minutes mint a successor block (12 months) at expiry; `none` —
+             *     no expiry, draws allowed indefinitely.
+             */
+            rollover_policy: string;
+            /**
+             * Format: int64
+             * @description Sale price, minor units (usually total_minutes/60 × block rate).
+             */
+            sale_price_minor: number;
+            /**
+             * Format: int32
+             * @description Total minutes sold.
+             */
+            total_minutes: number;
+        };
+        /**
+         * @description A T&M not-to-exceed cap. `scope` picks the boundary:
+         *     `period` enforces per billing period, `contract` enforces over the
+         *     contract's whole effective window.
+         */
+        ContractCap: {
+            /**
+             * Format: int64
+             * @description The not-to-exceed amount, minor units of billable work per scope.
+             */
+            cap_minor: number;
+            /** Format: uuid */
+            contract_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: int64
+             * @description Hourly rate for `overage_billable` beyond the cap; `None` bills
+             *     the matched card/default rate.
+             */
+            overage_rate_minor?: number | null;
+            /** @description What happens when the cap is reached (typed, never silent). */
+            reached_behavior: components["schemas"]["CapReachedBehavior"];
+            /** @description `period` or `contract` (ARP-guarded CHECK in 0112). */
+            scope: string;
+            /** @description Optional work_type filter: the cap applies only to that bucket. */
+            work_type?: string | null;
+        };
+        /**
+         * @description An approved change order: a billable amendment with its own lifecycle
+         *     (E). Riding existing approval/audit patterns: statuses
+         *     `draft → approved → billed`, rejected/cancelled terminal.
+         */
+        ContractChangeOrder: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: date-time */
+            approved_at?: string | null;
+            /** Format: uuid */
+            approved_by?: string | null;
+            /** Format: uuid */
+            billed_invoice_id?: string | null;
+            /** Format: uuid */
+            contract_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            number: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description `draft|approved|rejected|billed|cancelled`. */
+            status: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description The contract aggregate as one view: the agreement plus its rate card,
+         *     fee schedule, prepaid blocks, and caps.
          */
         ContractDetail: components["schemas"]["Contract"] & {
+            blocks: components["schemas"]["ContractBlock"][];
+            caps: components["schemas"]["ContractCap"][];
+            /**
+             * @description Lifecycle aggregates ride as counts on the detail (their own
+             *     surfaces list them; this keeps the aggregate view honest about
+             *     attached commercial state).
+             */
+            change_orders: components["schemas"]["ContractChangeOrder"][];
+            escalator?: null | components["schemas"]["ContractEscalator"];
             fees: components["schemas"]["ContractFixedFee"][];
+            /**
+             * Format: int64
+             * @description Per-period minimum commitment, minor units (`None` = none).
+             */
+            minimum_commitment_minor?: number | null;
             rates: components["schemas"]["ContractRate"][];
+            sla_credits: components["schemas"]["ContractSlaCredit"][];
+        };
+        /**
+         * @description A scheduled escalator: the contract's per-period price uplifts by
+         *     `uplift_bps` basis points each anniversary of the billing anchor
+         *     (E). Pure math at evaluation — no state.
+         */
+        ContractEscalator: {
+            /** Format: uuid */
+            contract_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date
+             * @description First anniversary that applies (defaults to evaluation at the
+             *     anchor itself when `None` — the anchor anniversary).
+             */
+            first_uplift_on?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: int32
+             * @description Uplift per anniversary, basis points (300 = +3.0%).
+             */
+            uplift_bps: number;
         };
         /**
          * @description Fixed-fee schedule entry: becomes a candidate line when `due_on` falls
@@ -14560,6 +14886,48 @@ export interface components {
             work_type: string;
         };
         /**
+         * @description An SLA service credit the admin or verification flow applies for a
+         *     missed SLA (E): becomes a NEGATIVE `sla_credit` line at the next
+         *     run window covering `applies_on`. Never silent — the record names
+         *     the ticket, the policy, and the missed target.
+         */
+        ContractSlaCredit: {
+            /**
+             * Format: int64
+             * @description Credit amount, minor units — stored POSITIVE, applied as a
+             *     negative line (the ledger records magnitude; direction is the
+             *     line kind's meaning).
+             */
+            amount_minor: number;
+            /** Format: uuid */
+            applied_invoice_id?: string | null;
+            /**
+             * Format: date
+             * @description The billing window the credit lands in (inclusive-day semantics
+             *     at evaluation: `from <= applies_on <= to`).
+             */
+            applies_on: string;
+            /** Format: uuid */
+            contract_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            currency: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description What was missed ("resolution target breached by 2d 4h"). */
+            reason: string;
+            /** @description `pending|applied|cancelled`. */
+            status: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
          * @description Lifecycle. `draft` contracts evaluate in previews (plan before
          *     activation) but Wave 9's invoice runs will refuse them; `cancelled`
          *     contracts never evaluate. `ended` keeps evaluating candidates whose
@@ -14568,10 +14936,14 @@ export interface components {
          */
         ContractStatus: "draft" | "active" | "ended" | "cancelled";
         /**
-         * @description The four supported commercial agreement shapes.
+         * @description The supported commercial agreement shapes. Wave 39 adds the MSP
+         *     relationship types beyond the original four: per-unit recurring
+         *     (per-seat / per-device) and per-incident (per closed ticket) pricing.
+         *     Prepaid blocks, NTE caps, minimums, and escalators ride the existing
+         *     types as attached configuration rather than new shapes.
          * @enum {string}
          */
-        ContractType: "recurring" | "time_and_materials" | "retainer" | "fixed_fee";
+        ContractType: "recurring" | "time_and_materials" | "retainer" | "fixed_fee" | "per_unit" | "per_incident";
         /** @description POST /api/quotes/{id}/convert-to-invoice body. */
         ConvertQuoteRequest: components["schemas"]["MutationParams"];
         /** @description Convert-to-invoice response: the quote with its seam targets. */
@@ -14772,6 +15144,14 @@ export interface components {
             /** @description Stable per-org handle; derived from the name when omitted. */
             slug?: string | null;
         };
+        CreateChangeOrderRequest: components["schemas"]["MutationParams"] & {
+            /** Format: int64 */
+            amount_minor: number;
+            description?: string | null;
+            /** @description Org-unique per contract ("CO-2026-004"). */
+            number: string;
+            title: string;
+        };
         /** @description POST /api/tool-checkouts. */
         CreateCheckoutRequest: components["schemas"]["MutationParams"] & {
             /** @description When the tools are due back (RFC 3339). */
@@ -14829,6 +15209,10 @@ export interface components {
              */
             billing_anchor?: string | null;
             billing_frequency?: null | components["schemas"]["BillingFrequency"];
+            /** @description Prepaid hour banks (only valid on T&M and retainer contracts). */
+            blocks?: components["schemas"]["BlockSpec"][];
+            /** @description NTE caps (only valid on time_and_materials contracts). */
+            caps?: components["schemas"]["CapSpec"][];
             /** Format: uuid */
             client_id: string;
             contract_type: components["schemas"]["ContractType"];
@@ -14838,6 +15222,7 @@ export interface components {
             effective_from: string;
             /** Format: date */
             effective_until?: string | null;
+            escalator?: null | components["schemas"]["EscalatorSpec"];
             /** @description Fee schedule (only valid on fixed_fee contracts). */
             fees?: components["schemas"]["FeeSpec"][];
             /**
@@ -14846,10 +15231,22 @@ export interface components {
              */
             hourly_rate_minor?: number | null;
             /**
+             * Format: int64
+             * @description Per-incident (D): fixed price per closed ticket.
+             */
+            incident_price_minor?: number | null;
+            /** @description Per-incident (D): `any` or `p1`..`p4`. */
+            incident_priority?: string | null;
+            /**
              * Format: int32
              * @description Retainer included minutes per period.
              */
             included_minutes?: number | null;
+            /**
+             * Format: int64
+             * @description Minimum commitment per period (E); `None` = none.
+             */
+            minimum_commitment_minor?: number | null;
             name: string;
             notes?: string | null;
             number: string;
@@ -14858,9 +15255,17 @@ export interface components {
              * @description Retainer hourly overage rate, minor units.
              */
             overage_rate_minor?: number | null;
+            /** @description Client PO reference printed on produced invoices (F). */
+            po_number?: string | null;
             /** @description T&M rate card (only valid on time_and_materials contracts). */
             rates?: components["schemas"]["RateSpec"][];
             status?: null | components["schemas"]["ContractStatus"];
+            unit_basis?: null | components["schemas"]["UnitBasis"];
+            /**
+             * Format: int64
+             * @description Per-unit recurring (C): price per unit per period.
+             */
+            unit_price_minor?: number | null;
         };
         CreateCostLineRequest: components["schemas"]["MutationParams"] & {
             billable?: boolean;
@@ -15412,6 +15817,21 @@ export interface components {
             postal_code?: string | null;
             region?: string | null;
             timezone?: string | null;
+        };
+        CreateSlaCreditRequest: components["schemas"]["MutationParams"] & {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: date */
+            applies_on: string;
+            currency: string;
+            /**
+             * @description What was missed — printed on the credit line verbatim ("resolution
+             *     target breached by 2d 4h"). Required: a silent credit is exactly
+             *     the failure mode the ledger refuses.
+             */
+            reason: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
         };
         /** @description POST /api/pipeline/stages body. */
         CreateStageRequest: components["schemas"]["MutationParams"] & {
@@ -17084,6 +17504,20 @@ export interface components {
             /** @description 'risk' | 'breach' | 'escalate' — bound to existing notification kinds. */
             trigger_kind: string;
         };
+        /**
+         * @description Scheduled escalator spec (E): uplift bps per billing-annual
+         *     anniversary.
+         */
+        EscalatorSpec: {
+            /**
+             * Format: date
+             * @description First anniversary the uplift applies from (`None` = the anchor's
+             *     first full period).
+             */
+            first_uplift_on?: string | null;
+            /** Format: int32 */
+            uplift_bps: number;
+        };
         EventsListResponse: {
             /** Format: uuid */
             connection_id: string;
@@ -17847,6 +18281,13 @@ export interface components {
             period_from?: string | null;
             /** Format: date */
             period_to?: string | null;
+            /**
+             * @description Client purchase-order reference (Wave 39 F): copied from the
+             *     producing contract at run time so the document carries what the
+             *     client's AP system matches against. TAX STAYS OUT by design —
+             *     the 0036 boundary stands (tax is an accounting-export concern).
+             */
+            po_number?: string | null;
             /**
              * Format: uuid
              * @description The run that created this invoice (`None` for future manual invoices).
@@ -19805,6 +20246,17 @@ export interface components {
             /** Format: date */
             billing_anchor?: string | null;
             billing_frequency?: null | components["schemas"]["BillingFrequency"];
+            /** @description When present, replaces the whole prepaid-block set. */
+            blocks?: components["schemas"]["BlockSpec"][] | null;
+            /** @description When present, replaces the whole cap set. */
+            caps?: components["schemas"]["CapSpec"][] | null;
+            clear_escalator?: boolean | null;
+            /**
+             * @description Explicit clear for the minimum commitment: PATCH cannot
+             *     distinguish "absent" from "null" on the flat field, so removing
+             *     a minimum sends `clear_minimum: true`.
+             */
+            clear_minimum?: boolean | null;
             /** Format: uuid */
             client_id?: string | null;
             contract_type?: null | components["schemas"]["ContractType"];
@@ -19813,20 +20265,33 @@ export interface components {
             effective_from?: string | null;
             /** Format: date */
             effective_until?: string | null;
+            escalator?: null | components["schemas"]["EscalatorSpec"];
             /** @description When present, replaces the whole fee schedule. */
             fees?: components["schemas"]["FeeSpec"][] | null;
             /** Format: int64 */
             hourly_rate_minor?: number | null;
+            /** Format: int64 */
+            incident_price_minor?: number | null;
+            incident_priority?: string | null;
             /** Format: int32 */
             included_minutes?: number | null;
+            /**
+             * Format: int64
+             * @description When present, sets/clears the minimum commitment (`None` clears).
+             */
+            minimum_commitment_minor?: number | null;
             name?: string | null;
             notes?: string | null;
             number?: string | null;
             /** Format: int64 */
             overage_rate_minor?: number | null;
+            po_number?: string | null;
             /** @description When present, replaces the whole rate card. */
             rates?: components["schemas"]["RateSpec"][] | null;
             status?: null | components["schemas"]["ContractStatus"];
+            unit_basis?: null | components["schemas"]["UnitBasis"];
+            /** Format: int64 */
+            unit_price_minor?: number | null;
         };
         PatchMeRequest: {
             display_name?: string | null;
@@ -25487,6 +25952,13 @@ export interface components {
             /** Format: uuid */
             to_location_id: string;
         };
+        TransitionChangeOrderRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description `approve|reject|cancel`. `billed` is run-owned only (never a
+             *     manual write — the invoice run flips it with the invoice link).
+             */
+            action: string;
+        };
         /**
          * @description One directed edge in a board's explicit transition matrix. Both ids must
          *     belong to statuses of the SAME board (enforced here, and by composite FKs
@@ -25684,6 +26156,13 @@ export interface components {
         UniformOk: {
             ok: boolean;
         };
+        /**
+         * @description Which org inventory counts a per-unit contract's quantity at
+         *     evaluation time (C: quantity × unit price per period, unit counts
+         *     drawn from the org's asset/user inventories at evaluation).
+         * @enum {string}
+         */
+        UnitBasis: "devices" | "users";
         UnreadCount: {
             /** Format: int64 */
             count: number;
@@ -32363,6 +32842,174 @@ export interface operations {
             };
             /** @description missing or inverted window */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    contracts_change_orders_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateChangeOrderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractChangeOrder"];
+                };
+            };
+            /** @description contract not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description duplicate change order number or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    contracts_change_orders_transition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransitionChangeOrderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractChangeOrder"];
+                };
+            };
+            /** @description order not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description transition not allowed from the current status */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    contracts_sla_credits_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSlaCreditRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractSlaCredit"];
+                };
+            };
+            /** @description contract not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    contracts_sla_credits_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                credit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractSlaCredit"];
+                };
+            };
+            /** @description credit not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description credit already applied */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

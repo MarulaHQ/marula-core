@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE contract_sla_credits SET status = 'cancelled', updated_at = now()\n         WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5dc360634eb28d3a5287ed829a565e008ab1b2c4ce1e7c8ae6c850ff60dc7452"
+}

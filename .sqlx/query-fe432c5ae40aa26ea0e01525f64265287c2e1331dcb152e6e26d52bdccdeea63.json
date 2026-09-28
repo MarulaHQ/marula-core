@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,\n                  period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,\n                  dunning_state, dunning_updated_at, dunning_note, notes, created_by,\n                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,\n                  created_at, updated_at\n           FROM invoices WHERE org_id = $1 AND id = $2",
+  "query": "SELECT id, org_id, client_id, number, name, contract_type, status, currency,\n                  effective_from, effective_until, billing_frequency, billing_anchor,\n                  amount_minor, hourly_rate_minor, included_minutes, overage_rate_minor,\n                  unit_price_minor, unit_basis, incident_price_minor, incident_priority,\n                  po_number, notes, created_at, updated_at\n           FROM contracts WHERE org_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
@@ -15,22 +15,22 @@
       },
       {
         "ordinal": 2,
-        "name": "run_id",
-        "type_info": "Uuid"
-      },
-      {
-        "ordinal": 3,
         "name": "client_id",
         "type_info": "Uuid"
       },
       {
+        "ordinal": 3,
+        "name": "number",
+        "type_info": "Text"
+      },
+      {
         "ordinal": 4,
-        "name": "contract_id",
-        "type_info": "Uuid"
+        "name": "name",
+        "type_info": "Text"
       },
       {
         "ordinal": 5,
-        "name": "number",
+        "name": "contract_type",
         "type_info": "Text"
       },
       {
@@ -45,86 +45,81 @@
       },
       {
         "ordinal": 8,
-        "name": "period_from",
+        "name": "effective_from",
         "type_info": "Date"
       },
       {
         "ordinal": 9,
-        "name": "period_to",
+        "name": "effective_until",
         "type_info": "Date"
       },
       {
         "ordinal": 10,
-        "name": "issued_at",
-        "type_info": "Date"
+        "name": "billing_frequency",
+        "type_info": "Text"
       },
       {
         "ordinal": 11,
-        "name": "due_on",
+        "name": "billing_anchor",
         "type_info": "Date"
       },
       {
         "ordinal": 12,
-        "name": "total_minor",
+        "name": "amount_minor",
         "type_info": "Int8"
       },
       {
         "ordinal": 13,
-        "name": "total_paid_minor",
+        "name": "hourly_rate_minor",
         "type_info": "Int8"
       },
       {
         "ordinal": 14,
-        "name": "dunning_state",
-        "type_info": "Text"
+        "name": "included_minutes",
+        "type_info": "Int4"
       },
       {
         "ordinal": 15,
-        "name": "dunning_updated_at",
-        "type_info": "Timestamptz"
+        "name": "overage_rate_minor",
+        "type_info": "Int8"
       },
       {
         "ordinal": 16,
-        "name": "dunning_note",
-        "type_info": "Text"
+        "name": "unit_price_minor",
+        "type_info": "Int8"
       },
       {
         "ordinal": 17,
-        "name": "notes",
+        "name": "unit_basis",
         "type_info": "Text"
       },
       {
         "ordinal": 18,
-        "name": "created_by",
-        "type_info": "Uuid"
+        "name": "incident_price_minor",
+        "type_info": "Int8"
       },
       {
         "ordinal": 19,
-        "name": "fx_rate_used",
+        "name": "incident_priority",
         "type_info": "Text"
       },
       {
         "ordinal": 20,
-        "name": "fx_rate_date",
-        "type_info": "Date"
+        "name": "po_number",
+        "type_info": "Text"
       },
       {
         "ordinal": 21,
-        "name": "fx_source",
+        "name": "notes",
         "type_info": "Text"
       },
       {
         "ordinal": 22,
-        "name": "base_total_minor",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 23,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 24,
+        "ordinal": 23,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -138,14 +133,8 @@
     "nullable": [
       false,
       false,
-      true,
       false,
       false,
-      false,
-      false,
-      false,
-      true,
-      true,
       false,
       false,
       false,
@@ -155,7 +144,12 @@
       true,
       true,
       true,
-      null,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
       true,
       true,
       true,
@@ -163,5 +157,5 @@
       false
     ]
   },
-  "hash": "94820c60dcd8357ce5e922036bbb4269f7c008648cc8fa703b5f22a9cac51410"
+  "hash": "fe432c5ae40aa26ea0e01525f64265287c2e1331dcb152e6e26d52bdccdeea63"
 }

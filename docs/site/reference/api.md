@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**578 paths · 779 operations · 1182 schemas.**
+**582 paths · 783 operations · 1196 schemas.**
 
 ## agent-proposals
 
@@ -348,6 +348,10 @@
 | `GET` | `/api/v1/contracts/{id}` <a id="contracts_get_one"></a> | GET /api/contracts/{id} — the contract aggregate (agreement + rate card + fee schedule). | — |
 | `PATCH` | `/api/v1/contracts/{id}` <a id="contracts_patch"></a> | PATCH /api/contracts/{id} — instant-first (IF1/IF2) partial update. Absent fields keep their values; `rates`/`fees`, when present, replace the whole card/schedule. The version gate rejects stale writes with a typed 409. | [PatchContractRequest](#schema-patchcontractrequest) |
 | `GET` | `/api/v1/contracts/{id}/billing-preview` <a id="contracts_billing_preview"></a> | GET /api/contracts/{id}/billing-preview — evaluate this contract's billing rules over `[from, to]` and return the draft invoice-line candidates. READ-ONLY: nothing persists, no billed markers exist. | — |
+| `POST` | `/api/v1/contracts/{id}/change-orders` <a id="contracts_change_orders_create"></a> | POST /api/contracts/{id}/change-orders — create a DRAFT order. The lifecycle forward-path (approve → billed at run time) keeps billing honest: only APPROVED orders ever price, and the run itself records which invoice consumed them. | [CreateChangeOrderRequest](#schema-createchangeorderrequest) |
+| `POST` | `/api/v1/contracts/{id}/change-orders/{order_id}/transition` <a id="contracts_change_orders_transition"></a> | POST /api/contracts/{id}/change-orders/{order_id}/transition — move a draft order through its lifecycle. `approve` stamps the approver + time (the audit trail's who/when); `reject`/`cancel` are terminal. | [TransitionChangeOrderRequest](#schema-transitionchangeorderrequest) |
+| `POST` | `/api/v1/contracts/{id}/sla-credits` <a id="contracts_sla_credits_create"></a> | POST /api/contracts/{id}/sla-credits — record a pending service credit. NEGATIVE at billing: the next run whose window covers `applies_on` prices it as the invoice's `sla_credit` line. | [CreateSlaCreditRequest](#schema-createslacreditrequest) |
+| `POST` | `/api/v1/contracts/{id}/sla-credits/{credit_id}/cancel` <a id="contracts_sla_credits_cancel"></a> | POST /api/contracts/{id}/sla-credits/{credit_id}/cancel — withdraw a pending credit before any run consumes it. Applied credits are immutable (additive-ledger rule: corrections issue NEW credits). | — |
 
 ## credit-notes
 
@@ -1405,6 +1409,8 @@
 | <a id="schema-billinglinekind"></a>`BillingLineKind` | string | Which billing rule produced a candidate line. |
 | <a id="schema-billingmethod"></a>`BillingMethod` | string | How the project turns delivered work into money. The value rides the milestone event payload so core-billing can route without re-reading the project row (event payloads are additive-only, policy §2). |
 | <a id="schema-billmutationresponse"></a>`BillMutationResponse` | object |  |
+| <a id="schema-blockconsumption"></a>`BlockConsumption` | object | The per-period consumption summary a block contract's evaluation carries back: draws in order, blocks that expired unused inside the window (for depletion/expiry alerts), and any minutes that found no |
+| <a id="schema-blockspec"></a>`BlockSpec` | object | Prepaid-block spec (A): an hour bank sold up front. |
 | <a id="schema-board"></a>`Board` | object |  |
 | <a id="schema-boardaddressresponse"></a>`BoardAddressResponse` | object |  |
 | <a id="schema-boardexposureview"></a>`BoardExposureView` | object |  |
@@ -1451,6 +1457,8 @@
 | <a id="schema-capabilitymode"></a>`CapabilityMode` | string | Wire involvement-dial position of a capability grant. |
 | <a id="schema-capacityhorizonview"></a>`CapacityHorizonView` | object | The assembled horizon payload. `unassigned_count` is the current open unassigned queue depth so planners see demand next to capacity. |
 | <a id="schema-capacityquery"></a>`CapacityQuery` | object | GET /api/dispatch/capacity query: `from` date (defaults to today UTC) and the horizon length in days (1..=31, default 7). |
+| <a id="schema-capreachedbehavior"></a>`CapReachedBehavior` | string | What evaluation does when a T&M contract's cap is reached (B: never a silent cutoff — the behavior is a typed choice on the cap). |
+| <a id="schema-capspec"></a>`CapSpec` | object | NTE cap spec (B): typed not-to-exceed behavior. |
 | <a id="schema-catalogcolumn"></a>`CatalogColumn` | object | One catalog column: the static identifier plus its value class slug (`uuid \| text \| timestamp \| date \| int \| bigint \| bool`). The slug is what the builder UI keys operand typing on. |
 | <a id="schema-catalogentryview"></a>`CatalogEntryView` | object |  |
 | <a id="schema-catalogitemmutationresponse"></a>`CatalogItemMutationResponse` | composite | Instant-first mutation response (IF2) for catalog mutations. |
@@ -1524,13 +1532,18 @@
 | <a id="schema-contactfeedupsertresponse"></a>`ContactFeedUpsertResponse` | object |  |
 | <a id="schema-contactsmutationresponse"></a>`ContactsMutationResponse` | object |  |
 | <a id="schema-contract"></a>`Contract` | object | A commercial agreement with one client. Money fields are integer minor units (cents for USD) — floats are forbidden near amounts (§5). |
-| <a id="schema-contractdetail"></a>`ContractDetail` | composite | The contract aggregate as one view: the agreement plus its rate card and fee schedule. |
+| <a id="schema-contractblock"></a>`ContractBlock` | object | A prepaid block (hour bank): sold up front, drawn down on use, with expiry + rollover policies (A). Rows are immutable once sold — rollover MINTS a successor block at expiry, it never edits the old ro |
+| <a id="schema-contractcap"></a>`ContractCap` | object | A T&M not-to-exceed cap. `scope` picks the boundary: `period` enforces per billing period, `contract` enforces over the contract's whole effective window. |
+| <a id="schema-contractchangeorder"></a>`ContractChangeOrder` | object | An approved change order: a billable amendment with its own lifecycle (E). Riding existing approval/audit patterns: statuses `draft → approved → billed`, rejected/cancelled terminal. |
+| <a id="schema-contractdetail"></a>`ContractDetail` | composite | The contract aggregate as one view: the agreement plus its rate card, fee schedule, prepaid blocks, and caps. |
+| <a id="schema-contractescalator"></a>`ContractEscalator` | object | A scheduled escalator: the contract's per-period price uplifts by `uplift_bps` basis points each anniversary of the billing anchor (E). Pure math at evaluation — no state. |
 | <a id="schema-contractfixedfee"></a>`ContractFixedFee` | object | Fixed-fee schedule entry: becomes a candidate line when `due_on` falls inside the evaluation window (and the effective window). |
 | <a id="schema-contractlistquery"></a>`ContractListQuery` | object |  |
 | <a id="schema-contractmutationresponse"></a>`ContractMutationResponse` | composite | Instant-first mutation response (IF2): contract aggregate at the top level plus the additive `mutation` metadata. |
 | <a id="schema-contractrate"></a>`ContractRate` | object | T&M rate card row: the hourly rate for time entries whose `work_type` matches `work_type`. Entries with no matching row bill at the contract's default `hourly_rate_minor`. |
+| <a id="schema-contractslacredit"></a>`ContractSlaCredit` | object | An SLA service credit the admin or verification flow applies for a missed SLA (E): becomes a NEGATIVE `sla_credit` line at the next run window covering `applies_on`. Never silent — the record names th |
 | <a id="schema-contractstatus"></a>`ContractStatus` | string | Lifecycle. `draft` contracts evaluate in previews (plan before activation) but Wave 9's invoice runs will refuse them; `cancelled` contracts never evaluate. `ended` keeps evaluating candidates whose d |
-| <a id="schema-contracttype"></a>`ContractType` | string | The four supported commercial agreement shapes. |
+| <a id="schema-contracttype"></a>`ContractType` | string | The supported commercial agreement shapes. Wave 39 adds the MSP relationship types beyond the original four: per-unit recurring (per-seat / per-device) and per-incident (per closed ticket) pricing. Pr |
 | <a id="schema-convertquoterequest"></a>`ConvertQuoteRequest` | composite | POST /api/quotes/{id}/convert-to-invoice body. |
 | <a id="schema-convertquoteresponse"></a>`ConvertQuoteResponse` | object | Convert-to-invoice response: the quote with its seam targets. |
 | <a id="schema-costlinekind"></a>`CostLineKind` | string | One money line on a ticket: `parts`, `flat`, or `other`. |
@@ -1547,6 +1560,7 @@
 | <a id="schema-createcalendarrequest"></a>`CreateCalendarRequest` | object |  |
 | <a id="schema-createcatalogitemrequest"></a>`CreateCatalogItemRequest` | composite | POST /api/catalog-items body. |
 | <a id="schema-createcategoryrequest"></a>`CreateCategoryRequest` | composite |  |
+| <a id="schema-createchangeorderrequest"></a>`CreateChangeOrderRequest` | composite |  |
 | <a id="schema-createcheckoutrequest"></a>`CreateCheckoutRequest` | composite | POST /api/tool-checkouts. |
 | <a id="schema-createclientrequest"></a>`CreateClientRequest` | composite |  |
 | <a id="schema-createconnectionrequest"></a>`CreateConnectionRequest` | object |  |
@@ -1594,6 +1608,7 @@
 | <a id="schema-createsecretrecordrequest"></a>`CreateSecretRecordRequest` | composite |  |
 | <a id="schema-createsecretsharelinkrequest"></a>`CreateSecretShareLinkRequest` | object |  |
 | <a id="schema-createsiterequest"></a>`CreateSiteRequest` | object |  |
+| <a id="schema-createslacreditrequest"></a>`CreateSlaCreditRequest` | composite |  |
 | <a id="schema-createstagerequest"></a>`CreateStageRequest` | composite | POST /api/pipeline/stages body. |
 | <a id="schema-createstatusrequest"></a>`CreateStatusRequest` | object |  |
 | <a id="schema-createstockitemrequest"></a>`CreateStockItemRequest` | composite | POST /api/stock-items. |
@@ -1722,6 +1737,7 @@
 | <a id="schema-entityworkbenchside"></a>`EntityWorkbenchSide` | object |  |
 | <a id="schema-entityworkbenchview"></a>`EntityWorkbenchView` | object |  |
 | <a id="schema-escalationstep"></a>`EscalationStep` | object | One escalation ladder step as stored (`sla_escalation_steps`). |
+| <a id="schema-escalatorspec"></a>`EscalatorSpec` | object | Scheduled escalator spec (E): uplift bps per billing-annual anniversary. |
 | <a id="schema-eventslistresponse"></a>`EventsListResponse` | object |  |
 | <a id="schema-expensemutationresponse"></a>`ExpenseMutationResponse` | object |  |
 | <a id="schema-exportarchiveupdate"></a>`ExportArchiveUpdate` | object |  |
@@ -2397,6 +2413,7 @@
 | <a id="schema-totpenrollverifyrequest"></a>`TotpEnrollVerifyRequest` | object |  |
 | <a id="schema-transcriptionresponse"></a>`TranscriptionResponse` | object |  |
 | <a id="schema-transferrequest"></a>`TransferRequest` | composite |  |
+| <a id="schema-transitionchangeorderrequest"></a>`TransitionChangeOrderRequest` | composite |  |
 | <a id="schema-transitionedge"></a>`TransitionEdge` | object | One directed edge in a board's explicit transition matrix. Both ids must belong to statuses of the SAME board (enforced here, and by composite FKs in storage). |
 | <a id="schema-traveldraftmutationresponse"></a>`TravelDraftMutationResponse` | composite | Mutation envelope: draft fields at the top level plus the additive `mutation` metadata (IF2). |
 | <a id="schema-traveldraftview"></a>`TravelDraftView` | object | One travel/mileage draft. |
@@ -2410,6 +2427,7 @@
 | <a id="schema-undostackresponse"></a>`UndoStackResponse` | object |  |
 | <a id="schema-undostep"></a>`UndoStep` | object | One applied write on the record — one step of the undo stack. |
 | <a id="schema-uniformok"></a>`UniformOk` | object | The uniform shape every request surface returns. |
+| <a id="schema-unitbasis"></a>`UnitBasis` | string | Which org inventory counts a per-unit contract's quantity at evaluation time (C: quantity × unit price per period, unit counts drawn from the org's asset/user inventories at evaluation). |
 | <a id="schema-unreadcount"></a>`UnreadCount` | object |  |
 | <a id="schema-updatearticlerequest"></a>`UpdateArticleRequest` | composite |  |
 | <a id="schema-updateassetrequest"></a>`UpdateAssetRequest` | composite |  |
@@ -2496,4 +2514,4 @@
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1182 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1196 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO contract_minimums (id, org_id, contract_id, minimum_commitment_minor)\n           VALUES ($1, $2, $3, $4)\n           ON CONFLICT (contract_id) DO UPDATE\n             SET minimum_commitment_minor = EXCLUDED.minimum_commitment_minor",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "18c1c7a3ba148d66e5a9068c10d89a7a6d0353b1150439aa77380b8db04323f5"
+}

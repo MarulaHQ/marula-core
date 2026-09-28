@@ -47,14 +47,25 @@ type ContractType = components["schemas"]["ContractType"];
 type Client = components["schemas"]["Client"];
 type RateSpec = components["schemas"]["RateSpec"];
 type FeeSpec = components["schemas"]["FeeSpec"];
+type BlockSpec = components["schemas"]["BlockSpec"];
+type CapSpec = components["schemas"]["CapSpec"];
 
-const TYPES: ContractType[] = ["recurring", "time_and_materials", "retainer", "fixed_fee"];
+const TYPES: ContractType[] = [
+  "recurring",
+  "time_and_materials",
+  "retainer",
+  "fixed_fee",
+  "per_unit",
+  "per_incident",
+];
 
 const TYPE_LABEL: Record<ContractType, string> = {
   recurring: "recurring",
   time_and_materials: "t&m",
   retainer: "retainer",
   fixed_fee: "fixed fee",
+  per_unit: "per-unit",
+  per_incident: "per-incident",
 };
 
 function today(): string {
@@ -85,6 +96,14 @@ export default function ContractsPage() {
   const [overageRate, setOverageRate] = useState("");
   const [rates, setRates] = useState<RateSpec[]>([]);
   const [fees, setFees] = useState<FeeSpec[]>([]);
+  const [blocks, setBlocks] = useState<BlockSpec[]>([]);
+  const [unitPrice, setUnitPrice] = useState("");
+  const [unitBasis, setUnitBasis] = useState<"devices" | "users">("devices");
+  const [incidentPrice, setIncidentPrice] = useState("");
+  const [incidentPriority, setIncidentPriority] = useState<string>("any");
+  const [poNumber, setPoNumber] = useState("");
+  const [minimum, setMinimum] = useState("");
+  const [caps, setCaps] = useState<CapSpec[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -161,8 +180,16 @@ export default function ContractsPage() {
     setHourlyRate("");
     setIncludedMinutes("");
     setOverageRate("");
+    setUnitPrice("");
+    setUnitBasis("devices");
+    setIncidentPrice("");
+    setIncidentPriority("any");
+    setPoNumber("");
+    setMinimum("");
     setRates([]);
     setFees([]);
+    setBlocks([]);
+    setCaps([]);
   };
 
   const needsAmount = type === "recurring" || type === "retainer";
@@ -172,7 +199,9 @@ export default function ContractsPage() {
     name.trim() === "" ||
     clientId === "" ||
     effectiveFrom === "" ||
-    (needsAmount && amount.trim() === "");
+    (needsAmount && amount.trim() === "") ||
+    (type === "per_unit" && unitPrice.trim() === "") ||
+    (type === "per_incident" && incidentPrice.trim() === "");
 
   const createContract = async () => {
     if (createDisabled) return;
@@ -205,6 +234,11 @@ export default function ContractsPage() {
             hourly_rate_minor: type === "time_and_materials" && hourlyRate.trim() !== "" ? Math.round(Number(hourlyRate) * 100) : null,
             included_minutes: type === "retainer" && includedMinutes.trim() !== "" ? Number(includedMinutes) : null,
             overage_rate_minor: type === "retainer" && overageRate.trim() !== "" ? Math.round(Number(overageRate) * 100) : null,
+            unit_price_minor: type === "per_unit" && unitPrice.trim() !== "" ? Math.round(Number(unitPrice) * 100) : null,
+            unit_basis: type === "per_unit" ? unitBasis : null,
+            incident_price_minor: type === "per_incident" && incidentPrice.trim() !== "" ? Math.round(Number(incidentPrice) * 100) : null,
+            incident_priority: type === "per_incident" ? incidentPriority : null,
+            po_number: poNumber.trim() !== "" ? poNumber.trim() : null,
             notes: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -232,8 +266,24 @@ export default function ContractsPage() {
           type === "retainer" && overageRate.trim() !== ""
             ? Math.round(Number(overageRate) * 100)
             : null,
+        unit_price_minor:
+          type === "per_unit" && unitPrice.trim() !== "" ? Math.round(Number(unitPrice) * 100) : null,
+        unit_basis: type === "per_unit" ? unitBasis : null,
+        incident_price_minor:
+          type === "per_incident" && incidentPrice.trim() !== ""
+            ? Math.round(Number(incidentPrice) * 100)
+            : null,
+        incident_priority: type === "per_incident" ? incidentPriority : null,
+        po_number: poNumber.trim() !== "" ? poNumber.trim() : null,
+        minimum_commitment_minor:
+          minimum.trim() !== "" ? Math.round(Number(minimum) * 100) : null,
         rates: type === "time_and_materials" && rates.length > 0 ? rates : undefined,
         fees: type === "fixed_fee" && fees.length > 0 ? fees : undefined,
+        blocks:
+          (type === "time_and_materials" || type === "retainer") && blocks.length > 0
+            ? blocks
+            : undefined,
+        caps: type === "time_and_materials" && caps.length > 0 ? caps : undefined,
       }),
       request: (client, body) => client.POST("/api/v1/contracts", { body }),
       versions: (response) => [[response.id, response.mutation.version]],
@@ -256,7 +306,7 @@ export default function ContractsPage() {
         <div>
           <h1 className="text-lg font-semibold">Contracts</h1>
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Recurring, T&M, retainer, and fixed-fee agreements that drive billing.
+            Recurring, T&M, retainer, fixed-fee, per-unit, and per-incident agreements that drive billing.
           </p>
         </div>
         <Dialog
@@ -364,6 +414,67 @@ export default function ContractsPage() {
                     <Label htmlFor="c-overage">Overage hourly rate (USD)</Label>
                     <Input id="c-overage" type="number" min={0} step="0.01" value={overageRate} onChange={(e) => setOverageRate(e.target.value)} />
                   </div>
+                </div>
+              ) : null}
+
+              {type === "per_unit" ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="c-unit-price">Price per unit / period (USD)</Label>
+                    <Input id="c-unit-price" type="number" min={0} step="0.01" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="c-unit-basis">Count units by</Label>
+                    <Select value={unitBasis} onValueChange={(v) => setUnitBasis(v as "devices" | "users")}>
+                      <SelectTrigger id="c-unit-basis" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="devices">Devices (active client assets)</SelectItem>
+                        <SelectItem value="users">Users (org seats)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FieldHint>Counted from the inventories at each billing evaluation.</FieldHint>
+                  </div>
+                </div>
+              ) : null}
+
+              {type === "per_incident" ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="c-incident-price">Price per closed ticket (USD)</Label>
+                    <Input id="c-incident-price" type="number" min={0} step="0.01" value={incidentPrice} onChange={(e) => setIncidentPrice(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="c-incident-priority">Ticket band</Label>
+                    <Select value={incidentPriority} onValueChange={setIncidentPriority}>
+                      <SelectTrigger id="c-incident-priority" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">Any closed ticket</SelectItem>
+                        {["p1", "p2", "p3", "p4"].map((p) => (
+                          <SelectItem key={p} value={p}>
+                            {p.toUpperCase()} only
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              ) : null}
+
+              <div>
+                <Label htmlFor="c-po">Client PO number (optional)</Label>
+                <Input id="c-po" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder="PO-2026-014" />
+                <FieldHint>Printed on every invoice this contract produces. Tax is not computed here — it stays an accounting-export setting.</FieldHint>
+              </div>
+
+              {needsAmount ? (
+                <div>
+                  <Label htmlFor="c-minimum">Minimum commitment per period (USD, optional)</Label>
+                  <Input id="c-minimum" type="number" min={0} step="0.01" value={minimum} onChange={(e) => setMinimum(e.target.value)} />
+                  <FieldHint>A true-up line tops each period up when billing falls short of it.</FieldHint>
                 </div>
               ) : null}
 

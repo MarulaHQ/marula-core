@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, client_id, number, name, contract_type, status, currency,\n                  effective_from, effective_until, billing_frequency, billing_anchor,\n                  amount_minor, hourly_rate_minor, included_minutes, overage_rate_minor,\n                  notes, created_at, updated_at\n           FROM contracts\n           WHERE org_id = $1\n             AND ($2::uuid IS NULL OR client_id = $2)\n             AND ($3::text IS NULL OR status = $3)\n             AND ($4::date IS NULL OR (effective_from <= $4\n                  AND (effective_until IS NULL OR effective_until >= $4)))\n           ORDER BY number",
+  "query": "UPDATE contracts SET client_id = $3, number = $4, name = $5, contract_type = $6,\n                                status = $7, currency = $8, effective_from = $9,\n                                effective_until = $10, billing_frequency = $11,\n                                billing_anchor = $12, amount_minor = $13,\n                                hourly_rate_minor = $14, included_minutes = $15,\n                                overage_rate_minor = $16, unit_price_minor = $17,\n                                unit_basis = $18, incident_price_minor = $19,\n                                incident_priority = $20, po_number = $21,\n                                notes = $22, updated_at = now()\n           WHERE org_id = $1 AND id = $2\n           RETURNING id, org_id, client_id, number, name, contract_type, status, currency,\n                      effective_from, effective_until, billing_frequency, billing_anchor,\n                      amount_minor, hourly_rate_minor, included_minutes, overage_rate_minor,\n                      unit_price_minor, unit_basis, incident_price_minor, incident_priority,\n                      po_number, notes, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -85,16 +85,41 @@
       },
       {
         "ordinal": 16,
+        "name": "unit_price_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "unit_basis",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "incident_price_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 19,
+        "name": "incident_priority",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 20,
+        "name": "po_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 21,
         "name": "notes",
         "type_info": "Text"
       },
       {
-        "ordinal": 17,
+        "ordinal": 22,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 18,
+        "ordinal": 23,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -103,8 +128,26 @@
       "Left": [
         "Uuid",
         "Uuid",
+        "Uuid",
         "Text",
-        "Date"
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Date",
+        "Date",
+        "Text",
+        "Date",
+        "Int8",
+        "Int8",
+        "Int4",
+        "Int8",
+        "Int8",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text"
       ]
     },
     "nullable": [
@@ -125,9 +168,14 @@
       true,
       true,
       true,
+      true,
+      true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "6df074471ef99243e4539013c6f9e7effb9d8d91284864fd9803479ac9bca209"
+  "hash": "8efa54c27d4ddd9d1fc40a5d4c7e377ca6a1f42d74dfff52ef977f0521c48146"
 }

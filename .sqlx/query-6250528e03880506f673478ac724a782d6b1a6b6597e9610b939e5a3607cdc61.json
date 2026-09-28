@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.block_id, d.time_entry_id, d.invoice_id, d.minutes, d.drawn_on\n           FROM contract_block_draws d\n           JOIN contract_blocks b ON b.id = d.block_id\n           WHERE d.org_id = $1 AND b.contract_id = $2\n           ORDER BY d.drawn_on, d.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "block_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "time_entry_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "invoice_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "minutes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "drawn_on",
+        "type_info": "Date"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "6250528e03880506f673478ac724a782d6b1a6b6597e9610b939e5a3607cdc61"
+}

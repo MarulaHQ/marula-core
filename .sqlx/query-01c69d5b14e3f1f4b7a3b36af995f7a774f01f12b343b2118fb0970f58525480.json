@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,\n                  period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,\n                  dunning_state, dunning_updated_at, dunning_note, notes, created_by,\n                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,\n                  created_at, updated_at\n           FROM invoices\n           WHERE org_id = $1 AND client_id = $2 AND status IN ('issued', 'paid')\n           ORDER BY issued_at DESC, number DESC\n           LIMIT $3",
+  "query": "SELECT id, org_id, run_id, client_id, contract_id, number, status, currency,\n                  period_from, period_to, issued_at, due_on, total_minor, total_paid_minor,\n                  dunning_state, dunning_updated_at, dunning_note, po_number, notes, created_by,\n                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor,\n                  created_at, updated_at\n           FROM invoices\n           WHERE org_id = $1 AND id = $2 AND client_id = $3\n             AND status IN ('issued', 'paid')",
   "describe": {
     "columns": [
       {
@@ -90,41 +90,46 @@
       },
       {
         "ordinal": 17,
-        "name": "notes",
+        "name": "po_number",
         "type_info": "Text"
       },
       {
         "ordinal": 18,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
         "name": "created_by",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "fx_rate_used",
         "type_info": "Text"
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "fx_rate_date",
         "type_info": "Date"
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "fx_source",
         "type_info": "Text"
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "base_total_minor",
         "type_info": "Int8"
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -133,7 +138,7 @@
       "Left": [
         "Uuid",
         "Uuid",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -156,6 +161,7 @@
       true,
       true,
       true,
+      true,
       null,
       true,
       true,
@@ -164,5 +170,5 @@
       false
     ]
   },
-  "hash": "2d3b74a9334184b999d25aa0e99d2357fa091c2d21f0d9fa8a89c44714246bee"
+  "hash": "01c69d5b14e3f1f4b7a3b36af995f7a774f01f12b343b2118fb0970f58525480"
 }

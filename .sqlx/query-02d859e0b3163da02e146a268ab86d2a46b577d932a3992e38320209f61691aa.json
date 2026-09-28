@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM contract_escalators WHERE org_id = $1 AND contract_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "02d859e0b3163da02e146a268ab86d2a46b577d932a3992e38320209f61691aa"
+}

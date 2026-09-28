@@ -1183,6 +1183,24 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(billing::preview_contract),
         )
         .route(&rp("/billing/preview"), get(billing::preview_org))
+        // Wave 39 lane 3 contract breadth: billable amendment lifecycle
+        // + SLA service credits (applied as negative lines at run time).
+        .route(
+            &rp("/contracts/{id}/change-orders"),
+            post(billing::create_change_order),
+        )
+        .route(
+            &rp("/contracts/{id}/change-orders/{order_id}/transition"),
+            post(billing::transition_change_order),
+        )
+        .route(
+            &rp("/contracts/{id}/sla-credits"),
+            post(billing::create_sla_credit),
+        )
+        .route(
+            &rp("/contracts/{id}/sla-credits/{credit_id}/cancel"),
+            post(billing::cancel_sla_credit),
+        )
         // native invoicing v1 (TASKLIST Phase 3, Wave 9 invoicing lane):
         // invoice runs, invoices + lines, print documents, payments via
         // the PaymentProvider seam, and forward-only dunning states.

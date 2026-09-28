@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, number, priority, resolved_at::date AS \"resolved_on!\"\n           FROM tickets\n           WHERE org_id = $1 AND client_id = $2 AND category = 'closed'\n             AND resolved_at IS NOT NULL\n             AND resolved_at::date >= $3 AND resolved_at::date <= $4\n             AND ($5::text IS NULL OR priority = $5)\n           ORDER BY resolved_at, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "priority",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "resolved_on!",
+        "type_info": "Date"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Date",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "dda0d96c2c1fd8c492705ba6fc42837db2e98e2c519e3ff945d69c4a646381c8"
+}

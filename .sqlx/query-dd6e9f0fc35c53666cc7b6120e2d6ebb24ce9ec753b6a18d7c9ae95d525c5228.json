@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO contract_escalators (id, org_id, contract_id, uplift_bps, first_uplift_on)\n           VALUES ($1, $2, $3, $4, $5)\n           ON CONFLICT (contract_id) DO UPDATE\n             SET uplift_bps = EXCLUDED.uplift_bps,\n                 first_uplift_on = EXCLUDED.first_uplift_on",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int4",
+        "Date"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dd6e9f0fc35c53666cc7b6120e2d6ebb24ce9ec753b6a18d7c9ae95d525c5228"
+}

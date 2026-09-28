@@ -10,10 +10,19 @@
 //! in core-db (`contracts` queries, migration 0029) and core-api
 //! (`routes::billing`) respectively; this crate owns only the rules.
 //!
+//! Wave 39 extends the same pure entry point with the MSP relationship
+//! breadth (report §3): prepaid block hours (draw-down from the same
+//! entry pipeline, expiry + rollover, block-rate vs card), T&M NTE caps
+//! (typed stop / warn / overage behaviors), per-unit recurring (unit
+//! counts passed in from the inventories; the engine stays pure), and
+//! per-incident pricing (closed-ticket bands passed in the same way).
+//! Minimum true-up, escalators, change orders, and SLA credits ride the
+//! same evaluation as attached configuration.
+//!
 //! Wave 9 (native invoicing v1) adds the [`payments`] seam here: the
 //! `PaymentProvider` trait with the built-in none-mode provider. Invoice
 //! persistence, dunning states, and the run orchestration live in
-//! core-db (migration 0036) and core-api (`routes::invoices`).
+//! core-db (migration 0036 + 0112) and core-api (`routes::invoices`).
 //!
 //! Non-purpose: NO currency conversion: every line carries the contract's
 //! own currency.
@@ -27,4 +36,6 @@ pub use payments::{
     PaymentProvider, StripePaymentProvider,
 };
 pub use periods::{period_start, periods_starting_in};
-pub use rules::{evaluate, BillableEntry, BillingError};
+pub use rules::{
+    evaluate, BillableEntry, BillingError, EvalInputs, IncidentTicket, UnitCounts,
+};
