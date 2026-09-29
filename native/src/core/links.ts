@@ -10,7 +10,7 @@
 // resolver calls — a QR link is resolved through POST /scan/resolve by the
 // screen that receives it, exactly like a camera scan.
 
-export const MERIDIAN_SCHEME = "meridian";
+export const MARULA_SCHEME = "meridian";
 
 export type MeridianLink =
   | { kind: "scan-result"; text: string }
@@ -56,7 +56,7 @@ export function parseMeridianLink(rawUrl: string): MeridianLink | null {
 }
 
 function stripScheme(url: string): string | null {
-  const schemePrefix = `${MERIDIAN_SCHEME}://`;
+  const schemePrefix = `${MARULA_SCHEME}://`;
   if (url.startsWith(schemePrefix)) {
     // Tolerate the conventional empty-authority form meridian:///path.
     return url.slice(schemePrefix.length).replace(/^\/+/, "");

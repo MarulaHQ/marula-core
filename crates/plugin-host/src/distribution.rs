@@ -34,7 +34,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 //
 // Signing convention (documented, stable): the operator's ed25519 PUBLIC
 // key (64 hex chars) is configured server-side
-// (`MERIDIAN_PLUGIN_SIGNING_KEY`); the artifact signature is an ed25519
+// (`MARULA_PLUGIN_SIGNING_KEY`); the artifact signature is an ed25519
 // signature over the RAW 32 BYTES the artifact digest hex decodes to,
 // hex-encoded (128 chars) on the wire. Verification is a REAL
 // cryptographic check — a configured key plus any invalid/missing

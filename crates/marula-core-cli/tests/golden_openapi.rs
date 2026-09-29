@@ -12,7 +12,7 @@
 //! 2. `sdk_snapshot_matches_pin` — `packages/sdk/openapi.json` (from which
 //!    the TS SDK is generated) equals the golden, so SDK regeneration
 //!    discipline cannot silently drift either.
-//! 3. `live_server_matches_pin` — env-gated (`MERIDIAN_API_BASE_URL`): the
+//! 3. `live_server_matches_pin` — env-gated (`MARULA_API_BASE_URL`): the
 //!    running server's served spec equals the golden. Used by the CI
 //!    conformance job that boots the real stack; skipped locally.
 
@@ -132,15 +132,15 @@ fn sdk_snapshot_matches_pin() {
     assert_deep_eq("SDK snapshot", &pin, &sdk);
 }
 
-/// Live-server leg: boots nothing itself; when MERIDIAN_API_BASE_URL points
+/// Live-server leg: boots nothing itself; when MARULA_API_BASE_URL points
 /// at a running server (CI conformance job), the served spec must equal the
 /// pin byte-for-byte after JSON normalization.
 #[tokio::test]
 async fn live_server_matches_pin() {
-    let base = match std::env::var("MERIDIAN_API_BASE_URL") {
+    let base = match std::env::var("MARULA_API_BASE_URL") {
         Ok(url) if !url.is_empty() => url.trim_end_matches('/').to_string(),
         _ => {
-            eprintln!("skipped: MERIDIAN_API_BASE_URL not set");
+            eprintln!("skipped: MARULA_API_BASE_URL not set");
             return;
         }
     };

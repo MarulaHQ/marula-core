@@ -3601,7 +3601,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "meridian-cli"
+name = "marula-core-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",

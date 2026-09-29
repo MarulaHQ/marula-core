@@ -17,8 +17,8 @@ fi
 export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-${E2E_API_URL:-http://localhost:8080}}"
 export NEXT_PUBLIC_WS_PORT="${NEXT_PUBLIC_WS_PORT:-8081}"
 
-pnpm --filter @meridian/ui build
-pnpm --filter @meridian/web build
+pnpm --filter @marula-core/ui build
+pnpm --filter @marula-core/web build
 rm -rf apps/web/.next/standalone/.next/static apps/web/.next/standalone/public
 cp -r apps/web/.next/static apps/web/.next/standalone/.next/static
 cp -r apps/web/public apps/web/.next/standalone/public

@@ -4,7 +4,7 @@
 //! the migration surface itself (columns, semantic-class backfill, RLS).
 //!
 //! Database selection follows the shared contract (common/mod.rs):
-//! MERIDIAN_TEST_DATABASE_URL or DATABASE_URL, else a testcontainer.
+//! MARULA_TEST_DATABASE_URL or DATABASE_URL, else a testcontainer.
 
 mod common;
 

@@ -31,7 +31,7 @@ fi
 API_URL="$(echo "$API_URL" | sed 's|/$||')"
 cleanup() {
   if [ "$RUN_MODE" = "1" ]; then
-    RUN_ID="$(grep -m1 '^MERIDIAN_RUN_ID=' e2e/.e2e-stack.env 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
+    RUN_ID="$(grep -m1 '^MARULA_RUN_ID=' e2e/.e2e-stack.env 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
     bash scripts/e2e-stack.sh down "$RUN_ID" || true
   fi
 }

@@ -28,9 +28,9 @@ anti-replay window. Raw bytes are verified before any JSON parsing.
 3. Configure and run:
 
 ```bash
-export MERIDIAN_BASE_URL=https://meridian.example.test
-export MERIDIAN_API_KEY=mrd_…            # clients:read
-export MERIDIAN_WEBHOOK_SECRET=whsec_…
+export MARULA_BASE_URL=https://meridian.example.test
+export MARULA_API_KEY=mrd_…            # clients:read
+export MARULA_WEBHOOK_SECRET=whsec_…
 
 # Optional — absent ⇒ NONE MODE:
 export HUDU_BASE_URL=https://yourcompany.huducloud.com

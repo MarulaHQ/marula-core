@@ -91,9 +91,9 @@ impl core_mail::MailTransport for MustNotSend {
 }
 
 async fn admin_pool() -> PgPool {
-    let url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("delivery harness needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("delivery harness needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
         .acquire_timeout(std::time::Duration::from_secs(10))
@@ -328,7 +328,7 @@ async fn run_sim(
 /// windows from claiming each other's schedules.
 #[tokio::test]
 async fn two_simulated_weeks_with_zero_lost_slots_then_none_mode() {
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("test database url");
     let pool = admin_pool().await;

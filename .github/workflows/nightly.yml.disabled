@@ -19,7 +19,7 @@ name: Nightly perf
 #     too deep, so the file never parsed (GitHub would have rejected it
 #     on the first push) — fixed;
 #   * core-api boots fail-closed since Wave 19 (explicit 64-hex
-#     JWT_SECRET + MERIDIAN_SECRET_KEY), and neither job set them — the
+#     JWT_SECRET + MARULA_SECRET_KEY), and neither job set them — the
 #     Boot steps would have refused to start — fixed with dev-only
 #     constants;
 #   * the Boot steps inherited the privileged DATABASE_URL (postgres
@@ -63,7 +63,7 @@ jobs:
       # without explicit values since Wave 19 (fail-closed). They never
       # leave this ephemeral runner.
       JWT_SECRET: 5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e
-      MERIDIAN_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
+      MARULA_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -140,7 +140,7 @@ jobs:
       REDIS_URL: redis://localhost:6379
       # Dev-only CI constants (see perf-load-budget above).
       JWT_SECRET: 5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e
-      MERIDIAN_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
+      MARULA_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

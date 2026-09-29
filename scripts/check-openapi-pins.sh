@@ -3,7 +3,7 @@
 # packages/sdk/openapi.json and fixtures/openapi/v1/openapi.json are
 # COMPACT single-line minified JSON, and they are a byte-identical pair.
 # The API serves pretty-printed JSON, so a regen ritual that skips
-# `pnpm --filter @meridian/sdk generate` (which minifies in place)
+# `pnpm --filter @marula-core/sdk generate` (which minifies in place)
 # produces a ~43k-line pretty pin — this gate fails that before merge.
 set -eu
 
@@ -16,7 +16,7 @@ for pin in packages/sdk/openapi.json fixtures/openapi/v1/openapi.json; do
   [ -f "$pin" ] || fail "$pin missing"
   lines=$(wc -l < "$pin" | tr -d ' ')
   if [ "$lines" -gt 2 ]; then
-    fail "$pin is pretty-printed ($lines lines) — committed format is compact minified JSON. Re-pin with: pnpm --filter @meridian/sdk generate"
+    fail "$pin is pretty-printed ($lines lines) — committed format is compact minified JSON. Re-pin with: pnpm --filter @marula-core/sdk generate"
   fi
 done
 

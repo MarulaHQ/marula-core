@@ -222,7 +222,7 @@ pub fn build_router(state: AppState) -> Router {
     let docs = openapi::scalar_router();
 
     // Dev-tools surface (TASKLIST DX2): mounted ONLY when the process runs
-    // with MERIDIAN_DEV_TOOLS=1. Unset, the routes DO NOT EXIST — no
+    // with MARULA_DEV_TOOLS=1. Unset, the routes DO NOT EXIST — no
     // registration at all, not a 403 — and they stay outside the /api/v1
     // contract, the OpenAPI document, and the two-mount rule (a dev surface
     // is not an API generation).

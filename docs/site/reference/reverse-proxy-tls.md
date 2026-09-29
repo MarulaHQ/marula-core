@@ -33,11 +33,11 @@ supported.
   envelopes) upgrade from HTTP; a proxy that buffers or times out upgrades
   breaks them silently.
 - **Request body size.** Document attachments are capped by
-  `MERIDIAN_MAX_UPLOAD_MB` (default 25); align the proxy's client-body limit
+  `MARULA_MAX_UPLOAD_MB` (default 25); align the proxy's client-body limit
   or uploads die at the proxy, not the API.
-- **Secrets.** Override `JWT_SECRET` and `MERIDIAN_SECRET_KEY` — the
+- **Secrets.** Override `JWT_SECRET` and `MARULA_SECRET_KEY` — the
   compose defaults are dev-only, and core-api/worker must share the same
-  `MERIDIAN_SECRET_KEY` or sealed webhook secrets become undecryptable.
+  `MARULA_SECRET_KEY` or sealed webhook secrets become undecryptable.
   Set `EMAIL_INBOUND_HMAC_SECRET` before enabling the signed inbound mail
   webhook. Run the [backup runbook](backup-restore.md) rehearsal before
   cutover, not after.

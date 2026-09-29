@@ -43,11 +43,11 @@ spec:
             # Optional EdDSA verification key (Wave 34 lane 6): present
             # when core-api signs with the asymmetric pair; absent keeps
             # the HS256 posture. Verification prefers EdDSA either way.
-            - name: MERIDIAN_JWT_EDDSA_PUBLIC_KEY
+            - name: MARULA_JWT_EDDSA_PUBLIC_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
-                  key: MERIDIAN_JWT_EDDSA_PUBLIC_KEY
+                  key: MARULA_JWT_EDDSA_PUBLIC_KEY
                   optional: true
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.otel.exporterOtlpEndpoint | quote }}

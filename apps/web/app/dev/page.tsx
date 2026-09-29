@@ -6,7 +6,7 @@
 //
 // Gating contract: the page itself is reachable only through the header
 // link, which renders ONLY when the status probe answers enabled:true —
-// and that answer only exists when the API runs with MERIDIAN_DEV_TOOLS=1.
+// and that answer only exists when the API runs with MARULA_DEV_TOOLS=1.
 // This page still probes independently (defense in depth): with the gate
 // off it renders a disabled notice and no action buttons.
 //
@@ -125,7 +125,7 @@ export default function DevPage() {
           <div className="p-4 text-[13px]">
             <p role="alert">
               Dev tools are not enabled on this API. The /api/dev surface only
-              exists when the server runs with MERIDIAN_DEV_TOOLS=1 — it is
+              exists when the server runs with MARULA_DEV_TOOLS=1 — it is
               never on by default.
             </p>
           </div>

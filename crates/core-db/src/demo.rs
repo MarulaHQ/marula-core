@@ -1,7 +1,7 @@
 //! Demo-org seeding and dev QA loops (TASKLIST DX1–DX2).
 //!
 //! Purpose: ONE deterministic demo dataset callable from two entrypoints —
-//! `meridian-cli seed-demo` (DX1) and the env-gated `/api/dev/*` surface
+//! `marula-core-cli seed-demo` (DX1) and the env-gated `/api/dev/*` surface
 //! (DX2). Fixed UUIDs/emails make re-runs stable: seeding is all-or-nothing
 //! per org and an existing demo org short-circuits with
 //! [`DemoError::AlreadySeeded`] instead of double-applying.
@@ -24,7 +24,7 @@
 //! Non-purpose: not a fixture framework (no DSL, no partial sets), not a
 //! production data generator (content is hand-written demo narrative), and
 //! NOT a production bootstrap — the whole module is only reachable behind
-//! `MERIDIAN_DEV_TOOLS=1` (CLI refuses without it; the API router is never
+//! `MARULA_DEV_TOOLS=1` (CLI refuses without it; the API router is never
 //! mounted).
 
 use crate::{set_org, DbError, DbResult};

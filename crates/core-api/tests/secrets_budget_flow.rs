@@ -14,9 +14,9 @@ async fn test_state() -> (AppState, Router) {
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("secrets budget e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("secrets budget e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
         .acquire_timeout(std::time::Duration::from_secs(10))
@@ -109,7 +109,7 @@ async fn org_folder(app: &Router, bearer: &str) -> Uuid {
 #[tokio::test]
 async fn vault_write_budget_returns_typed_429() {
     // A tiny budget: the test org gets 2 mutation seats per window.
-    std::env::set_var("MERIDIAN_VAULT_WRITE_BUDGET_PER_MIN", "2");
+    std::env::set_var("MARULA_VAULT_WRITE_BUDGET_PER_MIN", "2");
     let (state, app) = test_state().await;
     // The static bucket may carry residue from earlier tests in this
     // process; that is fine — what matters is that BREACHING the budget
@@ -157,5 +157,5 @@ async fn vault_write_budget_returns_typed_429() {
         );
     }
     assert!(saw_429, "the org budget must eventually refuse");
-    std::env::remove_var("MERIDIAN_VAULT_WRITE_BUDGET_PER_MIN");
+    std::env::remove_var("MARULA_VAULT_WRITE_BUDGET_PER_MIN");
 }

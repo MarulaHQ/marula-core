@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-route-marula-link"
+description = "Enables the route_marula_link command without any pre-configured scope."
+commands.allow = ["route_marula_link"]
+
+[[permission]]
+identifier = "deny-route-marula-link"
+description = "Denies the route_marula_link command without any pre-configured scope."
+commands.deny = ["route_marula_link"]

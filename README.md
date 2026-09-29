@@ -42,7 +42,7 @@ open http://localhost:3000                            # workspace UI
 Developer harness with hot reload:
 
 ```bash
-cargo install --path crates/meridian-cli
+cargo install --path crates/marula-core-cli
 meridian dev
 ```
 
@@ -124,7 +124,7 @@ crates/
 ├── worker/         # Postgres-backed job queue + job definitions
 ├── plugin-host/    # Extism WASM runtime + connector proxy
 ├── mcp-server/     # MCP protocol adapter — derived from OpenAPI + capability registry
-└── meridian-cli/   # `meridian dev`, setup, admin tasks
+└── marula-core-cli/   # `meridian dev`, setup, admin tasks
 apps/web/           # Next.js app (workspace UI + client portal)
 packages/
 ├── sdk/            # @marula-core/sdk — typed client generated from OpenAPI (Apache-2.0)

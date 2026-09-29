@@ -9,7 +9,7 @@
 //! (`forked_from` on the copy, origin untouched), render against a real
 //! ticket context, and IF1 idempotent replay with IF2 `mutation`
 //! metadata. Database selection follows the documented contract in
-//! tests/common (MERIDIAN_TEST_DATABASE_URL or DATABASE_URL; no schema
+//! tests/common (MARULA_TEST_DATABASE_URL or DATABASE_URL; no schema
 //! reset).
 //!
 //! Non-purpose: pure vocabulary/predicate rules (core-domain
@@ -28,9 +28,9 @@ async fn test_state() -> AppState {
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("snippet flow needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("snippet flow needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect(&admin_url).await.expect("pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");

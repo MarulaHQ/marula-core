@@ -207,10 +207,10 @@
           "markdownDescription": "Enables the print_raw_zpl command without any pre-configured scope."
         },
         {
-          "description": "Enables the route_meridian_link command without any pre-configured scope.",
+          "description": "Enables the route_marula_link command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-route-meridian-link",
-          "markdownDescription": "Enables the route_meridian_link command without any pre-configured scope."
+          "const": "allow-route-marula-link",
+          "markdownDescription": "Enables the route_marula_link command without any pre-configured scope."
         },
         {
           "description": "Denies the check_desktop_update command without any pre-configured scope.",
@@ -243,10 +243,10 @@
           "markdownDescription": "Denies the print_raw_zpl command without any pre-configured scope."
         },
         {
-          "description": "Denies the route_meridian_link command without any pre-configured scope.",
+          "description": "Denies the route_marula_link command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-route-meridian-link",
-          "markdownDescription": "Denies the route_meridian_link command without any pre-configured scope."
+          "const": "deny-route-marula-link",
+          "markdownDescription": "Denies the route_marula_link command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

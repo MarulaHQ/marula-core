@@ -71,7 +71,7 @@ Meridian.app
   (`brew install pgvector`) into the embedded installation. Prerequisite:
   **brew install pgvector**.
 - **Demo seed:** the deterministic demo org (same path as
-  `meridian-cli seed-demo`) is seeded idempotently on startup with the dev
+  `marula-core-cli seed-demo`) is seeded idempotently on startup with the dev
   JWT secret, so logins `owner@demo.local` / `dispatcher@demo.local` /
   `tech@demo.local` / `bookkeeper@demo.local` (password `demo-password-123`)
   work out of the box.

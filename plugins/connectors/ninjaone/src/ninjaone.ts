@@ -23,7 +23,7 @@ export function buildActivity(event: {
     ? `[${event.ticket.number}] ${event.ticket.title}`
     : "(ticket details not included)";
   return {
-    activityType: "MERIDIAN_EVENT",
+    activityType: "MARULA_EVENT",
     activityContent: `Meridian event ${event.type} for ${ticket}`,
   };
 }

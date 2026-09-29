@@ -4,7 +4,7 @@
 //! behavior, and OIDC provider/link integrity.
 //!
 //! Database selection follows the documented contract in
-//! `tests/common/mod.rs` (MERIDIAN_TEST_DATABASE_URL → DATABASE_URL →
+//! `tests/common/mod.rs` (MARULA_TEST_DATABASE_URL → DATABASE_URL →
 //! testcontainers).
 //!
 //! Non-purpose: HTTP-layer behavior (core-api) and protocol crypto.

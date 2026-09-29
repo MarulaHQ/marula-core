@@ -31,7 +31,7 @@ for (const theme of THEMES) {
       const context = await browser.newContext();
       await context.addInitScript(
         ({ tokens, theme }) => {
-          window.__MERIDIAN_API_URL__ = "http://127.0.0.1:15433";
+          window.__MARULA_API_URL__ = "http://127.0.0.1:15433";
           window.localStorage.setItem("meridian-tokens", JSON.stringify(tokens));
           window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 3600_000));
           window.localStorage.setItem("meridian-theme", theme);
@@ -56,7 +56,7 @@ for (const theme of THEMES) {
   const context = await browser.newContext();
   await context.addInitScript(
     ({ tokens, theme }) => {
-      window.__MERIDIAN_API_URL__ = "http://127.0.0.1:15433";
+      window.__MARULA_API_URL__ = "http://127.0.0.1:15433";
       window.localStorage.setItem("meridian-tokens", JSON.stringify(tokens));
       window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 3600_000));
       window.localStorage.setItem("meridian-theme", theme);

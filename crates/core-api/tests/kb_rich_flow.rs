@@ -7,7 +7,7 @@
 //! external documents with permission note + link-check, the
 //! client-facing exposure rule (portal gate = the article's), and the
 //! typed unique-constraint reason codes. Database selection follows the
-//! documented contract in tests/common (MERIDIAN_TEST_DATABASE_URL or
+//! documented contract in tests/common (MARULA_TEST_DATABASE_URL or
 //! DATABASE_URL; no schema reset).
 //!
 //! Non-purpose: pure allowlist/regex rules (core-kb rich unit tests) and
@@ -25,9 +25,9 @@ async fn test_state() -> AppState {
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("kb rich flow needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("kb rich flow needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect(&admin_url).await.expect("pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");

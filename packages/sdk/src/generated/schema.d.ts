@@ -10770,7 +10770,7 @@ export interface paths {
          *     (linked to a comment later by the composer submit).
          * @description Headers: `x-filename` (required), `content-type` (declared; verified
          *     against sniffed magic bytes). Body: raw bytes, capped by
-         *     `MERIDIAN_MAX_UPLOAD_MB` (default 25 MB).
+         *     `MARULA_MAX_UPLOAD_MB` (default 25 MB).
          */
         post: operations["attachments_upload"];
         delete?: never;

@@ -26,16 +26,16 @@ export function noneMode(config: Config): boolean {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const meridianApiKey = env.MERIDIAN_API_KEY ?? "";
+  const meridianApiKey = env.MARULA_API_KEY ?? "";
   if (!meridianApiKey) {
     throw new Error(
-      "MERIDIAN_API_KEY is required — create a scoped key under Settings → Integrations.",
+      "MARULA_API_KEY is required — create a scoped key under Settings → Integrations.",
     );
   }
   return {
-    meridianBaseUrl: env.MERIDIAN_BASE_URL ?? "http://localhost:8080",
+    meridianBaseUrl: env.MARULA_BASE_URL ?? "http://localhost:8080",
     meridianApiKey,
-    meridianWebhookSecret: env.MERIDIAN_WEBHOOK_SECRET ?? "",
+    meridianWebhookSecret: env.MARULA_WEBHOOK_SECRET ?? "",
     port: Number(env.PORT ?? 8789),
     huduBaseUrl: env.HUDU_BASE_URL,
     huduApiKey: env.HUDU_API_KEY,

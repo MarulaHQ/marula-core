@@ -57,7 +57,7 @@ pub type UploadResponse = Attachment;
 ///
 /// Headers: `x-filename` (required), `content-type` (declared; verified
 /// against sniffed magic bytes). Body: raw bytes, capped by
-/// `MERIDIAN_MAX_UPLOAD_MB` (default 25 MB).
+/// `MARULA_MAX_UPLOAD_MB` (default 25 MB).
 #[utoipa::path(operation_id = "attachments_upload", post,
     path = "/api/tickets/{id}/attachments", tag = "attachments",
     security(("bearer" = [])),

@@ -232,7 +232,7 @@ EMAIL_SCAN=clamd
 CLAMD_ADDR=clamd:3310
 
 # Worker to core-api send pipeline (the worker claims and reports sends)
-MERIDIAN_INTERNAL_TOKEN=<shared random token>
+MARULA_INTERNAL_TOKEN=<shared random token>
 ```
 
 Notes:
@@ -240,7 +240,7 @@ Notes:
 - A transport chosen on Settings → Email wins over `EMAIL_TRANSPORT`. The
   environment value is the fallback for workspaces with no selection.
 - Workspace credentials stored through Settings → Email are sealed with
-  `MERIDIAN_SECRET_KEY`. core-api and the worker must share that key. If
+  `MARULA_SECRET_KEY`. core-api and the worker must share that key. If
   they do not, the worker cannot open what the API sealed, and sends fail
   with a decrypt error on the row.
 - With `EMAIL_TRANSPORT=none`, the worker reports send failures as

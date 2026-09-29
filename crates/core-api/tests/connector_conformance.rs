@@ -57,9 +57,9 @@ async fn test_state(rate_limit_per_min: u32) -> (AppState, Router) {
         .try_init();
     BOOTSTRAP
         .get_or_init(|| async {
-            let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+            let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
-                .expect("connector e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+                .expect("connector e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
             let boot = connect_admin(&admin_url).await;
             sqlx::query("DROP SCHEMA public CASCADE")
                 .execute(&boot)
@@ -75,9 +75,9 @@ async fn test_state(rate_limit_per_min: u32) -> (AppState, Router) {
                 .expect("RLS coverage holds with migration connector surfaces");
         })
         .await;
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("connector e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("connector e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect_admin(&admin_url).await;
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     config.database_url = admin_url;

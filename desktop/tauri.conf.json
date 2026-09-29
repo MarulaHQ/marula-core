@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Meridian",
+  "productName": "Marula",
   "version": "0.1.0",
-  "identifier": "com.meridian.desktop",
+  "identifier": "com.marula.desktop",
   "build": {
     "frontendDist": "../apps/web/out"
   },
@@ -18,7 +18,7 @@
     "targets": ["app", "dmg"],
     "icon": ["icons/icon.icns", "icons/icon.png", "icons/icon.ico"],
     "category": "Business",
-    "copyright": "AGPL-3.0 — Meridian contributors",
+    "copyright": "AGPL-3.0 — Marula contributors",
     "shortDescription": "The PSA you own",
     "longDescription": "Open-source PSA for IT teams and MSPs: tickets, timers, dispatch, and a client portal on your own Postgres. This desktop build embeds Postgres and core-api in one app (ADR 0005).",
     "macOS": {
@@ -29,8 +29,8 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://updates.meridian.dev/desktop/{{target}}/{{arch}}/{{current_version}}"],
-      "pubkey": "REPLACE_AT_RELEASE_TIME: generate with `pnpm tauri signer generate ~/.tauri/meridian.key` and paste the minisign PUBLIC key here — never commit the private key"
+      "endpoints": ["https://updates.marula.app/desktop/{{target}}/{{arch}}/{{current_version}}"],
+      "pubkey": "REPLACE_AT_RELEASE_TIME: generate with `pnpm tauri signer generate ~/.tauri/marula.key` and paste the minisign PUBLIC key here — never commit the private key"
     }
   }
 }

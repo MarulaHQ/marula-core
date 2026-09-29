@@ -34,9 +34,9 @@ async fn test_state() -> (AppState, Router) {
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::WARN)
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("consent e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("consent e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect_admin(&admin_url).await.expect("admin pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     core_db::assert_rls_coverage(&pool)

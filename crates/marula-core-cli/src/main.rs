@@ -1,4 +1,4 @@
-//! meridian-cli — the operator entrypoint for Meridian's background
+//! marula-core-cli — the operator entrypoint for Meridian's background
 //! services.
 //!
 //! Purpose: wrap the operational tasks self-hosters need — applying
@@ -66,7 +66,7 @@ enum Command {
         out: Option<std::path::PathBuf>,
     },
     /// Seed the deterministic demo org (TASKLIST DX1). Dev-only: refuses
-    /// unless MERIDIAN_DEV_TOOLS=1.
+    /// unless MARULA_DEV_TOOLS=1.
     SeedDemo {
         /// Wipe the demo org (if present) and reseed from scratch.
         #[arg(long)]
@@ -308,18 +308,18 @@ async fn report_db_copy(url: &str) {
 
 /// Runtime gate for the dev-tool surface (hard rule: never default-on).
 fn dev_tools_enabled() -> bool {
-    std::env::var("MERIDIAN_DEV_TOOLS").as_deref() == Ok("1")
+    std::env::var("MARULA_DEV_TOOLS").as_deref() == Ok("1")
 }
 
 /// The at-rest seal key for demo secrets, using the same precedence as
-/// core-api's config: `MERIDIAN_SECRET_KEY` (64 hex chars) when set, else
+/// core-api's config: `MARULA_SECRET_KEY` (64 hex chars) when set, else
 /// the documented dev fallback derived from `JWT_SECRET`.
 fn dev_seal_key() -> anyhow::Result<core_db::demo::DemoSeedOptions> {
-    let key = match std::env::var("MERIDIAN_SECRET_KEY") {
+    let key = match std::env::var("MARULA_SECRET_KEY") {
         Ok(hex_key) if hex_key.len() == 64 => {
             let mut bytes = [0u8; 32];
             hex::decode_to_slice(&hex_key, &mut bytes)
-                .map_err(|e| anyhow::anyhow!("MERIDIAN_SECRET_KEY is not valid hex: {e}"))?;
+                .map_err(|e| anyhow::anyhow!("MARULA_SECRET_KEY is not valid hex: {e}"))?;
             bytes
         }
         _ => {
@@ -337,7 +337,7 @@ fn dev_seal_key() -> anyhow::Result<core_db::demo::DemoSeedOptions> {
 async fn seed_demo(force: bool) -> anyhow::Result<()> {
     if !dev_tools_enabled() {
         anyhow::bail!(
-            "seed-demo is a dev-only surface: set MERIDIAN_DEV_TOOLS=1 to enable \
+            "seed-demo is a dev-only surface: set MARULA_DEV_TOOLS=1 to enable \
              (keep it unset in production — the surface must not exist there)"
         );
     }
@@ -360,8 +360,8 @@ async fn seed_demo(force: bool) -> anyhow::Result<()> {
         Ok(Ok(report)) => print_seed_summary(&report),
         Err(core_db::demo::DemoError::AlreadySeeded(org_id)) => {
             println!("demo org already seeded (org_id {org_id}) — nothing written.");
-            println!("wipe + reseed: MERIDIAN_DEV_TOOLS=1 meridian seed-demo --force");
-            println!("or POST /api/dev/reset-org on a dev API with MERIDIAN_DEV_TOOLS=1.");
+            println!("wipe + reseed: MARULA_DEV_TOOLS=1 meridian seed-demo --force");
+            println!("or POST /api/dev/reset-org on a dev API with MARULA_DEV_TOOLS=1.");
             println!();
             println!("logins: owner@demo.local / dispatcher@demo.local / tech@demo.local / bookkeeper@demo.local");
             println!("password: {}", core_db::demo::DEMO_PASSWORD);
@@ -569,7 +569,7 @@ fn shutdown_watch() -> watch::Receiver<bool> {
 /// Shared telemetry bootstrap (TASKLIST 2.18): none-mode unless
 /// OTEL_EXPORTER_OTLP_ENDPOINT is set; the guard lives for `main`.
 fn init_tracing() -> core_otel::TelemetryGuard {
-    core_otel::init("meridian-cli")
+    core_otel::init("marula-core-cli")
 }
 
 #[cfg(test)]
@@ -702,16 +702,16 @@ mod tests {
         Cli::command().debug_assert();
     }
 
-    /// The DX hard rule: without MERIDIAN_DEV_TOOLS=1 the seeder refuses
+    /// The DX hard rule: without MARULA_DEV_TOOLS=1 the seeder refuses
     /// with a message that names the variable (never a default-on surface).
     #[tokio::test]
     async fn seed_demo_refuses_without_dev_tools_gate() {
         // The test process must NOT carry the gate from the ambient env.
-        unsafe { std::env::remove_var("MERIDIAN_DEV_TOOLS") };
+        unsafe { std::env::remove_var("MARULA_DEV_TOOLS") };
         let err = seed_demo(false).await.expect_err("must refuse");
-        assert!(err.to_string().contains("MERIDIAN_DEV_TOOLS"));
+        assert!(err.to_string().contains("MARULA_DEV_TOOLS"));
         // The same refusal applies to --force: the gate precedes everything.
         let err = seed_demo(true).await.expect_err("must refuse");
-        assert!(err.to_string().contains("MERIDIAN_DEV_TOOLS"));
+        assert!(err.to_string().contains("MARULA_DEV_TOOLS"));
     }
 }

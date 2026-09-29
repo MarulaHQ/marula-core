@@ -26,17 +26,17 @@ export function noneMode(config: Config): boolean {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const meridianBaseUrl = env.MERIDIAN_BASE_URL ?? "http://localhost:8080";
-  const meridianApiKey = env.MERIDIAN_API_KEY ?? "";
+  const meridianBaseUrl = env.MARULA_BASE_URL ?? "http://localhost:8080";
+  const meridianApiKey = env.MARULA_API_KEY ?? "";
   if (!meridianApiKey) {
     throw new Error(
-      "MERIDIAN_API_KEY is required — create a scoped key under Settings → Integrations.",
+      "MARULA_API_KEY is required — create a scoped key under Settings → Integrations.",
     );
   }
   return {
     meridianBaseUrl,
     meridianApiKey,
-    meridianWebhookSecret: env.MERIDIAN_WEBHOOK_SECRET ?? "",
+    meridianWebhookSecret: env.MARULA_WEBHOOK_SECRET ?? "",
     port: Number(env.PORT ?? 8788),
     ninjaOneBaseUrl: env.NINJAONE_BASE_URL,
     ninjaOneToken: env.NINJAONE_TOKEN,

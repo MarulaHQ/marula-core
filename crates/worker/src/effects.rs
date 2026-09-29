@@ -59,7 +59,7 @@ impl EffectApi for ReqwestEffectApi {
         let Some(token) = &self.token else {
             tracing::warn!(
                 path,
-                "MERIDIAN_INTERNAL_TOKEN unset; skipping effect call (job will dead-letter)"
+                "MARULA_INTERNAL_TOKEN unset; skipping effect call (job will dead-letter)"
             );
             return EffectOutcome::Rejected;
         };

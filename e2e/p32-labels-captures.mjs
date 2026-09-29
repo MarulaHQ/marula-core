@@ -116,7 +116,7 @@ for (const theme of ["light", "dark"]) {
   const page = await ctx.newPage();
   await page.addInitScript(
     ([apiBase, tokenPair, mode]) => {
-      window.__MERIDIAN_API_URL__ = apiBase;
+      window.__MARULA_API_URL__ = apiBase;
       window.localStorage.setItem("meridian-tokens", tokenPair);
       window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 3_600_000));
       window.localStorage.setItem("meridian-theme", mode);

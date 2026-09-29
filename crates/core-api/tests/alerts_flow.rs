@@ -24,7 +24,7 @@
 //! Non-purpose: worker/queue paths (queue_runner is untouched —
 //! correlation is synchronous), SLA ladder math (core-db sla suite).
 //! Database selection follows settings_flow's contract:
-//! MERIDIAN_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
+//! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
 use axum::Router;
 use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
@@ -39,9 +39,9 @@ async fn test_state() -> AppState {
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("alerts flow needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("alerts flow needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect(&admin_url).await.expect("pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");

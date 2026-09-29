@@ -17,7 +17,7 @@
 
 use core_mail::TransportKind;
 
-/// The at-rest secret-encryption key (AES-256, same `MERIDIAN_SECRET_KEY`
+/// The at-rest secret-encryption key (AES-256, same `MARULA_SECRET_KEY`
 /// env core-api uses). Needed ONLY by the webhook delivery loop to decrypt
 /// subscription secrets before signing; unset ⇒ webhook jobs dead-letter
 /// fail-closed (documented none mode) — nothing is delivered plaintext.
@@ -119,7 +119,7 @@ pub struct WorkerConfig {
     pub delivery: DeliveryLoopConfig,
     /// Base URL of core-api for machine effect calls (`INTERNAL_API_URL`).
     pub internal_api_url: String,
-    /// Bearer token for `/api/internal/*` (`MERIDIAN_INTERNAL_TOKEN`).
+    /// Bearer token for `/api/internal/*` (`MARULA_INTERNAL_TOKEN`).
     /// Unset ⇒ effect calls are skipped with a loud warning; the queue
     /// dead-letters those jobs instead of spinning retries forever.
     pub internal_token: Option<String>,
@@ -132,11 +132,11 @@ pub struct WorkerConfig {
     /// (`QUEUE_STALE_SECS`, DB-clock comparison).
     pub queue_stale_after_secs: i64,
     /// At-rest decryption key for webhook subscription secrets
-    /// (`MERIDIAN_SECRET_KEY`, 64 hex chars). Unset ⇒ webhook delivery
+    /// (`MARULA_SECRET_KEY`, 64 hex chars). Unset ⇒ webhook delivery
     /// jobs dead-letter fail-closed.
     pub webhook_secret_key: Option<AtRestKey>,
     /// The org principal decision runs are attributed to
-    /// (`MERIDIAN_DECISION_BOT_USER_ID`). Decision answers record
+    /// (`MARULA_DECISION_BOT_USER_ID`). Decision answers record
     /// `created_by` with a real-user FK, so a real member id is
     /// required; unset ⇒ the decision subsystem stays disabled
     /// (documented none mode — surfaces act exactly as they would
@@ -146,7 +146,7 @@ pub struct WorkerConfig {
 
 impl WorkerConfig {
     /// Reads `DATABASE_URL`, `REDIS_URL`, `BIND_ADDR`, `RELAY_BATCH`,
-    /// `CORE_API_URL` and `MERIDIAN_INTERNAL_TOKEN` from the process
+    /// `CORE_API_URL` and `MARULA_INTERNAL_TOKEN` from the process
     /// environment, falling back to dev defaults.
     pub fn from_env() -> Self {
         Self::from_lookup(|key| std::env::var(key).ok())
@@ -220,10 +220,10 @@ impl WorkerConfig {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(60),
             },
-            webhook_secret_key: AtRestKey::from_env_value(lookup("MERIDIAN_SECRET_KEY").as_deref()),
+            webhook_secret_key: AtRestKey::from_env_value(lookup("MARULA_SECRET_KEY").as_deref()),
             internal_api_url: lookup("INTERNAL_API_URL")
                 .unwrap_or_else(|| "http://127.0.0.1:8080".to_string()),
-            internal_token: lookup("MERIDIAN_INTERNAL_TOKEN"),
+            internal_token: lookup("MARULA_INTERNAL_TOKEN"),
             eval_interval_secs: lookup("EVAL_INTERVAL_SECS")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(60),
@@ -233,7 +233,7 @@ impl WorkerConfig {
             queue_stale_after_secs: lookup("QUEUE_STALE_SECS")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(300),
-            decision_bot_user_id: lookup("MERIDIAN_DECISION_BOT_USER_ID")
+            decision_bot_user_id: lookup("MARULA_DECISION_BOT_USER_ID")
                 .and_then(|v| v.parse().ok()),
         }
     }
@@ -292,13 +292,13 @@ mod tests {
         vars.insert("BIND_ADDR", "127.0.0.1:1".into());
         vars.insert("RELAY_BATCH", "7".into());
         vars.insert("INTERNAL_API_URL", "http://api:9000".into());
-        vars.insert("MERIDIAN_INTERNAL_TOKEN", "sekrit".into());
+        vars.insert("MARULA_INTERNAL_TOKEN", "sekrit".into());
         vars.insert("EVAL_INTERVAL_SECS", "15".into());
         vars.insert("QUEUE_BATCH", "3".into());
         vars.insert("QUEUE_STALE_SECS", "60".into());
-        vars.insert("MERIDIAN_SECRET_KEY", "ab".repeat(32));
+        vars.insert("MARULA_SECRET_KEY", "ab".repeat(32));
         vars.insert("CORE_API_URL", "http://api:9000".into());
-        vars.insert("MERIDIAN_INTERNAL_TOKEN", "tok".into());
+        vars.insert("MARULA_INTERNAL_TOKEN", "tok".into());
         let cfg = WorkerConfig::from_lookup(|k| vars.get(k).cloned());
         assert_eq!(cfg.database_url, "postgres://db");
         assert_eq!(cfg.redis_url, "redis://r");

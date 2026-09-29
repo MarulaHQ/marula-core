@@ -85,7 +85,7 @@ const CHANNEL_BUFFER: usize = 64;
 fn connection_cap() -> usize {
     static CAP: OnceLock<usize> = OnceLock::new();
     *CAP.get_or_init(|| {
-        std::env::var("MERIDIAN_SSE_MAX_CONNECTIONS")
+        std::env::var("MARULA_SSE_MAX_CONNECTIONS")
             .ok()
             .and_then(|v| v.parse().ok())
             .filter(|v| *v > 0)
@@ -96,7 +96,7 @@ fn connection_cap() -> usize {
 fn replay_buffer() -> usize {
     static BUF: OnceLock<usize> = OnceLock::new();
     *BUF.get_or_init(|| {
-        std::env::var("MERIDIAN_SSE_REPLAY_BUFFER")
+        std::env::var("MARULA_SSE_REPLAY_BUFFER")
             .ok()
             .and_then(|v| v.parse().ok())
             .filter(|v| *v > 0)
@@ -107,7 +107,7 @@ fn replay_buffer() -> usize {
 fn presence_ttl() -> Duration {
     static TTL: OnceLock<Duration> = OnceLock::new();
     *TTL.get_or_init(|| {
-        std::env::var("MERIDIAN_PRESENCE_TTL_SECS")
+        std::env::var("MARULA_PRESENCE_TTL_SECS")
             .ok()
             .and_then(|v| v.parse().ok())
             .filter(|v| *v > 0)

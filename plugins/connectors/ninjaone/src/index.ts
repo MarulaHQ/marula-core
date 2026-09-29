@@ -34,7 +34,7 @@ async function commandListen(): Promise<void> {
   const config = loadConfig();
   if (!config.meridianWebhookSecret) {
     throw new Error(
-      "MERIDIAN_WEBHOOK_SECRET is required for listen — copy it from webhook creation.",
+      "MARULA_WEBHOOK_SECRET is required for listen — copy it from webhook creation.",
     );
   }
   const server = createServer((req, res) => {

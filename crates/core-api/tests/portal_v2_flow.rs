@@ -18,7 +18,7 @@
 //! invoice_flow), UI rendering.
 //!
 //! Database selection follows settings_flow's contract:
-//! MERIDIAN_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
+//! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
 use axum::Router;
 use chrono::Datelike;
@@ -34,9 +34,9 @@ async fn test_state() -> (AppState, Router) {
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("portal v2 e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("portal v2 e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect_admin(&admin_url).await.expect("admin pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     core_db::assert_rls_coverage(&pool)

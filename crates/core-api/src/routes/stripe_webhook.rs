@@ -7,7 +7,7 @@
 //!   audit-only typed decline record);
 //! * signature verification is DENY-BY-DEFAULT: the `Stripe-Signature`
 //!   v1 scheme (`t=…,v1=<hmac-sha256(secret, "t.payload")>`) is checked
-//!   against `MERIDIAN_STRIPE_WEBHOOK_SECRET`, timestamp skew ≤ 5 min,
+//!   against `MARULA_STRIPE_WEBHOOK_SECRET`, timestamp skew ≤ 5 min,
 //!   and a request without/with a bad signature is a typed 403, never a
 //!   processed event;
 //! * idempotence: the provider_ref (the Stripe intent id from the
@@ -90,7 +90,7 @@ pub async fn receive(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let _ = extensions;
-    let secret = std::env::var("MERIDIAN_STRIPE_WEBHOOK_SECRET")
+    let secret = std::env::var("MARULA_STRIPE_WEBHOOK_SECRET")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())

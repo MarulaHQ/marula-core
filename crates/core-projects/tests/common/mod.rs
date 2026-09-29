@@ -1,5 +1,5 @@
 //! Shared harness for core-projects integration tests (same contract as
-//! the core-db suite): `MERIDIAN_TEST_DATABASE_URL` / `DATABASE_URL` else
+//! the core-db suite): `MARULA_TEST_DATABASE_URL` / `DATABASE_URL` else
 //! a reusable pgvector container; admin + `meridian_app` pools; per-process
 //! schema reset so fixed UUIDs are safe.
 
@@ -28,7 +28,7 @@ static BOOTSTRAP: tokio::sync::OnceCell<Bootstrap> = tokio::sync::OnceCell::cons
 async fn bootstrap() -> &'static Bootstrap {
     BOOTSTRAP
         .get_or_init(|| async {
-            if let Ok(url) = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+            if let Ok(url) = std::env::var("MARULA_TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
             {
                 let admin = connect_with_retry(&url).await;
@@ -41,7 +41,7 @@ async fn bootstrap() -> &'static Bootstrap {
                     _container: None,
                 };
             }
-            let container_name = std::env::var("MERIDIAN_TEST_PG_NAME")
+            let container_name = std::env::var("MARULA_TEST_PG_NAME")
                 .unwrap_or_else(|_| "meridian-projects-tests-pg18".to_string());
             let request = ContainerRequest::from(
                 GenericImage::new("pgvector/pgvector", "pg18")

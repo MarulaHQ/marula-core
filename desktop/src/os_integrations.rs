@@ -7,7 +7,7 @@
 //!   windows, never merges them).
 //! - Tray menu with the two quick actions the scope names ("New ticket
 //!   window", "Open dispatch board") plus stock lookup and Quit.
-//! - `meridian://` deep links open-or-focus the right window, using the
+//! - `marula://` deep links open-or-focus the right window, using the
 //!   same small grammar the renderer ships (native-side mirror so a link
 //!   works even before a webview exists).
 //! - Single instance: a second launch focuses the running app and hands it
@@ -23,8 +23,8 @@ use tauri::{
 // Deep-link grammar — native mirror of the renderer's lanes
 // ---------------------------------------------------------------------------
 
-/// What a `meridian://` link resolves to natively. Mirrors the renderer
-/// grammar (native/src/core/links.ts parseMeridianLink + lane 1's
+/// What a `marula://` link resolves to natively. Mirrors the renderer
+/// grammar (native/src/core/links.ts parseMarulaLink + lane 1's
 /// popoutKeyForDeepLinkKind) so both shells agree without a webview.
 #[derive(Debug, PartialEq)]
 pub enum DeepLinkTarget {
@@ -40,13 +40,13 @@ pub enum DeepLinkTarget {
     Unrecognized(String),
 }
 
-/// Parse a `meridian://…` URL into a target. Lenient on whitespace and
+/// Parse a `marula://…` URL into a target. Lenient on whitespace and
 /// case of the scheme; the host/path are the same shape either way.
 pub fn parse_deep_link(raw: &str) -> DeepLinkTarget {
     let trimmed = raw.trim();
     let Some(rest) = trimmed
-        .strip_prefix("meridian://")
-        .or_else(|| trimmed.strip_prefix("MERIDIAN://"))
+        .strip_prefix("marula://")
+        .or_else(|| trimmed.strip_prefix("MARULA://"))
     else {
         return DeepLinkTarget::Unrecognized(raw.to_string());
     };
@@ -161,7 +161,7 @@ pub async fn route_deep_link(app: &AppHandle, raw: &str) -> Result<String, Strin
 /// route links — e.g. a QR hit inside a ticket window asks the shell to
 /// open-or-focus). Same grammar, same open-or-focus contract.
 #[tauri::command]
-pub async fn route_meridian_link(app: AppHandle, url: String) -> Result<String, String> {
+pub async fn route_marula_link(app: AppHandle, url: String) -> Result<String, String> {
     route_deep_link(&app, &url).await
 }
 
@@ -176,11 +176,11 @@ pub async fn route_meridian_link(app: AppHandle, url: String) -> Result<String, 
 pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
     let app_menu = Submenu::with_id_and_items(
         app,
-        "meridian-app",
-        "Meridian",
+        "marula-app",
+        "Marula",
         true,
         &[
-            &PredefinedMenuItem::about(app, Some("About Meridian"), None)?,
+            &PredefinedMenuItem::about(app, Some("About Marula"), None)?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,
@@ -191,7 +191,7 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
 
     let edit_menu = Submenu::with_id_and_items(
         app,
-        "meridian-edit",
+        "marula-edit",
         "Edit",
         true,
         &[
@@ -207,7 +207,7 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
 
     let view_menu = Submenu::with_id_and_items(
         app,
-        "meridian-view",
+        "marula-view",
         "View",
         true,
         &[
@@ -220,7 +220,7 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
 
     let window_menu = Submenu::with_id_and_items(
         app,
-        "meridian-window",
+        "marula-window",
         "Window",
         true,
         &[
@@ -250,18 +250,18 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let new_ticket = MenuItem::with_id(app, "tray-new-ticket", "New ticket window", true, None::<&str>)?;
     let dispatch = MenuItem::with_id(app, "tray-dispatch", "Open dispatch board", true, None::<&str>)?;
     let stock = MenuItem::with_id(app, "tray-stock", "Open stock lookup", true, None::<&str>)?;
-    let show_main = MenuItem::with_id(app, "tray-show-main", "Show Meridian", true, None::<&str>)?;
+    let show_main = MenuItem::with_id(app, "tray-show-main", "Show Marula", true, None::<&str>)?;
     let sep = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "tray-quit", "Quit Meridian", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "tray-quit", "Quit Marula", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[&show_main, &sep, &new_ticket, &dispatch, &stock, &sep, &quit],
     )?;
-    TrayIconBuilder::with_id("meridian-tray")
+    TrayIconBuilder::with_id("marula-tray")
         .icon(app.default_window_icon().expect("bundled app icon").clone())
         .menu(&menu)
         .show_menu_on_left_click(true)
-        .tooltip("Meridian")
+        .tooltip("Marula")
         .on_menu_event(|app, event| {
             dispatch_tray_action(app, event.id().as_ref());
         })
@@ -311,7 +311,7 @@ mod tests {
     #[test]
     fn parses_ticket_link() {
         let id = "0198c7a2-7b1c-7000-8000-000000000001";
-        match parse_deep_link(&format!("meridian://ticket/{id}")) {
+        match parse_deep_link(&format!("marula://ticket/{id}")) {
             DeepLinkTarget::Ticket(got) => assert_eq!(got, id),
             other => panic!("expected ticket, got {other:?}"),
         }
@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn parses_stock_item_link_to_entity() {
         let id = "0198c7a2-7b1c-7000-8000-000000000002";
-        match parse_deep_link(&format!("meridian://stock-item/{id}?x=1")) {
+        match parse_deep_link(&format!("marula://stock-item/{id}?x=1")) {
             DeepLinkTarget::Entity(kind, got) => {
                 assert_eq!(kind, "stock-item");
                 assert_eq!(got, id);
@@ -332,7 +332,7 @@ mod tests {
     #[test]
     fn notifications_link_parses() {
         assert!(matches!(
-            parse_deep_link("meridian://notifications"),
+            parse_deep_link("marula://notifications"),
             DeepLinkTarget::Notifications
         ));
     }
@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn non_uuid_ticket_is_unrecognized() {
         assert!(matches!(
-            parse_deep_link("meridian://ticket/not-a-uuid"),
+            parse_deep_link("marula://ticket/not-a-uuid"),
             DeepLinkTarget::Unrecognized(_)
         ));
     }
@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn foreign_scheme_never_parses() {
         assert!(matches!(
-            parse_deep_link("https://meridian.example/ticket/abc"),
+            parse_deep_link("https://marula.example/ticket/abc"),
             DeepLinkTarget::Unrecognized(_)
         ));
     }
@@ -356,16 +356,16 @@ mod tests {
     #[test]
     fn window_targets_match_lane_grammar() {
         let id = "0198c7a2-7b1c-7000-8000-000000000003";
-        let t = parse_deep_link(&format!("meridian://ticket/{id}"));
+        let t = parse_deep_link(&format!("marula://ticket/{id}"));
         let (role, path) = t.window_target().expect("window target");
         assert_eq!(role, "ticket-detail");
         assert_eq!(path, format!("tickets/{id}"));
 
-        let b = parse_deep_link(&format!("meridian://board/{id}"));
+        let b = parse_deep_link(&format!("marula://board/{id}"));
         let (role, _) = b.window_target().expect("board target");
         assert_eq!(role, "dispatch-board");
 
-        let s = parse_deep_link(&format!("meridian://stock-item/{id}"));
+        let s = parse_deep_link(&format!("marula://stock-item/{id}"));
         let (role, _) = s.window_target().expect("stock target");
         assert_eq!(role, "stock-lookup");
     }

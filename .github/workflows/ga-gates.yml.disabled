@@ -75,7 +75,7 @@ jobs:
       - name: Contract probe set from the pinned OpenAPI (dual-mount parity + existence + drift)
         run: cargo test -q -p core-api --test api_versioning
       - name: Golden OpenAPI conformance (live spec == pinned golden)
-        run: cargo test -q -p meridian-cli --test golden_openapi
+        run: cargo test -q -p marula-core-cli --test golden_openapi
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
 

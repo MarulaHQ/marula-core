@@ -89,7 +89,7 @@ impl ReqwestFanOut {
 
     async fn post(&self, path: &str, body: Value) -> Option<Value> {
         let Some(token) = &self.token else {
-            tracing::warn!("MERIDIAN_INTERNAL_TOKEN unset; skipping decision call");
+            tracing::warn!("MARULA_INTERNAL_TOKEN unset; skipping decision call");
             return None;
         };
         let url = format!("{}{}", self.base_url, path);
@@ -375,7 +375,7 @@ pub async fn run_decision_triage(
     mut shutdown: watch::Receiver<bool>,
 ) {
     let Some(bot_user) = config.decision_bot_user_id else {
-        tracing::info!("decision triage disabled: MERIDIAN_DECISION_BOT_USER_ID not configured");
+        tracing::info!("decision triage disabled: MARULA_DECISION_BOT_USER_ID not configured");
         return;
     };
     let client = match redis::Client::open(config.redis_url.as_str()) {

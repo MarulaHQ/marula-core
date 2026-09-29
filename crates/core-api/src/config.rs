@@ -44,10 +44,10 @@ pub struct Config {
     pub bind_addr: String,
     pub jwt_secret: String,
     /// Asymmetric signing upgrade (threat-model §A4, Wave 34 lane 6):
-    /// `MERIDIAN_JWT_EDDSA_PRIVATE_KEY` (inline PEM) or
-    /// `MERIDIAN_JWT_EDDSA_PRIVATE_KEY_FILE` (path) turns on EdDSA
-    /// signing; `MERIDIAN_JWT_EDDSA_PUBLIC_KEY` / `..._FILE` supplies the
-    /// verification key (required with the private key); `MERIDIAN_JWT_KID`
+    /// `MARULA_JWT_EDDSA_PRIVATE_KEY` (inline PEM) or
+    /// `MARULA_JWT_EDDSA_PRIVATE_KEY_FILE` (path) turns on EdDSA
+    /// signing; `MARULA_JWT_EDDSA_PUBLIC_KEY` / `..._FILE` supplies the
+    /// verification key (required with the private key); `MARULA_JWT_KID`
     /// names the key (default `m1`). Both PEMs are parsed at boot — a
     /// malformed key refuses to boot. Unset ⇒ HS256 on `jwt_secret`,
     /// exactly as before.
@@ -58,7 +58,7 @@ pub struct Config {
     pub refresh_ttl_secs: i64,
     pub cors_origin: Option<String>,
     /// Key for AES-256-GCM at-rest encryption of integration secrets
-    /// (OIDC client secrets, TOTP secrets). Env `MERIDIAN_SECRET_KEY`
+    /// (OIDC client secrets, TOTP secrets). Env `MARULA_SECRET_KEY`
     /// (64 hex chars). Falls back to a value derived from `jwt_secret`
     /// for dev only — loudly logged; rotate to a real key before prod.
     pub secret_key: SecretKey,
@@ -96,15 +96,15 @@ pub struct Config {
     pub max_upload_bytes: i64,
     /// Migration connector (TASKLIST D3): per-principal request budget per
     /// minute on the /api/migration surface. Env
-    /// `MERIDIAN_MIGRATION_RATE_LIMIT_PER_MIN` (default 600).
+    /// `MARULA_MIGRATION_RATE_LIMIT_PER_MIN` (default 600).
     pub migration_rate_limit_per_min: u32,
     /// Dispatch connector (TASKLIST Phase 3, Wave 9 lane 9): per-principal
     /// request budget per minute on the /api/dispatch-connector surface.
-    /// Env `MERIDIAN_DISPATCH_RATE_LIMIT_PER_MIN` (default 600).
+    /// Env `MARULA_DISPATCH_RATE_LIMIT_PER_MIN` (default 600).
     pub dispatch_rate_limit_per_min: u32,
     /// Scheduling links (Wave 11 lane 4): per-token request budget per
     /// minute on the UNAUTHENTICATED public booking surface. Env
-    /// `MERIDIAN_SCHEDULING_LINKS_RATE_LIMIT_PER_MIN` (default 60; 0
+    /// `MARULA_SCHEDULING_LINKS_RATE_LIMIT_PER_MIN` (default 60; 0
     /// disables limiting).
     pub scheduling_links_rate_limit_per_min: u32,
     /// Native secrets vault (ADR 0006, Wave 16 lane 9 straggler sweep):
@@ -112,15 +112,15 @@ pub struct Config {
     /// every secret-record/folder/grant mutation on `/api/secrets/*` and
     /// the chunked bulk-ingestion path. This is the noisy-neighbor floor:
     /// a runaway bulk importer consumes its own org's budget only.
-    /// Env `MERIDIAN_VAULT_WRITE_BUDGET_PER_MIN` (default 600; 0
+    /// Env `MARULA_VAULT_WRITE_BUDGET_PER_MIN` (default 600; 0
     /// disables limiting). Per-process counters — one API instance, one
     /// budget (the same posture as the migration dispatch budgets).
     pub vault_write_budget_per_min: u32,
     /// Plugin/skill artifact signing keys (B1, Wave 16 lane 9 → Wave 19
     /// lane 2 rotation full semantics, ADR 0009): the operator's trusted
     /// ed25519 PUBLIC keys (64 hex chars each) as a TRUST SET. Env
-    /// `MERIDIAN_PLUGIN_SIGNING_KEYS` (comma-separated `key_id=hex`
-    /// entries) joins the legacy single-key `MERIDIAN_PLUGIN_SIGNING_KEY`
+    /// `MARULA_PLUGIN_SIGNING_KEYS` (comma-separated `key_id=hex`
+    /// entries) joins the legacy single-key `MARULA_PLUGIN_SIGNING_KEY`
     /// (merged as an implicit derived key-id). When the trust set is
     /// non-empty, every registry/GitHub distribution artifact is
     /// cryptographically signature-verified against it (typed refusals:
@@ -128,21 +128,21 @@ pub struct Config {
     /// an EMPTY trust set degrades to structural verification only (dev
     /// posture — loudly logged at boot). The DB registry
     /// (`plugin_signing_keys`) overrides this static set at request time.
-    /// Env `MERIDIAN_PLUGIN_SIGNING_KEYS`, `MERIDIAN_PLUGIN_SIGNING_KEY`.
+    /// Env `MARULA_PLUGIN_SIGNING_KEYS`, `MARULA_PLUGIN_SIGNING_KEY`.
     pub plugin_signing_key: Option<String>,
     /// Wave 19 lane 2 (ADR 0009 rotation full semantics): ADDITIONAL
     /// trusted keys in the rotation trust set, comma-separated
     /// `key_id=public_key_hex` entries (key_id optional — `=…` entries
     /// derive the default first-16-hex id). Merged with the legacy
     /// `plugin_signing_key` into the static bootstrap trust set; the DB
-    /// registry wins at request time. Env `MERIDIAN_PLUGIN_SIGNING_KEYS`.
+    /// registry wins at request time. Env `MARULA_PLUGIN_SIGNING_KEYS`.
     pub plugin_signing_keys: Option<String>,
     /// Chunked bulk-secret ingestion (A2, Wave 16 lane 9): the rows/second
     /// pacing ceiling between per-row commits on the
     /// `POST /api/secrets/records/bulk` worker path. Env
-    /// `MERIDIAN_VAULT_BULK_ROWS_PER_SEC` (default 50).
+    /// `MARULA_VAULT_BULK_ROWS_PER_SEC` (default 50).
     pub vault_bulk_rows_per_sec: u32,
-    /// Dev-tools gate (TASKLIST DX2): when `MERIDIAN_DEV_TOOLS=1` the
+    /// Dev-tools gate (TASKLIST DX2): when `MARULA_DEV_TOOLS=1` the
     /// `/api/dev/*` router mounts; otherwise those routes DO NOT EXIST (no
     /// registration at all, not a 403). Unset in production — never
     /// default-on.
@@ -345,11 +345,11 @@ impl Config {
     ///
     /// Fail-closed rules (threat model §A3):
     /// * `JWT_SECRET` MUST exist and be exactly 64 hex chars.
-    /// * `MERIDIAN_SECRET_KEY` (64 hex chars) is required in production -
+    /// * `MARULA_SECRET_KEY` (64 hex chars) is required in production -
     ///   the at-rest seal key NEVER silently derives from JWT_SECRET.
     ///
     /// Production detection: absence of the explicit dev markers. The dev
-    /// fallback REMAINS available behind `MERIDIAN_DEV_TOOLS=1` (explicit
+    /// fallback REMAINS available behind `MARULA_DEV_TOOLS=1` (explicit
     /// dev profile, TASKLIST DX2 posture) and `from_local` — where the
     /// same DEV_JWT_SECRET context applies (ADR 0005). Failures return
     /// Err with operator-copy that names the missing variable.
@@ -367,7 +367,7 @@ impl Config {
     }
 
     fn from_env_inner(dev_fallback: bool) -> Result<Self, String> {
-        let dev_tools = std::env::var("MERIDIAN_DEV_TOOLS").as_deref() == Ok("1") || dev_fallback;
+        let dev_tools = std::env::var("MARULA_DEV_TOOLS").as_deref() == Ok("1") || dev_fallback;
         let jwt_secret = match std::env::var("JWT_SECRET") {
             Ok(secret) if is_64_hex(&secret) => secret,
             Ok(_) => {
@@ -386,17 +386,17 @@ impl Config {
             }
             Err(_) => {
                 return Err(
-                    "JWT_SECRET is not set — refusing to boot                      (MERIDIAN_DEV_TOOLS=1 enables the dev fallback)"
+                    "JWT_SECRET is not set — refusing to boot                      (MARULA_DEV_TOOLS=1 enables the dev fallback)"
                         .into(),
                 )
             }
         };
-        let secret_key = match std::env::var("MERIDIAN_SECRET_KEY") {
+        let secret_key = match std::env::var("MARULA_SECRET_KEY") {
             Ok(hex_key) if is_64_hex(&hex_key) => {
                 let mut bytes = [0u8; 32];
                 if hex::decode_to_slice(&hex_key, &mut bytes).is_err() {
                     return Err(
-                        "MERIDIAN_SECRET_KEY is not valid hex (64 hex chars expected)"
+                        "MARULA_SECRET_KEY is not valid hex (64 hex chars expected)"
                         .into(),
                     );
                 }
@@ -404,7 +404,7 @@ impl Config {
             }
             Ok(_) => {
                 return Err(
-                    "MERIDIAN_SECRET_KEY must be exactly 64 hex characters"
+                    "MARULA_SECRET_KEY must be exactly 64 hex characters"
                         .into(),
                 )
             }
@@ -412,13 +412,13 @@ impl Config {
             // exists ONLY so the demo seed's at-rest seal key matches.
             Err(_) if dev_tools => {
                 tracing::warn!(
-                    "MERIDIAN_DEV_TOOLS=1: at-rest secret encryption derives from JWT_SECRET (dev fallback — never ship)"
+                    "MARULA_DEV_TOOLS=1: at-rest secret encryption derives from JWT_SECRET (dev fallback — never ship)"
                 );
                 derive_dev_key(&jwt_secret)
             }
             _ => {
                 return Err(
-                    "MERIDIAN_SECRET_KEY is not set — at-rest secret encryption needs an explicit key (64 hex chars). MERIDIAN_DEV_TOOLS=1 enables the dev fallback."
+                    "MARULA_SECRET_KEY is not set — at-rest secret encryption needs an explicit key (64 hex chars). MARULA_DEV_TOOLS=1 enables the dev fallback."
                         .into(),
                 )
             }
@@ -470,39 +470,39 @@ impl Config {
             email_from_address: std::env::var("EMAIL_FROM_ADDRESS")
                 .unwrap_or_else(|_| "support@meridian.local".into()),
             email_from_name: std::env::var("EMAIL_FROM_NAME").ok(),
-            internal_token: std::env::var("MERIDIAN_INTERNAL_TOKEN").ok(),
+            internal_token: std::env::var("MARULA_INTERNAL_TOKEN").ok(),
             object_store: object_store_from_env(),
-            max_upload_bytes: std::env::var("MERIDIAN_MAX_UPLOAD_MB")
+            max_upload_bytes: std::env::var("MARULA_MAX_UPLOAD_MB")
                 .ok()
                 .and_then(|v| v.parse::<i64>().ok())
                 .map(|mb| mb * 1024 * 1024)
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
-            migration_rate_limit_per_min: std::env::var("MERIDIAN_MIGRATION_RATE_LIMIT_PER_MIN")
+            migration_rate_limit_per_min: std::env::var("MARULA_MIGRATION_RATE_LIMIT_PER_MIN")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(600),
-            dispatch_rate_limit_per_min: std::env::var("MERIDIAN_DISPATCH_RATE_LIMIT_PER_MIN")
+            dispatch_rate_limit_per_min: std::env::var("MARULA_DISPATCH_RATE_LIMIT_PER_MIN")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(600),
             scheduling_links_rate_limit_per_min: std::env::var(
-                "MERIDIAN_SCHEDULING_LINKS_RATE_LIMIT_PER_MIN",
+                "MARULA_SCHEDULING_LINKS_RATE_LIMIT_PER_MIN",
             )
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(60),
-            vault_write_budget_per_min: std::env::var("MERIDIAN_VAULT_WRITE_BUDGET_PER_MIN")
+            vault_write_budget_per_min: std::env::var("MARULA_VAULT_WRITE_BUDGET_PER_MIN")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(600),
-            vault_bulk_rows_per_sec: std::env::var("MERIDIAN_VAULT_BULK_ROWS_PER_SEC")
+            vault_bulk_rows_per_sec: std::env::var("MARULA_VAULT_BULK_ROWS_PER_SEC")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(50),
-            plugin_signing_key: std::env::var("MERIDIAN_PLUGIN_SIGNING_KEY")
+            plugin_signing_key: std::env::var("MARULA_PLUGIN_SIGNING_KEY")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
-            plugin_signing_keys: std::env::var("MERIDIAN_PLUGIN_SIGNING_KEYS")
+            plugin_signing_keys: std::env::var("MARULA_PLUGIN_SIGNING_KEYS")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
             dev_tools,
@@ -634,18 +634,18 @@ fn jwt_signing_from_env() -> Result<Option<JwtSigningKey>, String> {
     }
 
     let private_pem = read_key(
-        "MERIDIAN_JWT_EDDSA_PRIVATE_KEY",
-        "MERIDIAN_JWT_EDDSA_PRIVATE_KEY_FILE",
+        "MARULA_JWT_EDDSA_PRIVATE_KEY",
+        "MARULA_JWT_EDDSA_PRIVATE_KEY_FILE",
     )?;
     let public_pem = read_key(
-        "MERIDIAN_JWT_EDDSA_PUBLIC_KEY",
-        "MERIDIAN_JWT_EDDSA_PUBLIC_KEY_FILE",
+        "MARULA_JWT_EDDSA_PUBLIC_KEY",
+        "MARULA_JWT_EDDSA_PUBLIC_KEY_FILE",
     )?;
     let (private_pem, public_pem) = match (private_pem, public_pem) {
         (None, None) => return Ok(None),
         (Some(_), None) => {
             return Err(
-                "MERIDIAN_JWT_EDDSA_PRIVATE_KEY is set without MERIDIAN_JWT_EDDSA_PUBLIC_KEY — \
+                "MARULA_JWT_EDDSA_PRIVATE_KEY is set without MARULA_JWT_EDDSA_PUBLIC_KEY — \
                  the process must be able to verify the tokens it signs (generate the pair with: \
                  openssl genpkey -algorithm ED25519)"
                     .into(),
@@ -653,7 +653,7 @@ fn jwt_signing_from_env() -> Result<Option<JwtSigningKey>, String> {
         }
         (None, Some(_)) => {
             return Err(
-                "MERIDIAN_JWT_EDDSA_PUBLIC_KEY is set without MERIDIAN_JWT_EDDSA_PRIVATE_KEY — \
+                "MARULA_JWT_EDDSA_PUBLIC_KEY is set without MARULA_JWT_EDDSA_PRIVATE_KEY — \
                  core-api both signs and verifies; the public-only posture belongs to realtime"
                     .into(),
             )
@@ -661,12 +661,12 @@ fn jwt_signing_from_env() -> Result<Option<JwtSigningKey>, String> {
         (Some(private), Some(public)) => (private, public),
     };
     jsonwebtoken::EncodingKey::from_ed_pem(private_pem.as_bytes()).map_err(|e| {
-        format!("MERIDIAN_JWT_EDDSA_PRIVATE_KEY is not a valid Ed25519 PKCS#8 PEM: {e}")
+        format!("MARULA_JWT_EDDSA_PRIVATE_KEY is not a valid Ed25519 PKCS#8 PEM: {e}")
     })?;
     jsonwebtoken::DecodingKey::from_ed_pem(public_pem.as_bytes()).map_err(|e| {
-        format!("MERIDIAN_JWT_EDDSA_PUBLIC_KEY is not a valid Ed25519 public-key PEM: {e}")
+        format!("MARULA_JWT_EDDSA_PUBLIC_KEY is not a valid Ed25519 public-key PEM: {e}")
     })?;
-    let kid = std::env::var("MERIDIAN_JWT_KID")
+    let kid = std::env::var("MARULA_JWT_KID")
         .ok()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| "m1".into());
@@ -719,9 +719,9 @@ impl Config {
             email_from_address: std::env::var("EMAIL_FROM_ADDRESS")
                 .unwrap_or_else(|_| "support@meridian.local".into()),
             email_from_name: std::env::var("EMAIL_FROM_NAME").ok(),
-            internal_token: std::env::var("MERIDIAN_INTERNAL_TOKEN").ok(),
+            internal_token: std::env::var("MARULA_INTERNAL_TOKEN").ok(),
             object_store: object_store_from_env(),
-            max_upload_bytes: std::env::var("MERIDIAN_MAX_UPLOAD_MB")
+            max_upload_bytes: std::env::var("MARULA_MAX_UPLOAD_MB")
                 .ok()
                 .and_then(|v| v.parse::<i64>().ok())
                 .map(|mb| mb * 1024 * 1024)
@@ -782,13 +782,13 @@ mod hardening_tests {
             let mut state = Vec::new();
             for key in [
                 "JWT_SECRET",
-                "MERIDIAN_SECRET_KEY",
-                "MERIDIAN_DEV_TOOLS",
-                "MERIDIAN_JWT_EDDSA_PRIVATE_KEY",
-                "MERIDIAN_JWT_EDDSA_PRIVATE_KEY_FILE",
-                "MERIDIAN_JWT_EDDSA_PUBLIC_KEY",
-                "MERIDIAN_JWT_EDDSA_PUBLIC_KEY_FILE",
-                "MERIDIAN_JWT_KID",
+                "MARULA_SECRET_KEY",
+                "MARULA_DEV_TOOLS",
+                "MARULA_JWT_EDDSA_PRIVATE_KEY",
+                "MARULA_JWT_EDDSA_PRIVATE_KEY_FILE",
+                "MARULA_JWT_EDDSA_PUBLIC_KEY",
+                "MARULA_JWT_EDDSA_PUBLIC_KEY_FILE",
+                "MARULA_JWT_KID",
             ] {
                 state.push((key.to_string(), std::env::var(key).ok()));
             }
@@ -819,8 +819,8 @@ mod hardening_tests {
     fn production_boot_fails_closed_without_jwt_secret() {
         let _guard = CleanEnv::snapshot();
         std::env::remove_var("JWT_SECRET");
-        std::env::remove_var("MERIDIAN_DEV_TOOLS");
-        std::env::remove_var("MERIDIAN_SECRET_KEY");
+        std::env::remove_var("MARULA_DEV_TOOLS");
+        std::env::remove_var("MARULA_SECRET_KEY");
         let err = Config::from_env().expect_err("production boot must hard-fail");
         assert!(
             err.contains("JWT_SECRET"),
@@ -832,7 +832,7 @@ mod hardening_tests {
     fn production_boot_fails_closed_on_short_jwt_secret() {
         let _guard = CleanEnv::snapshot();
         std::env::set_var("JWT_SECRET", "short");
-        std::env::remove_var("MERIDIAN_DEV_TOOLS");
+        std::env::remove_var("MARULA_DEV_TOOLS");
         let err = Config::from_env().expect_err("short secret must fail");
         assert!(
             err.contains("64 hex"),
@@ -844,11 +844,11 @@ mod hardening_tests {
     fn production_boot_requires_explicit_secret_key() {
         let _guard = CleanEnv::snapshot();
         std::env::set_var("JWT_SECRET", "f".repeat(64));
-        std::env::remove_var("MERIDIAN_SECRET_KEY");
-        std::env::remove_var("MERIDIAN_DEV_TOOLS");
+        std::env::remove_var("MARULA_SECRET_KEY");
+        std::env::remove_var("MARULA_DEV_TOOLS");
         let err = Config::from_env().expect_err("missing secret key must fail");
         assert!(
-            err.contains("MERIDIAN_SECRET_KEY"),
+            err.contains("MARULA_SECRET_KEY"),
             "operator copy names the variable: {err}"
         );
     }
@@ -857,8 +857,8 @@ mod hardening_tests {
     fn dev_profile_keeps_the_explicit_fallback() {
         let _guard = CleanEnv::snapshot();
         std::env::remove_var("JWT_SECRET");
-        std::env::remove_var("MERIDIAN_SECRET_KEY");
-        std::env::set_var("MERIDIAN_DEV_TOOLS", "1");
+        std::env::remove_var("MARULA_SECRET_KEY");
+        std::env::set_var("MARULA_DEV_TOOLS", "1");
         let cfg = Config::from_env().expect("dev profile boots");
         assert_eq!(cfg.jwt_secret, Config::DEV_JWT_SECRET);
     }
@@ -867,8 +867,8 @@ mod hardening_tests {
     fn test_alias_keeps_the_explicit_dev_fallback_even_without_dev_tools() {
         let _guard = CleanEnv::snapshot();
         std::env::remove_var("JWT_SECRET");
-        std::env::remove_var("MERIDIAN_SECRET_KEY");
-        std::env::remove_var("MERIDIAN_DEV_TOOLS");
+        std::env::remove_var("MARULA_SECRET_KEY");
+        std::env::remove_var("MARULA_DEV_TOOLS");
         let cfg = Config::from_env_allow_dev_fallback().expect("test alias boots");
         assert_eq!(cfg.jwt_secret, Config::DEV_JWT_SECRET);
     }
@@ -879,13 +879,13 @@ mod hardening_tests {
     fn eddsa_private_key_without_public_key_refuses_boot() {
         let _guard = CleanEnv::snapshot();
         std::env::set_var("JWT_SECRET", "f".repeat(64));
-        std::env::set_var("MERIDIAN_SECRET_KEY", "e".repeat(64));
-        std::env::set_var("MERIDIAN_JWT_EDDSA_PRIVATE_KEY", "not-a-pem");
-        std::env::remove_var("MERIDIAN_JWT_EDDSA_PUBLIC_KEY");
-        std::env::remove_var("MERIDIAN_JWT_EDDSA_PUBLIC_KEY_FILE");
+        std::env::set_var("MARULA_SECRET_KEY", "e".repeat(64));
+        std::env::set_var("MARULA_JWT_EDDSA_PRIVATE_KEY", "not-a-pem");
+        std::env::remove_var("MARULA_JWT_EDDSA_PUBLIC_KEY");
+        std::env::remove_var("MARULA_JWT_EDDSA_PUBLIC_KEY_FILE");
         let err = Config::from_env().expect_err("private without public must refuse");
         assert!(
-            err.contains("MERIDIAN_JWT_EDDSA_PUBLIC_KEY"),
+            err.contains("MARULA_JWT_EDDSA_PUBLIC_KEY"),
             "operator copy names the missing variable: {err}"
         );
     }
@@ -894,13 +894,13 @@ mod hardening_tests {
     fn eddsa_public_key_without_private_key_refuses_boot() {
         let _guard = CleanEnv::snapshot();
         std::env::set_var("JWT_SECRET", "f".repeat(64));
-        std::env::set_var("MERIDIAN_SECRET_KEY", "e".repeat(64));
-        std::env::set_var("MERIDIAN_JWT_EDDSA_PUBLIC_KEY", "not-a-pem");
-        std::env::remove_var("MERIDIAN_JWT_EDDSA_PRIVATE_KEY");
-        std::env::remove_var("MERIDIAN_JWT_EDDSA_PRIVATE_KEY_FILE");
+        std::env::set_var("MARULA_SECRET_KEY", "e".repeat(64));
+        std::env::set_var("MARULA_JWT_EDDSA_PUBLIC_KEY", "not-a-pem");
+        std::env::remove_var("MARULA_JWT_EDDSA_PRIVATE_KEY");
+        std::env::remove_var("MARULA_JWT_EDDSA_PRIVATE_KEY_FILE");
         let err = Config::from_env().expect_err("public without private must refuse");
         assert!(
-            err.contains("MERIDIAN_JWT_EDDSA_PRIVATE_KEY"),
+            err.contains("MARULA_JWT_EDDSA_PRIVATE_KEY"),
             "operator copy names the missing variable: {err}"
         );
     }
@@ -909,12 +909,12 @@ mod hardening_tests {
     fn eddsa_malformed_private_pem_refuses_boot_with_the_variable_name() {
         let _guard = CleanEnv::snapshot();
         std::env::set_var("JWT_SECRET", "f".repeat(64));
-        std::env::set_var("MERIDIAN_SECRET_KEY", "e".repeat(64));
-        std::env::set_var("MERIDIAN_JWT_EDDSA_PRIVATE_KEY", "not-a-pem");
-        std::env::set_var("MERIDIAN_JWT_EDDSA_PUBLIC_KEY", "not-a-pem");
+        std::env::set_var("MARULA_SECRET_KEY", "e".repeat(64));
+        std::env::set_var("MARULA_JWT_EDDSA_PRIVATE_KEY", "not-a-pem");
+        std::env::set_var("MARULA_JWT_EDDSA_PUBLIC_KEY", "not-a-pem");
         let err = Config::from_env().expect_err("malformed PEM must refuse");
         assert!(
-            err.contains("MERIDIAN_JWT_EDDSA_PRIVATE_KEY"),
+            err.contains("MARULA_JWT_EDDSA_PRIVATE_KEY"),
             "operator copy names the malformed variable: {err}"
         );
     }

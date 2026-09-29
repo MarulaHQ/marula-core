@@ -3,7 +3,7 @@
 //! mutation uses.
 //!
 //! Posture:
-//! * `MERIDIAN_STRIPE_SECRET_KEY` (a RESTRICTED `rk_` key per Stripe's
+//! * `MARULA_STRIPE_SECRET_KEY` (a RESTRICTED `rk_` key per Stripe's
 //!   key guidance) is the ONLY way Stripe mode exists — the key is a
 //!   secret like every other app credential; it is never stored, logged,
 //!   or returned.
@@ -27,7 +27,7 @@ pub(crate) async fn resolve_payment_provider(
     state: &AppState,
     org_id: uuid::Uuid,
 ) -> Result<std::sync::Arc<dyn core_billing::PaymentProvider>, crate::error::ApiError> {
-    let stripe_key = std::env::var("MERIDIAN_STRIPE_SECRET_KEY")
+    let stripe_key = std::env::var("MARULA_STRIPE_SECRET_KEY")
         .ok()
         .map(|k| k.trim().to_string())
         .filter(|k| !k.is_empty());

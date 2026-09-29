@@ -1,5 +1,5 @@
 {{/* Migrations: Helm pre-install/pre-upgrade hook applying the chain from
-the meridian-cli image (owner role — chain replay, not RLS traffic). */}}
+the marula-core-cli image (owner role — chain replay, not RLS traffic). */}}
 {{- if .Values.migrations.enabled -}}
 apiVersion: batch/v1
 kind: Job

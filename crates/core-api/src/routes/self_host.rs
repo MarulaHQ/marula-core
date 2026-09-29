@@ -175,11 +175,11 @@ pub async fn get(
         services,
         glitchtip_dsns,
         links: SelfHostLinksView {
-            glitchtip: env_text("MERIDIAN_GLITCHTIP_URL"),
-            grafana: env_text("MERIDIAN_GRAFANA_URL"),
-            tempo: env_text("MERIDIAN_TEMPO_URL"),
-            loki: env_text("MERIDIAN_LOKI_URL"),
-            otel_metrics: env_text("MERIDIAN_OTEL_METRICS_URL"),
+            glitchtip: env_text("MARULA_GLITCHTIP_URL"),
+            grafana: env_text("MARULA_GRAFANA_URL"),
+            tempo: env_text("MARULA_TEMPO_URL"),
+            loki: env_text("MARULA_LOKI_URL"),
+            otel_metrics: env_text("MARULA_OTEL_METRICS_URL"),
         },
         garage: GarageView {
             volumes: vec!["garagedata".into(), "garagemeta".into()],

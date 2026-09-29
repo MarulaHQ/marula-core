@@ -265,7 +265,7 @@ for (const theme of THEMES) {
   const page = await ctx.newPage();
   await page.addInitScript(
     ([apiBase, tokenPair, mode, uiLogin]) => {
-      if (apiBase) window.__MERIDIAN_API_URL__ = apiBase;
+      if (apiBase) window.__MARULA_API_URL__ = apiBase;
       if (!uiLogin) {
         window.localStorage.setItem("meridian-tokens", tokenPair);
         window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 3_600_000));

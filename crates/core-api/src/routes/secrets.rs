@@ -58,7 +58,7 @@ use uuid::Uuid;
 // `vault_write_budget_windows` (migration 0094) whose `FOR UPDATE`-
 // locked verdict is the authoritative decision on `ensure_vault_budget`
 // (`crate::vault_scale`). Budget config stays
-// `MERIDIAN_VAULT_WRITE_BUDGET_PER_MIN`; `0` disables everywhere. The
+// `MARULA_VAULT_WRITE_BUDGET_PER_MIN`; `0` disables everywhere. The
 // secrets-flow suites assert the durable layer end-to-end.
 
 const VAULT_BUDGET_WINDOW_SECS: u64 = 60;

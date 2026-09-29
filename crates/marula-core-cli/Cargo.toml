@@ -1,11 +1,11 @@
 [package]
-name = "meridian-cli"
+name = "marula-core-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "meridian"
+name = "marula"
 path = "src/main.rs"
 
 [dependencies]

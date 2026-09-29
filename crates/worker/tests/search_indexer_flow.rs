@@ -3,7 +3,7 @@
 //! Purpose: prove event→target mapping resolves CURRENT rows into correct
 //! index ops — including NotFound ⇒ Delete — and that flush batches are
 //! deduplicated and grouped per org. Uses the same documented database
-//! selection contract as core-db's suite (`MERIDIAN_TEST_DATABASE_URL`,
+//! selection contract as core-db's suite (`MARULA_TEST_DATABASE_URL`,
 //! else `DATABASE_URL`); seed slots stay inside the search lane's private
 //! 120–129 range.
 //!
@@ -22,10 +22,10 @@ async fn test_pool() -> PgPool {
     static BOOTSTRAP: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
     let url = BOOTSTRAP
         .get_or_init(|| async {
-            let url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+            let url = std::env::var("MARULA_TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
                 .expect(
-                    "set MERIDIAN_TEST_DATABASE_URL (or DATABASE_URL) to a privileged \
+                    "set MARULA_TEST_DATABASE_URL (or DATABASE_URL) to a privileged \
                      Postgres for worker indexer tests",
                 );
             let admin = core_db::connect(&url).await.expect("connect");

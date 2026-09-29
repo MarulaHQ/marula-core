@@ -79,7 +79,7 @@ let snapshot = ItGlueExport::new(files).pull()?;
 //    supplied just-in-time, never persisted by this crate.
 let sink = MeridianRestSink::new(MeridianConfig {
     base_url: "https://meridian.example".into(),
-    api_key: std::env::var("MERIDIAN_API_KEY")?,
+    api_key: std::env::var("MARULA_API_KEY")?,
 });
 
 // 3. Sync. map_credentials stays false unless the org mapped vault

@@ -57,7 +57,7 @@ for (const label of wanted) {
     const page = await ctx.newPage();
     await page.addInitScript(
       ([themeKey, presetKey, theme, presetName, apiBase]) => {
-        window.__MERIDIAN_API_URL__ = apiBase;
+        window.__MARULA_API_URL__ = apiBase;
         localStorage.setItem(themeKey, theme);
         if (presetName && presetName !== "null")
           localStorage.setItem(presetKey, presetName);

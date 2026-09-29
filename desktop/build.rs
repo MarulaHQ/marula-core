@@ -9,7 +9,7 @@ fn main() {
     // `desktop-web` capability grants to the loopback origin, which is
     // what makes the app commands reachable from the web app at all.
     // Wave 38 lane 2 adds the native multi-window commands (open/focus
-    // role windows, self-capture geometry, route meridian:// links).
+    // role windows, self-capture geometry, route marula:// links).
     tauri_build::try_build(
         tauri_build::Attributes::new().app_manifest(
             tauri_build::AppManifest::new().commands(&[
@@ -18,7 +18,7 @@ fn main() {
                 "install_desktop_update",
                 "open_native_window",
                 "focus_native_window",
-                "route_meridian_link",
+                "route_marula_link",
             ]),
         ),
     )

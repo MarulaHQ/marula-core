@@ -20,7 +20,7 @@ const TOKENS_KEY = "meridian-tokens";
 declare global {
   interface Window {
     /** Injected by the desktop shell (desktop/src/main.rs, ADR 0005). */
-    __MERIDIAN_API_URL__?: string;
+    __MARULA_API_URL__?: string;
   }
 }
 
@@ -60,8 +60,8 @@ export function clearTokens(): void {
 
 /** Desktop shell (ADR 0005) injects the embedded API base before page scripts run. */
 export function resolveApiBaseUrl(): string {
-  if (typeof window !== "undefined" && window.__MERIDIAN_API_URL__) {
-    return window.__MERIDIAN_API_URL__;
+  if (typeof window !== "undefined" && window.__MARULA_API_URL__) {
+    return window.__MARULA_API_URL__;
   }
   return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 }

@@ -5,7 +5,7 @@
 //! consumer (noop transport until a real MailTransport is configured),
 //! the outbound email send loop, the general job queue processor, the
 //! periodic SLA evaluation sweep, and the automations stream consumer —
-//! plus a `/healthz` endpoint reflecting loop liveness. `meridian-cli`
+//! plus a `/healthz` endpoint reflecting loop liveness. `marula-core-cli`
 //! hosts this same library via `meridian serve-worker`.
 //!
 //! Non-purpose: no domain writes — effects flow back through core-api's
@@ -14,7 +14,7 @@
 //! Purpose: run the outbox→Redis relay (`core_events::run_relay`) as the
 //! primary loop plus the notification email fan-out consumer and the
 //! unified-search indexer consumer, and expose a `/healthz` endpoint that
-//! reflects relay liveness. `meridian-cli` hosts this same library via
+//! reflects relay liveness. `marula-core-cli` hosts this same library via
 //! `meridian serve-worker`.
 //!
 //! Non-purpose: no general job queue, webhook delivery, or SLA evaluation
@@ -192,7 +192,7 @@ pub async fn run(
             tracing::info!("search indexer enabled (pushing through core-api)");
         }
         None => {
-            tracing::info!("search indexer disabled: MERIDIAN_INTERNAL_TOKEN not configured");
+            tracing::info!("search indexer disabled: MARULA_INTERNAL_TOKEN not configured");
         }
     }
 
@@ -375,7 +375,7 @@ pub async fn run(
         ));
         tracing::info!("decision triage enabled (dispatching through core-api)");
     } else {
-        tracing::info!("decision triage disabled: MERIDIAN_DECISION_BOT_USER_ID not configured");
+        tracing::info!("decision triage disabled: MARULA_DECISION_BOT_USER_ID not configured");
     }
 
     let health = HealthFlags {
@@ -407,7 +407,7 @@ pub async fn run(
             tracing::info!("search indexer enabled (pushing through core-api)");
         }
         None => {
-            tracing::info!("search indexer disabled: MERIDIAN_INTERNAL_TOKEN not configured");
+            tracing::info!("search indexer disabled: MARULA_INTERNAL_TOKEN not configured");
         }
     }
 

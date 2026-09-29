@@ -20,7 +20,7 @@ nonMeridianDigestPinningEnforced: true
 nameOverride: ""
 fullnameOverride: ""
 
-# Existing secret providing JWT_SECRET / MERIDIAN_SECRET_KEY / EMAIL_* keys.
+# Existing secret providing JWT_SECRET / MARULA_SECRET_KEY / EMAIL_* keys.
 # When empty, a Secret is generated from the inline values below.
 existingSecret: ""
 
@@ -56,7 +56,7 @@ images:
     tag: "v0.2.0"
     digest: ""
   cli:
-    repository: meridian-cli
+    repository: marula-core-cli
     tag: "v0.2.0"
     digest: ""
   web:

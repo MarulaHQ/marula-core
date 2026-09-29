@@ -21,7 +21,7 @@ emitted.
 ```sh
 git clone https://github.com/Marlin-Hofmeyer/meridian && cd meridian
 docker compose -f deploy/docker-compose.yml up -d
-cargo install --path crates/meridian-cli
+cargo install --path crates/marula-core-cli
 meridian dev
 ```
 

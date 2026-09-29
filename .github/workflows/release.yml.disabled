@@ -59,9 +59,9 @@ jobs:
           - image: meridian-worker
             dockerfile: deploy/Dockerfile.rust
             build_args: BIN=worker
-          - image: meridian-cli
+          - image: marula-core-cli
             dockerfile: deploy/Dockerfile.rust
-            build_args: BIN=meridian-cli
+            build_args: BIN=marula-core-cli
           - image: meridian-web
             dockerfile: deploy/Dockerfile.web
             build_args: ""
@@ -142,7 +142,7 @@ jobs:
             dockerfile: deploy/Dockerfile.rust
           - image: meridian-worker
             dockerfile: deploy/Dockerfile.rust
-          - image: meridian-cli
+          - image: marula-core-cli
             dockerfile: deploy/Dockerfile.rust
           - image: meridian-web
             dockerfile: deploy/Dockerfile.web

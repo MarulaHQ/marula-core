@@ -4,7 +4,7 @@
 //! is a `WebviewWindow` loading the SAME bundled Next server the main window
 //! uses, carrying `?popout=<routeKey>` so the renderer's lane-1 compact
 //! shell (PopoutShell, per-window-key layout persistence, the
-//! `meridian-windows` BroadcastChannel bus) engages identically — one
+//! `marula-windows` BroadcastChannel bus) engages identically — one
 //! renderer codebase, desktop adds native chrome.
 //!
 //! Window roles: the route key ("ticket-detail", "dispatch-board", …) is the
@@ -296,7 +296,7 @@ mod tests {
             },
         );
         state.label_counter = 7;
-        let dir = std::env::temp_dir().join("meridian-window-state-test");
+        let dir = std::env::temp_dir().join("marula-window-state-test");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("windows.json");
         save_state(&path, &state);
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn corrupt_state_file_loses_to_default() {
-        let dir = std::env::temp_dir().join("meridian-window-state-test");
+        let dir = std::env::temp_dir().join("marula-window-state-test");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("broken.json");
         std::fs::write(&path, "{not json").unwrap();

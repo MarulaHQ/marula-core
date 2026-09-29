@@ -1,7 +1,7 @@
 //! Log/span filter composition — one policy for every Meridian process.
 //!
 //! Purpose: build the `tracing_subscriber::EnvFilter` identically in
-//! core-api, realtime, worker, and meridian-cli so telemetry levels never
+//! core-api, realtime, worker, and marula-core-cli so telemetry levels never
 //! drift between lanes.
 //!
 //! Precedence:
@@ -13,7 +13,7 @@
 //! executed statement under the `sqlx::query` target containing the
 //! statement SUMMARY ONLY (normalized shape like
 //! `SELECT … FROM tickets WHERE org_id = $1`) — bind VALUES are never part
-//! of it. Opt in with `MERIDIAN_SQLX_QUERIES=on|1|true`, which appends
+//! of it. Opt in with `MARULA_SQLX_QUERIES=on|1|true`, which appends
 //! `sqlx=debug` to the default set (or set `sqlx=debug` inside RUST_LOG).
 //! WARN-level slow-query events from sqlx remain visible at info because
 //! they are emitted above the default level.
@@ -25,7 +25,7 @@
 use tracing_subscriber::EnvFilter;
 
 /// Environment variable enabling per-statement sqlx query events.
-pub const SQLX_QUERIES_VAR: &str = "MERIDIAN_SQLX_QUERIES";
+pub const SQLX_QUERIES_VAR: &str = "MARULA_SQLX_QUERIES";
 
 /// The default directives when `RUST_LOG` is unset.
 pub const DEFAULT_DIRECTIVES: &str = "info,tower_http=debug";

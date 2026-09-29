@@ -7,7 +7,7 @@
 //! traffic.
 //!
 //! Database selection mechanism (documented contract, see CI rust job):
-//!   1. `MERIDIAN_TEST_DATABASE_URL` — explicit test override, tried first.
+//!   1. `MARULA_TEST_DATABASE_URL` — explicit test override, tried first.
 //!   2. `DATABASE_URL`                — CI service-container Postgres; when
 //!      set, tests attach directly and never touch Docker (no dind needed).
 //!   3. Neither set                    — spin up a testcontainers
@@ -68,7 +68,7 @@ static BOOTSTRAP: tokio::sync::OnceCell<Bootstrap> = tokio::sync::OnceCell::cons
 async fn bootstrap() -> &'static Bootstrap {
     BOOTSTRAP
         .get_or_init(|| async {
-            if let Ok(url) = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+            if let Ok(url) = std::env::var("MARULA_TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
             {
                 let admin = connect_with_retry(&url).await;
@@ -87,11 +87,11 @@ async fn bootstrap() -> &'static Bootstrap {
             // leaking an orphan per run (statics are never dropped at
             // test-process exit, so graceful auto-removal cannot run).
             // Override the name per worktree/agent lane via
-            //   MERIDIAN_TEST_PG_NAME=<unique>
+            //   MARULA_TEST_PG_NAME=<unique>
             // so concurrent suites never fight over one fixed name; remove
             // a stale instance with:
             //   docker rm -f meridian-core-db-tests-pg17
-            let container_name = std::env::var("MERIDIAN_TEST_PG_NAME")
+            let container_name = std::env::var("MARULA_TEST_PG_NAME")
                 .unwrap_or_else(|_| "meridian-core-db-tests-pg18".to_string());
             let request = ContainerRequest::from(
                 GenericImage::new("pgvector/pgvector", "pg18")

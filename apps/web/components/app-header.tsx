@@ -103,7 +103,7 @@ function SearchLauncher() {
 /**
  * Dev-tools entry (TASKLIST DX3): ONE probe call to GET /api/dev/status on
  * mount; the entry renders ONLY when the API answers `enabled: true` —
- * which it only does with MERIDIAN_DEV_TOOLS=1. Any failure (404, network,
+ * which it only does with MARULA_DEV_TOOLS=1. Any failure (404, network,
  * non-JSON) silently hides it: no dev surface by default.
  */
 function DevToolsLink({ onNavigate }: { onNavigate?: () => void }) {

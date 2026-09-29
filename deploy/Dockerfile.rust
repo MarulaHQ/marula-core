@@ -1,7 +1,7 @@
 # Meridian backend image builder.
 #
 # Purpose: one parameterized image for all Rust binaries (core-api,
-# realtime, worker, meridian-cli). Build with --build-arg BIN=<name>.
+# realtime, worker, marula-core-cli). Build with --build-arg BIN=<name>.
 # Non-purpose: no frontend build here; apps/web gets its own image when
 # it lands.
 #
@@ -34,12 +34,12 @@ COPY packages/sdk/openapi.json /src/packages/sdk/openapi.json
 # a full re-download/recompile. The binary is copied out of the mount in
 # the same RUN (cache mounts are not visible to later layers).
 # -p scope is required: the workspace root is itself a package
-# (meridian-cli), so a bare --bin selects the root's default-run set and
+# (marula-core-cli), so a bare --bin selects the root's default-run set and
 # finds nothing for the member binaries. The CLI's executable is named
 # `meridian`, everything else matches its package name.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    OUTEXE=$([ "$BIN" = "meridian-cli" ] && echo meridian || echo "$BIN") \
+    OUTEXE=$([ "$BIN" = "marula-core-cli" ] && echo meridian || echo "$BIN") \
     && cargo build --release --package ${BIN} \
     && mkdir -p /out && cp target/release/${OUTEXE} /out/${BIN}
 

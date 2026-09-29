@@ -64,7 +64,7 @@ Everything an organization configures lives as declarative rows bound to stable 
 
 1. Read the release notes section **"Breaking & deprecated"** (present in every release, even when empty).
 2. Optionally run the upgrade preflight (§5) against a backup.
-3. Apply migrations (automatic on container start or via `meridian-cli`).
+3. Apply migrations (automatic on container start or via `marula-core-cli`).
 4. Supported jump distance: your version may be up to two releases behind. Further jumps apply the same machinery sequentially.
 
 ## 8. Enforcement

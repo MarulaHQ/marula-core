@@ -3,7 +3,7 @@
 -- Purpose: the supply-chain trust model gets a rotation-capable signing-key
 -- registry. Migration 0079 (Wave 16 lane 7) verified distribution artifacts
 -- against ONE operator key carried in process config
--- (`MERIDIAN_PLUGIN_SIGNING_KEY`); a single immutable key made rotation a
+-- (`MARULA_PLUGIN_SIGNING_KEY`); a single immutable key made rotation a
 -- config edit that stranded every previously-signed artifact the moment the
 -- key changed. This migration adds `plugin_signing_keys` — the GLOBAL
 -- key-trust store (server-wide like `plugin_catalog`, no org_id, no RLS —

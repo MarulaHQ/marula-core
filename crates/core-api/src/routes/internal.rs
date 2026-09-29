@@ -571,7 +571,7 @@ mod tests {
 // event-emitting, audit-logged code paths — the worker itself never
 // touches domain tables.
 //
-// Auth: `Authorization: Bearer <MERIDIAN_INTERNAL_TOKEN>`, compared in
+// Auth: `Authorization: Bearer <MARULA_INTERNAL_TOKEN>`, compared in
 // constant time. When the env var is unset the whole surface is disabled
 // (404) — a deployment without the token has no machine seam at all.
 //
@@ -1183,7 +1183,7 @@ fn token_matches(expected: &str, provided: &str) -> bool {
 fn guard(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
     let Some(expected) = state.config.internal_token.as_deref() else {
         return Err(ApiError::Unavailable(
-            "internal effect surface disabled: MERIDIAN_INTERNAL_TOKEN not configured".into(),
+            "internal effect surface disabled: MARULA_INTERNAL_TOKEN not configured".into(),
         ));
     };
     let provided = headers

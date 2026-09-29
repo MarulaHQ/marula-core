@@ -1,5 +1,5 @@
 //! Perf-harness DB bootstrap: same env contract as the core-db suites
-//! (`MERIDIAN_TEST_DATABASE_URL` → `DATABASE_URL` → local testcontainer),
+//! (`MARULA_TEST_DATABASE_URL` → `DATABASE_URL` → local testcontainer),
 //! handing out an admin pool (migrations + seed) and an app pool that runs
 //! under RLS as `meridian_app` exactly like production traffic.
 //!
@@ -41,7 +41,7 @@ pub async fn test_db() -> &'static TestDb {
 
 async fn bootstrap() -> TestDb {
     if let Ok(url) =
-        std::env::var("MERIDIAN_TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"))
+        std::env::var("MARULA_TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"))
     {
         let admin = connect_with_retry(&url).await;
         // Env-attached DBs are shared; the perf org is wiped/re-seeded per

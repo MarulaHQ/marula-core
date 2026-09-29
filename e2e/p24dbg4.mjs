@@ -4,7 +4,7 @@ const b=await chromium.launch({ args: ["--no-proxy-server"] });
 const ctx=await b.newContext({ viewport: { width: 1440, height: 900 } });
 const p=await ctx.newPage();
 await p.addInitScript(([apiBase,mode,preset])=>{
-  window.__MERIDIAN_API_URL__=apiBase;
+  window.__MARULA_API_URL__=apiBase;
   localStorage.setItem("meridian-theme",mode);
   localStorage.setItem("meridian-theme-preset",preset);
 },[API,"dark","tangerine"]);

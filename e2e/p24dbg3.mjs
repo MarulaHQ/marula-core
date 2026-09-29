@@ -4,7 +4,7 @@ const b=await chromium.launch({ args: ["--no-proxy-server"] });
 const ctx=await b.newContext({ viewport: { width: 1440, height: 900 } });
 const p=await ctx.newPage();
 await p.addInitScript(([apiBase])=>{
-  window.__MERIDIAN_API_URL__ = apiBase;
+  window.__MARULA_API_URL__ = apiBase;
   window.fetch = new Proxy(window.fetch, { apply(t,a,ar){ console.log("FETCH", ar[0]); return Reflect.apply(t,a,ar); } });
 },[API]);
 let respCount=0;
@@ -18,5 +18,5 @@ for (let i=0;i<2;i++){
   await p.waitForTimeout(6000);
 }
 console.log("url:", p.url());
-console.log("FETCHLOG:", await p.evaluate(()=>window.__MERIDIAN_API_URL__));
+console.log("FETCHLOG:", await p.evaluate(()=>window.__MARULA_API_URL__));
 await b.close();

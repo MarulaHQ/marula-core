@@ -19,7 +19,7 @@ pub struct RealtimeConfig {
     pub jwt_secret: String,
     /// EdDSA (Ed25519) PUBLIC key PEM for verifying access tokens when
     /// core-api runs the asymmetric posture (Wave 34 lane 6). Env
-    /// `MERIDIAN_JWT_EDDSA_PUBLIC_KEY` or `..._PUBLIC_KEY_FILE`. The hub
+    /// `MARULA_JWT_EDDSA_PUBLIC_KEY` or `..._PUBLIC_KEY_FILE`. The hub
     /// prefers EdDSA and keeps the HS256 secret as the migration
     /// fallback, so it never rejects a live token mid-rollout.
     pub jwt_eddsa_public_key: Option<String>,
@@ -37,11 +37,11 @@ impl RealtimeConfig {
     /// publicly-known dev secret would let anyone forge a valid token.
     /// `from_env()` keeps the dev fallback for the compose/dev profile and
     /// tests; production entry (`main.rs`) refuses to boot without an
-    /// explicit 64-hex `JWT_SECRET` unless `MERIDIAN_DEV_TOOLS=1`. A
+    /// explicit 64-hex `JWT_SECRET` unless `MARULA_DEV_TOOLS=1`. A
     /// configured EdDSA public key must parse — a malformed key refuses
     /// boot rather than silently verifying HS256 only.
     pub fn try_from_env() -> Result<Self, String> {
-        let dev_tools = std::env::var("MERIDIAN_DEV_TOOLS").as_deref() == Ok("1");
+        let dev_tools = std::env::var("MARULA_DEV_TOOLS").as_deref() == Ok("1");
         let cfg = match std::env::var("JWT_SECRET") {
             Ok(secret) if secret.len() == 64 && secret.chars().all(|c| c.is_ascii_hexdigit()) => {
                 Self::from_lookup(|key| std::env::var(key).ok()).with_jwt_secret(secret)
@@ -55,7 +55,7 @@ impl RealtimeConfig {
             Err(_) if dev_tools => Self::from_env(),
             Err(_) => {
                 return Err(
-                    "JWT_SECRET is not set — refusing to boot (MERIDIAN_DEV_TOOLS=1 enables the dev fallback)"
+                    "JWT_SECRET is not set — refusing to boot (MARULA_DEV_TOOLS=1 enables the dev fallback)"
                         .into(),
                 )
             }
@@ -70,7 +70,7 @@ impl RealtimeConfig {
     fn validate_eddsa_public_key(&self) -> Result<(), String> {
         if let Some(pem) = &self.jwt_eddsa_public_key {
             jsonwebtoken::DecodingKey::from_ed_pem(pem.as_bytes()).map_err(|e| {
-                format!("MERIDIAN_JWT_EDDSA_PUBLIC_KEY is not a valid Ed25519 public-key PEM: {e}")
+                format!("MARULA_JWT_EDDSA_PUBLIC_KEY is not a valid Ed25519 public-key PEM: {e}")
             })?;
         }
         Ok(())
@@ -82,14 +82,14 @@ impl RealtimeConfig {
     }
 
     /// Same resolution against any key lookup; keeps tests free of global
-    /// environment mutation. `MERIDIAN_JWT_EDDSA_PUBLIC_KEY_FILE` wins over
+    /// environment mutation. `MARULA_JWT_EDDSA_PUBLIC_KEY_FILE` wins over
     /// the inline variable when both point at the same deployment; an
     /// unreadable file leaves the key unset (HS256-only posture) — the
     /// fail-closed validation lives in `try_from_env`.
     pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Self {
-        let jwt_eddsa_public_key = match lookup("MERIDIAN_JWT_EDDSA_PUBLIC_KEY_FILE") {
+        let jwt_eddsa_public_key = match lookup("MARULA_JWT_EDDSA_PUBLIC_KEY_FILE") {
             Some(path) if !path.trim().is_empty() => std::fs::read_to_string(path.trim()).ok(),
-            _ => lookup("MERIDIAN_JWT_EDDSA_PUBLIC_KEY").filter(|v| !v.trim().is_empty()),
+            _ => lookup("MARULA_JWT_EDDSA_PUBLIC_KEY").filter(|v| !v.trim().is_empty()),
         };
         Self {
             redis_url: lookup("REDIS_URL")
@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn eddsa_public_key_is_carried_and_validated() {
         let mut vars: HashMap<&str, String> = HashMap::new();
-        vars.insert("MERIDIAN_JWT_EDDSA_PUBLIC_KEY", "PEM".into());
+        vars.insert("MARULA_JWT_EDDSA_PUBLIC_KEY", "PEM".into());
         let cfg = RealtimeConfig::from_lookup(|k| vars.get(k).cloned());
         assert_eq!(cfg.jwt_eddsa_public_key.as_deref(), Some("PEM"));
 
@@ -139,10 +139,10 @@ mod tests {
         // the key unset (HS256-only) — never a panic.
         let mut vars: HashMap<&str, String> = HashMap::new();
         vars.insert(
-            "MERIDIAN_JWT_EDDSA_PUBLIC_KEY_FILE",
+            "MARULA_JWT_EDDSA_PUBLIC_KEY_FILE",
             "/nonexistent/ed25519.pub".into(),
         );
-        vars.insert("MERIDIAN_JWT_EDDSA_PUBLIC_KEY", "PEM".into());
+        vars.insert("MARULA_JWT_EDDSA_PUBLIC_KEY", "PEM".into());
         let cfg = RealtimeConfig::from_lookup(|k| vars.get(k).cloned());
         assert!(cfg.jwt_eddsa_public_key.is_none());
 
@@ -152,7 +152,7 @@ mod tests {
             ..RealtimeConfig::from_lookup(|_| None)
         };
         let err = cfg.validate_eddsa_public_key().unwrap_err();
-        assert!(err.contains("MERIDIAN_JWT_EDDSA_PUBLIC_KEY"), "got: {err}");
+        assert!(err.contains("MARULA_JWT_EDDSA_PUBLIC_KEY"), "got: {err}");
     }
 
     // Fail-closed posture (Wave 19 lane 4 GA audit): the hub refuses to
@@ -169,7 +169,7 @@ mod tests {
         let guard = EnvGuard::clear("JWT_SECRET");
         let msg = RealtimeConfig::try_from_env().unwrap_err();
         assert!(msg.contains("JWT_SECRET is not set"));
-        assert!(msg.contains("MERIDIAN_DEV_TOOLS=1"));
+        assert!(msg.contains("MARULA_DEV_TOOLS=1"));
         drop(guard);
     }
 

@@ -121,9 +121,9 @@ async fn register_org(app: &axum::Router, slug: &str) -> Value {
 
 #[tokio::test]
 async fn ip_rotation_cannot_bypass_the_account_lock() {
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
     let email = Uuid::now_v7().to_string();
     let slug = format!("lock-a-{}", Uuid::now_v7().simple());
@@ -168,9 +168,9 @@ async fn ip_rotation_cannot_bypass_the_account_lock() {
 /// account lock being fingerprinted (proof-of-possession surfaces).
 #[tokio::test]
 async fn pathological_refresh_throttle_is_a_typed_429() {
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
     // Elaborate the isolated caller IP so other tests' durable lockouts
     // cannot bleed into this one's curve.
@@ -209,9 +209,9 @@ async fn pathological_refresh_throttle_is_a_typed_429() {
 
 #[tokio::test]
 async fn refresh_reuse_after_rotation_kills_the_whole_chain() {
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
     // Elaborate the isolated caller IP (durable per-IP counters are
     // process-wide; other tests must not bleed into this chain check).
@@ -274,9 +274,9 @@ async fn refresh_reuse_after_rotation_kills_the_whole_chain() {
 
 #[tokio::test]
 async fn magic_link_reuse_is_a_uniform_401() {
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool: PgPool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
         .connect(&admin_url)
@@ -364,9 +364,9 @@ async fn magic_link_reuse_is_a_uniform_401() {
 
 #[tokio::test]
 async fn login_sets_the_hardened_cookie_trio() {
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
     let slug = format!(
         "cook-{}",

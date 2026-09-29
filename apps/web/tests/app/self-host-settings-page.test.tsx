@@ -114,7 +114,7 @@ describe("/settings/self-host integration", () => {
       "href",
       "http://localhost:3001",
     );
-    expect(screen.getByText(/Set MERIDIAN_GLITCHTIP_URL on core-api/)).toBeInTheDocument();
+    expect(screen.getByText(/Set MARULA_GLITCHTIP_URL on core-api/)).toBeInTheDocument();
     cleanup();
   });
 

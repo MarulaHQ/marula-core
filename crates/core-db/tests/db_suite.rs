@@ -11,7 +11,7 @@
 //!
 //! Non-purpose: domain-rule testing (core-domain unit tests) and HTTP/API
 //! behavior (core-api). Database selection follows the documented contract
-//! in `tests/common/mod.rs`: `MERIDIAN_TEST_DATABASE_URL`, else
+//! in `tests/common/mod.rs`: `MARULA_TEST_DATABASE_URL`, else
 //! `DATABASE_URL` (CI service container), else a local testcontainer.
 
 mod common;

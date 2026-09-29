@@ -5,8 +5,8 @@
 # WS hub, worker.
 #
 # Role split matters: migrations and the worker run as the TABLE OWNER
-# (`meridian`, RLS-bypassing — the relay must read every org's outbox),
-# while core-api connects as `meridian_app` (RLS-constrained; the role and
+# (`marula`, RLS-bypassing — the relay must read every org's outbox),
+# while core-api connects as `marula_app` (RLS-constrained; the role and
 # its grants are provisioned by migration 0001 itself).
 #
 # Non-purpose: no TLS, no secrets management, no volume backup jobs — this
@@ -47,7 +47,7 @@
 # Settings → Self-host services pane. Uptime-Kuma was deliberately left
 # out of this baseline.
 
-name: meridian
+name: marula
 
 # Container stdout logs are the classic silent disk filler — every service
 # rotates through at most 3 x 10MB json-file logs. Local containers get
@@ -71,7 +71,7 @@ services:
   postgres:
     # PG18 (2026-09 decision): async I/O (io_method), skip scans, uuidv7(),
     # RETURNING OLD/NEW, temporal constraints. Bumping an existing volume:
-    # dump/restore (`pg_dump meridian`) or pg_upgrade-in-place; 18's pg_upgrade
+    # dump/restore (`pg_dump marula`) or pg_upgrade-in-place; 18's pg_upgrade
     # retains optimizer statistics so no slow-plans grind after cutover.
     image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
     mem_limit: 1g
@@ -89,9 +89,9 @@ services:
     # named volume.
     read_only: false
     environment:
-      POSTGRES_USER: meridian
-      POSTGRES_PASSWORD: meridian
-      POSTGRES_DB: meridian
+      POSTGRES_USER: marula
+      POSTGRES_PASSWORD: marula
+      POSTGRES_DB: marula
     ports:
       - "15432:5432"
     volumes:
@@ -101,7 +101,7 @@ services:
       # mount-point boundary issues).
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U meridian -d meridian"]
+      test: ["CMD-SHELL", "pg_isready -U marula -d marula"]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -144,11 +144,11 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.rust
-      args: { BIN: meridian-cli }
-    entrypoint: ["/usr/local/bin/meridian"]
+      args: { BIN: marula-core-cli }
+    entrypoint: ["/usr/local/bin/marula"]
     command: ["migrate"]
     environment:
-      DATABASE_URL: postgres://meridian:meridian@postgres:5432/meridian
+      DATABASE_URL: postgres://marula:marula@postgres:5432/marula
     depends_on:
       postgres:
         condition: service_healthy
@@ -167,21 +167,21 @@ services:
       args: { BIN: core-api }
     # Entrypoint is pinned to core-api in the Dockerfile; see deploy note.
     environment:
-      DATABASE_URL: postgres://meridian_app:meridian_app@postgres:5432/meridian
+      DATABASE_URL: postgres://marula_app:marula_app@postgres:5432/marula
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8080
       JWT_SECRET: ${JWT_SECRET:-5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e}
       # 64-hex dev-only at-rest seal key (Wave 19 GA hardening): from_env
-      # hard-fails without an explicit MERIDIAN_SECRET_KEY. Operators MUST
+      # hard-fails without an explicit MARULA_SECRET_KEY. Operators MUST
       # override both secrets for anything beyond a local test harness.
-      MERIDIAN_SECRET_KEY: ${MERIDIAN_SECRET_KEY:-6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21}
+      MARULA_SECRET_KEY: ${MARULA_SECRET_KEY:-6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21}
       # Optional EdDSA (Ed25519) access-token signing (Wave 34 lane 6):
-      # set BOTH PEMs to switch signing to EdDSA (kid: MERIDIAN_JWT_KID,
+      # set BOTH PEMs to switch signing to EdDSA (kid: MARULA_JWT_KID,
       # default m1); leave unset for the HS256 posture. A malformed or
       # half-configured pair refuses boot.
-      MERIDIAN_JWT_EDDSA_PRIVATE_KEY: ${MERIDIAN_JWT_EDDSA_PRIVATE_KEY:-}
-      MERIDIAN_JWT_EDDSA_PUBLIC_KEY: ${MERIDIAN_JWT_EDDSA_PUBLIC_KEY:-}
-      MERIDIAN_JWT_KID: ${MERIDIAN_JWT_KID:-}
+      MARULA_JWT_EDDSA_PRIVATE_KEY: ${MARULA_JWT_EDDSA_PRIVATE_KEY:-}
+      MARULA_JWT_EDDSA_PUBLIC_KEY: ${MARULA_JWT_EDDSA_PUBLIC_KEY:-}
+      MARULA_JWT_KID: ${MARULA_JWT_KID:-}
       CORS_ORIGIN: http://localhost:3000
       # Email v1 defaults (see crates/core-mail/README.md none modes):
       # webhook DISABLED until EMAIL_INBOUND_HMAC_SECRET is set; transport
@@ -196,11 +196,11 @@ services:
       OBJECT_STORE: ${OBJECT_STORE:-local}
       OBJECT_STORE_LOCAL_DIR: ${OBJECT_STORE_LOCAL_DIR:-/data/objects}
       S3_ENDPOINT: ${S3_ENDPOINT:-http://garage:3900}
-      S3_BUCKET: ${S3_BUCKET:-meridian}
+      S3_BUCKET: ${S3_BUCKET:-marula}
       S3_REGION: ${S3_REGION:-garage}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-meridian}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-meridian-dev-garage}
-      MERIDIAN_MAX_UPLOAD_MB: ${MERIDIAN_MAX_UPLOAD_MB:-25}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-marula}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-marula-dev-garage}
+      MARULA_MAX_UPLOAD_MB: ${MARULA_MAX_UPLOAD_MB:-25}
       # OpenTelemetry (TASKLIST 2.18): empty ⇒ none mode (no OTel SDK, no
       # exporters). Set to http://otel-collector:4318 together with the
       # observability profile (see header comment).
@@ -208,16 +208,16 @@ services:
       # Self-host visibility (Wave 36 lane 3): the Settings → Self-host
       # services pane probes each loop's /healthz and renders external-UI
       # links. Internal URLs default to the compose service names; the
-      # MERIDIAN_*_URL vars are PUBLIC browser URLs — leave them empty on a
+      # MARULA_*_URL vars are PUBLIC browser URLs — leave them empty on a
       # laptop (localhost defaults are pointless across hosts) and set them
       # when the stack runs on a server.
       REALTIME_INTERNAL_URL: ${REALTIME_INTERNAL_URL:-http://realtime:8081}
       WORKER_INTERNAL_URL: ${WORKER_INTERNAL_URL:-http://worker:8082}
-      MERIDIAN_GLITCHTIP_URL: ${MERIDIAN_GLITCHTIP_URL:-}
-      MERIDIAN_GRAFANA_URL: ${MERIDIAN_GRAFANA_URL:-}
-      MERIDIAN_TEMPO_URL: ${MERIDIAN_TEMPO_URL:-}
-      MERIDIAN_LOKI_URL: ${MERIDIAN_LOKI_URL:-}
-      MERIDIAN_OTEL_METRICS_URL: ${MERIDIAN_OTEL_METRICS_URL:-}
+      MARULA_GLITCHTIP_URL: ${MARULA_GLITCHTIP_URL:-}
+      MARULA_GRAFANA_URL: ${MARULA_GRAFANA_URL:-}
+      MARULA_TEMPO_URL: ${MARULA_TEMPO_URL:-}
+      MARULA_LOKI_URL: ${MARULA_LOKI_URL:-}
+      MARULA_OTEL_METRICS_URL: ${MARULA_OTEL_METRICS_URL:-}
       # GlitchTip DSNs (per-service; lane 2 decision): ingest-only
       # credentials. The pane reports presence only; the SDK wiring that
       # consumes them is a follow-up lane.
@@ -252,7 +252,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e}
       # EdDSA verification key when core-api runs the asymmetric posture
       # (Wave 34 lane 6); empty keeps the HS256-only posture.
-      MERIDIAN_JWT_EDDSA_PUBLIC_KEY: ${MERIDIAN_JWT_EDDSA_PUBLIC_KEY:-}
+      MARULA_JWT_EDDSA_PUBLIC_KEY: ${MARULA_JWT_EDDSA_PUBLIC_KEY:-}
       # OpenTelemetry (TASKLIST 2.18): empty ⇒ none mode; see header.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       # GlitchTip DSN presence for the self-host pane (Wave 36 lane 3);
@@ -281,12 +281,12 @@ services:
     # Owner role on purpose: the relay reads outbox rows across ALL orgs
     # and must not be constrained by RLS (see crates/worker config notes).
     environment:
-      DATABASE_URL: postgres://meridian:meridian@postgres:5432/meridian
+      DATABASE_URL: postgres://marula:marula@postgres:5432/marula
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8082
-      # Must match core-api's MERIDIAN_SECRET_KEY or sealed webhook secrets
+      # Must match core-api's MARULA_SECRET_KEY or sealed webhook secrets
       # are undecryptable by the delivery worker.
-      MERIDIAN_SECRET_KEY: ${MERIDIAN_SECRET_KEY:-6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21}
+      MARULA_SECRET_KEY: ${MARULA_SECRET_KEY:-6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21}
       RELAY_BATCH: "200"
       CORE_API_URL: http://core-api:8080
       EMAIL_INTERNAL_TOKEN: ${EMAIL_INTERNAL_TOKEN:-dev-email-internal}
@@ -341,9 +341,9 @@ services:
   #   docker compose --profile stage2 exec garage /garage status    # note NODE_ID (16 hex)
   #   docker compose --profile stage2 exec garage /garage layout assign -z dc1 -c 1G <NODE_ID>
   #   docker compose --profile stage2 exec garage /garage layout apply --version 1
-  #   docker compose --profile stage2 exec garage /garage bucket create meridian
-  #   docker compose --profile stage2 exec garage /garage key create meridian
-  #   docker compose --profile stage2 exec garage /garage bucket allow --read --write meridian --key meridian
+  #   docker compose --profile stage2 exec garage /garage bucket create marula
+  #   docker compose --profile stage2 exec garage /garage key create marula
+  #   docker compose --profile stage2 exec garage /garage bucket allow --read --write marula --key marula
   # Put the key from `key create` into S3_ACCESS_KEY/S3_SECRET_ACCESS_KEY.
   garage:
     mem_limit: 512m
@@ -499,7 +499,7 @@ services:
       - loki
 
   # GlitchTip error tracking (2026-09 decision: activate). Needs its own DB —
-  # once: `docker compose exec postgres createdb -U meridian glitchtip`.
+  # once: `docker compose exec postgres createdb -U marula glitchtip`.
   # DSNs surface at http://localhost:8010. Code-side wiring (Sentry-compatible
   # exporter/init in the services) remains a follow-up lane.
   glitchtip:
@@ -520,7 +520,7 @@ services:
       - postgres
       - redis
     environment:
-      DATABASE_URL: ${GLITCHTIP_DATABASE_URL:-postgres://meridian:meridian@postgres:5432/glitchtip}
+      DATABASE_URL: ${GLITCHTIP_DATABASE_URL:-postgres://marula:marula@postgres:5432/glitchtip}
       REDIS_URL: ${GLITCHTIP_REDIS_URL:-redis://redis:6379/1}
       SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-glitchtip-dev-secret-change-me}
       GLITCHTIP_DOMAIN: http://localhost:8010
@@ -585,8 +585,8 @@ services:
     #   - ./backup/restic.env
     environment:
       PGHOST: postgres
-      PGUSER: meridian
-      PGDATABASE: meridian
+      PGUSER: marula
+      PGDATABASE: marula
       PGDUMPS_DIR: /pgdumps
       # When OBJECT_STORE is the local none-mode, snapshot that dir too:
       # extra hosts: core-api shares /data/objects — mount the named coreapi volume
