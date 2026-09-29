@@ -27,7 +27,7 @@ export function portalOrgName(): string | null {
 
 /**
  * The (validated) org accent hex, or null when unset/invalid — the default
- * posture with no substitution: surfaces keep the Tangerine token accent.
+ * posture with no substitution: surfaces keep the Marula token accent.
  */
 export function portalOrgAccent(): string | null {
   return /^#[0-9a-f]{6}$/i.test(ENV_ORG_COLOR) ? ENV_ORG_COLOR.toLowerCase() : null;

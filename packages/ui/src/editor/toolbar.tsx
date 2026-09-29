@@ -1,7 +1,7 @@
 "use client";
 /**
  * Editor toolbar primitives (ADR 0007, Wave 16 lane 2) — presentation +
- * interaction only: every element renders in Workbench/Tangerine tokens,
+ * interaction only: every element renders in the Marula tokens,
  * is keyboard-reachable with focus-visible, and marks interactivity with
  * the semantic tokens. Editor STATE never lives here — the shell drives
  * Tiptap commands and passes `active`/`disabled` down.

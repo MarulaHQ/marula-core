@@ -526,7 +526,7 @@ pub fn update_consent_diff(old_caps: &[String], new_manifest: &PluginManifestV2)
 /// AA floors) and carries ZERO capabilities: themes restyle and nothing
 /// else. A RAW tweakcn / shadcn-registry cssVars export coerces too:
 /// the designer's export file IS the pack manifest (docs/theme.md pack
-/// format §), so an upload of e.g. `tangerine.json` imports directly.
+/// format §), so an upload of e.g. `marula.json` imports directly.
 fn validate_theme_manifest(
     manifest_value: &serde_json::Value,
 ) -> Result<core_domain::theme_pack::ThemePackManifest, IngestReason> {
@@ -537,7 +537,7 @@ fn validate_theme_manifest(
 
 /// Whether the (already-parsed) manifest value is a theme pack — our
 /// native shape OR a raw tweakcn/shadcn cssVars export (the zip path
-/// dispatches before the plugin manifest parse, so `tangerine.json`
+/// dispatches before the plugin manifest parse, so `marula.json`
 /// imports with no rename, no wrapping).
 fn is_theme_manifest(manifest_value: &serde_json::Value) -> bool {
     manifest_value.get("kind").and_then(|v| v.as_str()) == Some("theme")
@@ -676,7 +676,7 @@ mod tests {
 
     #[test]
     fn raw_tweakcn_export_zip_should_coerce_to_a_native_pack() {
-        // The zero-translation posture: upload design/tangerine's export
+        // The zero-translation posture: upload design/marula's export
         // shape as-is; the adapter coerces it (schema-stamped, oklch →
         // hex, unmapped variables dropped) before the row exists.
         let export = json!({

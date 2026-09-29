@@ -44,7 +44,7 @@ export function packStyleId(slug: string): string {
 
 /** Activates one theme id (builtin preset or installed pack slug) by
  * setting the `data-preset` attribute; persists the device preference.
- * `null` clears back to the tokens.css Tangerine baseline. */
+ * `null` clears back to the tokens.css baseline. */
 export function setThemePreset(id: string | null): void {
   if (typeof document === "undefined") return;
   if (id) {
@@ -64,7 +64,7 @@ export function setThemePreset(id: string | null): void {
   }
 }
 
-/** The persisted device preset (empty string = Tangerine baseline). */
+/** The persisted device preset (empty string = the tokens.css baseline). */
 export function resolveInitialPreset(): string | null {
   if (typeof window === "undefined") return null;
   try {

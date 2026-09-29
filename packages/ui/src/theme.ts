@@ -98,7 +98,7 @@ function currentPreset(): string | null {
   return document.documentElement.getAttribute("data-preset");
 }
 
-/** Reactive active theme preset id (null = Tangerine baseline). */
+/** Reactive active theme preset id (null = the tokens.css baseline). */
 export function useThemePreset(): {
   preset: string | null;
   setPreset: (id: string | null) => void;
