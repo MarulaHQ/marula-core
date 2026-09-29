@@ -91,6 +91,60 @@ fn valid_currency(code: &str) -> bool {
     CurrencyCode::new(code).is_ok()
 }
 
+/// Validates the project→contract billing link (Wave 39 lane 4, report
+/// P2): the contract must be visible in this org AND share the
+/// project's client — a project bills its client's agreement, never a
+/// sibling client's. Cancelled contracts refuse as a link target.
+async fn validate_billing_link(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    project_client_id: Option<Uuid>,
+    contract_id: Uuid,
+) -> ApiResult<()> {
+    let contract = core_db::contracts::get_contract(tx, org_id, contract_id)
+        .await
+        .map_err(|e| match e {
+            core_db::DbError::NotFound => {
+                ApiError::Validation("billing_contract_id: contract not found in org".into())
+            }
+            other => other.into(),
+        })?;
+    if contract.status == core_domain::entities::ContractStatus::Cancelled {
+        return Err(ApiError::Validation(
+            "billing_contract_id: cancelled contracts cannot bill projects".into(),
+        ));
+    }
+    if project_client_id != Some(contract.client_id) {
+        return Err(ApiError::Validation(
+            "billing_contract_id: contract must belong to the project's client".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// An amount column requires its currency (the project's currency is a
+/// valid fallback), and a lone currency with no amount is a typo — both
+/// 422 before any write.
+fn validate_money_pair(minor: Option<i64>, currency: Option<&str>, label: &str) -> ApiResult<()> {
+    match (minor, currency) {
+        (Some(_), Some(code)) => {
+            if !valid_currency(code) {
+                return Err(ApiError::Validation(format!(
+                    "invalid ISO 4217 currency code for {label}: {code}"
+                )));
+            }
+            Ok(())
+        }
+        (Some(_), None) => Err(ApiError::Validation(format!(
+            "{label} amount requires {label}_currency"
+        ))),
+        (None, Some(_)) => Err(ApiError::Validation(format!(
+            "{label}_currency set without {label} amount"
+        ))),
+        (None, None) => Ok(()),
+    }
+}
+
 /// Validates the milestone amount/currency pair against the entity's
 /// currency and the project-level fallback. Returns the effective
 /// (amount, currency) after fallback resolution.
@@ -180,6 +234,12 @@ pub struct CreateProjectRequest {
     pub currency: Option<String>,
     pub start_date: Option<chrono::NaiveDate>,
     pub due_date: Option<chrono::NaiveDate>,
+    /// The contract this project bills through (Wave 39 lane 4, report
+    /// P2). Its rate card/blocks/caps price the project's T&M entries and
+    /// its runs carry the project's released milestones. Validated to
+    /// belong to the same client.
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub billing_contract_id: Option<Uuid>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
     /// version. Absent in legacy clients — purely additive.
     #[serde(flatten, default)]
@@ -198,6 +258,9 @@ pub struct PatchProjectRequest {
     pub currency: Option<Option<String>>,
     pub start_date: Option<Option<chrono::NaiveDate>>,
     pub due_date: Option<Option<chrono::NaiveDate>>,
+    /// `Some(Some(v))` links the contract; `Some(None)` unlinks;
+    /// `None` = no change (Wave 39 lane 4, report P2).
+    pub billing_contract_id: Option<Option<Uuid>>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
     /// version. Absent in legacy clients — purely additive.
     #[serde(flatten, default)]
@@ -303,6 +366,9 @@ pub async fn create(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
+        if let Some(contract_id) = req.billing_contract_id {
+            validate_billing_link(&mut ctx.tx, org_id, req.client_id, contract_id).await?;
+        }
         let project = core_db::projects::insert_project(
             &mut *ctx.tx,
             core_db::projects::NewProject {
@@ -316,6 +382,7 @@ pub async fn create(
                 currency: req.currency.as_deref(),
                 start_date: req.start_date,
                 due_date: req.due_date,
+                billing_contract_id: req.billing_contract_id,
             },
         )
         .await?;
@@ -453,6 +520,13 @@ pub async fn patch(
                 "budget_minor requires currency".into(),
             ));
         }
+        // The link lands against the EFFECTIVE client (a patch may move
+        // both together), so validate the pair after applying the patch's
+        // client election.
+        let eff_client = req.client_id.flatten().or(before.client_id);
+        if let Some(contract_id) = req.billing_contract_id.flatten() {
+            validate_billing_link(&mut ctx.tx, org_id, eff_client, contract_id).await?;
+        }
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -476,6 +550,7 @@ pub async fn patch(
                 currency: req.currency.as_ref().map(|o| o.as_deref()),
                 start_date: req.start_date,
                 due_date: req.due_date,
+                billing_contract_id: req.billing_contract_id,
             },
         )
         .await?;
@@ -530,6 +605,17 @@ pub struct CreatePhaseRequest {
     pub is_milestone: bool,
     pub milestone_amount_minor: Option<i64>,
     pub milestone_currency: Option<String>,
+    /// Wave 39 lane 4 (report C/D): the phase's billing budget and/or the
+    /// fixed fee a COMPLETED non-milestone phase releases. Milestone
+    /// phases keep using `milestone_amount_*`.
+    #[serde(default)]
+    pub budget_minor: Option<i64>,
+    #[serde(default)]
+    pub budget_currency: Option<String>,
+    #[serde(default)]
+    pub fee_minor: Option<i64>,
+    #[serde(default)]
+    pub fee_currency: Option<String>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
     /// version. Absent in legacy clients — purely additive.
     #[serde(flatten, default)]
@@ -545,6 +631,14 @@ pub struct PatchPhaseRequest {
     pub is_milestone: Option<bool>,
     pub milestone_amount_minor: Option<Option<i64>>,
     pub milestone_currency: Option<Option<String>>,
+    /// Wave 39 lane 4: tri-state budget/fee updates on the phase's
+    /// billing record (`Some(Some(v))` sets, `Some(None)` clears,
+    /// `None` = no change; `clear_*` drops the whole record when both
+    /// fields would be empty).
+    pub budget_minor: Option<Option<i64>>,
+    pub budget_currency: Option<Option<String>>,
+    pub fee_minor: Option<Option<i64>>,
+    pub fee_currency: Option<Option<String>>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
     /// version. Absent in legacy clients — purely additive.
     #[serde(flatten, default)]
@@ -624,6 +718,8 @@ pub async fn create_phase(
             req.milestone_currency.as_deref(),
             project.currency.as_deref(),
         )?;
+        validate_money_pair(req.budget_minor, req.budget_currency.as_deref(), "budget")?;
+        validate_money_pair(req.fee_minor, req.fee_currency.as_deref(), "fee")?;
         let phase = core_db::projects::insert_phase(
             &mut *ctx.tx,
             core_db::projects::NewPhase {
@@ -639,6 +735,20 @@ pub async fn create_phase(
             },
         )
         .await?;
+        if req.budget_minor.is_some() || req.fee_minor.is_some() {
+            core_db::projects::upsert_phase_budget(
+                &mut *ctx.tx,
+                org_id,
+                phase.id,
+                core_db::projects::NewPhaseBudget {
+                    budget_minor: req.budget_minor,
+                    currency: req.budget_currency.as_deref(),
+                    fee_minor: req.fee_minor,
+                    fee_currency: req.fee_currency.as_deref(),
+                },
+            )
+            .await?;
+        }
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -750,6 +860,25 @@ pub async fn patch_phase(
             eff_currency.as_deref(),
             project.currency.as_deref(),
         )?;
+        // Effective budget/fee record after this patch lands (tri-state
+        // over the existing row; a cleared pair drops the whole record).
+        let existing = core_db::projects::get_phase_budget(&mut *ctx.tx, org_id, phase_id).await?;
+        let eff_budget: Option<i64> = req
+            .budget_minor
+            .unwrap_or(existing.as_ref().and_then(|b| b.budget_minor));
+        let eff_budget_ccy: Option<String> = req
+            .budget_currency
+            .clone()
+            .or_else(|| existing.as_ref().and_then(|b| b.currency.clone()));
+        let eff_fee: Option<i64> = req
+            .fee_minor
+            .unwrap_or(existing.as_ref().and_then(|b| b.fee_minor));
+        let eff_fee_ccy: Option<String> = req
+            .fee_currency
+            .clone()
+            .or_else(|| existing.as_ref().and_then(|b| b.fee_currency.clone()));
+        validate_money_pair(eff_budget, eff_budget_ccy.as_deref(), "budget")?;
+        validate_money_pair(eff_fee, eff_fee_ccy.as_deref(), "fee")?;
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -774,6 +903,24 @@ pub async fn patch_phase(
             },
         )
         .await?;
+        // Budget/fee record maintenance rides the same transaction:
+        // both cleared → drop the row; any value present → upsert.
+        if eff_budget.is_none() && eff_fee.is_none() {
+            core_db::projects::delete_phase_budget(&mut ctx.tx, org_id, phase_id).await?;
+        } else {
+            core_db::projects::upsert_phase_budget(
+                &mut *ctx.tx,
+                org_id,
+                phase_id,
+                core_db::projects::NewPhaseBudget {
+                    budget_minor: eff_budget,
+                    currency: eff_budget_ccy.as_deref(),
+                    fee_minor: eff_fee,
+                    fee_currency: eff_fee_ccy.as_deref(),
+                },
+            )
+            .await?;
+        }
         ctx.emit(
             types::PROJECT_PHASE_UPDATED,
             "project_phase",
@@ -900,6 +1047,34 @@ pub async fn complete_phase(
                 at,
             )
             .await?;
+        } else {
+            // Fixed-fee phase (report P4): a NON-milestone phase whose
+            // budget record carries a fee releases it on completion —
+            // directly into the ledger in this same transaction (the
+            // phase-completion idempotency replay guard covers this too:
+            // a retried completion replays the same mutation without
+            // double-staging, guarded by the ledger's unique index).
+            if let Some(budget) =
+                core_db::projects::get_phase_budget(&mut ctx.tx, org_id, phase_id).await?
+            {
+                if let (Some(fee_minor), Some(currency)) = (budget.fee_minor, budget.fee_currency) {
+                    core_db::projects::insert_release(
+                        &mut ctx.tx,
+                        &core_db::projects::NewRelease {
+                            org_id,
+                            project_id: after.project_id,
+                            phase_id: Some(after.id),
+                            task_id: None,
+                            label: after.name.clone(),
+                            amount_minor: fee_minor,
+                            currency: currency.to_string(),
+                            released_on: at.date_naive(),
+                            source_event_id: None,
+                        },
+                    )
+                    .await?;
+                }
+            }
         }
         let mutation = instant::record(
             &mut ctx,
@@ -928,6 +1103,98 @@ pub async fn complete_phase(
     .await?;
 
     Ok(Json(outcome.into_response()?))
+}
+
+// --- phase burn + billing releases (Wave 39 lane 4) -------------------------
+
+/// GET /api/projects/{id}/phase-burn — the burn read model (report P3):
+/// consumed approved billable minutes and card-priced value per phase
+/// against the phase's budget, with the typed `none | warn | over`
+/// alert state (`warn` at ≥80%, `over` at ≥100%).
+#[utoipa::path(operation_id = "projects_phase_burn", get, path = "/api/projects/{id}/phase-burn", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = [core_domain::entities::PhaseBurn]),
+              (status = 404, description = "project not visible in scope (rls_sparse)")))]
+pub async fn phase_burn(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<Vec<core_domain::entities::PhaseBurn>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::View))?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let burns = core_db::projects::phase_burn(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(burns))
+}
+
+/// GET /api/projects/{id}/billing-releases — the release ledger: every
+/// staged milestone/fee for this project with its status (`pending`
+/// bills on the next run reaching its window; `billed` carries the
+/// consuming invoice; `cancelled` terminal).
+#[utoipa::path(operation_id = "projects_billing_releases", get, path = "/api/projects/{id}/billing-releases", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = [core_domain::entities::ProjectBillingRelease])))]
+pub async fn list_billing_releases(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<Vec<core_domain::entities::ProjectBillingRelease>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::View))?;
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let rows =
+        core_db::projects::list_releases_for_project(&mut *tx, authed.principal.user.org_id, id)
+            .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(rows))
+}
+
+/// POST /api/projects/{id}/billing-releases/{release_id}/cancel — cancel
+/// a PENDING release (admin correction; terminal). Billed releases are
+/// immutable — they ride an invoice, and invoices correct through credit
+/// notes.
+#[utoipa::path(operation_id = "projects_billing_release_cancel", post, path = "/api/projects/{id}/billing-releases/{release_id}/cancel", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("release_id" = Uuid, Path)),
+    responses((status = 200, body = core_domain::entities::ProjectBillingRelease),
+              (status = 404, description = "release not visible/already settled (rls_sparse)")))]
+pub async fn cancel_billing_release(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path((id, release_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<Json<core_domain::entities::ProjectBillingRelease>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    // RLS-scoped transaction; the project id scopes the read so a
+    // release from another project 404s (rls_sparse).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::projects::get_project(&mut *tx, org_id, id).await?;
+    let release = core_db::projects::cancel_release(&mut tx, org_id, release_id)
+        .await
+        .map_err(|_| ApiError::RlsSparse)?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(release))
 }
 
 // --- tasks ---------------------------------------------------------------------------
@@ -2095,6 +2362,9 @@ pub async fn instantiate(
                 currency: plan.currency.as_deref(),
                 start_date: req.start_date,
                 due_date: req.due_date,
+                // Templates stay unlinked: a fresh instantiation bills
+                // nothing until someone attaches a client + contract.
+                billing_contract_id: None,
             },
         )
         .await?;

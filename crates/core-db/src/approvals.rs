@@ -86,7 +86,7 @@ pub async fn submit(
               AND approval_status IN ('draft', 'rejected')
               AND NOT EXISTS (
                   SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)
-           RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
+           RETURNING id, org_id, ticket_id, phase_id, user_id, started_at, ended_at, minutes, billable,
                      notes, work_type, unbillable_reason, timer_session_id, approval_status,
                      approval_reason_code, created_at"#,
         org_id,
@@ -102,6 +102,7 @@ pub async fn submit(
         row.id,
         row.org_id,
         row.ticket_id,
+        row.phase_id,
         row.user_id,
         row.started_at,
         row.ended_at,
@@ -156,7 +157,7 @@ pub async fn decide(
             WHERE org_id = $1 AND id = ANY($2) AND approval_status = 'submitted'
               AND NOT EXISTS (
                   SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)
-           RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
+           RETURNING id, org_id, ticket_id, phase_id, user_id, started_at, ended_at, minutes, billable,
                      notes, work_type, unbillable_reason, timer_session_id, approval_status,
                      approval_reason_code, created_at"#,
         org_id,
@@ -174,6 +175,7 @@ pub async fn decide(
             row.id,
             row.org_id,
             row.ticket_id,
+            row.phase_id,
             row.user_id,
             row.started_at,
             row.ended_at,
@@ -259,7 +261,7 @@ pub async fn reopen(
             WHERE org_id = $1 AND id = $2 AND approval_status = 'rejected'
               AND NOT EXISTS (
                   SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)
-           RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
+           RETURNING id, org_id, ticket_id, phase_id, user_id, started_at, ended_at, minutes, billable,
                      notes, work_type, unbillable_reason, timer_session_id, approval_status,
                      approval_reason_code, created_at"#,
         org_id,
@@ -272,6 +274,7 @@ pub async fn reopen(
         row.id,
         row.org_id,
         row.ticket_id,
+        row.phase_id,
         row.user_id,
         row.started_at,
         row.ended_at,
@@ -315,7 +318,7 @@ pub async fn queue<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let sql = "SELECT te.id, te.org_id, te.ticket_id, te.user_id, te.started_at, te.ended_at, \
+    let sql = "SELECT te.id, te.org_id, te.ticket_id, te.phase_id, te.user_id, te.started_at, te.ended_at, \
          te.minutes, te.billable, te.notes, te.work_type, te.unbillable_reason, \
          te.timer_session_id, te.approval_status, te.approval_reason_code, te.created_at, \
          te.approval_submitted_by, te.approval_submitted_at, \
@@ -398,7 +401,8 @@ where
 fn entry_from_parts(
     id: Uuid,
     org_id: Uuid,
-    ticket_id: Uuid,
+    ticket_id: Option<Uuid>,
+    phase_id: Option<Uuid>,
     user_id: Uuid,
     started_at: chrono::DateTime<chrono::Utc>,
     ended_at: chrono::DateTime<chrono::Utc>,
@@ -416,6 +420,7 @@ fn entry_from_parts(
         id,
         org_id,
         ticket_id,
+        phase_id,
         user_id,
         started_at,
         ended_at,
@@ -440,6 +445,7 @@ fn map_row(row: sqlx::postgres::PgRow) -> TimeEntry {
         id: row.get("id"),
         org_id: row.get("org_id"),
         ticket_id: row.get("ticket_id"),
+        phase_id: row.get("phase_id"),
         user_id: row.get("user_id"),
         started_at: row.get("started_at"),
         ended_at: row.get("ended_at"),

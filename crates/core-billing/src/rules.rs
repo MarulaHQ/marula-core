@@ -23,8 +23,8 @@
 use chrono::NaiveDate;
 use core_domain::entities::{
     BillingCandidateLine, BillingEvaluation, BillingLineKind, BlockConsumption, BlockDraw,
-    Contract, ContractBlock, ContractCap, ContractFixedFee, ContractRate, ContractType,
-    CapReachedBehavior,
+    CapReachedBehavior, Contract, ContractBlock, ContractCap, ContractFixedFee, ContractRate,
+    ContractType,
 };
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -50,6 +50,28 @@ pub struct IncidentTicket {
     pub number: String,
     pub priority: String,
     pub resolved_on: NaiveDate,
+}
+
+/// One released milestone awaiting its invoice line (Wave 39 lane 4,
+/// report P1/P4): already filtered to the contract's billing projects and
+/// status `pending`, released_on inside the query window; the engine
+/// mirrors the date window. Dedupe is ledger-owned (one row per
+/// milestone), so the engine emits one line per release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectRelease {
+    pub release_id: Uuid,
+    pub label: String,
+    pub amount_minor: i64,
+    pub released_on: NaiveDate,
+    /// The milestone currency; the engine refuses a mismatch against the
+    /// contract currency at the query layer (mixed-currency runs assert
+    /// one currency), so the engine carries it for the line's provenance
+    /// description only.
+    #[allow(dead_code)]
+    pub currency: String,
+    /// Whether this release came from a fixed-fee phase (P4) versus a
+    /// milestone (P1) — description wording only; both bill the same way.
+    pub is_fixed_fee_phase: bool,
 }
 
 /// Inventory counts for per-unit contracts (C), read by the query layer
@@ -85,6 +107,9 @@ pub struct EvalInputs<'a> {
     pub closed_tickets: &'a [IncidentTicket],
     /// Inventory counts for per-unit evaluation (C).
     pub unit_counts: UnitCounts,
+    /// Released project milestones/fees awaiting their invoice line
+    /// (Wave 39 lane 4, report P1/P4): one line per pending release.
+    pub project_releases: &'a [ProjectRelease],
 }
 
 /// The empty prior-draw ledger shared by every default-input evaluation
@@ -126,7 +151,15 @@ pub fn evaluate(
     from: NaiveDate,
     to: NaiveDate,
 ) -> Result<BillingEvaluation, BillingError> {
-    evaluate_with(contract, rates, fees, entries, from, to, &EvalInputs::default())
+    evaluate_with(
+        contract,
+        rates,
+        fees,
+        entries,
+        from,
+        to,
+        &EvalInputs::default(),
+    )
 }
 
 /// The full-configuration entry point: identical to [`evaluate`] plus
@@ -243,6 +276,16 @@ pub fn evaluate_with(
             lines.extend(sla_credit_lines(contract, inputs.sla_credits, from, to));
         }
     }
+    // Project releases (Wave 39 lane 4) ride ANY contract type the same
+    // way change orders do: a project bills THROUGH its linked contract,
+    // so every released milestone/fee on that contract's projects emits
+    // here — one line per ledger row, dedupe owned by the ledger.
+    lines.extend(project_release_lines(
+        contract,
+        inputs.project_releases,
+        lo,
+        hi,
+    ));
     // Prepaid blocks ride ANY consumption-bearing contract as attached
     // configuration (A): labor that the type's own rule billed at card
     // rates is re-priced against an open block's rate, and the
@@ -461,6 +504,45 @@ fn fixed_fee_lines(
         .collect()
 }
 
+/// Released project milestones/fees (Wave 39 lane 4, report P1/P4): one
+/// line per ledger release dated inside the effective slice, ordered by
+/// (released_on, label) for determinism. The release id rides the
+/// description in `[id]` brackets — the same bracket convention SLA
+/// credits use — so the run can flip the ledger row `billed` with the
+/// consuming invoice without a description-fragility: re-runs never
+/// double-bill because the LEDGER row flips, and the (contract,
+/// period_start, description) uniqueness stays the concurrency backstop.
+fn project_release_lines(
+    contract: &Contract,
+    releases: &[ProjectRelease],
+    lo: NaiveDate,
+    hi: NaiveDate,
+) -> Vec<BillingCandidateLine> {
+    let mut due: Vec<&ProjectRelease> = releases
+        .iter()
+        .filter(|r| r.released_on >= lo && r.released_on <= hi)
+        .collect();
+    due.sort_by(|a, b| (a.released_on, &a.label).cmp(&(b.released_on, &b.label)));
+    due.into_iter()
+        .map(|release| BillingCandidateLine {
+            contract_id: contract.id,
+            contract_number: contract.number.clone(),
+            client_id: contract.client_id,
+            kind: BillingLineKind::ProjectRelease,
+            period_start: release.released_on,
+            period_end: release.released_on,
+            description: if release.is_fixed_fee_phase {
+                format!("{} [{}]", release.label, release.release_id)
+            } else {
+                format!("Milestone {}: [{}]", release.label, release.release_id)
+            },
+            quantity_minutes: 0,
+            unit_amount_minor: release.amount_minor,
+            amount_minor: release.amount_minor,
+        })
+        .collect()
+}
+
 /// Per-hour proration with half-up rounding on positive amounts:
 /// `(minutes * rate + 30) / 60`. Returns `None` on i64 overflow of the
 /// product (surfaced as a skipped line rather than a wrong total — the
@@ -495,7 +577,10 @@ fn per_unit_lines(
         // core-domain); an incomplete row simply produces no lines.
         return Ok(Vec::new());
     };
-    let quantity = match contract.unit_basis.unwrap_or(core_domain::entities::UnitBasis::Devices) {
+    let quantity = match contract
+        .unit_basis
+        .unwrap_or(core_domain::entities::UnitBasis::Devices)
+    {
         core_domain::entities::UnitBasis::Devices => counts.devices,
         core_domain::entities::UnitBasis::Users => counts.users,
     };
@@ -507,10 +592,8 @@ fn per_unit_lines(
         if !effective_period_included(contract, start, hi) {
             continue;
         }
-        let amount = i64::try_from(
-            (quantity as i128) * (unit_price as i128),
-        )
-        .map_err(|_| BillingError::AmountOverflow)?;
+        let amount = i64::try_from((quantity as i128) * (unit_price as i128))
+            .map_err(|_| BillingError::AmountOverflow)?;
         out.push(BillingCandidateLine {
             contract_id: contract.id,
             contract_number: contract.number.clone(),
@@ -563,7 +646,10 @@ fn per_incident_lines(
             kind: BillingLineKind::PerIncident,
             period_start: t.resolved_on,
             period_end: t.resolved_on,
-            description: format!("{} incident: ticket {} ({})", contract.name, t.number, t.priority),
+            description: format!(
+                "{} incident: ticket {} ({})",
+                contract.name, t.number, t.priority
+            ),
             quantity_minutes: 0,
             unit_amount_minor: price,
             amount_minor: price,
@@ -643,7 +729,10 @@ fn escalator_lines(
         if anniversary_index <= 0 {
             continue;
         }
-        let uplift = half_up_bps(amount as i128, esc.uplift_bps as i128 * anniversary_index as i128)?;
+        let uplift = half_up_bps(
+            amount as i128,
+            esc.uplift_bps as i128 * anniversary_index as i128,
+        )?;
         if uplift <= 0 {
             continue;
         }
@@ -713,9 +802,7 @@ fn minimum_trueup_lines(
         // pure recurring the base line alone can fall short.
         let consumed: i64 = entries
             .iter()
-            .filter(|e| {
-                e.entry_date >= start.max(lo) && e.entry_date < end && e.entry_date <= hi
-            })
+            .filter(|e| e.entry_date >= start.max(lo) && e.entry_date < end && e.entry_date <= hi)
             .map(|e| e.minutes as i64)
             .sum();
         let labor_amount = match contract.contract_type {
@@ -862,7 +949,13 @@ fn capped_labor_lines(
     ctx: CapLaborContext<'_>,
 ) -> Result<Vec<BillingCandidateLine>, BillingError> {
     if ctx.caps.is_empty() {
-        return Ok(time_materials_lines(contract, ctx.rates, ctx.entries, ctx.lo, ctx.hi));
+        return Ok(time_materials_lines(
+            contract,
+            ctx.rates,
+            ctx.entries,
+            ctx.lo,
+            ctx.hi,
+        ));
     }
     let default_rate = contract.hourly_rate_minor.unwrap_or(0);
     let matched_rate = |work_type: Option<&str>| -> (String, i64) {
@@ -905,15 +998,12 @@ fn capped_labor_lines(
     // Cap windows: `period` scope derives billing periods from the
     // anchor; `contract` scope is one window over the effective slice.
     let periods = match (contract.billing_anchor, contract.billing_frequency) {
-        (Some(anchor), Some(frequency)) => crate::periods::periods_starting_in(
-            anchor,
-            frequency,
-            ctx.lo,
-            ctx.hi,
-        )
-        .into_iter()
-        .filter(|(s, _)| effective_period_included(contract, *s, ctx.hi))
-        .collect::<Vec<_>>(),
+        (Some(anchor), Some(frequency)) => {
+            crate::periods::periods_starting_in(anchor, frequency, ctx.lo, ctx.hi)
+                .into_iter()
+                .filter(|(s, _)| effective_period_included(contract, *s, ctx.hi))
+                .collect::<Vec<_>>()
+        }
         _ => Vec::new(),
     };
 
@@ -959,7 +1049,7 @@ fn capped_labor_lines(
             vec![(ctx.lo, ctx.hi)]
         };
         let mut window_remaining = cap.cap_minor; // remaining billable MINOR units per window
-        // minutes of this bucket fee at base_rate per prorated minute
+                                                  // minutes of this bucket fee at base_rate per prorated minute
         for (start, end) in windows.iter().copied() {
             let in_window: Vec<&&BillableEntry> = bucket_entries
                 .iter()
@@ -1024,8 +1114,8 @@ fn capped_labor_lines(
                     end.min(ctx.hi),
                 ));
             }
-            let cap_reached =
-                window_remaining < cap.cap_minor && matches!(cap.reached_behavior, CapReachedBehavior::Warn);
+            let cap_reached = window_remaining < cap.cap_minor
+                && matches!(cap.reached_behavior, CapReachedBehavior::Warn);
             if cap_reached {
                 ctx.warnings.push(format!(
                     "cap reached ({} minor) for '{}' between {} and {} — billed through per the warn policy",
@@ -1574,13 +1664,36 @@ mod tests {
     use core_domain::entities::{CapReachedBehavior, ContractBlock, ContractCap, UnitBasis};
     use std::sync::Arc;
 
-    fn block(label: &str, total_minutes: i32, price: i64, rate: Option<i64>, expires: Option<NaiveDate>, policy: &str) -> ContractBlock {
-        block_with_sale_date(label, total_minutes, price, rate, expires, policy, DateTime::UNIX_EPOCH)
+    fn block(
+        label: &str,
+        total_minutes: i32,
+        price: i64,
+        rate: Option<i64>,
+        expires: Option<NaiveDate>,
+        policy: &str,
+    ) -> ContractBlock {
+        block_with_sale_date(
+            label,
+            total_minutes,
+            price,
+            rate,
+            expires,
+            policy,
+            DateTime::UNIX_EPOCH,
+        )
     }
 
     /// Same builder with an explicit SOLD date (the sale line only
     /// emits when the date part lands in the evaluation window).
-    fn block_with_sale_date(label: &str, total_minutes: i32, price: i64, rate: Option<i64>, expires: Option<NaiveDate>, policy: &str, sold_at: DateTime<Utc>) -> ContractBlock {
+    fn block_with_sale_date(
+        label: &str,
+        total_minutes: i32,
+        price: i64,
+        rate: Option<i64>,
+        expires: Option<NaiveDate>,
+        policy: &str,
+        sold_at: DateTime<Utc>,
+    ) -> ContractBlock {
         ContractBlock {
             id: Uuid::now_v7(),
             org_id: Uuid::now_v7(),
@@ -1595,7 +1708,13 @@ mod tests {
         }
     }
 
-    fn cap(scope: &str, cap_minor: i64, behavior: CapReachedBehavior, overage: Option<i64>, work_type: Option<&str>) -> ContractCap {
+    fn cap(
+        scope: &str,
+        cap_minor: i64,
+        behavior: CapReachedBehavior,
+        overage: Option<i64>,
+        work_type: Option<&str>,
+    ) -> ContractCap {
         ContractCap {
             id: Uuid::now_v7(),
             org_id: Uuid::now_v7(),
@@ -1626,13 +1745,149 @@ mod tests {
         }
     }
 
+    fn with_releases(releases: &[ProjectRelease]) -> EvalInputs<'static> {
+        let owned: Vec<ProjectRelease> = releases.to_vec();
+        EvalInputs {
+            project_releases: Box::leak(owned.into_boxed_slice()),
+            ..Default::default()
+        }
+    }
+
+    fn release(label: &str, amount: i64, on: NaiveDate) -> ProjectRelease {
+        ProjectRelease {
+            release_id: Uuid::now_v7(),
+            label: label.into(),
+            amount_minor: amount,
+            released_on: on,
+            currency: "USD".into(),
+            is_fixed_fee_phase: false,
+        }
+    }
+
+    #[test]
+    fn project_release_emits_one_line_per_ledger_row_in_window() {
+        let c = contract(ContractType::Recurring);
+        let r1 = release("Discovery", 150_000, d(2026, 2, 10));
+        let r2 = release("Build", 90_000, d(2026, 2, 20));
+        let inputs = with_releases(&[r1, r2]);
+        let e = evaluate_with(&c, &[], &[], &[], d(2026, 2, 1), d(2026, 2, 28), &inputs).unwrap();
+        let lines: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::ProjectRelease)
+            .collect();
+        assert_eq!(lines.len(), 2, "both releases bill");
+        assert_eq!(lines[0].description, lines[0].description); // determinism smoke
+        let total: i64 = lines.iter().map(|l| l.amount_minor).sum();
+        assert_eq!(total, 240_000);
+        assert_eq!(
+            e.total_minor, 240_000,
+            "release lines carry the whole evaluation total in this fixture"
+        );
+    }
+
+    #[test]
+    fn project_releases_filter_to_the_window_and_order_deterministically() {
+        let c = contract(ContractType::TimeAndMaterials);
+        let early = release("Early", 10_000, d(2026, 1, 31));
+        let inside = release("Inside", 20_000, d(2026, 2, 5));
+        let late = release("Late", 30_000, d(2026, 3, 1));
+        let inputs = with_releases(&[late, early, inside]);
+        let e = evaluate_with(&c, &[], &[], &[], d(2026, 2, 1), d(2026, 2, 28), &inputs).unwrap();
+        let lines: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::ProjectRelease)
+            .collect();
+        assert_eq!(lines.len(), 1, "only the in-window release bills");
+        assert_eq!(lines[0].amount_minor, 20_000);
+    }
+
+    #[test]
+    fn project_release_lines_carry_the_release_id_for_run_flip() {
+        let c = contract(ContractType::Recurring);
+        let r = release("Phase fee", 50_000, d(2026, 2, 10));
+        let id = r.release_id.to_string();
+        let inputs = with_releases(&[r]);
+        let e = evaluate_with(&c, &[], &[], &[], d(2026, 2, 1), d(2026, 2, 28), &inputs).unwrap();
+        let line = e
+            .lines
+            .iter()
+            .find(|l| l.kind == BillingLineKind::ProjectRelease)
+            .expect("line emits");
+        let bracketed = line
+            .description
+            .split('[')
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("release id rides the description in [id] brackets");
+        assert_eq!(bracketed, id);
+        assert_eq!(
+            line.period_start,
+            d(2026, 2, 10),
+            "period mirrors released_on (dedupe identity)"
+        );
+        assert_eq!(line.quantity_minutes, 0, "amount line, not labor");
+        assert_eq!(line.unit_amount_minor, line.amount_minor);
+    }
+
+    #[test]
+    fn project_release_respects_the_effective_slice() {
+        let mut c = contract(ContractType::Recurring);
+        c.effective_until = Some(d(2026, 2, 14));
+        let before = release("Before expiry", 10_000, d(2026, 2, 14));
+        let after = release("After expiry", 20_000, d(2026, 2, 15));
+        let inputs = with_releases(&[before, after]);
+        let e = evaluate_with(&c, &[], &[], &[], d(2026, 2, 1), d(2026, 2, 28), &inputs).unwrap();
+        let lines: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::ProjectRelease)
+            .collect();
+        assert_eq!(lines.len(), 1, "releases past effective_until never bill");
+        assert_eq!(lines[0].amount_minor, 10_000);
+    }
+
+    #[test]
+    fn default_inputs_reproduce_v1_behavior_exactly_with_release_field_present() {
+        // The v1 compat pin now also covers the new field: an empty
+        // project_releases slice changes nothing on a plain contract.
+        let c = contract(ContractType::Recurring);
+        let e = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &[],
+            d(2026, 1, 1),
+            d(2026, 3, 1),
+            &EvalInputs::default(),
+        )
+        .unwrap();
+        assert!(
+            e.lines
+                .iter()
+                .all(|l| l.kind != BillingLineKind::ProjectRelease),
+            "empty feed emits nothing"
+        );
+    }
+
     #[test]
     fn per_unit_bills_quantity_times_price_from_device_counts() {
         let c = contract(ContractType::PerUnit);
-        let counts = UnitCounts { devices: 25, users: 40 };
-        let inputs = EvalInputs { unit_counts: counts, ..Default::default() };
+        let counts = UnitCounts {
+            devices: 25,
+            users: 40,
+        };
+        let inputs = EvalInputs {
+            unit_counts: counts,
+            ..Default::default()
+        };
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 3, 1), &inputs).unwrap();
-        let unit: Vec<_> = e.lines.iter().filter(|l| l.kind == BillingLineKind::PerUnitBase).collect();
+        let unit: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::PerUnitBase)
+            .collect();
         assert_eq!(unit.len(), 2);
         // 25 devices × 50.00 = 1250.00 per period.
         assert_eq!(unit[0].amount_minor, 125_000);
@@ -1646,8 +1901,14 @@ mod tests {
             unit_basis: Some(UnitBasis::Users),
             ..contract(ContractType::PerUnit)
         };
-        let counts = UnitCounts { devices: 25, users: 40 };
-        let inputs = EvalInputs { unit_counts: counts, ..Default::default() };
+        let counts = UnitCounts {
+            devices: 25,
+            users: 40,
+        };
+        let inputs = EvalInputs {
+            unit_counts: counts,
+            ..Default::default()
+        };
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 2, 1), &inputs).unwrap();
         assert_eq!(e.lines[0].amount_minor, 200_000); // 40 × 50.00
     }
@@ -1655,7 +1916,13 @@ mod tests {
     #[test]
     fn per_unit_zero_count_bills_nothing() {
         let c = contract(ContractType::PerUnit);
-        let inputs = EvalInputs { unit_counts: UnitCounts { devices: 0, users: 0 }, ..Default::default() };
+        let inputs = EvalInputs {
+            unit_counts: UnitCounts {
+                devices: 0,
+                users: 0,
+            },
+            ..Default::default()
+        };
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 3, 1), &inputs).unwrap();
         assert!(e.lines.is_empty());
         assert_eq!(e.total_minor, 0);
@@ -1671,11 +1938,17 @@ mod tests {
             ticket("T-004", "p3", d(2025, 12, 30)), // outside window
         ];
         let open = [tickets[0].clone(), tickets[2].clone()];
-        let inputs = EvalInputs { closed_tickets: &open, ..Default::default() };
+        let inputs = EvalInputs {
+            closed_tickets: &open,
+            ..Default::default()
+        };
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 1, 31), &inputs).unwrap();
         // NULL/any band prices every CLOSED ticket in window.
         assert_eq!(e.lines.len(), 2);
-        assert!(e.lines.iter().all(|l| l.kind == BillingLineKind::PerIncident));
+        assert!(e
+            .lines
+            .iter()
+            .all(|l| l.kind == BillingLineKind::PerIncident));
         assert!(e.lines[0].description.contains("T-001"));
         assert_eq!(e.total_minor, 50_000);
     }
@@ -1690,7 +1963,10 @@ mod tests {
             ticket("T-001", "p1", d(2026, 1, 5)),
             ticket("T-002", "p2", d(2026, 1, 9)),
         ];
-        let inputs = EvalInputs { closed_tickets: &tickets, ..Default::default() };
+        let inputs = EvalInputs {
+            closed_tickets: &tickets,
+            ..Default::default()
+        };
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 1, 31), &inputs).unwrap();
         assert_eq!(e.lines.len(), 1);
         assert!(e.lines[0].description.contains("T-001"));
@@ -1701,16 +1977,37 @@ mod tests {
         let c = contract(ContractType::TimeAndMaterials);
         let caps = vec![cap("period", 100_000, CapReachedBehavior::Stop, None, None)];
         let entries = vec![
-            entry(600, None, d(2026, 1, 5)),  // 600 min @ 100/h = 1000.00 → at cap
+            entry(600, None, d(2026, 1, 5)), // 600 min @ 100/h = 1000.00 → at cap
             entry(300, None, d(2026, 1, 10)), // 300 min = 500.00 → beyond cap, dropped
         ];
-        let inputs = EvalInputs { caps: &caps, ..Default::default() };
-        let e = evaluate_with(&c, &[], &[], &entries, d(2026, 1, 1), d(2026, 2, 1), &inputs).unwrap();
-        let labor: i64 = e.lines.iter()
+        let inputs = EvalInputs {
+            caps: &caps,
+            ..Default::default()
+        };
+        let e = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &entries,
+            d(2026, 1, 1),
+            d(2026, 2, 1),
+            &inputs,
+        )
+        .unwrap();
+        let labor: i64 = e
+            .lines
+            .iter()
             .filter(|l| l.kind == BillingLineKind::TimeMaterials)
-            .map(|l| l.amount_minor).sum();
-        assert_eq!(labor, 100_000, "stop behavior drops the second entry once the cap is spent");
-        assert!(e.cap_warnings.is_empty(), "stop communicates through the line shape");
+            .map(|l| l.amount_minor)
+            .sum();
+        assert_eq!(
+            labor, 100_000,
+            "stop behavior drops the second entry once the cap is spent"
+        );
+        assert!(
+            e.cap_warnings.is_empty(),
+            "stop communicates through the line shape"
+        );
     }
 
     #[test]
@@ -1721,60 +2018,147 @@ mod tests {
             entry(600, None, d(2026, 1, 5)),
             entry(300, None, d(2026, 1, 10)),
         ];
-        let inputs = EvalInputs { caps: &caps, ..Default::default() };
-        let e = evaluate_with(&c, &[], &[], &entries, d(2026, 1, 1), d(2026, 2, 1), &inputs).unwrap();
-        let labor: i64 = e.lines.iter()
+        let inputs = EvalInputs {
+            caps: &caps,
+            ..Default::default()
+        };
+        let e = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &entries,
+            d(2026, 1, 1),
+            d(2026, 2, 1),
+            &inputs,
+        )
+        .unwrap();
+        let labor: i64 = e
+            .lines
+            .iter()
             .filter(|l| l.kind == BillingLineKind::TimeMaterials)
-            .map(|l| l.amount_minor).sum();
+            .map(|l| l.amount_minor)
+            .sum();
         assert_eq!(labor, 150_000, "warn bills through at the card rate");
         assert_eq!(e.cap_warnings.len(), 1);
-        assert!(e.cap_warnings[0].contains("1500.00") || e.cap_warnings[0].contains("warn"),
-            "warning names the policy: {:?}", e.cap_warnings);
+        assert!(
+            e.cap_warnings[0].contains("1500.00") || e.cap_warnings[0].contains("warn"),
+            "warning names the policy: {:?}",
+            e.cap_warnings
+        );
     }
 
     #[test]
     fn cap_overage_billable_splits_beyond_cap_at_overage_rate() {
         let c = contract(ContractType::TimeAndMaterials);
-        let caps = vec![cap("period", 100_000, CapReachedBehavior::OverageBillable, Some(20_000), None)];
+        let caps = vec![cap(
+            "period",
+            100_000,
+            CapReachedBehavior::OverageBillable,
+            Some(20_000),
+            None,
+        )];
         let entries = vec![
             entry(600, None, d(2026, 1, 5)),  // 1000.00 exactly at cap
             entry(300, None, d(2026, 1, 10)), // beyond → overage bucket
         ];
-        let inputs = EvalInputs { caps: &caps, ..Default::default() };
-        let e = evaluate_with(&c, &[], &[], &entries, d(2026, 1, 1), d(2026, 2, 1), &inputs).unwrap();
-        let base: Vec<_> = e.lines.iter().filter(|l| l.kind == BillingLineKind::TimeMaterials).collect();
-        let over: Vec<_> = e.lines.iter().filter(|l| l.kind == BillingLineKind::CapOverage).collect();
+        let inputs = EvalInputs {
+            caps: &caps,
+            ..Default::default()
+        };
+        let e = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &entries,
+            d(2026, 1, 1),
+            d(2026, 2, 1),
+            &inputs,
+        )
+        .unwrap();
+        let base: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::TimeMaterials)
+            .collect();
+        let over: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::CapOverage)
+            .collect();
         assert_eq!(base.len(), 1);
         assert_eq!(base[0].amount_minor, 100_000);
         assert_eq!(over.len(), 1);
-        assert_eq!(over[0].amount_minor, 100_000, "300 min @ 200/h = 1000.00 overage line");
+        assert_eq!(
+            over[0].amount_minor, 100_000,
+            "300 min @ 200/h = 1000.00 overage line"
+        );
         assert_eq!(e.total_minor, 200_000);
     }
 
     #[test]
     fn cap_contract_scope_crosses_periods() {
         let c = contract(ContractType::TimeAndMaterials);
-        let caps = vec![cap("contract", 100_000, CapReachedBehavior::Stop, None, None)];
+        let caps = vec![cap(
+            "contract",
+            100_000,
+            CapReachedBehavior::Stop,
+            None,
+            None,
+        )];
         let entries = vec![
-            entry(600, None, d(2026, 1, 5)),  // spends the whole cap
-            entry(600, None, d(2026, 2, 5)),  // next period; contract cap spent → dropped
+            entry(600, None, d(2026, 1, 5)), // spends the whole cap
+            entry(600, None, d(2026, 2, 5)), // next period; contract cap spent → dropped
         ];
-        let inputs = EvalInputs { caps: &caps, ..Default::default() };
-        let e = evaluate_with(&c, &[], &[], &entries, d(2026, 1, 1), d(2026, 3, 1), &inputs).unwrap();
-        let labor: i64 = e.lines.iter()
+        let inputs = EvalInputs {
+            caps: &caps,
+            ..Default::default()
+        };
+        let e = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &entries,
+            d(2026, 1, 1),
+            d(2026, 3, 1),
+            &inputs,
+        )
+        .unwrap();
+        let labor: i64 = e
+            .lines
+            .iter()
             .filter(|l| l.kind == BillingLineKind::TimeMaterials)
-            .map(|l| l.amount_minor).sum();
-        assert_eq!(labor, 100_000, "a per-contract cap spans every period in the window");
+            .map(|l| l.amount_minor)
+            .sum();
+        assert_eq!(
+            labor, 100_000,
+            "a per-contract cap spans every period in the window"
+        );
     }
 
     #[test]
     fn block_drawdown_reprices_against_block_rate_and_reports_spill() {
         let c = contract(ContractType::TimeAndMaterials);
-        let blk = block("50h block", 3_000, 9_000_000, Some(6_000), Some(d(2026, 12, 31)), "none");
+        let blk = block(
+            "50h block",
+            3_000,
+            9_000_000,
+            Some(6_000),
+            Some(d(2026, 12, 31)),
+            "none",
+        );
         let inputs = with_blocks(&c, std::slice::from_ref(&blk));
         // 100 hours of work: 50 draws at 60/h (block rate), 50 spills to card.
         let entries = vec![entry(6_000, None, d(2026, 2, 10))];
-        let e = evaluate_with(&c, &[], &[], &entries, d(2026, 1, 1), d(2026, 3, 1), &inputs).unwrap();
+        let e = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &entries,
+            d(2026, 1, 1),
+            d(2026, 3, 1),
+            &inputs,
+        )
+        .unwrap();
         let consump = e.block_consumption.expect("block consumption reported");
         let drawn: i32 = consump.draws.iter().map(|x| x.minutes).sum();
         assert_eq!(drawn, 3_000, "all block minutes drew down");
@@ -1797,7 +2181,11 @@ mod tests {
         );
         let inputs = with_blocks(&c, &[blk]);
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 1, 31), &inputs).unwrap();
-        let sale: Vec<_> = e.lines.iter().filter(|l| l.kind == BillingLineKind::BlockSale).collect();
+        let sale: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::BlockSale)
+            .collect();
         assert_eq!(sale.len(), 1);
         assert_eq!(sale[0].amount_minor, 9_000_000);
         // A block SOLD outside the window never re-bills (deposit is a
@@ -1805,39 +2193,78 @@ mod tests {
         let old = block("old block", 3_000, 9_000_000, None, None, "none");
         let inputs2 = with_blocks(&c, &[old]);
         let e2 = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 1, 31), &inputs2).unwrap();
-        assert!(e2.lines.iter().all(|l| l.kind != BillingLineKind::BlockSale));
+        assert!(e2
+            .lines
+            .iter()
+            .all(|l| l.kind != BillingLineKind::BlockSale));
     }
 
     #[test]
     fn block_expiry_alert_reports_unused_minutes() {
         let c = contract(ContractType::TimeAndMaterials);
-        let blk = block("expiring block", 1_200, 4_500_000, None, Some(d(2026, 2, 28)), "expire");
+        let blk = block(
+            "expiring block",
+            1_200,
+            4_500_000,
+            None,
+            Some(d(2026, 2, 28)),
+            "expire",
+        );
         let inputs = with_blocks(&c, &[blk]);
         // No entries at all: the whole block lapses unused.
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 3, 1), &inputs).unwrap();
         let consump = e.block_consumption.expect("consumption reported");
         let lapsed: i32 = consump.draws.iter().map(|x| x.expired_unused_minutes).sum();
-        assert_eq!(lapsed, 1_200, "expiring block with zero draws lapses in full");
+        assert_eq!(
+            lapsed, 1_200,
+            "expiring block with zero draws lapses in full"
+        );
     }
 
     #[test]
     fn block_rollover_policy_reports_rolling_minutes() {
         let c = contract(ContractType::TimeAndMaterials);
-        let blk = block("rolling block", 1_200, 4_500_000, None, Some(d(2026, 2, 28)), "rollover");
+        let blk = block(
+            "rolling block",
+            1_200,
+            4_500_000,
+            None,
+            Some(d(2026, 2, 28)),
+            "rollover",
+        );
         let inputs = with_blocks(&c, &[blk]);
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 3, 1), &inputs).unwrap();
         let consump = e.block_consumption.expect("consumption reported");
         let rolling: i32 = consump.draws.iter().map(|x| x.expired_unused_minutes).sum();
-        assert_eq!(rolling, 1_200, "rollover blocks surface rolling minutes for the successor mint");
+        assert_eq!(
+            rolling, 1_200,
+            "rollover blocks surface rolling minutes for the successor mint"
+        );
     }
 
     #[test]
     fn block_partial_draw_then_expiry_reports_remainder() {
         let c = contract(ContractType::TimeAndMaterials);
-        let blk = block("10h block", 600, 3_000_000, None, Some(d(2026, 1, 31)), "expire");
+        let blk = block(
+            "10h block",
+            600,
+            3_000_000,
+            None,
+            Some(d(2026, 1, 31)),
+            "expire",
+        );
         let inputs = with_blocks(&c, &[blk]);
         let entries = vec![entry(240, None, d(2026, 1, 10))]; // 4h of 10h
-        let e = evaluate_with(&c, &[], &[], &entries, d(2026, 1, 1), d(2026, 2, 28), &inputs).unwrap();
+        let e = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &entries,
+            d(2026, 1, 1),
+            d(2026, 2, 28),
+            &inputs,
+        )
+        .unwrap();
         let consump = e.block_consumption.expect("consumption reported");
         let drawn: i32 = consump.draws.iter().map(|x| x.minutes).sum();
         let lapsed: i32 = consump.draws.iter().map(|x| x.expired_unused_minutes).sum();
@@ -1851,9 +2278,16 @@ mod tests {
             amount_minor: Some(50_000),
             ..contract(ContractType::Recurring)
         };
-        let inputs = EvalInputs { minimum_commitment_minor: Some(75_000), ..Default::default() };
+        let inputs = EvalInputs {
+            minimum_commitment_minor: Some(75_000),
+            ..Default::default()
+        };
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 3, 1), &inputs).unwrap();
-        let trueups: Vec<_> = e.lines.iter().filter(|l| l.kind == BillingLineKind::MinimumTrueup).collect();
+        let trueups: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::MinimumTrueup)
+            .collect();
         assert_eq!(trueups.len(), 2);
         assert_eq!(trueups[0].amount_minor, 25_000);
         // Two periods × (50k base + 25k true-up).
@@ -1866,25 +2300,50 @@ mod tests {
             amount_minor: Some(100_000),
             ..contract(ContractType::Recurring)
         };
-        let inputs = EvalInputs { minimum_commitment_minor: Some(75_000), ..Default::default() };
+        let inputs = EvalInputs {
+            minimum_commitment_minor: Some(75_000),
+            ..Default::default()
+        };
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 3, 1), &inputs).unwrap();
-        assert!(e.lines.iter().all(|l| l.kind != BillingLineKind::MinimumTrueup));
+        assert!(e
+            .lines
+            .iter()
+            .all(|l| l.kind != BillingLineKind::MinimumTrueup));
     }
 
     #[test]
     fn minimum_trueup_counts_overage_labor_toward_the_floor() {
         let c = contract(ContractType::Retainer); // 600 incl, 150/h overage
         let entries = vec![entry(700, None, d(2026, 1, 20))]; // 100 overage × 150 = 150.00
-        let inputs = EvalInputs { minimum_commitment_minor: Some(100_250), ..Default::default() };
-        let e = evaluate_with(&c, &[], &[], &entries, d(2026, 1, 1), d(2026, 2, 1), &inputs).unwrap();
-        let trueups: Vec<_> = e.lines.iter().filter(|l| l.kind == BillingLineKind::MinimumTrueup).collect();
+        let inputs = EvalInputs {
+            minimum_commitment_minor: Some(100_250),
+            ..Default::default()
+        };
+        let e = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &entries,
+            d(2026, 1, 1),
+            d(2026, 2, 1),
+            &inputs,
+        )
+        .unwrap();
+        let trueups: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::MinimumTrueup)
+            .collect();
         // billed = 1000.00 base + 150.00 overage = 1150.00 ≥ 1002.50 → the
         // floor is met and the overage labor counted toward it.
         assert!(trueups.iter().all(|l| l.period_start != d(2026, 1, 15)));
         assert_eq!(trueups.len(), 0);
     }
 
-    fn escalator(uplift_bps: i32, first: Option<NaiveDate>) -> core_domain::entities::ContractEscalator {
+    fn escalator(
+        uplift_bps: i32,
+        first: Option<NaiveDate>,
+    ) -> core_domain::entities::ContractEscalator {
         core_domain::entities::ContractEscalator {
             id: Uuid::now_v7(),
             org_id: Uuid::now_v7(),
@@ -1899,12 +2358,19 @@ mod tests {
     fn escalator_uplifts_apply_each_anniversary() {
         let c = contract(ContractType::Recurring); // monthly, 2000.00, anchor Jan 15 2026
         let esc = escalator(300, Some(d(2027, 1, 15))); // +3% from Jan 2027
-        let inputs = EvalInputs { escalator: Some(&esc), ..Default::default() };
+        let inputs = EvalInputs {
+            escalator: Some(&esc),
+            ..Default::default()
+        };
         // Window covering the Jan 2026 period (pre-anniversary, no
         // uplift) and the two 2027 periods (one anniversary passed,
         // +3% = +60.00 each).
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2027, 2, 28), &inputs).unwrap();
-        let esc_lines: Vec<_> = e.lines.iter().filter(|l| l.kind == BillingLineKind::Escalator).collect();
+        let esc_lines: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::Escalator)
+            .collect();
         assert_eq!(esc_lines.len(), 2);
         assert_eq!(esc_lines[0].period_start, d(2027, 1, 15));
         assert_eq!(esc_lines[0].amount_minor, 6_000); // 2000.00 × 3.0%
@@ -1916,11 +2382,18 @@ mod tests {
     fn escalator_second_anniversary_compounds_linearly_not_exponentially() {
         let c = contract(ContractType::Recurring);
         let esc = escalator(300, Some(d(2026, 1, 15)));
-        let inputs = EvalInputs { escalator: Some(&esc), ..Default::default() };
+        let inputs = EvalInputs {
+            escalator: Some(&esc),
+            ..Default::default()
+        };
         // The Jan 2028 period start: 2 anniversaries (Jan 2026, Jan
         // 2027) → +6% total (2 × 3%), never 3% of 3%.
         let e = evaluate_with(&c, &[], &[], &[], d(2028, 1, 1), d(2028, 1, 31), &inputs).unwrap();
-        let esc_lines: Vec<_> = e.lines.iter().filter(|l| l.kind == BillingLineKind::Escalator).collect();
+        let esc_lines: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::Escalator)
+            .collect();
         assert_eq!(esc_lines.len(), 1);
         assert_eq!(esc_lines[0].amount_minor, 12_000); // 2000.00 × 6.0%
     }
@@ -1944,9 +2417,16 @@ mod tests {
             created_at: DateTime::UNIX_EPOCH,
             updated_at: DateTime::UNIX_EPOCH,
         };
-        let inputs = EvalInputs { change_orders: &[order], ..Default::default() };
+        let inputs = EvalInputs {
+            change_orders: &[order],
+            ..Default::default()
+        };
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 1, 31), &inputs).unwrap();
-        let cos: Vec<_> = e.lines.iter().filter(|l| l.kind == BillingLineKind::ChangeOrder).collect();
+        let cos: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::ChangeOrder)
+            .collect();
         assert_eq!(cos.len(), 1);
         assert_eq!(cos[0].amount_minor, 40_000);
         assert!(cos[0].description.contains("CO-001"));
@@ -1972,7 +2452,10 @@ mod tests {
             updated_at: DateTime::UNIX_EPOCH,
         };
         let orders = vec![mk("draft"), mk("billed"), mk("rejected"), mk("cancelled")];
-        let inputs = EvalInputs { change_orders: &orders, ..Default::default() };
+        let inputs = EvalInputs {
+            change_orders: &orders,
+            ..Default::default()
+        };
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 1, 31), &inputs).unwrap();
         assert!(e.lines.is_empty());
     }
@@ -1995,11 +2478,21 @@ mod tests {
             created_at: DateTime::UNIX_EPOCH,
             updated_at: DateTime::UNIX_EPOCH,
         };
-        let inputs = EvalInputs { sla_credits: &[credit], ..Default::default() };
+        let inputs = EvalInputs {
+            sla_credits: &[credit],
+            ..Default::default()
+        };
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 2, 1), &inputs).unwrap();
-        let credits: Vec<_> = e.lines.iter().filter(|l| l.kind == BillingLineKind::SlaCredit).collect();
+        let credits: Vec<_> = e
+            .lines
+            .iter()
+            .filter(|l| l.kind == BillingLineKind::SlaCredit)
+            .collect();
         assert_eq!(credits.len(), 1);
-        assert_eq!(credits[0].amount_minor, -15_000, "SLA credits are negative adjustment lines");
+        assert_eq!(
+            credits[0].amount_minor, -15_000,
+            "SLA credits are negative adjustment lines"
+        );
         // total folds the negative correctly: 2000.00 base − 150.00 credit
         assert_eq!(e.total_minor, 185_000);
     }
@@ -2022,7 +2515,10 @@ mod tests {
             created_at: DateTime::UNIX_EPOCH,
             updated_at: DateTime::UNIX_EPOCH,
         };
-        let inputs = EvalInputs { sla_credits: &[credit], ..Default::default() };
+        let inputs = EvalInputs {
+            sla_credits: &[credit],
+            ..Default::default()
+        };
         let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 2, 1), &inputs).unwrap();
         assert!(e.lines.iter().all(|l| l.kind != BillingLineKind::SlaCredit));
     }
@@ -2035,7 +2531,16 @@ mod tests {
         let c = contract(ContractType::TimeAndMaterials);
         let entries = vec![entry(90, Some("remote"), d(2026, 1, 6))];
         let a = evaluate(&c, &[], &[], &entries, d(2026, 1, 1), d(2026, 1, 31)).unwrap();
-        let b = evaluate_with(&c, &[], &[], &entries, d(2026, 1, 1), d(2026, 1, 31), &EvalInputs::default()).unwrap();
+        let b = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &entries,
+            d(2026, 1, 1),
+            d(2026, 1, 31),
+            &EvalInputs::default(),
+        )
+        .unwrap();
         assert_eq!(a, b);
     }
 
@@ -2051,7 +2556,16 @@ mod tests {
             ..Default::default()
         };
         let entries = vec![entry(500, None, d(2026, 2, 10))]; // 8h20m: 3h20m draws, 5h spills
-        let e = evaluate_with(&c, &[], &[], &entries, d(2026, 1, 1), d(2026, 3, 1), &inputs).unwrap();
+        let e = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &entries,
+            d(2026, 1, 1),
+            d(2026, 3, 1),
+            &inputs,
+        )
+        .unwrap();
         let consump = e.block_consumption.expect("consumption");
         let drawn: i32 = consump.draws.iter().map(|x| x.minutes).sum();
         assert_eq!(drawn, 200, "only the remaining 3h20m drew down");

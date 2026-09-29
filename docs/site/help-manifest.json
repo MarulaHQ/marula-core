@@ -184,6 +184,12 @@
           "audience": "admin",
           "updated": "2026-09-22",
           "title": "Tutorial: your first invoice"
+        },
+        {
+          "path": "how-to/project-billing",
+          "audience": "admin",
+          "updated": "2026-09-29",
+          "title": "How to bill project work \u2014 contracts, milestones, fees"
         }
       ]
     },
@@ -610,6 +616,9 @@
           "title": "How to extend Meridian with plugin surfaces"
         }
       ]
+    },
+    "projects": {
+      "docs": []
     }
   }
 }

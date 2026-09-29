@@ -93,3 +93,9 @@ preview can never disagree with the run that follows it. Block
 draw-downs, cap behavior, and escalators are unit-tested as pure math.
 Persistence happens at run time, additively, and an issued document is
 never rewritten.
+
+Projects plug into the same function: a project linked to a contract
+bills through it, released milestones and fixed-fee phases ride the run
+as their own line kind, and phase burn is read against the same rate
+card. The task-side walk-through is [How to bill project
+work](../how-to/project-billing.md).

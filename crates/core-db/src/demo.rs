@@ -1728,18 +1728,22 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .await?;
 
     // --- project: phases, tasks, one completed milestone ------------------
+    // Wave 39 lane 4: the project bills THROUGH Acme's contract (CT-1001),
+    // so phase T&M draws its rate card and released milestones reach the
+    // run via that contract's candidates.
     let project_id = demo_uuid(280);
     sqlx::query(
         "INSERT INTO projects (id, org_id, client_id, name, description, status, billing_method,
-                               budget_minor, currency, start_date, due_date)
+                               budget_minor, currency, start_date, due_date, billing_contract_id)
          VALUES ($1, $2, $3, 'Acme Network Refresh', 'Core switching and wireless refresh across both sites.',
-                 'active', 'milestone', 500000, 'USD', $4, $5)",
+                 'active', 'milestone', 500000, 'USD', $4, $5, $6)",
     )
     .bind(project_id)
     .bind(DEMO_ORG_ID)
     .bind(acme)
     .bind(now.date_naive() - Duration::days(30))
     .bind(now.date_naive() + Duration::days(60))
+    .bind(contract_recurring)
     .execute(&mut *tx)
     .await?;
     let phase_discovery = demo_uuid(290);
@@ -1753,6 +1757,22 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .bind(now - Duration::days(10))
     .execute(&mut *tx)
     .await?;
+    crate::projects::insert_release(
+        &mut *tx,
+        &crate::projects::NewRelease {
+            org_id: DEMO_ORG_ID,
+            project_id,
+            phase_id: Some(phase_discovery),
+            task_id: None,
+            label: "Discovery".into(),
+            amount_minor: 120000,
+            currency: "USD".into(),
+            released_on: now.date_naive() - Duration::days(10),
+            source_event_id: None,
+        },
+    )
+    .await
+    .expect("demo discovery release stages");
     let phase_implementation = demo_uuid(291);
     sqlx::query(
         "INSERT INTO project_phases (id, org_id, project_id, name, sort_order, status,
@@ -1764,6 +1784,21 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .bind(project_id)
     .execute(&mut *tx)
     .await?;
+    // The active phase carries a productive burn story: a budget the T&M
+    // entries draw against (warn band at 80%).
+    crate::projects::upsert_phase_budget(
+        &mut *tx,
+        DEMO_ORG_ID,
+        phase_implementation,
+        crate::projects::NewPhaseBudget {
+            budget_minor: Some(150000),
+            currency: Some("USD"),
+            fee_minor: None,
+            fee_currency: None,
+        },
+    )
+    .await
+    .expect("demo implementation budget records");
     struct DemoTask {
         id_offset: u64,
         phase: Uuid,

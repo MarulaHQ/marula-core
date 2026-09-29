@@ -144,13 +144,14 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     sqlx::query!(
-        r#"INSERT INTO time_entries (id, org_id, ticket_id, user_id, started_at, ended_at,
+        r#"INSERT INTO time_entries (id, org_id, ticket_id, phase_id, user_id, started_at, ended_at,
                                      minutes, billable, notes, work_type, unbillable_reason,
                                      timer_session_id, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"#,
         e.id,
         e.org_id,
         e.ticket_id,
+        e.phase_id,
         e.user_id,
         e.started_at,
         e.ended_at,
@@ -191,7 +192,7 @@ where
                                   billable = $6, notes = $7, work_type = $8,
                                   unbillable_reason = $9
             WHERE org_id = $1 AND id = $2
-            RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes,
+            RETURNING id, org_id, ticket_id, phase_id, user_id, started_at, ended_at, minutes,
                       billable, notes, work_type, unbillable_reason, timer_session_id,
                       approval_status, approval_reason_code, created_at"#,
         org_id,
@@ -211,6 +212,7 @@ where
         id: row.id,
         org_id: row.org_id,
         ticket_id: row.ticket_id,
+        phase_id: row.phase_id,
         user_id: row.user_id,
         started_at: row.started_at,
         ended_at: row.ended_at,
@@ -231,7 +233,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let row = sqlx::query!(
-        r#"SELECT id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
+        r#"SELECT id, org_id, ticket_id, phase_id, user_id, started_at, ended_at, minutes, billable,
                   notes, work_type, unbillable_reason, timer_session_id, approval_status,
                   approval_reason_code, created_at
            FROM time_entries WHERE org_id = $1 AND id = $2"#,
@@ -245,6 +247,7 @@ where
         id: row.id,
         org_id: row.org_id,
         ticket_id: row.ticket_id,
+        phase_id: row.phase_id,
         user_id: row.user_id,
         started_at: row.started_at,
         ended_at: row.ended_at,
@@ -269,6 +272,7 @@ fn row_to_entry(row: sqlx::postgres::PgRow) -> TimeEntry {
         id: row.get("id"),
         org_id: row.get("org_id"),
         ticket_id: row.get("ticket_id"),
+        phase_id: row.get("phase_id"),
         user_id: row.get("user_id"),
         started_at: row.get("started_at"),
         ended_at: row.get("ended_at"),
@@ -297,12 +301,12 @@ pub async fn list_time_entries<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let sql = r#"SELECT id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
+    let sql = r#"SELECT id, org_id, ticket_id, phase_id, user_id, started_at, ended_at, minutes, billable,
                         notes, work_type, unbillable_reason, timer_session_id, approval_status,
                         approval_reason_code, created_at
                   FROM time_entries
                  WHERE org_id = $1
-                   AND ($2::uuid IS NULL OR ticket_id = $2)
+                   AND ($2::uuid IS NULL OR ticket_id = $2 OR phase_id = $2)
                    AND ($3::uuid IS NULL OR user_id = $3)
                    AND ($4::timestamptz IS NULL OR started_at >= $4)
                  ORDER BY started_at DESC LIMIT $5"#;

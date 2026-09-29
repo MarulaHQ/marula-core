@@ -427,9 +427,14 @@ pub async fn create_run(
                 .collect();
             let rates = core_db::contracts::list_rates(&mut *ctx.tx, org_id, contract.id).await?;
             let fees = core_db::contracts::list_fees(&mut *ctx.tx, org_id, contract.id).await?;
-            let eval_inputs =
-                crate::routes::billing::load_eval_inputs(&mut ctx.tx, org_id, contract, window.0, window.1)
-                    .await?;
+            let eval_inputs = crate::routes::billing::load_eval_inputs(
+                &mut ctx.tx,
+                org_id,
+                contract,
+                window.0,
+                window.1,
+            )
+            .await?;
             let evaluation = core_billing::rules::evaluate_with(
                 contract,
                 &rates,
@@ -674,7 +679,10 @@ pub async fn create_run(
             //   read model computes remaining balances from this ledger),
             // * applied SLA credits flip pending → applied with the
             //   consuming invoice (never silent, never double-applied),
-            // * billed change orders flip approved → billed.
+            // * billed change orders flip approved → billed,
+            // * project releases flip pending → billed with the consuming
+            //   invoice + line (Wave 39 lane 4: the ledger seatbelt that
+            //   makes a replayed milestone completion bill exactly once).
             if let Some(consumption) = &evaluation.block_consumption {
                 for draw in &consumption.draws {
                     let Some(entry_id) = draw.time_entry_id else {
@@ -731,6 +739,34 @@ pub async fn create_run(
                     None,
                     None,
                     Some(invoice.id),
+                )
+                .await?;
+            }
+            // Project releases: every project_release line this evaluation
+            // produced flips its ledger row (release id rides the
+            // description in [id] brackets, same convention as SLA
+            // credits) to billed with the consuming invoice + line.
+            for (position, line) in line_rows.iter().enumerate() {
+                if line.kind != BillingLineKind::ProjectRelease {
+                    continue;
+                }
+                let release_id = line
+                    .description
+                    .split('[')
+                    .nth(1)
+                    .and_then(|rest| rest.split(']').next())
+                    .and_then(|id| Uuid::parse_str(id).ok());
+                let Some(release_id) = release_id else {
+                    return Err(ApiError::Conflict(
+                        "project_release line without a parseable release id".into(),
+                    ));
+                };
+                core_db::projects::mark_release_billed(
+                    &mut ctx.tx,
+                    org_id,
+                    release_id,
+                    invoice.id,
+                    line_rows[position].id,
                 )
                 .await?;
             }
