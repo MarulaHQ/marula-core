@@ -1,0 +1,1 @@
+/Users/iordn/Documents/GitHub/meridian-open-psa-core/.kilo/worktrees/p41-marula-rebrand/plugins/wasm/asset-tag-validator/target-wasm/wasm32-unknown-unknown/release/asset_tag_validator.wasm: /Users/iordn/Documents/GitHub/meridian-open-psa-core/.kilo/worktrees/p41-marula-rebrand/plugins/wasm/asset-tag-validator/src/lib.rs
