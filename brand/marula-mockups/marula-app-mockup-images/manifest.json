@@ -1,0 +1,847 @@
+{
+ "about": "Marula app mockup images. Desktop uses the neutral light and dark themes; mobile uses the light and dark themes. States are identical across themes.",
+ "fonts": "Fraunces (wordmark, headings, greeting) and Figtree (interface).",
+ "frozen_clock": "Date fixed to Tuesday 29 September 2026 (11:41 desktop, 13:47 mobile); timers are frozen, so digits do not tick.",
+ "images": [
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "01-workbench-reply-default",
+   "file": "desktop/neutral/states/01-workbench-reply-default.png",
+   "title": "Default ticket workbench, replying to the client",
+   "what_to_notice": "Composer is in Reply to client mode with the assistant's drafted reply. The assistant's Recommended next step card is the one inverted surface on screen (ink in light, cream in dark). The timer bar is ink in every theme. Stepper shows In progress in gold. P1 chip is red. Label reads Visible to John Smith.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "02-timeline-scrolled-to-top",
+   "file": "desktop/neutral/states/02-timeline-scrolled-to-top.png",
+   "title": "Every timeline entry type, in order",
+   "what_to_notice": "Client entry: bordered surface box with a gold Client tag. Internal note: note-tinted box, no border, Internal tag. System: plain tinted box, System tag. Time entry: gold-tinted box with Billable at right. Assistant suggestion: warm agent tint, spark icon in deep amber, Suggestion tag.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "03-composer-internal-note",
+   "file": "desktop/neutral/states/03-composer-internal-note.png",
+   "title": "Internal note mode: the composer changes colour",
+   "what_to_notice": "Switching to Internal note re-tints the whole composer to the same note colour internal entries use in the timeline, so what you type previews where it will land. The label changes to Only your team can see this, the primary button becomes Add note, and the Set to Waiting after send checkbox disappears.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "04-internal-note-added",
+   "file": "desktop/neutral/states/04-internal-note-added.png",
+   "title": "Internal note added",
+   "what_to_notice": "After Add note: a new Internal entry appears at the bottom of the timeline in the tint the composer had. The composer stays in internal mode and is emptied. Toast: Internal note added.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "05-reply-sent-status-waiting",
+   "file": "desktop/neutral/states/05-reply-sent-status-waiting.png",
+   "title": "Client reply sent, status moves to Waiting",
+   "what_to_notice": "Send reply with Set to Waiting after send ticked: the reply lands as a Client entry, the stepper moves to Waiting (earlier steps gain check marks), and the toast reads Reply sent. Status set to Waiting.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "06-status-set-resolved",
+   "file": "desktop/neutral/states/06-status-set-resolved.png",
+   "title": "Status stepper set to Resolved",
+   "what_to_notice": "Clicking Resolved in the header stepper: New, In progress and Waiting show check marks, Resolved is the current step in gold. Toast: Status set to Resolved.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "07-filter-client",
+   "file": "desktop/neutral/states/07-filter-client.png",
+   "title": "Activity filter: Client",
+   "what_to_notice": "Active chip is gold-tinted. The timeline shows only client-visible messages.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "08-filter-internal",
+   "file": "desktop/neutral/states/08-filter-internal.png",
+   "title": "Activity filter: Internal",
+   "what_to_notice": "Only internal notes are listed, in the note tint.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "09-filter-agent",
+   "file": "desktop/neutral/states/09-filter-agent.png",
+   "title": "Activity filter: Agent",
+   "what_to_notice": "Only assistant entries are listed, in the warm agent tint.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "10-assistant-script-ran",
+   "file": "desktop/neutral/states/10-assistant-script-ran.png",
+   "title": "Assistant action run",
+   "what_to_notice": "Run profile reset script performed: the button becomes Script ran (disabled) with a check icon, a System entry is appended (Script ran on JOHN-LAPTOP: Always-On VPN profile reset, 0 errors), and a toast confirms.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "11-assistant-suggestion-dismissed",
+   "file": "desktop/neutral/states/11-assistant-suggestion-dismissed.png",
+   "title": "Assistant suggestion dismissed",
+   "what_to_notice": "Not this replaces the card with a dashed Suggestion dismissed row and an Undo link.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "12-assistant-question-answered",
+   "file": "desktop/neutral/states/12-assistant-question-answered.png",
+   "title": "Asking the assistant a question",
+   "what_to_notice": "The Likely cause? chip fills the ask box, submitting appends the assistant's answer to the timeline, with the question in bold.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "13-timer-paused",
+   "file": "desktop/neutral/states/13-timer-paused.png",
+   "title": "Timer paused",
+   "what_to_notice": "The pause icon becomes a play triangle and a toast confirms. Timer digits are frozen in this export.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "14-quick-note-typed",
+   "file": "desktop/neutral/states/14-quick-note-typed.png",
+   "title": "Quick note field in use",
+   "what_to_notice": "The single-line note field on the timer bar, left of the arrow button and Wrap up, with a line typed in. No large UI is needed to add a note.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "15-note-lines-open",
+   "file": "desktop/neutral/states/15-note-lines-open.png",
+   "title": "Note lines panel open",
+   "what_to_notice": "The arrow button is pressed (gold border, dark fill) and shows a count badge (4). A panel above the bar lists every note line with a timestamp; each line is editable in place. The footer explains the lines become the time entry notes at wrap-up.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "16-note-line-added",
+   "file": "desktop/neutral/states/16-note-line-added.png",
+   "title": "Note line added",
+   "what_to_notice": "Pressing Enter in the quick note field adds a line: badge becomes 5, toast reads Added to your notes, and the panel shows the new 11:41 line.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "17-keyboard-focus-on-send",
+   "file": "desktop/neutral/states/17-keyboard-focus-on-send.png",
+   "title": "Keyboard focus ring",
+   "what_to_notice": "Two-pixel ring in the primary colour with a two-pixel offset around Send reply, shown on keyboard focus only.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "18-wrap-up-resolve",
+   "file": "desktop/neutral/states/18-wrap-up-resolve.png",
+   "title": "Wrap up modal, Resolve selected",
+   "what_to_notice": "Time entry 0:25 (plus 0:45 logged earlier) with Remote support, Billable and Rounds to 0:30 tags. Notes are built from the note lines. Checklist has green ticks. The chosen outcome card has a two-pixel green border and green tint (green means chosen or done). Send John the resolution summary is ticked. Primary button reads Resolve and open next.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "19-wrap-up-waiting-on-client",
+   "file": "desktop/neutral/states/19-wrap-up-waiting-on-client.png",
+   "title": "Wrap up modal, Waiting on client",
+   "what_to_notice": "Selected outcome moves to Waiting on client and the primary button becomes Set to Waiting and open next.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "20-wrap-up-schedule-follow-up",
+   "file": "desktop/neutral/states/20-wrap-up-schedule-follow-up.png",
+   "title": "Wrap up modal, Schedule follow-up",
+   "what_to_notice": "Selected outcome is Schedule follow-up and the primary button becomes Schedule and open next.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "21-wrap-up-keep-working",
+   "file": "desktop/neutral/states/21-wrap-up-keep-working.png",
+   "title": "Wrap up modal, Keep working",
+   "what_to_notice": "Selected outcome is Keep working and the primary button becomes Save and keep working.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "neutral",
+   "id": "22-wrap-up-completed-resolved",
+   "file": "desktop/neutral/states/22-wrap-up-completed-resolved.png",
+   "title": "After wrap up: resolved",
+   "what_to_notice": "Modal closed. Stepper shows Resolved, the timeline gains a Time entry (0:25 Remote support, Billable), the timer bar resets to 00:00:00, and the toast reads Resolved #18432. Opening #18440 next.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "01-workbench-reply-default",
+   "file": "desktop/dark/states/01-workbench-reply-default.png",
+   "title": "Default ticket workbench, replying to the client",
+   "what_to_notice": "Composer is in Reply to client mode with the assistant's drafted reply. The assistant's Recommended next step card is the one inverted surface on screen (ink in light, cream in dark). The timer bar is ink in every theme. Stepper shows In progress in gold. P1 chip is red. Label reads Visible to John Smith.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "02-timeline-scrolled-to-top",
+   "file": "desktop/dark/states/02-timeline-scrolled-to-top.png",
+   "title": "Every timeline entry type, in order",
+   "what_to_notice": "Client entry: bordered surface box with a gold Client tag. Internal note: note-tinted box, no border, Internal tag. System: plain tinted box, System tag. Time entry: gold-tinted box with Billable at right. Assistant suggestion: warm agent tint, spark icon in deep amber, Suggestion tag.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "03-composer-internal-note",
+   "file": "desktop/dark/states/03-composer-internal-note.png",
+   "title": "Internal note mode: the composer changes colour",
+   "what_to_notice": "Switching to Internal note re-tints the whole composer to the same note colour internal entries use in the timeline, so what you type previews where it will land. The label changes to Only your team can see this, the primary button becomes Add note, and the Set to Waiting after send checkbox disappears.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "04-internal-note-added",
+   "file": "desktop/dark/states/04-internal-note-added.png",
+   "title": "Internal note added",
+   "what_to_notice": "After Add note: a new Internal entry appears at the bottom of the timeline in the tint the composer had. The composer stays in internal mode and is emptied. Toast: Internal note added.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "05-reply-sent-status-waiting",
+   "file": "desktop/dark/states/05-reply-sent-status-waiting.png",
+   "title": "Client reply sent, status moves to Waiting",
+   "what_to_notice": "Send reply with Set to Waiting after send ticked: the reply lands as a Client entry, the stepper moves to Waiting (earlier steps gain check marks), and the toast reads Reply sent. Status set to Waiting.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "06-status-set-resolved",
+   "file": "desktop/dark/states/06-status-set-resolved.png",
+   "title": "Status stepper set to Resolved",
+   "what_to_notice": "Clicking Resolved in the header stepper: New, In progress and Waiting show check marks, Resolved is the current step in gold. Toast: Status set to Resolved.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "07-filter-client",
+   "file": "desktop/dark/states/07-filter-client.png",
+   "title": "Activity filter: Client",
+   "what_to_notice": "Active chip is gold-tinted. The timeline shows only client-visible messages.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "08-filter-internal",
+   "file": "desktop/dark/states/08-filter-internal.png",
+   "title": "Activity filter: Internal",
+   "what_to_notice": "Only internal notes are listed, in the note tint.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "09-filter-agent",
+   "file": "desktop/dark/states/09-filter-agent.png",
+   "title": "Activity filter: Agent",
+   "what_to_notice": "Only assistant entries are listed, in the warm agent tint.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "10-assistant-script-ran",
+   "file": "desktop/dark/states/10-assistant-script-ran.png",
+   "title": "Assistant action run",
+   "what_to_notice": "Run profile reset script performed: the button becomes Script ran (disabled) with a check icon, a System entry is appended (Script ran on JOHN-LAPTOP: Always-On VPN profile reset, 0 errors), and a toast confirms.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "11-assistant-suggestion-dismissed",
+   "file": "desktop/dark/states/11-assistant-suggestion-dismissed.png",
+   "title": "Assistant suggestion dismissed",
+   "what_to_notice": "Not this replaces the card with a dashed Suggestion dismissed row and an Undo link.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "12-assistant-question-answered",
+   "file": "desktop/dark/states/12-assistant-question-answered.png",
+   "title": "Asking the assistant a question",
+   "what_to_notice": "The Likely cause? chip fills the ask box, submitting appends the assistant's answer to the timeline, with the question in bold.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "13-timer-paused",
+   "file": "desktop/dark/states/13-timer-paused.png",
+   "title": "Timer paused",
+   "what_to_notice": "The pause icon becomes a play triangle and a toast confirms. Timer digits are frozen in this export.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "14-quick-note-typed",
+   "file": "desktop/dark/states/14-quick-note-typed.png",
+   "title": "Quick note field in use",
+   "what_to_notice": "The single-line note field on the timer bar, left of the arrow button and Wrap up, with a line typed in. No large UI is needed to add a note.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "15-note-lines-open",
+   "file": "desktop/dark/states/15-note-lines-open.png",
+   "title": "Note lines panel open",
+   "what_to_notice": "The arrow button is pressed (gold border, dark fill) and shows a count badge (4). A panel above the bar lists every note line with a timestamp; each line is editable in place. The footer explains the lines become the time entry notes at wrap-up.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "16-note-line-added",
+   "file": "desktop/dark/states/16-note-line-added.png",
+   "title": "Note line added",
+   "what_to_notice": "Pressing Enter in the quick note field adds a line: badge becomes 5, toast reads Added to your notes, and the panel shows the new 11:41 line.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "17-keyboard-focus-on-send",
+   "file": "desktop/dark/states/17-keyboard-focus-on-send.png",
+   "title": "Keyboard focus ring",
+   "what_to_notice": "Two-pixel ring in the primary colour with a two-pixel offset around Send reply, shown on keyboard focus only.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "18-wrap-up-resolve",
+   "file": "desktop/dark/states/18-wrap-up-resolve.png",
+   "title": "Wrap up modal, Resolve selected",
+   "what_to_notice": "Time entry 0:25 (plus 0:45 logged earlier) with Remote support, Billable and Rounds to 0:30 tags. Notes are built from the note lines. Checklist has green ticks. The chosen outcome card has a two-pixel green border and green tint (green means chosen or done). Send John the resolution summary is ticked. Primary button reads Resolve and open next.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "19-wrap-up-waiting-on-client",
+   "file": "desktop/dark/states/19-wrap-up-waiting-on-client.png",
+   "title": "Wrap up modal, Waiting on client",
+   "what_to_notice": "Selected outcome moves to Waiting on client and the primary button becomes Set to Waiting and open next.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "20-wrap-up-schedule-follow-up",
+   "file": "desktop/dark/states/20-wrap-up-schedule-follow-up.png",
+   "title": "Wrap up modal, Schedule follow-up",
+   "what_to_notice": "Selected outcome is Schedule follow-up and the primary button becomes Schedule and open next.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "21-wrap-up-keep-working",
+   "file": "desktop/dark/states/21-wrap-up-keep-working.png",
+   "title": "Wrap up modal, Keep working",
+   "what_to_notice": "Selected outcome is Keep working and the primary button becomes Save and keep working.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "desktop",
+   "theme": "dark",
+   "id": "22-wrap-up-completed-resolved",
+   "file": "desktop/dark/states/22-wrap-up-completed-resolved.png",
+   "title": "After wrap up: resolved",
+   "what_to_notice": "Modal closed. Stepper shows Resolved, the timeline gains a Time entry (0:25 Remote support, Billable), the timer bar resets to 00:00:00, and the toast reads Resolved #18432. Opening #18440 next.",
+   "size": [
+    1600,
+    994
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "01-today-offline",
+   "file": "mobile/light/states/01-today-offline.png",
+   "title": "Today, offline (default)",
+   "what_to_notice": "Offline banner in the sand tint. Next visit card with a blush Due today pill, a primary Start travel button, and square call and directions buttons. Quick tiles for Scan asset, Add time and Photo. Later list. Pinned running timer (ink bar, gold digits, pause). Tab bar with a raised centre scan button.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "02-today-scrolled-to-bottom",
+   "file": "mobile/light/states/02-today-scrolled-to-bottom.png",
+   "title": "Today, scrolled to the bottom",
+   "what_to_notice": "Reveals the Later list that sits under the pinned timer.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "03-today-back-online",
+   "file": "mobile/light/states/03-today-back-online.png",
+   "title": "Today, back online",
+   "what_to_notice": "Tapping the banner toggles it to a green Back online. All changes synced.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "04-today-travelling",
+   "file": "mobile/light/states/04-today-travelling.png",
+   "title": "Travel started",
+   "what_to_notice": "Start travel becomes I've arrived, the pinned timer is relabelled Travel to Ridgeline Dental and restarts, and a toast confirms.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "05-today-timer-paused",
+   "file": "mobile/light/states/05-today-timer-paused.png",
+   "title": "Timer paused",
+   "what_to_notice": "The pause icon on the pinned timer becomes a play triangle.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "06-on-site-checklist-3-of-5",
+   "file": "mobile/light/states/06-on-site-checklist-3-of-5.png",
+   "title": "On site job screen",
+   "what_to_notice": "Header with an On site pill. Scanned asset row with a green Healthy pill. Checklist with large tap rows: completed steps have green checked boxes and struck-through text. The inverted assistant card shows notes drafted from the checklist. Photo, Voice and Parts buttons. Bottom bar shows the on-site timer and Wrap up.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "07-on-site-checklist-complete",
+   "file": "mobile/light/states/07-on-site-checklist-complete.png",
+   "title": "Checklist complete",
+   "what_to_notice": "5 of 5 done: the count and the assistant's drafted notes update.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "08-wrap-up-resolved",
+   "file": "mobile/light/states/08-wrap-up-resolved.png",
+   "title": "Wrap up, Resolved selected",
+   "what_to_notice": "On-site and travel time cards, the drafted notes, an Outcome segmented control (selected segment has the green tint), a dashed signature pad, and a Resolve and sync button with an offline hint.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "09-wrap-up-follow-up",
+   "file": "mobile/light/states/09-wrap-up-follow-up.png",
+   "title": "Wrap up, Follow-up",
+   "what_to_notice": "Button becomes Schedule follow-up and sync.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "10-wrap-up-waiting",
+   "file": "mobile/light/states/10-wrap-up-waiting.png",
+   "title": "Wrap up, Waiting",
+   "what_to_notice": "Button becomes Set to Waiting and sync.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "11-wrap-up-signed",
+   "file": "mobile/light/states/11-wrap-up-signed.png",
+   "title": "Client sign-off drawn",
+   "what_to_notice": "A signature drawn in the pad; the stroke colour follows the theme's text colour.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "12-wrap-up-online-hint",
+   "file": "mobile/light/states/12-wrap-up-online-hint.png",
+   "title": "Wrap up while online",
+   "what_to_notice": "The hint below the button changes to Syncs straight away.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "light",
+   "id": "13-after-resolve-back-on-today",
+   "file": "mobile/light/states/13-after-resolve-back-on-today.png",
+   "title": "After resolving, offline",
+   "what_to_notice": "Returns to Today with a toast (Resolved #2905. Will sync when you reconnect.) and the banner now reads 4 changes will sync when you reconnect.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "01-today-offline",
+   "file": "mobile/dark/states/01-today-offline.png",
+   "title": "Today, offline (default)",
+   "what_to_notice": "Offline banner in the sand tint. Next visit card with a blush Due today pill, a primary Start travel button, and square call and directions buttons. Quick tiles for Scan asset, Add time and Photo. Later list. Pinned running timer (ink bar, gold digits, pause). Tab bar with a raised centre scan button.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "02-today-scrolled-to-bottom",
+   "file": "mobile/dark/states/02-today-scrolled-to-bottom.png",
+   "title": "Today, scrolled to the bottom",
+   "what_to_notice": "Reveals the Later list that sits under the pinned timer.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "03-today-back-online",
+   "file": "mobile/dark/states/03-today-back-online.png",
+   "title": "Today, back online",
+   "what_to_notice": "Tapping the banner toggles it to a green Back online. All changes synced.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "04-today-travelling",
+   "file": "mobile/dark/states/04-today-travelling.png",
+   "title": "Travel started",
+   "what_to_notice": "Start travel becomes I've arrived, the pinned timer is relabelled Travel to Ridgeline Dental and restarts, and a toast confirms.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "05-today-timer-paused",
+   "file": "mobile/dark/states/05-today-timer-paused.png",
+   "title": "Timer paused",
+   "what_to_notice": "The pause icon on the pinned timer becomes a play triangle.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "06-on-site-checklist-3-of-5",
+   "file": "mobile/dark/states/06-on-site-checklist-3-of-5.png",
+   "title": "On site job screen",
+   "what_to_notice": "Header with an On site pill. Scanned asset row with a green Healthy pill. Checklist with large tap rows: completed steps have green checked boxes and struck-through text. The inverted assistant card shows notes drafted from the checklist. Photo, Voice and Parts buttons. Bottom bar shows the on-site timer and Wrap up.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "07-on-site-checklist-complete",
+   "file": "mobile/dark/states/07-on-site-checklist-complete.png",
+   "title": "Checklist complete",
+   "what_to_notice": "5 of 5 done: the count and the assistant's drafted notes update.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "08-wrap-up-resolved",
+   "file": "mobile/dark/states/08-wrap-up-resolved.png",
+   "title": "Wrap up, Resolved selected",
+   "what_to_notice": "On-site and travel time cards, the drafted notes, an Outcome segmented control (selected segment has the green tint), a dashed signature pad, and a Resolve and sync button with an offline hint.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "09-wrap-up-follow-up",
+   "file": "mobile/dark/states/09-wrap-up-follow-up.png",
+   "title": "Wrap up, Follow-up",
+   "what_to_notice": "Button becomes Schedule follow-up and sync.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "10-wrap-up-waiting",
+   "file": "mobile/dark/states/10-wrap-up-waiting.png",
+   "title": "Wrap up, Waiting",
+   "what_to_notice": "Button becomes Set to Waiting and sync.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "11-wrap-up-signed",
+   "file": "mobile/dark/states/11-wrap-up-signed.png",
+   "title": "Client sign-off drawn",
+   "what_to_notice": "A signature drawn in the pad; the stroke colour follows the theme's text colour.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "12-wrap-up-online-hint",
+   "file": "mobile/dark/states/12-wrap-up-online-hint.png",
+   "title": "Wrap up while online",
+   "what_to_notice": "The hint below the button changes to Syncs straight away.",
+   "size": [
+    964,
+    1872
+   ]
+  },
+  {
+   "platform": "mobile",
+   "theme": "dark",
+   "id": "13-after-resolve-back-on-today",
+   "file": "mobile/dark/states/13-after-resolve-back-on-today.png",
+   "title": "After resolving, offline",
+   "what_to_notice": "Returns to Today with a toast (Resolved #2905. Will sync when you reconnect.) and the banner now reads 4 changes will sync when you reconnect.",
+   "size": [
+    964,
+    1872
+   ]
+  }
+ ]
+}

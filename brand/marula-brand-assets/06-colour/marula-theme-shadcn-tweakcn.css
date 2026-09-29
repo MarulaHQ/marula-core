@@ -1,0 +1,105 @@
+/* Marula theme for shadcn/ui, tweakcn export format. Paste into globals.css or import into tweakcn. */
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(0.976 0.015 90.2);
+  --foreground: oklch(0.290 0.016 290.4);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.290 0.016 290.4);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.290 0.016 290.4);
+  --primary: oklch(0.290 0.016 290.4);
+  --primary-foreground: oklch(0.805 0.146 86.8);
+  --secondary: oklch(0.938 0.033 89.9);
+  --secondary-foreground: oklch(0.290 0.016 290.4);
+  --muted: oklch(0.938 0.033 89.9);
+  --muted-foreground: oklch(0.464 0.017 74.2);
+  --accent: oklch(0.918 0.079 91.5);
+  --accent-foreground: oklch(0.420 0.087 69.4);
+  --destructive: oklch(0.500 0.182 29.5);
+  --border: oklch(0.896 0.036 89.5);
+  --input: oklch(0.584 0.032 82.5);
+  --ring: oklch(0.568 0.120 62.0);
+
+  --chart-1: oklch(0.805 0.146 86.8);
+  --chart-2: oklch(0.555 0.104 130.3);
+  --chart-3: oklch(0.686 0.144 60.4);
+  --chart-4: oklch(0.563 0.018 73.5);
+  --chart-5: oklch(0.774 0.131 121.1);
+
+  --sidebar: oklch(0.938 0.033 89.9);
+  --sidebar-foreground: oklch(0.290 0.016 290.4);
+  --sidebar-primary: oklch(0.290 0.016 290.4);
+  --sidebar-primary-foreground: oklch(0.805 0.146 86.8);
+  --sidebar-accent: oklch(0.918 0.079 91.5);
+  --sidebar-accent-foreground: oklch(0.420 0.087 69.4);
+  --sidebar-border: oklch(0.896 0.036 89.5);
+  --sidebar-ring: oklch(0.568 0.120 62.0);
+
+  /* Marula extensions */
+  --success: oklch(0.484 0.099 131.4);
+  --success-soft: oklch(0.930 0.046 119.3);
+  --warning: oklch(0.434 0.101 54.8);
+  --warning-soft: oklch(0.910 0.048 67.2);
+  --gold-text: oklch(0.532 0.116 63.2);
+  --edition-core: oklch(0.555 0.104 130.3);
+  --edition-enterprise: oklch(0.568 0.120 62.0);
+  --edition-cloud: oklch(0.464 0.017 74.2);
+  --assistant: oklch(0.290 0.016 290.4);
+  --assistant-foreground: oklch(0.952 0.030 92.3);
+
+  --font-sans: "Figtree", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Fraunces", ui-serif, Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.dark {
+  --background: oklch(0.290 0.016 290.4);
+  --foreground: oklch(0.952 0.030 92.3);
+  --card: oklch(0.326 0.018 290.0);
+  --card-foreground: oklch(0.952 0.030 92.3);
+  --popover: oklch(0.326 0.018 290.0);
+  --popover-foreground: oklch(0.952 0.030 92.3);
+  --primary: oklch(0.805 0.146 86.8);
+  --primary-foreground: oklch(0.290 0.016 290.4);
+  --secondary: oklch(0.350 0.019 289.5);
+  --secondary-foreground: oklch(0.952 0.030 92.3);
+  --muted: oklch(0.326 0.018 290.0);
+  --muted-foreground: oklch(0.775 0.028 85.7);
+  --accent: oklch(0.350 0.019 289.5);
+  --accent-foreground: oklch(0.805 0.146 86.8);
+  --destructive: oklch(0.754 0.139 26.2);
+  --border: oklch(0.384 0.019 289.7);
+  --input: oklch(0.613 0.018 79.3);
+  --ring: oklch(0.805 0.146 86.8);
+
+  --sidebar: oklch(0.252 0.015 291.0);
+  --sidebar-foreground: oklch(0.952 0.030 92.3);
+  --sidebar-primary: oklch(0.805 0.146 86.8);
+  --sidebar-primary-foreground: oklch(0.290 0.016 290.4);
+  --sidebar-accent: oklch(0.350 0.019 289.5);
+  --sidebar-accent-foreground: oklch(0.805 0.146 86.8);
+  --sidebar-border: oklch(0.384 0.019 289.7);
+  --sidebar-ring: oklch(0.805 0.146 86.8);
+
+  --success: oklch(0.774 0.131 121.1);
+  --success-soft: oklch(0.407 0.078 130.4);
+  --warning: oklch(0.686 0.144 60.4);
+  --warning-soft: oklch(0.420 0.087 69.4);
+  --gold-text: oklch(0.805 0.146 86.8);
+  --assistant: oklch(0.952 0.030 92.3);
+  --assistant-foreground: oklch(0.290 0.016 290.4);
+}
+
+@theme inline {
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-gold-text: var(--gold-text);
+  --color-assistant: var(--assistant);
+  --color-assistant-foreground: var(--assistant-foreground);
+  --color-edition-core: var(--edition-core);
+  --color-edition-enterprise: var(--edition-enterprise);
+  --color-edition-cloud: var(--edition-cloud);
+}

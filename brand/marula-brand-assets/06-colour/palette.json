@@ -1,0 +1,82 @@
+{
+  "core": [
+    {
+      "name": "Marula gold",
+      "hex": "#E8B83A",
+      "use": "Hero accent, primary in dark mode, 'active' and 'yours'"
+    },
+    {
+      "name": "Ripe blush",
+      "hex": "#D9822B",
+      "use": "Warm accent, due-today states"
+    },
+    {
+      "name": "Flesh cream",
+      "hex": "#F6EFD9",
+      "use": "Soft surfaces, dark-mode text"
+    },
+    {
+      "name": "Canopy green",
+      "hex": "#5E7F3A",
+      "use": "Done, healthy, alive. Core edition"
+    },
+    {
+      "name": "Unripe lime",
+      "hex": "#A9C25D",
+      "use": "Green on dark backgrounds"
+    },
+    {
+      "name": "Bushveld sand",
+      "hex": "#CDB38B",
+      "use": "Borders, dividers, illustration"
+    },
+    {
+      "name": "Bark grey",
+      "hex": "#7C746A",
+      "use": "Neutral mid-tone, Cloud edition"
+    },
+    {
+      "name": "Dusk ink",
+      "hex": "#2B2A33",
+      "use": "Text, dark-mode base"
+    }
+  ],
+  "supporting": [
+    {
+      "name": "Deep canopy",
+      "hex": "#4A6A2A",
+      "use": "Fills behind small cream or white text (5.4:1)"
+    },
+    {
+      "name": "Deep amber",
+      "hex": "#9A5B0F",
+      "use": "Gold-coloured text on light backgrounds (5.4:1)"
+    },
+    {
+      "name": "Terracotta",
+      "hex": "#E27A2B",
+      "use": "Illustration only: tile walls"
+    },
+    {
+      "name": "Talavera blue",
+      "hex": "#2F4B8F",
+      "use": "Illustration only: tile motifs, pop shadows"
+    },
+    {
+      "name": "Kraft",
+      "hex": "#D6BD94",
+      "use": "Illustration only: collage grounds"
+    },
+    {
+      "name": "Neutral white",
+      "hex": "#F8F7F4",
+      "use": "Light theme (neutral) background"
+    },
+    {
+      "name": "Warm cream bg",
+      "hex": "#FBF7EC",
+      "use": "Light theme (original) background"
+    }
+  ],
+  "rule": "Accents (terracotta, talavera blue, kraft) live in illustration only and never outweigh the core palette. The product UI uses the core palette alone."
+}
