@@ -112,6 +112,16 @@ const PRESET_BRIDGED = new Set([
 
 let presetChecked = 0;
 const MODE_INDEPENDENT = new Set(["--font-sans", "--font-serif", "--font-mono"]);
+/**
+ * How many vars a mode block is expected to carry, counted from the export's
+ * OWN keys. The old form subtracted two hardcoded set sizes, which silently
+ * assumed light and dark have identical key sets — they do not, and should not:
+ * `radius` and `tracking-normal` are theme-level and belong in neither mode
+ * block. Deriving the count means a changed export cannot make this check
+ * quietly vacuous or falsely red.
+ */
+const expectedInBlock = (vars) =>
+  Object.keys(vars).filter((name) => !PRESET_BRIDGED.has(`--${name}`) && !MODE_INDEPENDENT.has(`--${name}`)).length;
 for (const [name, value] of Object.entries(preset.cssVars.light)) {
   if (PRESET_BRIDGED.has(`--${name}`) || MODE_INDEPENDENT.has(`--${name}`)) continue;
   const actual = gRoot.get(`--${name}`);
@@ -123,8 +133,8 @@ for (const [name, value] of Object.entries(preset.cssVars.light)) {
     presetChecked++;
   }
 }
-check(Object.keys(preset.cssVars.light).length - PRESET_BRIDGED.size - MODE_INDEPENDENT.size === presetChecked,
-  `globals :root matches preset verbatim (${presetChecked} non-bridged vars)`);
+check(expectedInBlock(preset.cssVars.light) === presetChecked,
+  `globals :root matches preset verbatim (${presetChecked}/${expectedInBlock(preset.cssVars.light)} non-bridged vars)`);
 
 let presetDarkChecked = 0;
 for (const [name, value] of Object.entries(preset.cssVars.dark)) {
@@ -138,8 +148,8 @@ for (const [name, value] of Object.entries(preset.cssVars.dark)) {
     presetDarkChecked++;
   }
 }
-check(Object.keys(preset.cssVars.dark).length - PRESET_BRIDGED.size - MODE_INDEPENDENT.size === presetDarkChecked,
-  `globals dark block matches preset verbatim (${presetDarkChecked} non-bridged vars)`);
+check(expectedInBlock(preset.cssVars.dark) === presetDarkChecked,
+  `globals dark block matches preset verbatim (${presetDarkChecked}/${expectedInBlock(preset.cssVars.dark)} non-bridged vars)`);
 
 // bridged variables must reference the token layer, not redeclare hexes
 for (const name of PRESET_BRIDGED) {

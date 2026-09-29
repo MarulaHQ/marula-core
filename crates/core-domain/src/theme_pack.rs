@@ -481,9 +481,12 @@ mod tests {
 
     #[test]
     fn oklch_conversion_round_trips_the_vendored_primary() {
-        // marula.json carries primary as oklch(0.2800 0.0180 300.0000)
-        // and the vendored sRGB value in tokens.css is #2B2A33.
-        let hex = oklch_to_hex("oklch(0.2800 0.0180 300.0000)").unwrap();
+        // marula.json carries primary as the exact oklch of dusk ink,
+        // oklch(0.2898 0.0163 290.4399), and the vendored sRGB value in
+        // tokens.css is #2B2A33. This test is what caught the first attempt at
+        // the vendored export, which hand-wrote an approximation of that oklch
+        // and rendered #2A272B — 16 off on the green channel.
+        let hex = oklch_to_hex("oklch(0.2898 0.0163 290.4399)").unwrap();
         let exact = "#2b2a33".to_string();
         let chan = |h: &str, i: usize| i64::from_str_radix(&h[1 + i..3 + i], 16).unwrap();
         for i in 0..3 {
