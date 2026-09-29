@@ -1,13 +1,13 @@
 # Runbook: reverse proxy and TLS
 
-> **Audience:** site operator / MSP admin — you host Meridian yourself and
+> **Audience:** site operator / MSP admin — you host Marula yourself and
 > own its deployment.
 
 The compose stack targets local development deliberately ("no TLS, no
 secrets management, no volume backup jobs", per its own header). Production
 deployment puts a reverse proxy in front of the web console and core-api.
 This runbook covers what the proxy must serve and the pitfalls specific to
-Meridian's seams.
+Marula's seams.
 
 ## What to terminate
 

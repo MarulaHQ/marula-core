@@ -1,8 +1,8 @@
-# Meridian documentation
+# Marula documentation
 
-![Meridian logo lockup](../../meridian-ci/logo/lockup-navy@2x.png)
+![Marula logo lockup](../../marula-ci/logo/lockup-navy@2x.png)
 
-Meridian is an open-source PSA (professional services automation) core for
+Marula is an open-source PSA (professional services automation) core for
 MSPs: tickets, clients, billing, scheduling, docs, agents — self-hostable
 and extensible, yours to leave with at any time.
 
@@ -19,7 +19,7 @@ one quadrant, and the quadrants stay in their lanes.
 | [Tutorials](tutorials/index.md) | "Take me through it, step by step" | [Your first ticket](tutorials/first-ticket.md) |
 | [How-to guides](how-to/index.md) | "How do I do this specific thing?" | [Upgrade to the latest release](how-to/upgrade.md) |
 | [Reference](reference/index.md) | "What exactly is it?" | [API reference](reference/api.md) |
-| [Explanation](explanation/index.md) | "Why is it this way?" | [Why we're building Meridian](explanation/why-meridian.md) |
+| [Explanation](explanation/index.md) | "Why is it this way?" | [Why we're building Marula](explanation/why-marula.md) |
 
 ## Where the rest lives
 

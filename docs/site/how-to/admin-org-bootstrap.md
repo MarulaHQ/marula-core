@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-- A reachable Meridian deployment (self-hosted console or the desktop app
+- A reachable Marula deployment (self-hosted console or the desktop app
   — see [self-host reference](../reference/self-host-local-stack.md)).
 - No existing session in the target deployment, or awareness that one
   account belongs to one org.

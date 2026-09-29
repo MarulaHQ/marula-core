@@ -33,7 +33,7 @@ staff password-reset flow excludes portal users too.
 
 ## 3. Hand over first sign-in
 
-The portal shell is separate staff-side by design ("Meridian — client
+The portal shell is separate staff-side by design ("Marula — client
 portal sign-in", nav Requests / Invoices / Knowledge / Schedule, footer
 "Support access provided by your service desk"). Hand over:
 

@@ -7,7 +7,7 @@
 
 - Admin access to **Settings→Team** (PEOPLE & ACCESS).
 - A sign-up email the invitee can reach, **or** a magic-link-capable
-  mailbox. Meridian's passwordless parity means you can invite without
+  mailbox. Marula's passwordless parity means you can invite without
   choosing anyone's password: magic-link sign-ins are "the same full
   sessions a password sign-in issues" (the auth surface says this
   explicitly — never treat passwordless accounts as second-class).

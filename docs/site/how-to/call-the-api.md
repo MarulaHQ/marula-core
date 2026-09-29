@@ -2,7 +2,7 @@
 
 > **Audience:** both — developers and self-host operators calling the API directly.
 
-The REST API is the single write surface for Meridian: all mutations flow
+The REST API is the single write surface for Marula: all mutations flow
 through it and emit domain events.
 
 ## Prerequisites

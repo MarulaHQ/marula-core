@@ -32,7 +32,7 @@ Three facts distinguish this from a feature flag:
 
 ## Why the switch exists: the same product with and without AI
 
-Meridian ships an AI product that can be **absent** — the same org
+Marula ships an AI product that can be **absent** — the same org
 running it OFF gets the identical pre-AI behavior: no surface, no ledger
 rows, no side effects. Orgs that never planned to use AI keep the exact
 same product forever, not a "reduced" tier. This is

@@ -6,7 +6,7 @@
 This guide configures a routing provider, sets a technician's day start, reads
 the travel warnings the dispatcher sees, and reconciles logged mileage into
 reimbursable expenses. Nothing here is required for scheduling to work: with
-no provider configured, Meridian estimates travel from the per-mile table and
+no provider configured, Marula estimates travel from the per-mile table and
 labels every number as an estimate.
 
 ## Choose a provider
@@ -32,7 +32,7 @@ and Postmark credentials. Do not put them in org settings.
 
 ## Tune the estimate table (no provider)
 
-With `none`, Meridian estimates each leg as straight-line distance × the road
+With `none`, Marula estimates each leg as straight-line distance × the road
 factor, at the per-mile pace, plus a fixed overhead. The defaults are 2 minutes
 per mile, 5 minutes overhead, and a 125% road factor. Change them in
 **Settings → General**:
@@ -89,7 +89,7 @@ from an approval row's *log travel* link, which prefills the ticket.
 1. Add a draft: ticket, time window, distance, unit, vehicle, billable flag.
 2. Submit it. Submission turns it into a travel time entry and the draft
    becomes immutable.
-3. Press *Expense* on a submitted draft. Meridian prices the distance at the
+3. Press *Expense* on a submitted draft. Marula prices the distance at the
    org rate and books a ticket expense for the reimbursement, once per draft.
 
 The reconciliation card above the table totals the last 14 days per technician:

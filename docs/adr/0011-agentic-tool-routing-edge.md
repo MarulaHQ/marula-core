@@ -74,7 +74,7 @@ per-org input as data); degrade-never-5xx.
 
 - The loop, grants, caps, ledger, and degrade posture already exist in core
   (ADR 0008). The only new code is the vendor-general choice seam, and it
-  must speak Meridian's `DecisionProvider` shape — not an executor
+  must speak Marula's `DecisionProvider` shape — not an executor
   abstraction from an agent framework.
 - **Protocol-level libraries are fine where already used or needed** (MCP
   client/server protocol, JSON-Schema tool description — the `mcp-server`

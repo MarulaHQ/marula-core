@@ -1,4 +1,4 @@
-# Meridian Visual Theme — "Tangerine" (shadcn preset)
+# Marula Visual Theme — "Tangerine" (shadcn preset)
 
 > **Owner-override banner (2026-09-15, Wave 15 lane `p15-theme-tangerine`, user directive):**
 > This identity **supersedes the Workbench identity** (2026-08-25). The Workbench hard rules
@@ -13,7 +13,7 @@
 > **Status:** Active · **Overhaul applied:** 2026-09-15 (Wave 15 lane `p15-theme-tangerine` — full overhaul, not token-only)
 > **Superseded identity:** "Workbench" (monochrome + Ember `#D64B0A`, 2px radius, no serif, cool neutral `#F4F5F7`/`#101216`)
 > **New identity:** **Tangerine** — warm-neutral light (`#E8EBED`), blue-slate dark (`#1C2433`), tangerine primary `#E05D38`, pill tags `999px`, Source Serif 4 headings, generous spacing, soft `rgba(0,0,0,.10)` shadows.
-> **Scope:** binding on all Meridian UI code, docs site, and marketplace surfaces.
+> **Scope:** binding on all Marula UI code, docs site, and marketplace surfaces.
 
 ## 1. Design stance
 
@@ -21,7 +21,7 @@
 
 ## 2. Identity definition
 
-| Aspect | **Meridian — Tangerine** |
+| Aspect | **Marula — Tangerine** |
 |---|---|
 | Brand color | **Tangerine** — preset primary `#E05D38` (`oklch(0.6397 0.172 36.4421)`), identical in light and dark mode. The Ember brand signal (`#D64B0A`) is superseded by the preset primary. |
 | Temperature | **Light: warm neutral** (`#E8EBED`) · **Dark: blue-slate** (`#1C2433`) — per the preset, not a mirrored grey |
@@ -135,8 +135,8 @@ sans). No decorative serif in body text.
 
 ## 7. Logo / mark direction
 
-- Wordmark: "Meridian" in Source Serif 4 SemiBold.
-- Mark: meridian line crossing a globe wireframe. The meridian stroke carries `#E05D38` — one stroke of tangerine in an otherwise neutral mark.
+- Wordmark: "Marula" in Source Serif 4 SemiBold.
+- Mark: marula line crossing a globe wireframe. The marula stroke carries `#E05D38` — one stroke of tangerine in an otherwise neutral mark.
 - No gradients. Survives 16px favicon and single-color print.
 
 ## 8. Voice
@@ -165,6 +165,6 @@ Dry, precise, documentation-grade — unchanged by the visual overhaul.
 - `packages/ui/tests/tokens.test.ts` proves hex-source uniqueness, PALETTE sync, dark-mode completeness, and WCAG floors.
 - `scripts/review-theme.mjs` asserts the generated layers against the vendored `design/tangerine/tangerine.json` (value-level comparison, dark-mode anchors, chart ramp). Wave 24 note: the per-theme hex-scan cross-checks the `no-raw-colors` settings (`apps/web/eslint.config.mjs`).
 - **`scripts/check-theme-packs.mjs` (Wave 24 leg C) — the per-preset gate:** runs the retired-hex blacklist AND the AA/3:1 floors over EVERY shipped built-in preset, in both modes. It also scores any installed pack manifests passed as CLI args or via `THEME_PACK_MANIFESTS` (CI loops per installed theme). It enforces the closed role vocabulary, so an off-schema token in any theme is mechanically rejected, not applied.
-- Reference mockups: `design/mockups/meridian-ticket-workbench-html-mockup-v2.html` (+ `…-v2-light.png` / `…-v2-dark.png`) — **the canonical aesthetic reference** (includes the dark-mode toggle and both modes). The earlier v1 mockup is kept for history only. QA evidence under `design/qa-tangerine/`. Wave 25 lint evidence under `design/qa-p25-shadcn-lint/`.
+- Reference mockups: `design/mockups/marula-ticket-workbench-html-mockup-v2.html` (+ `…-v2-light.png` / `…-v2-dark.png`) — **the canonical aesthetic reference** (includes the dark-mode toggle and both modes). The earlier v1 mockup is kept for history only. QA evidence under `design/qa-tangerine/`. Wave 25 lint evidence under `design/qa-p25-shadcn-lint/`.
 
 <!-- END -->

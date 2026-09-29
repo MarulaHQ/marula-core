@@ -1,8 +1,8 @@
-# Routing providers — the Meridian Routing Contract (revision 1)
+# Routing providers — the Marula Routing Contract (revision 1)
 
-Any team can add a distance/duration vendor to Meridian without touching core
+Any team can add a distance/duration vendor to Marula without touching core
 code. The provider runs as a service that implements the four endpoints below;
-the operator points Meridian at it with environment variables. The core's
+the operator points Marula at it with environment variables. The core's
 contract adapter does the rest. TravelTime, Geoapify, and any other commercial
 API fit here as relay connector packs (ADR 0013). Mapbox is the one vendor that
 also ships in this repository, as a compile-time provider

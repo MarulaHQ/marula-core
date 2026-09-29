@@ -1,6 +1,6 @@
 # Docs site (Diátaxis) — Phase 4
 
-The Diátaxis site for Meridian. Four quadrants, each kept in its lane:
+The Diátaxis site for Marula. Four quadrants, each kept in its lane:
 
 - [`tutorials/`](tutorials/) — learning-oriented lessons (one worked path)
 - [`how-to/`](how-to/) — task-oriented guides (safe paths to one goal)
@@ -45,7 +45,7 @@ truth, and these sources are never forked into a publishing format.
 ## Rules
 
 - `MANIFESTO.md` is the canonical positioning narrative — quoted **verbatim**
-  (`explanation/why-meridian.md`, pull quotes on `index.md`), never
+  (`explanation/why-marula.md`, pull quotes on `index.md`), never
   re-synthesized.
 - No product app code is imported (packages/ui primitives allowed only).
 - Runbooks: `../runbooks/` · ADRs: `../adr/` · RFCs: `../rfc`.

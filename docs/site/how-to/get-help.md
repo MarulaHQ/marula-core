@@ -1,4 +1,4 @@
-# How to get help inside Meridian
+# How to get help inside Marula
 
 > **Audience:** both — every signed-in person gets the same help panel;
 > admins additionally see the setup and policy guides for their surfaces.
@@ -19,7 +19,7 @@
    `/settings/fx` shows the FX rate-book guide.
 
 Every entry is a page from the public docs site — the same markdown that
-lives at [meridian.dev/docs](https://meridian.dev/docs). Nothing is
+lives at [marula.app/docs](https://marula.app/docs). Nothing is
 written twice: when a docs page moves, the app's index is re-checked in
 CI, so a stale entry fails the build instead of sending you to a 404.
 

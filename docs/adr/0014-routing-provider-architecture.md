@@ -11,7 +11,7 @@ answering one question everywhere: how long does a leg take?
 
 Distance and duration APIs differ in shape. Some expose a batched N×M matrix,
 some only routes, geocoding, or isochrones. Some want departure time, some
-arrival time, some neither. Operators want to point Meridian at whatever they
+arrival time, some neither. Operators want to point Marula at whatever they
 already run: a self-hosted OSRM server, a Mapbox token, or a commercial API we
 do not ship.
 
@@ -54,7 +54,7 @@ First-party hosted default: Mapbox (`plugins/connectors/mapbox`, Apache-2.0,
 ADR 0013 standard set).
 
 **Out-of-tree packs speak a contract, not our crate.** A relay or community
-provider is an HTTP service implementing the Meridian Routing Contract
+provider is an HTTP service implementing the Marula Routing Contract
 (`docs/routing-providers.md`, revision 1) at `/routing/matrix`,
 `/routing/route`, `/routing/geocode`, `/routing/isochrone`. The core's
 `ContractRoutingProvider` adapter calls it. The operator config names it

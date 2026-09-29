@@ -1,4 +1,4 @@
-# How to use the Meridian mobile app
+# How to use the Marula mobile app
 
 > **Audience:** both — technicians carry the app, and owners and admins install
 > builds and turn on biometric sign-in.

@@ -2,13 +2,13 @@
 
 > **Audience:** both — self-host operators run the upgrade, admins own release timing.
 
-Meridian guarantees you can always upgrade from either of the two previous
+Marula guarantees you can always upgrade from either of the two previous
 tagged releases (the **N−2 rule**, policy §1/§3). This guide gets you there
 safely.
 
 ## Prerequisites
 
-- Shell access to the deployment or the `meridian` CLI.
+- Shell access to the deployment or the `marula` CLI.
 - A current backup — the [backup/restore runbook](../reference/backup-restore.md) first.
 - Still on Postgres 17? Do the [one-time PG18 volume cut](../reference/pg18-upgrade.md)
   before or right after this upgrade. New installs are already on 18.
@@ -22,7 +22,7 @@ machinery sequentially — upgrade one release at a time.
 ## 2. Run the upgrade preflight
 
 ```sh
-meridian upgrade --check
+marula upgrade --check
 ```
 
 The preflight runs offline against your [customization
@@ -48,7 +48,7 @@ even when it is empty. Read it before applying anything.
 Migrations run automatically on container start, or manually:
 
 ```sh
-meridian migrate
+marula migrate
 ```
 
 The chain is forward-only and append-only. History is never edited, so any

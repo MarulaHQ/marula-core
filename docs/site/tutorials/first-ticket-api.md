@@ -5,7 +5,7 @@ entry, using the real API. It takes about 20 minutes.
 
 ## What you'll build
 
-A running Meridian stack, an organization with one client, one ticket, a
+A running Marula stack, an organization with one client, one ticket, a
 timer that turns into a time entry, and the domain events those actions
 emitted.
 
@@ -19,13 +19,13 @@ emitted.
 ## 1. Start the stack
 
 ```sh
-git clone https://github.com/Marlin-Hofmeyer/meridian && cd meridian
+git clone https://github.com/Marlin-Hofmeyer/marula && cd marula
 docker compose -f deploy/docker-compose.yml up -d
 cargo install --path crates/marula-core-cli
-meridian dev
+marula dev
 ```
 
-`meridian dev` runs migrations, starts the core API and worker, and serves
+`marula dev` runs migrations, starts the core API and worker, and serves
 the web console.
 
 ## 2. Register an organization

@@ -1,6 +1,6 @@
 # Upgrading Postgres 17 to 18
 
-Meridian runs Postgres 18 + pgvector everywhere since the 2026-09 transition
+Marula runs Postgres 18 + pgvector everywhere since the 2026-09 transition
 (`deploy/docker-compose.yml`, the Helm chart, and the desktop test app all
 pin `pgvector/pgvector:pg18` or its embedded equivalent). This page is the
 cut procedure for an existing PG17 volume: what to run, what breaks, and how
@@ -38,7 +38,7 @@ and the entrypoint says so. Two consequences:
 cd deploy
 
 # 1. Dump with the OLD binaries: the 18 image refuses to start this volume.
-docker run --rm --name pg17-cut -v meridian_pgdata:/var/lib/postgresql \
+docker run --rm --name pg17-cut -v marula_pgdata:/var/lib/postgresql \
   pgvector/pgvector:pg17 sleep 600 &
 sleep 8
 docker exec pg17-cut su postgres -c \
@@ -52,23 +52,23 @@ docker rm -f pg17-cut
 
 # 2. Fresh PG18 volume. The compose mount must be /var/lib/postgresql.
 docker compose down
-docker volume rm meridian_pgdata        # the dump is your safety net
+docker volume rm marula_pgdata        # the dump is your safety net
 docker compose up -d postgres
 docker compose cp ./pg17-dump.sql postgres:/tmp/dump.sql
 docker compose exec postgres sh -c \
-  'psql -U meridian -d postgres -v ON_ERROR_STOP=0 -f /tmp/dump.sql' \
+  'psql -U marula -d postgres -v ON_ERROR_STOP=0 -f /tmp/dump.sql' \
   2>&1 | grep -iv "already exists"
 ```
 
-Expect `role "meridian" already exists` style errors: the fresh initdb
+Expect `role "marula" already exists` style errors: the fresh initdb
 created the superuser, and the dump re-creates it. Those are the only
 errors you should see. Then:
 
 ```sh
 docker compose up -d
-docker compose exec postgres psql -U meridian -d meridian \
+docker compose exec postgres psql -U marula -d marula \
   -c "SELECT version FROM _sqlx_migrations ORDER BY version DESC LIMIT 1;"
-docker compose exec postgres psql -U meridian -d meridian -c "ANALYZE;"
+docker compose exec postgres psql -U marula -d marula -c "ANALYZE;"
 ```
 
 The migration head should read `102`. `ANALYZE` matters: dump / restore
@@ -106,7 +106,7 @@ pinned one it starts the old cluster with the retained old binaries, runs
 the new cluster, and replays the dump before migrations. You get the same
 guarantees as path A with the old volume kept for rollback. The cut log
 lands in `pg17-cut.log` inside the app data dir
-(`~/Library/Application Support/Meridian/`).
+(`~/Library/Application Support/Marula/`).
 
 ## Garage note (unrelated to Postgres but same window)
 

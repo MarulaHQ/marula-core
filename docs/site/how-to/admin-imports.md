@@ -33,7 +33,7 @@ name it exactly as you intend to call it later.
 ## 2. Upload
 
 Step 2: choose the file, drop, or paste the payload; the header row is
-required. Field mappings wire source columns to Meridian fields and **save
+required. Field mappings wire source columns to Marula fields and **save
 per source system** so the next import maps itself.
 
 ## 3. Dry-run, then commit

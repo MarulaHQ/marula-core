@@ -1,4 +1,4 @@
-# Why we're building Meridian
+# Why we're building Marula
 
 > The canonical positioning narrative is [`MANIFESTO.md`](../../../MANIFESTO.md).
 > Per the standing decision, it is quoted **verbatim** below — never
@@ -7,7 +7,7 @@
 
 ## The narrative, verbatim
 
-> # Why we're building Meridian
+> # Why we're building Marula
 >
 > I nearly got fired over time entry.
 >

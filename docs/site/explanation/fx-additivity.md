@@ -71,7 +71,7 @@ no correction surface:
 
 ## The consequence for every report you build
 
-- Anything that sums across kinds is **not a Meridian total**; compute it
+- Anything that sums across kinds is **not a Marula total**; compute it
   knowingly from per-kind breakdowns — leave the contract unbent and
   the dashboard's honesty intact.
 - The versioned read model (`ops_v1_fx_reconciliation` view) is the

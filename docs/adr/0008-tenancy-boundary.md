@@ -15,7 +15,7 @@ RBAC, settings scoping, webhooks, and realtime auth org-scoped and safe.
 
 But exposure is a different question from capability. The core is positioned as
 a self-hosted, single-organization product
-(`docs/STRATEGY.md` §1–§2, trust product: "Meridian alone must run a full MSP
+(`docs/STRATEGY.md` §1–§2, trust product: "Marula alone must run a full MSP
 operation"), while "multi-tenant SaaS control plane" is a named non-goal
 (§4) and commercial operations are a layer above the core (§7). Two failure
 modes exist and must both be avoided:

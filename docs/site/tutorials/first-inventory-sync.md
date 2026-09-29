@@ -12,7 +12,7 @@
   (a connector without a deployment renders the honest "install one"
   state on the asset page's right rail).
 
-Inventory in Meridian is a **merge queue**, not a dumb import: records
+Inventory in Marula is a **merge queue**, not a dumb import: records
 arrive from connectors, get deduplicated by identity matching, and merge
 into single queryable config items. Merged records stay queryable and
 carry their source lineage. This lesson walks one record from a connector
@@ -59,7 +59,7 @@ and so is its sync history.
 
 ## What you learned
 
-- Connectors push, Meridian merges — the identity matcher deduplicates
+- Connectors push, Marula merges — the identity matcher deduplicates
   overlapping sources rather than stacking packs of rows.
 - Sync state is data, surfaced honestly, never live-synced from a detail
   page.

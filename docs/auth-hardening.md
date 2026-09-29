@@ -35,11 +35,11 @@ SSO, and refresh-token reuse detection.
 ## Environment
 
 ```sh
-docker run -d --name meridian-auth -e POSTGRES_USER=meridian \
-  -e POSTGRES_PASSWORD=meridian -e POSTGRES_DB=meridian \
+docker run -d --name marula-auth -e POSTGRES_USER=marula \
+  -e POSTGRES_PASSWORD=marula -e POSTGRES_DB=marula \
   -p 25434:5432 pgvector/pgvector:pg17
 
-export DATABASE_URL=postgres://meridian:meridian@localhost:25434/meridian
+export DATABASE_URL=postgres://marula:marula@localhost:25434/marula
 cd crates/core-db && sqlx migrate run && cd ../..
 
 # core-api (compose parity: owner role)

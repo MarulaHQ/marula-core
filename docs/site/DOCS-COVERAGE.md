@@ -92,7 +92,7 @@ Client tasks: portal sign-in · submit & follow requests · invoices · schedule
 
 ### Explanation
 
-- Exists: `why-meridian.md`, `instant-first.md`, `customizations-are-data.md`, `upgrade-policy.md`, `upgrade-compatibility.md` catalog.
+- Exists: `why-marula.md`, `instant-first.md`, `customizations-are-data.md`, `upgrade-policy.md`, `upgrade-compatibility.md` catalog.
 - New: provenance vs audit (both append-only, different granularity) · FX additivity & the append-only rate book · deny-by-default AI & the decision harness · crawly "customizations are data" applied to boards/taxonomy (already ◐) · portal isolation model · KB-class categories & restricted chains (ADR 0006) · secret vault reveal auditing · instant-first conflicts page.
 
 ### Self-host/operations lane

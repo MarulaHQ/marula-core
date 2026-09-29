@@ -14,7 +14,7 @@ design goals, in order:
 
 1. **A portal principal is not a staff principal.** Its identity, its
    sessions, its roles live in their own domain; portal sign-in happens
-   on the portal shell ("Meridian — client portal sign-in"), and the
+   on the portal shell ("Marula — client portal sign-in"), and the
    credential lifecycle rests with the service desk ("Your service desk
    provisions accounts and can reset this password" — no self-serve
    reset, and the staff password reset flow explicitly excludes portal

@@ -13,5 +13,5 @@ Every tagged release ships with a CI-proven upgrade path from each of the two pr
 
 - The N−2 matrix anchors on v0.2.0 onward; earlier captures were scoped out of their wave (fixtures README).
 - Jump distance at upgrade time: up to two releases behind; further jumps apply the same machinery sequentially.
-- Run the preflight before upgrading: `meridian upgrade --check` — see the [upgrade how-to](../how-to/upgrade.md).
+- Run the preflight before upgrading: `marula upgrade --check` — see the [upgrade how-to](../how-to/upgrade.md).
 - CI cross-checks customization tables against anything a migration modifies; customizations are migrated as data ([explanation](../explanation/customizations-are-data.md)).

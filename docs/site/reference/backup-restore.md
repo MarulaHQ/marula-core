@@ -1,12 +1,12 @@
 # Runbook: backup and restore
 
-> **Audience:** site operator / MSP admin — you host Meridian yourself and
+> **Audience:** site operator / MSP admin — you host Marula yourself and
 > own its deployment.
 >
 > This is the first authored page of the `deploy/runbooks/` series. The
 > scaffold and future runbook index live at `deploy/runbooks/README.md`.
 
-Everything in Meridian lives in the Postgres database, and once S3
+Everything in Marula lives in the Postgres database, and once S3
 object storage is enabled also the object-storage (Garage/S3) bucket. Back both up or
 back neither up alone: document attachments (content-addressed uploads) and
 versioned documents reference object storage, while everything else —
@@ -26,13 +26,13 @@ Three tiers — pick by how much you can lose. The compose `backup` profile
 
 ```sh
 docker compose -f deploy/docker-compose.yml exec postgres \
-  pg_dump -U meridian -d meridian -Fc -f /tmp/meridian.dump
-docker cp meridian-postgres-1:/tmp/meridian.dump meridian-$(date +%F).dump
+  pg_dump -U marula -d marula -Fc -f /tmp/marula.dump
+docker cp marula-postgres-1:/tmp/marula.dump marula-$(date +%F).dump
 ```
 
 Notes the runbook enforces:
 
-- Dump as the table owner (`meridian`), not `meridian_app` — the
+- Dump as the table owner (`marula`), not `marula_app` — the
   RLS-constrained app role must never be able to read across tenants, which
   also means it cannot produce a complete dump.
 - Dump with a client that matches the server's major version. The backup
@@ -77,13 +77,13 @@ Notes the runbook enforces:
 3. Rehearse before you need it:
 
    ```sh
-   sh deploy/backup/restore.sh /tmp/meridian.dump
+   sh deploy/backup/restore.sh /tmp/marula.dump
    ```
 
    It restores into a scratch DB and asserts the restore is real: the schema
    lands (with RLS enabled on every org-scoped table), and when the source
    stack is reachable the row counts of every public table match, which catches
-   a dump that loses rows in transit. Set `PGDATABASE=meridian` (plus
+   a dump that loses rows in transit. Set `PGDATABASE=marula` (plus
    `PGSOURCE_HOST`/`PGSOURCE_PORT` against a different server) to turn the
    parity check on. Without it the leg stops after the schema checks. It
    drops the scratch DB when done — a backup that has never restored is not

@@ -3,7 +3,7 @@
 Reference material is descriptive and exhaustive: it tells you what is true,
 structured for lookup, with no narrative and no opinions.
 
-- [API reference](api.md) — every route in the Meridian Core API, generated
+- [API reference](api.md) — every route in the Marula Core API, generated
   from the committed OpenAPI snapshot
 - [The OpenAPI pin](openapi.md) — what the pin is, and the contract it
   enforces

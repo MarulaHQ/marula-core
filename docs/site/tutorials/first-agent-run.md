@@ -3,7 +3,7 @@
 > **Audience:** admin — enrollment and grants are admin settings. The
 > run itself produces evidence anyone can read.
 
-An agent in Meridian is not a chat toy left loose in your tenant. Its tool
+An agent in Marula is not a chat toy left loose in your tenant. Its tool
 runs are always scoped to a client, cataloged on its ledger, and stay
 reviewable after they finish. This lesson takes one agent from enrollment
 to a reviewed ledger entry, on the seeded demo org.

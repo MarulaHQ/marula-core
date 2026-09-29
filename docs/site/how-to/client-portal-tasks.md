@@ -18,7 +18,7 @@ sign-in shell, and isolation from staff systems.
 
 ## 1. Sign in at the portal shell
 
-Open the portal URL. The portal shell says "Meridian — client portal
+Open the portal URL. The portal shell says "Marula — client portal
 sign-in" and carries the footer "Support access provided by your service
 desk". You are in the right place. First arrival, no public content, started by your
 service desk's provisioning.

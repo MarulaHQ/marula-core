@@ -4,7 +4,7 @@
 > tickets and invoices, and knowing what each band means helps when
 > work gets logged.
 
-A Meridian contract is the commercial answer to one question: *how does
+A Marula contract is the commercial answer to one question: *how does
 this client pay for this work?* The type you pick decides what the
 billing engine evaluates, what the admin verifies, and what lands on the
 invoice. Every type here is real practice at working MSP shops: it
