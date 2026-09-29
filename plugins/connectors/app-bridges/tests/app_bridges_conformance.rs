@@ -4,7 +4,6 @@ use app_bridges::rewst::{RewstBridge, RewstTriggerPayload};
 use app_bridges::slack::SlackConnector;
 use app_bridges::teams::TeamsConnector;
 use app_bridges::{BridgeError, NotificationPayload};
-use serde_json::json;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default, Clone)]
@@ -77,13 +76,12 @@ async fn slack_delivers_and_canary_rejects_are_typed() {
     assert!(captured.last_content_type.starts_with("application/json"));
 
     // A Slack "success" that actually rejects the payload shape is a
-    // typed refusal (never silent success).
+    // typed refusal (never silent success). The mock is stateless per
+    // request, so one probe carries the whole assertion.
     let rejecting = spawn_mock(axum::http::StatusCode::OK, "invalid_payload").await;
     let probe = SlackConnector::new(rejecting.base_url.clone());
-    let outcome = probe.send(&sample_payload()).await;
-    let slack_bad = SlackConnector::new(rejecting.base_url.clone());
     assert!(matches!(
-        slack_bad.send(&sample_payload()).await,
+        probe.send(&sample_payload()).await,
         Err(BridgeError::Refused("slack", _))
     ));
 

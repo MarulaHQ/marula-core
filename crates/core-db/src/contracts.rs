@@ -400,7 +400,9 @@ pub struct BillableEntryRow {
 /// date window, ascending by start time (the engine re-buckets
 /// deterministically). Approval state is carried into billing reads (Wave
 /// 14 lane 1): unapproved work is never priced, so previews match what an
-/// invoice run will actually bill.
+/// invoice run will actually bill. Verification adjustments (Wave 39 lane
+/// 2, report V2) price the effective minutes — the raw minutes less the
+/// signed adjustment ledger.
 pub async fn list_billable_entries<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -411,8 +413,20 @@ pub async fn list_billable_entries<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    // Wave 39 lane 2 (report V2): verification adjustments price the
+    // EFFECTIVE minutes, not the raw ones. The adjustment ledger is
+    // additive, so the original `te.minutes` is never rewritten —
+    // priced minutes are `te.minutes + Σ delta` clamped at zero (the
+    // domain rule already bars an overshoot). A fully-zeroed entry
+    // drops out of pricing entirely: a zero-minute line is a line
+    // nobody wants on an invoice.
     let rows = sqlx::query!(
-        r#"SELECT te.id, te.minutes, te.work_type, te.started_at::date AS "entry_date!"
+        r#"SELECT te.id,
+                  GREATEST(te.minutes + COALESCE((
+                      SELECT SUM(a.delta_minutes) FROM time_entry_adjustments a
+                       WHERE a.org_id = te.org_id AND a.time_entry_id = te.id
+                  ), 0), 0)::integer AS "minutes!",
+                  te.work_type, te.started_at::date AS "entry_date!"
            FROM time_entries te
            JOIN tickets t ON t.id = te.ticket_id
            WHERE te.org_id = $1 AND t.client_id = $2

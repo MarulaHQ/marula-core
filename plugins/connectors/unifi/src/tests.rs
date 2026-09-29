@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query};
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -457,9 +457,13 @@ fn unifi_alerts_map_onto_the_ingest_contract() {
     assert!(map_alert(&json!({ "unrelated": true })).is_none());
 }
 
+/// What the loopback ingest route captured: (signature, content-type,
+/// raw body). Named once so the assertion below reads as prose.
+type CapturedPost = (String, String, Vec<u8>);
+
 #[tokio::test]
 async fn forwarder_signs_and_posts_the_exact_body() {
-    let posted: Arc<Mutex<Option<(String, String, Vec<u8>)>>> = Arc::new(Mutex::new(None));
+    let posted: Arc<Mutex<Option<CapturedPost>>> = Arc::new(Mutex::new(None));
     let slot = posted.clone();
     let app = Router::new().route(
         "/api/v1/alerts/ingest/{source_ref}",

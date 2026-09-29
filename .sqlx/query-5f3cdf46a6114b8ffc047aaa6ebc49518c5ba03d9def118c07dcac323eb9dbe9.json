@@ -1,0 +1,133 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT te.id, te.org_id, te.ticket_id, tk.number AS \"ticket_number?\",\n                  te.phase_id, ph.name AS \"phase_name?\", pj.name AS \"project_name?\",\n                  te.user_id, u.display_name,\n                  te.started_at, te.minutes, te.billable, te.work_type,\n                  te.notes, te.unbillable_reason,\n                  COALESCE(te.approval_status, 'draft') AS \"approval_status!\",\n                  COALESCE((SELECT SUM(a.delta_minutes) FROM time_entry_adjustments a\n                             WHERE a.org_id = te.org_id AND a.time_entry_id = te.id), 0)\n                     AS \"adjustment_minutes!: i64\",\n                  d.status AS \"disposition_status?\",\n                  EXISTS (SELECT 1 FROM invoice_time_entries l\n                           JOIN invoices i ON i.id = l.invoice_id\n                          WHERE l.time_entry_id = te.id AND i.org_id = te.org_id) AS \"invoiced!: bool\"\n             FROM time_entries te\n             JOIN users u ON u.id = te.user_id\n        LEFT JOIN tickets tk ON tk.id = te.ticket_id\n        LEFT JOIN project_phases ph ON ph.id = te.phase_id\n        LEFT JOIN projects pj ON pj.id = ph.project_id\n        LEFT JOIN time_entry_dispositions d\n                ON d.time_entry_id = te.id AND d.current AND d.org_id = te.org_id\n            WHERE te.org_id = $1\n              AND (tk.client_id = $2 OR pj.client_id = $2)\n              AND te.started_at::date >= $3 AND te.started_at::date <= $4\n            ORDER BY te.started_at, te.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "ticket_number?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "phase_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "phase_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "project_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "minutes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "billable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "work_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "unbillable_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "approval_status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "adjustment_minutes!: i64",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "disposition_status?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "invoiced!: bool",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      null,
+      null,
+      false,
+      null
+    ]
+  },
+  "hash": "5f3cdf46a6114b8ffc047aaa6ebc49518c5ba03d9def118c07dcac323eb9dbe9"
+}

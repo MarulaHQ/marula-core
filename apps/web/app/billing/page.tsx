@@ -305,6 +305,23 @@ export default function BillingPage() {
                 />
                 <FieldHint>Due dates on the issued invoices.</FieldHint>
               </div>
+              {/* Wave 39 lane 2: the ritual this composer used to skip.
+                  The verification workspace is where a period gets read,
+                  dispositioned, and signed off before anyone gets here.
+                  It reads as guidance here, ABOVE the action row: tucked
+                  under a full-width Preview button it looked like that
+                  button's caption, so nobody read it. */}
+              <p className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
+                <Link
+                  href={`/billing/verification?from=${runFrom}&to=${runTo}`}
+                  className="no-underline transition-opacity duration-100 hover:opacity-80"
+                  style={{ color: "var(--m-accent)" }}
+                  data-testid="run-open-verification"
+                >
+                  Verify this window first
+                </Link>{" "}
+                — every entry, its disposition, and the close sign-off live there.
+              </p>
               <Button variant="secondary" onClick={() => void loadPreview()} disabled={previewing}>
                 {previewing ? <Spinner /> : null} Preview
               </Button>

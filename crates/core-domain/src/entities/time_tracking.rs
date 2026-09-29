@@ -560,6 +560,133 @@ impl UnbillableReason {
     }
 }
 
+/// The human verification disposition of one time entry (Wave 39 V1).
+/// `rejected` and `non_billable` demand the typed [`UnbillableReason`];
+/// the workspace badge set matches this vocabulary exactly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum DispositionStatus {
+    Approved,
+    Rejected,
+    NonBillable,
+    NeedsReview,
+}
+
+impl DispositionStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            DispositionStatus::Approved => "approved",
+            DispositionStatus::Rejected => "rejected",
+            DispositionStatus::NonBillable => "non_billable",
+            DispositionStatus::NeedsReview => "needs_review",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "approved" => DispositionStatus::Approved,
+            "rejected" => DispositionStatus::Rejected,
+            "non_billable" => DispositionStatus::NonBillable,
+            "needs_review" => DispositionStatus::NeedsReview,
+            _ => return None,
+        })
+    }
+
+    /// False-statuses that carry evidence: a typed unbillable reason is
+    /// mandatory (V3), validated in the domain + API, not the DB CHECK —
+    /// legacy rows predate it.
+    pub const fn requires_unbillable_reason(self) -> bool {
+        matches!(self, DispositionStatus::Rejected | DispositionStatus::NonBillable)
+    }
+}
+
+/// One verification edit on one entry's billed minutes (Wave 39 V2).
+/// Additive-ledger: the original entry row is never rewritten for
+/// billing — the run sums `(entry.minutes + Σ delta_minutes)`. The
+/// signed delta is ≤ 0 (verification can only reduce or zero); the
+/// reason is the evidence (V9) and is NOT NULL at the DB level.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TimeEntryAdjustment {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub time_entry_id: TimeEntryId,
+    /// The run this adjustment rides, when it was made during a run's
+    /// close flow; `None` when made from the standalone workspace.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub run_id: Option<uuid::Uuid>,
+    /// Denormalized evidence: minutes BEFORE the adjustment.
+    pub original_minutes: i32,
+    /// Signed; always ≤ 0. `original_minutes + delta >= 0` holds.
+    pub delta_minutes: i32,
+    pub reason: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub created_by: Option<UserId>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl TimeEntryAdjustment {
+    /// Domain rule for a legal adjustment: reduces or zeroes only, and
+    /// never drives the effective minutes negative.
+    pub fn validate(original_minutes: i32, delta_minutes: i32) -> Result<(), DomainError> {
+        if delta_minutes > 0 {
+            return Err(DomainError::Validation(
+                "adjustment delta_minutes must be <= 0 (verification reduces, never adds)".into(),
+            ));
+        }
+        if original_minutes + delta_minutes < 0 {
+            return Err(DomainError::Validation(
+                "adjustment would drive effective minutes negative".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Billed minutes after this adjustment.
+    pub fn effective_minutes(original_minutes: i32, delta_minutes: i32) -> i32 {
+        original_minutes + delta_minutes
+    }
+}
+
+/// The reviewer sign-off recorded per invoice run (Wave 39 V8): the
+/// close checklist a human attested before the run fired. One row per
+/// run; the run-create seam refuses an unsigned run.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct InvoiceRunSignoff {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub run_id: uuid::Uuid,
+    pub entries_dispositioned: bool,
+    pub zero_unclassified: bool,
+    pub preview_seen: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub reviewer_id: Option<UserId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub reviewer_note: Option<String>,
+    pub signed_at: DateTime<Utc>,
+}
+
+impl InvoiceRunSignoff {
+    pub fn validate(&self) -> Result<(), DomainError> {
+        if !self.entries_dispositioned || !self.zero_unclassified || !self.preview_seen {
+            return Err(DomainError::Validation(
+                "sign-off requires all checklist items attested \
+                 (entries_dispositioned, zero_unclassified, preview_seen)"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// An org's semantic time category (Wave 39 V4). Entries key their
 /// `work_type` column onto `slug`; the T&M rate card keys
 /// `contract_rates.work_type` onto the same slugs. Renames change the
@@ -778,6 +905,50 @@ mod tests {
             Some(ApprovalStatus::Approved)
         );
         assert_eq!(ApprovalStatus::parse("approved "), None);
+    }
+
+    #[test]
+    fn disposition_vocabulary_and_reason_requirement() {
+        assert_eq!(
+            DispositionStatus::parse("non_billable"),
+            Some(DispositionStatus::NonBillable)
+        );
+        assert_eq!(DispositionStatus::parse("non-billable"), None);
+        assert!(DispositionStatus::Rejected.requires_unbillable_reason());
+        assert!(DispositionStatus::NonBillable.requires_unbillable_reason());
+        assert!(!DispositionStatus::Approved.requires_unbillable_reason());
+        assert!(!DispositionStatus::NeedsReview.requires_unbillable_reason());
+    }
+
+    #[test]
+    fn adjustment_validates_reduction_only_within_bounds() {
+        // Plain reduce is fine.
+        TimeEntryAdjustment::validate(90, -30).unwrap();
+        assert_eq!(TimeEntryAdjustment::effective_minutes(90, -30), 60);
+        // Zeroing the entry is fine.
+        TimeEntryAdjustment::validate(90, -90).unwrap();
+        // Adding minutes is never a verification action.
+        assert!(TimeEntryAdjustment::validate(90, 10).is_err());
+        // Overshooting below zero is impossible.
+        assert!(TimeEntryAdjustment::validate(90, -91).is_err());
+    }
+
+    #[test]
+    fn signoff_requires_every_checklist_item() {
+        let mut s = InvoiceRunSignoff {
+            id: uuid::Uuid::now_v7(),
+            org_id: uuid::Uuid::now_v7(),
+            run_id: uuid::Uuid::now_v7(),
+            entries_dispositioned: true,
+            zero_unclassified: true,
+            preview_seen: true,
+            reviewer_id: None,
+            reviewer_note: None,
+            signed_at: Utc::now(),
+        };
+        s.validate().unwrap();
+        s.preview_seen = false;
+        assert!(s.validate().is_err());
     }
 
     proptest! {

@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**593 paths · 797 operations · 1217 schemas.**
+**596 paths · 800 operations · 1232 schemas.**
 
 ## agent-proposals
 
@@ -178,6 +178,9 @@
 | `POST` | `/api/v1/billing/invoice-runs` <a id="billing_invoice_runs_create"></a> | POST /api/billing/invoice-runs — evaluate every billable contract over the window (optionally one client's) and persist one invoice per contract with at least one candidate line. Idempotency-keyed (IF1): the same key with the same body replays the stored run. | [CreateInvoiceRunRequest](#schema-createinvoicerunrequest) |
 | `GET` | `/api/v1/billing/invoice-runs/{id}` <a id="billing_invoice_runs_get"></a> | GET /api/billing/invoice-runs/{id} — one run's roll-up. | — |
 | `GET` | `/api/v1/billing/preview` <a id="billing_preview"></a> | GET /api/billing/preview — evaluate EVERY billable contract in the org over `[from, to]` (cancelled contracts excluded; effective windows must intersect). READ-ONLY: the org-wide dry-run of a Wave-9 invoice run. | — |
+| `GET` | `/api/v1/billing/verification` <a id="billing_verification"></a> | GET /api/billing/verification — the workspace for one contract over one window. READ-ONLY: no entry changes, no side effects. | — |
+| `POST` | `/api/v1/billing/verification/entries/{id}/action` <a id="billing_verification_entry_action"></a> | POST /api/billing/verification/entries/{id}/action — every in-context entry edit, one envelope. Gated on the instant-first mutation contract: same key + same payload replays, different payload 409s. | [EntryActionRequest](#schema-entryactionrequest) |
+| `POST` | `/api/v1/billing/verification/signoff` <a id="billing_verification_signoff"></a> | POST /api/billing/verification/signoff — the close ritual (report V8). The checklist booleans are RE-VERIFIED against the live workspace, never taken on trust: signing off "every entry dispositioned" while a draft entry sits in the window is a 422, not a stored lie. The overlap warning rides the response. | [SignoffRequest](#schema-signoffrequest) |
 
 ## board-groups
 
@@ -1431,6 +1434,8 @@
 | <a id="schema-billingmethod"></a>`BillingMethod` | string | How the project turns delivered work into money. The value rides the milestone event payload so core-billing can route without re-reading the project row (event payloads are additive-only, policy §2). |
 | <a id="schema-billmutationresponse"></a>`BillMutationResponse` | object |  |
 | <a id="schema-blockconsumption"></a>`BlockConsumption` | object | The per-period consumption summary a block contract's evaluation carries back: draws in order, blocks that expired unused inside the window (for depletion/expiry alerts), and any minutes that found no |
+| <a id="schema-blockdrawview"></a>`BlockDrawView` | object | One draw: which entry consumed how many block minutes. |
+| <a id="schema-blockpanelview"></a>`BlockPanelView` | object | The retainer / prepaid block-consumption panel (report V7): which entries drew the included block versus billed as overage, the remaining balance, and the depletion alert. |
 | <a id="schema-blockspec"></a>`BlockSpec` | object | Prepaid-block spec (A): an hour bank sold up front. |
 | <a id="schema-board"></a>`Board` | object |  |
 | <a id="schema-boardaddressresponse"></a>`BoardAddressResponse` | object |  |
@@ -1721,6 +1726,7 @@
 | <a id="schema-dispatchqueuequery"></a>`DispatchQueueQuery` | object |  |
 | <a id="schema-dispatchqueueview"></a>`DispatchQueueView` | object | GET /api/dispatch/queue envelope. |
 | <a id="schema-dispatchstatusshade"></a>`DispatchStatusShade` | object | The latest connector/staff status push for one booking, shaded onto the board block face. |
+| <a id="schema-dispositionstatus"></a>`DispositionStatus` | string | The human verification disposition of one time entry (Wave 39 V1). `rejected` and `non_billable` demand the typed [`UnbillableReason`]; the workspace badge set matches this vocabulary exactly. |
 | <a id="schema-document"></a>`Document` | object | A document's living handle. No content lives here — content is only ever a [`DocumentVersion`]; `current_version` names the newest one. |
 | <a id="schema-documentattachmentdeleted"></a>`DocumentAttachmentDeleted` | object |  |
 | <a id="schema-documentattachmentlist"></a>`DocumentAttachmentList` | object |  |
@@ -1759,6 +1765,8 @@
 | <a id="schema-entityworkbenchfieldrow"></a>`EntityWorkbenchFieldRow` | object |  |
 | <a id="schema-entityworkbenchside"></a>`EntityWorkbenchSide` | object |  |
 | <a id="schema-entityworkbenchview"></a>`EntityWorkbenchView` | object |  |
+| <a id="schema-entryactionrequest"></a>`EntryActionRequest` | composite | The body of an entry action. One endpoint, one envelope, every in-context edit — so the reason requirement, the audit row, the pre-run guard, and the invoiced lock cannot be forgotten on one branch. |
+| <a id="schema-entryactionresponse"></a>`EntryActionResponse` | object | The applied action result. |
 | <a id="schema-entrysuggestion"></a>`EntrySuggestion` | object | Suggestion payload built from one `decision_billing_audit` row. |
 | <a id="schema-entrysuggestionsresponse"></a>`EntrySuggestionsResponse` | object |  |
 | <a id="schema-escalationstep"></a>`EscalationStep` | object | One escalation ladder step as stored (`sla_escalation_steps`). |
@@ -1828,6 +1836,7 @@
 | <a id="schema-invoicepayment"></a>`InvoicePayment` | object | A payment receipt recorded through the `PaymentProvider` seam. The provider stays a string (`none` in v1 — the built-in provider approves locally without external PSP calls). |
 | <a id="schema-invoicerun"></a>`InvoiceRun` | object | The invoice-run batch record: one evaluation sweep over a window and the roll-up of the invoices it created. |
 | <a id="schema-invoicerunresponse"></a>`InvoiceRunResponse` | object | Instant-first mutation response (IF2) for an invoice run. |
+| <a id="schema-invoicerunsignoff"></a>`InvoiceRunSignoff` | object | The reviewer sign-off recorded per invoice run (Wave 39 V8): the close checklist a human attested before the run fired. One row per run; the run-create seam refuses an unsigned run. |
 | <a id="schema-invoicestatus"></a>`InvoiceStatus` | string | Document lifecycle of an invoice. |
 | <a id="schema-issuecreditnoterequest"></a>`IssueCreditNoteRequest` | composite | POST /api/credit-notes body. |
 | <a id="schema-issuedinvoice"></a>`IssuedInvoice` | object | One issued invoice: the document plus its lines. |
@@ -2238,6 +2247,7 @@
 | <a id="schema-runbatchresponse"></a>`RunBatchResponse` | object | POST /imports/batches/{id}/run response: the batch is queued for the worker exactly once; poll the batch view for counters. |
 | <a id="schema-runreportresponse"></a>`RunReportResponse` | object | Per-row fate report — the D2 contract shape (`row_index → errors[] \| ok \| would_skip \| would_update`). |
 | <a id="schema-runspecrequest"></a>`RunSpecRequest` | object | POST /api/reports/run-spec body: an inline spec (validated through the same registry as stored definitions) plus the run window. This is the builder's PREVIEW-before-save surface — nothing is persiste |
+| <a id="schema-runwindowview"></a>`RunWindowView` | object | One issued run window in the overlap warning. |
 | <a id="schema-scancandidateview"></a>`ScanCandidateView` | object | One candidate when a code matches more than one row of the same kind. |
 | <a id="schema-scanresolutionview"></a>`ScanResolutionView` | object | The typed meaning of one scanned string. `entity_id` is the resolved entity: the stock item, the serialized unit, the location, or the device asset. `deep_link` is always the canonical link for that e |
 | <a id="schema-scanresolverequest"></a>`ScanResolveRequest` | object |  |
@@ -2299,6 +2309,9 @@
 | <a id="schema-shareclaimmaterial"></a>`ShareClaimMaterial` | object | The unified claim response: the material exactly once (the claim consumes the link). Mirrors `SecretReveal` / `PasswordReveal` contents under one shape — `fields` carries `field_key` → plaintext. |
 | <a id="schema-sharesubjectkind"></a>`ShareSubjectKind` | string | Which vault subject a share link or rotation refers to. One-time share links cover BOTH the native secret records and the legacy byte- compatible password entries; rotation mirrors the same pair. |
 | <a id="schema-shipoutrequest"></a>`ShipOutRequest` | composite |  |
+| <a id="schema-signoffrequest"></a>`SignoffRequest` | composite | The close sign-off body. |
+| <a id="schema-signoffresponse"></a>`SignoffResponse` | object | The sign-off response. |
+| <a id="schema-signoffview"></a>`SignoffView` | object | The close checklist as recorded. |
 | <a id="schema-similarticketcandidate"></a>`SimilarTicketCandidate` | object |  |
 | <a id="schema-similarticketsquery"></a>`SimilarTicketsQuery` | object |  |
 | <a id="schema-similarticketsresponse"></a>`SimilarTicketsResponse` | object |  |
@@ -2425,6 +2438,7 @@
 | <a id="schema-timecategoryupdaterequest"></a>`TimeCategoryUpdateRequest` | composite |  |
 | <a id="schema-timecategoryview"></a>`TimeCategoryView` | composite |  |
 | <a id="schema-timeentry"></a>`TimeEntry` | object | A durable, reviewable record of worked time. Created from a timer session or entered manually; subject to bulk review and approval workflows. |
+| <a id="schema-timeentryadjustment"></a>`TimeEntryAdjustment` | object | One verification edit on one entry's billed minutes (Wave 39 V2). Additive-ledger: the original entry row is never rewritten for billing — the run sums `(entry.minutes + Σ delta_minutes)`. The signed  |
 | <a id="schema-timeentryapprovalrecord"></a>`TimeEntryApprovalRecord` | object | One append-only approval decision (the audit row behind the queue's history view). `seq` is monotonic per entry — the client's ordering key. |
 | <a id="schema-timeentrymutationresponse"></a>`TimeEntryMutationResponse` | composite | Same additive envelope for the stop flow (time-entry body). |
 | <a id="schema-timeentryqueueitem"></a>`TimeEntryQueueItem` | object | A queue/history projection: the entry plus its approval metadata (who/when submitted, who/when decided). |
@@ -2529,6 +2543,10 @@
 | <a id="schema-vendordetail"></a>`VendorDetail` | object | Vendor detail: the entity plus its typed contacts and external links. |
 | <a id="schema-vendormutationresponse"></a>`VendorMutationResponse` | composite |  |
 | <a id="schema-verdictresponse"></a>`VerdictResponse` | object |  |
+| <a id="schema-verificationcounters"></a>`VerificationCounters` | object | The workspace counters that gate the close checklist. |
+| <a id="schema-verificationentryview"></a>`VerificationEntryView` | object | One entry inside a ticket group: identity, cost cell, badge. |
+| <a id="schema-verificationgroupview"></a>`VerificationGroupView` | object | One ticket (or project phase) group with its running totals. |
+| <a id="schema-verificationworkspace"></a>`VerificationWorkspace` | object | The full workspace response. |
 | <a id="schema-verifypublisherrequest"></a>`VerifyPublisherRequest` | object |  |
 | <a id="schema-verifystatus"></a>`VerifyStatus` | object |  |
 | <a id="schema-viewid"></a>`ViewId` | string | Versioned read-model views. Variant ↔ physical view name is frozen alongside the schema-version suffix; adding a view is additive. The serde encoding is the view SLUG (`snake_case`) — the same string  |
@@ -2554,4 +2572,4 @@
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1217 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1232 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

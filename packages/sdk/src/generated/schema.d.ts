@@ -1632,6 +1632,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/billing/verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/billing/verification — the workspace for one contract over
+         *     one window. READ-ONLY: no entry changes, no side effects.
+         */
+        get: operations["billing_verification"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/verification/entries/{id}/action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/billing/verification/entries/{id}/action — every in-context
+         *     entry edit, one envelope. Gated on the instant-first mutation
+         *     contract: same key + same payload replays, different payload 409s.
+         */
+        post: operations["billing_verification_entry_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/verification/signoff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/billing/verification/signoff — the close ritual (report
+         *     V8). The checklist booleans are RE-VERIFIED against the live
+         *     workspace, never taken on trust: signing off "every entry
+         *     dispositioned" while a draft entry sits in the window is a 422, not
+         *     a stored lie. The overlap warning rides the response.
+         */
+        post: operations["billing_verification_signoff"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/board-groups": {
         parameters: {
             query?: never;
@@ -13348,6 +13412,61 @@ export interface components {
             /** Format: int64 */
             unblocked_minutes: number;
         };
+        /** @description One draw: which entry consumed how many block minutes. */
+        BlockDrawView: {
+            /** Format: int64 */
+            minutes: number;
+            /** Format: int64 */
+            spilled_minutes: number;
+            /** Format: uuid */
+            time_entry_id?: string | null;
+        };
+        /**
+         * @description The retainer / prepaid block-consumption panel (report V7): which
+         *     entries drew the included block versus billed as overage, the
+         *     remaining balance, and the depletion alert.
+         */
+        BlockPanelView: {
+            /**
+             * @description `depleted` when the balance is gone and work is spilling over;
+             *     `expiring` when a balance remains but the block expires in-window;
+             *     `none` when healthy.
+             */
+            alert: string;
+            /** Format: uuid */
+            block_id: string;
+            /**
+             * Format: int64
+             * @description Minutes this window's entries drew.
+             */
+            drawn_minutes: number;
+            /** @description Per-entry draws: which entries consumed the block. */
+            draws: components["schemas"]["BlockDrawView"][];
+            /**
+             * Format: date
+             * @description Expiry, when the block carries one.
+             */
+            expires_on?: string | null;
+            label: string;
+            /**
+             * Format: int64
+             * @description Minutes of this window's work that found no open block — they
+             *     bill at card rates (the overage the admin must see).
+             */
+            overage_minutes: number;
+            /**
+             * Format: int64
+             * @description Minutes drawn BEFORE this window (earlier runs).
+             */
+            prior_drawn_minutes: number;
+            /**
+             * Format: int64
+             * @description Balance still available (never negative).
+             */
+            remaining_minutes: number;
+            /** Format: int64 */
+            total_minutes: number;
+        };
         /** @description Prepaid-block spec (A): an hour bank sold up front. */
         BlockSpec: {
             /**
@@ -17294,6 +17413,13 @@ export interface components {
             status: string;
         };
         /**
+         * @description The human verification disposition of one time entry (Wave 39 V1).
+         *     `rejected` and `non_billable` demand the typed [`UnbillableReason`];
+         *     the workspace badge set matches this vocabulary exactly.
+         * @enum {string}
+         */
+        DispositionStatus: "approved" | "rejected" | "non_billable" | "needs_review";
+        /**
          * @description A document's living handle. No content lives here — content is only
          *     ever a [`DocumentVersion`]; `current_version` names the newest one.
          */
@@ -17768,6 +17894,57 @@ export interface components {
             decision?: null | components["schemas"]["EntityWorkbenchDecision"];
             fields: components["schemas"]["EntityWorkbenchFieldRow"][];
             primary: components["schemas"]["EntityWorkbenchSide"];
+        };
+        /**
+         * @description The body of an entry action. One endpoint, one envelope, every
+         *     in-context edit — so the reason requirement, the audit row, the
+         *     pre-run guard, and the invoiced lock cannot be forgotten on one
+         *     branch.
+         */
+        EntryActionRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description `approve` | `reject` | `flip_billable` | `adjust_minutes` |
+             *     `recategorize` | `add_note`.
+             */
+            action: string;
+            /**
+             * Format: int64
+             * @description `adjust_minutes` only: the NEW effective minutes for the entry
+             *     (0..=current effective). The signed delta is derived here.
+             */
+            minutes?: number | null;
+            /** @description `add_note` only: the note text. */
+            note?: string | null;
+            /**
+             * @description Required by `reject`, `flip_billable`, and `adjust_minutes`:
+             *     the human explanation that rides the audit row (V9). Omitting
+             *     it is a 422, not a silent write.
+             */
+            reason?: string | null;
+            /** @description `reject` only: the typed rejection code. */
+            reason_code?: string | null;
+            /** @description `flip_billable` only: required when flipping to non-billable. */
+            unbillable_reason?: string | null;
+            /** @description `recategorize` only: a category slug from the org taxonomy. */
+            work_type?: string | null;
+        };
+        /** @description The applied action result. */
+        EntryActionResponse: {
+            /** @description The action actually applied. */
+            action: string;
+            adjustment?: null | components["schemas"]["TimeEntryAdjustment"];
+            /** @description The audit action name written to `audit_events` (V9). */
+            audit_action: string;
+            /** @description The entry's current disposition after the write. */
+            disposition?: string | null;
+            /**
+             * Format: int64
+             * @description Effective minutes after the write.
+             */
+            effective_minutes: number;
+            /** Format: uuid */
+            entry_id: string;
+            mutation: components["schemas"]["MutationMeta"];
         };
         /** @description Suggestion payload built from one `decision_billing_audit` row. */
         EntrySuggestion: {
@@ -18774,6 +18951,27 @@ export interface components {
             invoices: components["schemas"]["IssuedInvoice"][];
             mutation: components["schemas"]["MutationMeta"];
             run: components["schemas"]["InvoiceRun"];
+        };
+        /**
+         * @description The reviewer sign-off recorded per invoice run (Wave 39 V8): the
+         *     close checklist a human attested before the run fired. One row per
+         *     run; the run-create seam refuses an unsigned run.
+         */
+        InvoiceRunSignoff: {
+            entries_dispositioned: boolean;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            preview_seen: boolean;
+            /** Format: uuid */
+            reviewer_id?: string | null;
+            reviewer_note?: string | null;
+            /** Format: uuid */
+            run_id: string;
+            /** Format: date-time */
+            signed_at: string;
+            zero_unclassified: boolean;
         };
         /**
          * @description Document lifecycle of an invoice.
@@ -23866,6 +24064,16 @@ export interface components {
              */
             to?: string | null;
         };
+        /** @description One issued run window in the overlap warning. */
+        RunWindowView: {
+            number: string;
+            /** Format: date */
+            period_from: string;
+            /** Format: date */
+            period_to: string;
+            /** Format: uuid */
+            run_id: string;
+        };
         /** @description One candidate when a code matches more than one row of the same kind. */
         ScanCandidateView: {
             display_name: string;
@@ -24701,6 +24909,45 @@ export interface components {
              */
             ticket_id?: string | null;
             tracking_ref?: string | null;
+        };
+        /** @description The close sign-off body. */
+        SignoffRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            contract_id: string;
+            entries_dispositioned: boolean;
+            /** Format: date */
+            from: string;
+            preview_seen: boolean;
+            reviewer_note?: string | null;
+            /** Format: date */
+            to: string;
+            zero_unclassified: boolean;
+        };
+        /** @description The sign-off response. */
+        SignoffResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            /**
+             * @description Issued runs overlapping this window — a WARNING, not a block:
+             *     re-running an overlapping window is a real operator need, but
+             *     it must never be silent.
+             */
+            overlapping_runs: components["schemas"]["RunWindowView"][];
+            signoff: components["schemas"]["SignoffView"];
+        };
+        /** @description The close checklist as recorded. */
+        SignoffView: {
+            entries_dispositioned: boolean;
+            preview_seen: boolean;
+            /** Format: uuid */
+            reviewer_id?: string | null;
+            reviewer_note?: string | null;
+            /**
+             * Format: uuid
+             * @description The run that claimed this sign-off, when one has.
+             */
+            run_id?: string | null;
+            signed_at: string;
+            zero_unclassified: boolean;
         };
         SimilarTicketCandidate: {
             /** @description `shadow` rows are recorded but drive nothing (no rerank applied). */
@@ -26232,6 +26479,42 @@ export interface components {
             work_type?: string | null;
         };
         /**
+         * @description One verification edit on one entry's billed minutes (Wave 39 V2).
+         *     Additive-ledger: the original entry row is never rewritten for
+         *     billing — the run sums `(entry.minutes + Σ delta_minutes)`. The
+         *     signed delta is ≤ 0 (verification can only reduce or zero); the
+         *     reason is the evidence (V9) and is NOT NULL at the DB level.
+         */
+        TimeEntryAdjustment: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /**
+             * Format: int32
+             * @description Signed; always ≤ 0. `original_minutes + delta >= 0` holds.
+             */
+            delta_minutes: number;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: int32
+             * @description Denormalized evidence: minutes BEFORE the adjustment.
+             */
+            original_minutes: number;
+            reason: string;
+            /**
+             * Format: uuid
+             * @description The run this adjustment rides, when it was made during a run's
+             *     close flow; `None` when made from the standalone workspace.
+             */
+            run_id?: string | null;
+            /** Format: uuid */
+            time_entry_id: string;
+        };
+        /**
          * @description One append-only approval decision (the audit row behind the queue's
          *     history view). `seq` is monotonic per entry — the client's ordering key.
          */
@@ -27393,6 +27676,154 @@ export interface components {
              */
             applied: boolean;
             reason?: string | null;
+        };
+        /** @description The workspace counters that gate the close checklist. */
+        VerificationCounters: {
+            /** Format: int64 */
+            adjusted: number;
+            /** Format: int64 */
+            billable: number;
+            /** Format: int64 */
+            draft: number;
+            /** Format: int64 */
+            entries: number;
+            /** Format: int64 */
+            invoiced: number;
+            /** Format: int64 */
+            non_billable: number;
+            /** Format: int64 */
+            rejected: number;
+            /**
+             * Format: int64
+             * @description Approved + billable + no category slug: these price at the
+             *     contract default rate, which is exactly the silent billing the
+             *     close ritual exists to catch.
+             */
+            unclassified: number;
+            /**
+             * Format: int64
+             * @description Entries nobody has dispositioned yet.
+             */
+            undispositioned: number;
+        };
+        /** @description One entry inside a ticket group: identity, cost cell, badge. */
+        VerificationEntryView: {
+            /**
+             * Format: int64
+             * @description Signed adjustment total (negative or zero; 0 when untouched).
+             */
+            adjustment_minutes: number;
+            /** @description Approval state (draft/submitted/approved/rejected). */
+            approval_status: string;
+            /**
+             * Format: int64
+             * @description Priced cost in contract minor units at the resolved card rate.
+             */
+            cost_minor: number;
+            /** @description The current human disposition, when one was recorded. */
+            disposition?: string | null;
+            /**
+             * Format: int64
+             * @description Minutes after verification adjustments — what the run will price.
+             */
+            effective_minutes: number;
+            /** Format: uuid */
+            id: string;
+            /** @description True when an invoice already consumed this entry (locked). */
+            invoiced: boolean;
+            /**
+             * Format: int64
+             * @description Raw logged minutes.
+             */
+            minutes: number;
+            /** @description Free-text note on the entry. */
+            notes?: string | null;
+            /**
+             * Format: uuid
+             * @description Project phase this entry scopes to, when project-scoped.
+             */
+            phase_id?: string | null;
+            /**
+             * Format: int64
+             * @description The card rate this entry priced at, per hour.
+             */
+            rate_minor: number;
+            started_at: string;
+            /** @description Typed unbillable reason when the entry is non-billable. */
+            unbillable_reason?: string | null;
+            /** Format: uuid */
+            user_id: string;
+            user_name: string;
+            /** @description The category slug, or null (unclassified — a blocker, not a blank). */
+            work_type?: string | null;
+        };
+        /** @description One ticket (or project phase) group with its running totals. */
+        VerificationGroupView: {
+            entries: components["schemas"]["VerificationEntryView"][];
+            /**
+             * Format: uuid
+             * @description Stable grouping key: the ticket id, or the phase id for
+             *     project-scoped entries (Wave 39 lane 4 gave entries a second
+             *     parent, so a phase group has no ticket number).
+             */
+            group_id: string;
+            /** @description Human label: ticket number, else "Project / phase". */
+            label: string;
+            project_name?: string | null;
+            /**
+             * Format: int64
+             * @description Group cost in contract minor units.
+             */
+            total_cost_minor: number;
+            /**
+             * Format: int64
+             * @description Group minutes after adjustments.
+             */
+            total_minutes: number;
+        };
+        /** @description The full workspace response. */
+        VerificationWorkspace: {
+            /**
+             * @description The block-consumption panel (empty when the contract has no
+             *     blocks — retainer overage panels render nothing, not a zero).
+             */
+            blocks: components["schemas"]["BlockPanelView"][];
+            /** Format: uuid */
+            client_id: string;
+            client_name?: string | null;
+            /** Format: uuid */
+            contract_id: string;
+            contract_name: string;
+            contract_number: string;
+            contract_type: string;
+            counters: components["schemas"]["VerificationCounters"];
+            currency: string;
+            /** Format: date */
+            from: string;
+            groups: components["schemas"]["VerificationGroupView"][];
+            /** @description Issued runs whose window overlaps this one (report V8). */
+            overlapping_runs: components["schemas"]["RunWindowView"][];
+            /**
+             * Format: int64
+             * @description What the engine says this window would bill. The workspace's
+             *     own entry sum and this are computed independently on purpose:
+             *     they must agree, and a disagreement is the signal that a
+             *     disposition was missed.
+             */
+            preview_total_minor: number;
+            signoff?: null | components["schemas"]["SignoffView"];
+            /** Format: date */
+            to: string;
+            /**
+             * Format: int64
+             * @description Running total across the whole window, in contract minor units.
+             */
+            total_minor: number;
+            /**
+             * Format: int64
+             * @description Running total minutes across the window (effective).
+             */
+            total_minutes: number;
         };
         VerifyPublisherRequest: {
             display_name: string;
@@ -30498,6 +30929,133 @@ export interface operations {
                 };
             };
             /** @description missing or inverted window */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_verification: {
+        parameters: {
+            query: {
+                /**
+                 * @description The contract under review. Required: the workspace is
+                 *     per-contract because pricing, rate card, and blocks are.
+                 */
+                contract_id: string;
+                /** @description Inclusive period start (YYYY-MM-DD). */
+                from: string;
+                /** @description Inclusive period end (YYYY-MM-DD). */
+                to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationWorkspace"];
+                };
+            };
+            /** @description contract not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description inverted or oversized window */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_verification_entry_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Time entry id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntryActionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryActionResponse"];
+                };
+            };
+            /** @description entry not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description entry already invoiced; verification is pre-run only */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description missing reason, unknown action, or invalid value */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billing_verification_signoff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignoffRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignoffResponse"];
+                };
+            };
+            /** @description contract not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description checklist claim does not match the live window */
             422: {
                 headers: {
                     [name: string]: unknown;

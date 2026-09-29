@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT te.id,\n                  GREATEST(te.minutes + COALESCE((\n                      SELECT SUM(a.delta_minutes) FROM time_entry_adjustments a\n                       WHERE a.org_id = te.org_id AND a.time_entry_id = te.id\n                  ), 0), 0)::integer AS \"minutes!\",\n                  te.work_type, te.started_at::date AS \"entry_date!\"\n           FROM time_entries te\n           JOIN tickets t ON t.id = te.ticket_id\n           WHERE te.org_id = $1 AND t.client_id = $2\n             AND te.billable\n             AND te.approval_status = 'approved'\n             AND te.started_at::date >= $3 AND te.started_at::date <= $4\n           ORDER BY te.started_at, te.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "minutes!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "work_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "entry_date!",
+        "type_info": "Date"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "ccaa266838c1efcc27565c5de697b6efdc535fd46e015f77605b5613de2ad85d"
+}

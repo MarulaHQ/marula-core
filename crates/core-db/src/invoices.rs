@@ -828,7 +828,9 @@ pub struct UnbilledEntryRow {
 /// against the consumption links makes double-billing an entry
 /// impossible even across overlapping runs and across contracts sharing
 /// a client; the approval filter (Wave 14 lane 1) means only approved
-/// work reaches an invoice.
+/// work reaches an invoice. Minutes are the EFFECTIVE minutes — the raw
+/// minutes less the verification adjustment ledger (Wave 39 lane 2), so
+/// this candidate panel agrees with what the engine will price.
 pub async fn list_unbilled_entries<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -840,7 +842,12 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let rows = sqlx::query!(
-        r#"SELECT te.id, te.minutes, te.work_type, te.started_at::date AS "entry_date!"
+        r#"SELECT te.id,
+                  GREATEST(te.minutes + COALESCE((
+                      SELECT SUM(a.delta_minutes) FROM time_entry_adjustments a
+                       WHERE a.org_id = te.org_id AND a.time_entry_id = te.id
+                  ), 0), 0)::integer AS "minutes!",
+                  te.work_type, te.started_at::date AS "entry_date!"
            FROM time_entries te
            JOIN tickets t ON t.id = te.ticket_id
            WHERE te.org_id = $1 AND t.client_id = $2

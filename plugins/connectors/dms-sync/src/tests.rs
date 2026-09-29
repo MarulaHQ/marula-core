@@ -102,31 +102,8 @@ impl MockSink {
         }
     }
 
-    fn with_clients() -> Self {
-        let sink = Self::new();
-        {
-            let mut state = sink.state.lock().unwrap();
-            state.clients = vec![
-                ClientRecord {
-                    id: acme(),
-                    name: "Acme Corp".into(),
-                },
-                ClientRecord {
-                    id: globex(),
-                    name: "Globex Industries".into(),
-                },
-            ];
-        }
-        sink
-    }
-
     fn with_system_layout(self, layout: LayoutRecord) -> Self {
         self.state.lock().unwrap().layouts.push(layout);
-        self
-    }
-
-    fn with_asset(self, asset: AssetRecord) -> Self {
-        self.state.lock().unwrap().assets.push(asset);
         self
     }
 
