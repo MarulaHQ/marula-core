@@ -547,7 +547,13 @@ fn project_release_lines(
 /// `(minutes * rate + 30) / 60`. Returns `None` on i64 overflow of the
 /// product (surfaced as a skipped line rather than a wrong total — the
 /// quantities involved make this practically unreachable).
-fn prorate(minutes: i64, hourly_rate_minor: i64) -> Option<i64> {
+///
+/// Public because the billing verification workspace prices each entry
+/// for display (Wave 39 lane 2, report V1). Sharing THIS function is
+/// what guarantees Σ(per-entry cost) == the T&M line amount the run
+/// will produce: a second rounding rule in the read model would let
+/// the reviewer's total disagree with the invoice.
+pub fn prorate(minutes: i64, hourly_rate_minor: i64) -> Option<i64> {
     let raw = (minutes as i128) * (hourly_rate_minor as i128);
     let rounded = (raw + 30) / 60;
     i64::try_from(rounded).ok()

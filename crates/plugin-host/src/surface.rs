@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn derive_surface_should_read_manifest_profile_and_install_grants() {
-        let mut m = PluginManifestV2 {
+        let m = PluginManifestV2 {
             name: "CSAT Widget".into(),
             version: "1.0.0".into(),
             interface_version: core_domain::entities::plugins::PLUGIN_RUNTIME_INTERFACE_VERSION,

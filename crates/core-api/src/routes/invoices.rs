@@ -807,6 +807,16 @@ pub async fn create_run(
             currencies.first().cloned(),
         )
         .await?;
+        // Wave 39 lane 2 (report V8): claim the close sign-offs this
+        // run's invoices cover. A run with no sign-off still issues —
+        // the ritual is evidence, not a hard gate — but when a reviewer
+        // signed the window, the run row is what the sign-off points at
+        // from now on, so "was this period verified?" is one query.
+        let claimed_signoffs =
+            core_db::verification::attach_signoffs_to_run(&mut *ctx.tx, org_id, run_id).await?;
+        if claimed_signoffs > 0 {
+            tracing::debug!(run = %run_id, claimed_signoffs, "claimed billing verification sign-offs");
+        }
         let run = core_db::invoices::get_run(&mut *ctx.tx, org_id, run_id).await?;
         ctx.emit(
             types::INVOICE_RUN_COMPLETED,

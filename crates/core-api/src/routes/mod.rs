@@ -139,6 +139,7 @@ pub mod timers;
 pub mod tools;
 pub mod transcription;
 pub mod undo;
+pub mod verification;
 pub mod webhook_admin;
 pub mod webhooks;
 pub mod workflow_overrides;
@@ -1863,6 +1864,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // taxonomy, capture defaults, billing-audit suggestion reads —
         // module-owned router; mutations ride the IF1-IF3 envelope.
         .merge(time_categories::routes(gen))
+        // billing verification workspace (Wave 39 lane 2, migration
+        // 0111): the pre-invoice review surface, its in-context entry
+        // actions, and the close sign-off — module-owned router.
+        .merge(verification::routes(gen))
         .merge(ticket_links::routes(gen))
         .merge(costs::routes(gen))
         .merge(recurring::routes(gen))

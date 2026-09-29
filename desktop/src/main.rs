@@ -687,73 +687,6 @@ async fn install_desktop_update(
     app.restart()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Command-level check without a physical printer: a local listener
-    /// stands in for the Zebra and must receive the EXACT ZPL bytes.
-    #[tokio::test]
-    async fn print_raw_zpl_delivers_exact_bytes_to_a_listener() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind");
-        let addr = listener.local_addr().expect("addr");
-        let printer = tokio::spawn(async move {
-            let (mut sock, _) = listener.accept().await.expect("accept");
-            let mut buf = Vec::new();
-            tokio::io::AsyncReadExt::read_to_end(&mut sock, &mut buf)
-                .await
-                .expect("read");
-            buf
-        });
-        let zpl = "^XA\n^CI28\n^FO12,12\n^A0N,26,16\n^FH^FDHello^FS\n^XZ\n";
-        send_zpl_to("127.0.0.1", addr.port(), zpl.as_bytes())
-            .await
-            .expect("send");
-        let received = printer.await.expect("printer task");
-        assert_eq!(
-            String::from_utf8(received).expect("utf8"),
-            zpl,
-            "the printer receives the exact ZPL bytes the core rendered"
-        );
-    }
-
-    #[tokio::test]
-    async fn empty_host_is_refused_honestly() {
-        let err = send_zpl_to("   ", 9100, b"^XA^XZ\n").await.unwrap_err();
-        assert!(format!("{err:#}").contains("empty"), "{err:#}");
-    }
-
-    /// ACL wiring contract (Wave 34 lane 6): the web app loads from a
-    /// REMOTE loopback origin, and since tauri 2.11 remote origins need an
-    /// explicit `remote` capability even for custom commands. This pins
-    /// the capability file that grants the three app commands — losing any
-    /// of them silently disables the ZPL transport or the update UI in the
-    /// real shell while every browser test stays green.
-    #[test]
-    fn loopback_web_capability_grants_the_three_app_commands() {
-        let raw = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/capabilities/desktop-web.json"
-        ))
-        .expect("capability file exists");
-        let v: serde_json::Value = serde_json::from_str(&raw).expect("capability parses");
-        assert_eq!(v["windows"][0], "main");
-        assert_eq!(v["remote"]["urls"][0], "http://127.0.0.1:*");
-        let permissions = v["permissions"].as_array().expect("permissions array");
-        for expected in [
-            "allow-print-raw-zpl",
-            "allow-check-desktop-update",
-            "allow-install-desktop-update",
-        ] {
-            assert!(
-                permissions.contains(&serde_json::json!(expected)),
-                "capability must grant {expected}"
-            );
-        }
-    }
-}
 
 fn main() {
     tracing_subscriber::fmt()
@@ -906,4 +839,72 @@ fn main() {
                 _ => {}
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Command-level check without a physical printer: a local listener
+    /// stands in for the Zebra and must receive the EXACT ZPL bytes.
+    #[tokio::test]
+    async fn print_raw_zpl_delivers_exact_bytes_to_a_listener() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let printer = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.expect("accept");
+            let mut buf = Vec::new();
+            tokio::io::AsyncReadExt::read_to_end(&mut sock, &mut buf)
+                .await
+                .expect("read");
+            buf
+        });
+        let zpl = "^XA\n^CI28\n^FO12,12\n^A0N,26,16\n^FH^FDHello^FS\n^XZ\n";
+        send_zpl_to("127.0.0.1", addr.port(), zpl.as_bytes())
+            .await
+            .expect("send");
+        let received = printer.await.expect("printer task");
+        assert_eq!(
+            String::from_utf8(received).expect("utf8"),
+            zpl,
+            "the printer receives the exact ZPL bytes the core rendered"
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_host_is_refused_honestly() {
+        let err = send_zpl_to("   ", 9100, b"^XA^XZ\n").await.unwrap_err();
+        assert!(format!("{err:#}").contains("empty"), "{err:#}");
+    }
+
+    /// ACL wiring contract (Wave 34 lane 6): the web app loads from a
+    /// REMOTE loopback origin, and since tauri 2.11 remote origins need an
+    /// explicit `remote` capability even for custom commands. This pins
+    /// the capability file that grants the three app commands — losing any
+    /// of them silently disables the ZPL transport or the update UI in the
+    /// real shell while every browser test stays green.
+    #[test]
+    fn loopback_web_capability_grants_the_three_app_commands() {
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capabilities/desktop-web.json"
+        ))
+        .expect("capability file exists");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("capability parses");
+        assert_eq!(v["windows"][0], "main");
+        assert_eq!(v["remote"]["urls"][0], "http://127.0.0.1:*");
+        let permissions = v["permissions"].as_array().expect("permissions array");
+        for expected in [
+            "allow-print-raw-zpl",
+            "allow-check-desktop-update",
+            "allow-install-desktop-update",
+        ] {
+            assert!(
+                permissions.contains(&serde_json::json!(expected)),
+                "capability must grant {expected}"
+            );
+        }
+    }
 }

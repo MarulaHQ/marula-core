@@ -174,7 +174,7 @@ fn clamp_to_visible(
     // Keep at least a 60px sliver visible horizontally and the title bar
     // reachable vertically.
     let x = frame.x.clamp(min_x, (max_x - 60).max(min_x));
-    let y = frame.y.clamp(min_y - 0, (max_y - 60).max(min_y));
+    let y = frame.y.clamp(min_y, (max_y - 60).max(min_y));
     (x, y, width, height)
 }
 
@@ -193,11 +193,18 @@ pub fn restore_frame(
 }
 
 /// True when the label pattern `subwindow::<role>::<n>` names a lane window.
+// Both label helpers are pinned by the tests below; the per-role
+// bookkeeping that will call them lands with the lane-window feature.
+// `allow` rather than `expect`: the lint is build-dependent (dead in the
+// bin, used in the test build), and an `expect` is unfulfilled in one of
+// those builds, which is itself an error under -D warnings.
+#[allow(dead_code, reason = "label helper with a test but no call site yet")]
 pub fn is_lane_window_label(label: &str) -> bool {
     label.starts_with("subwindow::")
 }
 
 /// Parse a role out of a lane window label, for per-role bookkeeping.
+#[allow(dead_code, reason = "label helper with a test but no call site yet")]
 pub fn role_of_label(label: &str) -> Option<&str> {
     let rest = label.strip_prefix("subwindow::")?;
     rest.split("::").next()
@@ -235,8 +242,8 @@ mod tests {
         };
         let (x, y, w, h) = clamp_to_visible(&saved, &monitors);
         // x clamps so ≥60px remains visible before the union's right edge.
-        assert!(x >= 0 && x <= 1920 + 1920 - 60);
-        assert!(y >= 0 && y <= 1080 - 60);
+        assert!((0..=1920 + 1920 - 60).contains(&x));
+        assert!((0..=1080 - 60).contains(&y));
         assert_eq!(w, 1200);
         assert_eq!(h, 800);
     }

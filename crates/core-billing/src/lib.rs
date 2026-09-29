@@ -37,5 +37,6 @@ pub use payments::{
 };
 pub use periods::{period_start, periods_starting_in};
 pub use rules::{
-    evaluate, BillableEntry, BillingError, EvalInputs, IncidentTicket, ProjectRelease, UnitCounts,
+    evaluate, prorate, BillableEntry, BillingError, EvalInputs, IncidentTicket, ProjectRelease,
+    UnitCounts,
 };

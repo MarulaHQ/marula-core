@@ -100,6 +100,11 @@ impl DeepLinkTarget {
 
     /// Where the MAIN window routes for this link (always Some: unknown
     /// links still surface somewhere honest).
+    // Pinned by `main_paths_route_entities`; the deep-link handler wires
+    // its call site next. Deleting an API the tests already hold would
+    // throw that coverage away, so the dead-code expectation carries the
+    // reason instead.
+    #[allow(dead_code, reason = "routing helper with a test but no call site yet")]
     pub fn main_path(&self) -> String {
         match self {
             DeepLinkTarget::Ticket(id) => format!("/tickets/{id}"),
@@ -136,9 +141,7 @@ pub async fn route_deep_link(app: &AppHandle, raw: &str) -> Result<String, Strin
                     return Ok(label);
                 }
             }
-            super::window_manager::open_native_window(app.clone(), role, path)
-                .await
-                .map(|label| label)
+            super::window_manager::open_native_window(app.clone(), role, path).await
         }
         None => {
             // At minimum surface the main window.

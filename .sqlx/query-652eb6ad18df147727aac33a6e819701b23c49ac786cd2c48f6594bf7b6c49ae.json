@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, contract_id, period_from, period_to, run_id,\n                  entries_dispositioned, zero_unclassified, preview_seen,\n                  reviewer_id, reviewer_note, signed_at\n             FROM invoice_run_signoffs\n            WHERE org_id = $1 AND contract_id = $2\n              AND period_from = $3 AND period_to = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "contract_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "period_from",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 4,
+        "name": "period_to",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 5,
+        "name": "run_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "entries_dispositioned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "zero_unclassified",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "preview_seen",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "reviewer_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 10,
+        "name": "reviewer_note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "signed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "652eb6ad18df147727aac33a6e819701b23c49ac786cd2c48f6594bf7b6c49ae"
+}
