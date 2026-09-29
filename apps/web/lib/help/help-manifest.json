@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "docsBase": "https://marula.dev/docs",
+  "docsBase": "https://marula.app/docs",
   "notes": "In-app help index (Wave 26 lane 2, ADR 0009 extension). Route keys are the web app's route families (apps/web/lib/help/route-keys.ts). Each doc path is site-relative under docs/site/ WITHOUT the .md extension; the checker (docs/site/scripts/check-docs-site.mjs) fails CI when a page moves or the audience tag drifts. Ranked newest-first by 'updated' in the help panel; audience filtering hides admin-only pages from members.",
   "routes": {
     "today": {

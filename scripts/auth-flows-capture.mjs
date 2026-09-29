@@ -34,7 +34,7 @@ const FIXTURES = {
   '/api/v1/me': {
     user_id: '00000000-0000-4000-8000-000000000001',
     org_id: ORG,
-    email: 'owner@meridian.test',
+    email: 'owner@marula.test',
     display_name: 'Taylor Reed',
     timezone: 'UTC',
     permissions: ['special:manage_users', 'admin:org'],
@@ -76,7 +76,7 @@ const FIXTURES = {
       id: 'p2',
       name: 'entra-id',
       display_name: 'Microsoft Entra ID',
-      issuer: 'https://login.microsoftonline.com/meridian',
+      issuer: 'https://login.microsoftonline.com/marula',
       enabled: false,
     },
   ],
@@ -101,21 +101,21 @@ async function shot(browser, viewport, theme, name, path, opts = {}) {
 
   await page.addInitScript(
     ({ t, authed, mfaPending, ssoFreeze }) => {
-      window.localStorage.setItem('meridian-theme', t);
+      window.localStorage.setItem('marula-theme', t);
       if (mfaPending) {
-        window.sessionStorage.setItem('meridian-mfa-pending', JSON.stringify({
+        window.sessionStorage.setItem('marula-mfa-pending', JSON.stringify({
           mfa_token: 'bridge-token',
           methods: ['totp', 'recovery', 'webauthn'],
         }));
       }
       if (authed) {
-        window.localStorage.setItem('meridian-tokens', JSON.stringify({
+        window.localStorage.setItem('marula-tokens', JSON.stringify({
           access_token: 'test-access',
           refresh_token: 'test-refresh',
           session_id: 'sess',
           expires_in: 900,
         }));
-        window.localStorage.setItem('meridian-tokens-exp', String(Date.now() + 60_000));
+        window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
       }
       const style = document.createElement('style');
       style.textContent = 'nextjs-portal{display:none!important}';

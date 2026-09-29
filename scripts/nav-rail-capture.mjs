@@ -23,7 +23,7 @@ if (!existsSync(OUT)) await mkdir(OUT, { recursive: true });
 const ME = {
   user_id: '00000000-0000-4000-8000-000000000001',
   org_id: '00000000-0000-4000-8000-000000000002',
-  email: 'owner@meridian.test',
+  email: 'owner@marula.test',
   display_name: 'Taylor Reed',
   timezone: 'UTC',
   permissions: ['special:manage_boards', 'tickets:edit', 'tickets:read', 'financial:read', 'admin:org'],
@@ -104,14 +104,14 @@ async function capture(viewport, theme, route) {
   if (theme === 'dark') url.searchParams.set('theme', 'dark');
 
   await page.addInitScript(() => {
-    window.localStorage.setItem('meridian-theme', window.location.search.includes('theme=dark') ? 'dark' : 'light');
-    window.localStorage.setItem('meridian-tokens', JSON.stringify({
+    window.localStorage.setItem('marula-theme', window.location.search.includes('theme=dark') ? 'dark' : 'light');
+    window.localStorage.setItem('marula-tokens', JSON.stringify({
       access_token: 'test-access',
       refresh_token: 'test-refresh',
       session_id: 'sess',
       expires_in: 900,
     }));
-    window.localStorage.setItem('meridian-tokens-exp', String(Date.now() + 60_000));
+    window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
     // Hide the Next.js dev-tools indicator so it never occludes the work bar.
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal{display:none!important}';

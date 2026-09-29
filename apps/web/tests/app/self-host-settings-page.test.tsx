@@ -70,7 +70,7 @@ function view(overrides: Record<string, unknown> = {}) {
       admin_api_docs_url:
         "https://garagehq.deuxfleurs.fr/documentation/reference-manual/admin-api/",
       s3_endpoint: "http://garage:3900",
-      s3_bucket: "meridian",
+      s3_bucket: "marula",
     },
     ...overrides,
   };

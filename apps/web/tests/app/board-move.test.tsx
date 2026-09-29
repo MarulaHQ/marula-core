@@ -33,7 +33,7 @@ const NOW = "2026-08-30T09:00:00Z";
 const ME_EDIT = {
   user_id: "00000000-0000-4000-8000-000000000001",
   org_id: "00000000-0000-4000-8000-000000000002",
-  email: "tech@meridian.test",
+  email: "tech@marula.test",
   display_name: "Tech",
   timezone: "UTC",
   permissions: ["tickets:edit"],

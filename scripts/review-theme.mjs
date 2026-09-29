@@ -74,7 +74,7 @@ const tokensCssPath = resolve(root, "packages/ui/src/tokens.css");
 const globalsPath = resolve(root, "apps/web/app/globals.css");
 const componentsPath = resolve(root, "packages/ui/src/components.css");
 const tokensTsPath = resolve(root, "packages/ui/src/tokens.ts");
-const mockupPath = resolve(root, "design/mockups/meridian-ticket-workbench-html-mockup-v2.html");
+const mockupPath = resolve(root, "design/mockups/marula-ticket-workbench-html-mockup-v2.html");
 
 check(existsSync(presetPath), "vendored preset exists (design/tangerine/tangerine.json)");
 check(existsSync(tokensCssPath), "packages/ui/src/tokens.css exists");
@@ -264,7 +264,7 @@ check(/#e8ebed/i.test(mockup), "mockup warm-neutral canvas");
 check(/body\.dark\s*\{/.test(mockup), "mockup v2 dark-mode support (body.dark block)");
 
 // ---------- summary ----------
-console.log(`\n=== Meridian Theme Review — value-level (p15-theme-tangerine) ===`);
+console.log(`\n=== Marula Theme Review — value-level (p15-theme-tangerine) ===`);
 console.log(`Preset:  design/tangerine/tangerine.json (${Object.keys(preset.cssVars.light).length} light / ${Object.keys(preset.cssVars.dark).length} dark vars)`);
 console.log(`Passed:  ${passes} checks`);
 console.log(`Failed:  ${errors.length} checks`);

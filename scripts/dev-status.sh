@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Process registry for agents (report §3.5): list the running Meridian stack
+# Process registry for agents (report §3.5): list the running Marula stack
 # — pids, ports, env fingerprint — so a lane stops guessing which process it
 # may kill. Sources of truth:
 #   1. .kilo/dev-registry/run-*-pids.json — per-run entries written by
@@ -53,7 +53,7 @@ else
 fi
 
 echo
-echo "== other common Meridian processes (core-api / realtime / next standalone) =="
+echo "== other common Marula processes (core-api / realtime / next standalone) =="
 ps -axo pid,command | grep -E "release/(core-api|realtime)|\.next/standalone/server\.js|marula-core-cli" \
   | grep -v grep | sed 's/^/  /' || echo "  (none)"
 echo

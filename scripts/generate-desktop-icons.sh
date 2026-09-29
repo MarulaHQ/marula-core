@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Regenerate the Tauri desktop bundle icons from the meridian-ci brand assets.
+# Regenerate the Tauri desktop bundle icons from the marula-ci brand assets.
 #
-# Source of truth: meridian-ci/source/*.svg (editable SVGs — see
-# meridian-ci/README.md). The committed PNGs under meridian-ci/app-icon/ are
+# Source of truth: marula-ci/source/*.svg (editable SVGs — see
+# marula-ci/README.md). The committed PNGs under marula-ci/app-icon/ are
 # the rendered artifacts of those SVGs (16–1024px + maskable variants); this
 # script derives the platform containers the Tauri bundler consumes from them:
 #
@@ -10,12 +10,12 @@
 #   desktop/icons/icon.ico   ← multi-size ICO (16–256) re-encoded from icon-512
 #   desktop/icons/icon.icns  ← macOS iconset (16–1024) via iconutil
 #
-# Run after any meridian-ci source change: ./scripts/generate-desktop-icons.sh
+# Run after any marula-ci source change: ./scripts/generate-desktop-icons.sh
 # Requires: python3 with Pillow (pip3 install pillow) + macOS iconutil.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-SRC=meridian-ci/app-icon
+SRC=marula-ci/app-icon
 OUT=desktop/icons
 [ -f "$SRC/icon-512.png" ] || { echo "error: $SRC/icon-512.png missing" >&2; exit 1; }
 command -v iconutil >/dev/null || { echo "error: iconutil not found (macOS only)" >&2; exit 1; }
@@ -64,5 +64,5 @@ for name, size in variants.items():
 PY
 iconutil -c icns "$ICONSET" -o "$OUT/icon.icns"
 
-echo "desktop icons regenerated from $SRC (meridian-ci/source/*.svg):"
+echo "desktop icons regenerated from $SRC (marula-ci/source/*.svg):"
 ls -l "$OUT"/icon.png "$OUT"/icon.ico "$OUT"/icon.icns

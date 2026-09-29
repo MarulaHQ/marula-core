@@ -127,7 +127,7 @@ export function seedAuthTokens(): void {
 export const ME_FIXTURE = {
   user_id: "00000000-0000-4000-8000-000000000001",
   org_id: "00000000-0000-4000-8000-000000000002",
-  email: "owner@meridian.test",
+  email: "owner@marula.test",
   display_name: "Owner",
   timezone: "UTC",
   permissions: ["special:manage_boards"],

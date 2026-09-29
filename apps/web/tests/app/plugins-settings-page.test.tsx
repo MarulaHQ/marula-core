@@ -198,7 +198,7 @@ beforeEach(() => {
   installs.push(installFixture({ status: "disabled" }));
   stagedRows.push(stagedFixture());
   skills.push(skillFixture(2, false), skillFixture(1, false));
-  catalog.push({ id: CATALOG_ID, slug: "collector-http", name: "Collector HTTP", publisher: "Meridian", description: "HTTP connector", latest_version: "0.9.0", revoked: false, created_at: "2026-09-01T00:00:00Z", interface_version: 1 });
+  catalog.push({ id: CATALOG_ID, slug: "collector-http", name: "Collector HTTP", publisher: "Marula", description: "HTTP connector", latest_version: "0.9.0", revoked: false, created_at: "2026-09-01T00:00:00Z", interface_version: 1 });
 });
 
 describe("/settings/plugins integration", () => {

@@ -26,7 +26,7 @@ const ORG = '00000000-0000-4000-8000-000000000002';
 const ME = {
   user_id: '00000000-0000-4000-8000-000000000001',
   org_id: ORG,
-  email: 'owner@meridian.test',
+  email: 'owner@marula.test',
   display_name: 'Taylor Reed',
   timezone: 'UTC',
   permissions: ['special:manage_boards', 'tickets:edit', 'tickets:read', 'financial:read', 'admin:org'],
@@ -81,7 +81,7 @@ const TIME_ENTRIES = [
 ];
 const EMAILS = {
   messages: [
-    { id: 'em-1', org_id: ORG, ticket_id: TICKET_ID, direction: 'inbound', from_address: 'john.smith@acme-corp.com', to_addresses: ['support@meridian.test'], subject: 'VPN drops every 20-30 min', body_text: 'Since this morning my VPN drops…', reply_to_message_id: null, delivery: null, scan_status: 'clean', created_at: min(185) },
+    { id: 'em-1', org_id: ORG, ticket_id: TICKET_ID, direction: 'inbound', from_address: 'john.smith@acme-corp.com', to_addresses: ['support@marula.test'], subject: 'VPN drops every 20-30 min', body_text: 'Since this morning my VPN drops…', reply_to_message_id: null, delivery: null, scan_status: 'clean', created_at: min(185) },
   ],
 };
 const CLIENT = { id: CLIENT_ID, org_id: ORG, name: 'Acme Corporation', notes: null, restricted_to: [], created_at: min(90000), updated_at: min(500) };
@@ -169,14 +169,14 @@ async function capture(viewport, theme, route, name) {
   if (theme === 'dark') url.searchParams.set('theme', 'dark');
 
   await page.addInitScript(() => {
-    window.localStorage.setItem('meridian-theme', window.location.search.includes('theme=dark') ? 'dark' : 'light');
-    window.localStorage.setItem('meridian-tokens', JSON.stringify({
+    window.localStorage.setItem('marula-theme', window.location.search.includes('theme=dark') ? 'dark' : 'light');
+    window.localStorage.setItem('marula-tokens', JSON.stringify({
       access_token: 'test-access',
       refresh_token: 'test-refresh',
       session_id: 'sess',
       expires_in: 900,
     }));
-    window.localStorage.setItem('meridian-tokens-exp', String(Date.now() + 60_000));
+    window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal{display:none!important}';
     document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
@@ -225,9 +225,9 @@ for (const theme of ['light', 'dark']) {
     const url = new URL(`${BASE}/tickets/${TICKET_ID}`);
     if (theme === 'dark') url.searchParams.set('theme', 'dark');
     await page.addInitScript(() => {
-      window.localStorage.setItem('meridian-theme', window.location.search.includes('theme=dark') ? 'dark' : 'light');
-      window.localStorage.setItem('meridian-tokens', JSON.stringify({ access_token: 'test-access', refresh_token: 'test-refresh', session_id: 'sess', expires_in: 900 }));
-      window.localStorage.setItem('meridian-tokens-exp', String(Date.now() + 60_000));
+      window.localStorage.setItem('marula-theme', window.location.search.includes('theme=dark') ? 'dark' : 'light');
+      window.localStorage.setItem('marula-tokens', JSON.stringify({ access_token: 'test-access', refresh_token: 'test-refresh', session_id: 'sess', expires_in: 900 }));
+      window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
       const style = document.createElement('style');
       style.textContent = 'nextjs-portal{display:none!important}';
       document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));

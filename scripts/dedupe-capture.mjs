@@ -25,7 +25,7 @@ const ORG = '00000000-0000-4000-8000-000000000002';
 const ME = {
   user_id: '00000000-0000-4000-8000-000000000001',
   org_id: ORG,
-  email: 'owner@meridian.test',
+  email: 'owner@marula.test',
   display_name: 'Taylor Reed',
   timezone: 'UTC',
   permissions: ['inventory:view', 'inventory:write', 'integrations:write', 'admin:org', 'tickets:create'],
@@ -178,7 +178,7 @@ const FIXTURES = {
   '/api/v1/tickets': [],
   '/api/v1/notifications/unread-count': { count: 2 },
   '/api/v1/notifications': [],
-  '/api/v1/settings/org': { name: 'Meridian Demo Org', timezone: 'UTC', currency: 'USD' },
+  '/api/v1/settings/org': { name: 'Marula Demo Org', timezone: 'UTC', currency: 'USD' },
   '/api/v1/settings/user': { display_name: 'Taylor Reed', timezone: 'UTC' },
   '/api/v1/config-items/merge-candidates': CI_CANDIDATES,
   '/api/v1/config-items/merge-candidates/11111111-1111-4111-8111-111111111111/workbench': CI_DETAIL,
@@ -201,7 +201,7 @@ async function shot(browser, viewport, theme, name, path, interactions) {
   const url = new URL(`${BASE}${path}`);
   if (theme === 'dark') url.searchParams.set('theme', 'dark');
   await page.addInitScript((t) => {
-    window.localStorage.setItem('meridian-theme', t);
+    window.localStorage.setItem('marula-theme', t);
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal{display:none!important}';
     document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));

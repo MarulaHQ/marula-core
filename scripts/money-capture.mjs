@@ -27,7 +27,7 @@ const ORG = '00000000-0000-4000-8000-000000000002';
 const ME = {
   user_id: '00000000-0000-4000-8000-000000000001',
   org_id: ORG,
-  email: 'owner@meridian.test',
+  email: 'owner@marula.test',
   display_name: 'Taylor Reed',
   timezone: 'UTC',
   permissions: ['special:approve_time', 'financial:read', 'special:manage_users', 'admin:org', 'tickets:create'],
@@ -173,7 +173,7 @@ const DEAL = (id, name, stage_id, amount, currency = 'USD', extra = {}) => ({
 
 const DEALS = [
   DEAL('d1', 'Office refresh — HQ', 'st1', 4800000),
-  DEAL('d2', 'Meridian pilot (EUR)', 'st1', 2100000, 'EUR'),
+  DEAL('d2', 'Marula pilot (EUR)', 'st1', 2100000, 'EUR'),
   DEAL('d3', 'Firewall replacement fleet', 'st2', 9600000),
   DEAL('d4', 'Security retainer upsell', 'st3', 1400000),
   DEAL('d5', 'Managed backup add-on', 'st4', 1482000, 'USD', { status: 'won', closed_at: '2026-08-20T00:00:00Z' }),
@@ -288,7 +288,7 @@ const APPROVAL_QUEUE = [
 
 const FIXTURES = {
   '/api/v1/me': ME,
-  '/api/v1/org': { id: ORG, name: 'Meridian Demo Org', base_currency: 'USD', created_at: '2025-01-01T00:00:00Z' },
+  '/api/v1/org': { id: ORG, name: 'Marula Demo Org', base_currency: 'USD', created_at: '2025-01-01T00:00:00Z' },
   '/api/v1/settings/user': [],
   '/api/v1/settings/org': [],
   '/api/v1/clients': CLIENTS,
@@ -356,14 +356,14 @@ async function shot(browser, viewport, theme, name, path, interactions) {
   if (theme === 'dark') url.searchParams.set('theme', 'dark');
   const themeToken = theme === 'dark' ? 'dark' : 'light';
   await page.addInitScript((t) => {
-    window.localStorage.setItem('meridian-theme', t);
-    window.localStorage.setItem('meridian-tokens', JSON.stringify({
+    window.localStorage.setItem('marula-theme', t);
+    window.localStorage.setItem('marula-tokens', JSON.stringify({
       access_token: 'test-access',
       refresh_token: 'test-refresh',
       session_id: 'sess',
       expires_in: 900,
     }));
-    window.localStorage.setItem('meridian-tokens-exp', String(Date.now() + 60_000));
+    window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal{display:none!important}';
     document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));

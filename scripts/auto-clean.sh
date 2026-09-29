@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
 # auto-clean.sh — threshold-triggered disk hygiene (runs from the LaunchAgent
-# com.meridian.dev-clean.plist; safe to run by hand).
+# com.marula.dev-clean.plist; safe to run by hand).
 #
 #   free space >= SOFT (60Gi): no-op
 #   free space <  SOFT:        scripts/dev-clean.sh --go --stale 3 (fine-grained GC
@@ -17,7 +17,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LOG="$HOME/.cache/meridian-auto-clean.log"
+LOG="$HOME/.cache/marula-auto-clean.log"
 SOFT=60
 MEDIUM=50
 HARD=40

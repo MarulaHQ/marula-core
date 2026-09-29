@@ -32,9 +32,9 @@ for (const theme of THEMES) {
       await context.addInitScript(
         ({ tokens, theme }) => {
           window.__MARULA_API_URL__ = "http://127.0.0.1:15433";
-          window.localStorage.setItem("meridian-tokens", JSON.stringify(tokens));
-          window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 3600_000));
-          window.localStorage.setItem("meridian-theme", theme);
+          window.localStorage.setItem("marula-tokens", JSON.stringify(tokens));
+          window.localStorage.setItem("marula-tokens-exp", String(Date.now() + 3600_000));
+          window.localStorage.setItem("marula-theme", theme);
           try {
             document.documentElement.dataset.theme = theme;
           } catch {}
@@ -57,9 +57,9 @@ for (const theme of THEMES) {
   await context.addInitScript(
     ({ tokens, theme }) => {
       window.__MARULA_API_URL__ = "http://127.0.0.1:15433";
-      window.localStorage.setItem("meridian-tokens", JSON.stringify(tokens));
-      window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 3600_000));
-      window.localStorage.setItem("meridian-theme", theme);
+      window.localStorage.setItem("marula-tokens", JSON.stringify(tokens));
+      window.localStorage.setItem("marula-tokens-exp", String(Date.now() + 3600_000));
+      window.localStorage.setItem("marula-theme", theme);
       try {
         document.documentElement.dataset.theme = theme;
       } catch {}

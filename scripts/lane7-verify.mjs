@@ -8,7 +8,7 @@
 //      reset_sla, and the typed `board_move_status_conflict` retry.
 //
 // One browser session: login once, then toggle the theme through the
-// persisted key (`meridian-theme`) and re-navigate per capture.
+// persisted key (`marula-theme`) and re-navigate per capture.
 // Run: node scripts/lane7-verify.mjs
 import { chromium } from "playwright";
 
@@ -39,7 +39,7 @@ async function login(p) {
       // full navigation triggers a proactive refresh race. Seed the hint the
       // way the app's own refresh path does; this is harness-only.
       await p.evaluate(() =>
-        localStorage.setItem("meridian-tokens-exp", String(Date.now() + 600000)),
+        localStorage.setItem("marula-tokens-exp", String(Date.now() + 600000)),
       );
       return;
     }
@@ -86,7 +86,7 @@ async function shot(name, fullPage = false) {
   console.log("shot:", name);
 }
 async function setTheme(theme) {
-  await page.evaluate((t) => localStorage.setItem("meridian-theme", t), theme);
+  await page.evaluate((t) => localStorage.setItem("marula-theme", t), theme);
 }
 async function overflowAt768(label) {
   const overflow = await page.evaluate(

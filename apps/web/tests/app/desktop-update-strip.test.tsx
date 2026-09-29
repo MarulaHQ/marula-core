@@ -59,7 +59,7 @@ describe("DesktopUpdateStrip", () => {
     });
     render(<DesktopUpdateStrip />);
     expect(
-      await screen.findByText("Meridian 0.2.0 is ready to install — you're on 0.1.0."),
+      await screen.findByText("Marula 0.2.0 is ready to install — you're on 0.1.0."),
     ).toBeTruthy();
     await userEvent.click(screen.getByTestId("desktop-update-install"));
     await waitFor(() => {

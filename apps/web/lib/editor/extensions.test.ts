@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { marulaExtensionSet } from "./extensions";
 
 describe("marula editor extension set", () => {
-  it("loads the OSS composite — StarterKit + MIT extras + Meridian nodes", () => {
+  it("loads the OSS composite — StarterKit + MIT extras + Marula nodes", () => {
     const names = marulaExtensionSet.map((e) => e.name);
     // StarterKit's own entries are nested; its presence gates every core
     // node/mark above (`"document"` etc.). Extras are asserted wholesale.
@@ -16,9 +16,9 @@ describe("marula editor extension set", () => {
       "taskList",
       "taskItem",
       "youtube",
-      "meridianAssetLink",
-      "meridianKbEmbed",
-      "meridianTaxonomyTerm",
+      "MarulaAssetLink",
+      "MarulaKbEmbed",
+      "MarulaTaxonomyTerm",
     ]) {
       expect(names).toContain(name);
     }

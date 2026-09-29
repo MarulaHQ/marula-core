@@ -4,7 +4,7 @@ import { existsSync } from 'fs';
 import { resolve } from 'path';
 
 const CHROME = '/Users/iordn/Library/Caches/ms-playwright/chromium-1243/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing';
-const OUT = resolve('/Users/iordn/Documents/GitHub/meridian-open-psa-core/.kilo/worktrees/p15-theme-inkling/design/qa-tangerine');
+const OUT = resolve('/Users/iordn/Documents/GitHub/marula-open-psa-core/.kilo/worktrees/p15-theme-inkling/design/qa-tangerine');
 
 if (!existsSync(OUT)) await mkdir(OUT, { recursive: true });
 
@@ -12,7 +12,7 @@ const FIXTURES = {
   '/api/v1/me': {
     user_id: '00000000-0000-4000-8000-000000000001',
     org_id: '00000000-0000-4000-8000-000000000002',
-    email: 'owner@meridian.test',
+    email: 'owner@marula.test',
     display_name: 'Owner',
     timezone: 'UTC',
     permissions: ['special:manage_boards', 'tickets:edit', 'tickets:read', 'financial:read', 'admin:org'],
@@ -56,14 +56,14 @@ async function capture(viewport, theme) {
   }
 
   await page.addInitScript(() => {
-    window.localStorage.setItem('meridian-theme', window.location.search.includes('theme=dark') ? 'dark' : 'light');
-    window.localStorage.setItem('meridian-tokens', JSON.stringify({
+    window.localStorage.setItem('marula-theme', window.location.search.includes('theme=dark') ? 'dark' : 'light');
+    window.localStorage.setItem('marula-tokens', JSON.stringify({
       access_token: 'test-access',
       refresh_token: 'test-refresh',
       session_id: 'sess',
       expires_in: 900,
     }));
-    window.localStorage.setItem('meridian-tokens-exp', String(Date.now() + 60_000));
+    window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
   });
 
   await page.route('**/api/**', async (route) => {

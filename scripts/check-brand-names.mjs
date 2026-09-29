@@ -3,7 +3,7 @@
  * check-brand-names.mjs — Wave 41 lane 1 brand-NAMES gate.
  *
  * Enforces docs/reference/marula-name-map.md: after the mechanical pass, the
- * only `Meridian`/`meridian` hits in tracked files are the exclusion ledger
+ * only `Marula`/`marula` hits in tracked files are the exclusion ledger
  * (L1–L5 there) and the checker's ownself. New hits outside the ledger FAIL.
  *
  * Exit 0 = clean · exit 1 = violations (they print file:line).
@@ -29,8 +29,8 @@ const LEDGER_EXACT = new Set([
 const LEDGER_PREFIXES = [
   "design/qa-", // L4 landing records / reviews / captures
   "design/REPORT-", // historical design reports
-  "design/mockups/", // meridian-* mockup sources, historical
-  "meridian-ci/", // old brand asset pack (historical source bundle)
+  "design/mockups/", // marula-* mockup sources, historical
+  "marula-ci/", // old brand asset pack (historical source bundle)
   "website/", // FROZEN per D10 — moves to Marula-HQ; mechanical only
   ".kilo/", // agent-local tooling
   "graft/",
@@ -47,7 +47,7 @@ function git(args) {
   }
 }
 
-const lines = git(["grep", "-i", "-n", "meridian", "--", "."]).split("\n").filter(Boolean);
+const lines = git(["grep", "-i", "-n", "marula", "--", "."]).split("\n").filter(Boolean);
 
 const violations = [];
 for (const line of lines) {

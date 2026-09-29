@@ -137,7 +137,7 @@ const kbArticle = (n, title, body) => ({
 });
 
 const KB_ARTICLES = [
-  kbArticle(1, 'Restart a VPN connection on Windows', 'Open the Meridian VPN client, click Disconnect, wait ten seconds, then Connect again. If the tunnel still drops, report it from your portal Requests page so we can correlate with our edge logs.'),
+  kbArticle(1, 'Restart a VPN connection on Windows', 'Open the Marula VPN client, click Disconnect, wait ten seconds, then Connect again. If the tunnel still drops, report it from your portal Requests page so we can correlate with our edge logs.'),
   kbArticle(2, 'Run the mail queue check quickly', 'Sign in to the mail portal, go to Queues, and look for brown entries. A queue that grows for over an hour is usually a failed connector; restart the connector from Actions.'),
   kbArticle(3, 'Request a laptop image refresh', 'Use the portal if your device is on contract and you have not re-imaged in twelve months.'),
 ];
@@ -196,7 +196,7 @@ const FIXTURES = {
     ...CLIENT_ME,
     user_id: 'staff-me',
     org_id: 'o1',
-    email: 'owner@meridian.test',
+    email: 'owner@marula.test',
     display_name: 'Taylor Reed',
     timezone: 'UTC',
     permissions: ['admin:org'],
@@ -234,9 +234,9 @@ async function shot(browser, viewport, theme, name, path, interactions, anon = f
   const url = new URL(`${BASE}${path}`);
   const themeToken = theme === 'dark' ? 'dark' : 'light';
   await page.addInitScript(({ t, anonymous }) => {
-    window.localStorage.setItem('meridian-theme', t);
+    window.localStorage.setItem('marula-theme', t);
     if (!anonymous) {
-      window.localStorage.setItem('meridian-portal-tokens', JSON.stringify({
+      window.localStorage.setItem('marula-portal-tokens', JSON.stringify({
         access_token: 'test-access',
         refresh_token: 'test-refresh',
         session_id: 'sess',

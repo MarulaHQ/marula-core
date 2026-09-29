@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
 const root =
-  "/Users/iordn/Documents/GitHub/meridian-open-psa-core/.kilo/worktrees/p24-theming-system";
+  "/Users/iordn/Documents/GitHub/marula-open-psa-core/.kilo/worktrees/p24-theming-system";
 const OUT = join(root, "design/qa-p24-theming-system/captures");
 mkdirSync(OUT, { recursive: true });
 
@@ -25,7 +25,7 @@ function clearAuthGates() {
   try {
     execFileSync("/usr/bin/env", [
       `PGPASSWORD=postgres`, "psql", "-h", "127.0.0.1", "-p", PG_PORT,
-      "-U", "postgres", "-d", "meridian", "-c", "DELETE FROM auth_lockouts",
+      "-U", "postgres", "-d", "marula", "-c", "DELETE FROM auth_lockouts",
     ], { stdio: "ignore", env: { ...process.env, PGPASSWORD: "postgres" } });
   } catch { /* gate table may not exist on older bundles */ }
 }

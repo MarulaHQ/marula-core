@@ -33,7 +33,7 @@ const ORG = '00000000-0000-4000-8000-000000000002';
 const ME = {
   user_id: '00000000-0000-4000-8000-000000000001',
   org_id: ORG,
-  email: 'owner@meridian.test',
+  email: 'owner@marula.test',
   display_name: 'Taylor Reed',
   timezone: 'UTC',
   permissions: ['special:manage_users', 'special:approve_time', 'special:manage_boards', 'tickets:create', 'admin:org'],
@@ -48,8 +48,8 @@ const BOARDS_NAV = [
 
 const USERS = {
   users: [
-    { id: 'u1', org_id: ORG, email: 'taylor@meridian.test', display_name: 'Taylor Reed', timezone: 'UTC', is_active: true, created_at: iso(-90 * 864e5), is_self: true },
-    { id: 'u2', org_id: ORG, email: 'ada@meridian.test', display_name: 'Ada Whitfield', timezone: 'Europe/London', is_active: true, created_at: iso(-30 * 864e5), is_self: false },
+    { id: 'u1', org_id: ORG, email: 'taylor@marula.test', display_name: 'Taylor Reed', timezone: 'UTC', is_active: true, created_at: iso(-90 * 864e5), is_self: true },
+    { id: 'u2', org_id: ORG, email: 'ada@marula.test', display_name: 'Ada Whitfield', timezone: 'Europe/London', is_active: true, created_at: iso(-30 * 864e5), is_self: false },
   ],
   total: 2,
 };
@@ -134,7 +134,7 @@ const SCHEDULING_LINKS = [
 
 const FIXTURES = {
   '/api/v1/me': ME,
-  '/api/v1/org': { id: ORG, name: 'Meridian Demo', slug: 'meridian', ticket_prefix: 'MER', base_currency: 'USD' },
+  '/api/v1/org': { id: ORG, name: 'Marula Demo', slug: 'marula', ticket_prefix: 'MER', base_currency: 'USD' },
   '/api/v1/settings/user': [],
   '/api/v1/settings/org': [],
   '/api/v1/boards/nav': BOARDS_NAV,
@@ -181,7 +181,7 @@ const FIXTURES = {
   '/api/v1/workflows': { mode: 'floor', edges: [] },
   '/api/v1/auth/mfa/status': { totp_enabled: false, passkeys: [], recovery_remaining: 0 },
   '/api/v1/time-gaps/me': { user_id: ME.user_id, timezone: 'UTC', expected_minutes: 480, days: [] },
-  '/api/v1/auth/mfa/totp/enroll-begin': { secret_base32: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', otpauth_url: 'otpauth://totp/Meridian:owner%40meridian.test?issuer=Meridian&secret=JBSWY3DPEHPK3PXP' },
+  '/api/v1/auth/mfa/totp/enroll-begin': { secret_base32: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', otpauth_url: 'otpauth://totp/Marula:owner%40marula.test?issuer=Marula&secret=JBSWY3DPEHPK3PXP' },
 };
 
 async function shot(browser, viewport, theme, name, path, interactions, unauthed = false) {
@@ -192,18 +192,18 @@ async function shot(browser, viewport, theme, name, path, interactions, unauthed
   if (theme === 'dark') url.searchParams.set('theme', 'dark');
   const themeToken = theme === 'dark' ? 'dark' : 'light';
   await page.addInitScript(({ t, unauthed }) => {
-    window.localStorage.setItem('meridian-theme', t);
+    window.localStorage.setItem('marula-theme', t);
     if (!unauthed) {
-      window.localStorage.setItem('meridian-tokens', JSON.stringify({
+      window.localStorage.setItem('marula-tokens', JSON.stringify({
         access_token: 'test-access',
         refresh_token: 'test-refresh',
         session_id: 'sess',
         expires_in: 900,
       }));
-      window.localStorage.setItem('meridian-tokens-exp', String(Date.now() + 60_000));
+      window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
     }
     if (unauthed === 'mfa') {
-      window.sessionStorage.setItem('meridian-mfa-pending', JSON.stringify({
+      window.sessionStorage.setItem('marula-mfa-pending', JSON.stringify({
         mfa_token: 'bridge-token',
         methods: ['totp', 'recovery', 'passkey'],
       }));

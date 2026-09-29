@@ -16,7 +16,7 @@ interface Registry {
   current: RoutedFetchHandler | null;
 }
 
-const REGISTRY_KEY = "__meridian_test_fetch_registry__";
+const REGISTRY_KEY = "__marula_test_fetch_registry__";
 
 function registry(): Registry {
   const g = globalThis as typeof globalThis & Record<string, unknown>;

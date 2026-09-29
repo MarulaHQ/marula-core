@@ -123,7 +123,7 @@ await sleep(400);
 await shot(page, "42-timeline-filter-visible");
 
 // Dark parity
-await page.evaluate(() => localStorage.setItem("meridian-theme", "dark"));
+await page.evaluate(() => localStorage.setItem("marula-theme", "dark"));
 await page.reload({ waitUntil: "networkidle" });
 await sleep(2500);
 await shot(page, "50-detail-dark-1440");

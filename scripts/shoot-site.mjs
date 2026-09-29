@@ -31,7 +31,7 @@ for (const vp of VIEWPORTS) {
       await page.emulateMedia({ colorScheme: theme === "dark" ? "dark" : "light" });
       await page.goto(`${ORIGIN}/${route}`, { waitUntil: "load" });
       await page.evaluate((t) => {
-        localStorage.setItem("meridian-theme", t);
+        localStorage.setItem("marula-theme", t);
         document.documentElement.dataset.theme = t;
       }, theme);
       const navSpans = await page.locator(".pill-nav .links a").count();
