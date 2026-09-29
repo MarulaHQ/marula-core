@@ -10,7 +10,7 @@
 // then point the app at it:
 //   EXPO_PUBLIC_API_URL=http://localhost:<API_PORT> \
 //   EXPO_PUBLIC_WS_URL=ws://localhost:<WS_PORT>/ws \
-//   pnpm --filter @meridian/native dev
+//   pnpm --filter @marula-core/native dev
 //
 // iOS Simulator shares the host network, so localhost works. The Android
 // emulator maps the host at 10.0.2.2 — the defaults below handle both.

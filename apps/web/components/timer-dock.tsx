@@ -16,8 +16,8 @@
 // where per-ticket start lives.
 "use client";
 
-import { StatusTag } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { StatusTag } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api, useAuth } from "../lib/api";

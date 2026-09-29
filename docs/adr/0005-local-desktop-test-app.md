@@ -85,7 +85,7 @@ Meridian.app
 
 `scripts/build-desktop.sh` — one command = update the app:
 
-1. `pnpm --filter @meridian/web build` (Next standalone bundle)
+1. `pnpm --filter @marula-core/web build` (Next standalone bundle)
 2. Stage the standalone server into `desktop/resources/web` (symlinks
    rewritten to absolute repo paths — see Deviations)
 3. `cargo tauri build --no-bundle -- --profile desktop` on the **shared**

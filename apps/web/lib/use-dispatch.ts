@@ -12,7 +12,7 @@
 
 "use client";
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import { api, loadTokens, resolveApiBaseUrl, useAuth } from "./api";
 import {
   dispatchReducer,

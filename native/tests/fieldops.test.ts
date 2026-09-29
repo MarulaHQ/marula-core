@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { MeridianClient } from "@meridian/sdk";
+import type { MeridianClient } from "@marula-core/sdk";
 
 import type { ScanResolution } from "@/core/models";
 import { accepts, pickCandidate, scanRoute } from "@/core/scan";

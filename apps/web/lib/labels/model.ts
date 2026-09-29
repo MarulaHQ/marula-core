@@ -10,7 +10,7 @@
 // Geometry rule of record: padding 1.5 mm on every edge; text + Code128
 // start at the left padding; the QR is bottom-right.
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 export type LabelTemplate = components["schemas"]["LabelTemplateView"];
 export type LabelRender = components["schemas"]["LabelRenderResponse"];

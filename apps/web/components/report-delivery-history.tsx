@@ -9,8 +9,8 @@
 // Non-purpose: no schedule editing here (the schedules table owns CRUD).
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Dialog, DialogActions, DialogContent, EmptyState, Spinner, StatusTag, Table, Td, Th, Tr } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Dialog, DialogActions, DialogContent, EmptyState, Spinner, StatusTag, Table, Td, Th, Tr } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../lib/api";

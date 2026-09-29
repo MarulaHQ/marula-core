@@ -19,7 +19,7 @@
 
 "use client";
 
-import { Button, Card, EmptyState, Spinner, StatusTag } from "@meridian/ui";
+import { Button, Card, EmptyState, Spinner, StatusTag } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 
 import { LabelDesigner } from "../../../components/labels/label-designer";

@@ -1,5 +1,5 @@
 {
-  "name": "@meridian/connector-ninjaone",
+  "name": "@marula-core/connector-ninjaone",
   "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
@@ -11,7 +11,7 @@
     "listen": "node --experimental-strip-types src/index.ts listen"
   },
   "dependencies": {
-    "@meridian/sdk": "file:../../packages/sdk"
+    "@marula-core/sdk": "file:../../packages/sdk"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

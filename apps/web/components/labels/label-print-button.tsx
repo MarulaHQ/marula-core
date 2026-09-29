@@ -10,9 +10,9 @@
 
 "use client";
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import { api } from "../../lib/api";
-import { Button, Spinner } from "@meridian/ui";
+import { Button, Spinner } from "@marula-core/ui";
 import Link from "next/link";
 import { useState } from "react";
 

@@ -1,7 +1,7 @@
 # m365-graph
 
 Purpose: first-party HTTP connector written against ONLY the public API +
-`@meridian/sdk` (Apache-2.0) — the Stage-2 acceptance pattern proven by the
+`@marula-core/sdk` (Apache-2.0) — the Stage-2 acceptance pattern proven by the
 NinjaOne and Hudu reference connectors.
 
 Status: LANDED (Wave 12 lane 9 `p12-adapters2`) — live REST transport over

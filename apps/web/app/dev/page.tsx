@@ -16,7 +16,7 @@
 
 "use client";
 
-import { Button, Card, Input, Label, Spinner } from "@meridian/ui";
+import { Button, Card, Input, Label, Spinner } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import { apiBaseUrl, useRequireAuth } from "../../lib/api";
 import { reasonCopy } from "../../lib/error-copy";

@@ -14,9 +14,9 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, Card, FieldHint, Label, Textarea } from "@meridian/ui";
-import { useTheme } from "@meridian/ui";
-import type { Theme } from "@meridian/ui";
+import { Button, Card, FieldHint, Label, Textarea } from "@marula-core/ui";
+import { useTheme } from "@marula-core/ui";
+import type { Theme } from "@marula-core/ui";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";

@@ -508,7 +508,7 @@ path, classic workspace close flow, workbar Wrap up → Resolve, portal admin fl
 
 Any endpoint touched above regenerates `packages/sdk/openapi.json` +
 `fixtures/openapi/v1/openapi.json` as the COMPACT byte-identical pair +
-`pnpm --filter @meridian/sdk generate`. CI pin check must pass.
+`pnpm --filter @marula-core/sdk generate`. CI pin check must pass.
 
 ---
 

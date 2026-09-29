@@ -10,7 +10,7 @@
 // Non-purpose: no fetching (reports.ts owns transport), no rendering.
 "use client";
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import type { WidgetDef } from "./dashboards";
 
 type ReportSpec = components["schemas"]["ReportSpec"];

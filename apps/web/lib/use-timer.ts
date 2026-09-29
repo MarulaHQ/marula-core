@@ -13,7 +13,7 @@
 "use client";
 
 import { api, loadTokens, resolveApiBaseUrl, useAuth } from "./api";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type TimerSession = components["schemas"]["TimerSession"];

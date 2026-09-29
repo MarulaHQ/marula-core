@@ -48,8 +48,8 @@ import {
   Spinner,
   Tag,
   type StatusTone,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";

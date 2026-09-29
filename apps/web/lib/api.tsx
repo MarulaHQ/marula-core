@@ -9,7 +9,7 @@
 // beyond on-401 rotation.
 "use client";
 
-import { MeridianClient } from "@meridian/sdk";
+import { MeridianClient } from "@marula-core/sdk";
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -231,7 +231,7 @@ export function useRequireAuth(): AuthState {
 // The URL literals below are `satisfies`-anchored to the canonical /api/v1
 // contract, so a spec rename fails `tsc` here instead of silently 404ing.
 
-import type { MeridianPaths } from "@meridian/sdk";
+import type { MeridianPaths } from "@marula-core/sdk";
 
 const TICKET_ATTACHMENTS_PATH = "/api/v1/tickets/{id}/attachments" satisfies keyof MeridianPaths;
 const ATTACHMENT_DOWNLOAD_PATH =

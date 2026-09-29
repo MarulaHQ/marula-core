@@ -19,7 +19,7 @@ Builds come from EAS. The repository ships three profiles in `native/eas.json`:
 | `production` | store builds |
 
 ```bash
-pnpm --filter @meridian/native exec eas build --profile preview --platform ios
+pnpm --filter @marula-core/native exec eas build --profile preview --platform ios
 ```
 
 An operator registers the EAS project once and stores the Expo token as a

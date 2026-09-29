@@ -1,6 +1,6 @@
 # React Native app — foundation shipped (Wave 33 lane 1 `p33-rn-foundation`)
 
-Status: the app exists. `native/` is a pnpm workspace member (`@meridian/native`)
+Status: the app exists. `native/` is a pnpm workspace member (`@marula-core/native`)
 built on Expo SDK 57 with expo-router, and it consumes `packages/sdk` unchanged.
 The seam Wave 22 documented is now load-bearing: same pins, same typed
 envelopes, no mobile fork of anything.

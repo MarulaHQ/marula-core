@@ -14,5 +14,5 @@
     "version": true,
     "tag": false
   },
-  "ignore": ["@meridian/web", "website"]
+  "ignore": ["@marula-core/web", "website"]
 }

@@ -13,7 +13,7 @@
 
 "use client";
 
-import { Button, Card, EmptyState, Input, Label, Spinner, Textarea } from "@meridian/ui";
+import { Button, Card, EmptyState, Input, Label, Spinner, Textarea } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 
 import { SettingsHeader } from "../../../components/settings/settings-shell";

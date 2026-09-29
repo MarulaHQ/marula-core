@@ -25,8 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 
 type AiAllowedModelDto = components["schemas"]["AiAllowedModelDto"];
 

@@ -1,4 +1,4 @@
-// @meridian/sdk client — thin auth-aware wrapper around the generated
+// @marula-core/sdk client — thin auth-aware wrapper around the generated
 // OpenAPI types. All route types derive from packages/sdk/openapi.json;
 // nothing here is hand-declared per endpoint.
 //

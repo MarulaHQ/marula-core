@@ -16,15 +16,15 @@
 // selection summary before confirm); brand lockup; entrance motion.
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Input, Label, Spinner, StatusTag } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Input, Label, Spinner, StatusTag } from "@marula-core/ui";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../../../lib/api";
 import { BrandLockup } from "../../../components/brand";
 import { portalAccentOverrides } from "../../../lib/portal-branding";
-import { applyTheme } from "@meridian/ui";
+import { applyTheme } from "@marula-core/ui";
 
 type PublicLinkView = components["schemas"]["PublicLinkView"];
 type SlotInterval = components["schemas"]["SlotInterval"];

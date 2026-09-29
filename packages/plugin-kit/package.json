@@ -1,12 +1,12 @@
 {
-  "name": "@meridian/plugin-kit",
+  "name": "@marula-core/plugin-kit",
   "version": "0.1.0",
   "private": true,
   "description": "Meridian Plugin Development Kit — validate and build plugin bundles (manifest v2 + WASM artifact).",
   "type": "module",
   "license": "Apache-2.0",
   "bin": {
-    "meridian-plugin-build": "./bin/build.mjs"
+    "marula-plugin-build": "./bin/build.mjs"
   },
   "scripts": {
     "build": "node bin/build.mjs"

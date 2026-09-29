@@ -12,7 +12,7 @@
 
 "use client";
 
-import { Button } from "@meridian/ui";
+import { Button } from "@marula-core/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkDesktopUpdate,

@@ -2,7 +2,7 @@
 // SDK shapes (Wave 17 lane 4). Pure functions, injectable `now` for
 // deterministic tests. Honest derivations only — every input comes from a
 // real endpoint response (projects, phases, tasks, dependencies).
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 export type Project = components["schemas"]["Project"];
 export type ProjectPhase = components["schemas"]["ProjectPhase"];

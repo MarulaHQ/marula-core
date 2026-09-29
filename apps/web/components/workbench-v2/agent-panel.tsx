@@ -15,7 +15,7 @@
 
 "use client";
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 

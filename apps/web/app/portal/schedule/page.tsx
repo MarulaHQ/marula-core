@@ -11,7 +11,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, EmptyState, Input, Label, Spinner, StatusTag, type StatusTone } from "@meridian/ui";
+import { Button, EmptyState, Input, Label, Spinner, StatusTag, type StatusTone } from "@marula-core/ui";
 import { useEffect, useMemo, useState } from "react";
 import {
   portalApi,

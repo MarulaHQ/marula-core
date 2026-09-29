@@ -1,14 +1,14 @@
 // Typed read models the foundation caches offline.
 //
 // Purpose: name every read model once (stable cache keys + a typed fetcher
-// over @meridian/sdk) so screens, the sync engine, and the realtime
+// over @marula-core/sdk) so screens, the sync engine, and the realtime
 // invalidation map all agree. The SDK's generated `paths` types are the only
 // source of truth for response shapes — nothing here hand-declares an
 // entity (docs/rn-groundwork.md rule 1).
 //
 // Non-purpose: no cache, no hooks, no offline queue.
 
-import { MeridianClient, type paths } from "@meridian/sdk";
+import { MeridianClient, type paths } from "@marula-core/sdk";
 
 import { unwrap, type TransportResult } from "./http";
 

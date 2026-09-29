@@ -1,7 +1,7 @@
 // Regenerates src/generated/schema.d.ts from the committed openapi.json
 // snapshot. Re-run after core-api route changes:
 //   1. boot core-api, `curl /openapi.json > packages/sdk/openapi.json`
-//   2. `pnpm --filter @meridian/sdk generate`
+//   2. `pnpm --filter @marula-core/sdk generate`
 // The committed snapshot format is COMPACT (single-line minified JSON):
 // step 1's curl output is pretty-printed, so this script minifies the
 // snapshot in place before generating. Never commit the pretty form.

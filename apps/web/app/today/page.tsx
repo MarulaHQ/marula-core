@@ -15,8 +15,8 @@
 "use client";
 
 import { friendlyMutationText } from "../../lib/error-copy";
-import type { components } from "@meridian/sdk";
-import { Button, Card, EmptyState, Spinner, Tag } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Card, EmptyState, Spinner, Tag } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { BoardNav } from "../../components/board-nav";

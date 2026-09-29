@@ -8,7 +8,7 @@ import { MODELS } from "@/core/models";
 import { MemoryStore } from "@/core/storage";
 import { SyncEngine, invalidationFor } from "@/core/sync";
 import type { EventEnvelope } from "@/core/realtime";
-import type { MeridianClient } from "@meridian/sdk";
+import type { MeridianClient } from "@marula-core/sdk";
 import { startTimer } from "@/core/writes";
 
 import { FakeApi, FakeSocketFactory } from "./helpers";

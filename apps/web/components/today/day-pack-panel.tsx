@@ -15,8 +15,8 @@
 // that), no stock editing, no movement recording outside the shared dialogs.
 "use client";
 
-import { Button, Card, Spinner } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Button, Card, Spinner } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";

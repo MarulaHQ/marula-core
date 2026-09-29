@@ -15,7 +15,7 @@
 
 "use client";
 
-import { Button, Card } from "@meridian/ui";
+import { Button, Card } from "@marula-core/ui";
 import { useEffect, useState } from "react";
 import { api, useAuth } from "../../lib/api";
 import {

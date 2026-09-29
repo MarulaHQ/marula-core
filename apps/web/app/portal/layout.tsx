@@ -13,9 +13,9 @@
 // reduced-motion honored in globals.css), and a quiet footer.
 "use client";
 
-import { Button } from "@meridian/ui";
-import { useTheme } from "@meridian/ui";
-import type { Theme } from "@meridian/ui";
+import { Button } from "@marula-core/ui";
+import { useTheme } from "@marula-core/ui";
+import type { Theme } from "@marula-core/ui";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";

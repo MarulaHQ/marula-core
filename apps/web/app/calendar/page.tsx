@@ -15,7 +15,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../lib/error-copy";
-import { Button, Card, Dialog, DialogActions, DialogContent, FieldHint, Input, Label, Spinner, Tag } from "@meridian/ui";
+import { Button, Card, Dialog, DialogActions, DialogContent, FieldHint, Input, Label, Spinner, Tag } from "@marula-core/ui";
 import CalendarSyncPanel from "../../components/calendar-sync-panel";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api, useRequireAuth } from "../../lib/api";

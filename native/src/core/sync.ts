@@ -10,7 +10,7 @@
 // Non-purpose: no React. The data layer binds this with hooks; screens
 // never touch sockets, stores, or the queue directly.
 
-import type { MeridianClient } from "@meridian/sdk";
+import type { MeridianClient } from "@marula-core/sdk";
 
 import { ReadCache } from "./cache";
 import {

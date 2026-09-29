@@ -1,7 +1,7 @@
 // Wave 23 lane 1, items 2+3: the /reports?spec= codec — round trip, tolerant
 // decode, and the widget→spec mapping uses only catalog-valid vocabulary.
 import { describe, expect, it } from "vitest";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   attainmentRowSpec,
   decodeSpecFromQuery,

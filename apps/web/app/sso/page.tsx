@@ -7,7 +7,7 @@
 
 "use client";
 
-import { Button, Card, Spinner } from "@meridian/ui";
+import { Button, Card, Spinner } from "@marula-core/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { AuthBrand } from "../../components/auth/auth-brand";

@@ -12,7 +12,7 @@ import "./globals.css";
 import { AuthProvider } from "../lib/api";
 import { AppShell } from "../components/shell/app-shell";
 import { cn } from "@/lib/utils";
-import { builtinPresetCss } from "@meridian/ui/theme-tokens";
+import { builtinPresetCss } from "@marula-core/ui/theme-tokens";
 
 // Wave 24: the theme-token schema v1 preset range ships as a head style
 // block (scoped by data-preset; the unset root stays the tokens.css

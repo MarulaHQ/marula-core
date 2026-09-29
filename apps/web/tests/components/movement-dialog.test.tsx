@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import { AuthProvider } from "../../lib/api";
 import { MovementDialog } from "../../components/stock/movement-dialog";
 import { MockApi, ME_FIXTURE, seedAuthTokens } from "../helpers/mock-api";

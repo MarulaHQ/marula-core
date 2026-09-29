@@ -14,7 +14,7 @@
 
 "use client";
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";

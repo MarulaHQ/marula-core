@@ -12,7 +12,7 @@ const outPath = join(root, "docs/site/reference/api.md");
 
 const raw = readFileSync(pinPath, "utf8");
 if (raw.includes("\n") && raw.trim().split("\n").length > 1) {
-  throw new Error("OpenAPI pin is not compact single-line (DX12) — regenerate with `pnpm --filter @meridian/sdk generate` first.");
+  throw new Error("OpenAPI pin is not compact single-line (DX12) — regenerate with `pnpm --filter @marula-core/sdk generate` first.");
 }
 const spec = JSON.parse(raw);
 if (spec.openapi?.startsWith("3.") === false) throw new Error("unexpected OpenAPI version: " + spec.openapi);

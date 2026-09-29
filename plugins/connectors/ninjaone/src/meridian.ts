@@ -1,11 +1,11 @@
 //! Meridian side of the connector: a typed `MeridianClient` from
-//! @meridian/sdk, authenticated with an x-api-key machine credential.
+//! @marula-core/sdk, authenticated with an x-api-key machine credential.
 //!
 //! Purpose: prove the extension pattern — this file talks to Meridian ONLY
 //! through the published SDK surface (public REST + generated types). No
 //! Meridian internals are imported anywhere in this connector.
 
-import { MeridianClient } from "@meridian/sdk";
+import { MeridianClient } from "@marula-core/sdk";
 import type { Config } from "./config.js";
 
 export function connectMeridian(config: Config): MeridianClient {

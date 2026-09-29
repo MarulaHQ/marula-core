@@ -1,8 +1,8 @@
-# @meridian/connector-hudu
+# @marula-core/connector-hudu
 
 > **Purpose:** reference [Hudu](https://hudu.com) connector for Project
 > Meridian — proof of the connector pattern: it talks to Meridian ONLY
-> through the public REST API via `@meridian/sdk` (typed client + scoped
+> through the public REST API via `@marula-core/sdk` (typed client + scoped
 > API key) and receives Meridian's HMAC-signed webhooks. Apache-2.0.
 > **Non-purpose:** no Meridian internals are imported; no credential
 > vaulting, no hosted/operated service.
@@ -49,7 +49,7 @@ connectors enhance a working standalone product, never gate it.
 
 ## In-repo typecheck note
 
-`tsc` resolves `@meridian/sdk` through a local path mapping into
+`tsc` resolves `@marula-core/sdk` through a local path mapping into
 `packages/sdk/src/index.ts` for the acceptance probe. Outside this repo,
-`npm install @meridian/sdk` resolves normally — the import specifier is
+`npm install @marula-core/sdk` resolves normally — the import specifier is
 the published package name, nothing else.

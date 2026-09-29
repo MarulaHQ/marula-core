@@ -1,7 +1,7 @@
 // Chart token bridge for Recharts (ADR 0001: Recharts on Tangerine tokens).
 //
 // Purpose: the ONLY place chart colors come from. Every value traces to the
-// @meridian/ui PALETTE (the same constants tokens.css is generated from), so
+// @marula-core/ui PALETTE (the same constants tokens.css is generated from), so
 // light and dark modes carry parity and no hex is authored outside the token
 // set. Recharts needs concrete color strings (SVG presentation attributes do
 // not resolve CSS custom properties), which is why the two mode sets are
@@ -12,8 +12,8 @@
 // secondary/tertiary distinction in both modes.
 //
 // Non-purpose: no chart layout — components/dashboards renders.
-import { PALETTE } from "@meridian/ui";
-import type { Theme } from "@meridian/ui";
+import { PALETTE } from "@marula-core/ui";
+import type { Theme } from "@marula-core/ui";
 
 // PALETTE indices, mirrored from packages/ui/src/tokens.ts (tokens.css §3):
 // 0 ink(#333333) 1 graphite(#4B5563) 2 slate(#6B7280) 3 fog(#DCDFE2)

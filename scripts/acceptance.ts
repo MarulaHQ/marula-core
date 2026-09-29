@@ -1,7 +1,7 @@
 /**
  * Stage-1 acceptance harness (BUILD-PROMPT §7): create ticket → work it with
  * a timer → close → time entry appears. Runs against a live core-api using
- * @meridian/sdk itself — so it doubles as an end-to-end SDK test.
+ * @marula-core/sdk itself — so it doubles as an end-to-end SDK test.
  *
  * Usage: pnpm accept [--url http://localhost:8080] [--ws-url ws://localhost:8081] [--skip-perf]
  * Requires: core-api running with its Postgres. Checks [1]–[9] need ONLY that.

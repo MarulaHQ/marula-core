@@ -10,7 +10,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, EmptyState, Input, Spinner } from "@meridian/ui";
+import { Button, EmptyState, Input, Spinner } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {

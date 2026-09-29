@@ -3,7 +3,7 @@
 // typed refusals ("fork instead"), so the editor only lists custom rows.
 "use client";
 
-import { Button, Input } from "@meridian/ui";
+import { Button, Input } from "@marula-core/ui";
 import { useState } from "react";
 
 export type EditableRole = {

@@ -12,7 +12,7 @@
 // Non-purpose: no persistence — the page owns widget rows.
 "use client";
 
-import { Button, Card, EmptyState, StatusTag, Tag, Table, Td, Th, Tr } from "@meridian/ui";
+import { Button, Card, EmptyState, StatusTag, Tag, Table, Td, Th, Tr } from "@marula-core/ui";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { WidgetDef } from "../../lib/dashboards";

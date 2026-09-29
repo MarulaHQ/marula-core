@@ -15,7 +15,7 @@
  */
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, FieldHint, Tag } from "@meridian/ui";
+import { Button, Card, FieldHint, Tag } from "@marula-core/ui";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 import {

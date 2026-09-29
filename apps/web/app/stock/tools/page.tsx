@@ -32,8 +32,8 @@ import {
   Td,
   Th,
   Tr,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CheckInDialog } from "../../../components/stock/check-in-dialog";

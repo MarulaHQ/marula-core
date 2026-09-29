@@ -17,7 +17,7 @@
 // CLI probe), no secret values, no per-service status machinery.
 "use client";
 
-import { Button, Card, Spinner, Tag } from "@meridian/ui";
+import { Button, Card, Spinner, Tag } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import {
   apiBaseUrl,

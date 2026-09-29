@@ -9,7 +9,7 @@
 // Non-purpose: no link mutation here — callers POST the seam endpoints;
 // this module only finds candidate targets.
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import { api } from "./api";
 
 export interface LinkKindOption {

@@ -9,8 +9,8 @@
 "use client";
 
 import { rejectionText } from "../../lib/error-copy";
-import type { components } from "@meridian/sdk";
-import { snapshotOf } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
+import { snapshotOf } from "@marula-core/sdk";
 import {
   Button,
   EmptyState,
@@ -20,8 +20,8 @@ import {
   Td,
   Th,
   Tr,
-} from "@meridian/ui";
-import { PanelLayout, usePanelLayout } from "@meridian/layout";
+} from "@marula-core/ui";
+import { PanelLayout, usePanelLayout } from "@marula-core/layout";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";

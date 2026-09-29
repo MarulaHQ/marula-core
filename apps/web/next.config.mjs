@@ -1,14 +1,14 @@
 // Next.js configuration for the Meridian web app.
 //
-// Purpose: transpile the in-repo TypeScript source packages (@meridian/sdk,
-// @meridian/layout ship TS entry points) and emit a standalone server bundle
+// Purpose: transpile the in-repo TypeScript source packages (@marula-core/sdk,
+// @marula-core/layout ship TS entry points) and emit a standalone server bundle
 // for the deploy/Dockerfile.web runtime image.
 // Non-purpose: no custom webpack, no runtime config — defaults otherwise.
 import path from "node:path";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ["@meridian/layout", "@meridian/sdk"],
+  transpilePackages: ["@marula-core/layout", "@marula-core/sdk"],
   output: "standalone",
   // Pin the output-tracing root to apps/web so the standalone bundle path
   // is deterministic (apps/web/.next/standalone/server.js) even inside

@@ -8,7 +8,7 @@
 // here — settings live at /settings/notifications.
 "use client";
 
-import { Button } from "@meridian/ui";
+import { Button } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { kindLabel, useNotifications, type NotificationItem } from "../lib/use-notifications";

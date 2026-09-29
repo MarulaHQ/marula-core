@@ -14,9 +14,9 @@
 
 "use client";
 
-import { FieldError } from "@meridian/ui";
+import { FieldError } from "@marula-core/ui";
 import { friendlyMutationText } from "../../lib/error-copy";
-import { Button, Card, Input, Label, Spinner, Tag } from "@meridian/ui";
+import { Button, Card, Input, Label, Spinner, Tag } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AuthBrand } from "../../components/auth/auth-brand";

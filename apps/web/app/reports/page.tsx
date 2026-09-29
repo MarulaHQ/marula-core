@@ -37,8 +37,8 @@ import {
   Td,
   Th,
   Tr,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, useRequireAuth } from "../../lib/api";

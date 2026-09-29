@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// @meridian/plugin-kit — validate + build a Meridian plugin bundle.
+// @marula-core/plugin-kit — validate + build a Meridian plugin bundle.
 //
 // Usage: node bin/build.mjs <plugin-dir>
 //

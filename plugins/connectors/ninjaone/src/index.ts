@@ -1,7 +1,7 @@
-//! @meridian/connector-ninjaone — reference NinjaOne connector.
+//! @marula-core/connector-ninjaone — reference NinjaOne connector.
 //!
 //! Purpose: demonstrate the Meridian connector pattern end-to-end using
-//! ONLY the public API via @meridian/sdk and signed webhook deliveries:
+//! ONLY the public API via @marula-core/sdk and signed webhook deliveries:
 //!
 //!   verify   — typed SDK read (proves key + scope + connectivity)
 //!   listen   — HTTP receiver for Meridian's signed webhooks; matched

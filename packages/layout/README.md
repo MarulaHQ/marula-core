@@ -1,4 +1,4 @@
-# @meridian/layout
+# @marula-core/layout
 
 > **Purpose:** Multi-pane layout engine: CSS grid + container queries, persisted panel state per user/device class, multi-monitor support.
 > **Non-purpose:** No domain knowledge — it arranges panels, it knows nothing about tickets.
@@ -18,8 +18,8 @@ The engine renders a declarative pane tree (nested rows/columns with draggable d
 In-repo workspace package; apps consume sources directly (no build step):
 
 ```ts
-import { PanelLayout, usePanelLayout } from "@meridian/layout";
-import "@meridian/layout/styles.css";
+import { PanelLayout, usePanelLayout } from "@marula-core/layout";
+import "@marula-core/layout/styles.css";
 ```
 
 ## API sketch
@@ -106,7 +106,7 @@ interface PanelStateStore {
 
 ## CSS contract
 
-Import `@meridian/layout/styles.css` once. The engine consumes **only** these custom properties and contains zero hardcoded colors:
+Import `@marula-core/layout/styles.css` once. The engine consumes **only** these custom properties and contains zero hardcoded colors:
 
 | Variable | Used for |
 |---|---|

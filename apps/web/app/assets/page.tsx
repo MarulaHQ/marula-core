@@ -9,8 +9,8 @@
 // flows); no client/site facets beyond the API's q filter here.
 "use client";
 
-import { Button, Card, EmptyState, Input, Spinner } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Button, Card, EmptyState, Input, Spinner } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";

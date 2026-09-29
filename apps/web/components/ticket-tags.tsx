@@ -9,8 +9,8 @@
 "use client";
 
 import { rejectionText } from "../lib/error-copy";
-import type { components } from "@meridian/sdk";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../lib/api";

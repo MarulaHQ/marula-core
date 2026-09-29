@@ -2,7 +2,7 @@
 /**
  * /kb article editor (ADR 0007, Wave 16 lane 2) — Tiptap headless shell
  * composed from `meridianExtensionSet`, riding Workbench/Tangerine
- * primitives from @meridian/ui.
+ * primitives from @marula-core/ui.
  *
  * Autosave rides the instant-first envelope (IF1–IF3): each debounced
  * content transaction serializes to the canonical envelope and PATCHes
@@ -26,8 +26,8 @@ import {
   EditorToolbarGroup,
   EditorTool,
   Spinner,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import {
   rememberVersion,
   runEnvelopeMutation,

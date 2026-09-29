@@ -4,14 +4,14 @@ The API contract is pinned twice, and CI enforces that the two are a
 byte-identical pair:
 
 - [`packages/sdk/openapi.json`](../../../packages/sdk/openapi.json) — the
-  snapshot `@meridian/sdk` is generated from
+  snapshot `@marula-core/sdk` is generated from
 - [`fixtures/openapi/v1/openapi.json`](../../../fixtures/openapi/v1/openapi.json)
 
 ## The compact rule (DX12)
 
 Both pins are **compact single-line minified JSON**. The API serves
 pretty-printed JSON, so after `curl /openapi.json > packages/sdk/openapi.json`
-you must run `pnpm --filter @meridian/sdk generate` (it minifies the
+you must run `pnpm --filter @marula-core/sdk generate` (it minifies the
 snapshot in place) before committing. Never commit the ~43k-line pretty
 form; `scripts/check-openapi-pins.sh` fails it in CI.
 

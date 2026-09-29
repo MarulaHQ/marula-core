@@ -12,7 +12,7 @@
 
 "use client";
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   Button,
   Card,
@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-} from "@meridian/ui";
+} from "@marula-core/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../../lib/api";

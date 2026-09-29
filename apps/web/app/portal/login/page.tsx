@@ -13,7 +13,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
+import { Button, Card, FieldHint, Input, Label } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { portalApi, usePortalAuth } from "../../../lib/portal-api";

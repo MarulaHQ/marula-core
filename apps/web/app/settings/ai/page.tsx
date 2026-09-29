@@ -39,8 +39,8 @@ import {
   Td,
   Th,
   Tr,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 import { rejectionText, resultErrorText } from "../../../lib/error-copy";

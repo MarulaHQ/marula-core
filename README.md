@@ -70,7 +70,7 @@ web (Next.js) ──► core-api (Rust/Axum) ──► PostgreSQL (RLS · FTS ·
         │                │   outbox ──► Redis streams ──► realtime (WebSocket hub)
         │                ├── worker (jobs: email · SLA · sync · AI hooks)
         │                └── plugin-host (Extism WASM + HTTP connectors)
-        └── @meridian/sdk clients · MCP server · signed webhooks
+        └── @marula-core/sdk clients · MCP server · signed webhooks
 ```
 
 One writer. Every mutation emits a versioned domain event. REST, WebSocket, webhooks, plugins, and MCP are four surfaces over one contract.
@@ -95,7 +95,7 @@ Development runs in stages: foundation → daily driver → commercial engine �
 
 PRs welcome — trunk-based, DCO-signed, conventional commits. Two approvals are required for `crates/core-domain` and anything touching authz/RLS. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md); significant changes begin as RFCs in `docs/rfc/`.
 
-Extension authors usually don't need this repo: connectors are ordinary web apps using [`@meridian/sdk`](packages/sdk/) and receiving signed webhooks — the NinjaOne and Hudu connectors are the reference implementations. Beyond the standard set, connectors publish through the connector marketplace, first-party and community alike (ADR 0013).
+Extension authors usually don't need this repo: connectors are ordinary web apps using [`@marula-core/sdk`](packages/sdk/) and receiving signed webhooks — the NinjaOne and Hudu connectors are the reference implementations. Beyond the standard set, connectors publish through the connector marketplace, first-party and community alike (ADR 0013).
 
 ## Security
 
@@ -127,7 +127,7 @@ crates/
 └── meridian-cli/   # `meridian dev`, setup, admin tasks
 apps/web/           # Next.js app (workspace UI + client portal)
 packages/
-├── sdk/            # @meridian/sdk — typed client generated from OpenAPI (Apache-2.0)
+├── sdk/            # @marula-core/sdk — typed client generated from OpenAPI (Apache-2.0)
 ├── ui/             # design system components — Workbench theme tokens (Apache-2.0)
 ├── layout/         # multi-pane layout engine
 └── plugin-kit/     # TS plugin PDK + dev harness (Apache-2.0)

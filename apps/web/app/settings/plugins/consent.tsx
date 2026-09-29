@@ -12,8 +12,8 @@
 // consent buttons and the wire calls.
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Tag } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Tag } from "@marula-core/ui";
 
 type ConsentView = components["schemas"]["ConsentView"];
 type ConsentDiffView = components["schemas"]["ConsentDiffView"];

@@ -10,7 +10,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, Card, FieldHint, Input, Label, Tag } from "@meridian/ui";
+import { Button, Card, FieldHint, Input, Label, Tag } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { resolveApiBaseUrl, useAuth, useRequireAuth } from "../../../lib/api";

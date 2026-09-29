@@ -4,7 +4,7 @@
 // Money correctness: aggregate tiles sum stored minor-units ONLY within one
 // currency; a mixed-currency selection renders "mixed currencies" instead of
 // a fake total (docs/qa-money DESIGN-RESEARCH.md — never invent FX client-side).
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 type Invoice = components["schemas"]["Invoice"];
 type InvoiceStatus = components["schemas"]["InvoiceStatus"];

@@ -9,7 +9,7 @@ import {
   eventSelectionReducer,
   selectionToPayload,
 } from "../../lib/admin/webhook-events";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 type DeliveryAttemptView = components["schemas"]["DeliveryAttemptView"];
 

@@ -32,13 +32,13 @@ importers:
 
   apps/web:
     dependencies:
-      '@meridian/layout':
+      '@marula-core/layout':
         specifier: workspace:*
         version: link:../../packages/layout
-      '@meridian/sdk':
+      '@marula-core/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
-      '@meridian/ui':
+      '@marula-core/ui':
         specifier: workspace:*
         version: link:../../packages/ui
       '@phosphor-icons/react':
@@ -171,7 +171,7 @@ importers:
       '@expo/vector-icons':
         specifier: ^15.1.1
         version: 15.1.1(expo-font@57.0.4(expo@57.0.25(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.16)(expo-router@57.0.23)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(typescript@6.0.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
-      '@meridian/sdk':
+      '@marula-core/sdk':
         specifier: workspace:*
         version: link:../packages/sdk
       '@react-native-async-storage/async-storage':

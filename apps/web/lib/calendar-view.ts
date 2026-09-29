@@ -2,7 +2,7 @@
 // overlap detection, month-grid construction, and week fetch planning.
 // Everything derives from the CalendarViewResponse shape (items +
 // exclusions) plus ticket deadlines fetched separately — no invented data.
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 export type CalendarItem = components["schemas"]["CalendarItem"];
 export type CalendarExclusion = components["schemas"]["CalendarExclusion"];

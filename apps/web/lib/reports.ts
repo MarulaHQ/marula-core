@@ -7,7 +7,7 @@
 // URL literal stays `satisfies`-anchored to the canonical contract.
 //
 // Non-purpose: no widget model (dashboards.ts), no rendering.
-import type { MeridianPaths } from "@meridian/sdk";
+import type { MeridianPaths } from "@marula-core/sdk";
 import { api, apiBaseUrl, loadTokens } from "./api";
 import type { ReportKind } from "./dashboards";
 

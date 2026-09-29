@@ -7,14 +7,14 @@
 // one uniform answer and typed 429 `auth_rate_limited`. WITH ?token= the
 // mail-link confirm: the link's POST goes through the SDK transport
 // mechanics (credentials + `x-meridian-csrf` echo, mirroring authCall in
-// @meridian/sdk — the double-submit guard applies when a session cookie
+// @marula-core/sdk — the double-submit guard applies when a session cookie
 // already exists) and lands a TokenPair, stored through the same
 // memory-jar path as login, then a full navigation so AuthProvider
 // re-bootstraps. Envelope failures are typed, never fabricated.
 "use client";
 
-import { Button, Card, Input, Label, Spinner } from "@meridian/ui";
-import { applyTheme } from "@meridian/ui";
+import { Button, Card, Input, Label, Spinner } from "@marula-core/ui";
+import { applyTheme } from "@marula-core/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 

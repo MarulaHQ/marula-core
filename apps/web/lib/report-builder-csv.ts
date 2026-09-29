@@ -4,7 +4,7 @@
 // a JSON envelope, so it rides a plain fetch with the URL literal
 // `satisfies`-anchored to the canonical contract. The run compiles
 // server-side via the stored spec (GET /api/v1/report-definitions/{id}/run).
-import type { MeridianPaths } from "@meridian/sdk";
+import type { MeridianPaths } from "@marula-core/sdk";
 import { apiBaseUrl, loadTokens } from "./api";
 
 const RUN_PATH = "/api/v1/report-definitions/{id}/run" satisfies keyof MeridianPaths;

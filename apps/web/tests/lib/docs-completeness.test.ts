@@ -5,7 +5,7 @@
 // pins the backend view shape the page renders.
 import { describe, expect, it } from "vitest";
 import { scoreTone } from "../../lib/docs-completeness";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 describe("scoreTone", () => {
   it("maps scores to AA-safe semantic tones", () => {

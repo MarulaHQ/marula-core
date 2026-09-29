@@ -22,9 +22,9 @@
 
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { snapshotOf } from "@meridian/sdk";
-import { Spinner, StatusTag, Button } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { snapshotOf } from "@marula-core/sdk";
+import { Spinner, StatusTag, Button } from "@marula-core/ui";
 import { TranscribeControl } from "../../../components/attachments/transcribe-control";
 import Link from "next/link";
 import { useParams } from "next/navigation";

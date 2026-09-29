@@ -9,7 +9,7 @@
 // Non-purpose: no camera, no transport. It turns a resolved scan into a
 // decision; screens render it.
 
-import type { MeridianClient } from "@meridian/sdk";
+import type { MeridianClient } from "@marula-core/sdk";
 
 import { unwrap } from "./http";
 import type { ScanResolution } from "./models";

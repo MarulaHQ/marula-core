@@ -6,7 +6,7 @@
 // pin the render, the revert, and the no-cache no-op. Travel drafts follow
 // the same optimistic pattern with a real idempotency key.
 
-import type { MeridianClient } from "@meridian/sdk";
+import type { MeridianClient } from "@marula-core/sdk";
 import { describe, expect, it } from "vitest";
 
 import { ReadCache } from "@/core/cache";

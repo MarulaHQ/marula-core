@@ -15,7 +15,7 @@
 import {
   LocalStoragePanelStateStore,
   type PanelStateStore,
-} from "@meridian/layout";
+} from "@marula-core/layout";
 
 // --- RBAC levels -------------------------------------------------------------
 

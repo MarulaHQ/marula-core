@@ -15,8 +15,8 @@
 // keep their own gate).
 "use client";
 
-import { Button, Card, EmptyState, FieldHint, Input, Label, Spinner, Tag } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Button, Card, EmptyState, FieldHint, Input, Label, Spinner, Tag } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, useRequireAuth } from "../../lib/api";

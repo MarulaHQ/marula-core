@@ -19,7 +19,7 @@ import {
   MeridianClient,
   type LoginResult,
   type MfaRequired,
-} from "@meridian/sdk";
+} from "@marula-core/sdk";
 import * as LocalAuthentication from "expo-local-authentication";
 import {
   createContext,

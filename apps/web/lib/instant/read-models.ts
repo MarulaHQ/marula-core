@@ -9,8 +9,8 @@
 // Non-purpose: no caching (InstantStore owns lifecycles), no React, no
 // transport policy.
 
-import type { components } from "@meridian/sdk";
-import { MeridianClient } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
+import { MeridianClient } from "@marula-core/sdk";
 import { authReady } from "../api";
 import type { InstantEvent } from "./events";
 import type { ReadModelSpec } from "./instant-store";

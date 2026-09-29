@@ -12,8 +12,8 @@
 // in the team admin surfaces.
 "use client";
 
-import { Button, Card, Input, Label, Spinner } from "@meridian/ui";
-import { applyTheme } from "@meridian/ui";
+import { Button, Card, Input, Label, Spinner } from "@marula-core/ui";
+import { applyTheme } from "@marula-core/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 

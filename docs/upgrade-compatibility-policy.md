@@ -19,7 +19,7 @@ Compatibility is a property of boundaries, not of the whole system. Exactly four
 
 | Surface | Contract | Stability rule |
 |---|---|---|
-| **REST + WebSocket API** | Path-versioned (`/api/v1`…). The generated OpenAPI spec (`utoipa`) is the contract, and `@meridian/sdk` is generated from a committed snapshot of it | A supported API version never breaks inside its support window. New versions are added alongside, never swapped in place |
+| **REST + WebSocket API** | Path-versioned (`/api/v1`…). The generated OpenAPI spec (`utoipa`) is the contract, and `@marula-core/sdk` is generated from a committed snapshot of it | A supported API version never breaks inside its support window. New versions are added alongside, never swapped in place |
 | **Domain events & webhooks** | Versioned envelope (`id`, `type`, `org_id`, `entity`, `occurred_at`, `payload_schema_ref`, `payload`) emitted once per mutation from the transactional outbox | Payload evolution is additive-only. Consumers are required to tolerate unknown fields (documented contract). Retired event types keep emitting alongside their replacements for one generation |
 | **Plugin API (PDK)** | Extism/WASM host functions. Plugins declare their required `api_version` in the manifest | Host functions are add-only — new capability always means a new function, never a changed signature. The host supports PDK generations for one major cycle |
 | **Declared customizations** | Custom fields, board statuses (always bound to semantic categories), automations, webhook subscriptions, settings registry values | These are declarative rows, migrated as data under the same rules as §4. See §5 |

@@ -18,8 +18,8 @@
 
 "use client";
 
-import { Button } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Button } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import {
   useCallback,
   useEffect,

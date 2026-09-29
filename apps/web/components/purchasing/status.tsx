@@ -3,7 +3,7 @@
 // order detail never disagree about what "partially received" looks like.
 "use client";
 
-import { StatusTag } from "@meridian/ui";
+import { StatusTag } from "@marula-core/ui";
 import type { ReactNode } from "react";
 
 import type { Tone } from "../../lib/stock-format";

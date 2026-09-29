@@ -7,7 +7,7 @@
 // Non-purpose: never used for shipped features.
 "use client";
 
-import { Card } from "@meridian/ui";
+import { Card } from "@marula-core/ui";
 
 export function SettingsPendingPanel({
   title,

@@ -1,5 +1,5 @@
 {
-  "name": "@meridian/web",
+  "name": "@marula-core/web",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0",
@@ -12,9 +12,9 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@meridian/layout": "workspace:*",
-    "@meridian/sdk": "workspace:*",
-    "@meridian/ui": "workspace:*",
+    "@marula-core/layout": "workspace:*",
+    "@marula-core/sdk": "workspace:*",
+    "@marula-core/ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-image": "^3.31.3",

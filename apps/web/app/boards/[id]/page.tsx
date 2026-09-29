@@ -13,7 +13,7 @@
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   Button,
   Dialog,
@@ -32,7 +32,7 @@ import {
   StatusTag,
   Tag,
   Textarea,
-} from "@meridian/ui";
+} from "@marula-core/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 

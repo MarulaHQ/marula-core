@@ -84,5 +84,5 @@ details live in `plugins/wasm/README.md`.
   them through its own trusted components.
 - Every surface section is gated by its own capability, shown on
   consent, and deregisters the moment the grant goes away.
-- The reference plugins plus `@meridian/plugin-kit` are the template for
+- The reference plugins plus `@marula-core/plugin-kit` are the template for
   building your own.

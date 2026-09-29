@@ -24,8 +24,8 @@ import {
   Input,
   Label,
   Tag,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";

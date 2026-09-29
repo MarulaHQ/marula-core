@@ -9,7 +9,7 @@
 //
 // Non-purpose: no queue or cache state here — pure operation declarations.
 
-import type { MeridianClient } from "@meridian/sdk";
+import type { MeridianClient } from "@marula-core/sdk";
 
 import {
   MODELS,

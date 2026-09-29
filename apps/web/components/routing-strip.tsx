@@ -5,7 +5,7 @@
 // say (ADR 0010 visibly-absent posture): no provider hint, no empty
 // chrome, no nag. Suggestions never apply themselves; the dispatcher
 // moves blocks on the board.
-import { Tag } from "@meridian/ui";
+import { Tag } from "@marula-core/ui";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 

@@ -9,8 +9,8 @@
 
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { StatusTag } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { StatusTag } from "@marula-core/ui";
 import type { ReactNode } from "react";
 
 type Ticket = components["schemas"]["TicketWithFields"];

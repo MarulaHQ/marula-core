@@ -1,5 +1,5 @@
 /**
- * @module Vitest runner configuration for @meridian/layout.
+ * @module Vitest runner configuration for @marula-core/layout.
  *
  * Purpose: run pure-logic assertion tests (serialization, constraint math,
  * tree operations, persistence adapters) in a plain Node environment.

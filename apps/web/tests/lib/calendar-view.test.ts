@@ -1,7 +1,7 @@
 // Unit tests: calendar-view — entry classification, merge order, overlap
 // detection, month-grid + week-fetch planning, snap (Wave 17 lane 4).
 import { describe, expect, it } from "vitest";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   assignLanes,
   detectOverlaps,

@@ -1,6 +1,6 @@
 // Unit tests: chart token bridge — token-set provenance and theme parity.
 import { describe, expect, it } from "vitest";
-import { PALETTE } from "@meridian/ui";
+import { PALETTE } from "@marula-core/ui";
 import { chartTokensFor } from "../../lib/chart-tokens";
 
 describe("chart tokens", () => {

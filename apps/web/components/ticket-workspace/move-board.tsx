@@ -13,8 +13,8 @@
 "use client";
 
 import { rejectionText } from "../../lib/error-copy";
-import { Button, Checkbox, Dialog, DialogActions, DialogContent, FieldHint, Label, Spinner, StatusTag } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Button, Checkbox, Dialog, DialogActions, DialogContent, FieldHint, Label, Spinner, StatusTag } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../../lib/api";
 

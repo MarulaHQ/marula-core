@@ -8,7 +8,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../../../lib/error-copy";
-import { Button, Card, CardContent, CardHeader, Spinner, StatusTag } from "@meridian/ui";
+import { Button, Card, CardContent, CardHeader, Spinner, StatusTag } from "@marula-core/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {

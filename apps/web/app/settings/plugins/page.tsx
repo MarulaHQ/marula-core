@@ -12,8 +12,8 @@
 // only (an empty tab is a genuine empty state, never a placeholder).
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Card, EmptyState, Spinner, Tag } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Card, EmptyState, Spinner, Tag } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";

@@ -1,4 +1,4 @@
-// @meridian/sdk public surface.
+// @marula-core/sdk public surface.
 //
 // Non-purpose: never imports server crates; generated code is regenerated,
 // never hand-edited.

@@ -8,8 +8,8 @@
 // bundle's own two lockup variants.
 "use client";
 
-import { useTheme } from "@meridian/ui";
-import type { Theme } from "@meridian/ui";
+import { useTheme } from "@marula-core/ui";
+import type { Theme } from "@marula-core/ui";
 
 export function BrandLockup({
   size = 20,

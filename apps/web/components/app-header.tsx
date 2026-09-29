@@ -11,9 +11,9 @@
 // results; notification preferences live at /settings/notifications.
 "use client";
 
-import { useTheme } from "@meridian/ui";
-import type { Theme } from "@meridian/ui";
-import { Button, Kbd } from "@meridian/ui";
+import { useTheme } from "@marula-core/ui";
+import type { Theme } from "@marula-core/ui";
+import { Button, Kbd } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";

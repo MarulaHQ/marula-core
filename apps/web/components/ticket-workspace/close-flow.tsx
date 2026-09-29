@@ -22,13 +22,13 @@
 
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Label, StatusTag, Textarea } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Label, StatusTag, Textarea } from "@marula-core/ui";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";
 import { useDialogA11y } from "../../lib/a11y/use-dialog-a11y";
-import { LocalStoragePanelStateStore } from "@meridian/layout";
+import { LocalStoragePanelStateStore } from "@marula-core/layout";
 import { PaperclipIcon } from "./icons";
 import type { NoteKindWire } from "./notes-composer";
 

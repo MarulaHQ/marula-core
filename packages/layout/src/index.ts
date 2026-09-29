@@ -1,5 +1,5 @@
 /**
- * @module @meridian/layout — multi-pane layout engine public API.
+ * @module @marula-core/layout — multi-pane layout engine public API.
  *
  * Purpose: the complete import surface for host apps: tree types and
  * factories, pure constraint math and tree operations, serialization with

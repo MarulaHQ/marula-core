@@ -16,7 +16,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { EmptyState, Spinner, StatusTag, type StatusTone } from "@meridian/ui";
+import { EmptyState, Spinner, StatusTag, type StatusTone } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { portalApi, useRequirePortalAuth, type PortalInvoice } from "../../../lib/portal-api";

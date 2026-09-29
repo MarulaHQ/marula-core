@@ -18,8 +18,8 @@
 "use client";
 
 import { friendlyMutationText, resultErrorText } from "../../../lib/error-copy";
-import { Button, Card, FieldHint, Spinner, Tag } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Button, Card, FieldHint, Spinner, Tag } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useEffect, useState } from "react";
 import { api, apiBaseUrl, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader, NotAvailable } from "../../../components/settings/settings-shell";

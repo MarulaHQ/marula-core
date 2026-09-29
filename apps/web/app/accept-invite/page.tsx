@@ -15,9 +15,9 @@
 // preserved on the shared device.
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Card, Input, Label, Spinner } from "@meridian/ui";
-import { applyTheme } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Card, Input, Label, Spinner } from "@marula-core/ui";
+import { applyTheme } from "@marula-core/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 

@@ -1,7 +1,7 @@
 // Typed scan routing + print-target helpers (Wave 32 lane 5,
 // `p32-labels-scanning`).
 import { describe, expect, it } from "vitest";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   accepts,
   rejectionCopy,

@@ -216,7 +216,7 @@ jobs:
         run: ./scripts/e2e-stack.sh
       - name: Build the web app (API URL inlined at build time)
         run: |
-          NEXT_PUBLIC_API_URL=http://localhost:8080 pnpm --filter @meridian/web build
+          NEXT_PUBLIC_API_URL=http://localhost:8080 pnpm --filter @marula-core/web build
       - name: Run the 10 core flows in both themes
         run: pnpm exec playwright test --config=e2e/playwright.config.ts
       - name: Flake-gate verdict (budget from e2e/helpers/budget.ts)

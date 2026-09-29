@@ -28,7 +28,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { MeridianClient } from "@meridian/sdk";
+import { MeridianClient } from "@marula-core/sdk";
 
 import { fetchStockItems, fetchStockSerials } from "../src/core/models";
 import { SyncEngine } from "../src/core/sync";

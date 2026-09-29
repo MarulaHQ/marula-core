@@ -14,9 +14,9 @@
  * Generated from tangerine.json — regenerate, never hand-edit.
  */
 @import "tailwindcss";
-@import "@meridian/ui/tokens.css";
-@import "@meridian/ui/components.css";
-@import "@meridian/layout/styles.css";
+@import "@marula-core/ui/tokens.css";
+@import "@marula-core/ui/components.css";
+@import "@marula-core/layout/styles.css";
 @import "./shell.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
