@@ -88,3 +88,4 @@ marula-designer-pack.zip
 # Reference plugin build artifacts (Wave 34 lane 4)
 plugins/wasm/target/
 plugins/wasm/*/dist/
+plugins/wasm/*/target-wasm/
