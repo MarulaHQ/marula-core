@@ -182,7 +182,7 @@ fn build_resource(service_name: &'static str) -> Resource {
         .with_service_name(service_name)
         .with_attribute(opentelemetry::KeyValue::new(
             "service.namespace",
-            "meridian",
+            "marula",
         ))
         .build()
 }

@@ -1,7 +1,7 @@
 //! Perf-harness DB bootstrap: same env contract as the core-db suites
 //! (`MARULA_TEST_DATABASE_URL` → `DATABASE_URL` → local testcontainer),
 //! handing out an admin pool (migrations + seed) and an app pool that runs
-//! under RLS as `meridian_app` exactly like production traffic.
+//! under RLS as `marula_app` exactly like production traffic.
 //!
 //! Deliberately NOT the core-db `tests/common` module — that is
 //! test-target-scoped and private to core-db; duplicating ~70 lines of
@@ -24,7 +24,7 @@ pub struct TestDb {
 }
 
 impl TestDb {
-    /// Pool authenticating as `meridian_app` (created by migration 0001),
+    /// Pool authenticating as `marula_app` (created by migration 0001),
     /// so measurement runs under RLS with the org GUC exactly like
     /// production traffic. Connects lazily AFTER migrations have run.
     pub async fn app(&self) -> PgPool {
@@ -64,18 +64,18 @@ async fn container_db() -> TestDb {
             ))
             .with_exposed_port(testcontainers::core::ContainerPort::Tcp(5432)),
     )
-    .with_container_name("meridian-perf-smoke-pg18")
+    .with_container_name("marula-perf-smoke-pg18")
     .with_reuse(testcontainers::core::ReuseDirective::Always)
-    .with_env_var("POSTGRES_USER", "meridian")
-    .with_env_var("POSTGRES_PASSWORD", "meridian")
-    .with_env_var("POSTGRES_DB", "meridian_perf");
+    .with_env_var("POSTGRES_USER", "marula")
+    .with_env_var("POSTGRES_PASSWORD", "marula")
+    .with_env_var("POSTGRES_DB", "marula_perf");
     let container = request
         .start()
         .await
         .expect("docker required for perf smoke");
     let host = container.get_host().await.expect("host");
     let port = container.get_host_port_ipv4(5432_u16).await.expect("port");
-    let admin_url = format!("postgres://meridian:meridian@{host}:{port}/meridian_perf");
+    let admin_url = format!("postgres://marula:marula@{host}:{port}/marula_perf");
     let admin = connect_with_retry(&admin_url).await;
     TestDb {
         admin,

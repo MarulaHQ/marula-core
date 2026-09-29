@@ -204,9 +204,9 @@ const GARAGE_BOOTSTRAP_COMMANDS: &[&str] = &[
     "docker compose --profile stage2 exec garage /garage status",
     "docker compose --profile stage2 exec garage /garage layout assign -z dc1 -c 1G <NODE_ID>",
     "docker compose --profile stage2 exec garage /garage layout apply --version 1",
-    "docker compose --profile stage2 exec garage /garage bucket create meridian",
-    "docker compose --profile stage2 exec garage /garage key create meridian",
-    "docker compose --profile stage2 exec garage /garage bucket allow --read --write meridian --key meridian",
+    "docker compose --profile stage2 exec garage /garage bucket create marula",
+    "docker compose --profile stage2 exec garage /garage key create marula",
+    "docker compose --profile stage2 exec garage /garage bucket allow --read --write marula --key marula",
 ];
 
 /// One probe outcome. `state` is the wire vocabulary the pane switches on:

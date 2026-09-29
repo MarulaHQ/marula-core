@@ -1,5 +1,5 @@
 //! `LocalFsStore` — the filesystem "none" mode (§2 Storage row): a
-//! self-hosted Meridian runs with NO object store service, persisting
+//! self-hosted Marula runs with NO object store service, persisting
 //! attachments under a configured directory.
 //!
 //! Purpose: durable-enough single-node storage with the exact trait

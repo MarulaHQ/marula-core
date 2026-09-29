@@ -256,7 +256,7 @@ export function MarketplaceViewTab({ canManage, onFocus }: { canManage: boolean;
               <label htmlFor="pub-name" className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                 Display name
               </label>
-              <Input id="pub-name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Meridian Labs" data-testid="publisher-name" />
+              <Input id="pub-name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Marula Labs" data-testid="publisher-name" />
             </div>
             <Button size="sm" variant="primary" disabled={busy || publisherInput.trim() === "" || displayName.trim() === ""} onClick={() => void verify()} data-testid="publisher-verify">
               {busy ? <Spinner /> : null} Vouch publisher

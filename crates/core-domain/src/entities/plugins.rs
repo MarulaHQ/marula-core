@@ -361,7 +361,7 @@ pub struct ConnectorProfile {
     #[serde(default)]
     pub scopes: Vec<String>,
     /// Wave 32 lane 7 (ADR 0014): present when the pack answers the
-    /// Meridian Routing Contract endpoints (`/routing/matrix`, …). The
+    /// Marula Routing Contract endpoints (`/routing/matrix`, …). The
     /// declaration mirrors the operator config 1:1 so consent shows
     /// exactly what the adapter will honor.
     #[serde(default, skip_serializing_if = "Option::is_none")]

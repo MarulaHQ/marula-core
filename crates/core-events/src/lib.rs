@@ -1,7 +1,7 @@
 //! core-events — the integration contract (§4.2).
 //!
 //! Purpose: the versioned event envelope and the outbox→Redis relay. Every
-//! consumer of Meridian's change feed (websockets, webhooks, plugins, search
+//! consumer of Marula's change feed (websockets, webhooks, plugins, search
 //! indexing) reads this one stream.
 //!
 //! Non-purpose: no business logic, no HTTP, no storage writes other than
@@ -49,7 +49,7 @@ impl Envelope {
 }
 
 /// The single Redis stream every event flows through.
-pub const EVENT_STREAM: &str = "meridian:events";
+pub const EVENT_STREAM: &str = "marula:events";
 
 #[derive(Debug, thiserror::Error)]
 pub enum EventError {
@@ -96,7 +96,7 @@ impl Publisher {
 /// stream inside one transaction per batch (fetch → publish → mark).
 ///
 /// Telemetry (TASKLIST 2.18): one `relay.pass` span per batch carrying the
-/// batch size, plus `meridian.relay.batch_size` and the outbox-lag gauge
+/// batch size, plus `marula.relay.batch_size` and the outbox-lag gauge
 /// (age of the oldest unpublished row, host-clock vs outbox timestamp —
 /// skew caveat documented in core-otel module docs).
 pub async fn relay_once(

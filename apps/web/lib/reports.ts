@@ -7,11 +7,11 @@
 // URL literal stays `satisfies`-anchored to the canonical contract.
 //
 // Non-purpose: no widget model (dashboards.ts), no rendering.
-import type { MeridianPaths } from "@marula-core/sdk";
+import type { MarulaPaths } from "@marula-core/sdk";
 import { api, apiBaseUrl, loadTokens } from "./api";
 import type { ReportKind } from "./dashboards";
 
-const REPORTS_PATH = "/api/v1/reports/{kind}" satisfies keyof MeridianPaths;
+const REPORTS_PATH = "/api/v1/reports/{kind}" satisfies keyof MarulaPaths;
 
 /** Widget fetch page size; the API clamps to [1, 500]. */
 const WIDGET_PAGE_LIMIT = 100;

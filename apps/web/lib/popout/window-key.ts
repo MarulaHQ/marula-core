@@ -1,6 +1,6 @@
 // Window-scoped state keys — the per-window-key seam.
 //
-// Purpose: every piece of state Meridian persists per window (panel layout,
+// Purpose: every piece of state Marula persists per window (panel layout,
 // ticket pods) is keyed by a window role inside popout windows so screen 2's
 // arrangement is remembered per window ROLE ("ticket-detail", "dispatch-
 // board"), never globally clobbering the main window's layout. The main

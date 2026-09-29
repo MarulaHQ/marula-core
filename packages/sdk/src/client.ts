@@ -13,10 +13,10 @@
 import createClient from "openapi-fetch";
 import type { paths } from "./generated/schema.js";
 
-export type MeridianPaths = paths;
+export type MarulaPaths = paths;
 
 /** A typed path key of the canonical /api/v1 contract. */
-export type ApiV1Path = keyof MeridianPaths & `/api/v1/${string}`;
+export type ApiV1Path = keyof MarulaPaths & `/api/v1/${string}`;
 
 export interface TokenPair {
   access_token: string;
@@ -25,7 +25,7 @@ export interface TokenPair {
   expires_in: number;
 }
 
-export interface MeridianClientOptions {
+export interface MarulaClientOptions {
   /** Base URL of core-api, e.g. http://localhost:8080 */
   baseUrl?: string;
   /** Injected fetch for tests / edge runtimes. Defaults to globalThis.fetch. */
@@ -102,23 +102,23 @@ export function snapshotOf(meta: MutationMetaView): {
 }
 
 /**
- * Typed Meridian API client. Generated types come from `paths`; the wrapper
+ * Typed Marula API client. Generated types come from `paths`; the wrapper
  * adds bearer-token management and the auth endpoints' convenience methods.
  */
-export class MeridianClient {
-  readonly api: ReturnType<typeof createClient<MeridianPaths>>;
+export class MarulaClient {
+  readonly api: ReturnType<typeof createClient<MarulaPaths>>;
   private readonly baseUrl: string;
   private readonly fetchFn: typeof globalThis.fetch;
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private sessionId: string | null = null;
 
-  constructor(options: MeridianClientOptions = {}) {
+  constructor(options: MarulaClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? "").replace(/\/$/, "");
     // Bind: bare `fetch` loses its receiver and browsers throw Illegal invocation.
     this.fetchFn = options.fetch ?? globalThis.fetch.bind(globalThis);
     const self = this;
-    this.api = createClient<MeridianPaths>({ baseUrl: this.baseUrl, fetch: this.fetchFn });
+    this.api = createClient<MarulaPaths>({ baseUrl: this.baseUrl, fetch: this.fetchFn });
     // Attach the bearer token on every typed request when present.
     this.api.use({
       async onRequest({ request }) {
@@ -237,12 +237,12 @@ export class MeridianClient {
     });
     if (response.status === 204 || path === "/api/v1/auth/logout") {
       if (!response.ok && path !== "/api/v1/auth/logout") {
-        throw await meridianError(path, response);
+        throw await marulaError(path, response);
       }
       return { access_token: "", refresh_token: "", session_id: "", expires_in: 0 };
     }
     if (!response.ok) {
-      throw await meridianError(path, response);
+      throw await marulaError(path, response);
     }
     const tokens = (await response.json()) as TokenPair;
     this.setTokens(tokens);
@@ -256,7 +256,7 @@ export class MeridianClient {
  * extras like the `org_slug_taken` suggestion ride along), and `message`
  * the server's fixed human copy — never raw JSON or framework text.
  */
-export class MeridianApiError extends Error {
+export class MarulaApiError extends Error {
   readonly path: string;
   readonly status: number;
   readonly reason?: string;
@@ -264,7 +264,7 @@ export class MeridianApiError extends Error {
 
   constructor(path: string, status: number, message: string, body?: unknown) {
     super(message);
-    this.name = "MeridianApiError";
+    this.name = "MarulaApiError";
     this.path = path;
     this.status = status;
     this.reason = reasonOf(body);
@@ -277,10 +277,10 @@ function reasonOf(body: unknown): string | undefined {
   return typeof reason === "string" ? reason : undefined;
 }
 
-async function meridianError(path: string, response: Response): Promise<MeridianApiError> {
+async function marulaError(path: string, response: Response): Promise<MarulaApiError> {
   const body = (await response.json().catch(() => null)) as
     | { error?: { message?: string } }
     | null;
   const message = body?.error?.message ?? response.statusText;
-  return new MeridianApiError(path, response.status, message, body);
+  return new MarulaApiError(path, response.status, message, body);
 }

@@ -94,7 +94,7 @@ impl<S: super::tools::Backend> Server<S> {
             backend: std::sync::Arc::new(backend),
             tools,
             server_info: json!({
-                "name": "meridian-mcp",
+                "name": "marula-mcp",
                 "version": env!("CARGO_PKG_VERSION"),
             }),
         }
@@ -222,7 +222,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             resp.result.as_ref().unwrap()["serverInfo"]["name"],
-            "meridian-mcp"
+            "marula-mcp"
         );
     }
 

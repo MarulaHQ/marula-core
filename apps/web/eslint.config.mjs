@@ -43,7 +43,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import { defineConfig, globalIgnores } from "eslint/config";
 
 const THEME_NOTE =
-  "Meridian design doctrine lives in docs/theme.md (Workbench tokens, Inter/JetBrains Mono typography, Tangerine palette, Ember interactive-only, motion law ≤120ms) and design/mockups/meridian-ticket-workbench-html-mockup-v2.html. Fix by using theme tokens/components — never by retyping hexes or restyling primitives.";
+  "Marula design doctrine lives in docs/theme.md (Workbench tokens, Inter/JetBrains Mono typography, Tangerine palette, Ember interactive-only, motion law ≤120ms) and design/mockups/marula-ticket-workbench-html-mockup-v2.html. Fix by using theme tokens/components — never by retyping hexes or restyling primitives.";
 
 export default defineConfig([
   globalIgnores(["node_modules/**", ".next/**", "public/**"]),

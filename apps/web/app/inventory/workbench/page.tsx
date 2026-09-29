@@ -11,7 +11,7 @@
 //   org's decision model is unconfigured — never a dead card), the
 //   threshold context, and the full undo contract (split).
 // - Contacts: the email/phone identity-key queue with the same mechanics.
-// - Clients: org_map reconciliation cards (vendor org → Meridian client;
+// - Clients: org_map reconciliation cards (vendor org → Marula client;
 //   an accept writes the durable operator map, never auto-applied).
 // - Jev: the "run intelligent dedupe" trigger (admin) with the last run
 //   report inline; below-threshold suggestions stay queued for humans.

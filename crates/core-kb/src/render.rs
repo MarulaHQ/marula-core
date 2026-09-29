@@ -253,7 +253,7 @@ fn render_node(
             }
             out.push('>');
         }
-        "youtube" | "meridianKbEmbed" => {
+        "youtube" | "marulaKbEmbed" => {
             let invalid = r#"<figure class="kb-embed kb-embed-invalid"><figcaption>Embed removed — unsafe URL</figcaption></figure>"#;
             let blocked = r#"<figure class="kb-embed kb-embed-blocked"><figcaption>Embed not allowlisted</figcaption></figure>"#;
             let Some(src) = attrs_else_https(attrs, "src") else {
@@ -295,7 +295,7 @@ fn render_node(
                 Err(_) => out.push_str(blocked),
             }
         }
-        "meridianAssetLink" => {
+        "marulaAssetLink" => {
             let asset = attrs
                 .and_then(|a| a.get("assetId"))
                 .and_then(Value::as_str)
@@ -324,7 +324,7 @@ fn render_node(
                 out.push_str("</span>");
             }
         }
-        "meridianTaxonomyTerm" => {
+        "marulaTaxonomyTerm" => {
             let term = attrs
                 .and_then(|a| a.get("termId"))
                 .and_then(Value::as_str)
@@ -557,7 +557,7 @@ mod tests {
         let doc = json!({
             "type": "doc",
             "content": [{
-                "type": "meridianKbEmbed",
+                "type": "marulaKbEmbed",
                 "attrs": { "src": "https://www.loom.com/share/abc123" }
             }]
         });
@@ -586,7 +586,7 @@ mod tests {
         let doc = json!({
             "type": "doc",
             "content": [{
-                "type": "meridianAssetLink",
+                "type": "marulaAssetLink",
                 "attrs": { "assetId": "018f0000-0000-7000-8000-000000000000" },
                 "content": [{ "type": "text", "text": "Camera <3" }]
             }]

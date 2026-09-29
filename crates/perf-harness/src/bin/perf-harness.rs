@@ -21,7 +21,7 @@ use std::time::Duration;
 #[derive(Parser)]
 #[command(
     name = "perf-harness",
-    about = "Meridian perf program harness (test infra)"
+    about = "Marula perf program harness (test infra)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -187,7 +187,7 @@ async fn connect() -> anyhow::Result<(String, sqlx::PgPool)> {
 async fn connect_app(admin_url: &str) -> anyhow::Result<sqlx::PgPool> {
     core_db::connect(&perf_harness::app_pool_url(admin_url))
         .await
-        .context("connect as meridian_app (migrations must have run)")
+        .context("connect as marula_app (migrations must have run)")
 }
 
 fn print_report(report: &measure::MeasureReport, budget_ms: Option<f64>) -> anyhow::Result<()> {

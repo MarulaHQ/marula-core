@@ -89,7 +89,7 @@ pub struct TimeLoopConfig {
 #[derive(Debug, Clone)]
 pub struct DeliveryLoopConfig {
     /// From address on every delivery email (`EMAIL_FROM_ADDRESS` — the
-    /// same env core-api enqueues with; defaults to `support@meridian.local`).
+    /// same env core-api enqueues with; defaults to `support@marula.local`).
     pub from_address: String,
     /// Optional From display name (`EMAIL_FROM_NAME`).
     pub from_name: Option<String>,
@@ -178,7 +178,7 @@ impl WorkerConfig {
             // role here fails SILENTLY — RLS filters every row without
             // erroring and nothing is ever published or evaluated.
             database_url: env("DATABASE_URL").unwrap_or_else(|| {
-                "postgres://meridian:meridian@localhost:15432/meridian".to_string()
+                "postgres://marula:marula@localhost:15432/marula".to_string()
             }),
             redis_url: env("REDIS_URL").unwrap_or_else(|| "redis://localhost:16379/0".to_string()),
             bind_addr: env("BIND_ADDR").unwrap_or_else(|| "0.0.0.0:8082".to_string()),
@@ -211,7 +211,7 @@ impl WorkerConfig {
             },
             delivery: DeliveryLoopConfig {
                 from_address: env("EMAIL_FROM_ADDRESS")
-                    .unwrap_or_else(|| "support@meridian.local".into()),
+                    .unwrap_or_else(|| "support@marula.local".into()),
                 from_name: env("EMAIL_FROM_NAME"),
                 claim_batch: env("DELIVERY_CLAIM_BATCH")
                     .and_then(|v| v.parse().ok())
@@ -251,7 +251,7 @@ mod tests {
         // drains nothing (RLS filters all rows without erroring).
         assert_eq!(
             cfg.database_url,
-            "postgres://meridian:meridian@localhost:15432/meridian"
+            "postgres://marula:marula@localhost:15432/marula"
         );
         assert_eq!(cfg.redis_url, "redis://localhost:16379/0");
         assert_eq!(cfg.bind_addr, "0.0.0.0:8082");

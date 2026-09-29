@@ -4454,7 +4454,7 @@ async fn webhook_crud_and_rls_isolation() {
             &mut *tx,
             id,
             sa.org,
-            "https://hooks.acme.test/meridian",
+            "https://hooks.acme.test/marula",
             &sealed,
             &["ticket.created".into(), "ticket.closed".into()],
             user_a,

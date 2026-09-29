@@ -140,7 +140,7 @@ interface PodPersistEnvelope {
   user: PodUserState;
 }
 
-const PODS_NAMESPACE = "meridian.ticket-pods";
+const PODS_NAMESPACE = "marula.ticket-pods";
 
 /** Panel-state-engine store instance: per-user keyed, opaque envelopes. */
 const podStore: PanelStateStore = new LocalStoragePanelStateStore({

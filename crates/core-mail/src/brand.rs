@@ -1,4 +1,4 @@
-//! Branded message wrapper for Meridian-generated notification and digest
+//! Branded message wrapper for Marula-generated notification and digest
 //! email (Wave 34 lane 8).
 //!
 //! Purpose: one place that shapes the human-facing chrome around a
@@ -168,7 +168,7 @@ pub fn render_digest(brand: &Brand<'_>, day: &str, items: &[DigestItem]) -> Bran
 /// was verified, so nobody mistakes it for a client-facing mail.
 #[must_use]
 pub fn render_test(brand: &Brand<'_>, transport_label: &str, from_address: &str) -> BrandedEmail {
-    let title = "Meridian test email";
+    let title = "Marula test email";
     let body = format!(
         "This message confirms the configured mail transport can render and send. \
          Transport: {transport_label}. From: {from_address}."
@@ -183,7 +183,7 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
 fn footer_text(brand: &Brand<'_>) -> String {
     let name = brand.brand_name.trim();
     if name.is_empty() {
-        "Sent by Meridian.".to_string()
+        "Sent by Marula.".to_string()
     } else {
         format!("Sent by {name}.")
     }
@@ -339,8 +339,8 @@ mod tests {
             signoff: None,
         };
         let mail = render_notification(&anon, "x", None);
-        assert!(mail.text_body.contains("Sent by Meridian."));
-        assert!(mail.html_body.contains("Sent by Meridian."));
+        assert!(mail.text_body.contains("Sent by Marula."));
+        assert!(mail.html_body.contains("Sent by Marula."));
     }
 
     #[test]
@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn test_probe_names_transport_and_from() {
         let mail = render_test(&brand(), "smtp", "support@acme.test");
-        assert_eq!(mail.subject, "Meridian test email");
+        assert_eq!(mail.subject, "Marula test email");
         assert!(mail.text_body.contains("Transport: smtp"));
         assert!(mail.text_body.contains("From: support@acme.test"));
     }

@@ -10,7 +10,7 @@
 
 use chrono::Duration;
 
-/// The v1 outbound kinds Meridian generates.
+/// The v1 outbound kinds Marula generates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutboundKind {
     /// Auto-responder sent when a ticket is created from an inbound email.

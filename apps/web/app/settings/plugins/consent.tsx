@@ -186,13 +186,13 @@ const CAPABILITY_NOTES: Record<string, string> = {
   "routing.matrix":
     "Routing provider — reads scheduling context (coordinates, times) and returns travel durations and distances. Routing scopes resolve to the scheduling VIEW gate and never confer scheduling edits.",
   "ui.widgets":
-    "Widgets — the plugin may register dashboard and ticket-pane widgets. Widgets are declarative cards rendered by Meridian's own components; the plugin ships no code the browser runs.",
+    "Widgets — the plugin may register dashboard and ticket-pane widgets. Widgets are declarative cards rendered by Marula's own components; the plugin ships no code the browser runs.",
   "automation.actions":
     "Automation actions — the plugin may register action kinds for the automations editor. Each action runs a consented built-in effect (such as adding an internal comment) with typed parameters.",
   "reports.render":
-    "Report renders — the plugin may contribute render kinds to the report builder. Rendering stays in Meridian's trusted component set.",
+    "Report renders — the plugin may contribute render kinds to the report builder. Rendering stays in Marula's trusted component set.",
   "fields.validate":
-    "Field validators — the plugin may contribute JSON-Schema validators for board custom fields. Meridian runs the checks; the plugin never sees field values.",
+    "Field validators — the plugin may contribute JSON-Schema validators for board custom fields. Marula runs the checks; the plugin never sees field values.",
 };
 
 /** The capability notes block — prints the vault:ingress posture under
@@ -254,7 +254,7 @@ export function SurfaceProfileBlock({ surfaceProfile }: { surfaceProfile?: unkno
           ))}
       </ul>
       <p className="mt-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-        Declarative registrations only — widgets render through Meridian&apos;s
+        Declarative registrations only — widgets render through Marula&apos;s
         own components, automation actions run consented built-in effects,
         and validators are JSON-Schema checks. The plugin contributes no
         executable code to these surfaces.

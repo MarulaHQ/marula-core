@@ -1,7 +1,7 @@
 //! Fixture-capture tooling (TASKLIST U7, upgrade-compatibility-policy §8).
 //!
 //! Purpose: support the per-tag upgrade fixtures in `fixtures/upgrades/` —
-//! `meridian fixture manifest` emits the U5 customization manifest for one
+//! `marula fixture manifest` emits the U5 customization manifest for one
 //! org as JSON, exactly the envelope the API export produces and the U6
 //! preflight consumes. Capture procedure (documented in
 //! fixtures/upgrades/README.md): migrate a scratch database to the tag,

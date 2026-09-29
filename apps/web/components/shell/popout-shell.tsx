@@ -73,7 +73,7 @@ export function PopoutShell({
 
   useEffect(() => {
     updateShownEntities([currentShownEntity()].filter((e): e is string => e !== null));
-    document.title = def !== null ? `${def.title} — Meridian` : "Meridian";
+    document.title = def !== null ? `${def.title} — Marula` : "Marula";
   }, [pathname, def]);
 
   useEffect(() => {
@@ -90,7 +90,7 @@ export function PopoutShell({
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface-sunken, var(--m-surface))" }}
       >
         <span className="font-mono text-xs uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
-          {def?.title ?? "Meridian"}
+          {def?.title ?? "Marula"}
         </span>
         <span className="ml-auto flex items-center gap-2">
           <a

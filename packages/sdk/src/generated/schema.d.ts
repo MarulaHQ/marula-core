@@ -867,7 +867,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/auth/edge/{name}/exchange — swaps a valid
-         *     `Cf-Access-Jwt-Assertion` (header) for Meridian tokens. The
+         *     `Cf-Access-Jwt-Assertion` (header) for Marula tokens. The
          *     assertion MUST verify against the source's pinned team JWKS with
          *     issuer AND audience pinned; failures are a uniform typed 401.
          */
@@ -14575,7 +14575,7 @@ export interface components {
         };
         /**
          * @description The durable operator mapping a reconciliation accept writes: one row
-         *     per (source system, vendor org id), pointing at one Meridian client.
+         *     per (source system, vendor org id), pointing at one Marula client.
          */
         ClientOrgMap: {
             /** Format: uuid */
@@ -15691,7 +15691,7 @@ export interface components {
             subject: string;
             /**
              * Format: uuid
-             * @description Local Meridian user to bind. The admin is the verified-email
+             * @description Local Marula user to bind. The admin is the verified-email
              *     authority here: linking asserts "this local account is this
              *     edge identity".
              */
@@ -15774,7 +15774,7 @@ export interface components {
         CreateImportTemplateRequest: {
             entity_kind: components["schemas"]["EntityKind"];
             /**
-             * @description Source column → canonical Meridian column. Targets are validated
+             * @description Source column → canonical Marula column. Targets are validated
              *     against the canonical field catalog for the entity kind.
              */
             mapping: Record<string, never>;

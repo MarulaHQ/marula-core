@@ -495,7 +495,7 @@ export default function SelfHostSettingsPage() {
 
               <LinkCard
                 title="Grafana"
-                description="Dashboards over the Tempo, Loki and MeridianMetrics datasources."
+                description="Dashboards over the Tempo, Loki and MarulaMetrics datasources."
                 url={view.links.grafana}
                 envVar="MARULA_GRAFANA_URL"
                 openLabel="Open Grafana"

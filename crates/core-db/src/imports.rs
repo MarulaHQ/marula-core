@@ -260,7 +260,7 @@ pub struct ImportMappingTemplate {
     pub name: String,
     pub source_system: String,
     pub entity_kind: String,
-    /// JSON object: source column → canonical Meridian column.
+    /// JSON object: source column → canonical Marula column.
     pub mapping: serde_json::Value,
     pub created_by: Uuid,
     pub created_by_kind: String,

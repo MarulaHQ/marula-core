@@ -199,7 +199,7 @@ function MagicLinkInner(): ReactNode {
               </svg>
             </span>
             <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              Signed in — continuing into Meridian…
+              Signed in — continuing into Marula…
             </p>
           </div>
         ) : (

@@ -42,12 +42,12 @@ export async function openNativeWindow(
 
 /** Ask the shell to open-or-FOCUS the window a marula:// link targets.
  * Returns the acted-on label, or null when the shell is absent. */
-export async function routeMeridianLink(url: string): Promise<string | null> {
+export async function routeMarulaLink(url: string): Promise<string | null> {
   if (!isDesktopShell()) return null;
   try {
-    return (await tauriInvoke("route_meridian_link", { url })) as string;
+    return (await tauriInvoke("route_marula_link", { url })) as string;
   } catch (error) {
-    console.warn("meridian link routing failed:", error);
+    console.warn("marula link routing failed:", error);
     return null;
   }
 }

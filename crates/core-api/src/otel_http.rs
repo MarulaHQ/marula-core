@@ -4,8 +4,8 @@
 //! LOW-CARDINALITY attributes only — method, route TEMPLATE
 //! (`/api/tickets/{id}`, never the raw path), status code, duration — plus
 //! `org_id` stamped by [`record_org`] once an auth middleware has resolved
-//! it. The same middleware counts `meridian.http.requests` and samples
-//! `meridian.http.request.duration` via [`core_otel::metrics`].
+//! it. The same middleware counts `marula.http.requests` and samples
+//! `marula.http.request.duration` via [`core_otel::metrics`].
 //!
 //! Redaction (see core_otel::redact): no headers, no query strings (WS
 //! `?token=` / OIDC `?code=` never reach telemetry), no bodies. Unmatched

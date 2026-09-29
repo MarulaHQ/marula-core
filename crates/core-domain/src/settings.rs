@@ -348,7 +348,7 @@ pub const EMAIL_SIGNOFF: &str = "email.signoff";
 /// state), `postmark` (API token in the sealed slot), or `smtp` (host +
 /// username in settings, password in the sealed slot).
 pub const EMAIL_TRANSPORT: &str = "email.transport";
-/// Org-level From address for Meridian-generated mail. Boards override it
+/// Org-level From address for Marula-generated mail. Boards override it
 /// with their own identity; empty keeps the operator/process default.
 pub const EMAIL_FROM_ADDRESS: &str = "email.from_address";
 pub const EMAIL_FROM_NAME: &str = "email.from_name";
@@ -918,7 +918,7 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                 section: SettingSection::Email,
                 visibility: SettingVisibility::Ui,
                 label: "Outbound transport",
-                description: "How Meridian sends mail: none keeps messages queued \
+                description: "How Marula sends mail: none keeps messages queued \
                              (honest not-configured state), postmark sends through \
                              the Postmark API, smtp relays through your own SMTP \
                              host. Credentials go through the sealed slot on the \
@@ -932,7 +932,7 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                 section: SettingSection::Email,
                 visibility: SettingVisibility::Ui,
                 label: "From address",
-                description: "The address Meridian mail is sent from (for example \
+                description: "The address Marula mail is sent from (for example \
                              support@yourdomain.com). Boards with their own \
                              identity override it. Empty keeps the operator \
                              process default.",
@@ -1207,10 +1207,10 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                 scope: SettingScope::Org,
                 section: SettingSection::Integrations,
                 visibility: SettingVisibility::Ui,
-                label: "DMS sync connector (IT Glue / Hudu ↔ Meridian docs)",
+                label: "DMS sync connector (IT Glue / Hudu ↔ Marula docs)",
                 description: "Operator-side toggle for the documentation-system sync: a \
                               sync run that starts while this is off reports disabled \
-                               before touching a single Meridian record.",
+                               before touching a single Marula record.",
             },
             SettingDeclaration {
                 key: ONBOARDING_ORG_BANNER_DISMISSED,

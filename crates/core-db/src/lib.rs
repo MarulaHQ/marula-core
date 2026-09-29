@@ -1,4 +1,4 @@
-//! core-db — SQLx queries and versioned migrations for Meridian.
+//! core-db — SQLx queries and versioned migrations for Marula.
 //!
 //! Purpose: the only place SQL lives. Every query is compile-time checked
 //! against the schema (offline `.sqlx` data committed to the repo); RLS is

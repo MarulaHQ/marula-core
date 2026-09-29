@@ -1,6 +1,6 @@
 //! Upgrade preflight (TASKLIST U6, upgrade-compatibility-policy.md §5).
 //!
-//! Purpose: `meridian upgrade --check` runs OFFLINE, before an upgrade, and
+//! Purpose: `marula upgrade --check` runs OFFLINE, before an upgrade, and
 //! reports exactly which of this org's customizations touch constructs the
 //! target version deprecates — auto-migratable ones flagged as such,
 //! judgment-call ones described in plain language. Inputs are the same

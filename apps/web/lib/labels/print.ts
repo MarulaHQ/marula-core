@@ -22,7 +22,7 @@ import { LABEL_PADDING_MM, qrPositionMm } from "./model";
 import { isDesktopShell, tauriInvoke } from "../desktop/shell";
 export { isDesktopShell };
 
-const PRINTER_KEY = "meridian.labels.printer";
+const PRINTER_KEY = "marula.labels.printer";
 const DEFAULT_PRINTER_PORT = 9100;
 
 export interface LabelPrintInput {

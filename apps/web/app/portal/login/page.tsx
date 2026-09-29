@@ -7,9 +7,9 @@
 // invite-only surface provisioned by the MSP.
 //
 // Wave 17 lane 8 UX pass: brand mark + generous card rhythm, entrance
-// motion riding the shared m-rise keyframe. Lane 10: the meridian-ci logo
+// motion riding the shared m-rise keyframe. Lane 10: the marula-ci logo
 // mark replaces the placeholder globe; white-label-lite substitution (org
-// name + accent as deployment config, honest Meridian defaults).
+// name + accent as deployment config, honest Marula defaults).
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
@@ -20,7 +20,7 @@ import { portalApi, usePortalAuth } from "../../../lib/portal-api";
 import { BrandMark } from "../../../components/brand";
 import { portalAccentOverrides, portalOrgName } from "../../../lib/portal-branding";
 
-const ORG_NAME = portalOrgName() ?? "Meridian";
+const ORG_NAME = portalOrgName() ?? "Marula";
 
 export default function PortalLoginPage() {
   const router = useRouter();

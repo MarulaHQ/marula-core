@@ -1,7 +1,7 @@
-// Brand lockups — meridian-ci asset bundle integration (Wave 17 lane 10).
+// Brand lockups — marula-ci asset bundle integration (Wave 17 lane 10).
 //
-// Purpose: render the meridian-ci logo lockups from the copied bundle in
-// apps/web/public/ with theme-aware file selection. `meridian-ci/source/*.svg`
+// Purpose: render the marula-ci logo lockups from the copied bundle in
+// apps/web/public/ with theme-aware file selection. `marula-ci/source/*.svg`
 // stays the editable source of truth; the PNGs here are the rendered
 // equivalents shipped by the bundle (no hand edits, hexes live in the SVGs).
 // Non-purpose: no marketing pages, no color inventing — navy/white are the
@@ -13,7 +13,7 @@ import type { Theme } from "@marula-core/ui";
 
 export function BrandLockup({
   size = 20,
-  label = "Meridian",
+  label = "Marula",
 }: {
   /** Rendered height in px; width follows the 516:140 lockup ratio. */
   size?: number;
@@ -31,8 +31,8 @@ export function BrandLockup({
 }
 
 /**
- * The standalone mark (meridian-ci mark tile: ink square, white M, accent
- * meridian line). Theme-aware: the bundle's navy ink mark is illegible on dark
+ * The standalone mark (marula-ci mark tile: ink square, white M, accent
+ * marula line). Theme-aware: the bundle's navy ink mark is illegible on dark
  * surfaces, so
  * dark uses mark-white-512 (the lockup-white white-ink convention applied to
  * the standalone mark); navy variant on light.

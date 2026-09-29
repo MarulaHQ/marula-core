@@ -3,7 +3,7 @@
 //! Covers the promises the API layer leans on: the stable entity id across
 //! upserts (write-trail + idempotency anchoring), presence-only summaries
 //! (zero secret bytes), owner-role pool reads (the API's `state.pool`
-//! profile) and RLS default-deny inside `meridian_app` transactions.
+//! profile) and RLS default-deny inside `marula_app` transactions.
 
 mod common;
 

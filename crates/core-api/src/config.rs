@@ -84,7 +84,7 @@ pub struct Config {
     pub email_transport: TransportKind,
     /// Malware scanner selection (none | clamd TCP).
     pub email_scan_clamd_addr: Option<String>,
-    /// From-identity for Meridian-generated outbound mail.
+    /// From-identity for Marula-generated outbound mail.
     pub email_from_address: String,
     pub email_from_name: Option<String>,
     /// Bearer token guarding /api/internal/* machine endpoints used by the
@@ -173,7 +173,7 @@ pub enum RoutingChoice {
         access_token: String,
         profile: String,
     },
-    /// An out-of-tree pack speaking the Meridian Routing Contract
+    /// An out-of-tree pack speaking the Marula Routing Contract
     /// (`docs/routing-providers.md`).
     Contract {
         id: String,
@@ -188,7 +188,7 @@ fn object_store_from_env() -> core_store::StoreChoice {
     match std::env::var("OBJECT_STORE").as_deref() {
         Ok("s3") => core_store::StoreChoice::S3(core_store::S3Config {
             endpoint: std::env::var("S3_ENDPOINT").ok().filter(|e| !e.is_empty()),
-            bucket: std::env::var("S3_BUCKET").unwrap_or_else(|_| "meridian".into()),
+            bucket: std::env::var("S3_BUCKET").unwrap_or_else(|_| "marula".into()),
             region: std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".into()),
             access_key_id: std::env::var("S3_ACCESS_KEY_ID").unwrap_or_default(),
             secret_access_key: std::env::var("S3_SECRET_ACCESS_KEY").unwrap_or_default(),
@@ -312,7 +312,7 @@ impl Config {
             email_internal_token: None,
             email_transport: TransportKind::None,
             email_scan_clamd_addr: None,
-            email_from_address: "support@meridian.local".into(),
+            email_from_address: "support@marula.local".into(),
             email_from_name: None,
             internal_token: None,
             object_store: core_store::StoreChoice::Local(object_dir.to_string_lossy().into_owned()),
@@ -426,7 +426,7 @@ impl Config {
         let jwt_signing = jwt_signing_from_env()?;
         Ok(Self {
             database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-                "postgres://meridian_app:meridian_app@localhost:15432/meridian".into()
+                "postgres://marula_app:marula_app@localhost:15432/marula".into()
             }),
             redis_url: std::env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://localhost:16379/0".into()),
@@ -468,7 +468,7 @@ impl Config {
                 _ => None,
             },
             email_from_address: std::env::var("EMAIL_FROM_ADDRESS")
-                .unwrap_or_else(|_| "support@meridian.local".into()),
+                .unwrap_or_else(|_| "support@marula.local".into()),
             email_from_name: std::env::var("EMAIL_FROM_NAME").ok(),
             internal_token: std::env::var("MARULA_INTERNAL_TOKEN").ok(),
             object_store: object_store_from_env(),
@@ -528,7 +528,7 @@ pub fn bootstrap_signing_keys(
         let pk = public_key_hex.trim().to_lowercase();
         if pk.len() != 64 || !pk.bytes().all(|b| b.is_ascii_hexdigit()) {
             eprintln!(
-                "[plugins] MERIDIAN signing key dropped: public key must be 64 hex chars (got {} chars)",
+                "[plugins] MARULA signing key dropped: public key must be 64 hex chars (got {} chars)",
                 pk.len()
             );
             return;
@@ -717,7 +717,7 @@ impl Config {
                 _ => None,
             },
             email_from_address: std::env::var("EMAIL_FROM_ADDRESS")
-                .unwrap_or_else(|_| "support@meridian.local".into()),
+                .unwrap_or_else(|_| "support@marula.local".into()),
             email_from_name: std::env::var("EMAIL_FROM_NAME").ok(),
             internal_token: std::env::var("MARULA_INTERNAL_TOKEN").ok(),
             object_store: object_store_from_env(),

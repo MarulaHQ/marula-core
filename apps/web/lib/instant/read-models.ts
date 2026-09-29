@@ -10,7 +10,7 @@
 // transport policy.
 
 import type { components } from "@marula-core/sdk";
-import { MeridianClient } from "@marula-core/sdk";
+import { MarulaClient } from "@marula-core/sdk";
 import { authReady } from "../api";
 import type { InstantEvent } from "./events";
 import type { ReadModelSpec } from "./instant-store";
@@ -27,7 +27,7 @@ async function withAuthReady<T>(fetch: () => Promise<T>): Promise<T> {
 }
 
 /** The SDK client's typed query surface (openapi-fetch per-path overloads). */
-export type ApiClient = MeridianClient["api"];
+export type ApiClient = MarulaClient["api"];
 
 export type BoardTicket = components["schemas"]["Ticket"];
 export type BoardStatus = components["schemas"]["BoardStatus"];

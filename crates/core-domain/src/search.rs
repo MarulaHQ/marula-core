@@ -1,7 +1,7 @@
 //! Reciprocal Rank Fusion for hybrid retrieval (§4.5: one search API —
 //! FTS + vector fused by RRF).
 //!
-//! Purpose: the pure ranking math behind Meridian's hybrid search. Lexical
+//! Purpose: the pure ranking math behind Marula's hybrid search. Lexical
 //! (websearch FTS + trigram) and vector (pgvector cosine) legs each produce
 //! a ranked candidate list; this module folds them into ONE ranked list so
 //! a hit strong on either leg surfaces, and a hit strong on both floats.

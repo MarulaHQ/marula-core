@@ -295,7 +295,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
         &mut *tx,
         Uuid::now_v7(),
         base.org,
-        "https://hooks.example.test/meridian",
+        "https://hooks.example.test/marula",
         SEALED_WEBHOOK_SECRET,
         &["ticket.created".to_string(), "ticket.closed".to_string()],
         base.user,
@@ -631,7 +631,7 @@ async fn full_org_manifest_covers_every_section() {
     // webhooks: filter array exported, no secret fields anywhere.
     let hooks = m["sections"]["webhooks"].as_array().unwrap();
     assert_eq!(hooks.len(), 1);
-    assert_eq!(hooks[0]["url"], "https://hooks.example.test/meridian");
+    assert_eq!(hooks[0]["url"], "https://hooks.example.test/marula");
     assert_eq!(
         hooks[0]["event_types"],
         json!(["ticket.created", "ticket.closed"]),

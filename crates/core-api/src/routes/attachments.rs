@@ -1,7 +1,7 @@
 //! Attachment endpoints (TASKLIST 2.14): upload, list, stream-download,
 //! author-gated delete.
 //!
-//! Purpose: the ONLY door for binary objects into Meridian. Every upload
+//! Purpose: the ONLY door for binary objects into Marula. Every upload
 //! passes the core-domain allowlist gate (size cap + magic bytes vs
 //! declared type vs extension), hashes to sha256, reuses already-stored
 //! objects per org (content-addressed dedup), and persists its metadata

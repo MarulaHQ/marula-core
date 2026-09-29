@@ -41,8 +41,8 @@ const TICK: Duration = Duration::minutes(30);
 
 fn cfg() -> DeliveryLoopConfig {
     DeliveryLoopConfig {
-        from_address: "reports@meridian.test".into(),
-        from_name: Some("Meridian Reports".into()),
+        from_address: "reports@marula.test".into(),
+        from_name: Some("Marula Reports".into()),
         claim_batch: 50,
         poll_secs: 60,
     }
@@ -115,15 +115,15 @@ async fn admin_pool() -> PgPool {
 /// The RLS-constrained pool the render path executes on (same role
 /// rewrite core-api applies for its reporting pool).
 fn reporting_pool(admin_url: &str) -> PgPool {
-    let target = if admin_url.contains("meridian_app:") {
+    let target = if admin_url.contains("marula_app:") {
         admin_url.to_string()
     } else {
         let (scheme_rest, rest) = admin_url
             .split_once("://")
             .unwrap_or(("postgres", admin_url));
         match rest.split_once('@') {
-            Some((_creds, host)) => format!("{scheme_rest}://meridian_app:meridian_app@{host}"),
-            None => format!("{scheme_rest}://meridian_app:meridian_app@{rest}"),
+            Some((_creds, host)) => format!("{scheme_rest}://marula_app:marula_app@{host}"),
+            None => format!("{scheme_rest}://marula_app:marula_app@{rest}"),
         }
     };
     sqlx::postgres::PgPoolOptions::new()
@@ -158,7 +158,7 @@ async fn seed_org(pool: &PgPool) -> Org {
         pool,
         Uuid::now_v7(),
         org.id,
-        &format!("optin-{suffix}@meridian.test"),
+        &format!("optin-{suffix}@marula.test"),
         "Optin",
         "x",
         "UTC",
@@ -169,7 +169,7 @@ async fn seed_org(pool: &PgPool) -> Org {
         pool,
         Uuid::now_v7(),
         org.id,
-        &format!("disabled-{suffix}@meridian.test"),
+        &format!("disabled-{suffix}@marula.test"),
         "Disabled",
         "x",
         "UTC",
@@ -180,7 +180,7 @@ async fn seed_org(pool: &PgPool) -> Org {
         pool,
         Uuid::now_v7(),
         org.id,
-        &format!("quiet-{suffix}@meridian.test"),
+        &format!("quiet-{suffix}@marula.test"),
         "Quiet",
         "x",
         "UTC",
@@ -418,8 +418,8 @@ async fn two_simulated_weeks_with_zero_lost_slots_then_none_mode() {
         "no duplicate RFC message ids across the window"
     );
     for m in &messages {
-        assert_eq!(m.from_address, "reports@meridian.test");
-        assert!(m.to_addresses[0].ends_with("@meridian.test"));
+        assert_eq!(m.from_address, "reports@marula.test");
+        assert!(m.to_addresses[0].ends_with("@marula.test"));
         assert!(
             m.body_text.starts_with("count"),
             "CSV header first: {}",

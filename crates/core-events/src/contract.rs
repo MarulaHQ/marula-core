@@ -512,7 +512,7 @@ use core_domain::policy::BoardRole;
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
 use core_domain::workflow::TransitionEdge;
 
-/// Every payload Meridian publishes on the event stream today (envelope
+/// Every payload Marula publishes on the event stream today (envelope
 /// `payload_schema_ref` = [`PAYLOAD_SCHEMA_V1`]). Registering an emission
 /// here is the review gate for putting a new payload on the wire.
 pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
@@ -1745,7 +1745,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
         variant: "default",
         shape: untyped_shape!(
             ["name", "ticket_prefix"],
-            serde_json::json!({ "name": "Meridian MSP", "ticket_prefix": "MER" })
+            serde_json::json!({ "name": "Marula MSP", "ticket_prefix": "MER" })
         ),
     },
     PublishedEvent {
@@ -2304,7 +2304,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 catalog_id: su(50),
                 slug: "ticket-summarizer".into(),
                 name: "Ticket Summarizer".into(),
-                publisher: "meridian".into(),
+                publisher: "marula".into(),
                 version: "1.0.0".into(),
                 interface_version: 1,
                 capabilities: vec!["tickets.read".into()],
@@ -2421,8 +2421,8 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             PluginPublisherVerified,
             PluginPublisherVerified {
                 verification_id: Some(su(55)),
-                publisher: "github.com/meridian-labs".into(),
-                display_name: "Meridian Labs".into(),
+                publisher: "github.com/marula-labs".into(),
+                display_name: "Marula Labs".into(),
                 verified_by: su(54),
                 verified_at: st(20),
             }
@@ -2436,7 +2436,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             PluginPublisherRevoked,
             PluginPublisherRevoked {
                 verification_id: Some(su(55)),
-                publisher: "github.com/meridian-labs".into(),
+                publisher: "github.com/marula-labs".into(),
                 revoked_by: su(54),
                 revoked_at: st(21),
             }

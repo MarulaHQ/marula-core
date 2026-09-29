@@ -100,6 +100,6 @@ export function qrPositionMm(label: ResolvedLabel): { xMm: number; yMm: number }
 /** Deep-link kind → the surface an in-app scan should open. */
 export function deepLinkTarget(deepLink: string | null | undefined): string | null {
   if (!deepLink) return null;
-  const match = /^meridian:\/\/([a-z-]+)\//.exec(deepLink);
+  const match = /^marula:\/\/([a-z-]+)\//.exec(deepLink);
   return match?.[1] ?? null;
 }

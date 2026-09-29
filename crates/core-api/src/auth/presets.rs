@@ -217,12 +217,12 @@ mod tests {
         // standard realm issuer/discovery pair.
         let mut p = HashMap::new();
         p.insert("host".to_string(), "sso.example.com".to_string());
-        p.insert("realm".to_string(), "meridian".to_string());
+        p.insert("realm".to_string(), "marula".to_string());
         let (issuer, discovery) = resolve_preset("keycloak", &p).unwrap();
-        assert_eq!(issuer, "https://sso.example.com/realms/meridian");
+        assert_eq!(issuer, "https://sso.example.com/realms/marula");
         assert_eq!(
             discovery,
-            "https://sso.example.com/realms/meridian/.well-known/openid-configuration"
+            "https://sso.example.com/realms/marula/.well-known/openid-configuration"
         );
     }
 

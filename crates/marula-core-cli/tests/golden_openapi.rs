@@ -109,8 +109,8 @@ fn pin_is_a_valid_v1_spec() {
     }
     assert_eq!(
         pin["info"]["title"].as_str(),
-        Some("Meridian Core API"),
-        "pin is not the Meridian Core API spec"
+        Some("Marula Core API"),
+        "pin is not the Marula Core API spec"
     );
 }
 

@@ -1,6 +1,6 @@
 //! `core-routing` — the distance/duration provider seam (Wave 32 lane 7).
 //!
-//! Purpose: one capability-generic boundary between Meridian's scheduling
+//! Purpose: one capability-generic boundary between Marula's scheduling
 //! math and ANY distance/duration API. Providers are pluggable through a
 //! registry; the trait speaks matrix, route, geocode, and isochrone, with
 //! departure-vs-arrival time control, travel modes, time + distance in
@@ -16,7 +16,7 @@
 //!   server, with the OpenRouteService dialect for self-hosted ORS.
 //! * [`contract`] — the out-of-tree adapter: any provider pack (first-party
 //!   relay connectors like TravelTime/Geoapify, or community packs) that
-//!   implements the documented Meridian Routing Contract over HTTP. The
+//!   implements the documented Marula Routing Contract over HTTP. The
 //!   relay repos ship the vendor mapping; the core never names a vendor.
 //!   See `docs/routing-providers.md` for the normative wire contract.
 //!

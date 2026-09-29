@@ -48,7 +48,7 @@ pub struct InboundEmail {
     pub attachments: Vec<InboundAttachment>,
 }
 
-/// One provider-extracted attachment: metadata plus base64 body. Meridian
+/// One provider-extracted attachment: metadata plus base64 body. Marula
 /// deliberately does no MIME parsing in v1 — extraction is the edge's job.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct InboundAttachment {
@@ -206,7 +206,7 @@ pub fn plan_inbound(
     }
 }
 
-/// Naive HTML→text: drops tags, decodes the handful of entities Meridian's
+/// Naive HTML→text: drops tags, decodes the handful of entities Marula's
 /// own templates emit. Good enough for v1 reply rendering; not a general
 /// sanitizer.
 #[must_use]

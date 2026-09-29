@@ -9,7 +9,7 @@
 //! * [`validate_document`] — structural validation of the Tiptap JSON
 //!   document against the PINNED published Tiptap JSON schema
 //!   (`schemas/tiptap-json-schema.json`, pinned at adoption; upgrades are
-//!   CI diff-reviewed) plus the Meridian extension allowlist (schema
+//!   CI diff-reviewed) plus the Marula extension allowlist (schema
 //!   control = extension allowlist; no paid bundles — ADR 0007);
 //! * [`validate_content`] — the whole write gate: byte bound reusing
 //!   [`MAX_BODY_BYTES`], depth bound, structural + allowlist + attribute
@@ -47,11 +47,11 @@ pub const MAX_DOC_DEPTH: usize = 40;
 /// the walk.
 const MAX_CHILDREN: usize = 4096;
 
-/// Tiptap marks Meridian loads (all MIT: StarterKit set + Link + Underline).
+/// Tiptap marks Marula loads (all MIT: StarterKit set + Link + Underline).
 pub const ALLOWED_MARKS: &[&str] = &["bold", "italic", "strike", "code", "underline", "link"];
 
-/// Tiptap nodes Meridian loads (all MIT: StarterKit 3 + Image +
-/// TaskList/TaskItem + YouTube + Meridian OSS extensions).
+/// Tiptap nodes Marula loads (all MIT: StarterKit 3 + Image +
+/// TaskList/TaskItem + YouTube + Marula OSS extensions).
 pub const ALLOWED_NODES: &[&str] = &[
     "paragraph",
     "heading",
@@ -67,15 +67,15 @@ pub const ALLOWED_NODES: &[&str] = &[
     "taskList",
     "taskItem",
     "youtube",
-    // Meridian-authored OSS extensions (published from plugins/):
-    "meridianKbEmbed",      // allowlisted KB-embed card (rich.rs registry)
-    "meridianAssetLink",    // RelatedAssetLink RecordLink records (ADR 0006)
-    "meridianTaxonomyTerm", // note-taxonomy picker term
+    // Marula-authored OSS extensions (published from plugins/):
+    "marulaKbEmbed",      // allowlisted KB-embed card (rich.rs registry)
+    "marulaAssetLink",    // RelatedAssetLink RecordLink records (ADR 0006)
+    "marulaTaxonomyTerm", // note-taxonomy picker term
 ];
 
 /// Node types that count as embeds and must clear the ADR 0004
 /// allowlist registry on every write.
-pub const EMBED_NODES: &[&str] = &["youtube", "meridianKbEmbed"];
+pub const EMBED_NODES: &[&str] = &["youtube", "marulaKbEmbed"];
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq, Clone)]
 pub enum ContentError {
@@ -138,7 +138,7 @@ pub fn validate_content(bytes: &[u8]) -> Result<(), ContentError> {
 }
 
 /// Validates the `doc` member as a Tiptap JSON document (pinned
-/// published schema's structural rules + the Meridian allowlist).
+/// published schema's structural rules + the Marula allowlist).
 pub fn validate_document(doc: &Value) -> Result<(), ContentError> {
     let Value::Object(top) = doc else {
         return Err(ContentError::NotADoc);
@@ -259,7 +259,7 @@ fn validate_node(node: &Value, depth: usize, path: &str) -> Result<(), ContentEr
         return Err(ContentError::BadNode {
             name: name.clone(),
             path: path.into(),
-            problem: "node not in the Meridian extension allowlist".into(),
+            problem: "node not in the Marula extension allowlist".into(),
         });
     }
     for key in m.keys() {
@@ -351,7 +351,7 @@ fn validate_mark(mark: &Value, path: &str) -> Result<(), ContentError> {
         return Err(ContentError::BadMark {
             name: name.clone(),
             path: path.into(),
-            problem: "mark not in the Meridian extension allowlist".into(),
+            problem: "mark not in the Marula extension allowlist".into(),
         });
     }
     if let Some(attrs) = m.get("attrs") {
@@ -449,7 +449,7 @@ fn validate_node_attrs(name: &str, attrs: &Value, path: &str) -> Result<(), Cont
                 })
             }
         },
-        "image" | "youtube" | "meridianKbEmbed" => {
+        "image" | "youtube" | "marulaKbEmbed" => {
             let src = a
                 .get("src")
                 .and_then(Value::as_str)
@@ -501,15 +501,15 @@ fn validate_node_attrs(name: &str, attrs: &Value, path: &str) -> Result<(), Cont
                 });
             }
         }
-        "codeBlock" | "meridianAssetLink" | "meridianTaxonomyTerm" => {
+        "codeBlock" | "marulaAssetLink" | "marulaTaxonomyTerm" => {
             for (k, v) in a {
                 if k == "language" && name == "codeBlock" && v.is_string() {
                     continue;
                 }
-                if k == "assetId" && name == "meridianAssetLink" && v.is_string() {
+                if k == "assetId" && name == "marulaAssetLink" && v.is_string() {
                     continue;
                 }
-                if k == "termId" && name == "meridianTaxonomyTerm" && v.is_string() {
+                if k == "termId" && name == "marulaTaxonomyTerm" && v.is_string() {
                     continue;
                 }
                 return Err(ContentError::BadNode {

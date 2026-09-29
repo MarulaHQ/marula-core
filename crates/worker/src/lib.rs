@@ -1,12 +1,12 @@
 //! worker — the background process host.
 //!
-//! Purpose: run every background loop Meridian needs: the outbox→Redis
+//! Purpose: run every background loop Marula needs: the outbox→Redis
 //! relay (`core_events::run_relay`), the notification email fan-out
 //! consumer (noop transport until a real MailTransport is configured),
 //! the outbound email send loop, the general job queue processor, the
 //! periodic SLA evaluation sweep, and the automations stream consumer —
 //! plus a `/healthz` endpoint reflecting loop liveness. `marula-core-cli`
-//! hosts this same library via `meridian serve-worker`.
+//! hosts this same library via `marula serve-worker`.
 //!
 //! Non-purpose: no domain writes — effects flow back through core-api's
 //! internal surface (§4.1); the worker touches only its own queue tables,
@@ -15,7 +15,7 @@
 //! primary loop plus the notification email fan-out consumer and the
 //! unified-search indexer consumer, and expose a `/healthz` endpoint that
 //! reflects relay liveness. `marula-core-cli` hosts this same library via
-//! `meridian serve-worker`.
+//! `marula serve-worker`.
 //!
 //! Non-purpose: no general job queue, webhook delivery, or SLA evaluation
 //! — those are later-stage scope — and no direct database writes of its own

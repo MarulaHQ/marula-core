@@ -46,7 +46,7 @@ static INSTRUMENTS: OnceLock<Instruments> = OnceLock::new();
 
 fn instruments() -> &'static Instruments {
     INSTRUMENTS.get_or_init(|| {
-        let meter = global::meter("meridian");
+        let meter = global::meter("marula");
         Instruments {
             http_requests: meter
                 .u64_counter("marula.http.requests")

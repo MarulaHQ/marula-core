@@ -505,7 +505,7 @@ export default function WelcomeWizardPage() {
                 and this page itself all re-open it. Skipped steps never nag.
               </p>
               <Button variant="primary" onClick={() => router.replace("/today")}>
-                Enter Meridian
+                Enter Marula
               </Button>
             </Card>
           )}

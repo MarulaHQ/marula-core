@@ -190,7 +190,7 @@ async fn plugin_surface_registry_flow() {
             "slug": entry_slug,
             "name": "Surface Plugin",
             "description": "Reference surface plugin",
-            "publisher": "meridian",
+            "publisher": "marula",
             "version": "1.0.0",
             "manifest": surface_manifest(),
         })),

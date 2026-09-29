@@ -6,7 +6,7 @@
  * tokens.css; a test enforces the two stay in sync.
  */
 
-/** Every hex permitted anywhere in Meridian UI (docs/theme.md §3).
+/** Every hex permitted anywhere in Marula UI (docs/theme.md §3).
  * Preset-only surfaces (accent tints, sidebar) live in the shadcn layer as
  * verbatim oklch and are intentionally NOT part of the --m-* hex set. */
 export const PALETTE = [

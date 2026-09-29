@@ -144,7 +144,7 @@ fn unknown_columns_and_bad_scalars_surface_per_row() {
 fn scalar_ranges_and_validators_hold() {
     assert_eq!(validate_email("ops@example.com"), Ok(()));
     assert!(validate_email("no at sign").is_err());
-    assert_eq!(validate_url("https://meridian.example/x?y=1"), Ok(()));
+    assert_eq!(validate_url("https://marula.example/x?y=1"), Ok(()));
     assert!(validate_url("ftp://host").is_err());
     assert!(validate_url("https://bad host").is_err());
 

@@ -38,7 +38,7 @@ pub struct SeedReport {
 ///
 /// Runs on a PRIVILEGED pool (the migrations owner): the perf data is
 /// fixture data written outside RLS, then read back through the real
-/// `meridian_app` + org-GUC path during measurement — same split the
+/// `marula_app` + org-GUC path during measurement — same split the
 /// core-db test harness uses.
 pub async fn seed(admin: &PgPool, scale: &SeedScale) -> anyhow::Result<SeedReport> {
     let started = std::time::Instant::now();

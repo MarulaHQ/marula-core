@@ -150,7 +150,7 @@ fn publish_body(slug: &str, capabilities: &[&str]) -> Value {
         "slug": slug,
         "name": "Ticket Summarizer",
         "description": "Summarizes ticket threads",
-        "publisher": "meridian",
+        "publisher": "marula",
         "version": "1.0.0",
         "manifest": {
             "description": "Summarizes ticket threads",

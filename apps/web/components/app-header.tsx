@@ -235,7 +235,7 @@ export function AppHeader() {
           className="text-sm font-semibold tracking-tight max-md:hidden"
           style={{ color: "var(--m-text)" }}
         >
-          Meridian
+          Marula
         </span>
       </div>
 

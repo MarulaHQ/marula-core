@@ -126,7 +126,7 @@ async fn webhook_crud_delivery_log_and_test_fire_flow() {
         "/api/webhooks",
         &[auth(&token)],
         Some(json!({
-            "url": "https://hooks.example.test/meridian",
+            "url": "https://hooks.example.test/marula",
             "event_types": ["ticket.created", "ticket.closed"],
         })),
     )

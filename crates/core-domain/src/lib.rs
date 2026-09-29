@@ -1,4 +1,4 @@
-//! core-domain — entities, policies, and domain services for Meridian.
+//! core-domain — entities, policies, and domain services for Marula.
 //!
 //! Purpose: the pure, framework-free heart of the product. Every rule that must
 //! hold regardless of HTTP, queues, or storage lives here, heavily tested.

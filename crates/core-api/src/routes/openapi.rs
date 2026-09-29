@@ -23,8 +23,8 @@ use utoipa::OpenApi;
 
 #[derive(OpenApi)]
 #[openapi(
-    info(title = "Meridian Core API", version = "0.1.0",
-         description = "The single write surface for Project Meridian. \
+    info(title = "Marula Core API", version = "0.1.0",
+         description = "The single write surface for Project Marula. \
                         All mutations flow through this API and emit domain events."),
     paths(
         crate::auth::handlers::register,
@@ -2171,7 +2171,7 @@ async fn scalar_handler() -> axum::response::Html<String> {
         r#"<!doctype html>
 <html>
   <head>
-    <title>Meridian API — Scalar</title>
+    <title>Marula API — Scalar</title>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
   </head>

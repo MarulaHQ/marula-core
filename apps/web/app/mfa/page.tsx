@@ -162,7 +162,7 @@ export default function MfaChallengePage() {
       style={{ background: "var(--m-canvas)" }}
     >
       <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="mfa-card">
-        <AuthBrand subtitle="Meridian account security." />
+        <AuthBrand subtitle="Marula account security." />
         <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
           Two-factor verification
         </h1>

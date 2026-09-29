@@ -1,5 +1,5 @@
 /**
- * ESLint flat config for @meridian/ui.
+ * ESLint flat config for @marula/ui.
  * Purpose: enforce TS + React-hooks correctness on src and tests.
  * Non-purpose: no stylistic formatting rules (prettier-free codebase).
  */

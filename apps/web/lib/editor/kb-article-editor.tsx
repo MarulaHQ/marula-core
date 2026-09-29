@@ -1,7 +1,7 @@
 "use client";
 /**
  * /kb article editor (ADR 0007, Wave 16 lane 2) — Tiptap headless shell
- * composed from `meridianExtensionSet`, riding Workbench/Tangerine
+ * composed from `marulaExtensionSet`, riding Workbench/Tangerine
  * primitives from @marula-core/ui.
  *
  * Autosave rides the instant-first envelope (IF1–IF3): each debounced
@@ -32,7 +32,7 @@ import {
   rememberVersion,
   runEnvelopeMutation,
 } from "../envelope-write";
-import { meridianExtensionSet } from "./extensions";
+import { marulaExtensionSet } from "./extensions";
 
 export interface KbArticleEditorProps {
   /** Full article detail (flattened schema carries content_jsonb). */
@@ -152,7 +152,7 @@ export function KbArticleEditor(props: KbArticleEditorProps) {
   }, [props.article.id]);
 
   const editor = useEditor({
-    extensions: meridianExtensionSet,
+    extensions: marulaExtensionSet,
     content: initialDoc,
     immediatelyRender: false,
     onUpdate({ editor: current }) {

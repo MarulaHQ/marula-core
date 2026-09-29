@@ -205,7 +205,7 @@ async fn mail_surface_stays_honest_and_the_probe_rides_the_ledger() {
             "reply_to": "support@acme.test",
             "smtp_host": "smtp.acme.test",
             "smtp_port": 587,
-            "smtp_username": "meridian",
+            "smtp_username": "marula",
         })),
     )
     .await;

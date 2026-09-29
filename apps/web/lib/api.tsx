@@ -1,6 +1,6 @@
 // API client wiring for the web app.
 //
-// Purpose: one MeridianClient bound to NEXT_PUBLIC_API_URL with MEMORY-ONLY
+// Purpose: one MarulaClient bound to NEXT_PUBLIC_API_URL with MEMORY-ONLY
 // token persistence (Wave 19 lane 5 — the refresh secret rides the httpOnly
 // session cookie the API sets; the access token lives in this module's
 // memory and never touches document storage), a React context that owns
@@ -9,7 +9,7 @@
 // beyond on-401 rotation.
 "use client";
 
-import { MeridianClient } from "@marula-core/sdk";
+import { MarulaClient } from "@marula-core/sdk";
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -66,8 +66,8 @@ export function resolveApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 }
 
-function createClient(): MeridianClient {
-  return new MeridianClient({ baseUrl: resolveApiBaseUrl() });
+function createClient(): MarulaClient {
+  return new MarulaClient({ baseUrl: resolveApiBaseUrl() });
 }
 
 /** App-wide singleton; safe in the browser only (this app is fully client-rendered). */
@@ -231,16 +231,16 @@ export function useRequireAuth(): AuthState {
 // The URL literals below are `satisfies`-anchored to the canonical /api/v1
 // contract, so a spec rename fails `tsc` here instead of silently 404ing.
 
-import type { MeridianPaths } from "@marula-core/sdk";
+import type { MarulaPaths } from "@marula-core/sdk";
 
-const TICKET_ATTACHMENTS_PATH = "/api/v1/tickets/{id}/attachments" satisfies keyof MeridianPaths;
+const TICKET_ATTACHMENTS_PATH = "/api/v1/tickets/{id}/attachments" satisfies keyof MarulaPaths;
 const ATTACHMENT_DOWNLOAD_PATH =
-  "/api/v1/attachments/{id}/download" satisfies keyof MeridianPaths;
+  "/api/v1/attachments/{id}/download" satisfies keyof MarulaPaths;
 const DOCUMENT_ATTACHMENTS_PATH =
-  "/api/v1/documents/{id}/attachments" satisfies keyof MeridianPaths;
+  "/api/v1/documents/{id}/attachments" satisfies keyof MarulaPaths;
 const DOCUMENT_ATTACHMENT_DOWNLOAD_PATH =
-  "/api/v1/documents/{id}/attachments/{attachment_id}/download" satisfies keyof MeridianPaths;
-const PLUGIN_ZIP_STAGE_PATH = "/api/v1/plugins/distribution/staged/zip" satisfies keyof MeridianPaths;
+  "/api/v1/documents/{id}/attachments/{attachment_id}/download" satisfies keyof MarulaPaths;
+const PLUGIN_ZIP_STAGE_PATH = "/api/v1/plugins/distribution/staged/zip" satisfies keyof MarulaPaths;
 
 /** Auth header for manual fetches against the API base URL. */
 export function authHeaders(): HeadersInit {

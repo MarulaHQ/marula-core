@@ -1,4 +1,4 @@
-//! marula-core-cli — the operator entrypoint for Meridian's background
+//! marula-core-cli — the operator entrypoint for Marula's background
 //! services.
 //!
 //! Purpose: wrap the operational tasks self-hosters need — applying
@@ -18,11 +18,11 @@ mod fixture;
 mod upgrade;
 
 /// Database URL default mirroring `core_api::config::Config` so bare
-/// `meridian migrate` works against the dev compose stack.
-const DEFAULT_DATABASE_URL: &str = "postgres://meridian_app:meridian_app@localhost:15432/meridian";
+/// `marula migrate` works against the dev compose stack.
+const DEFAULT_DATABASE_URL: &str = "postgres://marula_app:marula_app@localhost:15432/marula";
 
 #[derive(Debug, Parser)]
-#[command(name = "meridian", version, about = "Meridian PSA operations CLI")]
+#[command(name = "marula", version, about = "Marula PSA operations CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -140,7 +140,7 @@ async fn main() -> anyhow::Result<()> {
             registry,
             database_url,
         } => {
-            anyhow::ensure!(check, "use `meridian upgrade --check` to run the preflight");
+            anyhow::ensure!(check, "use `marula upgrade --check` to run the preflight");
             upgrade_check(manifest, registry, database_url).await
         }
         Command::Fixture {
@@ -150,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
         } => {
             anyhow::ensure!(
                 manifest,
-                "use `meridian fixture --manifest` to emit a manifest"
+                "use `marula fixture --manifest` to emit a manifest"
             );
             let url =
                 std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string());
@@ -190,7 +190,7 @@ async fn upgrade_check(
         anyhow::anyhow!(
             "--manifest <path> is required for upgrade --check — pass the \
              org's U5 customization manifest (emit one first: \
-             `meridian fixture --manifest --org-id <uuid> --out m.json`)"
+             `marula fixture --manifest --org-id <uuid> --out m.json`)"
         )
     })?;
     let registry_path =
@@ -207,7 +207,7 @@ async fn upgrade_check(
     let manifest_json = upgrade::load_manifest(&manifest_path).map_err(|e| {
         anyhow::anyhow!(
             "loading the customization manifest from {} failed: {e} — \
-             regenerate it with `meridian fixture --manifest --org-id <uuid>` \
+             regenerate it with `marula fixture --manifest --org-id <uuid>` \
              against the pre-upgrade database",
             manifest_path.display()
         )
@@ -215,7 +215,7 @@ async fn upgrade_check(
     let findings = upgrade::scan_manifest(&reg, &manifest_json);
 
     println!(
-        "meridian upgrade --check — registry v{} with {} registered deprecation(s)",
+        "marula upgrade --check — registry v{} with {} registered deprecation(s)",
         reg.version,
         reg.deprecations.len()
     );
@@ -360,7 +360,7 @@ async fn seed_demo(force: bool) -> anyhow::Result<()> {
         Ok(Ok(report)) => print_seed_summary(&report),
         Err(core_db::demo::DemoError::AlreadySeeded(org_id)) => {
             println!("demo org already seeded (org_id {org_id}) — nothing written.");
-            println!("wipe + reseed: MARULA_DEV_TOOLS=1 meridian seed-demo --force");
+            println!("wipe + reseed: MARULA_DEV_TOOLS=1 marula seed-demo --force");
             println!("or POST /api/dev/reset-org on a dev API with MARULA_DEV_TOOLS=1.");
             println!();
             println!("logins: owner@demo.local / dispatcher@demo.local / tech@demo.local / bookkeeper@demo.local");
@@ -578,7 +578,7 @@ mod tests {
     use clap::CommandFactory as _;
 
     fn parse(args: &[&str]) -> Result<Command, clap::Error> {
-        Cli::try_parse_from(std::iter::once("meridian").chain(args.iter().copied()))
+        Cli::try_parse_from(std::iter::once("marula").chain(args.iter().copied()))
             .map(|cli| cli.command)
     }
 

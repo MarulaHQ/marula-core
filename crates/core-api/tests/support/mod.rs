@@ -52,15 +52,15 @@ async fn bootstrap() -> &'static Bootstrap {
                     ))
                     .with_exposed_port(testcontainers::core::ContainerPort::Tcp(5432)),
             )
-            .with_container_name("meridian-mail-harness-pg18")
+            .with_container_name("marula-mail-harness-pg18")
             .with_reuse(testcontainers::core::ReuseDirective::Always)
-            .with_env_var("POSTGRES_USER", "meridian")
-            .with_env_var("POSTGRES_PASSWORD", "meridian")
-            .with_env_var("POSTGRES_DB", "meridian_harness");
+            .with_env_var("POSTGRES_USER", "marula")
+            .with_env_var("POSTGRES_PASSWORD", "marula")
+            .with_env_var("POSTGRES_DB", "marula_harness");
             let container = request.start().await.expect("docker required");
             let host = container.get_host().await.expect("host");
             let port = container.get_host_port_ipv4(5432_u16).await.expect("port");
-            let admin_url = format!("postgres://meridian:meridian@{host}:{port}/meridian_harness");
+            let admin_url = format!("postgres://marula:marula@{host}:{port}/marula_harness");
             let admin = connect_with_retry(&admin_url).await;
             reset_schema(&admin).await;
             core_db::run_migrations(&admin).await.expect("migrate");
@@ -104,8 +104,8 @@ fn app_url(admin_url: &str) -> String {
         .split_once("://")
         .unwrap_or(("postgres", admin_url));
     match rest.split_once('@') {
-        Some((_, host)) => format!("{scheme}://meridian_app:meridian_app@{host}"),
-        None => format!("{scheme}://meridian_app:meridian_app@{rest}"),
+        Some((_, host)) => format!("{scheme}://marula_app:marula_app@{host}"),
+        None => format!("{scheme}://marula_app:marula_app@{rest}"),
     }
 }
 

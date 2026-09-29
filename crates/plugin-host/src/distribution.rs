@@ -759,7 +759,7 @@ mod tests {
             "slug": "ticket-summarizer",
             "name": "Ticket Summarizer",
             "description": "d",
-            "publisher": "meridian",
+            "publisher": "marula",
             "tag": "v1.2.0",
             "artifact": {
                 "digest": digest_of("artifact bytes"),

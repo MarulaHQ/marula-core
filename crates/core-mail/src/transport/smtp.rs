@@ -84,7 +84,7 @@ impl MailTransport for SmtpTransport {
             })?;
         let mut conn = SmtpConn::new(stream);
         conn.expect_code(220, "greeting").await?;
-        conn.cmd("EHLO meridian.local").await?;
+        conn.cmd("EHLO marula.local").await?;
         conn.expect_code(250, "EHLO").await?;
         if let Some(token) = self.auth_plain() {
             conn.cmd(&format!("AUTH PLAIN {token}")).await?;

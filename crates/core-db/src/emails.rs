@@ -5,7 +5,7 @@
 //! claiming, inbound routing resolution (board address → org catch-all),
 //! and the admin settings upserts. The claim query is the one statement
 //! that must run as the TABLE OWNER — callers issue `SET LOCAL ROLE
-//! meridian` first (see `claim_due_outbound`).
+//! marula` first (see `claim_due_outbound`).
 //!
 //! Non-purpose: no transport calls, scan verdicts, or routing policy —
 //! core-mail defines traits/math, core-api orchestrates; this module only
@@ -17,7 +17,7 @@ use core_domain::settings::{board_identity_key, board_identity_parts, BoardIdent
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-/// Domain suffix for Meridian-generated outbound Message-IDs. Stored bare
+/// Domain suffix for Marula-generated outbound Message-IDs. Stored bare
 /// (`uuid@marula.local`); transport adapters add RFC angle brackets.
 pub const OUTBOUND_ID_SUFFIX: &str = "marula.local";
 
@@ -375,7 +375,7 @@ pub async fn resolve_inbound_route(
 
 // --- SECURITY DEFINER seams (the only cross-org statements) ------------------
 
-/// Production route resolution for the RLS-constrained `meridian_app`
+/// Production route resolution for the RLS-constrained `marula_app`
 /// login: runs `resolve_inbound_email_route` (SECURITY DEFINER, migration
 /// 0014). Takes a connection usable inside the caller's transaction.
 pub async fn resolve_inbound_route_for_app(

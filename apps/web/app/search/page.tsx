@@ -41,7 +41,7 @@ const GROUP_LABEL: Record<string, string> = {
   document: "Documents",
 };
 
-const RECENT_KEY = "meridian.search.recent";
+const RECENT_KEY = "marula.search.recent";
 
 const GROUP_KIND_LABEL: Record<string, string> = {
   ticket: "ticket",

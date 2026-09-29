@@ -1065,7 +1065,7 @@ pub async fn split_entity_merge(
 // ---- client org_map reconciliation --------------------------------------------
 
 /// Queues the reviewable candidates for one unmapped vendor org: the
-/// deterministic label proposals (core-domain) score every Meridian
+/// deterministic label proposals (core-domain) score every Marula
 /// client; the best-scoring proposal above 0.6 queues ONE candidate
 /// (never more — a second candidate for the same vendor org replaces the
 /// open one's evidence via the pair upsert). Already-mapped orgs

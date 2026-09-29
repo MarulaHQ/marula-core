@@ -150,7 +150,7 @@ pub struct CreateImportTemplateRequest {
     /// Source-system label this template belongs to (e.g. "connectwise").
     pub source_system: String,
     pub entity_kind: EntityKind,
-    /// Source column → canonical Meridian column. Targets are validated
+    /// Source column → canonical Marula column. Targets are validated
     /// against the canonical field catalog for the entity kind.
     #[schema(value_type = Object)]
     pub mapping: BTreeMap<String, String>,
@@ -1977,7 +1977,7 @@ async fn commit_insert(
             let user_id = match &entry.user_email {
                 // Attributed to a live org user when the email resolves;
                 // otherwise the driving principal is the documented
-                // fallback (source systems rarely carry Meridian ids).
+                // fallback (source systems rarely carry Marula ids).
                 Some(email) => {
                     match core_db::users::find_by_email_in_org(&mut *ctx.tx, org_id, email).await? {
                         Some(user) => user.id,

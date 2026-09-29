@@ -65,7 +65,7 @@ pub enum TemplateField {
     Literal { value: LiteralValue },
 }
 
-/// The derived fields Meridian composes in code. Names are part of the
+/// The derived fields Marula composes in code. Names are part of the
 /// starter schemas' contract; temporal math lives here, never in a
 /// question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

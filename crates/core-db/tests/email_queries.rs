@@ -538,7 +538,7 @@ async fn app_role_rls_isolates_email_tables_and_owner_role_spans_orgs() {
 
     // The SECURITY DEFINER seam reaches across orgs from the APP pool —
     // exactly what production's internal endpoints rely on — without any
-    // role-membership grant that would exempt meridian_app from RLS.
+    // role-membership grant that would exempt marula_app from RLS.
     let mut app_conn = db.app.acquire().await.expect("app conn");
     let cross_org = emails::claim_due_outbound_for_app(&mut app_conn, 100, 0)
         .await

@@ -260,7 +260,7 @@ function PasswordResetInner(): ReactNode {
           Set a new password
         </h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Pick a new password for your Meridian account.
+          Pick a new password for your Marula account.
         </p>
         <form onSubmit={confirmReset} className="m-rise mt-4 grid gap-3" style={{ animationDelay: "40ms" }}>
           <label className="grid gap-1">

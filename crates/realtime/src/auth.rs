@@ -1,4 +1,4 @@
-//! WebSocket authentication via Meridian access tokens.
+//! WebSocket authentication via Marula access tokens.
 //!
 //! Purpose: verify the same short-lived JWTs that `core-api` issues, with
 //! an identical claims shape, so the hub can trust `sub`/`org` for channel
@@ -18,7 +18,7 @@ use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Claims carried by a Meridian access token. Field names mirror
+/// Claims carried by a Marula access token. Field names mirror
 /// `core_api::auth::AccessClaims` byte-for-byte (`sub`, `org`, `sid`,
 /// `exp`, `iat`); duplicated here on purpose so this crate never depends
 /// on the HTTP API crate.

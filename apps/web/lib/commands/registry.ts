@@ -42,7 +42,7 @@ const GLOBAL_COMMANDS: CommandDef[] = [
     id: "close.topmost",
     verb: "close",
     label: "Close overlay",
-    description: "Close the topmost Meridian overlay or panel, same as its own close control.",
+    description: "Close the topmost Marula overlay or panel, same as its own close control.",
     chord: "alt+x",
     surfaces: [],
     run: (ctx) => ctx.click(CLOSE_CONTROL),

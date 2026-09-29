@@ -39,7 +39,7 @@ async fn test_state() -> AppState {
     let pool = connect_admin(&admin_url).await.expect("admin pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     // Production parity: deploy/docker-compose.yml runs core-api against the
-    // table-owner role (RLS-exempt); the constrained meridian_app role is
+    // table-owner role (RLS-exempt); the constrained marula_app role is
     // exercised per-transaction by the core-db suites.
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     config.database_url = admin_url.clone();

@@ -70,9 +70,9 @@ export function openPopout(
   const def = POPOUT_ROUTES.find((d) => d.key === routeKey) ?? null;
   const url = `${path}?popout=${encodeURIComponent(routeKey)}`;
   const features = featureString(
-    def ?? { key: routeKey, template: path, title: "Meridian", width: 1100, height: 820 },
+    def ?? { key: routeKey, template: path, title: "Marula", width: 1100, height: 820 },
   );
-  const child = window.open(url, `meridian-${routeKey}`, features);
+  const child = window.open(url, `marula-${routeKey}`, features);
   // Popup blocker (or synchronous navigation failure): return null window —
   // surfaced as an honest inline hint by the caller.
   if (child === null) {

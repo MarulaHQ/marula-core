@@ -486,7 +486,7 @@ pub struct TicketSpec {
 /// A validated time-entry row. `user_email` optionally attributes the work
 /// to an org user (resolved at commit time); without it the entry lands
 /// under the driving principal — a migration's documented fallback, since
-/// source systems rarely carry stable Meridian user identities.
+/// source systems rarely carry stable Marula user identities.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimeEntrySpec {
     pub external_key: String,

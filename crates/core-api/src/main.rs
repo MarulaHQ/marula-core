@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
     // Plugin distribution trust posture at boot (Wave 19 lane 2, ADR 0009
     // rotation semantics): an empty static trust set = structural
     // signature verification only — ACCEPTABLE DEV POSTURE, never
-    // production. Operators register keys via `meridian plugin-key add`
+    // production. Operators register keys via `marula plugin-key add`
     // (docs/reference/plugin-signing-rotation-runbook.md); the DB
     // registry wins over this static set at request time.
     if core_api::config::bootstrap_signing_keys(&config).is_empty() {
@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
              is reachable (dev compose: `docker compose up -d postgres`)",
     )?;
     // Startup migrations are OPT-IN (TASKLIST backend-gaps lane, 2026-09-10):
-    // running them as `meridian_app` fails on fresh installs — Postgres 17
+    // running them as `marula_app` fails on fresh installs — Postgres 17
     // denies even `CREATE TABLE IF NOT EXISTS _sqlx_migrations` to the RLS
     // role (0001 grants USAGE on public only). Compose runs the `migrate`
     // one-shot as the OWNER before the API starts; native dev sets
@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
     if std::env::var("RUN_MIGRATIONS").as_deref() == Ok("1") {
         core_db::run_migrations(&pool).await.context(
             "running migrations — on fresh installs these must run as the \
-             schema owner, not meridian_app: run the compose `migrate` \
+             schema owner, not marula_app: run the compose `migrate` \
              one-shot first, or keep RUN_MIGRATIONS=1 only for native dev",
         )?;
         core_db::assert_rls_coverage(&pool).await.context(

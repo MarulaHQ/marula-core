@@ -8,7 +8,7 @@
 //! with filters, API-key metadata minus secrets, org settings-registry
 //! overrides, SLA calendars/policies/ladders, org-owned role rows).
 //!
-//! Consumers: backup documentation, the upgrade preflight (`meridian
+//! Consumers: backup documentation, the upgrade preflight (`marula
 //! upgrade --check`, U6) and the org-data export (D1, which generalizes
 //! this envelope — same format, wider scope). The envelope evolution
 //! contract lives on the type: sections grow additively, `manifest_version`

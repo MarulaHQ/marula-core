@@ -1,6 +1,6 @@
 // Window bus — the cross-window coordination channel (BroadcastChannel
 // "marula-windows"), one instance per browser context, shared by every
-// Meridian window (main + popouts).
+// Marula window (main + popouts).
 //
 // Purpose (Wave 38 lane 1):
 // - window registry: which route keys / entities are open where, so the

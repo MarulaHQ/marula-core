@@ -1,7 +1,7 @@
 //! The `/ws` endpoint: token auth at upgrade time and the per-connection
 //! session loop.
 //!
-//! Purpose: accept WebSocket upgrades only with a valid Meridian access
+//! Purpose: accept WebSocket upgrades only with a valid Marula access
 //! token (Authorization header preferred, `?token=` query for browsers),
 //! then pump client requests and routed hub events until disconnect.
 //!
@@ -90,7 +90,7 @@ fn token_from_query(raw: &str) -> Option<String> {
 ///
 /// Telemetry (TASKLIST 2.18): the whole session runs inside one
 /// `ws.session` span carrying `org_id`/`user_id` (identified, not PII) and
-/// the `meridian.ws.sessions` gauge is moved by exactly one open/close
+/// the `marula.ws.sessions` gauge is moved by exactly one open/close
 /// pair per session. No message CONTENT is ever recorded.
 async fn run_session(socket: WebSocket, hub: Hub, claims: WsClaims) {
     use tracing::Instrument as _;

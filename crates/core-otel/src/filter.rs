@@ -1,4 +1,4 @@
-//! Log/span filter composition — one policy for every Meridian process.
+//! Log/span filter composition — one policy for every Marula process.
 //!
 //! Purpose: build the `tracing_subscriber::EnvFilter` identically in
 //! core-api, realtime, worker, and marula-core-cli so telemetry levels never
@@ -76,8 +76,8 @@ mod tests {
     #[test]
     fn rust_log_overrides_everything() {
         assert_eq!(
-            compose_directives(Some("warn,meridian=trace"), true),
-            "warn,meridian=trace"
+            compose_directives(Some("warn,marula=trace"), true),
+            "warn,marula=trace"
         );
     }
 

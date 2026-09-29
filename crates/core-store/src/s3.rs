@@ -10,7 +10,7 @@
 //!
 //! Non-purpose: no bucket creation, lifecycle rules, or multipart upload
 //! sessions; objects are content-addressed and bounded by the API's size
-//! cap, so single-shot PUTs cover every Meridian write path.
+//! cap, so single-shot PUTs cover every Marula write path.
 
 use crate::{validate_key, GetObject, ObjectMeta, ObjectStore, S3Config, StoreError};
 use async_trait::async_trait;
@@ -93,7 +93,7 @@ impl S3Store {
 /// placeholder path (never dialed: `guard()` short-circuits first).
 fn placeholder_client() -> object_store::aws::AmazonS3 {
     object_store::aws::AmazonS3Builder::new()
-        .with_bucket_name("meridian-invalid-bucket")
+        .with_bucket_name("marula-invalid-bucket")
         .with_endpoint("http://127.0.0.1:1")
         .with_access_key_id("invalid")
         .with_secret_access_key("invalid")
@@ -211,14 +211,14 @@ mod tests {
     async fn s3_live_roundtrip_against_minio() {
         let cfg = S3Config {
             endpoint: std::env::var("S3_ENDPOINT").ok(),
-            bucket: std::env::var("S3_BUCKET").unwrap_or_else(|_| "meridian".into()),
+            bucket: std::env::var("S3_BUCKET").unwrap_or_else(|_| "marula".into()),
             region: std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".into()),
             access_key_id: std::env::var("S3_ACCESS_KEY_ID").expect("access key"),
             secret_access_key: std::env::var("S3_SECRET_ACCESS_KEY").expect("secret"),
         };
         let st = S3Store::new(cfg);
         let key = format!("smoke/{}", uuid::Uuid::now_v7());
-        st.put(&key, "text/plain", Bytes::from_static(b"meridian-live"))
+        st.put(&key, "text/plain", Bytes::from_static(b"marula-live"))
             .await
             .expect("put");
         let obj = st.get(&key).await.expect("get");

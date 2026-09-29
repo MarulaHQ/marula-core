@@ -84,7 +84,7 @@ async function sdkRequest(
   let raw: RawResult;
   try {
     // One bounded boundary: openapi-fetch's per-path overloads collapse
-    // here; paths come from typed write specs built against MeridianPaths.
+    // here; paths come from typed write specs built against MarulaPaths.
     // A bounded timeout keeps a hung connection from wedging the replay
     // loop: the op stays queued and the next reconnect retries it. (A
     // raced timer instead of an AbortSignal: the signal rides Request

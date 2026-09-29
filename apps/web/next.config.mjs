@@ -1,4 +1,4 @@
-// Next.js configuration for the Meridian web app.
+// Next.js configuration for the Marula web app.
 //
 // Purpose: transpile the in-repo TypeScript source packages (@marula-core/sdk,
 // @marula-core/layout ship TS entry points) and emit a standalone server bundle

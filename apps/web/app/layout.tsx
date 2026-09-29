@@ -27,7 +27,7 @@ const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mon
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Meridian",
+  title: "Marula",
   description: "Open-core PSA — tickets, time, dispatch.",
   manifest: "/manifest.webmanifest",
   // PWA store-readiness (Wave 20 lane 1): iOS standalone-install posture.
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
   // recorded in design/qa-p20-ga-packaging/LANDING.md.
   appleWebApp: {
     capable: true,
-    title: "Meridian",
+    title: "Marula",
     statusBarStyle: "black-translucent",
   },
   icons: {

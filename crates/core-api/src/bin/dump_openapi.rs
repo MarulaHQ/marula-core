@@ -6,7 +6,7 @@
 //!
 //! Purpose: keeps `packages/sdk/openapi.json` regenerable hermetically
 //! (`cargo run -p core-api --bin dump-openapi -- --write packages/sdk/openapi.json`
-//! followed by `pnpm --filter @meridian/sdk generate`) so SDK snapshots
+//! followed by `pnpm --filter @marula/sdk generate`) so SDK snapshots
 //! never require booting a stack. The old curl-the-running-server workflow
 //! stays valid but is no longer necessary.
 //!

@@ -110,7 +110,7 @@ export const TIMEOUT_RETRY_COPY =
   "The server took too long to respond — try again in a moment.";
 
 /** Extracts the IF3 envelope from an openapi-fetch `error` value, a
- * thrown Error carrying one (SDK `MeridianApiError.body`), or a bare
+ * thrown Error carrying one (SDK `MarulaApiError.body`), or a bare
  * body object. */
 export function envelopeOf(error: unknown): EnvelopeError {
   const outer = error as

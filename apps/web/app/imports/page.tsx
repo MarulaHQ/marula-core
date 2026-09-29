@@ -276,7 +276,7 @@ export default function ImportsPage() {
       <div>
         <h1 className="text-lg font-semibold">Imports</h1>
         <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Bring CSV or JSON data into Meridian: dry-run first (nothing is written), then commit as
+          Bring CSV or JSON data into Marula: dry-run first (nothing is written), then commit as
           a batch. Field mappings save per source system so the next import maps itself.
         </p>
       </div>
@@ -438,7 +438,7 @@ export default function ImportsPage() {
         <Card>
           <h2 className="p-4 pb-2 text-sm font-semibold">4 · Field mapping template</h2>
           <p className="px-4 pb-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Map source columns to canonical Meridian fields (typed free-form; the next dry-run
+            Map source columns to canonical Marula fields (typed free-form; the next dry-run
             validates targets against the field catalog). Save per source system to reuse.
           </p>
           <div className="grid gap-2 px-4 pb-4 md:grid-cols-2">

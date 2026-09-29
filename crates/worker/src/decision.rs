@@ -182,7 +182,7 @@ impl DecisionFanOut for RecordingFanOut {
 // as raw timestamps for the model to interpret.
 // ---------------------------------------------------------------------------
 
-/// Outside Mon–Fri 08:00–18:00 UTC. Meridian keeps business hours a
+/// Outside Mon–Fri 08:00–18:00 UTC. Marula keeps business hours a
 /// per-org concern off the decision path for now; the honest default is
 /// a fixed UTC window until org business-hours settings exist.
 pub fn after_hours(at: chrono::DateTime<chrono::Utc>) -> bool {
