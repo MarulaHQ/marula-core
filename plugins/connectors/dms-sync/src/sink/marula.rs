@@ -1,7 +1,7 @@
 //! The Marula REST sink: implements [`DmsSink`] against the PUBLIC
 //! v1 API only — resource REST over a scoped machine API key
 //! (`x-api-key`), the same seam the NinjaOne/Hudu reference connectors
-//! use. No Meridian internals are imported; the wire shapes below are
+//! use. No Marula internals are imported; the wire shapes below are
 //! the published API contracts (`/api/documents*`, `/api/assets*`,
 //! `/api/passwords`, `/api/clients`).
 //!
@@ -43,7 +43,7 @@ use crate::model::LinkKind;
 /// crate never persists them. `Debug` redacts the key material.
 #[derive(Clone)]
 pub struct MarulaConfig {
-    /// Meridian core API base URL (e.g. `https://meridian.example`).
+    /// Marula core API base URL (e.g. `https://marula.example`).
     pub base_url: String,
     /// Scoped machine API key (raw `mrl_…` material). Never logged.
     pub api_key: String,
@@ -295,7 +295,7 @@ impl MarulaRestSink {
             return Err(map_error(status.as_u16(), &text));
         }
         serde_json::from_str(&text)
-            .map_err(|e| SinkError::Network(format!("unparseable Meridian response: {e}")))
+            .map_err(|e| SinkError::Network(format!("unparseable Marula response: {e}")))
     }
 
     async fn list<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<Vec<T>, SinkError> {
@@ -307,18 +307,18 @@ impl MarulaRestSink {
 fn map_error(status: u16, body: &str) -> SinkError {
     let detail = body.chars().take(500).collect::<String>();
     match status {
-        401 | 403 => SinkError::Unauthorized(format!("Meridian returned {status}: {detail}")),
+        401 | 403 => SinkError::Unauthorized(format!("Marula returned {status}: {detail}")),
         404 => SinkError::NotFound(detail),
         409 => SinkError::Conflict(detail),
         429 => SinkError::RateLimited(detail),
-        s => SinkError::Network(format!("Meridian returned {s}: {detail}")),
+        s => SinkError::Network(format!("Marula returned {s}: {detail}")),
     }
 }
 
 #[async_trait]
 impl DmsSink for MarulaRestSink {
     fn name(&self) -> &str {
-        "meridian"
+        "marula"
     }
 
     async fn list_layouts(&self) -> Result<Vec<LayoutRecord>, SinkError> {

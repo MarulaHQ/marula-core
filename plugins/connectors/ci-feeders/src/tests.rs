@@ -2,7 +2,7 @@
 //! against the NinjaOne fixture and a stub API server. The FULL CI gate
 //! over the real core lives in `crates/core-api/tests/ci_feeder_gate.rs`;
 //! this file keeps the connector's own surface honest without ever
-//! importing a Meridian crate. Marketplace feeder mappers (Auvik, IT
+//! importing a Marula crate. Marketplace feeder mappers (Auvik, IT
 //! Glue, community adapters) carry their own conformance suites in their
 //! repos, over the same public [`vendors`] surface.
 
@@ -100,7 +100,7 @@ fn fingerprint_changes_only_when_content_changes() {
 // --- wire mechanics (stub server) ---------------------------------------------
 
 #[tokio::test]
-async fn meridian_sink_posts_feed_upsert_with_api_key_and_deterministic_key() {
+async fn marula_sink_posts_feed_upsert_with_api_key_and_deterministic_key() {
     #[derive(Default)]
     struct Captured {
         path: Option<String>,

@@ -41,7 +41,7 @@ async fn spawn_mock(status: axum::http::StatusCode, resp_body: &'static str) -> 
                         .and_then(|v| v.to_str().map(str::to_owned).ok())
                         .unwrap_or_default(),
                     last_signature: headers
-                        .get("x-meridian-signature")
+                        .get("x-marula-signature")
                         .and_then(|v| v.to_str().map(str::to_owned).ok())
                         .unwrap_or_default(),
                 };

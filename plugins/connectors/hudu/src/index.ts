@@ -1,28 +1,28 @@
 //! @marula-core/connector-hudu — reference Hudu connector.
 //!
-//! Purpose: demonstrate the Meridian connector pattern end-to-end using
+//! Purpose: demonstrate the Marula connector pattern end-to-end using
 //! ONLY the public API via @marula-core/sdk and signed webhook deliveries:
 //!
 //!   verify   — typed SDK read (proves key + scope + connectivity)
-//!   listen   — HTTP receiver for Meridian's signed webhooks; matched
+//!   listen   — HTTP receiver for Marula's signed webhooks; matched
 //!              client events are mirrored to Hudu companies, or LOGGED
 //!              ONLY in documented none mode when Hudu is unconfigured.
 //!
-//! Non-purpose: no Meridian internals imported, no credential vaulting,
+//! Non-purpose: no Marula internals imported, no credential vaulting,
 //! no asset/KB sync (that is a Stage 3 adapter concern).
 
 import { createServer } from "node:http";
 import { loadConfig, noneMode } from "./config.js";
-import { connectMeridian, verifyAccess, type ClientSummary } from "./meridian.js";
+import { connectMarula, verifyAccess, type ClientSummary } from "./marula.js";
 import { SIGNATURE_HEADER, verifyDelivery } from "./receiver.js";
 import { buildCompany, pushCompany } from "./hudu.js";
 
 async function commandVerify(): Promise<void> {
   const config = loadConfig();
-  const client = connectMeridian(config);
+  const client = connectMarula(config);
   const clients: ClientSummary[] = await verifyAccess(client);
   console.log(
-    `Meridian OK at ${config.meridianBaseUrl}; clients:read grants ${clients.length} client(s).`,
+    `Marula OK at ${config.marulaBaseUrl}; clients:read grants ${clients.length} client(s).`,
   );
   for (const c of clients) console.log(`  ${c.name}`);
   if (noneMode(config)) {
@@ -32,7 +32,7 @@ async function commandVerify(): Promise<void> {
 
 async function commandListen(): Promise<void> {
   const config = loadConfig();
-  if (!config.meridianWebhookSecret) {
+  if (!config.marulaWebhookSecret) {
     throw new Error(
       "MARULA_WEBHOOK_SECRET is required for listen — copy it from webhook creation.",
     );
@@ -49,7 +49,7 @@ async function commandListen(): Promise<void> {
       const presented = req.headers[SIGNATURE_HEADER];
       const signatureHeader = Array.isArray(presented) ? presented[0] : presented;
       const outcome = verifyDelivery(
-        config.meridianWebhookSecret,
+        config.marulaWebhookSecret,
         rawBody,
         signatureHeader,
       );

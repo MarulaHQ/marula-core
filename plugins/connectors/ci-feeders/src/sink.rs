@@ -1,4 +1,4 @@
-//! The Meridian-side apply seam ([`FeederSink`]) plus the shipped
+//! The Marula-side apply seam ([`FeederSink`]) plus the shipped
 //! implementations.
 //!
 //! The sink owns the WIRE mechanics (REST, auth, envelopes); the engine
@@ -11,7 +11,7 @@
 //!   itself, so retried syncs replay and changed content updates.
 //! * [`NoneFeederSink`] — zero I/O, every call reports
 //!   [`SinkError::Disabled`]. THE shipped default: an org with no
-//!   Meridian connection configured operates standalone, and "would
+//!   Marula connection configured operates standalone, and "would
 //!   have synced" is the honest answer (standalone-first doctrine).
 
 use async_trait::async_trait;
@@ -25,9 +25,9 @@ use crate::model::FeederRecord;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SinkError {
     /// None mode: no credentials configured; zero network performed.
-    #[error("feeder sink disabled: no Meridian connection configured (none mode)")]
+    #[error("feeder sink disabled: no Marula connection configured (none mode)")]
     Disabled,
-    /// The Meridian API rejected the credential (401/403) — the
+    /// The Marula API rejected the credential (401/403) — the
     /// operator rotates the scoped key.
     #[error("sink unauthorized: {0}")]
     Unauthorized(String),
@@ -62,7 +62,7 @@ pub struct FeedUpsertOutcome {
 #[async_trait]
 pub trait FeederSink: Send + Sync {
     /// Upserts ONE record through the feed-upsert seam, bound to one
-    /// Meridian client. Never blind-inserts — that property lives in
+    /// Marula client. Never blind-inserts — that property lives in
     /// the core's feed_upsert; the sink's job is to deliver the
     /// identity keys that make resolution deterministic.
     async fn feed_upsert(
@@ -101,7 +101,7 @@ struct WireFeedUpsertResponse {
 /// crate never persists them. `Debug` redacts the key material.
 #[derive(Clone)]
 pub struct MarulaFeederConfig {
-    /// Meridian core API base URL (e.g. `https://meridian.example`).
+    /// Marula core API base URL (e.g. `https://marula.example`).
     pub base_url: String,
     /// Scoped machine API key (raw `mrl_…` material). Never logged.
     /// Feeders need `clients:write` scope (config-item writes ride the

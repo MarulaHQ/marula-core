@@ -3,7 +3,7 @@ name = "m365-graph"
 version = "0.1.0"
 edition.workspace = true
 license = "Apache-2.0"
-description = "First-party Microsoft 365 Graph connector for Project Meridian — device inventory (Intune managedDevices + Entra directory devices) over the Graph API, feeding the public feed-upsert seam (Apache-2.0)"
+description = "First-party Microsoft 365 Graph connector for Project Marula — device inventory (Intune managedDevices + Entra directory devices) over the Graph API, feeding the public feed-upsert seam (Apache-2.0)"
 
 [dependencies]
 adapters-core = { path = "../adapters-core" }

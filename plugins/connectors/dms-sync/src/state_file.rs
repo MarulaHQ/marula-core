@@ -2,7 +2,7 @@
 //! lane 4 `p15-docs-closeout`): the shipped
 //! [`MemorySyncState`][crate::state::MemorySyncState] keeps everything in
 //! process, which forces a one-time re-adoption pass on every cold start
-//! (deterministic identity keys make that SAFE — the same Meridian
+//! (deterministic identity keys make that SAFE — the same Marula
 //! records get found — but it still costs a pass and loses the
 //! curated-conflict baseline). [`FileSyncState`] gives an operator-side
 //! run durability: the ledger persists as one JSON document, atomically

@@ -88,7 +88,7 @@ pub struct SyncConfig {
     /// every required system key is carried). When off, every external
     /// type gets its own connector org layout.
     pub use_system_layouts: bool,
-    /// External client/organization name → Meridian client name
+    /// External client/organization name → Marula client name
     /// overrides (applied before case-insensitive name matching).
     pub client_aliases: BTreeMap<String, String>,
 }
@@ -131,7 +131,7 @@ pub struct SyncReport {
     /// Curated-field conflicts: human-edited values the source tried
     /// to overwrite. The source value rides the entry.
     pub curated_conflicts: Vec<CuratedConflict>,
-    /// Records whose client scope resolved to no Meridian client.
+    /// Records whose client scope resolved to no Marula client.
     pub unmapped_clients: Vec<UnmappedRecord>,
     /// Fields a system-layout mapping could not carry (data preserved
     /// in the report, visible to the operator).
@@ -165,8 +165,8 @@ pub struct MergeCandidate {
     pub marula_id: Uuid,
     /// Why the engine matched (key kind + value).
     pub matched_on: String,
-    pub meridian_label: String,
-    /// Field evidence: (field, external value, meridian value).
+    pub marula_label: String,
+    /// Field evidence: (field, external value, marula value).
     pub evidence: Vec<(String, String, String)>,
 }
 
@@ -336,7 +336,7 @@ pub struct SyncEngine {
     config: SyncConfig,
 }
 
-/// A resolved Meridian endpoint for link building.
+/// A resolved Marula endpoint for link building.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ResolvedEndpoint {
     kind: LinkKind,
@@ -376,7 +376,7 @@ impl SyncEngine {
                 report.credentials_skipped = snapshot.credentials.len();
                 report.errors.push(RunError {
                     external_id: "*".into(),
-                    error: "none mode: no Meridian connection configured (sink disabled)".into(),
+                    error: "none mode: no Marula connection configured (sink disabled)".into(),
                 });
                 return Ok(report);
             }
@@ -520,7 +520,7 @@ impl SyncEngine {
                         report.unmapped_clients.push(UnmappedRecord {
                             external_id: record.external_id.clone(),
                             title: record.title.clone(),
-                            reason: format!("no Meridian client matches {:?}", record.client_ref),
+                            reason: format!("no Marula client matches {:?}", record.client_ref),
                         });
                         report.records_skipped += 1;
                         continue;
@@ -862,7 +862,7 @@ impl SyncEngine {
             if assets_by_id.contains_key(&entry.marula_id) {
                 ours = Some(entry.marula_id);
             } else {
-                // The record vanished Meridian-side; forget and fall
+                // The record vanished Marula-side; forget and fall
                 // through to deterministic rediscovery.
                 state.forget(&ledger_key);
             }
@@ -891,7 +891,7 @@ impl SyncEngine {
                 };
                 if hits.len() > 1 {
                     return Outcome::Ambiguous(format!(
-                        "{} matches {} Meridian assets on {}",
+                        "{} matches {} Marula assets on {}",
                         key.value,
                         hits.len(),
                         key.kind.as_str()
@@ -1385,7 +1385,7 @@ fn register_outcome(
                 record_kind: kind_name.to_string(),
                 marula_id,
                 matched_on,
-                meridian_label: label,
+                marula_label: label,
                 evidence,
             });
             report.records_skipped += 1;
@@ -1422,7 +1422,7 @@ fn register_outcome(
 fn dry_run_id(slug: &str) -> Uuid {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(b"meridian-dms-dry-run-layout");
+    hasher.update(b"marula-dms-dry-run-layout");
     hasher.update(slug.as_bytes());
     let digest = hasher.finalize();
     let mut bytes = [0u8; 16];

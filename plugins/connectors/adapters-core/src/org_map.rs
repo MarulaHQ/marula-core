@@ -1,4 +1,4 @@
-//! Vendor-org → Meridian-client mapping: the operator's explicit,
+//! Vendor-org → Marula-client mapping: the operator's explicit,
 //! deterministic decision. Records pulled from a vendor organization
 //! the operator has NOT mapped are an error — the connector never
 //! guesses a client attribution, and a sync with unmapped orgs
@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 /// The operator's mapping from vendor organization ids (as the vendor
-/// API carries them, stringified) to Meridian client ids.
+/// API carries them, stringified) to Marula client ids.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OrgMapping {
     entries: BTreeMap<String, Uuid>,
@@ -68,7 +68,7 @@ impl OrgMappingBuilder {
 pub enum OrgMappingError {
     /// The vendor org is not in the operator's mapping. The sync must
     /// surface this — never guess a client.
-    #[error("vendor organization `{vendor_org_id}` is not mapped to a Meridian client")]
+    #[error("vendor organization `{vendor_org_id}` is not mapped to a Marula client")]
     UnmappedVendorOrg { vendor_org_id: String },
 }
 

@@ -1,13 +1,13 @@
-//! Meridian configuration-item feeder connectors (`plugins/connectors/ci-feeders`
+//! Marula configuration-item feeder connectors (`plugins/connectors/ci-feeders`
 //! — ADR 0003 CI7, Wave 12 lane 8).
 //!
 //! Purpose: feed device/configuration records from an MSP's source
 //! systems — NinjaOne ships here; marketplace feeders (Auvik, IT Glue, and
 //! community adapters) map their payloads through the same public
-//! [`vendors`] surface — into Meridian's configuration
+//! [`vendors`] surface — into Marula's configuration
 //! identity core through the PUBLIC API seam only: `POST
 //! /api/config-items/feed-upsert`, authenticated with a scoped machine
-//! API key (`x-api-key`). No Meridian internals are imported anywhere in
+//! API key (`x-api-key`). No Marula internals are imported anywhere in
 //! this crate.
 //!
 //! ADR 0003 conformance is the CI gate, and every piece of the crate

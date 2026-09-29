@@ -11,7 +11,7 @@
 //! early), JSON calls under `GET/POST /xapi/v1/...`:
 //!
 //! * `GET /xapi/v1/Cdr` — the call detail records (paged via OData
-//!   `$top`/`$skip`), mapped onto the Meridian VoIP ingest contract;
+//!   `$top`/`$skip`), mapped onto the Marula VoIP ingest contract;
 //! * `POST /xapi/v1/Users/Pbx.MakeCall` `{dn, destination}` — the
 //!   click-to-call context action (the adapter dials; call state flows
 //!   back asynchronously through 3CX's notifications, outside the
@@ -26,11 +26,11 @@
 //! None mode (honest posture): 3CX is a self-hosted PBX — without
 //! client credentials there is no token, no call control, and nothing
 //! to pull; the adapter reports a typed `ThreecxError::Vendor` and the
-//! Meridian side stays fully functional (the VoIP ingest seam accepts
+//! Marula side stays fully functional (the VoIP ingest seam accepts
 //! call rows from any provider; every push the adapter WOULD have made
-//! is reported). With a Meridian sink in none mode
+//! is reported). With a Marula sink in none mode
 //! ([`NoneCallLogSink`]) every mapped call counts as "would have
-//! pushed" with zero Meridian I/O. Live-PBX smoke is out of scope —
+//! pushed" with zero Marula I/O. Live-PBX smoke is out of scope —
 //! tests run against contract-shaped stub servers.
 
 use std::collections::HashMap;
@@ -187,12 +187,12 @@ impl ThreecxClient {
     }
 }
 
-/// The Meridian VoIP ingest wire shape (the published
+/// The Marula VoIP ingest wire shape (the published
 /// `VoipCallLogRequest` contract — `call_id`, `direction in|out`,
 /// `external_number`, `duration_seconds`, optional summary + ticket,
 /// RFC-3339 `occurred_at`).
 #[derive(Debug, Clone, PartialEq)]
-pub struct MeridianCallLog {
+pub struct MarulaCallLog {
     pub call_id: String,
     pub direction: String,
     pub external_number: String,
@@ -207,7 +207,7 @@ pub struct MeridianCallLog {
 /// outbound call's callee. Direction keys vary by 3CX build —
 /// `direction`/`type` are accepted (IN/OUT, case-insensitive).
 /// The call id is 3CX's own CDR id — the ingest's idempotency gate.
-pub fn map_call(cdr: &Value) -> Option<MeridianCallLog> {
+pub fn map_call(cdr: &Value) -> Option<MarulaCallLog> {
     let call_id = first_str_in(cdr, &["id", "callId", "call_id"])?;
     let direction = first_str_in(cdr, &["direction", "type"])?.to_ascii_lowercase();
     let direction = match direction.as_str() {
@@ -222,7 +222,7 @@ pub fn map_call(cdr: &Value) -> Option<MeridianCallLog> {
     let duration = scalar_in(cdr, &["duration", "durationSeconds", "duration_seconds"])
         .and_then(|d| d.trim().parse::<i64>().ok())
         .unwrap_or(0);
-    Some(MeridianCallLog {
+    Some(MarulaCallLog {
         call_id,
         direction: direction.into(),
         external_number,
@@ -244,26 +244,26 @@ pub enum ThreecxError {
     Vendor(#[from] adapters_core::client::VendorError),
 }
 
-/// The Meridian-side apply seam: one call log row pushed through the
+/// The Marula-side apply seam: one call log row pushed through the
 /// public VoIP ingest seam. Never logs credential material.
 #[async_trait::async_trait]
 pub trait CallLogSink: Send + Sync {
-    async fn push(&self, call: &MeridianCallLog) -> Result<Uuid, String>;
+    async fn push(&self, call: &MarulaCallLog) -> Result<Uuid, String>;
 }
 
-/// Credentials + endpoint for the Meridian sink. The machine API key
+/// Credentials + endpoint for the Marula sink. The machine API key
 /// rides `x-api-key` (the VoIP ingest surface authenticates scoped
 /// machine keys); the org's `voip` connector installation is the
 /// consent, this key the transport. Never persisted.
 #[derive(Clone)]
-pub struct MeridianCallLogConfig {
+pub struct MarulaCallLogConfig {
     pub base_url: String,
     pub api_key: String,
 }
 
-impl std::fmt::Debug for MeridianCallLogConfig {
+impl std::fmt::Debug for MarulaCallLogConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MeridianCallLogConfig")
+        f.debug_struct("MarulaCallLogConfig")
             .field("base_url", &self.base_url)
             .field("api_key", &"[REDACTED]")
             .finish()
@@ -272,27 +272,27 @@ impl std::fmt::Debug for MeridianCallLogConfig {
 
 /// The public-API call-log sink: `POST /api/v1/connectors/voip/call-logs`
 /// with the EXACT published wire shape — never hand-rolled beyond it.
-pub struct MeridianCallLogSink {
-    config: MeridianCallLogConfig,
+pub struct MarulaCallLogSink {
+    config: MarulaCallLogConfig,
 }
 
-impl std::fmt::Debug for MeridianCallLogSink {
+impl std::fmt::Debug for MarulaCallLogSink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MeridianCallLogSink")
+        f.debug_struct("MarulaCallLogSink")
             .field("config", &"[REDACTED CONFIG]")
             .finish()
     }
 }
 
-impl MeridianCallLogSink {
-    pub fn new(config: MeridianCallLogConfig) -> Self {
+impl MarulaCallLogSink {
+    pub fn new(config: MarulaCallLogConfig) -> Self {
         Self { config }
     }
 }
 
 #[async_trait::async_trait]
-impl CallLogSink for MeridianCallLogSink {
-    async fn push(&self, call: &MeridianCallLog) -> Result<Uuid, String> {
+impl CallLogSink for MarulaCallLogSink {
+    async fn push(&self, call: &MarulaCallLog) -> Result<Uuid, String> {
         let url = format!(
             "{}/api/v1/connectors/voip/call-logs",
             self.config.base_url.trim_end_matches('/')
@@ -329,13 +329,13 @@ impl CallLogSink for MeridianCallLogSink {
 }
 
 /// None mode: the shipped default. Every push reports honestly with
-/// zero Meridian I/O.
+/// zero Marula I/O.
 pub struct NoneCallLogSink;
 
 #[async_trait::async_trait]
 impl CallLogSink for NoneCallLogSink {
-    async fn push(&self, _call: &MeridianCallLog) -> Result<Uuid, String> {
-        Err("call-log sink disabled: no Meridian connection configured (none mode)".into())
+    async fn push(&self, _call: &MarulaCallLog) -> Result<Uuid, String> {
+        Err("call-log sink disabled: no Marula connection configured (none mode)".into())
     }
 }
 

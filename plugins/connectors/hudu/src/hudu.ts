@@ -1,6 +1,6 @@
 //! Hudu edge — deliberately THIN.
 //!
-//! Purpose: translate Meridian client events into Hudu company API calls.
+//! Purpose: translate Marula client events into Hudu company API calls.
 //! In NONE MODE (no Hudu credentials) the same code path runs and only
 //! logs the action it WOULD take, so operators can validate wiring with
 //! zero third-party subscriptions (standalone-first doctrine).
@@ -13,9 +13,9 @@ export interface CompanyPayload {
   nickname?: string;
 }
 
-/** Builds the Hudu company payload for one Meridian client event. */
+/** Builds the Hudu company payload for one Marula client event. */
 export function buildCompany(client: { id: string; name: string }): CompanyPayload {
-  return { name: client.name, nickname: `meridian-${client.id.slice(0, 8)}` };
+  return { name: client.name, nickname: `marula-${client.id.slice(0, 8)}` };
 }
 
 /**

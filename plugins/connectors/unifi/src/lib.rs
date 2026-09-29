@@ -27,11 +27,11 @@
 //! tier — they churn with the controller and never outrank curated values.
 //!
 //! None mode: [`NoneFeederSink`] (or no site→client mapping, which is a
-//! dry inventory) counts honestly with zero Meridian I/O — the controller
+//! dry inventory) counts honestly with zero Marula I/O — the controller
 //! pull still happens so the report reflects a real inventory. The UniFi
 //! controller is LOCAL hardware: when the controller is unreachable the
 //! connector reports a typed [`UnifiSyncError::Vendor`] pull failure; the
-//! Meridian side (feed-upsert seam, alert-source ingest) stays fully
+//! Marula side (feed-upsert seam, alert-source ingest) stays fully
 //! functional, and every push the connector WOULD have made is reported.
 //! Live-controller smoke is out of scope — tests run against
 //! contract-shaped stub servers.
@@ -188,7 +188,7 @@ pub fn map_device(payload: &Value) -> Option<FeederRecord> {
     })
 }
 
-/// One Meridian `CiInterface` write for a device interface.
+/// One Marula `CiInterface` write for a device interface.
 pub struct DeviceInterface {
     pub name: String,
     pub mac: Option<String>,
@@ -259,12 +259,12 @@ pub enum UnifiSyncError {
     #[error("controller pull failed: {0}")]
     Vendor(#[from] VendorError),
     /// A site without an operator mapping is skipped and REPORTED —
-    /// its devices are never misattributed to a guessed Meridian client.
-    #[error("site `{0}` is not mapped to a Meridian client")]
+    /// its devices are never misattributed to a guessed Marula client.
+    #[error("site `{0}` is not mapped to a Marula client")]
     UnmappedSite(String),
 }
 
-/// What a Meridian interface write needs beyond the feeder sink: the
+/// What a Marula interface write needs beyond the feeder sink: the
 /// public `POST /api/v1/config-items/{id}/interfaces` seam over the
 /// same scoped machine key. The pin carries no interfaces-read, so
 /// writes ride ONE deterministic rule instead of client-side state:
@@ -281,13 +281,13 @@ pub trait InterfaceSink: Send + Sync {
 }
 
 /// The public-API interface sink (x-api-key machine credential; the
-/// crate imports zero Meridian internals).
-pub struct MeridianInterfaceSink {
+/// crate imports zero Marula internals).
+pub struct MarulaInterfaceSink {
     base_url: String,
     api_key: String,
 }
 
-impl MeridianInterfaceSink {
+impl MarulaInterfaceSink {
     pub fn new(base_url: impl Into<String>, api_key: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into(),
@@ -297,7 +297,7 @@ impl MeridianInterfaceSink {
 }
 
 #[async_trait::async_trait]
-impl InterfaceSink for MeridianInterfaceSink {
+impl InterfaceSink for MarulaInterfaceSink {
     async fn create_interface(
         &self,
         config_item_id: Uuid,
@@ -334,7 +334,7 @@ impl InterfaceSink for MeridianInterfaceSink {
     }
 }
 
-/// None mode for the interface leg: reports honestly, zero Meridian I/O.
+/// None mode for the interface leg: reports honestly, zero Marula I/O.
 pub struct NoneInterfaceSink;
 
 #[async_trait::async_trait]
@@ -344,7 +344,7 @@ impl InterfaceSink for NoneInterfaceSink {
         _config_item_id: Uuid,
         _interface: &DeviceInterface,
     ) -> Result<(), String> {
-        Err("interface sink disabled: no Meridian connection configured (none mode)".into())
+        Err("interface sink disabled: no Marula connection configured (none mode)".into())
     }
 }
 
@@ -364,10 +364,10 @@ impl UnifiReport {
     }
 }
 
-/// The UniFi sync driver. With a `mapping` (UniFi site id → Meridian
+/// The UniFi sync driver. With a `mapping` (UniFi site id → Marula
 /// client) each site's devices feed ITS mapped client; unmapped sites
 /// are REPORTED. Without a `mapping` (or with an empty one), the run is
-/// a dry inventory: the report counts every device, zero Meridian I/O
+/// a dry inventory: the report counts every device, zero Marula I/O
 /// (the controller pull still happens, so the report reflects a real
 /// inventory). Interfaces ride [`InterfaceSink`] and are recorded ONLY
 /// on `created_item` (see the trait docs for the determinism argument).

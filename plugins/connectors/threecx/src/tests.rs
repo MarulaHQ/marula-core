@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::{
-    map_call, CallLogSink, MeridianCallLogConfig, MeridianCallLogSink, NoneCallLogSink,
+    map_call, CallLogSink, MarulaCallLogConfig, MarulaCallLogSink, NoneCallLogSink,
     ThreecxClient, ThreecxSync,
 };
 
@@ -207,7 +207,7 @@ async fn sync_pushes_call_logs_with_ticket_context() {
 
     let ticket = Uuid::now_v7();
     let context = HashMap::from([("call-ctx-1".to_string(), ticket)]);
-    let sink = MeridianCallLogSink::new(MeridianCallLogConfig {
+    let sink = MarulaCallLogSink::new(MarulaCallLogConfig {
         base_url: base.clone(),
         api_key: "mrl_test_key".into(),
     });
@@ -259,8 +259,8 @@ async fn none_mode_counts_and_make_call_drives_click_to_call() {
 }
 
 #[tokio::test]
-async fn meridian_rejections_map_to_typed_errors() {
-    async fn sink_at(status: StatusCode) -> MeridianCallLogSink {
+async fn marula_rejections_map_to_typed_errors() {
+    async fn sink_at(status: StatusCode) -> MarulaCallLogSink {
         let app =
             Router::new().route(
                 "/api/v1/connectors/voip/call-logs",
@@ -269,7 +269,7 @@ async fn meridian_rejections_map_to_typed_errors() {
                 }),
             );
         let base = spawn(app).await;
-        MeridianCallLogSink::new(MeridianCallLogConfig {
+        MarulaCallLogSink::new(MarulaCallLogConfig {
             base_url: base.clone(),
             api_key: "mrl_test_key".into(),
         })

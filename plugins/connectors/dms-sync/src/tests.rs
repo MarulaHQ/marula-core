@@ -7,7 +7,7 @@
 //!   twins), foreign deterministic matches become reviewable merge
 //!   candidates, curated fields beat observed churn, links surface
 //!   unresolved ends, and the vault boundary holds;
-//! * wire conformance — the Meridian REST sink rides the public API
+//! * wire conformance — the Marula REST sink rides the public API
 //!   shapes (x-api-key, instant-first idempotency keys, credentials
 //!   ONLY on the audited vault path) against a stub server, and the
 //!   generic REST source / push target speak their declared contracts;
@@ -340,7 +340,7 @@ fn hudu_export_parses_with_identity_bearing_assets() {
 
 // ---- push parity: round trips ------------------------------------------------------
 
-/// A neutral Meridian snapshot mirroring the parsed snapshot's
+/// A neutral Marula snapshot mirroring the parsed snapshot's
 /// semantics (deterministic ids; fields preserved verbatim).
 fn marula_snapshot_from(snapshot: &DmsSnapshot) -> push::MarulaSnapshot {
     let mut out = push::MarulaSnapshot {
@@ -580,14 +580,14 @@ async fn start_stub(app: axum::Router) -> (String, tokio::task::JoinHandle<()>) 
     (format!("http://{addr}"), handle)
 }
 
-/// The Meridian public-API stub: the shapes the REST sink consumes.
-struct MeridianStub {
+/// The Marula public-API stub: the shapes the REST sink consumes.
+struct MarulaStub {
     base_url: String,
     log: CallLog,
     _server: tokio::task::JoinHandle<()>,
 }
 
-impl MeridianStub {
+impl MarulaStub {
     async fn start() -> Self {
         let log = CallLog::new();
 
@@ -694,8 +694,8 @@ impl MeridianStub {
 }
 
 #[tokio::test]
-async fn meridian_sink_rides_the_public_api_shapes() {
-    let stub = MeridianStub::start().await;
+async fn marula_sink_rides_the_public_api_shapes() {
+    let stub = MarulaStub::start().await;
     let sink = crate::sink::marula::MarulaRestSink::with_http(
         crate::sink::marula::MarulaConfig {
             base_url: stub.base_url(),
@@ -901,7 +901,7 @@ async fn rest_push_target_pushes_neutral_records() {
         },
     );
     let snapshot = push::MarulaSnapshot {
-        source: "meridian".into(),
+        source: "marula".into(),
         clients: vec![(acme(), "Acme Corp".into())],
         layouts: vec![push::SnapshotLayout {
             id: Uuid::from_u128(1),

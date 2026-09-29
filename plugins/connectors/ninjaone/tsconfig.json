@@ -17,7 +17,7 @@
     "skipLibCheck": true,
     // In-repo resolution for the acceptance probe. Outside this repo the
     // published `@marula-core/sdk` package resolves normally — nothing here
-    // may import Meridian internals, only this specifier.
+    // may import Marula internals, only this specifier.
     "paths": {
       "@marula-core/sdk": ["../../packages/sdk/src/index.ts"]
     }

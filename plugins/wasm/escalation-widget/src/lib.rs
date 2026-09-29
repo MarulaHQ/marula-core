@@ -1,4 +1,4 @@
-//! First-party Meridian reference plugin (Wave 34 lane 4, §4.6).
+//! First-party Marula reference plugin (Wave 34 lane 4, §4.6).
 //!
 //! The declarative surface this plugin contributes lives in
 //! `manifest.json` (`surface_profile`) — the host registers widgets /
@@ -15,6 +15,6 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 }
 
 #[no_mangle]
-pub extern "C" fn meridian_plugin_entry() -> i32 {
+pub extern "C" fn marula_plugin_entry() -> i32 {
     0
 }

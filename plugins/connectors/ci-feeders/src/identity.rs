@@ -154,7 +154,7 @@ impl IdentityKeysBuilder {
 /// fingerprint means the source moved and the sync must land the update.
 pub fn fingerprint(record: &FeederRecord) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"meridian-ci-feeders-record-v1");
+    hasher.update(b"marula-ci-feeders-record-v1");
     hasher.update(record.source_system.as_bytes());
     hasher.update(b"\x00");
     hasher.update(record.external_id.as_bytes());

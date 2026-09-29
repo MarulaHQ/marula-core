@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 license = "Apache-2.0"
 
-# Detached from the Meridian workspace: plugin artifacts target
+# Detached from the Marula workspace: plugin artifacts target
 # wasm32-unknown-unknown and must never pollute the shared build cache.
 [workspace]
 

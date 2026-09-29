@@ -10,9 +10,9 @@ the vendor's native pagination/auth flows, feeding the lane-8
 identity keys, never a blind insert).
 
 **None mode:** construct the sync with `NoneFeederSink` (or no org/client
-mapping, which is a dry inventory) — zero Meridian I/O, every record
+mapping, which is a dry inventory) — zero Marula I/O, every record
 counted honestly as "would have synced". Vendor pulls run regardless, so
-the run report reflects a real inventory even with no Meridian connection.
+the run report reflects a real inventory even with no Marula connection.
 Dry-run isolation is also available via `ApplyMode::DryRun`.
 
 Live-credential smoke is out of scope: CI runs against contract-shaped

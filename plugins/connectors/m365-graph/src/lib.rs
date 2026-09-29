@@ -25,7 +25,7 @@
 //! Same seam as every feeder: [`GraphSync::run`] pushes records
 //! through [`FeederSync`] + a [`FeederSink`] — never a direct write,
 //! never a blind insert. None mode: [`NoneFeederSink`] or
-//! `ApplyMode::DryRun` counts honestly with zero Meridian I/O; the
+//! `ApplyMode::DryRun` counts honestly with zero Marula I/O; the
 //! vendor pull itself still runs so the report reflects a real
 //! inventory. Live-credential smoke is out of scope — tests run
 //! against contract-shaped stub servers.
@@ -225,11 +225,11 @@ impl GraphSyncReport {
     }
 }
 
-/// The Graph sync driver. `client_id` is the ONE Meridian client the
-/// tenant's devices belong to (an M365 tenant maps 1:1 to a Meridian
+/// The Graph sync driver. `client_id` is the ONE Marula client the
+/// tenant's devices belong to (an M365 tenant maps 1:1 to a Marula
 /// client — org mapping is client-level here, unlike multi-org docs
 /// platforms); pass `None` for a dry inventory (vendor pull + report,
-/// zero Meridian I/O).
+/// zero Marula I/O).
 pub struct GraphSync;
 
 impl GraphSync {
@@ -265,7 +265,7 @@ impl GraphSync {
             let sync_report = match client_id {
                 Some(cid) => FeederSync::run(&SyncConfig::new(cid), &records, sink).await,
                 // None client binding = dry inventory: report counts
-                // every record, zero Meridian I/O.
+                // every record, zero Marula I/O.
                 None => SyncReport {
                     total: records.len(),
                     would_sync: records.len(),

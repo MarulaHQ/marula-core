@@ -7,7 +7,7 @@
 //!   `{label, field_type, required, options?}`); these map onto
 //!   `document_layouts` with the docs-platform field vocabulary.
 //! * `assets` — records of those layouts. ADR 0003's lifecycle rule
-//!   decides the Meridian side per record: identity-bearing records
+//!   decides the Marula side per record: identity-bearing records
 //!   (serial or hostname fields → their own identity, fails or manages
 //!   independently) sync as ASSETS; everything else syncs as typed
 //!   documents. Websites (their own export collection) are documents.

@@ -16,7 +16,7 @@ plugins/
 
 | Kind | Folder | What it is | Status |
 |---|---|---|---|
-| **Connector** | `connectors/` | An HTTP adapter that talks to Meridian only through the typed API, signed webhooks, and the feed-upsert seam. The standard set (ADR 0013) ships Apache-2.0 here. | Active |
+| **Connector** | `connectors/` | An HTTP adapter that talks to Marula only through the typed API, signed webhooks, and the feed-upsert seam. The standard set (ADR 0013) ships Apache-2.0 here. | Active |
 | **WASM plugin** | `wasm/` | A sandboxed Extism plugin built on `packages/plugin-kit`, installed through the plugin-host lifecycle. | Scaffold |
 | **Agent skill** | — | Assistant data (markdown + resources), distributed as checksummed skill packs. Not executable; no folder here yet. | Future |
 | **Theme pack** | — | A token/asset bundle distributed through the marketplace. Lives with the design system, not here. | Future |

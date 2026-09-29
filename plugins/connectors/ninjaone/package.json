@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
-  "description": "Reference NinjaOne connector for Project Meridian — public API + signed webhooks only (Apache-2.0)",
+  "description": "Reference NinjaOne connector for Project Marula — public API + signed webhooks only (Apache-2.0)",
   "main": "src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",

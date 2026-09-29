@@ -2,7 +2,7 @@
 //! makes "second sync updates its own record, never creates a twin"
 //! true across runs.
 //!
-//! The ledger records, per source key: which Meridian record the source
+//! The ledger records, per source key: which Marula record the source
 //! record resolved to, what the connector last wrote there (fields +
 //! fingerprint), and when. Resolution always consults the ledger FIRST;
 //! deterministic identity keys are the fallback (a lost ledger must not
@@ -22,13 +22,13 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// What the connector last wrote to one Meridian record.
+/// What the connector last wrote to one Marula record.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LedgerEntry {
     /// The source record's deterministic handle
     /// (`Identity::handle`): `<guid>:<source>:<external_id>`.
     pub source_key: String,
-    /// Which Meridian side the record lives on ("asset" | "document").
+    /// Which Marula side the record lives on ("asset" | "document").
     pub marula_kind: &'static str,
     pub marula_id: Uuid,
     /// The field values the connector wrote (the curated-conflict
@@ -50,21 +50,21 @@ impl LedgerEntry {
     }
 }
 
-/// The ledger seam. Keyed by source key and Meridian record id.
+/// The ledger seam. Keyed by source key and Marula record id.
 pub trait SyncState: Send + Sync {
     fn lookup(&self, source_key: &str) -> Option<LedgerEntry>;
-    /// Reverse direction: which source key owns one Meridian record.
+    /// Reverse direction: which source key owns one Marula record.
     fn source_key_of(&self, marula_id: Uuid) -> Option<String>;
     fn remember(&self, entry: LedgerEntry);
     /// Forget one mapping (e.g. the sink 404'd on an update — the
-    /// record was deleted Meridian-side; the next sync re-resolves).
+    /// record was deleted Marula-side; the next sync re-resolves).
     fn forget(&self, source_key: &str);
 }
 
 /// In-process ledger (the shipped default). Cheap, no persistence —
 /// every process start re-resolves deterministic identities, which is
 /// SAFE: identity keys are deterministic, so a cold ledger still
-/// updates the same Meridian record instead of creating a twin.
+/// updates the same Marula record instead of creating a twin.
 #[derive(Debug, Default)]
 pub struct MemorySyncState {
     by_source_key: Mutex<BTreeMap<String, LedgerEntry>>,

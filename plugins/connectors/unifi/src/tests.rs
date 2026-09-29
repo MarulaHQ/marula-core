@@ -21,7 +21,7 @@ use crate::alerts::{
     map_alert, sign_delivery, verify_delivery, AlertForwarder, ForwardError, REPLAY_TOLERANCE_SECS,
     SIGNATURE_HEADER,
 };
-use crate::{map_device, MeridianInterfaceSink, UnifiClient, UnifiSync};
+use crate::{map_device, MarulaInterfaceSink, UnifiClient, UnifiSync};
 use adapters_core::OrgMappingBuilder;
 use ci_feeders::sink::{MarulaFeederConfig, MarulaFeederSink, NoneFeederSink};
 
@@ -279,7 +279,7 @@ async fn sync_feeds_per_site_and_records_interfaces_once() {
         base_url: base.clone(),
         api_key: "mrl_test_key".into(),
     });
-    let interfaces = MeridianInterfaceSink::new(base.clone(), "mrl_test_key");
+    let interfaces = MarulaInterfaceSink::new(base.clone(), "mrl_test_key");
 
     let (stub, _) = controller_stub(
         vec![site("site-1", "HQ"), site("site-2", "Branch")],
@@ -324,7 +324,7 @@ async fn unmapped_sites_are_reported_and_none_mode_counts() {
     let controller = spawn(stub).await;
     let client = UnifiClient::new(&controller, "k");
 
-    // No mapping at all: dry inventory — pulls happen, zero Meridian I/O.
+    // No mapping at all: dry inventory — pulls happen, zero Marula I/O.
     let report = UnifiSync::run(&client, None, &NoneFeederSink, &crate::NoneInterfaceSink)
         .await
         .unwrap();
@@ -334,7 +334,7 @@ async fn unmapped_sites_are_reported_and_none_mode_counts() {
     assert!(report.is_clean());
 
     // Mapping present, None sinks (none mode): every device counts
-    // "would have synced", zero Meridian I/O.
+    // "would have synced", zero Marula I/O.
     let mapping = OrgMappingBuilder::new()
         .map("site-1", Uuid::now_v7())
         .build();

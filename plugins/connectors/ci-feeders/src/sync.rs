@@ -29,12 +29,12 @@ pub enum ApplyMode {
     DryRun,
 }
 
-/// The sync configuration: one run feeds ONE Meridian client (the
-/// vendor-org → Meridian-client mapping is the operator transport's
+/// The sync configuration: one run feeds ONE Marula client (the
+/// vendor-org → Marula-client mapping is the operator transport's
 /// decision, not the engine's guess).
 #[derive(Debug, Clone)]
 pub struct SyncConfig {
-    /// The Meridian client the sync's records belong to.
+    /// The Marula client the sync's records belong to.
     pub client_id: Uuid,
     /// Apply or dry-run.
     pub apply: ApplyMode,

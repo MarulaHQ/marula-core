@@ -1,10 +1,10 @@
 //! QuickBooks Online export-sync adapter (TASKLIST Phase 3 adapters line).
 //!
-//! Purpose: push Meridian invoices and payments into a customer-provided
+//! Purpose: push Marula invoices and payments into a customer-provided
 //! QBO company over the PUBLIC QBO REST API (`/v3/company/{realmId}/...`)
 //! — HTTP only, no vendor SDK. OAuth2 access tokens are operator-supplied
 //! (BYOK: sealed at rest in the core's `byok_secrets` store under provider
-//! id `qbo`; Meridian hosts no OAuth app). Background sync scheduling is a
+//! id `qbo`; Marula hosts no OAuth app). Background sync scheduling is a
 //! future worker job — this crate is the edge adapter only.
 //!
 //! None mode: [`NoneExportSink`] is the shipped default — it performs zero
@@ -14,7 +14,7 @@
 //!
 //! Non-purpose: no OAuth token refresh (operators rotate the token in the
 //! BYOK store), no QBO customer/item catalog management, no reverse
-//! (QBO→Meridian) import.
+//! (QBO→Marula) import.
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 // --- domain types (deliberately vendor-neutral and self-contained) ----------
 
-/// One invoice line Meridian asks the accounting system to record.
+/// One invoice line Marula asks the accounting system to record.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExportLine {
     pub description: String,
@@ -34,10 +34,10 @@ pub struct ExportLine {
     pub unit_amount_minor: i64,
 }
 
-/// The invoice Meridian exports.
+/// The invoice Marula exports.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExportInvoice {
-    /// Meridian invoice id (stable identity for idempotent re-pushes).
+    /// Marula invoice id (stable identity for idempotent re-pushes).
     pub invoice_id: Uuid,
     /// Human invoice number ("INV-000042") — surfaced as the vendor's
     /// external reference / invoice number where supported.
@@ -392,7 +392,7 @@ impl ExportSink for QboClient {
                 value: invoice.currency.clone(),
             }),
             private_note: Some(format!(
-                "{}[meridian:invoice:{}]",
+                "{}[marula:invoice:{}]",
                 invoice
                     .notes
                     .clone()

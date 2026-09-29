@@ -226,8 +226,8 @@ async fn push_invoice_maps_to_qbo_wire_shape() {
         body["PrivateNote"]
             .as_str()
             .unwrap()
-            .contains("[meridian:invoice:"),
-        "the meridian id must ride PrivateNote for vendor-side auditability"
+            .contains("[marula:invoice:"),
+        "the marula id must ride PrivateNote for vendor-side auditability"
     );
     let line = &body["Line"][0];
     assert_eq!(line["DetailType"], "SalesItemLine");

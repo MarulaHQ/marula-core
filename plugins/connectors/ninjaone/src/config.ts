@@ -6,12 +6,12 @@
 //! enhancement, never a prerequisite.
 
 export interface Config {
-  /** Base URL of the Meridian core API. */
-  meridianBaseUrl: string;
-  /** Scoped Meridian API key (raw `mrl_…` material). */
-  meridianApiKey: string;
-  /** Shared secret used to verify Meridian's signed webhook deliveries. */
-  meridianWebhookSecret: string;
+  /** Base URL of the Marula core API. */
+  marulaBaseUrl: string;
+  /** Scoped Marula API key (raw `mrl_…` material). */
+  marulaApiKey: string;
+  /** Shared secret used to verify Marula's signed webhook deliveries. */
+  marulaWebhookSecret: string;
   /** TCP port for the webhook receiver. */
   port: number;
   /** NinjaOne PSAs base URL (e.g. https://app.ninjarmm.com). */
@@ -26,17 +26,17 @@ export function noneMode(config: Config): boolean {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const meridianBaseUrl = env.MARULA_BASE_URL ?? "http://localhost:8080";
-  const meridianApiKey = env.MARULA_API_KEY ?? "";
-  if (!meridianApiKey) {
+  const marulaBaseUrl = env.MARULA_BASE_URL ?? "http://localhost:8080";
+  const marulaApiKey = env.MARULA_API_KEY ?? "";
+  if (!marulaApiKey) {
     throw new Error(
       "MARULA_API_KEY is required — create a scoped key under Settings → Integrations.",
     );
   }
   return {
-    meridianBaseUrl,
-    meridianApiKey,
-    meridianWebhookSecret: env.MARULA_WEBHOOK_SECRET ?? "",
+    marulaBaseUrl,
+    marulaApiKey,
+    marulaWebhookSecret: env.MARULA_WEBHOOK_SECRET ?? "",
     port: Number(env.PORT ?? 8788),
     ninjaOneBaseUrl: env.NINJAONE_BASE_URL,
     ninjaOneToken: env.NINJAONE_TOKEN,

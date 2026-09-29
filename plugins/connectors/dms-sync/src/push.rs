@@ -1,10 +1,10 @@
-//! Push side (parity): Meridian documentation rendered back OUT in the
+//! Push side (parity): Marula documentation rendered back OUT in the
 //! same formats the pull side consumes — so an org that keeps its DMS
 //! gets full data movement in BOTH directions.
 //!
 //! Three pieces:
 //!
-//! * [`MarulaSnapshot`] — the neutral shape a Meridian-side reader
+//! * [`MarulaSnapshot`] — the neutral shape a Marula-side reader
 //!   produces from the public REST surface (`GET /api/assets`,
 //!   `/api/documents`, `/api/documents/layouts`, `/api/clients`, and
 //!   the per-record link listings).
@@ -19,7 +19,7 @@
 //! Non-purpose: no IT Glue / Hudu write-API clients (their REST write
 //! surfaces are vendor-specific; the renderers are the portable
 //! contract), no attachment pushes (v1), and no credential rendering
-//! — vault secrets never leave Meridian's audited path, so the push
+//! — vault secrets never leave Marula's audited path, so the push
 //! side carries password METADATA only unless the caller supplies the
 //! secret explicitly.
 
@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 use crate::model::{FieldKind, LinkKind, SyncField, SyncRecord};
 
-/// One Meridian-side link (resolved form).
+/// One Marula-side link (resolved form).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SnapshotLink {
     pub from_kind: LinkKind,
@@ -37,7 +37,7 @@ pub struct SnapshotLink {
     pub to_id: Uuid,
 }
 
-/// The neutral Meridian snapshot the renderers consume.
+/// The neutral Marula snapshot the renderers consume.
 #[derive(Debug, Clone, Default)]
 pub struct MarulaSnapshot {
     pub source: String,
@@ -106,7 +106,7 @@ impl BTreeMapExport {
     }
 }
 
-/// Render a Meridian snapshot as a Hudu export JSON document (the
+/// Render a Marula snapshot as a Hudu export JSON document (the
 /// collection keys match the parser's
 /// [`crate::source::hudu::HuduExportFiles`]).
 pub fn render_hudu_export(snapshot: &MarulaSnapshot) -> Value {
@@ -149,7 +149,7 @@ pub fn render_hudu_export(snapshot: &MarulaSnapshot) -> Value {
     let mut assets: Vec<Value> = Vec::new();
     let mut websites: Vec<Value> = Vec::new();
 
-    // Meridian ASSETS → Hudu asset records (their fields ride the
+    // Marula ASSETS → Hudu asset records (their fields ride the
     // {label, value} shape).
     for asset in &snapshot.assets {
         let fields: Vec<Value> = asset
@@ -195,7 +195,7 @@ pub fn render_hudu_export(snapshot: &MarulaSnapshot) -> Value {
         .iter()
         .map(|meta| {
             // METADATA ONLY: the push side never renders secrets —
-            // vault material crosses Meridian's audited path alone.
+            // vault material crosses Marula's audited path alone.
             json!({
                 "id": meta.id.to_string(),
                 "name": meta.title,
@@ -334,7 +334,7 @@ impl RestPushTarget {
     }
 }
 
-/// Neutral-record constructor helpers used by the Meridian-side reader
+/// Neutral-record constructor helpers used by the Marula-side reader
 /// implementations (kept here so renderer fixtures and reader
 /// implementations share one construction path).
 pub fn snapshot_record_from_fields(

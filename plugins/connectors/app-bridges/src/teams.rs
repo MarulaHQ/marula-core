@@ -41,7 +41,7 @@ impl TeamsConnector {
         if let Some(link) = &payload.link_url {
             card["attachments"][0]["content"]["actions"] = serde_json::json!([{
                 "type": "Action.OpenUrl",
-                "title": "Meridian \u{2026} Open",
+                "title": "Marula \u{2026} Open",
                 "url": link,
             }]);
         }

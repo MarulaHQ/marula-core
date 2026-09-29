@@ -8,20 +8,20 @@
 //! * when a hop signature is configured, deliveries are verified
 //!   EXACTLY the way first-party receivers must — constant-time
 //!   HMAC-SHA256 over `"{t}.{rawBody}"` with the `t=<ts>,v1=<hex>`
-//!   header (the same scheme Meridian's own webhook + alert-ingest
+//!   header (the same scheme Marula's own webhook + alert-ingest
 //!   senders use), plus the ±10-minute anti-replay window, verified
 //!   over the RAW BYTES before any JSON parsing — signature covers
 //!   bytes, not objects;
 //! * without a hop secret the receiver states the unauthenticated
 //!   posture loudly in its run report (the local LAN endpoint stays
 //!   reachable; the alert source's OWN secret still seals the
-//!   Meridian-bound leg).
+//!   Marula-bound leg).
 //!
-//! The Meridian-bound leg is always signed: the alert source's HMAC
+//! The Marula-bound leg is always signed: the alert source's HMAC
 //! secret (returned ONCE at source creation) signs every alert this
 //! connector posts to `POST /api/v1/alerts/ingest/{source_ref}` —
-//! Meridian 401s unsigned ingests, so a signature-less hop never
-//! reaches Meridian with fabricated events.
+//! Marula 401s unsigned ingests, so a signature-less hop never
+//! reaches Marula with fabricated events.
 
 use hmac::{Hmac, Mac};
 use serde_json::{json, Value};
@@ -30,9 +30,9 @@ use subtle::ConstantTimeEq;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// Same header name and tolerance as Meridian's webhook receivers and
+/// Same header name and tolerance as Marula's webhook receivers and
 /// the NinjaOne/Hudu reference receivers — one scheme everywhere.
-pub const SIGNATURE_HEADER: &str = "X-Meridian-Signature";
+pub const SIGNATURE_HEADER: &str = "X-Marula-Signature";
 /// Generous for queue delay, tight enough to kill replays (~10 min).
 pub const REPLAY_TOLERANCE_SECS: i64 = 600;
 
@@ -87,9 +87,9 @@ pub fn verify_delivery(
     }
 }
 
-/// Sender-side signature for one Meridian-bound alert delivery —
+/// Sender-side signature for one Marula-bound alert delivery —
 /// `t=<unix_ts>,v1=<hex hmac>` over `{t}.{rawBody}`, the exact value
-/// `X-Meridian-Signature` must carry at the ingest endpoint.
+/// `X-Marula-Signature` must carry at the ingest endpoint.
 pub fn sign_delivery(secret: &[u8], raw_body: &[u8], now_unix: i64) -> String {
     let mac = hmac_hex(secret, &timestamp_prefixed(now_unix, raw_body));
     format!("t={now_unix},v1={mac}")
@@ -102,7 +102,7 @@ fn timestamp_prefixed(unix_ts: i64, body: &[u8]) -> Vec<u8> {
     buf
 }
 
-/// The Meridian ingest wire shape (the published `IngestAlertRequest`
+/// The Marula ingest wire shape (the published `IngestAlertRequest`
 /// contract: `dedup_key` + `title` + `severity` required).
 #[derive(Debug, Clone, PartialEq)]
 pub struct IngestAlert {
@@ -192,11 +192,11 @@ pub enum ForwardError {
 pub struct ForwardOutcome {
     /// `incident_created` | `collapsed` | `duplicate`.
     pub status: String,
-    /// The alert id at Meridian.
+    /// The alert id at Marula.
     pub alert_id: String,
 }
 
-/// The Meridian-bound alert forwarder. Talks to Meridian ONLY through
+/// The Marula-bound alert forwarder. Talks to Marula ONLY through
 /// the published ingest seam; the alert-source secret signs every
 /// delivery and is never logged or persisted by the crate.
 pub struct AlertForwarder {

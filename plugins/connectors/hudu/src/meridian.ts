@@ -1,18 +1,18 @@
-//! Meridian side of the connector: a typed `MeridianClient` from
+//! Marula side of the connector: a typed `MarulaClient` from
 //! @marula-core/sdk, authenticated with an x-api-key machine credential.
 //!
-//! Purpose: prove the extension pattern — this file talks to Meridian ONLY
+//! Purpose: prove the extension pattern — this file talks to Marula ONLY
 //! through the published SDK surface (public REST + generated types). No
-//! Meridian internals are imported anywhere in this connector.
+//! Marula internals are imported anywhere in this connector.
 
-import { MeridianClient } from "@marula-core/sdk";
+import { MarulaClient } from "@marula-core/sdk";
 import type { Config } from "./config.js";
 
-export function connectMeridian(config: Config): MeridianClient {
-  const client = new MeridianClient({ baseUrl: config.meridianBaseUrl });
+export function connectMarula(config: Config): MarulaClient {
+  const client = new MarulaClient({ baseUrl: config.marulaBaseUrl });
   client.api.use({
     async onRequest({ request }) {
-      request.headers.set("x-api-key", config.meridianApiKey);
+      request.headers.set("x-api-key", config.marulaApiKey);
       return request;
     },
   });
@@ -26,11 +26,11 @@ export interface ClientSummary {
 
 /** Typed read through the SDK: proves scope + connectivity in one call. */
 export async function verifyAccess(
-  client: MeridianClient,
+  client: MarulaClient,
 ): Promise<ClientSummary[]> {
   const { data, error } = await client.api.GET("/api/clients");
   if (error) {
-    throw new Error(`Meridian rejected the key: ${JSON.stringify(error)}`);
+    throw new Error(`Marula rejected the key: ${JSON.stringify(error)}`);
   }
   return (data ?? []).map((c) => ({ id: String(c.id), name: c.name }));
 }
