@@ -34,6 +34,7 @@ pub mod email;
 pub mod mail_config;
 pub mod notifier;
 pub mod pm_sweep;
+pub mod project_billing;
 pub mod queue_runner;
 pub mod rotation_sweep;
 pub mod search_indexer;
@@ -272,6 +273,21 @@ pub async fn run(
             csat::run_csat(pool, redis_url, csat_config, shutdown).await;
             alive.store(false, Ordering::Relaxed);
             tracing::error!("csat loop exited; reporting unhealthy");
+        });
+    }
+
+    // Project billing releases (Wave 39 lane 4): project.milestone_completed
+    // + phase-completed fees → project_billing_releases ledger rows; the
+    // invoice run consumes the ledger (durable consumer group, at-least-once
+    // with ledger-side idempotency). No internal token needed: it writes
+    // only its own ledger inserts through core_db.
+    {
+        let pool = pool.clone();
+        let redis_url = config.redis_url.clone();
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            project_billing::run_project_billing(pool, redis_url, shutdown).await;
+            tracing::error!("project_billing loop exited; reporting unhealthy");
         });
     }
 

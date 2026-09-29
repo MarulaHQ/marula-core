@@ -1788,6 +1788,15 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/projects/{id}/phases/{phase_id}/complete"),
             post(projects::complete_phase),
         )
+        .route(&rp("/projects/{id}/phase-burn"), get(projects::phase_burn))
+        .route(
+            &rp("/projects/{id}/billing-releases"),
+            get(projects::list_billing_releases),
+        )
+        .route(
+            &rp("/projects/{id}/billing-releases/{release_id}/cancel"),
+            post(projects::cancel_billing_release),
+        )
         .route(
             &rp("/projects/{id}/tasks"),
             get(projects::list_tasks).post(projects::create_task),

@@ -245,7 +245,7 @@ async fn load_time_entries(
     org_id: Uuid,
 ) -> DbResult<Vec<ExportTimeEntry>> {
     let rows = sqlx::query!(
-        "SELECT id, ticket_id, user_id, started_at, ended_at, minutes, billable,
+        "SELECT id, ticket_id, phase_id, user_id, started_at, ended_at, minutes, billable,
                 notes, work_type, created_at
          FROM time_entries WHERE org_id = $1 ORDER BY started_at, id",
         org_id
@@ -257,6 +257,7 @@ async fn load_time_entries(
         .map(|r| ExportTimeEntry {
             id: r.id,
             ticket_id: r.ticket_id,
+            phase_id: r.phase_id,
             user_id: r.user_id,
             started_at: r.started_at,
             ended_at: r.ended_at,

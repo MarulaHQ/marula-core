@@ -1030,8 +1030,11 @@ pub struct TimeEntryCreated {
 pub struct TimeEntryApprovalSubmitted {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub entry_id: TimeEntryId,
-    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
-    pub ticket_id: TicketId,
+    /// `None` on project-scoped entries (Wave 39 lane 4) — the entry
+    /// scopes to a phase instead. Optional since the lane; older
+    /// payloads always carry it, so the golden stays valid.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub ticket_id: Option<TicketId>,
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub entry_user_id: UserId,
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]

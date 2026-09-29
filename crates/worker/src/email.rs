@@ -266,10 +266,7 @@ mod tests {
         assert_eq!(recording.count().await, 1);
         // The reply-to resolved by core-api at claim time rides the send.
         let recorded = recording.recorded().await;
-        assert_eq!(
-            recorded[0].reply_to.as_deref(),
-            Some("projects@acme.test")
-        );
+        assert_eq!(recorded[0].reply_to.as_deref(), Some("projects@acme.test"));
         let reported = seen_results.lock().unwrap();
         assert_eq!(reported.len(), 1);
         assert!(reported[0].ok);

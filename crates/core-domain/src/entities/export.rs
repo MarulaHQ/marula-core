@@ -196,8 +196,12 @@ pub struct ExportComment {
 pub struct ExportTimeEntry {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: uuid::Uuid,
-    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
-    pub ticket_id: uuid::Uuid,
+    /// `None` on project-scoped entries (Wave 39 lane 4): `phase_id`
+    /// scopes the entry instead.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub ticket_id: Option<uuid::Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub phase_id: Option<uuid::Uuid>,
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: uuid::Uuid,
     pub started_at: chrono::DateTime<chrono::Utc>,

@@ -78,7 +78,14 @@ pub struct TimeEntryMutationResponse {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateTimeEntryRequest {
-    pub ticket_id: Uuid,
+    /// The ticket this entry bills through. `None` ONLY for project-scoped
+    /// entries (Wave 39 lane 4, report P5): supply `phase_id` instead and
+    /// the entry bills through the phase project's linked contract.
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub ticket_id: Option<Uuid>,
+    /// Project-scoped variant (exactly one of ticket_id / phase_id).
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub phase_id: Option<Uuid>,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub ended_at: chrono::DateTime<chrono::Utc>,
     pub billable: bool,
@@ -540,6 +547,13 @@ pub async fn create_entry(
     if minutes < 0 {
         return Err(ApiError::Validation("duration is negative".into()));
     }
+    // Exactly one parent (report P5): ticket-scoped or project-scoped —
+    // never both, never neither.
+    if req.ticket_id.is_some() == req.phase_id.is_some() {
+        return Err(ApiError::Validation(
+            "exactly one of ticket_id or phase_id is required".into(),
+        ));
+    }
 
     let entry = TimeEntry {
         approval_status: Some(core_domain::entities::ApprovalStatus::Draft),
@@ -547,6 +561,7 @@ pub async fn create_entry(
         id: Uuid::now_v7(),
         org_id,
         ticket_id: req.ticket_id,
+        phase_id: req.phase_id,
         user_id,
         started_at: req.started_at,
         ended_at: req.ended_at,
@@ -561,8 +576,15 @@ pub async fn create_entry(
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| {
         let entry = entry.clone();
         async move {
-            // Validate the ticket exists in this org.
-            let _ = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, req.ticket_id).await?;
+            // Validate the parent exists in this org: ticket-scope checks
+            // the ticket, project-scope checks the phase (and reads its
+            // project for the caller's visibility).
+            if let Some(ticket_id) = req.ticket_id {
+                let _ = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, ticket_id).await?;
+            } else {
+                let _ = core_db::projects::get_phase(&mut *ctx.tx, org_id, req.phase_id.unwrap())
+                    .await?;
+            }
             core_db::timers::insert_time_entry(&mut *ctx.tx, &entry).await?;
             ctx.emit(
                 types::TIME_ENTRY_CREATED,

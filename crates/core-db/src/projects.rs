@@ -7,14 +7,15 @@
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{
-    BillingMethod, PhaseStatus, Project, ProjectPhase, ProjectStatus, ProjectTask, ProjectTemplate,
-    ProjectView, TaskStatus,
+    BillingMethod, PhaseBurn, PhaseBurnAlert, PhaseStatus, Project, ProjectBillingRelease,
+    ProjectPhase, ProjectPhaseBudget, ProjectStatus, ProjectTask, ProjectTemplate, ProjectView,
+    ReleaseStatus, TaskStatus,
 };
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
 const PROJECT_COLS: &str = "id, org_id, client_id, name, description, status, billing_method, \
-     budget_minor, currency, start_date, due_date, created_at, updated_at";
+     budget_minor, currency, start_date, due_date, billing_contract_id, created_at, updated_at";
 const PHASE_COLS: &str = "id, org_id, project_id, name, description, sort_order, status, \
      is_milestone, milestone_amount_minor, milestone_currency, completed_at, created_at, updated_at";
 const TASK_COLS: &str = "id, org_id, project_id, phase_id, title, description, status, \
@@ -49,6 +50,7 @@ fn row_to_project(row: sqlx::postgres::PgRow) -> Result<Project, sqlx::Error> {
         currency: row.get("currency"),
         start_date: row.get("start_date"),
         due_date: row.get("due_date"),
+        billing_contract_id: row.get("billing_contract_id"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
@@ -139,6 +141,9 @@ pub struct NewProject<'a> {
     pub currency: Option<&'a str>,
     pub start_date: Option<chrono::NaiveDate>,
     pub due_date: Option<chrono::NaiveDate>,
+    /// The contract the project bills through (Wave 39 lane 4, report
+    /// P2). `None` = non-billable or unlinked.
+    pub billing_contract_id: Option<Uuid>,
 }
 
 pub async fn insert_project<'e, E>(executor: E, p: NewProject<'_>) -> DbResult<Project>
@@ -147,8 +152,8 @@ where
 {
     let sql = format!(
         r#"INSERT INTO projects (id, org_id, client_id, name, description, billing_method,
-                                 budget_minor, currency, start_date, due_date)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                                 budget_minor, currency, start_date, due_date, billing_contract_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
            RETURNING {PROJECT_COLS}"#
     );
     let row = sqlx::query(&sql)
@@ -162,6 +167,7 @@ where
         .bind(p.currency)
         .bind(p.start_date)
         .bind(p.due_date)
+        .bind(p.billing_contract_id)
         .fetch_one(executor)
         .await?;
     Ok(row_to_project(row)?)
@@ -243,6 +249,8 @@ pub struct ProjectPatch<'a> {
     pub currency: Option<Option<&'a str>>,
     pub start_date: Option<Option<chrono::NaiveDate>>,
     pub due_date: Option<Option<chrono::NaiveDate>>,
+    /// `Some(Some(v))` links; `Some(None)` unlinks; `None` = no change.
+    pub billing_contract_id: Option<Option<Uuid>>,
 }
 
 /// Tri-state patch (QueryBuilder pattern from `tickets::update_ticket`):
@@ -286,6 +294,9 @@ where
     if let Some(v) = p.due_date {
         q.push(", due_date = ").push_bind(v);
     }
+    if let Some(v) = p.billing_contract_id {
+        q.push(", billing_contract_id = ").push_bind(v);
+    }
     q.push(" WHERE org_id = ")
         .push_bind(org_id)
         .push(" AND id = ")
@@ -301,7 +312,6 @@ where
 }
 
 // --- phases ---------------------------------------------------------------------
-
 pub struct NewPhase<'a> {
     pub id: Uuid,
     pub org_id: Uuid,
@@ -312,6 +322,16 @@ pub struct NewPhase<'a> {
     pub is_milestone: bool,
     pub milestone_amount_minor: Option<i64>,
     pub milestone_currency: Option<&'a str>,
+}
+
+/// The phase's billing record (Wave 39 lane 4): budget denominator
+/// and/or the fixed fee released on phase completion. Written via
+/// [`upsert_phase_budget`], keyed per phase.
+pub struct NewPhaseBudget<'a> {
+    pub budget_minor: Option<i64>,
+    pub currency: Option<&'a str>,
+    pub fee_minor: Option<i64>,
+    pub fee_currency: Option<&'a str>,
 }
 
 pub async fn insert_phase<'e, E>(executor: E, p: NewPhase<'_>) -> DbResult<ProjectPhase>
@@ -1061,4 +1081,351 @@ where
         .execute(executor)
         .await?;
     Ok(res.rows_affected() > 0)
+}
+
+// --- phase budgets (Wave 39 lane 4, report C/D) -----------------------------
+
+const BUDGET_COLS: &str = "id, org_id, phase_id, budget_minor, currency, fee_minor, \
+     fee_currency, created_at, updated_at";
+
+fn row_to_budget(row: sqlx::postgres::PgRow) -> Result<ProjectPhaseBudget, sqlx::Error> {
+    Ok(ProjectPhaseBudget {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        phase_id: row.get("phase_id"),
+        budget_minor: row.get("budget_minor"),
+        currency: row.get("currency"),
+        fee_minor: row.get("fee_minor"),
+        fee_currency: row.get("fee_currency"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    })
+}
+
+/// Upserts the phase's billing record (PUT semantics: the route resolves
+/// the full record, this writes it). Idempotent per phase.
+pub async fn upsert_phase_budget<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    phase_id: Uuid,
+    budget: NewPhaseBudget<'_>,
+) -> DbResult<ProjectPhaseBudget>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(&format!(
+        r#"INSERT INTO project_phase_budgets
+             (id, org_id, phase_id, budget_minor, currency, fee_minor, fee_currency)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (phase_id) DO UPDATE
+             SET budget_minor = EXCLUDED.budget_minor,
+                 currency = EXCLUDED.currency,
+                 fee_minor = EXCLUDED.fee_minor,
+                 fee_currency = EXCLUDED.fee_currency,
+                 updated_at = now()
+           RETURNING {BUDGET_COLS}"#
+    ))
+    .bind(Uuid::now_v7())
+    .bind(org_id)
+    .bind(phase_id)
+    .bind(budget.budget_minor)
+    .bind(budget.currency)
+    .bind(budget.fee_minor)
+    .bind(budget.fee_currency)
+    .fetch_one(executor)
+    .await?;
+    Ok(row_to_budget(row)?)
+}
+
+/// Removes the phase's billing record entirely (used when a patch clears
+/// both the budget and the fee — an empty record carries nothing).
+pub async fn delete_phase_budget<'e, E>(executor: E, org_id: Uuid, phase_id: Uuid) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let result =
+        sqlx::query("DELETE FROM project_phase_budgets WHERE org_id = $1 AND phase_id = $2")
+            .bind(org_id)
+            .bind(phase_id)
+            .execute(executor)
+            .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn get_phase_budget<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    phase_id: Uuid,
+) -> DbResult<Option<ProjectPhaseBudget>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {BUDGET_COLS} FROM project_phase_budgets WHERE org_id = $1 AND phase_id = $2"
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(phase_id)
+        .fetch_optional(executor)
+        .await?;
+    match row {
+        Some(row) => Ok(Some(row_to_budget(row)?)),
+        None => Ok(None),
+    }
+}
+
+/// The phase-burn read model (report P3): consumed approved billable
+/// minutes per phase folded against the phase's budget and CARD-priced
+/// at the linked contract's rate card (default rate fallback), computed
+/// in one query. `consumed` prices the card rate per work_type bucket
+/// exactly like the engine's T&M rule so preview and burn agree.
+#[allow(clippy::too_many_arguments)]
+pub async fn phase_burn<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<Vec<PhaseBurn>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query!(
+        r#"SELECT pp.id AS phase_id, pp.name AS phase_name, pp.status AS phase_status,
+                  b.budget_minor, COALESCE(b.currency, p.currency) AS "currency?",
+                  COALESCE(burn.minutes, 0) AS consumed_minutes,
+                  COALESCE(burn.consumed_minor, 0) AS consumed_minor
+           FROM project_phases pp
+           JOIN projects p ON p.id = pp.project_id
+           LEFT JOIN project_phase_budgets b ON b.phase_id = pp.id
+           LEFT JOIN (
+               SELECT te.phase_id,
+                      SUM(te.minutes)::bigint AS minutes,
+                      SUM(
+                        (te.minutes::bigint *
+                          COALESCE(cr.rate_minor, c.hourly_rate_minor, 0) + 30)
+                        / 60
+                      )::bigint AS consumed_minor
+               FROM time_entries te
+               JOIN project_phases p2 ON p2.id = te.phase_id
+               JOIN projects p3 ON p3.id = p2.project_id
+               LEFT JOIN contracts c
+                 ON c.id = p3.billing_contract_id AND c.org_id = te.org_id
+               LEFT JOIN contract_rates cr
+                 ON cr.contract_id = c.id
+                AND cr.org_id = te.org_id
+                AND cr.work_type IS NOT DISTINCT FROM te.work_type
+               WHERE te.org_id = $1
+                 AND p3.id = $2
+                 AND te.billable
+                 AND te.approval_status = 'approved'
+               GROUP BY te.phase_id
+           ) burn ON burn.phase_id = pp.id
+           WHERE pp.org_id = $1 AND pp.project_id = $2
+           ORDER BY pp.sort_order, pp.created_at"#,
+        org_id,
+        project_id,
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let budget_minor = row.budget_minor;
+            let consumed_minor = row.consumed_minor;
+            let alert = match budget_minor {
+                Some(budget) if budget > 0 => {
+                    let pct = (consumed_minor * 100) / budget;
+                    if pct >= 100 {
+                        PhaseBurnAlert::Over
+                    } else if pct >= 80 {
+                        PhaseBurnAlert::Warn
+                    } else {
+                        PhaseBurnAlert::None
+                    }
+                }
+                _ => PhaseBurnAlert::None,
+            };
+            PhaseBurn {
+                phase_id: row.phase_id,
+                phase_name: row.phase_name,
+                phase_status: row.phase_status.parse().unwrap_or(PhaseStatus::Pending),
+                consumed_minutes: row.consumed_minutes,
+                consumed_minor,
+                budget_minor,
+                currency: row.currency,
+                alert,
+            }
+        })
+        .collect())
+}
+
+// --- billing releases (report P1/P4) ----------------------------------------
+
+pub struct NewRelease {
+    pub org_id: Uuid,
+    pub project_id: Uuid,
+    pub phase_id: Option<Uuid>,
+    pub task_id: Option<Uuid>,
+    pub label: String,
+    pub amount_minor: i64,
+    pub currency: String,
+    pub released_on: chrono::NaiveDate,
+    pub source_event_id: Option<Uuid>,
+}
+
+/// Stages one release ledger row. Idempotent per (project, phase) via the
+/// partial unique index — the consumer's exactly-once seatbelt.
+pub async fn insert_release<'e, E>(executor: E, r: &NewRelease) -> DbResult<ProjectBillingRelease>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(
+        r#"INSERT INTO project_billing_releases
+             (id, org_id, project_id, phase_id, task_id, label, amount_minor,
+              currency, released_on, source_event_id, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
+           ON CONFLICT (project_id, phase_id, status) WHERE status <> 'cancelled'
+           DO UPDATE SET updated_at = now()
+           RETURNING id, org_id, project_id, phase_id, task_id, label,
+                     amount_minor, currency, released_on, status,
+                     invoice_id, invoice_line_id, created_at, updated_at"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(r.org_id)
+    .bind(r.project_id)
+    .bind(r.phase_id)
+    .bind(r.task_id)
+    .bind(&r.label)
+    .bind(r.amount_minor)
+    .bind(&r.currency)
+    .bind(r.released_on)
+    .bind(r.source_event_id)
+    .fetch_one(executor)
+    .await?;
+    release_from_row(row)
+}
+
+fn release_from_row(row: sqlx::postgres::PgRow) -> DbResult<ProjectBillingRelease> {
+    use sqlx::Row;
+    Ok(ProjectBillingRelease {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        project_id: row.get("project_id"),
+        phase_id: row.get("phase_id"),
+        task_id: row.get("task_id"),
+        label: row.get("label"),
+        amount_minor: row.get("amount_minor"),
+        currency: row.get("currency"),
+        released_on: row.get("released_on"),
+        status: row
+            .get::<String, _>("status")
+            .parse()
+            .unwrap_or(ReleaseStatus::Pending),
+        invoice_id: row.get("invoice_id"),
+        invoice_line_id: row.get("invoice_line_id"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    })
+}
+
+/// The pending releases billable through `contract_id` inside the window:
+/// reads the org's projects whose billing link points at this contract,
+/// joins their pending releases, and filters the date window. Feeds
+/// `load_eval_inputs`.
+pub async fn list_pending_releases_for_contract<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    contract_id: Uuid,
+    from: chrono::NaiveDate,
+    to: chrono::NaiveDate,
+) -> DbResult<Vec<ProjectBillingRelease>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query(
+        r#"SELECT r.id, r.org_id, r.project_id, r.phase_id, r.task_id, r.label,
+                  r.amount_minor, r.currency, r.released_on, r.status,
+                  r.invoice_id, r.invoice_line_id, r.created_at, r.updated_at
+           FROM project_billing_releases r
+           JOIN projects p ON p.id = r.project_id
+           WHERE r.org_id = $1
+             AND p.billing_contract_id = $2
+             AND r.status = 'pending'
+             AND r.released_on >= $3 AND r.released_on <= $4
+           ORDER BY r.released_on, r.id"#,
+    )
+    .bind(org_id)
+    .bind(contract_id)
+    .bind(from)
+    .bind(to)
+    .fetch_all(executor)
+    .await?;
+    rows.into_iter().map(release_from_row).collect()
+}
+
+/// Lists a project's releases (client surface for the burn view).
+pub async fn list_releases_for_project<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<Vec<ProjectBillingRelease>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query(
+        r#"SELECT id, org_id, project_id, phase_id, task_id, label,
+                  amount_minor, currency, released_on, status,
+                  invoice_id, invoice_line_id, created_at, updated_at
+           FROM project_billing_releases
+           WHERE org_id = $1 AND project_id = $2
+           ORDER BY released_on, id"#,
+    )
+    .bind(org_id)
+    .bind(project_id)
+    .fetch_all(executor)
+    .await?;
+    rows.into_iter().map(release_from_row).collect()
+}
+
+/// Cancels a pending release (admin correction; terminal).
+pub async fn cancel_release(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    release_id: Uuid,
+) -> DbResult<ProjectBillingRelease> {
+    let row = sqlx::query(
+        r#"UPDATE project_billing_releases SET status = 'cancelled', updated_at = now()
+           WHERE org_id = $1 AND id = $2 AND status = 'pending'
+           RETURNING id, org_id, project_id, phase_id, task_id, label,
+                     amount_minor, currency, released_on, status,
+                     invoice_id, invoice_line_id, created_at, updated_at"#,
+    )
+    .bind(org_id)
+    .bind(release_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    release_from_row(row)
+}
+
+/// The run's flip: pending → billed with the consuming invoice and line.
+/// Guarded on status = 'pending', so a concurrent run cannot double-flip
+/// (the loser reads NotFound and surfaces as a typed conflict).
+pub async fn mark_release_billed(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    release_id: Uuid,
+    invoice_id: Uuid,
+    invoice_line_id: Uuid,
+) -> DbResult<()> {
+    sqlx::query(
+        r#"UPDATE project_billing_releases
+              SET status = 'billed', invoice_id = $3, invoice_line_id = $4, updated_at = now()
+            WHERE org_id = $1 AND id = $2 AND status = 'pending'"#,
+    )
+    .bind(org_id)
+    .bind(release_id)
+    .bind(invoice_id)
+    .bind(invoice_line_id)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }

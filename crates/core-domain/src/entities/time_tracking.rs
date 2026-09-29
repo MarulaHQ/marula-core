@@ -3,7 +3,7 @@
 //! reconcile, but every segment boundary is recorded here with its reason.
 
 use crate::error::DomainError;
-use crate::ids::{OrgId, TicketId, TimeEntryId, TimerSessionId, UserId};
+use crate::ids::{OrgId, PhaseId, TicketId, TimeEntryId, TimerSessionId, UserId};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -382,8 +382,18 @@ pub struct TimeEntry {
     pub id: TimeEntryId,
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub org_id: OrgId,
-    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
-    pub ticket_id: TicketId,
+    /// The ticket this entry bills through. `None` ONLY on project-scoped
+    /// entries (Wave 39 lane 4, report P5): the entry scopes to
+    /// [`phase_id`](Self::phase_id) instead and bills through the phase
+    /// project's linked contract — project work pays without a ticket
+    /// detour. Exactly one of (ticket_id, phase_id) is present; the DB
+    /// CHECK mirrors it.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub ticket_id: Option<TicketId>,
+    /// The delivery phase this entry scopes to (project-scoped entries
+    /// only; implies the project). `None` on ticket-scoped entries.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub phase_id: Option<PhaseId>,
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub user_id: UserId,
     pub started_at: DateTime<Utc>,
@@ -422,7 +432,8 @@ impl TimeEntry {
         Ok(Self {
             id: uuid::Uuid::now_v7(),
             org_id: session.org_id,
-            ticket_id: session.ticket_id,
+            ticket_id: Some(session.ticket_id),
+            phase_id: None,
             user_id: session.user_id,
             started_at: session.started_at,
             ended_at: now,

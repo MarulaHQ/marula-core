@@ -420,7 +420,11 @@ fn cap_rows(org_id: Uuid, contract_id: Uuid, specs: &[CapSpec]) -> ApiResult<Vec
         .collect()
 }
 
-fn escalator_row(org_id: Uuid, contract_id: Uuid, spec: &EscalatorSpec) -> ApiResult<ContractEscalator> {
+fn escalator_row(
+    org_id: Uuid,
+    contract_id: Uuid,
+    spec: &EscalatorSpec,
+) -> ApiResult<ContractEscalator> {
     if !(0 < spec.uplift_bps && spec.uplift_bps <= 5_000) {
         return Err(ApiError::Validation(
             "escalator uplift_bps must be between 1 and 5000".into(),
@@ -575,7 +579,10 @@ pub async fn create(
         unit_price_minor: req.unit_price_minor,
         unit_basis: req.unit_basis,
         incident_price_minor: req.incident_price_minor,
-        incident_priority: req.incident_priority.clone().map(|p| p.trim().to_lowercase()),
+        incident_priority: req
+            .incident_priority
+            .clone()
+            .map(|p| p.trim().to_lowercase()),
         po_number: req.po_number.clone().map(|p| p.trim().to_string()),
         notes: req.notes.clone(),
         created_at: now,
@@ -626,13 +633,8 @@ pub async fn create(
             req.minimum_commitment_minor,
         )
         .await?;
-        core_db::contracts::set_escalator(
-            &mut ctx.tx,
-            org_id,
-            contract.id,
-            escalator.as_ref(),
-        )
-        .await?;
+        core_db::contracts::set_escalator(&mut ctx.tx, org_id, contract.id, escalator.as_ref())
+            .await?;
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -893,7 +895,8 @@ pub async fn patch(
             .unwrap_or_else(|_| serde_json::json!({})),
         )
         .await?;
-        let change_orders = core_db::contracts::list_change_orders(&mut *ctx.tx, org_id, id).await?;
+        let change_orders =
+            core_db::contracts::list_change_orders(&mut *ctx.tx, org_id, id).await?;
         let sla_credits = core_db::contracts::list_sla_credits(&mut *ctx.tx, org_id, id).await?;
         let detail = ContractDetail {
             contract: updated,
@@ -1007,24 +1010,22 @@ pub(crate) async fn load_eval_inputs(
     )
     .await?;
     let unit_counts = match contract.contract_type {
-        ContractType::PerUnit => Some(core_db::contracts::count_units(
-            &mut *tx,
-            org_id,
-            contract.client_id,
-        )
-        .await?),
+        ContractType::PerUnit => {
+            Some(core_db::contracts::count_units(&mut *tx, org_id, contract.client_id).await?)
+        }
         _ => None,
     };
     // Leak into 'static: the engine borrows these slices for the
     // evaluation call only; the API handler returns the owned
     // evaluation, never the inputs. Bounded per-contract row counts —
     // the same profile the request already holds in memory.
-    let prior_draws: std::collections::BTreeMap<Uuid, i64> = draw_rows
-        .iter()
-        .fold(std::collections::BTreeMap::new(), |mut acc, d| {
-            *acc.entry(d.block_id).or_insert(0) += d.minutes as i64;
-            acc
-        });
+    let prior_draws: std::collections::BTreeMap<Uuid, i64> =
+        draw_rows
+            .iter()
+            .fold(std::collections::BTreeMap::new(), |mut acc, d| {
+                *acc.entry(d.block_id).or_insert(0) += d.minutes as i64;
+                acc
+            });
     Ok(core_billing::EvalInputs {
         blocks: Box::leak(blocks.into_boxed_slice()),
         prior_draws: Some(Box::leak(prior_draws.into())),
@@ -1051,6 +1052,52 @@ pub(crate) async fn load_eval_inputs(
                 users: u.users,
             })
             .unwrap_or_default(),
+        // Wave 39 lane 4 (report P1/P4): pending milestone/fee releases
+        // on the projects that bill through this contract. Previews load
+        // the same feed, so a preview agrees with the run it mirrors.
+        project_releases: {
+            let releases = core_db::projects::list_pending_releases_for_contract(
+                &mut *tx,
+                org_id,
+                contract.id,
+                from,
+                to,
+            )
+            .await?;
+            // The fixed-fee provenance flag resolves from the phase's
+            // budget record (milestone phases bill their own fields).
+            let mut fee_phases: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+            for phase_id in releases
+                .iter()
+                .filter_map(|r| r.phase_id)
+                .collect::<Vec<_>>()
+            {
+                if fee_phases.contains(&phase_id) {
+                    continue;
+                }
+                if let Ok(Some(budget)) =
+                    core_db::projects::get_phase_budget(&mut *tx, org_id, phase_id).await
+                {
+                    if budget.fee_minor.is_some() {
+                        fee_phases.insert(phase_id);
+                    }
+                }
+            }
+            Box::leak(
+                releases
+                    .into_iter()
+                    .map(|r| core_billing::ProjectRelease {
+                        release_id: r.id,
+                        label: r.label,
+                        amount_minor: r.amount_minor,
+                        released_on: r.released_on,
+                        currency: r.currency,
+                        is_fixed_fee_phase: r.phase_id.is_some_and(|p| fee_phases.contains(&p)),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            )
+        },
     })
 }
 
@@ -1098,9 +1145,16 @@ pub async fn preview_contract(
             entry_date: e.entry_date,
         })
         .collect();
-    let evaluation =
-        core_billing::rules::evaluate_with(&contract, &rates, &fees, &inputs, from, to, &eval_inputs)
-            .map_err(engine_error)?;
+    let evaluation = core_billing::rules::evaluate_with(
+        &contract,
+        &rates,
+        &fees,
+        &inputs,
+        from,
+        to,
+        &eval_inputs,
+    )
+    .map_err(engine_error)?;
     Ok(Json(evaluation))
 }
 
@@ -1164,9 +1218,16 @@ pub async fn preview_org(
         let rates = core_db::contracts::list_rates(&mut *tx, org_id, contract.id).await?;
         let fees = core_db::contracts::list_fees(&mut *tx, org_id, contract.id).await?;
         let eval_inputs = load_eval_inputs(&mut tx, org_id, contract, from, to).await?;
-        let evaluation =
-            core_billing::rules::evaluate_with(contract, &rates, &fees, &inputs, from, to, &eval_inputs)
-                .map_err(engine_error)?;
+        let evaluation = core_billing::rules::evaluate_with(
+            contract,
+            &rates,
+            &fees,
+            &inputs,
+            from,
+            to,
+            &eval_inputs,
+        )
+        .map_err(engine_error)?;
         evaluations.push(evaluation);
     }
     tx.commit().await.map_err(ApiError::from)?;

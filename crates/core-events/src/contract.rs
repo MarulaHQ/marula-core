@@ -402,6 +402,7 @@ fn sample_project() -> Project {
         currency: None,
         start_date: Some(sd(1)),
         due_date: None,
+        billing_contract_id: None,
         created_at: st(1),
         updated_at: st(1),
     }
@@ -1452,7 +1453,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             TimeEntryApprovalSubmitted,
             TimeEntryApprovalSubmitted {
                 entry_id: su(17),
-                ticket_id: su(1),
+                ticket_id: Some(su(1)),
                 entry_user_id: su(4),
                 submitted_by: su(4),
                 submitted_at: st(7),

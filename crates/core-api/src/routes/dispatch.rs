@@ -250,11 +250,9 @@ pub async fn dispatch_day(
             });
         }
         let booked = occupied_minutes(
-            user_appointments
-                .iter()
-                .map(|a: &DispatchAppointment| {
-                    (a.starts_at, a.ends_at, i64::from(a.travel_minutes))
-                }),
+            user_appointments.iter().map(|a: &DispatchAppointment| {
+                (a.starts_at, a.ends_at, i64::from(a.travel_minutes))
+            }),
             from,
             to,
         );
@@ -2359,7 +2357,8 @@ pub async fn travel_draft_submit(
             approval_reason_code: None,
             id: Uuid::now_v7(),
             org_id: ctx.org_id,
-            ticket_id: draft.ticket_id,
+            ticket_id: Some(draft.ticket_id),
+            phase_id: None,
             user_id: draft.user_id,
             started_at: draft.started_at,
             ended_at: draft.ended_at,

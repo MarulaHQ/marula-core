@@ -83,16 +83,15 @@ impl DbOrgMailResolver {
         core_db::set_org(&mut tx, org_id)
             .await
             .map_err(|e| e.to_string())?;
-        let stored = core_db::settings::get_org_value(
-            &mut *tx,
-            org_id,
-            registry::EMAIL_TRANSPORT,
-        )
-        .await
-        .map_err(|e| e.to_string())?
-        .and_then(|v| v.as_str().map(str::to_string));
+        let stored = core_db::settings::get_org_value(&mut *tx, org_id, registry::EMAIL_TRANSPORT)
+            .await
+            .map_err(|e| e.to_string())?
+            .and_then(|v| v.as_str().map(str::to_string));
         let kind = match stored.as_deref() {
-            Some("postmark") => match self.sealed_json(&mut tx, org_id, SEALED_POSTMARK_PROVIDER).await? {
+            Some("postmark") => match self
+                .sealed_json(&mut tx, org_id, SEALED_POSTMARK_PROVIDER)
+                .await?
+            {
                 Some(secret) => {
                     let token = secret
                         .get("server_token")
@@ -121,18 +120,18 @@ impl DbOrgMailResolver {
                     .ok_or_else(|| {
                         "org transport is smtp but email.smtp_host is empty".to_string()
                     })?;
-                let port = core_db::settings::get_org_value(
-                    &mut *tx,
-                    org_id,
-                    registry::EMAIL_SMTP_PORT,
-                )
-                .await
-                .map_err(|e| e.to_string())?
-                .and_then(|v| v.as_i64())
-                .unwrap_or(587);
+                let port =
+                    core_db::settings::get_org_value(&mut *tx, org_id, registry::EMAIL_SMTP_PORT)
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(587);
                 let username = org_text(&mut tx, org_id, registry::EMAIL_SMTP_USERNAME).await?;
                 let password = match username {
-                    Some(_) => match self.sealed_json(&mut tx, org_id, SEALED_SMTP_PROVIDER).await? {
+                    Some(_) => match self
+                        .sealed_json(&mut tx, org_id, SEALED_SMTP_PROVIDER)
+                        .await?
+                    {
                         Some(secret) => secret
                             .get("password")
                             .and_then(|v| v.as_str())
@@ -144,7 +143,7 @@ impl DbOrgMailResolver {
                 };
                 if username.is_some() && password.is_none() {
                     return Err(
-                        "org transport is smtp with a username but no sealed password".to_string()
+                        "org transport is smtp with a username but no sealed password".to_string(),
                     );
                 }
                 TransportKind::Smtp {

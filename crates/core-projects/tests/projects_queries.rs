@@ -42,6 +42,7 @@ async fn make_project(db: &TestDb, org: Uuid, name: &str) -> core_domain::entiti
             currency: Some("USD"),
             start_date: None,
             due_date: None,
+            billing_contract_id: None,
         },
     )
     .await
@@ -84,6 +85,7 @@ async fn project_crud_filters_and_tri_state_patch() {
             currency: None,
             start_date: None,
             due_date: None,
+            billing_contract_id: None,
         },
     )
     .await
@@ -131,6 +133,7 @@ async fn project_crud_filters_and_tri_state_patch() {
             currency: Some(None),
             start_date: None,
             due_date: None,
+            billing_contract_id: None,
         },
     )
     .await
@@ -434,6 +437,7 @@ async fn template_instantiation_expands_transactionally() {
             currency: plan.currency.as_deref(),
             start_date: None,
             due_date: None,
+            billing_contract_id: None,
         },
     )
     .await

@@ -92,8 +92,8 @@ async fn pass(
         if local.hour() != hour {
             continue;
         }
-        let unread = core_db::notifications::list_for_user(pool, org_id, user_id, true, 100)
-            .await?;
+        let unread =
+            core_db::notifications::list_for_user(pool, org_id, user_id, true, 100).await?;
         if unread.is_empty() {
             continue;
         }
@@ -108,10 +108,7 @@ async fn pass(
             .collect();
         if total > MAX_DIGEST_ITEMS {
             items.push(DigestItemDto {
-                title: format!(
-                    "and {} more unread notifications",
-                    total - MAX_DIGEST_ITEMS
-                ),
+                title: format!("and {} more unread notifications", total - MAX_DIGEST_ITEMS),
                 detail: None,
             });
         }
@@ -148,14 +145,14 @@ async fn pass(
 }
 
 /// The user's chosen send hour, defaulting to the registry default.
-async fn digest_hour(pool: &PgPool, org_id: uuid::Uuid, user_id: uuid::Uuid) -> anyhow::Result<u32> {
-    let stored = core_db::settings::get_user_value(
-        pool,
-        org_id,
-        user_id,
-        registry::EMAIL_DIGEST_HOUR,
-    )
-    .await?;
+async fn digest_hour(
+    pool: &PgPool,
+    org_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+) -> anyhow::Result<u32> {
+    let stored =
+        core_db::settings::get_user_value(pool, org_id, user_id, registry::EMAIL_DIGEST_HOUR)
+            .await?;
     let fallback = registry::default_value(registry::EMAIL_DIGEST_HOUR)
         .and_then(|v| v.to_json().as_i64())
         .unwrap_or(7);

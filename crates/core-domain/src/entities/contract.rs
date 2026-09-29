@@ -470,6 +470,11 @@ pub enum BillingLineKind {
     SlaCredit,
     /// A scheduled escalator uplift line for the period it applies to.
     Escalator,
+    /// A released project milestone or fixed-fee phase billed through
+    /// this contract (Wave 39 lane 4). Description-keyed: the release
+    /// ledger row's id rides the description in `[id]` brackets, the run
+    /// flips the ledger row `billed` with the consuming invoice.
+    ProjectRelease,
 }
 
 impl BillingLineKind {
@@ -489,6 +494,7 @@ impl BillingLineKind {
             BillingLineKind::ChangeOrder => "change_order",
             BillingLineKind::SlaCredit => "sla_credit",
             BillingLineKind::Escalator => "escalator",
+            BillingLineKind::ProjectRelease => "project_release",
         }
     }
 
@@ -526,6 +532,7 @@ impl FromStr for BillingLineKind {
             "change_order" => Ok(Self::ChangeOrder),
             "sla_credit" => Ok(Self::SlaCredit),
             "escalator" => Ok(Self::Escalator),
+            "project_release" => Ok(Self::ProjectRelease),
             other => Err(DomainError::Validation(format!(
                 "invalid billing line kind: {other}"
             ))),
