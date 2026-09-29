@@ -44,7 +44,7 @@ function ticketJson(boardId: string, statusId: string, category: string) {
     id: TICKET_ID,
     org_id: ME_EDIT.org_id,
     board_id: boardId,
-    number: "MER-7",
+    number: "MAR-7",
     title: "Broken printer",
     body: "It beeps twice and stops.",
     status_id: statusId,

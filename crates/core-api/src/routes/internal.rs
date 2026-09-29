@@ -619,7 +619,7 @@ pub struct SlaVerdictRequest {
     /// Extra recipients from the ladder step; the assignee is added
     /// server-side.
     pub notify_user_ids: Vec<Uuid>,
-    /// Human-facing headline, e.g. "[MER-12] SLA risk on resolution".
+    /// Human-facing headline, e.g. "[MAR-12] SLA risk on resolution".
     pub title: String,
     pub body: Option<String>,
 }

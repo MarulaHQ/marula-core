@@ -45,7 +45,7 @@ function ticket(overrides: Record<string, unknown>): BoardTicket {
   return {
     id: "t",
     board_id: "b",
-    number: "MER-1",
+    number: "MAR-1",
     title: "A ticket",
     status_id: "s1",
     category: "open",
@@ -93,8 +93,8 @@ describe("transitionAllowed", () => {
 
 describe("filterTickets", () => {
   const tickets = [
-    ticket({ id: "a", title: "Fix login", number: "MER-1", priority: "p1", assignee_id: "u1" }),
-    ticket({ id: "b", title: "Ship docs", number: "MER-2", priority: "P3" }),
+    ticket({ id: "a", title: "Fix login", number: "MAR-1", priority: "p1", assignee_id: "u1" }),
+    ticket({ id: "b", title: "Ship docs", number: "MAR-2", priority: "P3" }),
   ];
   it("matches query against title and number case-insensitively", () => {
     expect(filterTickets(tickets, { query: "mer-2", priorities: [], unassignedOnly: false, assigneeId: null })).toHaveLength(1);

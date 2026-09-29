@@ -57,14 +57,14 @@ describe("Table", () => {
         </thead>
         <tbody>
           <Tr selected>
-            <Td>MER-42</Td>
+            <Td>MAR-42</Td>
           </Tr>
         </tbody>
       </Table>,
     );
     expect(screen.getByRole("columnheader", { name: "Ticket" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "MER-42" })).toBeInTheDocument();
-    expect(screen.getByText("MER-42").closest("tr")).toHaveAttribute(
+    expect(screen.getByRole("cell", { name: "MAR-42" })).toBeInTheDocument();
+    expect(screen.getByText("MAR-42").closest("tr")).toHaveAttribute(
       "data-selected",
       "true",
     );

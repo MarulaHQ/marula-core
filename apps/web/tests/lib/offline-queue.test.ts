@@ -167,9 +167,9 @@ describe("OfflineQueue — surfacing", () => {
     }));
     const seen: { describe: string; reason?: string }[] = [];
     q.onOutcome((o) => seen.push({ describe: o.describe, reason: o.reason }));
-    q.enqueue(op("k1", "Set status Waiting on MER-12"));
+    q.enqueue(op("k1", "Set status Waiting on MAR-12"));
     await q.replay();
-    expect(seen[0]?.describe).toBe("Set status Waiting on MER-12");
+    expect(seen[0]?.describe).toBe("Set status Waiting on MAR-12");
     expect(seen[0]?.reason).toBe("forbidden");
   });
 });

@@ -525,7 +525,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             TicketCreated,
             TicketCreated {
                 ticket_id: su(1),
-                number: "MER-1001".into(),
+                number: "MAR-1001".into(),
                 board_id: su(2),
                 title: "VPN down at main office".into(),
                 priority: Priority::P3,
@@ -562,7 +562,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             TicketBoardMoved,
             TicketBoardMoved {
                 ticket_id: su(1),
-                number: "MER-1001".into(),
+                number: "MAR-1001".into(),
                 from_board_id: su(2),
                 to_board_id: su(6),
                 from_status: "triage".into(),
@@ -3717,9 +3717,9 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             TicketMerged,
             TicketMerged {
                 source_id: su(1),
-                source_number: "MER-1001".into(),
+                source_number: "MAR-1001".into(),
                 survivor_id: su(42),
-                survivor_number: "MER-1002".into(),
+                survivor_number: "MAR-1002".into(),
                 comments_folded: 4,
                 time_entries_folded: 2,
                 time_minutes_folded: 95,

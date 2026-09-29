@@ -148,24 +148,24 @@ mod tests {
     #[test]
     fn confirmation_subject_and_body_carry_the_ticket_token() {
         let k = OutboundKind::TicketCreatedConfirmation {
-            ticket_number: "MER-42".into(),
+            ticket_number: "MAR-42".into(),
             ticket_title: "Printer on fire".into(),
         };
         assert_eq!(
             k.subject(),
-            "[MER-42] Printer on fire — we received your request"
+            "[MAR-42] Printer on fire — we received your request"
         );
-        assert!(k.body().contains("[MER-42]"));
+        assert!(k.body().contains("[MAR-42]"));
     }
 
     #[test]
     fn notification_is_a_reply_shaped_subject() {
         let k = OutboundKind::CommentNotification {
-            ticket_number: "MER-7".into(),
+            ticket_number: "MAR-7".into(),
             ticket_title: "VPN".into(),
             excerpt: "fixed".into(),
         };
-        assert_eq!(k.subject(), "Re: [MER-7] VPN");
+        assert_eq!(k.subject(), "Re: [MAR-7] VPN");
         assert!(k.body().contains("fixed"));
     }
 

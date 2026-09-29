@@ -39,7 +39,7 @@ export interface InstantTransport {
 }
 
 export interface WriteSpec {
-  /** Human label surfaced in the outbox ("Set status Waiting on MER-12"). */
+  /** Human label surfaced in the outbox ("Set status Waiting on MAR-12"). */
   describe: string;
   /** The written entity's id, when known before the response (updates). */
   entityId?: string;

@@ -25,7 +25,7 @@ pub struct RegisterRequest {
     pub org_name: String,
     /// URL-safe org slug (unique).
     pub org_slug: String,
-    /// Ticket number prefix, e.g. "MER" → MER-2841. Defaults to "MER".
+    /// Ticket number prefix, e.g. "MAR" → MAR-2841. Defaults to "MAR".
     pub ticket_prefix: Option<String>,
     pub email: String,
     pub password: String,
@@ -191,7 +191,7 @@ pub async fn register(
         org_id,
         &req.org_name,
         &req.org_slug,
-        req.ticket_prefix.as_deref().unwrap_or("MER"),
+        req.ticket_prefix.as_deref().unwrap_or("MAR"),
     )
     .await
     {

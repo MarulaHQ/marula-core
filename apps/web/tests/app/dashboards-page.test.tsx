@@ -64,7 +64,7 @@ const AGING = page(
   "ticket_aging",
 );
 const FIRST_RESPONSE = page(
-  [{ ticket_id: "00000000-0000-4000-8000-00000000000f1", ticket_number: "MER-7" }],
+  [{ ticket_id: "00000000-0000-4000-8000-00000000000f1", ticket_number: "MAR-7" }],
   { tickets_total: 4, answered_count: 3, unanswered_count: 1, response_p50_secs: 260, response_p90_secs: 900 },
   "first_response",
 );
@@ -74,7 +74,7 @@ const ATTAINMENT = page(
   "sla_attainment",
 );
 const BREACHES = page(
-  [{ ticket_id: "00000000-0000-4000-8000-0000000000b1", ticket_number: "MER-42", priority: "P1", policy_name: "Gold SLA", resolution_due: "2026-08-20T17:00:00Z", resolution_met: false }],
+  [{ ticket_id: "00000000-0000-4000-8000-0000000000b1", ticket_number: "MAR-42", priority: "P1", policy_name: "Gold SLA", resolution_due: "2026-08-20T17:00:00Z", resolution_met: false }],
   { breaches_total: 1, paused_business_secs_total: 3600 },
   "sla_breaches",
 );

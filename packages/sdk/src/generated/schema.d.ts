@@ -18235,7 +18235,7 @@ export interface components {
             due_at?: string | null;
             /** Format: uuid */
             id: string;
-            /** @description Human number (e.g. "MER-12") — the bundle's stable ticket key. */
+            /** @description Human number (e.g. "MAR-12") — the bundle's stable ticket key. */
             number: string;
             priority: components["schemas"]["Priority"];
             /** Format: uuid */
@@ -23419,7 +23419,7 @@ export interface components {
             /** @description URL-safe org slug (unique). */
             org_slug: string;
             password: string;
-            /** @description Ticket number prefix, e.g. "MER" → MER-2841. Defaults to "MER". */
+            /** @description Ticket number prefix, e.g. "MER" → MAR-2841. Defaults to "MER". */
             ticket_prefix?: string | null;
             /** @default UTC */
             timezone: string | null;
@@ -25123,7 +25123,7 @@ export interface components {
             target: string;
             /** Format: uuid */
             ticket_id: string;
-            /** @description Human-facing headline, e.g. "[MER-12] SLA risk on resolution". */
+            /** @description Human-facing headline, e.g. "[MAR-12] SLA risk on resolution". */
             title: string;
             /** @description 'risk' | 'breach' | 'escalate' */
             trigger: string;
@@ -26197,7 +26197,7 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
         };
         /**
-         * @description Human-facing ticket number, e.g. `MER-2841`. Globally unique per org,
+         * @description Human-facing ticket number, e.g. `MAR-2841`. Globally unique per org,
          *     assigned from a per-org sequence.
          */
         TicketNumber: string;

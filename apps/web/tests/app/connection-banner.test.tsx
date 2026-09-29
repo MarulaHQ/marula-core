@@ -38,7 +38,7 @@ describe("ConnectionBanner", () => {
       method: "POST",
       path: "/api/v1/tickets/t1/status",
       body: { idempotency_key: "k1" },
-      describe: "Set status Waiting on MER-12",
+      describe: "Set status Waiting on MAR-12",
       entityId: "t1",
     });
     render(<ConnectionBanner />);

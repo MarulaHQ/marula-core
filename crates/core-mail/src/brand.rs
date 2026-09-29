@@ -260,8 +260,8 @@ mod tests {
 
     #[test]
     fn notification_renders_both_parts_with_greeting_and_signoff() {
-        let mail = render_notification(&brand(), "Ticket MER-42 was assigned to you", Some("Due today."));
-        assert_eq!(mail.subject, "Ticket MER-42 was assigned to you");
+        let mail = render_notification(&brand(), "Ticket MAR-42 was assigned to you", Some("Due today."));
+        assert_eq!(mail.subject, "Ticket MAR-42 was assigned to you");
         assert!(mail.text_body.starts_with("Hi Dana,"));
         assert!(mail.text_body.contains("Due today."));
         assert!(mail.text_body.contains("The Acme team"));
@@ -306,13 +306,13 @@ mod tests {
     #[test]
     fn digest_subject_and_count_agree() {
         let items = vec![DigestItem {
-            title: "SLA breach on MER-7".into(),
+            title: "SLA breach on MAR-7".into(),
             detail: Some("P1 overdue".into()),
         }];
         let one = render_digest(&brand(), "2026-09-26", &items);
         assert_eq!(one.subject, "Your daily digest: 1 unread notification");
         assert!(one.text_body.contains("2026-09-26"));
-        assert!(one.text_body.contains("SLA breach on MER-7 — P1 overdue"));
+        assert!(one.text_body.contains("SLA breach on MAR-7 — P1 overdue"));
 
         let many = vec![
             DigestItem {

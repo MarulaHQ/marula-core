@@ -77,7 +77,7 @@ pub type DocumentVersionId = Uuid;
 pub type SessionId = Uuid;
 pub type ChecklistItemId = Uuid;
 
-/// Human-facing ticket number, e.g. `MER-2841`. Globally unique per org,
+/// Human-facing ticket number, e.g. `MAR-2841`. Globally unique per org,
 /// assigned from a per-org sequence.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -89,7 +89,7 @@ impl std::fmt::Display for TicketNumber {
     }
 }
 
-/// Extracts the numeric part of a ticket number (`MER-2841` → `2841`).
+/// Extracts the numeric part of a ticket number (`MAR-2841` → `2841`).
 pub fn ticket_number_value(n: &TicketNumber) -> Option<u64> {
     n.0.rsplit('-').next()?.parse().ok()
 }

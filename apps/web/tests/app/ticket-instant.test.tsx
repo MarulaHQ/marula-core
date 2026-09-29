@@ -32,7 +32,7 @@ function ticketJson(statusId: string) {
     id: TICKET_ID,
     org_id: ME_FIXTURE.org_id,
     board_id: BOARD_ID,
-    number: "MER-7",
+    number: "MAR-7",
     title: "Broken printer",
     body: "It beeps twice and stops.",
     status_id: statusId,

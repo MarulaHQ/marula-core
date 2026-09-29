@@ -78,10 +78,10 @@ describe("classification", () => {
     expect(entryFromItem(item({ ticket_id: "t9" }))).toMatchObject({ ticketId: "t9" });
   });
   it("entryFromTicketDeadline is null without a due date", () => {
-    expect(entryFromTicketDeadline({ id: "t1", number: "MER-1", title: "X", due_at: null })).toBeNull();
+    expect(entryFromTicketDeadline({ id: "t1", number: "MAR-1", title: "X", due_at: null })).toBeNull();
     expect(
-      entryFromTicketDeadline({ id: "t1", number: "MER-1", title: "X", due_at: NOW.toISOString() }),
-    ).toMatchObject({ kind: "ticket_deadline", number: "MER-1" });
+      entryFromTicketDeadline({ id: "t1", number: "MAR-1", title: "X", due_at: NOW.toISOString() }),
+    ).toMatchObject({ kind: "ticket_deadline", number: "MAR-1" });
   });
 });
 

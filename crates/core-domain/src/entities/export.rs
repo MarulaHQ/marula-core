@@ -146,7 +146,7 @@ pub struct ExportContact {
 pub struct ExportTicket {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: uuid::Uuid,
-    /// Human number (e.g. "MER-12") — the bundle's stable ticket key.
+    /// Human number (e.g. "MAR-12") — the bundle's stable ticket key.
     pub number: String,
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub board_id: uuid::Uuid,

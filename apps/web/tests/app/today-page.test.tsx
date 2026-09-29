@@ -52,7 +52,7 @@ const OVERDUE = {
   id: "00000000-0000-4000-8000-0000000000a1",
   board_id: "00000000-0000-4000-8000-0000000000b1",
   board_name: "Service Desk",
-  number: "MER-100",
+  number: "MAR-100",
   title: "Mail server down",
   priority: "p1",
   category: "in_progress",
@@ -65,7 +65,7 @@ const OVERDUE = {
 const DUE_TODAY = {
   ...OVERDUE,
   id: "00000000-0000-4000-8000-0000000000a2",
-  number: "MER-101",
+  number: "MAR-101",
   title: "Laptop imaging",
   priority: "p2",
   category: "open",
@@ -77,7 +77,7 @@ const DUE_TODAY = {
 const LATER = {
   ...OVERDUE,
   id: "00000000-0000-4000-8000-0000000000a3",
-  number: "MER-102",
+  number: "MAR-102",
   title: "Quarterly patch cycle",
   priority: "p3",
   category: "open",
@@ -89,7 +89,7 @@ const LATER = {
 const NO_DUE = {
   ...OVERDUE,
   id: "00000000-0000-4000-8000-0000000000a4",
-  number: "MER-103",
+  number: "MAR-103",
   title: "Docs cleanup",
   priority: "p3",
   category: "open",
@@ -243,7 +243,7 @@ describe("/today integration", () => {
     );
     await screen.findByText("Mail server down", {}, { timeout: 5000 });
 
-    fireEvent.click(screen.getByRole("button", { name: "Start timer for MER-100" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start timer for MAR-100" }));
     await waitFor(() => {
       expect(mock.callsTo("POST", "/api/v1/timers/start")).toHaveLength(1);
     });

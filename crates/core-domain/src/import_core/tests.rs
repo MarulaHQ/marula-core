@@ -984,7 +984,7 @@ fn new_family_projections_agree_between_incoming_and_stored() {
     let stored = Ticket {
         id: Uuid::now_v7(),
         org_id: Uuid::now_v7(),
-        number: TicketNumber("MER-1".into()),
+        number: TicketNumber("MAR-1".into()),
         board_id: Uuid::now_v7(),
         status_id: Uuid::now_v7(),
         title: "Same title".into(),

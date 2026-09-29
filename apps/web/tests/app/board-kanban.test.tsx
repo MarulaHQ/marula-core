@@ -46,7 +46,7 @@ const S_DONE = {
 const TICKET = {
   id: "t-1",
   board_id: BOARD_ID,
-  number: "MER-7",
+  number: "MAR-7",
   title: "Fix the flux capacitor",
   status_id: "s-new",
   category: "open",
@@ -118,7 +118,7 @@ describe("/boards/[id] — kanban interactions", () => {
     render(page());
     expect(await screen.findByText("Fix the flux capacitor")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("kanban-move-MER-7"));
+    fireEvent.click(screen.getByTestId("kanban-move-MAR-7"));
     fireEvent.click(screen.getByRole("button", { name: "Working" }));
 
     await waitFor(() => {
@@ -141,7 +141,7 @@ describe("/boards/[id] — kanban interactions", () => {
     expect(await screen.findByText("Fix the flux capacitor")).toBeInTheDocument();
 
     const doneColumn = screen.getByTestId("kanban-column-Done");
-    const card = screen.getByTestId("kanban-card-MER-7");
+    const card = screen.getByTestId("kanban-card-MAR-7");
     fireEvent.dragStart(card, { dataTransfer: dataTransfer("t-1") });
     fireEvent.drop(doneColumn, { dataTransfer: dataTransfer("t-1") });
 
@@ -157,7 +157,7 @@ describe("/boards/[id] — kanban interactions", () => {
     expect(await screen.findByText("Fix the flux capacitor")).toBeInTheDocument();
 
     const workingColumn = screen.getByTestId("kanban-column-Working");
-    const card = screen.getByTestId("kanban-card-MER-7");
+    const card = screen.getByTestId("kanban-card-MAR-7");
     fireEvent.dragStart(card, { dataTransfer: dataTransfer("t-1") });
     fireEvent.drop(workingColumn, { dataTransfer: dataTransfer("t-1") });
 
@@ -205,7 +205,7 @@ describe("/boards/[id] — kanban interactions", () => {
     setupApi([S_NEW, S_WORKING, S_DONE], [TICKET]);
     render(page());
     expect(await screen.findByText("Fix the flux capacitor")).toBeInTheDocument();
-    expect(screen.getByTestId("kanban-card-MER-7")).toHaveTextContent("New");
+    expect(screen.getByTestId("kanban-card-MAR-7")).toHaveTextContent("New");
     expect(document.body.textContent).not.toContain("in_progress");
   });
 });

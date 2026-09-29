@@ -169,7 +169,7 @@ describe("SyncEngine", () => {
   it("subscribes to org and board channels for live routing", async () => {
     const { engine, api, factory } = makeEngine();
     api.route("GET", "/api/v1/tickets/my-work", {
-      data: [{ id: "t1", board_id: "b1", number: "MER-1", title: "x" }],
+      data: [{ id: "t1", board_id: "b1", number: "MAR-1", title: "x" }],
     });
     await engine.start();
     factory.latest().open();
