@@ -1,6 +1,6 @@
 # How to upgrade to the latest release
 
-> **Audience:** both — self-host operators run the upgrade; admins own release timing.
+> **Audience:** both — self-host operators run the upgrade, admins own release timing.
 
 Meridian guarantees you can always upgrade from either of the two previous
 tagged releases (the **N−2 rule**, policy §1/§3). This guide gets you there
@@ -11,12 +11,12 @@ safely.
 - Shell access to the deployment or the `meridian` CLI.
 - A current backup — the [backup/restore runbook](../reference/backup-restore.md) first.
 - Still on Postgres 17? Do the [one-time PG18 volume cut](../reference/pg18-upgrade.md)
-  before or right after this upgrade; new installs are already on 18.
+  before or right after this upgrade. New installs are already on 18.
 
 
 ## 1. Check your version and the support window
 
-Your version may be up to two releases behind; further jumps apply the same
+Your version may be up to two releases behind. Further jumps apply the same
 machinery sequentially — upgrade one release at a time.
 
 ## 2. Run the upgrade preflight
@@ -51,10 +51,17 @@ Migrations run automatically on container start, or manually:
 meridian migrate
 ```
 
-The chain is forward-only and append-only; history is never edited, so any
+The chain is forward-only and append-only. History is never edited, so any
 deployed database replays it identically. Destructive steps are flagged
 `--breaking` and only permitted in a major cycle after the deprecation
 window has elapsed.
+
+When your release ships new container images, pull the new tags **and**
+their registry digests together — every image reference in the compose file
+and the Helm chart is pinned to both. The digest is what actually runs, so
+a tag bump without the digest bump changes nothing (and the Helm chart
+refuses to render until you set both). Image uids did not change across
+releases, so volumes written by an earlier release stay writable.
 
 ## 6. Verify
 

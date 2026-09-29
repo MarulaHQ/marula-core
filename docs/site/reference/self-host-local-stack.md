@@ -14,8 +14,8 @@ and the [backup/restore runbook](backup-restore.md).
 
 | Service | Port | Notes |
 |---|---|---|
-| Postgres (pg17 + pgvector) | 15432 | user/db `meridian` |
-| Redis | 16379 | `noeviction`, 192 MB cap |
+| Postgres (pg18 + pgvector) | 15432 | user/db `meridian` |
+| Redis (Valkey) | 16379 | `noeviction`, 192 MB cap |
 | core-api | 8080 | the single write surface |
 | realtime (WS hub) | 8081 | |
 | worker | 8082 | health port |
@@ -82,3 +82,55 @@ refuses to boot. HS256 keeps verifying during a rollout, so you can
 switch without logging anyone out. The [threat
 model](../../reference/auth-threat-model.md) §A4 covers when to retire the
 shared secret.
+
+## Container security posture
+
+Every container in this stack runs least-privilege. The practical facts an
+operator needs:
+
+**Who runs.** All three Meridian images drop to a fixed numeric user at
+build time. Core-api, realtime, worker, and the CLI run as the hardened
+base's `nonroot` user (uid 65532), the web console as uid 1000, the backup
+runner as uid 10003. Nothing runs as root except Postgres' one-time
+first-boot init: the official postgres entrypoint needs root to chown its
+data directory, then re-execs as `postgres` (uid 70 in the hardened
+image) before accepting connections.
+
+**Which images.** Third-party slots use Docker Hardened Images
+(`dhi.io/...`, Apache-2.0, free for everyone) wherever the hardened
+catalog covers them: Postgres+pgvector, Valkey, Grafana, Tempo, Loki,
+ClamAV, and the bootstrap curl image. Garage, Mailpit, GlitchTip, and the
+OpenTelemetry collector have no hardened equivalent yet (checked
+2026-09-29), so they run upstream images under the same pinning and
+least-privilege rules. Note that hardened registry pulls want a `docker
+login` with a free Docker account.
+
+**What is writable.** Most services mount a read-only root filesystem and
+write only to their own volume or a tmpfs. Valkey writes its data volume,
+the web console and the Rust services get tmpfs scratch only (core-api
+additionally writes the object-store directory when `OBJECT_STORE=local`).
+Three services keep a writable rootfs because a read-only one breaks their
+own boot logic, and each says so in `deploy/docker-compose.yml`: Postgres
+(init), ClamAV (signature database setup), Grafana (sqlite and log state).
+`cap_drop: [ALL]` and `no-new-privileges` apply to every service,
+exemptions included.
+
+**Volumes and permissions.** If you pre-create Docker volumes or bind-mount
+host directories for Garage, the object store, or backups, chown them to
+the service uid listed above (Garage runs as 10004, backup dumps as 10003,
+valkey and the observability slots as 65532).
+A volume owned by root that a non-root uid cannot write is the most common
+first-boot failure after enabling a profile.
+
+**Version pinning.** Every image reference is pinned: an exact tag plus a
+registry digest, in the three Meridian Dockerfiles and every third-party
+slot in the compose file and Helm chart. When you bump a version, move the
+tag and the digest together. The digest is what actually runs.
+
+**Kubernetes.** The Helm chart sets the same posture: pod-level
+`runAsNonRoot` with per-component `runAsUser` and `fsGroup`, and per
+container `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`,
+seccomp `RuntimeDefault`, and `readOnlyRootFilesystem` where the service
+tolerates it. The chart refuses to render unless every image reference
+carries a digest (`digestPinningEnforced`, on by default). That gate covers
+every bundled third-party image, curl bootstrap job included.

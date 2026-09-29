@@ -10,6 +10,13 @@
 # resource otherwise. Opt out ONLY for local development.
 digestPinningEnforced: true
 
+# Global guard for NON-meridian images too (p38): when true, every bare
+# string image value (postgresql.image, redis.image, mailpit.image,
+# garage.image, garage.bootstrapImage) must carry an @sha256:... digest.
+# The companion *Digest values below provide the enforced digests; the
+# `tag@digest` form still keeps the readable tag.
+nonMeridianDigestPinningEnforced: true
+
 nameOverride: ""
 fullnameOverride: ""
 
@@ -61,9 +68,18 @@ images:
 # Either deploy in-chart Postgres (pgvector image, prod parity) or point at
 # an external instance. The in-chart deployment is sized for evaluation;
 # production installs should bring their own Postgres.
+# Image values carry `tag` AND `digest` (same policy as the meridian images:
+# the digest enforces, the tag is readable). Third-party slots use Docker
+# Hardened Images where the DHI catalog covers them (pgvector, valkey,
+# grafana stack, curl; garage/mailpit/glitchtip/otel have no DHI).
+# The postgresql slot keeps a chown-based root-init entrypoint — its
+# podSecurityContext sets runAsUser 0 so the init works; it departs from
+# the pod-level runAsNonRoot gate deliberately (exemption documented in
+# templates/postgres.yaml).
 postgresql:
   deploy: true
-  image: pgvector/pgvector:pg18
+  image: dhi.io/pgvector:0.8-pg18
+  imageDigest: "sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946"
   database: meridian
   ownerUser: meridian
   ownerPassword: ""
@@ -76,7 +92,8 @@ postgresql:
 # ------------------------------------------------------------------ redis --
 redis:
   deploy: true
-  image: redis:7-alpine
+  image: dhi.io/valkey:8.1.10
+  imageDigest: "sha256:3caa5e36670b3eb234fd3d958452431c802c6a8de22a8abf747ec72b532582f2"
   # When deploy: false, set externalUrl (redis://host:6379/0).
   externalUrl: ""
 
@@ -120,7 +137,8 @@ email:
 mailpit:
   # Dev/demo mail sink: in-chart Mailpit + SMTP port + web UI.
   enabled: false
-  image: axllent/mailpit:latest
+  image: axllent/mailpit:v1.31.3
+  imageDigest: "sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d"
 
 # Object storage: local-fs (single replica, PVC) or S3/Garage.
 objectStore:
@@ -147,6 +165,11 @@ garage:
   # prints its secret to the job logs (shown once) — copy it into
   # objectStore.s3.secretAccessKey. Keep false when you pre-provision keys.
   image: dxflrs/garage:v1.1.0
+  imageDigest: "sha256:fdb8272fcbe643eef830ee17874d5d4ed623a86501f1acbac8012583113b1c26"
+  # Garage itself has no DHI (checked 2026-09-29); the bootstrap curl
+  # sidecar does: dhi.io/curl alpine variant (0 CVEs at publish time).
+  bootstrapImage: dhi.io/curl:8-alpine
+  bootstrapImageDigest: "sha256:d51aebca70c0c0cb9071c909e7ffeb13892634e2cdf43f281589310537e0241a"
   rpcSecret: ""
   adminToken: "change-me-garage-admin-token"
   zone: dc1
@@ -184,6 +207,36 @@ ingress:
 
 podSecurityContext:
   runAsNonRoot: true
+
+# Per-deployable uid/gid matching the images (p38-container-hardening):
+# meridian rust images run as the DHI debian-base `nonroot` user (65532),
+# web as 1000, postgres image inits as root (chown-based init — runAsUser 0
+# is a documented exemption there), garage distroless as 10004 via
+# runAsUser, valkey as the DHI nonroot 65532.
+runAsUserByComponent:
+  coreApi: 65532
+  realtime: 65532
+  worker: 65532
+  cli: 65532
+  web: 1000
+  # DHI postgres keeps its chown-based root init (see postgres.yaml).
+  postgres: 0
+  redis: 65532
+  garage: 10004
+  mailpit: 1000
+  bootstrap: 65532
+fsGroup: 65532
+
+# Container-level least privilege applied to every workload in the chart:
+# no privilege escalation, all capabilities dropped, seccomp
+# RuntimeDefault. ReadOnlyRootFilesystem is set where the component
+# tolerates it (exemptions noted in the templates).
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
 
 # Global default resource envelope applied to every workload that doesn't
 # set its own `resources` (per-service values win). Keeps a runaway

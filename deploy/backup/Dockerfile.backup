@@ -1,8 +1,29 @@
-FROM postgres:18-alpine
+# Meridian backup runner image.
+#
+# Purpose: nightly pg_dump (base image), restic snapshots (apk), optional
+# WAL-G (build-arg installs a pinned release from go-wal-g/wal-g releases).
+#
+# Non-purpose: not a general-purpose maintenance image; only what
+# backupd.sh consumes (sh, pg_dump, restic, optional wal-g).
+#
+# Security posture (p38-container-hardening): exact base tag + digest; the
+# runner drops curl/tar after the optional WAL-G fetch so the final layer
+# carries no download tooling; dedicated uid/gid 10003 with the official
+# postgres entrypoint path preserved. The base stays the UPSTREAM
+# postgres:18-alpine rather than dhi.io/postgres:18-alpine: DHI strips the
+# apk package manager, and this runner legitimately needs `apk add restic`
+# (restic is not in the DHI catalog either — checked 2026-09-29). It runs
+# as user 10003:10003, cap_drop ALL and no-new-privileges in compose (see
+# docker-compose.yml backup service).
+# syntax=docker/dockerfile:1
+
+FROM postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
 
 # The backup runner: pg_dump (base image), restic (apk), optional WAL-G
 # (build-arg installs a pinned release from go-wal-g/wal-g releases).
-RUN apk add --no-cache restic bash
+RUN apk add --no-cache restic bash \
+    && addgroup -g 10003 backup \
+    && adduser -D -u 10003 -G backup -H -s /sbin/nologin backup
 ARG WALG_TAG=v1.1.2-DEB-dropdownlfs
 ARG INSTALL_WAL_G=0
 RUN if [ "$INSTALL_WAL_G" = "1" ]; then \
@@ -13,4 +34,7 @@ RUN if [ "$INSTALL_WAL_G" = "1" ]; then \
       apk del curl tar; \
     fi
 WORKDIR /opt/backup
+# Numeric dedicated uid/gid (k8s runAsNonRoot-verifiable); /pgdumps and any
+# mounted source dirs must be writable by this uid.
+USER 10003:10003
 CMD ["/bin/sh", "/opt/backup/backupd.sh"]

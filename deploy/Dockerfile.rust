@@ -8,7 +8,13 @@
 # Build context is the repository root (workspace Cargo.toml lives there).
 # syntax=docker/dockerfile:1
 
-FROM rust:1-bookworm AS build
+# Exact-version base, digest-pinned (p38 policy: exact tag + registry
+# digest on every FROM — the digest is the enforcement, the tag the human
+# reference). These are Docker Hardened Images (dhi.io, Apache-2.0, free
+# for everyone as of 2025-12): minimal Debian-13-based, near-zero CVE
+# stand-ins for the official rust images. `-dev` = build stage WITH shell
+# and cargo. 1.95 matches the toolchain the workspace builds with.
+FROM dhi.io/rust:1.95-dev@sha256:f6e61d660495bd925b8e76288b0c5c50c2f70a0d981181eba12c1bca3dff14d3 AS build
 ARG BIN=core-api
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
@@ -37,21 +43,19 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && cargo build --release --package ${BIN} \
     && mkdir -p /out && cp target/release/${OUTEXE} /out/${BIN}
 
-FROM debian:bookworm-slim
-# Minimal runtime: the static binary + trusts for outbound TLS only — no
-# shell tools beyond the base image (healthchecks use the binaries'
-# /healthz over the network, or pg_isready/valkey-cli in their own images).
-# Non-root: the services bind >1024 ports only.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    # Fixed numeric UID: Kubernetes runAsNonRoot cannot verify a named user.
-    && useradd --system --no-create-home --uid 10001 app
+# Minimal hardened runtime: dhi.io/debian-base (Debian 13 trixie, ~80 MB)
+# ships ca-certificates for outbound TLS and its own `nonroot` user
+# (uid/gid 65532, passwd-verified — k8s runAsNonRoot-verifiable). No
+# useradd needed; no shell tools beyond the base (healthchecks use the
+# binaries' /healthz over the network, or pg_isready/valkey-cli in their
+# own images). The services bind >1024 ports only.
+FROM dhi.io/debian-base:trixie@sha256:b6c199b4653673cb7863db456a5aeb14438674106216b99cf8e9752cd0156046
 ARG BIN=core-api
 # Normalized fixed name: ARGs are baked into shell-form ENTRYPOINT strings
 # at build time but are NOT available as runtime env — exec-form with the
 # literal path is the reliable contract (compose passes BIN via build args).
 COPY --from=build /out/${BIN} /usr/local/bin/meridian
-USER 10001
+# The image's own nonroot user (numeric, runAsNonRoot-verifiable).
+USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/meridian"]
 CMD []

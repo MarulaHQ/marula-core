@@ -20,9 +20,18 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: redis
     spec:
+      securityContext:
+        {{- $ctx := deepCopy .Values.podSecurityContext -}}
+        {{- $_ := set $ctx "runAsUser" (.Values.runAsUserByComponent.redis | default 65532) -}}
+        {{- $_ := set $ctx "fsGroup" (.Values.runAsUserByComponent.redis | default 65532) -}}
+        {{- toYaml $ctx | nindent 8 }}
       containers:
         - name: redis
-          image: {{ .Values.redis.image | quote }}
+          image: {{ include "meridian.pinnedImage" (dict "ctx" . "image" .Values.redis.image "digest" .Values.redis.imageDigest) | quote }}
+          securityContext:
+            {{- /* Valkey only writes /data; rootfs can be read-only. */ -}}
+            {{- include "meridian.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          env: []
           ports:
             - name: redis
               containerPort: 6379

@@ -22,9 +22,17 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: mailpit
     spec:
+      securityContext:
+        {{- $ctx := deepCopy .Values.podSecurityContext -}}
+        {{- $_ := set $ctx "runAsUser" 1000 -}}
+        {{- $_ := set $ctx "fsGroup" 1000 -}}
+        {{- toYaml $ctx | nindent 8 }}
       containers:
         - name: mailpit
-          image: {{ .Values.mailpit.image | quote }}
+          image: {{ include "meridian.pinnedImage" (dict "ctx" . "image" .Values.mailpit.image "digest" .Values.mailpit.imageDigest) | quote }}
+          securityContext:
+            {{- /* Mailpit keeps mail in memory; read-only rootfs is fine. */ -}}
+            {{- include "meridian.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           ports:
             - name: smtp
               containerPort: 1025

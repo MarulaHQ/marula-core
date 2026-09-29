@@ -20,6 +20,17 @@
 #        · (observability profile) 4317/4318 otel-collector · 3200 tempo
 #        · 3100 loki · 3001 grafana · 18899 metrics exposition
 #
+# Security posture (Wave 38 p38-container-hardening): every third-party
+# image is pinned to an exact tag AND a registry digest (the digest is the
+# enforcement, the tag the human reference; both must move together on a
+# version bump). Every service runs least-privilege: cap_drop ALL,
+# no-new-privileges, and read_only rootfs + tmpfs where the image tolerates
+# it. Per-service `user:` values match the images' built-in non-root
+# identities; services that legitimately need more carry an evidenced
+# exemption comment in their block (postgres chowns its data dir at
+# first-boot init; clamav needs inbound-capable freshclam signature runs;
+# grafana owns its provisioned state dirs).
+#
 # Stage-2 slots (object storage + email sink) are declared but NOT started by
 # default — launch them explicitly with:
 #   docker compose -f deploy/docker-compose.yml --profile stage2 up
@@ -48,16 +59,35 @@ x-default-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+# Least-privilege baseline for every service (p38): drop all capabilities,
+# forbid privilege escalation via setuid binaries. Applied per service via
+# YAML anchors; services that must deviate override the specific key and
+# carry an exemption comment (never silent).
+x-cap-common: &cap-common
+  cap_drop: ["ALL"]
+  security_opt: ["no-new-privileges"]
+
 services:
   postgres:
     # PG18 (2026-09 decision): async I/O (io_method), skip scans, uuidv7(),
     # RETURNING OLD/NEW, temporal constraints. Bumping an existing volume:
     # dump/restore (`pg_dump meridian`) or pg_upgrade-in-place; 18's pg_upgrade
     # retains optimizer statistics so no slow-plans grind after cutover.
-    image: pgvector/pgvector:pg18
+    image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
     mem_limit: 1g
     cpus: 2.0
     logging: *default-logging
+    <<: *cap-common
+    # DHI pgvector (0.8.x on PG18, debian-13; postgres uid 70). Its
+    # entrypoint keeps the chown-based boot: EXEMPTION (read_only)! The
+    # official entrypoint chowns/initializes PGDATA and writes unix
+    # sockets + postmaster.pid on the rootfs at first boot; a read-only
+    # rootfs breaks cluster init rather than being an honest hardening win
+    # here. Data-at-rest isolation is the pgdata volume; capabilities stay
+    # dropped. Runs as the image default (root init → postgres 70);
+    # forcing `user:` would break the chown-based init against a fresh
+    # named volume.
+    read_only: false
     environment:
       POSTGRES_USER: meridian
       POSTGRES_PASSWORD: meridian
@@ -80,10 +110,18 @@ services:
     # Valkey (Redis 7 wire-compatible fork; drop-in for REDIS_URL). Service
     # keeps the `redis` name so REDIS_URL / depends_on references are
     # unaffected.
-    image: valkey/valkey:8-alpine
-    mem_limit: 384m
-    cpus: 1.0
+    image: dhi.io/valkey:8.1.10@sha256:3caa5e36670b3eb234fd3d958452431c802c6a8de22a8abf747ec72b532582f2
     logging: *default-logging
+    <<: *cap-common
+    # Valkey (Redis 7 wire-compatible; DHI 8.1.10). Valkey writes only its
+    # RDB/AOF under /data (a volume); the rootfs itself is untouched, so it
+    # tolerates a read-only rootfs. Runs as the image's own nonroot user
+    # (65532, passwd-verified); /data/tmp is provided by tmpfs for its
+    # socket/PID needs.
+    read_only: true
+    user: "65532:65532"
+    tmpfs:
+      - /tmp
     # Fail writes loudly (noeviction) rather than silently evicting queue
     # state; 192mb keeps the process inside its 384m ceiling.
     command: ["valkey-server", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
@@ -99,6 +137,10 @@ services:
     mem_limit: 256m
     cpus: 1.0
     logging: *default-logging
+    <<: *cap-common
+    # Ephemeral one-shot job; writes nothing to disk. Rootfs can stay
+    # read-only; the rust image already runs as nonroot 65532.
+    read_only: true
     build:
       context: ..
       dockerfile: deploy/Dockerfile.rust
@@ -115,6 +157,10 @@ services:
     mem_limit: 512m
     cpus: 2.0
     logging: *default-logging
+    <<: *cap-common
+    # DHI debian-base nonroot 65532; the only writable path is the local
+    # object-store dir (a volume), so the rootfs can stay read-only.
+    read_only: true
     build:
       context: ..
       dockerfile: deploy/Dockerfile.rust
@@ -193,6 +239,9 @@ services:
     mem_limit: 384m
     cpus: 1.0
     logging: *default-logging
+    <<: *cap-common
+    # Rust image nonroot uid 65532; stateless (Redis + WS only) — read-only rootfs.
+    read_only: true
     build:
       context: ..
       dockerfile: deploy/Dockerfile.rust
@@ -221,6 +270,10 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
+    <<: *cap-common
+    # Rust image nonroot uid 65532; queue relay with no local disk state —
+    # read-only rootfs.
+    read_only: true
     build:
       context: ..
       dockerfile: deploy/Dockerfile.rust
@@ -257,6 +310,14 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
+    <<: *cap-common
+    # Node standalone server as uid 1000 (matches the image USER); no
+    # writes at runtime in production-mode Next standalone (no ISR/cache
+    # dirs in use) — read-only rootfs with a tmpfs for /tmp.
+    read_only: true
+    tmpfs:
+      - /tmp
+    user: "1000:1000"
     build:
       context: ..
       dockerfile: deploy/Dockerfile.web
@@ -288,8 +349,16 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
-    image: dxflrs/garage:v1.1.0
+    image: dxflrs/garage:v1.1.0@sha256:fdb8272fcbe643eef830ee17874d5d4ed623a86501f1acbac8012583113b1c26
     profiles: ["stage2"]
+    <<: *cap-common
+    # Distroless single binary, no bundled user — runs as the explicit
+    # dedicated uid 10004. Data/meta live on their own volumes; config is
+    # a read-only bind mount, so the rootfs can stay read-only.
+    read_only: true
+    user: "10004:10004"
+    tmpfs:
+      - /tmp
     environment:
       GARAGE_DOMAIN_NAME: .localhost
       # 32-byte HEX per Garage's rpc_secret requirement (any other value is
@@ -315,8 +384,16 @@ services:
     mem_limit: 256m
     cpus: 0.5
     logging: *default-logging
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
     profiles: ["stage2"]
+    <<: *cap-common
+    # Why no :latest (p38): the previous floating tag silently swapped the
+    # binary under this slot; v1.31.3 is the audited pin (2026-09-28).
+    # Mailpit persists mail in memory by default; a read-only rootfs plus
+    # tmpfs is enough.
+    read_only: true
+    tmpfs:
+      - /tmp
     ports:
       - "1025:1025"   # SMTP sink
       - "8025:8025"   # Web UI
@@ -334,8 +411,16 @@ services:
     mem_limit: 256m
     cpus: 0.5
     logging: *default-logging
-    image: otel/opentelemetry-collector-contrib:0.118.0
+    image: otel/opentelemetry-collector-contrib:0.118.0@sha256:3f6274fe609da4f9964fbc2ef36b83d08d47964fbb11629251393590d3924072
     profiles: ["observability"]
+    <<: *cap-common
+    # DHI nonroot (65532); config is a read-only bind mount, and the
+    # memory limiter extension only needs its ballast in memory —
+    # read-only rootfs works with a /tmp scratch.
+    read_only: true
+    tmpfs:
+      - /tmp
+    user: "65532:65532"
     command: ["--config", "/etc/otel-collector/config.yaml"]
     volumes:
       - ./observability/otel-collector.yaml:/etc/otel-collector/config.yaml:ro
@@ -348,8 +433,13 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
-    image: grafana/tempo:2.7.0
+    image: dhi.io/tempo:2.7@sha256:a374e7d31fed1bd6140fe9bd2e71b70af19b1034ca057e32c6f37ea543ab82fb
     profiles: ["observability"]
+    <<: *cap-common
+    # DHI nonroot (65532); the wal dir lives on the tempodata volume,
+    # so the rootfs stays read-only.
+    read_only: true
+    user: "65532:65532"
     command: ["-config.file", "/etc/tempo/tempo.yaml"]
     volumes:
       - ./observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
@@ -361,8 +451,16 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
-    image: grafana/loki:3.4.2
+    image: dhi.io/loki:3.6@sha256:6465cec55310a20319da23852655dff975e6b233ae073aab4135a469740b0a94
     profiles: ["observability"]
+    <<: *cap-common
+    # DHI nonroot (65532); chunk/index live under /loki (a volume) and
+    # /tmp + /workspace tmpfs cover its runtime scratch.
+    read_only: true
+    user: "65532:65532"
+    tmpfs:
+      - /tmp
+      - /workspace
     command: ["-config.file", "/etc/loki/loki.yaml"]
     volumes:
       - ./observability/loki.yaml:/etc/loki/loki.yaml:ro
@@ -374,8 +472,18 @@ services:
     mem_limit: 256m
     cpus: 0.5
     logging: *default-logging
-    image: grafana/grafana:11.4.0
+    image: dhi.io/grafana:11@sha256:cfa9d61225bd4a574993e0a74226de3a031b4e55f0ea50a081b2cc5f319c4e79
     profiles: ["observability"]
+    <<: *cap-common
+    # DHI runs grafana as uid 65532. EXEMPTION (read_only): Grafana writes
+    # its sqlite DB and plugin/annotation state under /var/lib/grafana and
+    # needs its log dir — covered by the grafanadata volume — but it ALSO
+    # touches /etc/grafana provisioning copy state and /var/log at boot;
+    # running read-only requires the full fs-layout audit of its
+    # entrypoint, which is not this slot's job (local demo observations).
+    # Capabilities stay dropped; run as the image's own uid 65532.
+    read_only: false
+    user: "65532:65532"
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
@@ -398,8 +506,16 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
-    image: glitchtip/glitchtip:latest
+    image: glitchtip/glitchtip:6.2.6@sha256:a3d8eb1b36c1e1603d55ab32711ea3dd8115874742a781a57391a62a16e0dff6
     profiles: ["observability"]
+    <<: *cap-common
+    # GlitchTip 6.2.6 is the audited pin replacing :latest (2026-09-28).
+    # Image's app user is uid/gid 5000 (read from /etc/passwd of the pin);
+    # align `user:` with it, rootfs read-only with /tmp scratch.
+    user: "5000:5000"
+    read_only: true
+    tmpfs:
+      - /tmp
     depends_on:
       - postgres
       - redis
@@ -422,12 +538,17 @@ services:
     mem_limit: 2g
     cpus: 1.0
     logging: *default-logging
-    image: clamav/clamav:latest
-    # No linux/arm64 images exist upstream (checked all recent tags) —
-    # Apple-Silicon hosts emulate amd64 via Docker Desktop Rosetta. ARM
-    # servers need the platform knocked out to match their own arch.
-    platform: linux/amd64
+    image: dhi.io/clamav:1.5.4@sha256:d02fd8be62db0cecad42586c976e7c8f831aafa353c7ab9dcb1938ced04bb61d
     profiles: ["stage2"]
+    <<: *cap-common
+    # DHI ships linux/arm64 natively (upstream clamav/clamav never did), so
+    # the Rosetta platform pin of the old upstream slot is gone.
+    # EXEMPTION (read_only): clamd/freshclam write signature DBs + tmp
+    # state at boot (clamavdata volume covers /var/lib/clamav, but the
+    # entrypoint also touches /var/log and needs to run its init as root
+    # before dropping privileges); read-only was not survivable here
+    # without forking the upstream entrypoint. Capabilities stay dropped.
+    read_only: false
     ports:
       - "13310:3310"
     volumes:
@@ -442,6 +563,16 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
+    <<: *cap-common
+    # Image (Dockerfile.backup) runs as dedicated uid/gid 10003; pg_dump
+    # and restic need no capabilities. Writes go to /pgdumps (volume) and
+    # restic's cache — give the cache a tmpfs so the rootfs stays
+    # read-only.
+    user: "10003:10003"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /root/.cache/restic
     build:
       context: ..
       dockerfile: deploy/backup/Dockerfile.backup
