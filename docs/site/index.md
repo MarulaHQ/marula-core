@@ -1,6 +1,6 @@
 # Marula documentation
 
-![Marula logo lockup](../../marula-ci/logo/lockup-navy@2x.png)
+![Marula logo lockup](../../design/marula/logo/lockup-navy@2x.png)
 
 Marula is an open-source PSA (professional services automation) core for
 MSPs: tickets, clients, billing, scheduling, docs, agents — self-hostable
