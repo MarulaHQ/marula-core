@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 /**
- * Per-theme mechanical enforcement (Wave 24 leg C).
+ * Per-theme mechanical enforcement (Wave 24 leg C, wave41 lane 2 repointed).
  *
- * Extends the existing brand-palette hex-scan posture (scripts/review-theme.mjs):
+ * Extends the brand-palette hex-scan posture (scripts/review-theme.mjs):
  *  1. BUILT-IN presets — every shipped preset's hexes are scanned against
- *     the retired-Workbench blacklist and the docs/theme.md contrast floors
- *     (AA text pairs, 3:1 accent/tag pairs), exactly as the backend asserts
- *     at the pack boundary.
- *  2. INSTALLED packs — CI (and the eyebrow lane) can loop a comma-
- *     separated list of theme-pack manifest files via THEME_PACK_MANIFESTS
- *     (or pass paths as CLI args); each manifest is validated like the
- *     ingestion seam: closed role vocabulary, #rrggbb hexes, blacklist,
- *     contrast floors. `pack:` values resolved from settings JSON get the
- *     same treatment.
+ *     the retired-blacklist and the docs/theme.md contrast floors (AA text
+ *     pairs, 3:1 accent/tag pairs), exactly as the backend asserts at the
+ *     pack boundary.
+ *  2. THE FIXED AXIS (wave41 D8) — a preset may move the neutrals, the chrome
+ *     and the accent TINT. It may not restyle the brand semantics. This is
+ *     asserted from the schema module, not from a list written here, so the
+ *     checker and the schema cannot drift.
+ *  3. INSTALLED packs — CI (and the eyebrow lane) can loop a comma-separated
+ *     list of theme-pack manifest files via THEME_PACK_MANIFESTS (or pass
+ *     paths as CLI args); each manifest is validated like the ingestion seam:
+ *     closed role vocabulary, #rrggbb hexes, blacklist, contrast floors.
  *
  * Exit 1 on the first failed invariant group; CI candidates run this
  * alongside `node scripts/review-theme.mjs`.
@@ -38,7 +40,22 @@ const schema = await import(schemaUrl).catch((e) => {
   process.exit(1);
 });
 
-const BLACKLIST = ["D64B0A", "F4F5F7", "E8EBEF", "101216", "171A1F", "12161C"];
+/**
+ * Retired hexes. Two families, both dead:
+ *   - Workbench  (2025-11, the first identity): the cool-grey ramp below.
+ *   - Tangerine  (Wave 24, the second identity): #E05D38 and its neutrals.
+ *   - Ember      (retired by brand spec §4.6): #D64B0A and friends.
+ * The list is append-only. A retired colour is never removed from it, because
+ * the whole point is that it can never come back.
+ */
+const BLACKLIST = [
+  // Workbench
+  "F4F5F7", "101216", "171A1F", "12161C",
+  // Tangerine
+  "E05D38", "E8EBED", "1C2433", "2A3040", "3D4354", "86A7C8",
+  // Ember (brand spec §4.6)
+  "D64B0A", "FF8A4C",
+];
 const HEX_RE = /^#[0-9a-f]{6}$/;
 
 function luminance(hex) {
@@ -61,7 +78,7 @@ const TEXT_ROLES = ["text", "text_secondary", "text_muted"];
 const BG_ROLES = ["background", "surface"];
 const STATUS_TONES = ["success", "warning", "danger"];
 
-function validateThemeValues(label, values) {
+function validateThemeValues(label, values, { declared = false } = {}) {
   // Closed vocabulary + hex format.
   const badRole = Object.keys(values).filter((k) => !schema.TOKEN_ROLES.includes(k));
   check(
@@ -73,6 +90,14 @@ function validateThemeValues(label, values) {
     if (!HEX_RE.test(String(value))) check(false, `${label}: ${role} must be #rrggbb`, String(value));
     if (BLACKLIST.some((b) => String(value).toUpperCase().endsWith(b)))
       check(false, `${label}: ${role} carries a retired hex`, value);
+  }
+  // A manifest that DECLARES a brand-fixed role is rejected outright rather
+  // than validated and then dropped at render time. A built-in is exempt: it
+  // carries the whole resolved vocabulary so a full pack round-trips through
+  // the same validator, and the D8 diff above is what judges it.
+  if (declared && typeof schema.presetViolation === "function") {
+    const violation = schema.presetViolation(label, values);
+    check(violation === null, `${label}: declares only the shiftable axis`, violation ?? "");
   }
   // AA floors.
   for (const fg of TEXT_ROLES) {
@@ -105,8 +130,41 @@ for (const preset of schema.BUILTIN_PRESETS) {
   validateThemeValues(`builtin ${preset.id} light`, preset.light);
   validateThemeValues(`builtin ${preset.id} dark`, preset.dark);
 }
-check(schema.BUILTIN_PRESETS[0].id === "tangerine", "tangerine is the pinned default-v1");
-check(schema.DEFAULT_PRESET === "tangerine", "DEFAULT_PRESET = tangerine");
+check(schema.BUILTIN_PRESETS[0].id === "marula", "marula is the pinned default-v1");
+check(schema.DEFAULT_PRESET === "marula", "DEFAULT_PRESET = marula");
+for (const retired of ["tangerine", "slate", "copper"]) {
+  check(!schema.isBuiltinPreset(retired), `retired preset "${retired}" is not shipped`);
+}
+
+// 2. The fixed axis. Asserted from the schema module so the two cannot drift.
+for (const preset of schema.BUILTIN_PRESETS) {
+  for (const mode of ["light", "dark"]) {
+    const shift = schema.shiftableValues(preset[mode]);
+    check(
+      schema.presetViolation(preset.id, shift) === null,
+      `builtin ${preset.id} ${mode}: shiftable axis is legal`,
+      schema.presetViolation(preset.id, shift) ?? "",
+    );
+    // Every role a preset does NOT declare as an override must be byte-equal
+    // to the default preset's. This is the D8 rule stated as a diff: a preset
+    // may not quietly restyle the primary flip, a status pair, or the
+    // assistant inversion, whatever it declares.
+    for (const role of schema.TOKEN_ROLES) {
+      if (schema.SHIFTABLE_AXIS.includes(role)) continue;
+      if (preset.id === schema.DEFAULT_PRESET) continue;
+      check(
+        String(preset[mode][role]).toLowerCase() ===
+          String(schema.MARULA[mode][role]).toLowerCase(),
+        `builtin ${preset.id} ${mode}: ${role} is brand-fixed (matches marula)`,
+        `${preset[mode][role]} vs ${schema.MARULA[mode][role]}`,
+      );
+    }
+  }
+}
+check(
+  Array.isArray(schema.FIXED_ROLES) && schema.FIXED_ROLES.includes("primary"),
+  "the schema names the brand-fixed roles (primary is unreachable by a preset)",
+);
 
 // 2. Per-installed-theme loop (CLI args and/or THEME_PACK_MANIFESTS).
 const manifestPaths = [
@@ -126,12 +184,13 @@ for (const path of manifestPaths) {
     `${path}: native theme-pack manifest shape (kind = "theme")`,
   );
   for (const mode of ["light", "dark"]) {
-    if (parsed[mode]) validateThemeValues(`installed ${path} ${mode}`, parsed[mode]);
+    if (parsed[mode])
+      validateThemeValues(`installed ${path} ${mode}`, parsed[mode], { declared: true });
   }
 }
 
 // ---------- summary ----------
-console.log(`\n=== Per-theme check (Wave 24 p24-theming-system) ===`);
+console.log(`\n=== Per-theme check (wave41 marula theme) ===`);
 console.log(`Built-in presets: ${schema.BUILTIN_PRESETS.map((p) => p.id).join(", ")}`);
 console.log(`Installed manifests scanned: ${manifestPaths.length}`);
 console.log(`Passed: ${passes.length} checks`);

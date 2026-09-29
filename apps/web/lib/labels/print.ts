@@ -96,7 +96,7 @@ export function labelPrintHtml(input: LabelPrintInput): string {
     overflow: hidden;
     background: white;
     color: black;
-    font-family: Inter, system-ui, sans-serif;
+    font-family: Figtree, system-ui, sans-serif;
   }
   .m-line {
     position: absolute;

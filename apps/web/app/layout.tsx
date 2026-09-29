@@ -7,7 +7,7 @@
 // work bar, all composed in AppShell. Headerless surfaces (login, portal)
 // are excluded inside the shell components themselves.
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { AuthProvider } from "../lib/api";
 import { AppShell } from "../components/shell/app-shell";
@@ -16,15 +16,53 @@ import { builtinPresetCss } from "@marula-core/ui/theme-tokens";
 
 // Wave 24: the theme-token schema v1 preset range ships as a head style
 // block (scoped by data-preset; the unset root stays the tokens.css
-// Tangerine baseline — zero visual change without an explicit preset).
+// baseline — zero visual change without an explicit preset).
 const presetCss = builtinPresetCss();
 
-// Tangerine typography (docs/theme.md §4): Source Serif 4 headings,
-// Inter body, JetBrains Mono code/data. next/font serves the real
-// webfonts and self-hosts them at build time.
-const sourceSerifHeading = Source_Serif_4({ subsets: ["latin"], variable: "--font-heading" });
-const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+/**
+ * Marula typography (docs/theme.md §4, brand spec §5).
+ *
+ * Figtree carries the interface, Fraunces the display, JetBrains Mono the
+ * code. Fraunces is DELIBERATELY NARROWED: the wordmark, page greetings and
+ * marketing only, never dense UI. The 26px ticket title is Figtree, not
+ * Fraunces, because the rendered pack shows it that way.
+ *
+ * All three are `next/font/local` against woff2 vendored in LEGAL/fonts/,
+ * not `next/font/google`. That is a deliberate change: the Google loader
+ * fetches at BUILD time, so a build behind a proxy, in CI with no egress, or
+ * during a Google outage fails for a reason that has nothing to do with this
+ * code. Vendoring makes the build hermetic and the shipped bytes auditable —
+ * the SHA-256 of each file matches the brand kit's copy.
+ */
+const figtree = localFont({
+  src: "../../../LEGAL/fonts/figtree/Figtree-variable-latin.woff2",
+  weight: "300 900",
+  style: "normal",
+  variable: "--font-sans",
+  display: "swap",
+  fallback: ["system-ui", "-apple-system", "Segoe UI", "sans-serif"],
+  adjustFontFallback: false,
+});
+
+const fraunces = localFont({
+  src: "../../../LEGAL/fonts/fraunces/Fraunces-variable-latin.woff2",
+  weight: "100 900",
+  style: "normal",
+  variable: "--font-heading",
+  display: "swap",
+  fallback: ["Georgia", "serif"],
+  adjustFontFallback: false,
+});
+
+const jetbrainsMono = localFont({
+  src: "../../../LEGAL/fonts/jetbrains-mono/JetBrainsMono-variable-latin.woff2",
+  weight: "100 800",
+  style: "normal",
+  variable: "--font-mono",
+  display: "swap",
+  fallback: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+  adjustFontFallback: false,
+});
 
 export const metadata: Metadata = {
   title: "Marula",
@@ -52,8 +90,8 @@ export const metadata: Metadata = {
 // mode (splash/status-bar tint both themes).
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#E8EBED" },
-    { media: "(prefers-color-scheme: dark)", color: "#1C2433" },
+    { media: "(prefers-color-scheme: light)", color: "#F8F7F4" },
+    { media: "(prefers-color-scheme: dark)", color: "#2B2A33" },
   ],
 };
 
@@ -61,12 +99,12 @@ const themeBootstrap =`(function(){try{var t=localStorage.getItem("marula-theme"
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning className={cn(sourceSerifHeading.variable, jetbrainsMono.variable)}>
+    <html lang="en" suppressHydrationWarning className={cn(figtree.variable, fraunces.variable, jetbrainsMono.variable)}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
         <style id="m-theme-presets" dangerouslySetInnerHTML={{ __html: presetCss }} />
       </head>
-      <body className={inter.variable}>
+      <body>
         <AuthProvider>
           <AppShell>{children}</AppShell>
         </AuthProvider>

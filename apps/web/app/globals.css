@@ -1,17 +1,17 @@
 /*
- * Global styles for the Marula web app — Tangerine preset layer.
+ * Global styles for the Marula web app — the shadcn preset layer.
  *
- * Source of truth: `design/tangerine/tangerine.json` (canonical tweakcn
- * preset, vendored) — the shadcn variables below are generated from it and
- * reference the --m-* token layer for every value both layers share, so the
- * two cannot drift (docs/theme.md §3.0).
+ * Source of truth: `design/marula/marula.json` (canonical tweakcn preset,
+ * vendored) — the shadcn variables below are generated from it and reference
+ * the --m-* token layer for every value both layers share, so the two cannot
+ * drift (docs/theme.md §3.0).
  *
  * Layering contract (docs/theme.md §9):
  *   - packages/ui/src/tokens.css  — primitives + semantic --m-* (hex source)
  *   - this file                   — shadcn/Tailwind variable layer + bridges
  * No raw hex may appear here; preset-only values are verbatim oklch()/hsl().
  *
- * Generated from tangerine.json — regenerate, never hand-edit.
+ * Generated from marula.json — regenerate, never hand-edit.
  */
 @import "tailwindcss";
 @import "@marula-core/ui/tokens.css";
@@ -63,23 +63,24 @@
   --sidebar-primary-foreground: var(--m-on-accent);
   --sidebar-ring: var(--m-accent);
 
-  /* Tangerine preset — light mode (verbatim from design/tangerine/tangerine.json) */
-  --secondary: oklch(0.9670 0.0029 264.5419);
-  --secondary-foreground: oklch(0.4461 0.0263 256.8018);
-  --muted: oklch(0.9846 0.0017 247.8389);
-  --muted-foreground: oklch(0.5510 0.0234 264.3637);
-  --accent: oklch(0.9119 0.0222 243.8174);
-  --accent-foreground: oklch(0.3791 0.1378 265.5222);
-  --input: oklch(0.9700 0.0029 264.5420);
-  --chart-1: oklch(0.7156 0.0605 248.6845);
-  --chart-2: oklch(0.7875 0.0917 35.9616);
-  --chart-3: oklch(0.5778 0.0759 254.1573);
-  --chart-4: oklch(0.5016 0.0849 259.4902);
-  --chart-5: oklch(0.4241 0.0952 264.0306);
-  --sidebar: oklch(0.9030 0.0046 258.3257);
-  --sidebar-accent: oklch(0.9119 0.0222 243.8174);
-  --sidebar-accent-foreground: oklch(0.3791 0.1378 265.5222);
-  --sidebar-border: oklch(0.9276 0.0058 264.5313);
+  /* Marula preset — light mode (verbatim from design/marula/marula.json) */
+  --secondary: oklch(0.9670 0.0052 91.1064);
+  --secondary-foreground: oklch(0.4392 0.0310 62.3440);
+  --muted: oklch(0.9610 0.0150 85.5880);
+  --muted-foreground: oklch(0.4900 0.0340 60.0000);
+  --accent: oklch(0.9119 0.0960 88.0000);
+  --accent-foreground: oklch(0.3800 0.1100 55.0000);
+  --input: oklch(0.8900 0.0100 90.0000);
+  --chart-1: oklch(0.5680 0.1200 62.0000);
+  --chart-2: oklch(0.5500 0.1100 130.0000);
+  --chart-3: oklch(0.6500 0.1300 50.0000);
+  --chart-4: oklch(0.5200 0.0200 70.0000);
+  --chart-5: oklch(0.7200 0.1100 110.0000);
+  --sidebar: oklch(0.9600 0.0050 90.0000);
+  --sidebar-accent: oklch(0.9119 0.0960 88.0000);
+  --sidebar-accent-foreground: oklch(0.3800 0.1100 55.0000);
+  --sidebar-border: oklch(0.8900 0.0100 90.0000);
+  --ring: var(--m-focus-ring);
   --shadow: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 1px 2px -1px hsl(0 0% 0% / 0.10);
 
   /* Preset shadow scale (Tailwind v4 theme consumes these) */
@@ -216,23 +217,24 @@ body {
  ---break---
  */
 [data-theme="dark"] {
-  /* Tangerine preset — dark mode (verbatim from design/tangerine/tangerine.json) */
-  --secondary: oklch(0.3095 0.0266 266.7132);
-  --secondary-foreground: oklch(0.9219 0 0);
-  --muted: oklch(0.3095 0.0266 266.7132);
-  --muted-foreground: oklch(0.7155 0 0);
-  --accent: oklch(0.3380 0.0589 267.5867);
-  --accent-foreground: oklch(0.8823 0.0571 254.1284);
-  --input: oklch(0.3843 0.0301 269.7337);
-  --chart-1: oklch(0.7156 0.0605 248.6845);
-  --chart-2: oklch(0.7693 0.0876 34.1875);
-  --chart-3: oklch(0.5778 0.0759 254.1573);
-  --chart-4: oklch(0.5016 0.0849 259.4902);
-  --chart-5: oklch(0.4241 0.0952 264.0306);
-  --sidebar: oklch(0.3100 0.0283 267.7408);
-  --sidebar-accent: oklch(0.3380 0.0589 267.5867);
-  --sidebar-accent-foreground: oklch(0.8823 0.0571 254.1284);
-  --sidebar-border: oklch(0.3843 0.0301 269.7337);
+  /* Marula preset — dark mode (verbatim from design/marula/marula.json) */
+  --secondary: oklch(0.2790 0.0200 60.0000);
+  --secondary-foreground: oklch(0.9500 0.0200 90.0000);
+  --muted: oklch(0.2500 0.0180 70.0000);
+  --muted-foreground: oklch(0.7200 0.0300 80.0000);
+  --accent: oklch(0.3400 0.0300 70.0000);
+  --accent-foreground: oklch(0.9200 0.1000 90.0000);
+  --input: oklch(0.4000 0.0150 60.0000);
+  --chart-1: oklch(0.8300 0.1400 88.0000);
+  --chart-2: oklch(0.8200 0.1200 130.0000);
+  --chart-3: oklch(0.7800 0.1000 50.0000);
+  --chart-4: oklch(0.7500 0.0300 80.0000);
+  --chart-5: oklch(0.8500 0.1100 110.0000);
+  --sidebar: oklch(0.2200 0.0150 60.0000);
+  --sidebar-accent: oklch(0.3400 0.0300 70.0000);
+  --sidebar-accent-foreground: oklch(0.9200 0.1000 90.0000);
+  --sidebar-border: oklch(0.4000 0.0150 60.0000);
+  --ring: var(--m-focus-ring);
   --shadow: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 1px 2px -1px hsl(0 0% 0% / 0.10);
 
   /* Preset shadow scale (Tailwind v4 theme consumes these) */

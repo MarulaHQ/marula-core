@@ -11,6 +11,7 @@ export * from "./tokens";
 export * from "./theme";
 export type {
   FixedRole,
+  Platform,
   PackTheme,
   TokenRole,
   TokenValues,
@@ -22,6 +23,8 @@ export {
   MARULA_WARM,
   HIGH_CONTRAST,
   DEFAULT_PRESET,
+  defaultPresetFor,
+  PLATFORM_PRESET_DEFAULT,
   TOKEN_ROLES,
   FIXED_ROLES,
   SHIFTABLE_AXIS,

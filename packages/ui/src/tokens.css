@@ -195,10 +195,49 @@
   --m-row-height: var(--m-density-row);
   --m-duration: 120ms;           /* the motion law: <=120ms, transform/opacity */
 
-  /* ---- Typography (design.md §5) ---- */
+  /* ---- Type scale (design.md §5) ---- */
   --m-font-ui: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
   --m-font-heading: "Fraunces", Georgia, serif;
   --m-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* ---- Legacy name compatibility ----
+   * The Tangerine ramp carried a wider set of names than the Marula one, and
+   * about twenty app files still reference them. A `var()` with no definition
+   * renders nothing at all, so these are aliased rather than left broken; the
+   * 2b sweep moves each call site onto the Marula name and retires the alias
+   * with it. Nothing here resurrects a retired colour: every alias resolves to
+   * a Marula token above. */
+  --m-ink: var(--m-text);                       /* Tangerine "ink" was the text colour */
+  --m-paper: var(--m-surface);                  /* Tangerine "paper" was the card */
+  --m-canvas-light: var(--m-canvas);
+  --m-bg: var(--m-surface-2);
+  --m-muted: var(--m-text-muted);
+  --m-text-disabled: var(--m-disabled-fg);
+  --m-onsurface: var(--m-text);                 /* was the fill a surface sat on */
+  --m-accent-fg: var(--m-on-accent);
+  --m-surface-muted: var(--m-surface-2);
+  --m-surface-sunken: var(--m-sidebar);
+  --m-canvas-raised: var(--m-surface);
+  --m-background: var(--m-canvas);
+  --m-border-dark: var(--m-border);
+  --m-surface-dark: var(--m-surface);
+  --m-overlay-dark: var(--m-overlay-surface);
+  --m-text-dark: var(--m-text);
+  --m-canvas-dark: var(--m-canvas);
+  /* Tangerine had a second, cooler greyscale ramp alongside the ember one.
+     It collapsed into one: the Marula neutrals carry every value it held. */
+  --m-mist: var(--m-text-muted);
+  /* The retired Ember family. Kept only as a redirect so no file resolves to
+     nothing on the day the call sites are swept; it is not an orange. */
+  --m-ember: var(--m-primary);
+  --m-ember-dark: var(--m-primary);
+  --m-avatar-surface: var(--m-surface-2);
+  --m-avatar-fg: var(--m-text);
+  /* Two app files asked for a status pair that never existed: `info` and `ok`
+     are not tones in the closed vocabulary, so both were already rendering
+     nothing. They resolve to the neutral and success pairs they meant. */
+  --m-status-info-fg: var(--m-status-neutral-fg);
+  --m-status-ok-fg: var(--m-status-success-fg);
 }
 
 /* ---- Semantic: dark mode overrides (the `marula` preset, Dark column) ---- */

@@ -667,9 +667,15 @@ pub const TIMEZONE_OPTIONS: &[&str] = &[
 
 pub const WEEK_START_OPTIONS: &[&str] = &["monday", "sunday"];
 
-/// Shipped default theme presets (Wave 24 leg A). `tangerine` is the
-/// pinned default-v1 of the theme-token schema.
-pub const THEME_PRESET_OPTIONS: &[&str] = &["tangerine", "slate", "high_contrast", "copper"];
+/// Shipped default theme presets (Wave 24 leg A; repointed to Marula in
+/// wave41 lane 2). `marula` is the pinned default-v1 of the theme-token
+/// schema and the default for web and desktop. `marula-warm` is the cream
+/// column of the same pack and the default on mobile (wave41 D2).
+///
+/// `slate` and `copper` are DROPPED (wave41 D8): both were second-brand
+/// neutrals that never had authority in the brand spec, and the axis they
+/// wanted to move is now owned by `marula` vs `marula-warm`.
+pub const THEME_PRESET_OPTIONS: &[&str] = &["marula", "marula-warm", "high_contrast"];
 pub const MODE_OPTIONS: &[&str] = &["system", "light", "dark"];
 
 pub const THEME_OPTIONS: &[&str] = THEME_PRESET_OPTIONS;
@@ -682,10 +688,9 @@ pub const THEME_OVERRIDE_ORG_SENTINEL: &str = "org_default";
 /// Per-user override enumerates the presets + the org-default sentinel.
 pub const THEME_OVERRIDE_OPTIONS: &[&str] = &[
     THEME_OVERRIDE_ORG_SENTINEL,
-    "tangerine",
-    "slate",
+    "marula",
+    "marula-warm",
     "high_contrast",
-    "copper",
 ];
 
 pub const AI_PROVIDER_OPTIONS: &[&str] = &[
@@ -757,15 +762,18 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
             SettingDeclaration {
                 key: APPEARANCE_THEME,
                 kind: SettingKind::Enumeration,
-                default: SettingValue::Text("tangerine".into()),
+                default: SettingValue::Text("marula".into()),
                 scope: SettingScope::Org,
                 section: SettingSection::Appearance,
                 visibility: SettingVisibility::Ui,
                 label: "Org theme",
                 description: "The theme preset applied org-wide (Wave 24 theming system): \
-                             Tangerine is the default; admins may pick any shipped built-in \
+                             Marula is the default; admins may pick any shipped built-in \
                              preset or an installed theme pack. Per-user overrides ride the \
-                             appearance.theme_override setting.",
+                             appearance.theme_override setting. A preset may move the \
+                             neutral, chrome and accent-tint axes only — the primary and its \
+                             ink-to-gold mode flip, the destructive colour, the status pairs \
+                             and the assistant inversion are the brand's and stay fixed.",
             },
             SettingDeclaration {
                 key: APPEARANCE_THEME_OVERRIDE,
@@ -1576,7 +1584,7 @@ mod tests {
         assert!(declaration("nope.nope").is_none());
         assert_eq!(
             default_value(APPEARANCE_THEME),
-            Some(SettingValue::Text("tangerine".into()))
+            Some(SettingValue::Text("marula".into()))
         );
         // Wave 24: per-user override + per-user mode (appearance.theme
         // is org-scope now): greeting, signoff, override, mode = 4.

@@ -1,19 +1,23 @@
 // Root layout — fonts, providers, and the one stack every route hangs off.
 //
-// Purpose: boot the real Inter / JetBrains Mono faces, then nest the
+// Purpose: boot the real Figtree / JetBrains Mono faces, then nest the
 // providers in dependency order (theme → connectivity → auth → sync) so
 // every screen below can read tokens, network state, the session, and the
 // live-sync engine. Auth branching lives in the route groups (index, tabs,
 // RequireAuth) rather than here, so deep links resolve before redirects.
 //
+// Fraunces is NOT booted here on purpose. The spec narrows it to the wordmark,
+// page greetings and marketing; a 100–900kb display face in a field app is
+// weight spent on three surfaces. See docs/theme.md §4.
+//
 // Non-purpose: no feature UI.
 
 import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-} from "@expo-google-fonts/inter";
+  Figtree_400Regular,
+  Figtree_500Medium,
+  Figtree_600SemiBold,
+  Figtree_700Bold,
+} from "@expo-google-fonts/figtree";
 import {
   JetBrainsMono_400Regular,
   JetBrainsMono_500Medium,
@@ -43,10 +47,10 @@ const prefs = asyncStore("prefs");
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
+    Figtree_400Regular,
+    Figtree_500Medium,
+    Figtree_600SemiBold,
+    Figtree_700Bold,
     JetBrainsMono_400Regular,
     JetBrainsMono_500Medium,
   });

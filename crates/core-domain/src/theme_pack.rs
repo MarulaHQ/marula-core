@@ -1,7 +1,7 @@
 //! Theme-token schema v1 + theme-pack manifests (Wave 24 lane 1
 //! `p24-theming-system`).
 //!
-//! Purpose: generalize the Tangerine token set behind docs/theme.md into a
+//! Purpose: generalize the Marula token set behind docs/theme.md into a
 //! VERSIONED token schema. A theme is a map of LIGHT/DARK values over the
 //! closed semantic role vocabulary (docs/theme.md §3); "install a theme"
 //! means "adopt a validated value set that restyles surfaces". Two
@@ -60,10 +60,47 @@ pub const TOKEN_ROLES: &[&str] = &[
     "chart_5",
 ];
 
-/// The built-in presets shipped by Leg A. Enumerated here so the
-/// typed-settings registry (and any backend validation of custom-pack
-/// ids) rejects unknown preset ids without an ad-hoc option list.
-pub const BUILTIN_PRESET_OPTIONS: &[&str] = &["tangerine", "slate", "high_contrast", "copper"];
+/// The built-in presets shipped by Leg A, repointed to Marula in wave41
+/// lane 2. Enumerated here so the typed-settings registry (and any backend
+/// validation of custom-pack ids) rejects unknown preset ids without an
+/// ad-hoc option list.
+///
+/// `slate` and `copper` are dropped (wave41 D8) and `tangerine` is renamed
+/// to `marula`; migration 0115 moves the stored values.
+pub const BUILTIN_PRESET_OPTIONS: &[&str] = &["marula", "marula-warm", "high_contrast"];
+
+/// The roles a theme is ALLOWED to move (wave41 D8, brand spec §4.5).
+///
+/// A theme restyles surfaces; it does not redefine what a colour means. The
+/// primary and its ink-to-gold mode flip, `destructive`, every status pair and
+/// the assistant inversion are the brand's, and an interface built against
+/// them has to keep working when the brand is restyled. The roles below are
+/// the complement: neutrals, chrome and the accent TINT.
+///
+/// Mirrored by SHIFTABLE_AXIS in packages/ui/src/theme-tokens.ts; the two are
+/// asserted equal by the frontend preset test, so they cannot drift.
+pub const SHIFTABLE_PRESET_ROLES: &[&str] = &[
+    "background",
+    "surface",
+    "overlay",
+    "border",
+    "text",
+    "text_secondary",
+    "text_muted",
+    "accent",
+    "on_accent",
+    "chart_1",
+    "chart_2",
+    "chart_3",
+    "chart_4",
+    "chart_5",
+];
+
+/// True when `role` is outside the shiftable axis, i.e. a preset naming it is
+/// trying to restyle a brand semantic and must be rejected at the boundary.
+pub fn is_brand_fixed_role(role: &str) -> bool {
+    TOKEN_ROLES.contains(&role) && !SHIFTABLE_PRESET_ROLES.contains(&role)
+}
 
 /// Per-role caps (deny oversized declarations at the boundary).
 pub const MAX_TOKENS_PER_MODE: usize = 23; // exactly the role vocabulary
@@ -147,7 +184,7 @@ impl ThemePackManifest {
     }
 
     /// Coerces a RAW theme export — a tweakcn export
-    /// (`design/tangerine/tangerine.json` is the vendored exemplar:
+    /// (`design/marula/marula.json` is the vendored exemplar:
     /// `{ name, cssVars: { light, dark } }` over the shadcn variable
     /// vocabulary, frequently `oklch()`) or a shadcn registry-item theme
     /// (same `cssVars` shape) — into a validated [`ThemePackManifest`].
@@ -444,16 +481,16 @@ mod tests {
 
     #[test]
     fn oklch_conversion_round_trips_the_vendored_primary() {
-        // tangerine.json carries primary as oklch(0.6397 0.172 36.4421)
-        // and the vendored sRGB value in tokens.css is #E05D38.
-        let hex = oklch_to_hex("oklch(0.6397 0.172 36.4421)").unwrap();
-        let exact = "#e05d38".to_string();
+        // marula.json carries primary as oklch(0.2800 0.0180 300.0000)
+        // and the vendored sRGB value in tokens.css is #2B2A33.
+        let hex = oklch_to_hex("oklch(0.2800 0.0180 300.0000)").unwrap();
+        let exact = "#2b2a33".to_string();
         let chan = |h: &str, i: usize| i64::from_str_radix(&h[1 + i..3 + i], 16).unwrap();
         for i in 0..3 {
             let diff = chan(&hex, i).abs_diff(chan(&exact, i));
             assert!(
                 diff <= 2,
-                "converted {hex} channel {i} is {diff} off #e05d38"
+                "converted {hex} channel {i} is {diff} off #2b2a33"
             );
         }
     }
@@ -461,26 +498,26 @@ mod tests {
     #[test]
     fn tweakcn_export_coerces_without_hand_translation() {
         let export = json!({
-            "$schema": "https://tweakcn.com/r/themes/tangerine.json",
-            "name": "Tangerine Ruby",
+            "$schema": "https://tweakcn.com/r/themes/marula.json",
+            "name": "Marula",
             "type": "registry:style",
             "cssVars": {
                 "light": {
-                    "background": "oklch(0.9383 0.0042 236.4993)",
+                    "background": "oklch(0.9750 0.0040 90.0000)",
                     "card": "#ffffff",
-                    "foreground": "oklch(0.3211 0 0)",
-                    "primary": "#e05d38",
-                    "primary-foreground": "#ffffff",
-                    "chart-1": "#86a7c8",
-                    "sidebar": "oklch(0.903 0.0046 258.3257)"
+                    "foreground": "oklch(0.2800 0.0180 300.0000)",
+                    "primary": "#2b2a33",
+                    "primary-foreground": "#e8b83a",
+                    "chart-1": "#a8641a",
+                    "sidebar": "oklch(0.9600 0.0050 90.0000)"
                 },
                 "dark": {
-                    "background": "#1c2433"
+                    "background": "#2b2a33"
                 }
             }
         });
         let pack = ThemePackManifest::coerce_from_export(&export).unwrap();
-        assert_eq!(pack.name, "Tangerine Ruby");
+        assert_eq!(pack.name, "Marula");
         // Mapped roles carry; unmapped (sidebar) are dropped silently.
         assert!(pack.light.as_ref().unwrap().get("background").is_some());
         assert!(pack.light.as_ref().unwrap().get("chart_1").is_some());

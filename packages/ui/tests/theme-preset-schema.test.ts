@@ -1,7 +1,12 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import {
   BUILTIN_PRESETS,
   DEFAULT_PRESET,
+  defaultPresetFor,
+  PLATFORM_PRESET_DEFAULT,
   FIXED_ROLES,
   MARULA,
   MARULA_WARM,
@@ -15,6 +20,7 @@ import {
   presetViolation,
   shiftableValues,
   TOKEN_ROLES,
+  type Platform,
 } from "../src/theme-tokens";
 import { contrastRatio } from "../src/tokens";
 
@@ -56,6 +62,32 @@ describe("theme preset schema v1", () => {
       expect(presetById(preset.id)).toBe(preset);
     }
     expect(DEFAULT_PRESET).toBe("marula");
+  });
+
+  it("picks the platform default from one place (wave41 D2)", () => {
+    // Neutral for web and desktop, cream for mobile. Both stay selectable; this
+    // is only what a user gets before an org or per-user override.
+    expect(defaultPresetFor("web")).toBe("marula");
+    expect(defaultPresetFor("desktop")).toBe("marula");
+    expect(defaultPresetFor("mobile")).toBe("marula-warm");
+    for (const platform of Object.keys(PLATFORM_PRESET_DEFAULT)) {
+      expect(isBuiltinPreset(defaultPresetFor(platform as Platform)), platform).toBe(true);
+    }
+    // The mobile default must actually be the cream column, not the Neutral one.
+    expect(MARULA_WARM.light.background).not.toBe(MARULA.light.background);
+  });
+
+  it("pins the native app to the same mobile default", () => {
+    // The native app repeats the id because it cannot import this module.
+    // Read the file rather than trusting a comment.
+    const native = readFileSync(
+      join(process.cwd(), "../../native/src/ui/tokens.ts"),
+      "utf8",
+    );
+    const declared = native.match(/PLATFORM_PRESET_ID\s*=\s*"([\w-]+)"/)?.[1];
+    expect(declared, "native/src/ui/tokens.ts must declare PLATFORM_PRESET_ID").toBe(
+      defaultPresetFor("mobile"),
+    );
   });
 
   it("retired presets are gone from the built-in range", () => {

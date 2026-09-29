@@ -29,6 +29,32 @@
 export const THEME_TOKEN_SCHEMA_VERSION = 1;
 export const DEFAULT_PRESET = "marula";
 
+/**
+ * The per-platform default, before any org or per-user override (wave41 D2).
+ *
+ * The brand spec picks the Neutral column for web and desktop and the cream
+ * column for mobile, and both stay user-selectable. This map is where that
+ * decision is written down once, so the two platforms cannot disagree about it
+ * and so the answer to "which theme is the default?" is a lookup rather than an
+ * argument.
+ *
+ * The native app cannot import this module, so it repeats the value in
+ * `native/src/ui/tokens.ts` and the test below pins both to the same preset id
+ * by reading that file.
+ */
+export const PLATFORM_PRESET_DEFAULT = {
+  web: "marula",
+  desktop: "marula",
+  mobile: "marula-warm",
+} as const;
+
+export type Platform = keyof typeof PLATFORM_PRESET_DEFAULT;
+
+/** The preset a user gets on `platform` when nothing has been chosen. */
+export function defaultPresetFor(platform: Platform): string {
+  return PLATFORM_PRESET_DEFAULT[platform];
+}
+
 /** The closed semantic role vocabulary (mirrors TOKEN_ROLES in Rust). */
 export const TOKEN_ROLES = [
   "background",
@@ -160,6 +186,36 @@ export const MARULA: ThemePreset = {
 };
 
 /**
+ * The brand-owned status pairs and destructive, factored so every preset that
+ * must not restyle them says so once instead of repeating the eight values.
+ * Spreading these is exactly what the D8 checker exists to fail.
+ */
+const brandFixed: Record<"light" | "dark", TokenValues> = {
+  light: {
+    destructive: "#b42318",
+    status_success_fg: "#3b5222",
+    status_success_bg: "#e4edcb",
+    status_warning_fg: "#6b4308",
+    status_warning_bg: "#fbebbf",
+    status_danger_fg: "#b42318",
+    status_danger_bg: "#fde8e5",
+    status_neutral_fg: "#4a443d",
+    status_neutral_bg: "#efece6",
+  },
+  dark: {
+    destructive: "#fb8a80",
+    status_success_fg: "#d6e5a8",
+    status_success_bg: "#2e3a25",
+    status_warning_fg: "#f2cd6b",
+    status_warning_bg: "#4a3a1a",
+    status_danger_fg: "#fb8a80",
+    status_danger_bg: "#3b1a18",
+    status_neutral_fg: "#e2cfa9",
+    status_neutral_bg: "#3a342a",
+  },
+};
+
+/**
  * `marula-warm` — the cream column of the same pack, and the mobile default
  * (wave41 D2). It moves the neutral axis and nothing else: the canvas warms,
  * the chrome warms with it, and the border cools a touch. The status pairs are
@@ -181,19 +237,7 @@ export const MARULA_WARM: ThemePreset = {
     text_muted: "#6b6357",
     accent: "#f7e3a8",
     on_accent: "#6b4308",
-    destructive: "#b42318",
-    status_success_fg: "#3b5222",
-    status_success_bg: "#e4edcb",
-    status_warning_fg: "#6b4308",
-    status_warning_bg: "#fbebbf",
-    status_danger_fg: "#b42318",
-    status_danger_bg: "#fde8e5",
-    // Brand-fixed, so identical to `marula`. The rendered pack varies its
-    // offline tint between the two light columns; that variation is the canvas
-    // showing through, not a second status pair, so the warm column takes the
-    // brand value and the warm canvas supplies the warmth.
-    status_neutral_fg: "#4a443d",
-    status_neutral_bg: "#efece6",
+    ...brandFixed.light,
     chart_1: "#a8641a",
     chart_2: "#5e7f3a",
     chart_3: "#d9822b",
@@ -203,10 +247,22 @@ export const MARULA_WARM: ThemePreset = {
   dark: MARULA.dark,
 };
 
+/**
+ * `high_contrast` — the accessibility preset. It buys its contrast on the
+ * shiftable axis: pure black on paper, white on black, a 1px border at 3:1,
+ * and muted text pushed to AA rather than 4.6:1. Those are the levers that
+ * actually help low-vision users.
+ *
+ * It does NOT restyle the status pairs or `destructive`. D8 fixes those across
+ * every preset, and the reason is not aesthetic: an interface that signals
+ * "danger" in one colour and "destructive" in another has two meanings for one
+ * job, and that is worse in a high-contrast theme, not better. The brand pairs
+ * already clear AA, so nothing is lost.
+ */
 export const HIGH_CONTRAST: ThemePreset = {
   id: "high_contrast",
   label: "High contrast",
-  description: "Accessibility preset — plain paper, pure ink, boosted status pairs.",
+  description: "Accessibility preset — paper, pure ink, hard borders. Brand status pairs unchanged.",
   light: {
     background: "#ffffff",
     surface: "#f2f2f2",
@@ -217,15 +273,7 @@ export const HIGH_CONTRAST: ThemePreset = {
     text_muted: "#3a4147",
     accent: "#f7e3a8",
     on_accent: "#5c3606",
-    destructive: "#8b1a15",
-    status_success_fg: "#134f22",
-    status_success_bg: "#d8f0dc",
-    status_warning_fg: "#5c3606",
-    status_warning_bg: "#fbe8b8",
-    status_danger_fg: "#8b1a15",
-    status_danger_bg: "#fde0dd",
-    status_neutral_fg: "#33393e",
-    status_neutral_bg: "#dfe2e4",
+    ...brandFixed.light,
     chart_1: "#26416b",
     chart_2: "#8f2f18",
     chart_3: "#0f5a3a",
@@ -242,15 +290,7 @@ export const HIGH_CONTRAST: ThemePreset = {
     text_muted: "#cdd6da",
     accent: "#3a3944",
     on_accent: "#e8b83a",
-    destructive: "#ff9b92",
-    status_success_fg: "#58f585",
-    status_success_bg: "#0b2b13",
-    status_warning_fg: "#ffd04e",
-    status_warning_bg: "#3d2400",
-    status_danger_fg: "#ff9b9b",
-    status_danger_bg: "#450a0a",
-    status_neutral_fg: "#dde3e6",
-    status_neutral_bg: "#272b2e",
+    ...brandFixed.dark,
     chart_1: "#96b9e8",
     chart_2: "#ffbf8f",
     chart_3: "#9be6c8",
