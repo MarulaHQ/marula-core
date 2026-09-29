@@ -2,9 +2,9 @@
 //
 // Purpose: the SDK client attaches the in-memory access token on every
 // typed call but never retries. Native sessions outlive an access-token TTL,
-// so the app injects this wrapper into MeridianClient: clone the request
+// so the app injects this wrapper into MarulaClient: clone the request
 // up-front, replay it once with a freshly rotated token when the server
-// answers 401. Refresh itself is single-flighted by MeridianClient.
+// answers 401. Refresh itself is single-flighted by MarulaClient.
 //
 // Non-purpose: no retry loops (one attempt), no queueing, no logging.
 

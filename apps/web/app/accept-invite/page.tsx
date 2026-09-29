@@ -15,9 +15,9 @@
 // preserved on the shared device.
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Card, Input, Label, Spinner } from "@meridian/ui";
-import { applyTheme } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Card, Input, Label, Spinner } from "@marula-core/ui";
+import { applyTheme } from "@marula-core/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 
@@ -147,7 +147,7 @@ function AcceptInviteInner(): ReactNode {
           Set your password
         </h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Finish setting up your Meridian account. You will land signed in.
+          Finish setting up your Marula account. You will land signed in.
         </p>
         <form className="m-rise mt-4 grid gap-3" onSubmit={redeem} style={{ animationDelay: "40ms" }}>
           <div className="grid gap-1">

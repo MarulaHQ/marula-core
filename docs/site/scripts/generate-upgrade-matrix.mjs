@@ -53,7 +53,7 @@ lines.push(`## Notes`);
 lines.push("");
 lines.push(`- The N−2 matrix anchors on ${rows[0]?.version ?? "—"} onward; earlier captures were scoped out of their wave (fixtures README).`);
 lines.push(`- Jump distance at upgrade time: up to two releases behind; further jumps apply the same machinery sequentially.`);
-lines.push(`- Run the preflight before upgrading: \`meridian upgrade --check\` — see the [upgrade how-to](../how-to/upgrade.md).`);
+lines.push(`- Run the preflight before upgrading: \`marula upgrade --check\` — see the [upgrade how-to](../how-to/upgrade.md).`);
 lines.push(`- CI cross-checks customization tables against anything a migration modifies; customizations are migrated as data ([explanation](../explanation/customizations-are-data.md)).`);
 
 writeFileSync(outPath, lines.join("\n") + "\n");

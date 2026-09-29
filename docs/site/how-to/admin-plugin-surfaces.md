@@ -1,4 +1,4 @@
-# How to extend Meridian with plugin surfaces
+# How to extend Marula with plugin surfaces
 
 > **Audience:** admin and plugin developers — registering widgets,
 > automation actions, report render kinds, and custom-field validators
@@ -13,7 +13,7 @@
 ## One sentence of doctrine
 
 > "A plugin ships declarations, never code your browser or your rule
-> engine runs — Meridian renders and executes every surface itself."
+> engine runs — Marula renders and executes every surface itself."
 
 ## 1. What a plugin may contribute
 
@@ -52,7 +52,7 @@ disabling, or revoking) the install removes the registrations.
   execution time — a rule whose plugin action lost its registration
   skips that action instead of guessing.
 - **Report builder:** registered plugin render kinds are listed under
-  the chart picker. The selectable chart vocabulary stays Meridian's own
+  the chart picker. The selectable chart vocabulary stays Marula's own
   trusted set.
 - **Board fields:** field editors offer registered validators; once a
   field carries one, every value write passes the schema check, and a
@@ -80,9 +80,9 @@ details live in `plugins/wasm/README.md`.
 
 ## What you learned
 
-- Plugins contribute **declarations**; Meridian renders and executes
+- Plugins contribute **declarations**; Marula renders and executes
   them through its own trusted components.
 - Every surface section is gated by its own capability, shown on
   consent, and deregisters the moment the grant goes away.
-- The reference plugins plus `@meridian/plugin-kit` are the template for
+- The reference plugins plus `@marula-core/plugin-kit` are the template for
   building your own.

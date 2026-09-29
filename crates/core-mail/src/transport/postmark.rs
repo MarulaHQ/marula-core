@@ -1,7 +1,7 @@
 //! Postmark adapter — the reference hosted MailTransport (§2 email row).
 //!
 //! Purpose: POST one JSON message to Postmark's `/email` endpoint carrying
-//! Meridian's threading headers; map HTTP/ErrorCode failures onto
+//! Marula's threading headers; map HTTP/ErrorCode failures onto
 //! TransportError so the ledger can retry.
 //!
 //! None-mode note: none — choose `EMAIL_TRANSPORT=none` to keep mail

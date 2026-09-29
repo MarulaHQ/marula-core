@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-**Do not open a public issue.** Use GitHub's private vulnerability reporting (Security tab → Report a vulnerability), or email `security@meridian.dev` with `[meridian]` in the subject.
+**Do not open a public issue.** Use GitHub's private vulnerability reporting (Security tab → Report a vulnerability), or email `security@marula.app` with `[marula]` in the subject.
 
 Include: affected version/commit, reproduction steps or PoC, impact assessment, and any logs — never real tenant data.
 

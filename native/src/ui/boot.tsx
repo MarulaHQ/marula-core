@@ -10,7 +10,7 @@ export function BootScreen() {
   const { tokens } = useTheme();
   return (
     <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: topInset }]}>
-      <Text style={[styles.wordmark, { color: tokens.text }]}>Meridian</Text>
+      <Text style={[styles.wordmark, { color: tokens.text }]}>Marula</Text>
       <ActivityIndicator color={tokens.primary} />
     </View>
   );

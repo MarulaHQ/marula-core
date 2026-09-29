@@ -9,9 +9,9 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 async fn pool() -> PgPool {
-    let url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("csat queries need MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("csat queries need MARULA_TEST_DATABASE_URL or DATABASE_URL");
     sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
         .connect(&url)

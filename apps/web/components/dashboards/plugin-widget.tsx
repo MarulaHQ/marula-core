@@ -12,7 +12,7 @@
 // capability gates.
 "use client";
 
-import { Card } from "@meridian/ui";
+import { Card } from "@marula-core/ui";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 

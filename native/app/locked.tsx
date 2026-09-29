@@ -27,7 +27,7 @@ export default function LockedScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: tokens.background }]}>
-      <Text style={[styles.wordmark, { color: tokens.text }]}>Meridian</Text>
+      <Text style={[styles.wordmark, { color: tokens.text }]}>Marula</Text>
       <Card style={styles.card}>
         <Text style={[styles.body, { color: tokens.textSecondary }]}>
           {biometricAvailable

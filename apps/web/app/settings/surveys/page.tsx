@@ -12,7 +12,7 @@
  * the transport selection itself (Email page owns that).
  */
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, FieldHint, Input, Label } from "@meridian/ui";
+import { Button, Card, FieldHint, Input, Label } from "@marula-core/ui";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 

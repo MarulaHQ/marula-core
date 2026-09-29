@@ -19,7 +19,7 @@ use axum::Json;
 use core_mail::hmac;
 use serde_json::json;
 
-pub const SIGNATURE_HEADER: &str = "X-Meridian-Signature";
+pub const SIGNATURE_HEADER: &str = "X-Marula-Signature";
 
 /// POST /api/webhooks/email-inbound — accepts one normalized message.
 ///
@@ -73,7 +73,7 @@ mod tests {
         let mut config = Config::from_env_allow_dev_fallback().expect("test config");
         config.email_inbound_hmac_secret = with_secret.then(|| "test-secret".to_string());
         config.database_url =
-            "postgres://meridian_app:meridian_app@localhost:1/never_connected".into();
+            "postgres://marula_app:marula_app@localhost:1/never_connected".into();
         AppState {
             // Lazy pool: never dialed because HMAC rejects first.
             pool: sqlx::postgres::PgPoolOptions::new()
@@ -81,7 +81,7 @@ mod tests {
                 .connect_lazy(&config.database_url)
                 .expect("lazy pool"),
             reporting: crate::state::AppState::reporting_pool_lazy(
-                "postgres://meridian_app:meridian_app@localhost:1/never_connected",
+                "postgres://marula_app:marula_app@localhost:1/never_connected",
             )
             .expect("lazy reporting pool"),
             config: std::sync::Arc::new(config.clone()),

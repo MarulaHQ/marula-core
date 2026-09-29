@@ -10,7 +10,7 @@
 // Geometry rule of record: padding 1.5 mm on every edge; text + Code128
 // start at the left padding; the QR is bottom-right.
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 export type LabelTemplate = components["schemas"]["LabelTemplateView"];
 export type LabelRender = components["schemas"]["LabelRenderResponse"];
@@ -100,6 +100,6 @@ export function qrPositionMm(label: ResolvedLabel): { xMm: number; yMm: number }
 /** Deep-link kind → the surface an in-app scan should open. */
 export function deepLinkTarget(deepLink: string | null | undefined): string | null {
   if (!deepLink) return null;
-  const match = /^meridian:\/\/([a-z-]+)\//.exec(deepLink);
+  const match = /^marula:\/\/([a-z-]+)\//.exec(deepLink);
   return match?.[1] ?? null;
 }

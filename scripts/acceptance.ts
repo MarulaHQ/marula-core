@@ -1,7 +1,7 @@
 /**
  * Stage-1 acceptance harness (BUILD-PROMPT §7): create ticket → work it with
  * a timer → close → time entry appears. Runs against a live core-api using
- * @meridian/sdk itself — so it doubles as an end-to-end SDK test.
+ * @marula-core/sdk itself — so it doubles as an end-to-end SDK test.
  *
  * Usage: pnpm accept [--url http://localhost:8080] [--ws-url ws://localhost:8081] [--skip-perf]
  * Requires: core-api running with its Postgres. Checks [1]–[9] need ONLY that.
@@ -13,7 +13,7 @@
  *
  * Non-purpose: no UI driving (that was verified via Playwright separately).
  */
-import { MeridianClient } from "../packages/sdk/src/index.js";
+import { MarulaClient } from "../packages/sdk/src/index.js";
 
 const API_URL = process.argv.includes("--url")
   ? process.argv[process.argv.indexOf("--url") + 1]
@@ -39,7 +39,7 @@ async function typed(call, name) {
   return data;
 }
 
-const owner = new MeridianClient({ baseUrl: API_URL });
+const owner = new MarulaClient({ baseUrl: API_URL });
 
 // 1. Register bootstraps org + Owner + defaults.
 console.log(`\n[1] register org (${slug})`);
@@ -126,7 +126,7 @@ check("refresh returns new tokens", rotated.access_token.length > 0 && rotated.r
 
 // 9. A second client cannot see the first org's data (RLS backstop).
 console.log("\n[9] tenant isolation");
-const outsider = new MeridianClient({ baseUrl: API_URL });
+const outsider = new MarulaClient({ baseUrl: API_URL });
 await outsider.register({
   org_name: "Outsider Co",
   org_slug: `${slug}-out`,

@@ -12,7 +12,7 @@ attaches to the views, not the physical tables.
 
 ## Connect
 
-Point any Postgres client or BI tool at your Meridian database with a
+Point any Postgres client or BI tool at your Marula database with a
 read-only role.
 
 ## Query the stable views

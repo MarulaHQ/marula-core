@@ -21,8 +21,8 @@ import path from "node:path";
 const here = path.dirname(new URL(import.meta.url).pathname);
 const repoRoot = path.resolve(here, "../..");
 
-const EMAIL = process.env.MERIDIAN_E2E_EMAIL ?? "owner@demo.local";
-const PASSWORD = process.env.MERIDIAN_E2E_PASSWORD ?? "demo-password-123";
+const EMAIL = process.env.MARULA_E2E_EMAIL ?? "owner@demo.local";
+const PASSWORD = process.env.MARULA_E2E_PASSWORD ?? "demo-password-123";
 
 const FIXTURES = {
   van: { name: "Van 7", code: "VAN-7", kind: "van" },
@@ -49,7 +49,7 @@ const FIXTURES = {
 function apiBase() {
   const arg = process.argv[2];
   if (arg !== undefined) return arg.replace(/\/$/, "");
-  if (process.env.MERIDIAN_API_URL) return process.env.MERIDIAN_API_URL.replace(/\/$/, "");
+  if (process.env.MARULA_API_URL) return process.env.MARULA_API_URL.replace(/\/$/, "");
   const envPath = path.join(repoRoot, "e2e/.e2e-stack.env");
   if (existsSync(envPath)) {
     const env = Object.fromEntries(

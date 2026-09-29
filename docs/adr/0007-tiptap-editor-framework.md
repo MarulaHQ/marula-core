@@ -42,7 +42,7 @@ most extensions; paid surface is complete feature bundles, not components) and
   §6): no closed SaaS in the open core's critical path.
 - **Community extensions are the normal path**, not an exception: editor work
   prefers composing/reaching for OSS Tiptap extensions; only where no extension
-  exists do we write one first, and Meridian-specific extensions (KB embeds against
+  exists do we write one first, and Marula-specific extensions (KB embeds against
   the allowlist registry per ADR 0004, RelatedAssetLink records, resolution-note
   taxonomy pickers) are regular Tiptap extensions published from `plugins/`.
 - Server-side content validation lives in `crates/core-kb`: schema-check on write,

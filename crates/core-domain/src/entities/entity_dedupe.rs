@@ -171,7 +171,7 @@ pub struct EntityMerge {
 }
 
 /// The durable operator mapping a reconciliation accept writes: one row
-/// per (source system, vendor org id), pointing at one Meridian client.
+/// per (source system, vendor org id), pointing at one Marula client.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ClientOrgMap {
@@ -450,7 +450,7 @@ pub struct DedupeRunOutcome {
 // ---- client org_map reconciliation proposals -------------------------------
 
 /// One deterministic proposal linking a vendor org label to an existing
-/// Meridian client (reviewable, never auto-applied).
+/// Marula client (reviewable, never auto-applied).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct OrgReconcileProposal {

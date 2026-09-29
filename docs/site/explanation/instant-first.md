@@ -7,7 +7,7 @@
 ## The idea
 
 Software for people doing real work must never make them wait to *see* their
-own action. Meridian renders the intended outcome immediately (optimistic
+own action. Marula renders the intended outcome immediately (optimistic
 render) and then reconciles against the authoritative response from the
 server. The UI never polls to "check if it worked" — the mutation response
 is the truth.

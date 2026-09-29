@@ -30,8 +30,8 @@ import {
   Td,
   Th,
   Tr,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiBaseUrl, loadTokens } from "../lib/api";
 import { friendlyMutationText } from "../lib/error-copy";

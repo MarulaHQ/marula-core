@@ -66,7 +66,7 @@ export const ORG_STEP_LABELS: Record<string, { title: string; blurb: string; cta
   },
   feeder: {
     title: "Connect a feeder connector (optional)",
-    blurb: "NinjaOne, IT Glue or Auvix can feed configurations and devices into Meridian automatically.",
+    blurb: "NinjaOne, IT Glue or Auvix can feed configurations and devices into Marula automatically.",
     cta: "Go to Imports",
   },
   ai: {

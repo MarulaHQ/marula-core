@@ -1,6 +1,6 @@
 # core-mail
 
-The email edge for Meridian: trait boundaries plus adapters, no database.
+The email edge for Marula: trait boundaries plus adapters, no database.
 
 ## Purpose
 

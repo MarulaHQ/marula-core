@@ -1,7 +1,7 @@
 // Typed scan routing + print-target helpers (Wave 32 lane 5,
 // `p32-labels-scanning`).
 import { describe, expect, it } from "vitest";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   accepts,
   rejectionCopy,
@@ -28,7 +28,7 @@ function resolution(overrides: Partial<ScanResolutionView>): ScanResolutionView 
     device_asset_id: null,
     display_name: "Cat6 patch cable (1 m)",
     secondary: "C6-1M",
-    deep_link: "meridian://stock-item/00000000-0000-4000-8000-000000000010",
+    deep_link: "marula://stock-item/00000000-0000-4000-8000-000000000010",
     is_tool: false,
     item_kind: "consumable",
     serial_status: null,
@@ -140,7 +140,7 @@ describe("print targets", () => {
         },
       ],
       barcode: { token: "sku", data: "C6-1M", y_mm: 12.0, height_mm: 7.1, width_mm: 47.8 },
-      qr: { data: "meridian://stock-item/x", y_mm: 9.9, size_mm: 14.0 },
+      qr: { data: "marula://stock-item/x", y_mm: 9.9, size_mm: 14.0 },
       dropped_lines: 0,
     };
     const input = {

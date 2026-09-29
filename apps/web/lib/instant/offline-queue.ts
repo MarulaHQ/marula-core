@@ -17,7 +17,7 @@ export interface QueuedWrite {
   path: string;
   /** Full request body; already carries idempotency_key (+ version). */
   body: unknown;
-  /** Human label for surfacing ("Set status Waiting on MER-12"). */
+  /** Human label for surfacing ("Set status Waiting on MAR-12"). */
   describe: string;
   entityId?: string;
   /**
@@ -59,7 +59,7 @@ export interface OfflineQueueOptions {
   outcomeHistory?: number;
 }
 
-const QUEUE_KEY = "meridian-instant-outbox";
+const QUEUE_KEY = "marula-instant-outbox";
 
 export class OfflineQueue {
   private readonly storage: OfflineQueueOptions["storage"];

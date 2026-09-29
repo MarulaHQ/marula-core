@@ -35,9 +35,9 @@ describe("feedWedge", () => {
   });
 
   it("treats the deep-link payload (colons and slashes) as plain characters", () => {
-    const { state, at } = burst("meridian://stock-item/abc");
+    const { state, at } = burst("marula://stock-item/abc");
     const done = feedWedge(state, { key: "Enter", at: at + 8 });
-    expect(done.result).toEqual({ kind: "scan", text: "meridian://stock-item/abc" });
+    expect(done.result).toEqual({ kind: "scan", text: "marula://stock-item/abc" });
   });
 
   it("does not scan slow human typing", () => {

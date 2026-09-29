@@ -71,7 +71,7 @@ impl Identity {
     /// changed; a changed fingerprint means the source moved.
     pub fn fingerprint(record: &SyncRecord) -> String {
         let mut hasher = Sha256::new();
-        hasher.update(b"meridian-dms-sync-record-v1");
+        hasher.update(b"marula-dms-sync-record-v1");
         hasher.update(record.external_id.as_bytes());
         hasher.update(b"\x00");
         hasher.update(record.title.as_bytes());

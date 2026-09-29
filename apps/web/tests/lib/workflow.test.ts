@@ -2,7 +2,7 @@
 // shapes (typed against SDK request schemas), transition matrix
 // floor/explicit semantics, and checklist template draft behavior.
 import { describe, expect, it } from "vitest";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import type { StatusDraftState } from "../../lib/admin/workflow";
 import {
   categoryTone,

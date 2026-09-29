@@ -69,7 +69,7 @@ export function PanelLayout({
   return (
     <div
       ref={rootRef}
-      className={["meridian-layout", className].filter(Boolean).join(" ")}
+      className={["marula-layout", className].filter(Boolean).join(" ")}
       role="region"
       aria-label={label}
       data-collapsed={narrow ? "true" : undefined}
@@ -107,7 +107,7 @@ function SplitView(props: {
   const tracks: string[] = [];
   node.children.forEach((child, index) => {
     if (index > 0) {
-      tracks.push("var(--meridian-layout-divider-size)");
+      tracks.push("var(--marula-layout-divider-size)");
     }
     const minPx = subtreeAxisMinPx(child, direction);
     const fraction = Number((node.sizes[index] as number).toFixed(6));
@@ -140,7 +140,7 @@ function SplitView(props: {
 
   return (
     <div
-      className="meridian-split"
+      className="marula-split"
       data-direction={direction}
       data-depth={depth}
       style={
@@ -161,7 +161,7 @@ function PaneView({ node, context }: { node: PaneNode; context: RenderContext })
   return (
     <section
       id={node.id}
-      className="meridian-pane"
+      className="marula-pane"
       data-pane-id={node.id}
       style={{
         ...(node.minWidthPx !== undefined ? { minWidth: `${node.minWidthPx}px` } : {}),
@@ -174,14 +174,14 @@ function PaneView({ node, context }: { node: PaneNode; context: RenderContext })
         onClose={(tabId) => context.controller.closeTab(node.id, tabId)}
       />
       <div
-        id={`meridian-panel-${node.id}`}
+        id={`marula-panel-${node.id}`}
         role="tabpanel"
-        aria-labelledby={activeTab === null ? undefined : `meridian-tab-${activeTab.id}`}
-        className="meridian-pane__body"
+        aria-labelledby={activeTab === null ? undefined : `marula-tab-${activeTab.id}`}
+        className="marula-pane__body"
       >
         {activeTab !== null
           ? (context.renderPaneContent?.({ pane: node, tab: activeTab }) ?? null)
-          : (context.renderEmptyPane?.(node) ?? <div className="meridian-pane__empty">Empty pane</div>)}
+          : (context.renderEmptyPane?.(node) ?? <div className="marula-pane__empty">Empty pane</div>)}
       </div>
     </section>
   );

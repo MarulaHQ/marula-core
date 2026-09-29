@@ -1,20 +1,20 @@
 //! NinjaOne edge — deliberately THIN.
 //!
-//! Purpose: translate Meridian ticket events into NinjaOne API calls. In
+//! Purpose: translate Marula ticket events into NinjaOne API calls. In
 //! NONE MODE (no NinjaOne credentials) the same code path runs and only
 //! logs the action it WOULD take, so operators can validate wiring with
 //! zero third-party subscriptions (standalone-first doctrine).
 
 import type { Config } from "./config.js";
 import { noneMode } from "./config.js";
-import type { TicketSummary } from "./meridian.js";
+import type { TicketSummary } from "./marula.js";
 
 interface NinjaActivity {
   activityType: string;
   activityContent: string;
 }
 
-/** Builds the NinjaOne device-activity note for one Meridian event. */
+/** Builds the NinjaOne device-activity note for one Marula event. */
 export function buildActivity(event: {
   type: string;
   ticket?: TicketSummary;
@@ -23,8 +23,8 @@ export function buildActivity(event: {
     ? `[${event.ticket.number}] ${event.ticket.title}`
     : "(ticket details not included)";
   return {
-    activityType: "MERIDIAN_EVENT",
-    activityContent: `Meridian event ${event.type} for ${ticket}`,
+    activityType: "MARULA_EVENT",
+    activityContent: `Marula event ${event.type} for ${ticket}`,
   };
 }
 

@@ -35,7 +35,7 @@ const WS_URL = (() => {
   return u.toString();
 })();
 const JWT_SECRET = process.env.NOTIF_JWT_SECRET ?? "notif-harness-secret";
-const PG_CONTAINER = process.env.NOTIF_PG_CONTAINER ?? "meridian-notif";
+const PG_CONTAINER = process.env.NOTIF_PG_CONTAINER ?? "marula-notif";
 
 let passed = 0;
 const failures: string[] = [];
@@ -171,7 +171,7 @@ check("owner identity resolves", Boolean(orgId));
 const teammateId = crypto.randomUUID();
 const teammateEmail = `terry.mate@${slug}.test`;
 execSync(
-  `docker exec ${PG_CONTAINER} psql -U meridian -d meridian -c ` +
+  `docker exec ${PG_CONTAINER} psql -U marula -d marula -c ` +
     `"INSERT INTO users (id, org_id, email, display_name, password_hash, timezone)
       VALUES ('${teammateId}', '${orgId}', '${teammateEmail}', 'Terry Mate', 'harness-no-login', 'UTC')
       ON CONFLICT DO NOTHING"`.replace(/\s+/g, " "),

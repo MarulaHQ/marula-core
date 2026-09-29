@@ -4,7 +4,7 @@
 // specs; every spec reads the theme through the harness fixture, and theme-
 // specific assertions (dark parity) live in the flows that need them.
 //
-// Authenticated harness against the seeded demo env (meridian seed-demo):
+// Authenticated harness against the seeded demo env (marula seed-demo):
 // tokens are seeded into localStorage per page — the same keys the app's
 // AuthProvider reads — so specs exercise the real app bootstrap, not a mock.
 //

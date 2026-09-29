@@ -1,28 +1,28 @@
-//! @meridian/connector-ninjaone — reference NinjaOne connector.
+//! @marula-core/connector-ninjaone — reference NinjaOne connector.
 //!
-//! Purpose: demonstrate the Meridian connector pattern end-to-end using
-//! ONLY the public API via @meridian/sdk and signed webhook deliveries:
+//! Purpose: demonstrate the Marula connector pattern end-to-end using
+//! ONLY the public API via @marula-core/sdk and signed webhook deliveries:
 //!
 //!   verify   — typed SDK read (proves key + scope + connectivity)
-//!   listen   — HTTP receiver for Meridian's signed webhooks; matched
+//!   listen   — HTTP receiver for Marula's signed webhooks; matched
 //!              ticket events are pushed to NinjaOne, or LOGGED ONLY in
 //!              documented none mode when NinjaOne is unconfigured.
 //!
-//! Non-purpose: no Meridian internals imported, no ticket writes back
-//! into Meridian beyond the scoped key's grants, no credential vaulting.
+//! Non-purpose: no Marula internals imported, no ticket writes back
+//! into Marula beyond the scoped key's grants, no credential vaulting.
 
 import { createServer } from "node:http";
 import { loadConfig, noneMode } from "./config.js";
-import { connectMeridian, verifyAccess } from "./meridian.js";
+import { connectMarula, verifyAccess } from "./marula.js";
 import { SIGNATURE_HEADER, verifyDelivery } from "./receiver.js";
 import { buildActivity, pushActivity } from "./ninjaone.js";
 
 async function commandVerify(): Promise<void> {
   const config = loadConfig();
-  const client = connectMeridian(config);
+  const client = connectMarula(config);
   const tickets = await verifyAccess(client);
   console.log(
-    `Meridian OK at ${config.meridianBaseUrl}; tickets:read grants ${tickets.length} recent ticket(s).`,
+    `Marula OK at ${config.marulaBaseUrl}; tickets:read grants ${tickets.length} recent ticket(s).`,
   );
   for (const t of tickets) console.log(`  ${t.number}  ${t.title}`);
   if (noneMode(config)) {
@@ -32,9 +32,9 @@ async function commandVerify(): Promise<void> {
 
 async function commandListen(): Promise<void> {
   const config = loadConfig();
-  if (!config.meridianWebhookSecret) {
+  if (!config.marulaWebhookSecret) {
     throw new Error(
-      "MERIDIAN_WEBHOOK_SECRET is required for listen — copy it from webhook creation.",
+      "MARULA_WEBHOOK_SECRET is required for listen — copy it from webhook creation.",
     );
   }
   const server = createServer((req, res) => {
@@ -50,7 +50,7 @@ async function commandListen(): Promise<void> {
       const presented = req.headers[SIGNATURE_HEADER];
       const signatureHeader = Array.isArray(presented) ? presented[0] : presented;
       const outcome = verifyDelivery(
-        config.meridianWebhookSecret,
+        config.marulaWebhookSecret,
         rawBody,
         signatureHeader,
       );

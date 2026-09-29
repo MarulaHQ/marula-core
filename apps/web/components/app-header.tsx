@@ -11,9 +11,9 @@
 // results; notification preferences live at /settings/notifications.
 "use client";
 
-import { useTheme } from "@meridian/ui";
-import type { Theme } from "@meridian/ui";
-import { Button, Kbd } from "@meridian/ui";
+import { useTheme } from "@marula-core/ui";
+import type { Theme } from "@marula-core/ui";
+import { Button, Kbd } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -103,7 +103,7 @@ function SearchLauncher() {
 /**
  * Dev-tools entry (TASKLIST DX3): ONE probe call to GET /api/dev/status on
  * mount; the entry renders ONLY when the API answers `enabled: true` —
- * which it only does with MERIDIAN_DEV_TOOLS=1. Any failure (404, network,
+ * which it only does with MARULA_DEV_TOOLS=1. Any failure (404, network,
  * non-JSON) silently hides it: no dev surface by default.
  */
 function DevToolsLink({ onNavigate }: { onNavigate?: () => void }) {
@@ -235,7 +235,7 @@ export function AppHeader() {
           className="text-sm font-semibold tracking-tight max-md:hidden"
           style={{ color: "var(--m-text)" }}
         >
-          Meridian
+          Marula
         </span>
       </div>
 

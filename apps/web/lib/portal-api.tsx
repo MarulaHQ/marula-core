@@ -2,7 +2,7 @@
 //
 // Purpose: token persistence is MEMORY-ONLY under a separate module jar
 // (Wave 19 lane 5 — the portal refresh secret rides the httpOnly
-// meridian_portal cookie the API sets), typed fetch helpers for
+// marula_portal cookie the API sets), typed fetch helpers for
 // the /api/v1/portal/* surface, and a React context owning portal auth state.
 // Deliberately independent of lib/api.tsx so staff and portal sessions can
 // never bleed into each other in one browser profile.
@@ -22,7 +22,7 @@ import { resolveApiBaseUrl } from "./api";
  * anchor keeping it off undocumented legacy aliases forever. */
 type PortalPath = `/api/v1/portal/${string}`;
 
-const TOKENS_KEY = "meridian-portal-tokens";
+const TOKENS_KEY = "marula-portal-tokens";
 
 export interface PortalTokens {
   access_token: string;
@@ -93,14 +93,14 @@ function saveTokens(tokens: PortalTokens): void {
   window.localStorage.removeItem(`${TOKENS_KEY}-exp`);
 }
 
-/** The ambient double-submit csrf value (`meridian_csrf=...`). */
+/** The ambient double-submit csrf value (`marula_csrf=...`). */
 function csrfHeader(): string | null {
   if (typeof document === "undefined") return null;
   const pair = document.cookie
     .split(";")
     .map((c) => c.trim())
-    .find((c) => c.startsWith("meridian_csrf="));
-  return pair ? pair.slice("meridian_csrf=".length) : null;
+    .find((c) => c.startsWith("marula_csrf="));
+  return pair ? pair.slice("marula_csrf=".length) : null;
 }
 
 export function clearPortalTokens(): void {
@@ -129,8 +129,8 @@ async function portalFetch<T>(
     const csrf = document.cookie
       .split(";")
       .map((c) => c.trim())
-      .find((c) => c.startsWith("meridian_csrf="));
-    if (csrf) headers["x-meridian-csrf"] = csrf.slice("meridian_csrf=".length);
+      .find((c) => c.startsWith("marula_csrf="));
+    if (csrf) headers["x-marula-csrf"] = csrf.slice("marula_csrf=".length);
   }
   const response = await fetch(`${API_BASE}${path}`, {
     ...rest,
@@ -140,7 +140,7 @@ async function portalFetch<T>(
       ...(rest.headers as Record<string, string> | undefined),
     },
   });
-  if (response.status === 401 && (stored?.access_token || document.cookie.includes("meridian_portal="))) {
+  if (response.status === 401 && (stored?.access_token || document.cookie.includes("marula_portal="))) {
     // Single rotation attempt; a second 401 means truly logged out. The
     // body credential is used when held; otherwise the httpOnly cookie
     // pair drives the rotation (empty body).
@@ -149,7 +149,7 @@ async function portalFetch<T>(
       credentials: "include",
       headers: {
         "content-type": "application/json",
-        ...(csrfHeader() ? { "x-meridian-csrf": csrfHeader() as string } : {}),
+        ...(csrfHeader() ? { "x-marula-csrf": csrfHeader() as string } : {}),
       },
       body: JSON.stringify(
         stored?.refresh_token
@@ -168,7 +168,7 @@ async function portalFetch<T>(
         authorization: `Bearer ${next.access_token}`,
         ...(rest.headers as Record<string, string> | undefined),
       };
-      if (csrfHeader()) retryHeaders["x-meridian-csrf"] = csrfHeader() as string;
+      if (csrfHeader()) retryHeaders["x-marula-csrf"] = csrfHeader() as string;
       const retry = await fetch(`${API_BASE}${path}`, {
         ...rest,
         credentials: "include",

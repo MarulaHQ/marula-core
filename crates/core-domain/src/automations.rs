@@ -429,7 +429,7 @@ mod tests {
             ticket_id: Uuid::now_v7(),
             org_id: Uuid::now_v7(),
             board_id: Uuid::now_v7(),
-            number: "MER-42".into(),
+            number: "MAR-42".into(),
             title: "Mail server down".into(),
             priority: Priority::P1,
             category: TicketStatusCategory::Open,

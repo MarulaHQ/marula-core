@@ -225,7 +225,7 @@ pub async fn password_reset_request(
             },
             |reset_link| {
                 (
-                    "Reset your Meridian password".to_string(),
+                    "Reset your Marula password".to_string(),
                     format!(
                         "A password reset was requested for your account.\n\n\
                      Open this single-use link (valid {RESET_TTL_SECS} minutes):\n{reset_link}\n\n\
@@ -338,9 +338,9 @@ pub async fn email_verification_request(
                 },
                 |verify_link| {
                     (
-                        "Verify your Meridian email".to_string(),
+                        "Verify your Marula email".to_string(),
                         format!(
-                            "Confirm your Meridian account email.\n\n\
+                            "Confirm your Marula account email.\n\n\
                          Open this single-use link (valid {VERIFY_TTL_SECS}):\n{verify_link}"
                         ),
                     )
@@ -447,7 +447,7 @@ pub async fn magic_link_request(
                 audit_action: "auth.magic_link_requested",
             },
             |signin_link| (
-                "Your Meridian sign-in link".to_string(),
+                "Your Marula sign-in link".to_string(),
                 format!(
                     "Open this single-use link to sign in (valid {MAGIC_TTL_SECS}):\n{signin_link}\n\n\
                      If it wasn't you, ignore this mail."

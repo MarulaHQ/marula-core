@@ -7,7 +7,7 @@
 //!   audit-only typed decline record);
 //! * signature verification is DENY-BY-DEFAULT: the `Stripe-Signature`
 //!   v1 scheme (`t=…,v1=<hmac-sha256(secret, "t.payload")>`) is checked
-//!   against `MERIDIAN_STRIPE_WEBHOOK_SECRET`, timestamp skew ≤ 5 min,
+//!   against `MARULA_STRIPE_WEBHOOK_SECRET`, timestamp skew ≤ 5 min,
 //!   and a request without/with a bad signature is a typed 403, never a
 //!   processed event;
 //! * idempotence: the provider_ref (the Stripe intent id from the
@@ -90,7 +90,7 @@ pub async fn receive(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let _ = extensions;
-    let secret = std::env::var("MERIDIAN_STRIPE_WEBHOOK_SECRET")
+    let secret = std::env::var("MARULA_STRIPE_WEBHOOK_SECRET")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -116,11 +116,11 @@ pub async fn receive(
         .unwrap_or("")
         .to_string();
     let org_id = intent
-        .pointer("/metadata/meridian_org_id")
+        .pointer("/metadata/marula_org_id")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let invoice_id = intent
-        .pointer("/metadata/meridian_invoice_id")
+        .pointer("/metadata/marula_invoice_id")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let amount_minor = intent.get("amount_received").and_then(|v| v.as_i64());
@@ -134,7 +134,7 @@ pub async fn receive(
         "payment_intent.succeeded" => {
             let (Some(org), Some(invoice), Some(amount)) = (org_id, invoice_id, amount_minor)
             else {
-                // Not a Meridian-tagged event (foreign webhook traffic) —
+                // Not a Marula-tagged event (foreign webhook traffic) —
                 // accepted (200) but not acted on: webhooks MUST answer
                 // 200 even for foreign/unknown events so Stripe retries
                 // don't hammer this endpoint.

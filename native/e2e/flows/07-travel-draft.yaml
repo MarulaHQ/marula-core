@@ -1,5 +1,5 @@
 # Travel: log a draft from Today, submit it, and see the state flip.
-appId: tech.meridian.app
+appId: org.marula.app
 ---
 - launchApp
 - extendedWaitUntil:

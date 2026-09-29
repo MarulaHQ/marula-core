@@ -1,5 +1,5 @@
 #!/bin/sh
-# Meridian backup runner — nightly loop.
+# Marula backup runner — nightly loop.
 #   BACKUP_AT  cron-ish spec in "HH:MM" (default 03:00 UTC)
 #   WAL env file present  -> WAL-G continuous backup (PITR-capable)
 #   RESTIC env file present -> restic snapshot over restic-unset-specified sources
@@ -9,8 +9,8 @@ set -ue
 BACKUP_AT="${BACKUP_AT:-03:00}"
 BACKUP_HOST="${PGHOST:-postgres}"
 BACKUP_PORT="${PGPORT:-5432}"
-BACKUP_USER="${PG_USER:-meridian}"
-BACKUP_DB="${PGDATABASE:-meridian}"
+BACKUP_USER="${PG_USER:-marula}"
+BACKUP_DB="${PGDATABASE:-marula}"
 PGDUMPS_DIR="${PGDUMPS_DIR:-/pgdumps}"
 
 until_next_run() {
@@ -40,8 +40,8 @@ run_once() {
     mkdir -p "${PGDUMPS_DIR:-/pgdumps}"
     log "pg_dump nightly"
     if ! pg_dump -h "$BACKUP_HOST" -p "$BACKUP_PORT" -U "$BACKUP_USER" \
-      -Fc "${BACKUP_DB:-meridian}" \
-      -f "${PGDUMPS_DIR:-/pgdumps}/meridian_$(date -u +%Y%m%d).dump"; then
+      -Fc "${BACKUP_DB:-marula}" \
+      -f "${PGDUMPS_DIR:-/pgdumps}/marula_$(date -u +%Y%m%d).dump"; then
       log "ERROR: pg_dump failed"
     fi
   fi

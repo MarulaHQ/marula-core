@@ -39,7 +39,7 @@ describe("OfflineQueue — durability", () => {
     const storage = memoryStorage();
     const q = queueWith(async () => ({ outcome: "accepted" as const }), storage);
     q.enqueue(op("k1"));
-    const raw = storage.getItem("meridian-instant-outbox");
+    const raw = storage.getItem("marula-instant-outbox");
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw ?? "[]") as QueuedWrite[];
     expect(parsed).toHaveLength(1);
@@ -66,7 +66,7 @@ describe("OfflineQueue — durability", () => {
     await second.replay();
     expect(seen).toEqual(["k1", "k2"]);
     expect(second.pendingCount).toBe(0);
-    expect(storage.getItem("meridian-instant-outbox")).toBeNull();
+    expect(storage.getItem("marula-instant-outbox")).toBeNull();
   });
 });
 
@@ -167,9 +167,9 @@ describe("OfflineQueue — surfacing", () => {
     }));
     const seen: { describe: string; reason?: string }[] = [];
     q.onOutcome((o) => seen.push({ describe: o.describe, reason: o.reason }));
-    q.enqueue(op("k1", "Set status Waiting on MER-12"));
+    q.enqueue(op("k1", "Set status Waiting on MAR-12"));
     await q.replay();
-    expect(seen[0]?.describe).toBe("Set status Waiting on MER-12");
+    expect(seen[0]?.describe).toBe("Set status Waiting on MAR-12");
     expect(seen[0]?.reason).toBe("forbidden");
   });
 });

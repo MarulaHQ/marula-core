@@ -11,8 +11,8 @@
 // Workbench tokens, light+dark, ≤120ms transitions, responsive.
 "use client";
 
-import { Button, Card, Checkbox, EmptyState, FieldHint, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Table, Tag, Td, Th, Tr } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Button, Card, Checkbox, EmptyState, FieldHint, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Table, Tag, Td, Th, Tr } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
 import { friendlyMutationText } from "../../lib/error-copy";

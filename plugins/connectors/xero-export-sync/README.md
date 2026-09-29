@@ -1,6 +1,6 @@
 # xero-export-sync
 
-Purpose: first-party HTTP adapter that pushes Meridian invoices and
+Purpose: first-party HTTP adapter that pushes Marula invoices and
 payments into a customer-provided Xero tenant over the PUBLIC Xero
 accounting API — the Stage-2 acceptance pattern proven by the NinjaOne
 and Hudu reference connectors, in Rust crate form (`ExportSink` trait +
@@ -10,10 +10,10 @@ Status: implemented (Wave 9 lane `p9-adapters-export`, first tranche).
 
 ## What it does
 
-- `ExportSink::push_invoice` maps a Meridian invoice to
+- `ExportSink::push_invoice` maps a Marula invoice to
   `POST /api.xro/2.0/Invoices` (`Type: ACCREC`, `Contact.ContactID`,
   `LineItems`, `InvoiceNumber`, `CurrencyCode`) and carries
-  `[meridian:invoice:{id}]` in `Reference` so the vendor-side record
+  `[marula:invoice:{id}]` in `Reference` so the vendor-side record
   stays auditable back to its source.
 - `ExportSink::push_payment` maps a payment to
   `POST /api.xro/2.0/Payments`, linking to the previously exported
@@ -28,7 +28,7 @@ Status: implemented (Wave 9 lane `p9-adapters-export`, first tranche).
 ## Credentials (BYOK, sealed)
 
 Xero uses OAuth2 with the `accounting.transactions` scope. The operator
-supplies their own access token + tenant id; Meridian hosts no OAuth app
+supplies their own access token + tenant id; Marula hosts no OAuth app
 and performs no token refresh. Tokens ride the core's generic BYOK
 sealed store (`byok_secrets`, provider id `xero`): AES-256-GCM at rest,
 admin-gated writes, never logged, never returned by any API. When a

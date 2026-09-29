@@ -17,7 +17,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Card, FieldHint, Label } from "@meridian/ui";
+import { Button, Card, FieldHint, Label } from "@marula-core/ui";
 import { api, useRequireAuth } from "../../../lib/api";
 import { friendlyMutationText } from "../../../lib/error-copy";
 import { SettingsHeader } from "../../../components/settings/settings-shell";

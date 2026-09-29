@@ -5,7 +5,7 @@
 
 ## Prerequisites
 
-- A signed-in session in the browser app, or the Meridian desktop app.
+- A signed-in session in the browser app, or the Marula desktop app.
 - On the web, a pop-up-permissive browser. If your browser blocks the new
   window, the app tells you right away and offers a direct link — it never
   fails silently.
@@ -61,14 +61,14 @@ way your other Mac apps do:
   big it was. If a monitor is unplugged overnight, windows come back
   on-screen — nothing hides on a display that is no longer there.
 - **Window menu.** Minimize and zoom live in the Window menu, along with
-  bring-all-to-front, like every Mac app. Tabs do not: Meridian windows
+  bring-all-to-front, like every Mac app. Tabs do not: Marula windows
   stay separate, because separate windows are the point.
 - **Tray.** The menu-bar icon opens a new ticket window, the dispatch
   board, or stock lookup without touching the main window.
-- **Links open the right window.** Scanning or opening a `meridian://`
+- **Links open the right window.** Scanning or opening a `marula://`
   link (from a QR label, say) brings forward the window for that ticket or
   stock item — or opens a new one if no window has it.
-- **One app at a time.** Launching Meridian a second time just brings the
+- **One app at a time.** Launching Marula a second time just brings the
   running app forward.
 - **Updates wait for your work.** If any window still has unsaved edits,
   "Restart & update" tells you which situation you are in instead of

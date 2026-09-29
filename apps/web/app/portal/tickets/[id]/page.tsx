@@ -20,7 +20,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../../../lib/error-copy";
-import { Button, Card, Label, Spinner, StatusTag, Tag, Textarea, type StatusTone } from "@meridian/ui";
+import { Button, Card, Label, Spinner, StatusTag, Tag, Textarea, type StatusTone } from "@marula-core/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {

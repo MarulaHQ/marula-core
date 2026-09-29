@@ -1,0 +1,32 @@
+Marula Open PSA — self-hosted PSA core.
+
+{{ if .Values.ingress.enabled }}
+
+Web: {{ .Values.ingress.host }}
+API: {{ .Values.ingress.host }}/api (spec: /openapi.json)
+{{- else }}
+
+1. Expose the API and web services:
+
+   kubectl port-forward svc/{{ include "marula.fullname" . }}-core-api 8080:{{ .Values.service.coreApi.port }}
+   kubectl port-forward svc/{{ include "marula.fullname" . }}-web 3000:3000
+
+   API spec: http://localhost:8080/openapi.json
+{{- end }}
+
+IMPORTANT before installing beyond an evaluation:
+
+- {{ if .Values.existingSecret }}Using existingSecret "{{ .Values.existingSecret }}".{{ else }}A Secret was generated from inline values — set secrets.jwtSecret and
+  secrets.appSecretKey (envelope encryption for BYOK/webhook/connector
+  secrets) before real use.{{ end }}
+- Images are digest-pinned per release policy: set images.*.digest from the
+  release's published SBOM/provenance attestations (digestPinningEnforced).
+- Set images.web.nextPublicApiUrl (web.nextPublicApiUrl) to the URL your
+  BROWSER uses to reach the API; it is baked into the client bundle.
+- Migrations run automatically as a pre-upgrade hook; the chain is
+  forward-only. Run `marula upgrade --check` against a DB copy + manifest
+  before upgrading (docs/upgrade-compatibility-policy.md §5/§7).
+{{- if .Values.mailpit.enabled }}
+
+- Mailpit (mailpit.enabled=true) is a DEV mail sink: all outbound mail is
+  captured at http://localhost:8025 when port-forwarded.{{ end }}

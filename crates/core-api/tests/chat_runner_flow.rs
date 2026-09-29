@@ -33,9 +33,9 @@ async fn test_state() -> (PgPool, Router) {
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("chat runner e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("chat runner e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect(&admin_url).await.expect("pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");
@@ -191,7 +191,7 @@ fn turn_body(surface_key: &str, ticket_id: Option<Uuid>) -> Value {
     let mut body = json!({
         "surface_key": surface_key,
         "messages": [
-            { "role": "system", "content": "You are Meridian's in-product assistant." },
+            { "role": "system", "content": "You are Marula's in-product assistant." },
             { "role": "user", "content": "help me with this" }
         ],
         "session_opener": true,
@@ -223,7 +223,7 @@ async fn seed_admit_kit(app: &Router, owner: &str, member_id: Uuid, surface_key:
         Some(owner),
         Some(json!({
             "provider": "openai",
-            "model": "meridian-test-chat",
+            "model": "marula-test-chat",
             "label": "Chat Runner Test",
             "capabilities": ["chat", "completion", "tools"],
             "cost_weight": 1,
@@ -491,7 +491,7 @@ async fn hard_cap_refuses_typed_at_the_edge_and_rate_limit_answers_429() {
                 user_id: member_id,
                 surface: "general_chat".into(),
                 provider: "openai".into(),
-                model: "meridian-test-chat".into(),
+                model: "marula-test-chat".into(),
                 prompt_tokens: 10,
                 completion_tokens: 0,
                 cost_weight: 1,

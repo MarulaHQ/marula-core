@@ -9,8 +9,8 @@
 // the surfaces that host it.
 "use client";
 
-import { Button, Card, EmptyState, Spinner, Tag } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Button, Card, EmptyState, Spinner, Tag } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";

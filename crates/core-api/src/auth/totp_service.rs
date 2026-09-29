@@ -50,7 +50,7 @@ fn instance_for_verification(secret_base32: &str, account_name: &str) -> Result<
     let bytes = data_encoding::BASE32_NOPAD
         .decode(secret_base32.to_ascii_uppercase().as_bytes())
         .map_err(|_| "stored secret is not valid base32".to_string())?;
-    build_totp(&bytes, account_name, "Meridian")
+    build_totp(&bytes, account_name, "Marula")
 }
 
 /// Verifies `code` against the current time with ±[`DRIFT_STEPS`] drift.
@@ -207,11 +207,11 @@ mod tests {
 
     #[test]
     fn enrollment_material_is_unique_and_urlshaped() {
-        let a = new_enrollment("user@x.test", "Meridian").unwrap();
-        let b = new_enrollment("user@x.test", "Meridian").unwrap();
+        let a = new_enrollment("user@x.test", "Marula").unwrap();
+        let b = new_enrollment("user@x.test", "Marula").unwrap();
         assert_ne!(a.secret_base32, b.secret_base32);
         assert!(a.otpauth_url.starts_with("otpauth://totp/"));
-        assert!(a.otpauth_url.contains("issuer=Meridian"));
+        assert!(a.otpauth_url.contains("issuer=Marula"));
         assert!(a.secret_bytes.len() >= 20);
     }
 }

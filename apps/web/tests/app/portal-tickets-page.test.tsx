@@ -14,7 +14,7 @@ vi.mock("next/navigation", () => ({
 
 function seedPortalTokens(): void {
   window.localStorage.setItem(
-    "meridian-portal-tokens",
+    "marula-portal-tokens",
     JSON.stringify({
       access_token: "a",
       refresh_token: "r",
@@ -27,7 +27,7 @@ function seedPortalTokens(): void {
 const TICKETS: Array<Record<string, unknown>> = [
   {
     id: "t1",
-    number: "MER-100",
+    number: "MAR-100",
     title: "Mail server down",
     status_id: "st1",
     category: "in_progress",
@@ -38,7 +38,7 @@ const TICKETS: Array<Record<string, unknown>> = [
   },
   {
     id: "t2",
-    number: "MER-101",
+    number: "MAR-101",
     title: "Laptop imaging",
     status_id: "st2",
     category: "waiting",
@@ -49,7 +49,7 @@ const TICKETS: Array<Record<string, unknown>> = [
   },
   {
     id: "t3",
-    number: "MER-102",
+    number: "MAR-102",
     title: "Docs cleanup",
     status_id: "st3",
     category: "closed",
@@ -60,7 +60,7 @@ const TICKETS: Array<Record<string, unknown>> = [
   },
   {
     id: "t4",
-    number: "MER-103",
+    number: "MAR-103",
     title: "Printer offline",
     status_id: "st4",
     category: "open",
@@ -105,7 +105,7 @@ describe("/portal/tickets", () => {
       </PortalAuthProvider>,
     );
     expect(await screen.findByText("Mail server down")).toBeInTheDocument();
-    expect(screen.getByText("MER-100")).toBeInTheDocument();
+    expect(screen.getByText("MAR-100")).toBeInTheDocument();
     expect(screen.getByText("Laptop imaging")).toBeInTheDocument();
     expect(screen.getAllByText("Waiting").length).toBeGreaterThan(0);
     expect(screen.getAllByText("P4")).toHaveLength(1);

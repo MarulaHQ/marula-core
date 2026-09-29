@@ -1,7 +1,7 @@
 // WorkBar — the dark bottom work bar (Wave 15 lane 6, mockup paradigm).
 //
 // Purpose: the restyled docked ACTIVE TIMER bar per the canonical mockup
-// (design/mockups/meridian-ticket-workbench-html-mockup-v2.html): live
+// (design/mockups/marula-ticket-workbench-html-mockup-v2.html): live
 // work-dot + mono elapsed digits, work meta (ticket number · title ·
 // preserved pause-reason chip), a quick note input (posts an internal
 // ticket comment through the instant-first envelope), and the primary
@@ -16,8 +16,8 @@
 // where per-ticket start lives.
 "use client";
 
-import { StatusTag } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { StatusTag } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api, useAuth } from "../lib/api";

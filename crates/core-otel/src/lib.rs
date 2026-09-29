@@ -1,7 +1,7 @@
 //! core-otel — the shared OpenTelemetry baseline (TASKLIST 2.18).
 //!
-//! Purpose: one place where every Meridian process (core-api, realtime,
-//! worker, meridian-cli) initializes tracing + metrics so that spans and
+//! Purpose: one place where every Marula process (core-api, realtime,
+//! worker, marula-core-cli) initializes tracing + metrics so that spans and
 //! metrics flow to an OTLP collector when — and only when —
 //! `OTEL_EXPORTER_OTLP_ENDPOINT` is set. It also owns the redaction rules
 //! for span attributes (`redact`) and the shared metric instruments
@@ -39,7 +39,7 @@
 //! `OTEL_TRACES_SAMPLER`-style env passthrough left to the SDK defaults
 //! (parent-based always-on at this stage).
 //!
-//! Instrument naming: every metric is prefixed `meridian.` and documented
+//! Instrument naming: every metric is prefixed `marula.` and documented
 //! in `metrics` module docs together with what a dashboard should chart.
 
 pub mod filter;

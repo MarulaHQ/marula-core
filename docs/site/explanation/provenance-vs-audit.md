@@ -3,7 +3,7 @@
 > **Audience:** both — staff read provenance during disputes; admins own
 > both surfaces and the query posture.
 
-Meridian keeps **two** permanent records, and both are append-only. They
+Marula keeps **two** permanent records, and both are append-only. They
 are different tools that answer different questions, and confusing them
 is the most common documentation question the surfaces generate. This
 page keeps them distinct. (Their mechanics, provenance as a field-level write record and audit

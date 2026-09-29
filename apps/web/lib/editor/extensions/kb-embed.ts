@@ -1,5 +1,5 @@
 /**
- * Meridian KB-embed node (ADR 0007 scope; OSS Tiptap extension — MIT,
+ * Marula KB-embed node (ADR 0007 scope; OSS Tiptap extension — MIT,
  * authored in-house). The working canvas renders a placeholder card;
  * the READ path renders from core-kb's sanitized renderer, never this
  * shim. Embed URL policy stays server-side (rich.rs registry) — the
@@ -7,13 +7,13 @@
  */
 import { Node } from "@tiptap/core";
 
-export interface MeridianKbEmbedAttrs {
+export interface MarulaKbEmbedAttrs {
   src: string;
   title?: string;
 }
 
-export const MeridianKbEmbed = Node.create({
-  name: "meridianKbEmbed",
+export const MarulaKbEmbed = Node.create({
+  name: "marulaKbEmbed",
   group: "block",
   atom: true,
   draggable: true,
@@ -32,14 +32,14 @@ export const MeridianKbEmbed = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: 'figure[data-meridian-embed="kb"]' }];
+    return [{ tag: 'figure[data-marula-embed="kb"]' }];
   },
 
   renderHTML({ node }) {
     return [
       "figure",
       {
-        "data-meridian-embed": "kb",
+        "data-marula-embed": "kb",
         class: "kb-embed",
       },
       [

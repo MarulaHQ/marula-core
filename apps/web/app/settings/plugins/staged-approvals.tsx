@@ -11,8 +11,8 @@
 // at review time, exactly as uploaded.
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Card, EmptyState, Input, Spinner, Tag } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Card, EmptyState, Input, Spinner, Tag } from "@marula-core/ui";
 import { useEffect, useState } from "react";
 import { api } from "../../../lib/api";
 import { reasonCopy } from "../../../lib/error-copy";

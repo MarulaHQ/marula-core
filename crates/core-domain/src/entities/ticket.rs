@@ -152,7 +152,7 @@ mod tests {
         let t = Ticket {
             id: Uuid::now_v7(),
             org_id: Uuid::now_v7(),
-            number: TicketNumber("MER-1".into()),
+            number: TicketNumber("MAR-1".into()),
             board_id: board,
             status_id: Uuid::now_v7(),
             title: "t".into(),

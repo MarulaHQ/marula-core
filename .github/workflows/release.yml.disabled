@@ -50,19 +50,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: meridian-core-api
+          - image: marula-core-api
             dockerfile: deploy/Dockerfile.rust
             build_args: BIN=core-api
-          - image: meridian-realtime
+          - image: marula-realtime
             dockerfile: deploy/Dockerfile.rust
             build_args: BIN=realtime
-          - image: meridian-worker
+          - image: marula-worker
             dockerfile: deploy/Dockerfile.rust
             build_args: BIN=worker
-          - image: meridian-cli
+          - image: marula-core-cli
             dockerfile: deploy/Dockerfile.rust
-            build_args: BIN=meridian-cli
-          - image: meridian-web
+            build_args: BIN=marula-core-cli
+          - image: marula-web
             dockerfile: deploy/Dockerfile.web
             build_args: ""
     steps:
@@ -136,15 +136,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: meridian-core-api
+          - image: marula-core-api
             dockerfile: deploy/Dockerfile.rust
-          - image: meridian-realtime
+          - image: marula-realtime
             dockerfile: deploy/Dockerfile.rust
-          - image: meridian-worker
+          - image: marula-worker
             dockerfile: deploy/Dockerfile.rust
-          - image: meridian-cli
+          - image: marula-core-cli
             dockerfile: deploy/Dockerfile.rust
-          - image: meridian-web
+          - image: marula-web
             dockerfile: deploy/Dockerfile.web
     steps:
       - name: Log in to GHCR (pull-only)
@@ -185,8 +185,8 @@ jobs:
           version: v3.14.4
       - name: Lint + package
         run: |
-          helm lint deploy/helm/meridian
-          helm package deploy/helm/meridian -d dist/
+          helm lint deploy/helm/marula
+          helm package deploy/helm/marula -d dist/
       - name: Attach chart to release
         uses: softprops/action-gh-release@a4f117a9dd5572319a486154ec1147aebabd285c # v3.0.3
         with:

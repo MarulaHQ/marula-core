@@ -21,7 +21,7 @@ import { type, useTheme } from "@/ui/tokens";
 
 /** Quick payloads for the injector — one per frozen input class. */
 const SAMPLES: { label: string; value: string }[] = [
-  { label: "Deep link", value: "meridian://stock-item/00000000-0000-0000-0000-000000000000" },
+  { label: "Deep link", value: "marula://stock-item/00000000-0000-0000-0000-000000000000" },
   { label: "SKU", value: "RSV-SRV-004" },
   { label: "Serial", value: "SN-10004" },
   { label: "Location", value: "BIN-A1" },
@@ -34,7 +34,7 @@ export default function ScanScreen() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const { resolution, error, busy, resolve, clear } = useScanResolver();
 
-  // Deep-link handoff: meridian://scan-result?text=… resolves immediately.
+  // Deep-link handoff: marula://scan-result?text=… resolves immediately.
   // The injector field stays untouched so a paste in progress is never lost.
   useEffect(() => {
     if (injectedText !== undefined && injectedText !== "") {
@@ -57,7 +57,7 @@ export default function ScanScreen() {
           testID="scan-input"
           value={text}
           onChangeText={setText}
-          placeholder="meridian://stock-item/… or RSV-1234"
+          placeholder="marula://stock-item/… or RSV-1234"
           autoCapitalize="none"
           autoCorrect={false}
           onSubmitEditing={() => {

@@ -12,7 +12,7 @@
 // responses (the portal sign-in IS the attribution).
 "use client";
 
-import { Button, Card, EmptyState, Spinner } from "@meridian/ui";
+import { Button, Card, EmptyState, Spinner } from "@marula-core/ui";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import { portalApi, useRequirePortalAuth } from "../../../lib/portal-api";

@@ -3,7 +3,7 @@
 Status: GA packaging (Wave 20 lane 1 `p20-ga-packaging`) · Shell: Tauri 2 (ADR 0005)
 
 This document is the operator workflow for cutting a signed, auto-updating
-Meridian desktop release. **No private key, password, or notarization
+Marula desktop release. **No private key, password, or notarization
 credential is ever committed** — everything below runs from local secrets or
 CI secrets injected as environment variables.
 
@@ -11,7 +11,7 @@ CI secrets injected as environment variables.
 
 | Piece | Where |
 |---|---|
-| Icons (multi-size .ico, .icns, .png) regenerated from `meridian-ci/source/*.svg` | `scripts/generate-desktop-icons.sh` → `desktop/icons/` |
+| Icons (multi-size .ico, .icns, .png) regenerated from `marula-ci/source/*.svg` | `scripts/generate-desktop-icons.sh` → `desktop/icons/` |
 | Bundle config (targets `app`+`dmg`, category, copyright, min macOS 12, updater artifacts) | `desktop/tauri.conf.json` |
 | Updater plugin (channel endpoint + pubkey) | `desktop/tauri.conf.json` `plugins.updater` + `desktop/src/main.rs` registration |
 | Dev/test build (no bundle, `desktop` profile, shared target dir) | `scripts/build-desktop.sh` |
@@ -21,7 +21,7 @@ CI secrets injected as environment variables.
 Tauri's updater uses minisign signatures (`TAURI_SIGNING_PRIVATE_KEY`).
 
 ```sh
-pnpm tauri signer generate ~/.tauri/meridian.key
+pnpm tauri signer generate ~/.tauri/marula.key
 ```
 
 - Keep the **private key** + its password in your password manager / CI
@@ -34,7 +34,7 @@ pnpm tauri signer generate ~/.tauri/meridian.key
 ## 2. Build a signed bundle
 
 ```sh
-export TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/meridian.key)
+export TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/marula.key)
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD='…'
 pnpm tauri build            # full bundler: .app + .dmg + updater artifacts (.tar.gz + .sig)
 ```
@@ -59,7 +59,7 @@ Notes:
 The updater endpoint in `tauri.conf.json` is:
 
 ```
-https://updates.meridian.dev/desktop/{{target}}/{{arch}}/{{current_version}}
+https://updates.marula.app/desktop/{{target}}/{{arch}}/{{current_version}}
 ```
 
 Serve a static JSON manifest there (any static host / object store works;
@@ -70,7 +70,7 @@ next to the bundle (`latest.json` shape). Minimum fields:
 {
   "version": "0.1.0",
   "platforms": {
-    "darwin-aarch64": { "signature": "<contents of .sig>", "url": "https://…/Meridian.app.tar.gz" }
+    "darwin-aarch64": { "signature": "<contents of .sig>", "url": "https://…/Marula.app.tar.gz" }
   }
 }
 ```
@@ -79,19 +79,19 @@ next to the bundle (`latest.json` shape). Minimum fields:
   refuses downgrades and compares semver.
 - Rotate keys by adding a second pubkey context in the release notes and
   re-issuing the manifest (minisign trust is config-side).
-- The `updates.meridian.dev` host is the deployment-layer fact — point the
+- The `updates.marula.app` host is the deployment-layer fact — point the
   endpoints array at whatever host actually serves the channel and commit
   that change with the release.
 
 ## 4. Verify before shipping
 
 ```sh
-codesign --verify --deep --strict dist/Meridian.app
-spctl -a -vv dist/Meridian.app
+codesign --verify --deep --strict dist/Marula.app
+spctl -a -vv dist/Marula.app
 # updater artifact signature:
-minisign -Vm Meridian.app.tar.gz -P "$(jq -r .pubkey desktop/tauri.conf.json 2>/dev/null)" # or verify via tauri tooling
+minisign -Vm Marula.app.tar.gz -P "$(jq -r .pubkey desktop/tauri.conf.json 2>/dev/null)" # or verify via tauri tooling
 ```
 
 Launch smoke: open the built `.app` once on a clean machine profile
-(`~/Library/Application Support/Meridian` untouched) — first run applies all
+(`~/Library/Application Support/Marula` untouched) — first run applies all
 migrations and seeds the demo org (ADR 0005).

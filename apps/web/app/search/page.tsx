@@ -18,8 +18,8 @@
 "use client";
 
 import { friendlyMutationText } from "../../lib/error-copy";
-import { Button, EmptyState, Input, Spinner, Tag } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Button, EmptyState, Input, Spinner, Tag } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -41,7 +41,7 @@ const GROUP_LABEL: Record<string, string> = {
   document: "Documents",
 };
 
-const RECENT_KEY = "meridian.search.recent";
+const RECENT_KEY = "marula.search.recent";
 
 const GROUP_KIND_LABEL: Record<string, string> = {
   ticket: "ticket",

@@ -18,8 +18,8 @@ use tokio::sync::watch;
 /// One sweep over all due candidates; returns verdict jobs enqueued.
 ///
 /// Telemetry (TASKLIST 2.18): a `sla.sweep` span per pass (candidate +
-/// enqueued counts), a `meridian.sla.sweep.duration` histogram sample, and
-/// `meridian.sla.verdicts` counters classified by trigger class
+/// enqueued counts), a `marula.sla.sweep.duration` histogram sample, and
+/// `marula.sla.verdicts` counters classified by trigger class
 /// (risk/breach/escalation).
 pub async fn sweep_once(pool: &PgPool, batch_limit: i64) -> anyhow::Result<usize> {
     use tracing::Instrument as _;

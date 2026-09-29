@@ -1,4 +1,4 @@
-// Test setup for @meridian/web: DOM matchers plus the same jsdom shims
+// Test setup for @marula-core/web: DOM matchers plus the same jsdom shims
 // Radix primitives rely on as packages/ui (ResizeObserver, scrollIntoView,
 // pointer capture, matchMedia).
 import "@testing-library/jest-dom/vitest";
@@ -12,7 +12,7 @@ import { routedFetch } from "./helpers/fetch-router";
 // full suite runs). Double cleanup is a no-op.
 afterEach(() => cleanup());
 
-// Install the routed fetch BEFORE any app module imports @meridian/sdk —
+// Install the routed fetch BEFORE any app module imports @marula-core/sdk —
 // openapi-fetch captures the default fetch at client construction.
 vi.stubGlobal("fetch", routedFetch);
 

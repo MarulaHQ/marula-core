@@ -1,4 +1,4 @@
-//! core-mail — the email edge for Meridian (§4.7 traits-at-the-edge).
+//! core-mail — the email edge for Marula (§4.7 traits-at-the-edge).
 //!
 //! Purpose: define the `MailTransport` and `ScanProvider` trait boundaries
 //! every external email dependency sits behind, ship the adapters

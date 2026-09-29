@@ -4,7 +4,7 @@ Everything an organization configures (custom fields, board statuses,
 automations, webhook subscriptions, settings registry values) lives as
 declarative rows bound to stable semantic primitives. This is the
 [`docs/upgrade-compatibility-policy.md`](../../upgrade-compatibility-policy.md)
-§5 position, and it is the load-bearing idea behind Meridian's upgrade
+§5 position, and it is the load-bearing idea behind Marula's upgrade
 story.
 
 ## The problem it solves
@@ -28,13 +28,13 @@ changes are therefore not breaking changes.
 1. **Customization manifest** — a canonical, versioned export describing
    everything an org has customized. It doubles as backup documentation and
    as the input to the upgrade preflight.
-2. **Upgrade preflight** — `meridian upgrade --check` runs offline against
+2. **Upgrade preflight** — `marula upgrade --check` runs offline against
    a manifest + database copy and reports exactly which customizations touch
    constructs deprecated in the target version.
 
 ## What this costs, honestly
 
-Data-bound customization is less expressive than arbitrary code. Meridian
+Data-bound customization is less expressive than arbitrary code. Marula
 deliberately trades the last few percent of "do literally anything" for the
 property that every org can always leave, upgrade, or fork — which the
-[manifesto](why-meridian.md) names as the point.
+[manifesto](why-marula.md) names as the point.

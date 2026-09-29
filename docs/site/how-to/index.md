@@ -6,7 +6,7 @@ shows the safest, supported path to one goal. Concepts live in
 [reference](../reference/index.md).
 
 Every admin guide is tagged **Audience: admin** — you host or administer
-Meridian and own its settings. Where staff or clients get the same page,
+Marula and own its settings. Where staff or clients get the same page,
 the tag is **both** or points to the staff/client catalog below.
 
 ## Admin (settings-owner) tasks
@@ -70,7 +70,7 @@ Audience tag: **both** unless a guide is staff-only by nature.
   who-has-what, check-in, loan issue and return
 - [Work a day pack](staff-day-pack.md) — trips, the grab list, one-tap
   checkout, and tomorrow's list tonight
-- [Get help inside Meridian](get-help.md) — the ? help panel, guide
+- [Get help inside Marula](get-help.md) — the ? help panel, guide
   search, and turning feature tours off
 
 ## Client (portal user) guides

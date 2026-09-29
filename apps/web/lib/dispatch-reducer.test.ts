@@ -66,7 +66,7 @@ function tech(partial: Partial<Tech> = {}): Tech {
 function queueItem(partial: Partial<QueueItem> = {}): QueueItem {
   return {
     id: "t1",
-    number: "MER-1001",
+    number: "MAR-1001",
     title: "server down",
     priority: "p1",
     due_at: null,
@@ -275,7 +275,7 @@ describe("optimistic assign flow", () => {
       type: "drag_start",
       source: "queue",
       id: "t1",
-      title: "MER-1001 server down",
+      title: "MAR-1001 server down",
     });
     s = dispatchReducer(s, {
       type: "drop_assign",
@@ -289,7 +289,7 @@ describe("optimistic assign flow", () => {
     const inserted = first(s.technicians).appointments;
     expect(inserted).toHaveLength(1);
     expect(first(inserted).id).toBe("tmp-1");
-    expect(first(inserted).title).toBe("MER-1001 server down");
+    expect(first(inserted).title).toBe("MAR-1001 server down");
     expect(s.pending["tmp-1"]?.kind).toBe("assign");
   });
 
@@ -337,7 +337,7 @@ describe("optimistic assign flow", () => {
     // The hook then replaces the temp block via reconcile_upsert.
     s = dispatchReducer(s, {
       type: "reconcile_upsert",
-      block: block({ id: "real-1", title: "MER-1001 server down" }),
+      block: block({ id: "real-1", title: "MAR-1001 server down" }),
     });
     expect(first(s.technicians).appointments.map((a) => a.id)).toEqual(["real-1"]);
   });

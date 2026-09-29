@@ -18,7 +18,7 @@
 // contract-owned — the affinity flag is documentation, not a write path).
 "use client";
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   Button,
   Card,
@@ -29,7 +29,7 @@ import {
   Td,
   Th,
   Tr,
-} from "@meridian/ui";
+} from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 
 import { rejectionText } from "../../../lib/error-copy";

@@ -18,7 +18,7 @@
 
 "use client";
 
-import { applyTheme, setThemePreset, Button, Card } from "@meridian/ui";
+import { applyTheme, setThemePreset, Button, Card } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/api";
 

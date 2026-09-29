@@ -234,7 +234,7 @@ export default function MoreScreen() {
         />
         <ListRow
           title="Send a scan deep link"
-          subtitle="meridian://scan-result?text=… with a sample payload"
+          subtitle="marula://scan-result?text=… with a sample payload"
           onPress={() =>
             router.push(`/scan-result?text=${encodeURIComponent("RSV-SRV-004")}` as never)
           }
@@ -250,13 +250,13 @@ export default function MoreScreen() {
       <SectionHeader title="About" />
       <Card>
         <Text style={[styles.rowHint, { color: tokens.textMuted }]}>
-          Meridian {APP_VERSION} · Metro 8181 · web preview 8182
+          Marula {APP_VERSION} · Metro 8181 · web preview 8182
         </Text>
         {DEV_TOOLS_ENABLED ? <Mono muted>API {API_URL}</Mono> : null}
         {DEV_TOOLS_ENABLED ? <Mono muted>WS {WS_URL}</Mono> : null}
         <Text
           style={[styles.rowHint, { color: tokens.primary }]}
-          onPress={() => void Linking.openURL("https://meridian.tech/docs")}
+          onPress={() => void Linking.openURL("https://marula.app/docs")}
         >
           Documentation
         </Text>

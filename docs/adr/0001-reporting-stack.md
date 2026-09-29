@@ -44,7 +44,7 @@ Build option 3, with the following composition:
 - **External BI compatibility (escape hatch):** the documented read-model
   views double as the supported interface for Metabase/Superset/Grafana/
   PowerBI connecting directly to Postgres via a read-only reporting role.
-  Zero Meridian code required; documented operator recipe ships with R0.
+  Zero Marula code required; documented operator recipe ships with R0.
   In-app RBAC does NOT extend into these tools — operators grant views-level
   access consciously.
 

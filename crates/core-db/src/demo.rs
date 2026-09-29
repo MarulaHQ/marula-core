@@ -1,7 +1,7 @@
 //! Demo-org seeding and dev QA loops (TASKLIST DX1–DX2).
 //!
 //! Purpose: ONE deterministic demo dataset callable from two entrypoints —
-//! `meridian-cli seed-demo` (DX1) and the env-gated `/api/dev/*` surface
+//! `marula-core-cli seed-demo` (DX1) and the env-gated `/api/dev/*` surface
 //! (DX2). Fixed UUIDs/emails make re-runs stable: seeding is all-or-nothing
 //! per org and an existing demo org short-circuits with
 //! [`DemoError::AlreadySeeded`] instead of double-applying.
@@ -24,7 +24,7 @@
 //! Non-purpose: not a fixture framework (no DSL, no partial sets), not a
 //! production data generator (content is hand-written demo narrative), and
 //! NOT a production bootstrap — the whole module is only reachable behind
-//! `MERIDIAN_DEV_TOOLS=1` (CLI refuses without it; the API router is never
+//! `MARULA_DEV_TOOLS=1` (CLI refuses without it; the API router is never
 //! mounted).
 
 use crate::{set_org, DbError, DbResult};
@@ -33,16 +33,16 @@ use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-/// Deterministic demo UUID `n`: the ASCII bytes of "meridian" followed by a
+/// Deterministic demo UUID `n`: the ASCII bytes of "marula" followed by a
 /// 64-bit counter. Stable across processes by construction.
 pub const fn demo_uuid(n: u64) -> Uuid {
     Uuid::from_u128(0x6D65_7269_6469_616E_u128 << 64 | n as u128)
 }
 
-/// The demo org's fixed id ("Meridian Demo", slug `meridian-demo`).
+/// The demo org's fixed id ("Marula Demo", slug `marula-demo`).
 pub const DEMO_ORG_ID: Uuid = demo_uuid(1);
-pub const DEMO_ORG_NAME: &str = "Meridian Demo";
-pub const DEMO_ORG_SLUG: &str = "meridian-demo";
+pub const DEMO_ORG_NAME: &str = "Marula Demo";
+pub const DEMO_ORG_SLUG: &str = "marula-demo";
 pub const DEMO_TICKET_PREFIX: &str = "DEMO";
 /// Shared demo login password (argon2-hashed once per seed run).
 pub const DEMO_PASSWORD: &str = "demo-password-123";
@@ -70,7 +70,7 @@ pub struct DemoSeedOptions {
 pub fn derive_dev_seal_key(jwt_secret: &str) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(b"meridian-at-rest-secret-key:");
+    hasher.update(b"marula-at-rest-secret-key:");
     hasher.update(jwt_secret.as_bytes());
     hasher.finalize().into()
 }
@@ -2064,7 +2064,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     let webhook_id = demo_uuid(360);
     sqlx::query(
         "INSERT INTO webhooks (id, org_id, url, secret_encrypted, event_types, enabled, created_by)
-         VALUES ($1, $2, 'http://localhost:9099/meridian-demo-hook', $3, '{}', true, $4)",
+         VALUES ($1, $2, 'http://localhost:9099/marula-demo-hook', $3, '{}', true, $4)",
     )
     .bind(webhook_id)
     .bind(DEMO_ORG_ID)
@@ -2076,7 +2076,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         &mut tx,
         "webhook",
         webhook_id,
-        serde_json::json!({ "url": "http://localhost:9099/meridian-demo-hook" }),
+        serde_json::json!({ "url": "http://localhost:9099/marula-demo-hook" }),
     )
     .await?;
 
@@ -2632,7 +2632,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     }
 
     // --- org API key (settings/api-keys; hash keyed by the at-rest secret) ----
-    let demo_api_raw = "mrd_demo0000000000000000000000000000000000000000000000000000key";
+    let demo_api_raw = "mrl_demo0000000000000000000000000000000000000000000000000000key";
     use hmac::Mac;
     let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(&opts.seal_key)
         .map_err(|e| DemoError::Crypto(e.to_string()))?;
@@ -2640,7 +2640,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     let api_key_id = demo_uuid(795);
     sqlx::query(
         "INSERT INTO api_keys (id, org_id, name, key_hash, prefix, scopes, created_by)
-         VALUES ($1, $2, 'Demo connector', $3, 'mrd_demo0000', $4, $5)",
+         VALUES ($1, $2, 'Demo connector', $3, 'mrl_demo0000', $4, $5)",
     )
     .bind(api_key_id)
     .bind(DEMO_ORG_ID)
@@ -2964,7 +2964,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     // reuse the existing catalog row so reset→reseed converges.
     sqlx::query(
         "INSERT INTO plugin_catalog (id, slug, name, description, publisher, latest_version, interface_version)
-         VALUES ($1, 'sample-stock-ticker', 'Sample stock ticker', 'Demo plugin: ticker side panel.', 'meridian-demo', '1.0.0', 1)
+         VALUES ($1, 'sample-stock-ticker', 'Sample stock ticker', 'Demo plugin: ticker side panel.', 'marula-demo', '1.0.0', 1)
          ON CONFLICT (slug) DO NOTHING",
     )
     .bind(demo_uuid(870))

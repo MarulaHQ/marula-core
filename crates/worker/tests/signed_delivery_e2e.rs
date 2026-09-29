@@ -1,7 +1,7 @@
 //! End-to-end signed webhook delivery against a LOCAL HTTP SINK.
 //!
 //! Purpose: prove the OUTBOUND half of plugin runtime v1 without any
-//! Meridian internals — the production `ReqwestSink` delivers to a real
+//! Marula internals — the production `ReqwestSink` delivers to a real
 //! TCP listener, and the receiver-side verification (the same primitive
 //! first-party connectors ship) validates signature, timestamp binding,
 //! and replay rejection over actual wire bytes.
@@ -111,7 +111,7 @@ const SECRET: &[u8] = b"whsec_e2e_lane_secret";
 #[tokio::test]
 async fn sink_receives_signed_delivery_and_verifies_it() {
     let (addr, handle) = spawn_sink().await;
-    let url = format!("http://{addr}/meridian/hook");
+    let url = format!("http://{addr}/marula/hook");
     let body = envelope_body();
 
     // Sign exactly what we send — the production contract.
@@ -128,7 +128,7 @@ async fn sink_receives_signed_delivery_and_verifies_it() {
 
     let received = handle.await.expect("sink task");
     assert!(
-        received.request_line.starts_with("POST /meridian/hook "),
+        received.request_line.starts_with("POST /marula/hook "),
         "must hit the configured path: {}",
         received.request_line
     );

@@ -3,7 +3,7 @@
 // One truth: the server-backed timer session (GET /timers/active) is mapped
 // to this content state by native/src/live/timer-snapshot.ts; the app pushes
 // updates and the widget renders them. This file is compiled into the widget
-// extension, and native/modules/meridian-live-activity/ios/TimerActivityAttributes.swift
+// extension, and native/modules/marula-live-activity/ios/TimerActivityAttributes.swift
 // is compiled into the app's module — the two declarations must keep the
 // same name and shape or ActivityKit cannot match the activity to the
 // widget. native/tests/live-activity-parity.test.ts fails on drift.

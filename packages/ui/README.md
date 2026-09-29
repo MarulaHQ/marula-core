@@ -6,15 +6,15 @@
 ## Consuming
 
 ```ts
-import { Button, Tag, useTheme } from "@meridian/ui";
+import { Button, Tag, useTheme } from "@marula-core/ui";
 ```
 
 Import both stylesheets once at the app root, then initialize the theme:
 
 ```ts
-import "@meridian/ui/tokens.css";
-import "@meridian/ui/components.css";
-import { applyTheme, resolveInitialTheme } from "@meridian/ui";
+import "@marula-core/ui/tokens.css";
+import "@marula-core/ui/components.css";
+import { applyTheme, resolveInitialTheme } from "@marula-core/ui";
 
 applyTheme(resolveInitialTheme()); // sets data-theme on <html>
 ```

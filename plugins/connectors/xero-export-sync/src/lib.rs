@@ -1,10 +1,10 @@
 //! Xero export-sync adapter (TASKLIST Phase 3 adapters line).
 //!
-//! Purpose: push Meridian invoices and payments into a customer-provided
+//! Purpose: push Marula invoices and payments into a customer-provided
 //! Xero tenant over the PUBLIC Xero accounting API (`/api.xro/2.0/...`) —
 //! HTTP only, no vendor SDK. OAuth2 access tokens are operator-supplied
 //! (BYOK: sealed at rest in the core's `byok_secrets` store under provider
-//! id `xero`; Meridian hosts no OAuth app). Background sync scheduling is
+//! id `xero`; Marula hosts no OAuth app). Background sync scheduling is
 //! a future worker job — this crate is the edge adapter only.
 //!
 //! None mode: [`NoneExportSink`] is the shipped default — it performs zero
@@ -14,7 +14,7 @@
 //!
 //! Non-purpose: no OAuth token refresh (operators rotate the token in the
 //! BYOK store), no Xero contact/Account catalog management, no reverse
-//! (Xero→Meridian) import.
+//! (Xero→Marula) import.
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 // --- domain types (deliberately vendor-neutral and self-contained) ----------
 
-/// One invoice line Meridian asks the accounting system to record.
+/// One invoice line Marula asks the accounting system to record.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExportLine {
     pub description: String,
@@ -34,10 +34,10 @@ pub struct ExportLine {
     pub unit_amount_minor: i64,
 }
 
-/// The invoice Meridian exports.
+/// The invoice Marula exports.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExportInvoice {
-    /// Meridian invoice id (stable identity for idempotent re-pushes).
+    /// Marula invoice id (stable identity for idempotent re-pushes).
     pub invoice_id: Uuid,
     /// Human invoice number ("INV-000042") — surfaced as the vendor's
     /// external reference / invoice number where supported.
@@ -369,7 +369,7 @@ impl ExportSink for XeroClient {
             date: invoice.issue_date.to_string(),
             due_date: invoice.due_date.to_string(),
             invoice_number: invoice.number.clone(),
-            reference: format!("[meridian:invoice:{}]", invoice.invoice_id),
+            reference: format!("[marula:invoice:{}]", invoice.invoice_id),
             currency_code: invoice.currency.clone(),
         };
         let wire = serde_json::to_value(&body)

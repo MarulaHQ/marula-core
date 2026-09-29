@@ -42,9 +42,9 @@ async fn test_state_with_mail(
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("lane-6 e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("lane-6 e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect_admin(&admin_url).await.expect("admin pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     core_db::assert_rls_coverage(&pool)
@@ -251,7 +251,7 @@ async fn ticket_emails_list_inbound_outbound_reply_chains_and_scope() {
             subject: Some("Printer on fire".into()),
             from_address: "client@example.test".into(),
             from_name: Some("Client".into()),
-            to_addresses: vec!["help@meridian.test".into()],
+            to_addresses: vec!["help@marula.test".into()],
             body_text: Some("It is very much on fire.".into()),
             ticket_id: Some(ticket_id),
             comment_id: None,
@@ -270,7 +270,7 @@ async fn ticket_emails_list_inbound_outbound_reply_chains_and_scope() {
             in_reply_to: Some("INBOUND-1@client.test".into()),
             references: vec!["inbound-1@client.test".into()],
             subject: "Re: [TICKET] Printer on fire".into(),
-            from_address: "help@meridian.test".into(),
+            from_address: "help@marula.test".into(),
             from_name: None,
             to_addresses: vec!["client@example.test".into()],
             body_text: "On it.".into(),

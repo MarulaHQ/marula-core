@@ -3,7 +3,7 @@
 //
 // Purpose: a separate layout family under one URL prefix so client users
 // never see staff chrome (no multi-pane workbench, no admin nav). Same
-// Workbench tokens and light/dark parity as the rest of Meridian, but the
+// Workbench tokens and light/dark parity as the rest of Marula, but the
 // shell is a single centered column with its own quiet header.
 // Non-purpose: no staff routes, no notification dock, no settings entry.
 //
@@ -13,9 +13,9 @@
 // reduced-motion honored in globals.css), and a quiet footer.
 "use client";
 
-import { Button } from "@meridian/ui";
-import { useTheme } from "@meridian/ui";
-import type { Theme } from "@meridian/ui";
+import { Button } from "@marula-core/ui";
+import { useTheme } from "@marula-core/ui";
+import type { Theme } from "@marula-core/ui";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
@@ -26,8 +26,8 @@ import {
   portalOrgName,
 } from "../../lib/portal-branding";
 
-/** The honest brand substitution: configured org name, else "Meridian". */
-const ORG_NAME = portalOrgName() ?? "Meridian";
+/** The honest brand substitution: configured org name, else "Marula". */
+const ORG_NAME = portalOrgName() ?? "Marula";
 
 function NavLinkIcon({ name, size = 14 }: { name: string; size?: number }) {
   const common = {

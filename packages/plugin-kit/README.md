@@ -1,6 +1,6 @@
 # plugin-kit
 
-> **Purpose:** TS Plugin Development Kit + `meridian dev` harness glue. Apache-2.0.
+> **Purpose:** TS Plugin Development Kit + `marula dev` harness glue. Apache-2.0.
 > **Non-purpose:** No host-side runtime code (that is crates/plugin-host).
 
 ## What it does today (Wave 34 lane 4)
@@ -24,7 +24,7 @@ my-plugin/
   manifest.json    # v2 manifest; surface_profile declares what it contributes
   plugin.wasm      # built from your crate (wasm32-unknown-unknown)
   src/lib.rs       # the crate; see plugins/wasm/* for minimal examples
-  Cargo.toml       # detached from the Meridian workspace ([workspace] table)
+  Cargo.toml       # detached from the Marula workspace ([workspace] table)
 ```
 
 ## Walkthrough

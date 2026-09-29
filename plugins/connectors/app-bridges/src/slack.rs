@@ -1,4 +1,4 @@
-//! The Slack forwarder: incoming-webhook delivery of Meridian
+//! The Slack forwarder: incoming-webhook delivery of Marula
 //! notifications (the standard app "message to a channel" webhook).
 //! The webhook URL is the ENTIRE configuration; sending NEVER logs it.
 use crate::{BridgeError, NotificationPayload};

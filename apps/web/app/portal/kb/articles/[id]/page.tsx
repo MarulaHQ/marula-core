@@ -6,7 +6,7 @@
 // comfortable measure, paragraph rhythm), staggered entrance.
 "use client";
 
-import { Button, Card, EmptyState, Spinner } from "@meridian/ui";
+import { Button, Card, EmptyState, Spinner } from "@marula-core/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { portalApi, useRequirePortalAuth, type PortalKbArticle } from "../../../../../lib/portal-api";

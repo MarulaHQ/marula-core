@@ -11,8 +11,8 @@
  *   . e2e/.e2e-stack.env
  *   EXPO_PUBLIC_API_URL=http://localhost:$E2E_API_PORT \
  *   EXPO_PUBLIC_WS_URL=$E2E_WS_URL \
- *   pnpm --filter @meridian/native exec expo start --web --port $E2E_WEB_PORT
- *   pnpm --filter @meridian/native exec playwright test ... (or node this file)
+ *   pnpm --filter @marula-core/native exec expo start --web --port $E2E_WEB_PORT
+ *   pnpm --filter @marula-core/native exec playwright test ... (or node this file)
  *
  * This file is plain Node (playwright is a root devDependency).
  */
@@ -66,8 +66,8 @@ async function main() {
       });
       await context.addInitScript(
         ([sessionJson, themeMode]) => {
-          localStorage.setItem("meridian.session.v1", sessionJson);
-          localStorage.setItem("@meridian/prefs/theme.mode", themeMode);
+          localStorage.setItem("marula.session.v1", sessionJson);
+          localStorage.setItem("@marula-core/prefs/theme.mode", themeMode);
         },
         [JSON.stringify(session), theme],
       );

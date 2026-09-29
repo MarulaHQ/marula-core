@@ -33,7 +33,7 @@ const NOW = "2026-08-30T09:00:00Z";
 const ME_EDIT = {
   user_id: "00000000-0000-4000-8000-000000000001",
   org_id: "00000000-0000-4000-8000-000000000002",
-  email: "tech@meridian.test",
+  email: "tech@marula.test",
   display_name: "Tech",
   timezone: "UTC",
   permissions: ["tickets:edit"],
@@ -44,7 +44,7 @@ function ticketJson(boardId: string, statusId: string, category: string) {
     id: TICKET_ID,
     org_id: ME_EDIT.org_id,
     board_id: boardId,
-    number: "MER-7",
+    number: "MAR-7",
     title: "Broken printer",
     body: "It beeps twice and stops.",
     status_id: statusId,

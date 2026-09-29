@@ -284,7 +284,7 @@ MCowBQYDK2VwAyEACifTR92KS0nfpnia/3uCznrkBrmzfHxV+nqX3Xhxw0w=
             email_internal_token: None,
             email_transport: core_mail::TransportKind::None,
             email_scan_clamd_addr: None,
-            email_from_address: "support@meridian.local".into(),
+            email_from_address: "support@marula.local".into(),
             migration_rate_limit_per_min: 600,
             email_from_name: None,
             internal_token: None,

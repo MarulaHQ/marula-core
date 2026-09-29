@@ -2,7 +2,7 @@
 //! runs the relay service until shutdown.
 //!
 //! Purpose: process shell only — behavior lives in the library so
-//! `meridian-cli` can host the identical service.
+//! `marula-core-cli` can host the identical service.
 //!
 //! Non-purpose: no CLI flags or config files; environment variables are
 //! the single configuration surface.

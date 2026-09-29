@@ -1,8 +1,8 @@
 "use client";
 /**
- * @meridian/ui — Workbench design system barrel.
+ * @marula-core/ui — Workbench design system barrel.
  * Purpose: single public entry point for tokens API, theming, and components.
- * Non-purpose: stylesheets ship separately (`@meridian/ui/tokens.css` +
+ * Non-purpose: stylesheets ship separately (`@marula-core/ui/tokens.css` +
  * `components.css`) and must be imported by the host app once at its root.
  */
 

@@ -6,7 +6,7 @@
 // category tones mirror the shared Workbench status tokens (the same
 // mapping the ticket status bar uses), so light and dark stay in lockstep.
 // Non-purpose: no data fetching, no envelope writes, no React.
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 export type BoardStatus = components["schemas"]["BoardStatus"];
 export type BoardTicket = components["schemas"]["Ticket"];

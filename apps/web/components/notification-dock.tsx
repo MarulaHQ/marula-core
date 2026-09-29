@@ -8,12 +8,12 @@
 // here — settings live at /settings/notifications.
 "use client";
 
-import { Button } from "@meridian/ui";
+import { Button } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { kindLabel, useNotifications, type NotificationItem } from "../lib/use-notifications";
 import { requestFocus } from "../lib/popout/window-bus";
-import { routeMeridianLink } from "../lib/desktop/windows";
+import { routeMarulaLink } from "../lib/desktop/windows";
 
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -139,7 +139,7 @@ export function NotificationDock() {
       if (requestFocus(path)) return;
       // Desktop fleet (lane 2): ask the shell to open-or-focus the ticket
       // ROLE window; when the shell declines (plain web), navigate here.
-      void routeMeridianLink(`meridian://ticket/${item.ticket_id}`).then(
+      void routeMarulaLink(`marula://ticket/${item.ticket_id}`).then(
         (routed) => {
           if (routed === null) router.push(path);
         },

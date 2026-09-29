@@ -1,4 +1,4 @@
-# Why we're building Meridian
+# Why we're building Marula
 
 I nearly got fired over time entry.
 

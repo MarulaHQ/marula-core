@@ -122,14 +122,14 @@ for (const theme of THEMES) {
   const page = await ctx.newPage();
   await page.addInitScript(
     ([apiBase, tokenPair, mode]) => {
-      window.__MERIDIAN_API_URL__ = apiBase;
-      window.localStorage.setItem("meridian-tokens", tokenPair);
-      window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 3_600_000));
-      window.localStorage.setItem("meridian-theme", mode);
+      window.__MARULA_API_URL__ = apiBase;
+      window.localStorage.setItem("marula-tokens", tokenPair);
+      window.localStorage.setItem("marula-tokens-exp", String(Date.now() + 3_600_000));
+      window.localStorage.setItem("marula-theme", mode);
       // The seed resets per-user tours, so without this the capture carries
       // the onboarding popover. The session cap (tours.ts) honors a preset
       // count — the shots show the app, not step 1 of the tour.
-      window.sessionStorage.setItem("meridian-tour-session", "1");
+      window.sessionStorage.setItem("marula-tour-session", "1");
     },
     [API, JSON.stringify(tokens), theme],
   );

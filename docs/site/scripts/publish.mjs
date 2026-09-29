@@ -75,7 +75,7 @@ footer { color: var(--muted); font-size: 0.8rem; margin-top: 3rem; border-top: 1
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 `;
 
-const SITE_TITLE = "Meridian documentation";
+const SITE_TITLE = "Marula documentation";
 const SITE_CSS = "site.css";
 const QUADRANTS = [
   ["tutorials", "Tutorials"],

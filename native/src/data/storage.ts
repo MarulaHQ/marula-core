@@ -7,7 +7,7 @@ import type { KeyValueStore } from "@/core/storage";
 /** Namespaces keys so the cache and the queue never collide with other apps
  * on the device or with each other's prefixes. */
 export function asyncStore(namespace: string): KeyValueStore {
-  const prefix = `@meridian/${namespace}/`;
+  const prefix = `@marula-core/${namespace}/`;
   return {
     async get(key) {
       return AsyncStorage.getItem(prefix + key);

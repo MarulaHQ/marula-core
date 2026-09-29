@@ -2,7 +2,7 @@ import SwiftUI
 import WidgetKit
 
 @main
-struct MeridianLiveTimerBundle: WidgetBundle {
+struct MarulaLiveTimerBundle: WidgetBundle {
     var body: some Widget {
         LiveTimerWidget()
     }

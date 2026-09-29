@@ -23,7 +23,7 @@ const BOARD_ID = "00000000-0000-4000-8000-00000000b001";
 const TICKET_A = {
   id: "00000000-0000-4000-8000-00000000t001",
   board_id: BOARD_ID,
-  number: "MER-1",
+  number: "MAR-1",
   title: "First ticket",
   status_id: "00000000-0000-4000-8000-00000000s001",
   category: "open",
@@ -105,7 +105,7 @@ describe("/boards/[id] — instant read model", () => {
     const created = {
       ...TICKET_A,
       id: "00000000-0000-4000-8000-00000000t002",
-      number: "MER-2",
+      number: "MAR-2",
       title: "Delta ticket",
     };
     mock.on("GET", `/api/v1/tickets/${created.id}`, (ctx) => {

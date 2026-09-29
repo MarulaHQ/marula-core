@@ -23,7 +23,7 @@
 //!   across orgs are refused by the database unique indexes.
 //!
 //! Non-purpose: no mailbox provisioning, no DNS automation, no provider
-//! webhook wiring — operators point their mail provider at Meridian and
+//! webhook wiring — operators point their mail provider at Marula and
 //! configure addresses here to match (see docs/site/how-to/admin-email.md).
 
 use crate::auth::middleware::{authed, require_permission};

@@ -1,5 +1,5 @@
 /*
- * Global styles for the Meridian web app — Tangerine preset layer.
+ * Global styles for the Marula web app — Tangerine preset layer.
  *
  * Source of truth: `design/tangerine/tangerine.json` (canonical tweakcn
  * preset, vendored) — the shadcn variables below are generated from it and
@@ -14,9 +14,9 @@
  * Generated from tangerine.json — regenerate, never hand-edit.
  */
 @import "tailwindcss";
-@import "@meridian/ui/tokens.css";
-@import "@meridian/ui/components.css";
-@import "@meridian/layout/styles.css";
+@import "@marula-core/ui/tokens.css";
+@import "@marula-core/ui/components.css";
+@import "@marula-core/layout/styles.css";
 @import "./shell.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -26,18 +26,18 @@
 @custom-variant dark (&:is([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
-  /* Bridge: the layout engine speaks --meridian-*; tokens speak --m-*. */
-  --meridian-color-canvas: var(--m-canvas);
-  --meridian-color-surface: var(--m-surface);
-  --meridian-color-border: var(--m-border);
-  --meridian-color-text-primary: var(--m-text);
-  --meridian-color-text-secondary: var(--m-text-secondary);
-  --meridian-color-accent: var(--m-accent);
-  --meridian-font-family: var(--m-font-ui);
-  --meridian-font-heading: var(--m-font-heading);
-  --meridian-font-mono: var(--m-font-mono);
-  --meridian-radius-sm: var(--m-radius-control);
-  --meridian-layout-divider-size: 1px;
+  /* Bridge: the layout engine speaks --marula-*; tokens speak --m-*. */
+  --marula-color-canvas: var(--m-canvas);
+  --marula-color-surface: var(--m-surface);
+  --marula-color-border: var(--m-border);
+  --marula-color-text-primary: var(--m-text);
+  --marula-color-text-secondary: var(--m-text-secondary);
+  --marula-color-accent: var(--m-accent);
+  --marula-font-family: var(--m-font-ui);
+  --marula-font-heading: var(--m-font-heading);
+  --marula-font-mono: var(--m-font-mono);
+  --marula-radius-sm: var(--m-radius-control);
+  --marula-layout-divider-size: 1px;
 
   /* Typography — next/font provides --font-sans/--font-heading/--font-mono
      (see app/layout.tsx); CSS-stack fallbacks live in tokens.css --m-font-*. */

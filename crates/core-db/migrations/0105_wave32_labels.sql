@@ -15,7 +15,7 @@
 -- Field tokens are stored as an ordered JSON string array (max 6 lines);
 -- the domain layer validates membership against the purpose's allowed set
 -- (crates/core-domain/src/entities/labels.rs). The QR payload is ALWAYS the
--- entity's canonical deep link (`meridian://<kind>/<uuid>`) so a scan means
+-- entity's canonical deep link (`marula://<kind>/<uuid>`) so a scan means
 -- one thing on every surface — no per-template QR mode that could drift.
 --
 -- Additive only: one new table + its RLS policy. Nothing existing changes.

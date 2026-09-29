@@ -1,0 +1,61 @@
+{{- if .Values.mailpit.enabled -}}
+{{/* Dev/demo SMTP sink (compose parity: the stage2 mailpit slot).
+Evaluation-profile only — do not use for production mail. */}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "marula.fullname" . }}-mailpit
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mailpit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "marula.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: mailpit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "marula.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mailpit
+    spec:
+      securityContext:
+        {{- $ctx := deepCopy .Values.podSecurityContext -}}
+        {{- $_ := set $ctx "runAsUser" 1000 -}}
+        {{- $_ := set $ctx "fsGroup" 1000 -}}
+        {{- toYaml $ctx | nindent 8 }}
+      containers:
+        - name: mailpit
+          image: {{ include "marula.pinnedImage" (dict "ctx" . "image" .Values.mailpit.image "digest" .Values.mailpit.imageDigest) | quote }}
+          securityContext:
+            {{- /* Mailpit keeps mail in memory; read-only rootfs is fine. */ -}}
+            {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          ports:
+            - name: smtp
+              containerPort: 1025
+            - name: ui
+              containerPort: 8025
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "marula.fullname" . }}-mailpit
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mailpit
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "marula.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mailpit
+  ports:
+    - name: smtp
+      port: 1025
+      targetPort: smtp
+    - name: ui
+      port: 8025
+      targetPort: ui
+{{- end }}

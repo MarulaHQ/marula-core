@@ -621,7 +621,7 @@ pub async fn get_session(
 /// free replay; drifting content under a committed index is refused.
 fn chunk_fingerprint(req: &PushChunkRequest) -> ApiResult<String> {
     let mut hasher = Sha256::new();
-    hasher.update(b"meridian-d3-chunk");
+    hasher.update(b"marula-d3-chunk");
     hasher.update(req.chunk_index.to_le_bytes());
     match req.rows.format {
         core_domain::import_core::RowFormat::Json => {

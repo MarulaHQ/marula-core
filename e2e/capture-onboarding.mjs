@@ -28,12 +28,12 @@ async function login(email) {
   return res.json();
 }
 
-// YYYY: demo owner storage keys match AuthProvider ('meridian.auth' etc.);
+// YYYY: demo owner storage keys match AuthProvider ('marula.auth' etc.);
 // mirror the harness helper exactly by seeding what it reads.
-const TOKENS_KEY = "meridian-tokens";
-const TOKENS_EXP_KEY = "meridian-tokens-exp";
-const THEME_KEY = "meridian-theme";
-const THEME_PRESET_KEY = "meridian-theme-preset";
+const TOKENS_KEY = "marula-tokens";
+const TOKENS_EXP_KEY = "marula-tokens-exp";
+const THEME_KEY = "marula-theme";
+const THEME_PRESET_KEY = "marula-theme-preset";
 
 async function seedAuth(ctx, page, owner, mode) {
   // Context-level login first (Set-Cookie session lands in the cookie

@@ -13,8 +13,8 @@
  * pack distribution itself (plugins staging + approval).
  */
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, FieldHint, Label, Tag } from "@meridian/ui";
-import { BUILTIN_PRESETS, isBuiltinPreset, type ThemePreset } from "@meridian/ui";
+import { Button, Card, FieldHint, Label, Tag } from "@marula-core/ui";
+import { BUILTIN_PRESETS, isBuiltinPreset, type ThemePreset } from "@marula-core/ui";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 

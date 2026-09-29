@@ -34,7 +34,7 @@ a snapshot) or would burn an LLM call per judgment.
 
 Two binding user directives shape the decision:
 
-1. **Meridian must still work for orgs who run "old school."** Orgs can turn AI
+1. **Marula must still work for orgs who run "old school."** Orgs can turn AI
    features off entirely, or control which features are active and visible.
 2. **Harness, not integration.** Jev is the test-case model; the seam must be
    provider-general so future decision models swap in without breaking
@@ -83,7 +83,7 @@ Two binding user directives shape the decision:
   with a typed error, never silent truncation.
 - **Starter question-set schemas ship per surface as versioned seed data.**
   Each surface keys a curated default question map — the Choice options, Score
-  rubric levels, Noul criteria, instructions, and default thresholds Meridian
+  rubric levels, Noul criteria, instructions, and default thresholds Marula
   sends when an org hasn't customized. Versions improve over time (curated
   rubric updates ride migrations/settings bumps) while org-customized sets
   stay pinned to the version their admin accepted; lanes 2–3 build their
@@ -91,7 +91,7 @@ Two binding user directives shape the decision:
 - **Customization is fork-on-first-edit, stored as org-owned versioned
   config.** An untouched surface's config *references* the starter set
   (`starter@v1`); the first org edit copies the set into an org-owned
-  versioned config and marks it customized, pinning provenance. If Meridian
+  versioned config and marks it customized, pinning provenance. If Marula
   later curates `starter@v2` (better rubric wording), the org sees "v2
   available" with an honest diff — adoption is opt-in, and a customized schema
   is NEVER silently overwritten by an upstream bump (the fork is what keeps

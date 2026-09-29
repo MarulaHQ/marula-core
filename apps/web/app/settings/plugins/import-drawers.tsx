@@ -11,7 +11,7 @@
 // always ride the staged/approval pipeline.
 "use client";
 
-import { Button, Dialog, DialogActions, DialogContent, Input, Label, Spinner, Tag } from "@meridian/ui";
+import { Button, Dialog, DialogActions, DialogContent, Input, Label, Spinner, Tag } from "@marula-core/ui";
 import { useState } from "react";
 import { api, uploadPluginZip } from "../../../lib/api";
 import { reasonCopy } from "../../../lib/error-copy";
@@ -84,7 +84,7 @@ export function GithubImportDrawer({
             </div>
             <div>
               <Label htmlFor="gh-repo">Repository</Label>
-              <Input id="gh-repo" placeholder="meridian-collector" value={repo} onChange={(e) => setRepo(e.target.value)} />
+              <Input id="gh-repo" placeholder="marula-collector" value={repo} onChange={(e) => setRepo(e.target.value)} />
             </div>
           </div>
           <div>

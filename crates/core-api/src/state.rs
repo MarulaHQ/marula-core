@@ -32,7 +32,7 @@ pub struct AppState {
     /// couple maintenance surfaces to the strictest role.
     ///
     /// Build with [`AppState::reporting_pool`] (rewrites credentials to
-    /// `meridian_app` when the configured URL carries elevated creds).
+    /// `marula_app` when the configured URL carries elevated creds).
     pub reporting: PgPool,
 }
 
@@ -48,15 +48,15 @@ impl AppState {
 
     /// Rewrites credentials down to the application role when needed.
     fn reporting_target(database_url: &str) -> String {
-        if database_url.contains("meridian_app:") {
+        if database_url.contains("marula_app:") {
             return database_url.to_string();
         }
         let (scheme_rest, rest) = database_url
             .split_once("://")
             .unwrap_or(("postgres", database_url));
         match rest.split_once('@') {
-            Some((_creds, host)) => format!("{scheme_rest}://meridian_app:meridian_app@{host}"),
-            None => format!("{scheme_rest}://meridian_app:meridian_app@{rest}"),
+            Some((_creds, host)) => format!("{scheme_rest}://marula_app:marula_app@{host}"),
+            None => format!("{scheme_rest}://marula_app:marula_app@{rest}"),
         }
     }
 

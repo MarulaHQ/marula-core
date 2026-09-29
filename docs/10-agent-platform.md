@@ -1,9 +1,9 @@
-# Meridian Agent Platform (companion spec)
+# Marula Agent Platform (companion spec)
 
 > Cited as binding by `docs/prompts/BUILD-PROMPT.md` §4.9 and the Agent-platform
 > overlay in §7. This file is the expanded normative reference.
 
-Meridian doubles as an **agent harness**: the same domain that serves humans,
+Marula doubles as an **agent harness**: the same domain that serves humans,
 exposed to agents through capability-scoped, audited, consented surfaces.
 
 ## 1. Surfaces vs. extensions
@@ -21,7 +21,7 @@ HTTP connectors are the actual **extensions** consuming it.
 Every user-visible setting is declared once in a typed registry
 (`key, kind, default, scope: org|user, visibility, validation`). UI renders
 settings pages FROM the registry. Code reads settings THROUGH it. No ad-hoc
-env/config reads for behavior a user can change. Ships with Meridian's own
+env/config reads for behavior a user can change. Ships with Marula's own
 settings hub (org settings + user preferences pages).
 
 ## 3. Three-tier onboarding

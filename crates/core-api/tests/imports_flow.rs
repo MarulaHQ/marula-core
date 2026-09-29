@@ -33,9 +33,9 @@ async fn test_state() -> (AppState, Router) {
         .try_init();
     BOOTSTRAP
         .get_or_init(|| async {
-            let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+            let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
-                .expect("imports e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+                .expect("imports e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
             let boot = connect_admin(&admin_url).await.expect("bootstrap pool");
             // Fresh schema keeps slugs/keys collision-free no matter which
             // suite ran before this binary.
@@ -53,9 +53,9 @@ async fn test_state() -> (AppState, Router) {
                 .expect("RLS coverage holds with import surfaces");
         })
         .await;
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("imports e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("imports e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect_admin(&admin_url).await.expect("admin pool");
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     config.database_url = admin_url;

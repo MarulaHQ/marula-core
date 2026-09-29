@@ -39,14 +39,14 @@ fn load_golden(entry: &PublishedEvent) -> GoldenFixture {
 }
 
 /// Injects fields today's structs have never heard of — the shape of a
-/// payload emitted by a FUTURE Meridian.
+/// payload emitted by a FUTURE Marula.
 fn with_unknown_fields(payload: &Value) -> Value {
     let mut obj = payload
         .as_object()
         .cloned()
         .expect("golden payload is an object");
     obj.insert(
-        "meridian_future_field".into(),
+        "marula_future_field".into(),
         json!({ "nested": [1, 2, 3] }),
     );
     obj.insert("also_unknown".into(), json!(null));

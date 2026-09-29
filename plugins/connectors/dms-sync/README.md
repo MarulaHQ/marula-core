@@ -1,14 +1,14 @@
 # dms-sync
 
-First-party documentation-system (DMS) sync adapter for Project Meridian —
-**IT Glue / Hudu exports + generic REST**, riding the PUBLIC Meridian API
+First-party documentation-system (DMS) sync adapter for Project Marula —
+**IT Glue / Hudu exports + generic REST**, riding the PUBLIC Marula API
 only (Apache-2.0; separate license from the AGPL core, same posture as the
 QBO/Xero export-sync crates).
 
 ## Purpose
 
 Move an org's documentation BETWEEN an external DMS (IT Glue, Hudu, or a
-generic REST system) and Meridian's docs-platform without losing data, via
+generic REST system) and Marula's docs-platform without losing data, via
 the API/connector seam:
 
 * **Pull** — `source`: parse IT Glue JSON:API export files (organizations,
@@ -24,7 +24,7 @@ the API/connector seam:
   source churn; the source's newer value is reported as one-click
   "accept the new value" evidence. Adoption of foreign matches exists
   behind `auto_link_conflicts` (default OFF).
-* **Sink** — the Meridian side over public v1 REST (`x-api-key` machine
+* **Sink** — the Marula side over public v1 REST (`x-api-key` machine
   key, instant-first envelope): external layouts map onto
   `document_layouts` (connector org layouts carry the full external
   schema + a `source_ref` provenance field; seeded `is_system` rows are
@@ -35,7 +35,7 @@ the API/connector seam:
   Writes ride instant-first idempotency keys derived from identity keys,
   so server-side audit, provenance, IF7 undo, and the registered
   `asset.*` / `document.*` contract events apply unchanged.
-* **Push (parity)** — read Meridian through the public API and render back
+* **Push (parity)** — read Marula through the public API and render back
   out in the SAME export formats (`render_it_glue_export`,
   `render_hudu_export`), or push neutral records to a generic REST
   endpoint (`RestPushTarget`).
@@ -46,7 +46,7 @@ the API/connector seam:
 
 ## Vault boundary (binding)
 
-External credentials/passwords are NOT pulled into Meridian unless the org
+External credentials/passwords are NOT pulled into Marula unless the org
 explicitly maps them. Two gates hold by default:
 
 1. **Source gate** — the IT Glue / Hudu parsers extract passwords ONLY
@@ -66,7 +66,7 @@ matrix already allows their role — there is no blanket credential surface.
 
 ```rust
 use dms_sync::source::it_glue::{ItGlueExport, ItGlueExportFiles};
-use dms_sync::sink::meridian::{MeridianConfig, MeridianRestSink};
+use dms_sync::sink::marula::{MarulaConfig, MarulaRestSink};
 use dms_sync::state::MemorySyncState;
 use dms_sync::sync::{SyncConfig, SyncEngine};
 use dms_sync::DmsSource;
@@ -77,9 +77,9 @@ let snapshot = ItGlueExport::new(files).pull()?;
 
 // 2. Sink: scoped machine API key from the operator's secret store —
 //    supplied just-in-time, never persisted by this crate.
-let sink = MeridianRestSink::new(MeridianConfig {
-    base_url: "https://meridian.example".into(),
-    api_key: std::env::var("MERIDIAN_API_KEY")?,
+let sink = MarulaRestSink::new(MarulaConfig {
+    base_url: "https://marula.example".into(),
+    api_key: std::env::var("MARULA_API_KEY")?,
 });
 
 // 3. Sync. map_credentials stays false unless the org mapped vault
@@ -96,14 +96,14 @@ println!("{}", serde_json::to_string_pretty(&report)?);
 
 Per-connector enable/disable is an operator decision at the driver: no
 source constructed + `NoneDmsSink` = fully standalone (none mode).
-Credentials for the connector itself (Meridian API key, DMS API key) come
+Credentials for the connector itself (Marula API key, DMS API key) come
 from the operator's own secret store just-in-time — the crate persists
 nothing (BYOK-adjacent posture).
 
 ## Non-purposes
 
 No OAuth/token refresh (operators rotate scoped keys in their own secret
-store), no Meridian schema changes (external shapes map onto
+store), no Marula schema changes (external shapes map onto
 `document_layouts` / `device_assets` / `document_links` as-is — expected
 migration: NONE), no new event families (writes ride the registered
 `asset.*` / `document.*` contract events by construction), no server-side

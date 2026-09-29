@@ -4,9 +4,9 @@
 //! - `mcp-server` (no args) — stdio JSON-RPC, the canonical MCP transport;
 //! - `mcp-server serve-http` — JSON-RPC over HTTP at `/mcp` for local dev.
 //!
-//! Env wiring: `MERIDIAN_API_BASE` (core-api URL), `MERIDIAN_API_KEY`
+//! Env wiring: `MARULA_API_BASE` (core-api URL), `MARULA_API_KEY`
 //! (the machine key whose capability grants scope the catalog),
-//! `MERIDIAN_OPENAPI` (spec snapshot path override).
+//! `MARULA_OPENAPI` (spec snapshot path override).
 //!
 //! Reads only: write tools are Stage 4–5; agent-authored changes enter
 //! through the IF8 proposal pipeline, never a direct MCP write.
@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
     match std::env::args().nth(1).as_deref() {
         None => mcp_server::stdio::serve_from_env().await,
         Some("serve-http") => {
-            let port: u16 = std::env::var("MERIDIAN_MCP_PORT")
+            let port: u16 = std::env::var("MARULA_MCP_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(8190);

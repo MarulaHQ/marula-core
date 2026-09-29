@@ -11,7 +11,7 @@
 // values); no org-wide fields (v1 creates board-scoped only).
 "use client";
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   Button,
   Checkbox,
@@ -22,7 +22,7 @@ import {
   Label,
   Spinner,
   StatusTag,
-} from "@meridian/ui";
+} from "@marula-core/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 

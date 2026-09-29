@@ -1,4 +1,4 @@
-// Compiler configuration for @meridian/layout.
+// Compiler configuration for @marula-core/layout.
 // Purpose: strict, bundler-resolution TypeScript for an in-repo source package.
 // Non-purpose: no emit step — apps consume the TypeScript sources directly.
 {

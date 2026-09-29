@@ -1,6 +1,6 @@
 // Window bus — the cross-window coordination channel (BroadcastChannel
-// "meridian-windows"), one instance per browser context, shared by every
-// Meridian window (main + popouts).
+// "marula-windows"), one instance per browser context, shared by every
+// Marula window (main + popouts).
 //
 // Purpose (Wave 38 lane 1):
 // - window registry: which route keys / entities are open where, so the
@@ -57,7 +57,7 @@ let state: BusState | null = null;
 function ensure(): BusState | null {
   if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return null;
   if (state !== null) return state;
-  const channel = new BroadcastChannel("meridian-windows");
+  const channel = new BroadcastChannel("marula-windows");
   state = {
     channel, id: windowId(), handlers: new Set(), routeKey: null, entities: [],
     peers: new Map(),

@@ -24,8 +24,8 @@ import {
   Input,
   Label,
   Tag,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
@@ -263,7 +263,7 @@ export default function IntegrationsSettingsPage() {
               id="wh-url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://hooks.example.test/meridian"
+              placeholder="https://hooks.example.test/marula"
               required
             />
           </div>
@@ -425,7 +425,7 @@ export default function IntegrationsSettingsPage() {
       <Dialog open={rotatingId !== null} onOpenChange={(open) => !open && setRotatingId(null)}>
         <DialogContent
           title="Rotate signing secret?"
-          description="Meridian creates a replacement subscription with the same URL and events, shows you its new secret once, then deletes this webhook."
+          description="Marula creates a replacement subscription with the same URL and events, shows you its new secret once, then deletes this webhook."
         >
           <DialogActions>
             <Button variant="ghost" onClick={() => setRotatingId(null)} disabled={rotateBusy}>

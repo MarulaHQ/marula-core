@@ -1,0 +1,253 @@
+# Default values for the marula chart.
+#
+# Image policy (release engineering, TASKLIST U10b): every image reference is
+# digest-pinned in production — set `tag` for readability AND `digest` for
+# the immutable reference. Digests are published per release with their SBOM
+# + provenance attestations (see .github/workflows/release.yml).
+
+# Global release-engineering toggle: when true (default) every image
+# reference requires `digest` to be set; the chart renders an invalid
+# resource otherwise. Opt out ONLY for local development.
+digestPinningEnforced: true
+
+# Global guard for NON-marula images too (p38): when true, every bare
+# string image value (postgresql.image, redis.image, mailpit.image,
+# garage.image, garage.bootstrapImage) must carry an @sha256:... digest.
+# The companion *Digest values below provide the enforced digests; the
+# `tag@digest` form still keeps the readable tag.
+nonMarulaDigestPinningEnforced: true
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Existing secret providing JWT_SECRET / MARULA_SECRET_KEY / EMAIL_* keys.
+# When empty, a Secret is generated from the inline values below.
+existingSecret: ""
+
+secrets:
+  jwtSecret: ""
+  # Envelope encryption key for byok_secrets / webhook secrets (hex).
+  appSecretKey: ""
+  emailInboundHmacSecret: ""
+  emailInternalToken: ""
+  # EdDSA (Ed25519) access-token signing (optional, Wave 34 lane 6): PEM
+  # contents. Set BOTH to switch core-api to EdDSA signing; realtime then
+  # verifies with the public key. Leave empty for the HS256 posture.
+  jwtEddsaPrivateKey: ""
+  jwtEddsaPublicKey: ""
+  # Key id stamped on issued tokens (defaults to m1 when empty).
+  jwtKid: ""
+
+imagePullSecrets: []
+
+images:
+  registry: ghcr.io/marula-open
+  pullPolicy: IfNotPresent
+  coreApi:
+    repository: marula-core-api
+    tag: "v0.2.0"
+    digest: ""
+  realtime:
+    repository: marula-realtime
+    tag: "v0.2.0"
+    digest: ""
+  worker:
+    repository: marula-worker
+    tag: "v0.2.0"
+    digest: ""
+  cli:
+    repository: marula-core-cli
+    tag: "v0.2.0"
+    digest: ""
+  web:
+    repository: marula-web
+    tag: "v0.2.0"
+    digest: ""
+
+# ---------------------------------------------------------------- database --
+# Either deploy in-chart Postgres (pgvector image, prod parity) or point at
+# an external instance. The in-chart deployment is sized for evaluation;
+# production installs should bring their own Postgres.
+# Image values carry `tag` AND `digest` (same policy as the marula images:
+# the digest enforces, the tag is readable). Third-party slots use Docker
+# Hardened Images where the DHI catalog covers them (pgvector, valkey,
+# grafana stack, curl; garage/mailpit/glitchtip/otel have no DHI).
+# The postgresql slot keeps a chown-based root-init entrypoint — its
+# podSecurityContext sets runAsUser 0 so the init works; it departs from
+# the pod-level runAsNonRoot gate deliberately (exemption documented in
+# templates/postgres.yaml).
+postgresql:
+  deploy: true
+  image: dhi.io/pgvector:0.8-pg18
+  imageDigest: "sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946"
+  database: marula
+  ownerUser: marula
+  ownerPassword: ""
+  appUser: marula_app
+  appPassword: ""
+  storage:
+    className: ""
+    size: 20Gi
+
+# ------------------------------------------------------------------ redis --
+redis:
+  deploy: true
+  image: dhi.io/valkey:8.1.10
+  imageDigest: "sha256:3caa5e36670b3eb234fd3d958452431c802c6a8de22a8abf747ec72b532582f2"
+  # When deploy: false, set externalUrl (redis://host:6379/0).
+  externalUrl: ""
+
+# ------------------------------------------------------------------ core --
+coreApi:
+  replicaCount: 1
+  bindAddr: 0.0.0.0:8080
+  corsOrigin: ""
+  publicBaseUrl: ""
+  maxUploadMb: 25
+  resources: {}
+  extraEnv: []
+
+realtime:
+  replicaCount: 1
+  resources: {}
+  extraEnv: []
+
+worker:
+  replicaCount: 1
+  relayBatch: 200
+  resources: {}
+  extraEnv: []
+
+web:
+  enabled: true
+  replicaCount: 1
+  # Baked into the browser bundle at build time — must be the URL the
+  # USER'S BROWSER uses to reach the API.
+  nextPublicApiUrl: ""
+  resources: {}
+  extraEnv: []
+
+# Email: `smtp` with the bundled Mailpit profile for evaluation, `none` or
+# your own SMTP settings for production.
+email:
+  transport: smtp
+  smtpHost: ""
+  smtpPort: "1025"
+
+mailpit:
+  # Dev/demo mail sink: in-chart Mailpit + SMTP port + web UI.
+  enabled: false
+  image: axllent/mailpit:v1.31.3
+  imageDigest: "sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d"
+
+# Object storage: local-fs (single replica, PVC) or S3/Garage.
+objectStore:
+  mode: local
+  localDir: /data/objects
+  s3:
+    endpoint: ""
+    bucket: marula
+    # empty = follow the in-chart Garage region (garage.s3Region)
+    region: ""
+    accessKeyId: ""
+    secretAccessKey: ""
+
+# ---------------------------------------------------------------- garage --
+# Garage (S3-compatible object storage; 2026-09 MinIO replacement). Deployed
+# only in objectStore.mode=s3 with garage.enabled — a single-node StatefulSet
+# fronted by a headless RPC service, bootstrapped by a layout Job (assign +
+# apply + bucket create + key grant). The S3 access key itself is
+# operator-provisioned (garage key create) — values carry its ID.
+# capacity is bytes (e.g. 200_000_000_000 for a 200GB ceiling).
+garage:
+  enabled: false
+  # createS3Key: the bootstrap Job creates the "marula" access key and
+  # prints its secret to the job logs (shown once) — copy it into
+  # objectStore.s3.secretAccessKey. Keep false when you pre-provision keys.
+  image: dxflrs/garage:v1.1.0
+  imageDigest: "sha256:fdb8272fcbe643eef830ee17874d5d4ed623a86501f1acbac8012583113b1c26"
+  # Garage itself has no DHI (checked 2026-09-29); the bootstrap curl
+  # sidecar does: dhi.io/curl alpine variant (0 CVEs at publish time).
+  bootstrapImage: dhi.io/curl:8-alpine
+  bootstrapImageDigest: "sha256:d51aebca70c0c0cb9071c909e7ffeb13892634e2cdf43f281589310537e0241a"
+  rpcSecret: ""
+  adminToken: "change-me-garage-admin-token"
+  zone: dc1
+  capacity: "200000000000"
+  s3Region: garage
+  storage:
+    size: 200Gi
+    metaSize: 2Gi
+
+# OpenTelemetry: empty endpoint = none mode.
+otel:
+  exporterOtlpEndpoint: ""
+
+migrations:
+  # Run migrations as a Helm pre-upgrade hook from the CLI image.
+  enabled: true
+
+service:
+  coreApi:
+    type: ClusterIP
+    port: 8080
+  realtime:
+    type: ClusterIP
+    port: 8081
+  web:
+    type: ClusterIP
+    port: 3000
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tls: false
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+
+# Per-deployable uid/gid matching the images (p38-container-hardening):
+# marula rust images run as the DHI debian-base `nonroot` user (65532),
+# web as 1000, postgres image inits as root (chown-based init — runAsUser 0
+# is a documented exemption there), garage distroless as 10004 via
+# runAsUser, valkey as the DHI nonroot 65532.
+runAsUserByComponent:
+  coreApi: 65532
+  realtime: 65532
+  worker: 65532
+  cli: 65532
+  web: 1000
+  # DHI postgres keeps its chown-based root init (see postgres.yaml).
+  postgres: 0
+  redis: 65532
+  garage: 10004
+  mailpit: 1000
+  bootstrap: 65532
+fsGroup: 65532
+
+# Container-level least privilege applied to every workload in the chart:
+# no privilege escalation, all capabilities dropped, seccomp
+# RuntimeDefault. ReadOnlyRootFilesystem is set where the component
+# tolerates it (exemptions noted in the templates).
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+# Global default resource envelope applied to every workload that doesn't
+# set its own `resources` (per-service values win). Keeps a runaway
+# component from starving the node; override per service for sizing.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

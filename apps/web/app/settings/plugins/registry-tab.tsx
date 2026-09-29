@@ -10,8 +10,8 @@
 // core-api credential flow) and no ratings/attribution beyond the pin.
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Card, EmptyState, Input, Label, Spinner, Tag } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Card, EmptyState, Input, Label, Spinner, Tag } from "@marula-core/ui";
 import { useState } from "react";
 import { api } from "../../../lib/api";
 import { envelopeOf, reasonCopy } from "../../../lib/error-copy";

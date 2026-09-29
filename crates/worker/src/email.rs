@@ -184,7 +184,7 @@ mod tests {
         ClaimedOutbound {
             id,
             org_id: uuid::Uuid::now_v7(),
-            rfc_message_id: "m1@meridian.local".into(),
+            rfc_message_id: "m1@marula.local".into(),
             from_address: "support@acme.test".into(),
             from_name: None,
             reply_to: Some("projects@acme.test".into()),
@@ -272,7 +272,7 @@ mod tests {
         assert!(reported[0].ok);
         assert_eq!(
             reported[0].provider_message_id.as_deref(),
-            Some("rec-m1@meridian.local")
+            Some("rec-m1@marula.local")
         );
     }
 

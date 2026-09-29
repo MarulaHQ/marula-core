@@ -5,7 +5,7 @@
   "payload_schema_ref": "core-domain/v1",
   "pinned_in": "0.1.0",
   "payload": {
-    "publisher": "github.com/meridian-labs",
+    "publisher": "github.com/marula-labs",
     "revoked_at": "2023-11-14T22:13:41Z",
     "revoked_by": "00000000-0000-0000-0000-000000000036",
     "verification_id": "00000000-0000-0000-0000-000000000037"

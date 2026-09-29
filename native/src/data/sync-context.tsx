@@ -131,7 +131,7 @@ export interface ModelResult<T> extends ModelState<T> {
  * the max age, and re-renders on every cache/event/queue change. */
 export function useModel<T>(
   key: string,
-  fetcher: (client: import("@meridian/sdk").MeridianClient) => Promise<T>,
+  fetcher: (client: import("@marula-core/sdk").MarulaClient) => Promise<T>,
   options?: { maxAgeMs?: number },
 ): ModelResult<T> {
   const { engine } = useContext(SyncContext);

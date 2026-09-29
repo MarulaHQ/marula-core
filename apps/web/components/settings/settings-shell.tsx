@@ -9,8 +9,8 @@
 // their payloads; these primitives only render and expose callbacks.
 "use client";
 
-import { Button } from "@meridian/ui";
-import { Dialog, DialogActions, DialogContent } from "@meridian/ui";
+import { Button } from "@marula-core/ui";
+import { Dialog, DialogActions, DialogContent } from "@marula-core/ui";
 import { friendlyMutationText } from "../../lib/error-copy";
 import type { ReactNode } from "react";
 

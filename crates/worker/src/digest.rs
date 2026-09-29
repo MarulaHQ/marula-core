@@ -41,7 +41,7 @@ pub async fn run_digest_loop(
     mut shutdown: watch::Receiver<bool>,
 ) {
     if config.internal_token.is_none() {
-        tracing::warn!("MERIDIAN_INTERNAL_TOKEN unset: daily digest loop disabled");
+        tracing::warn!("MARULA_INTERNAL_TOKEN unset: daily digest loop disabled");
         return;
     }
     let client = reqwest::Client::new();

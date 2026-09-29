@@ -36,23 +36,23 @@ pgvector/pgvector:pg17). The view executes with the **caller's** privileges,
 so every underlying table's row-level-security policy applies exactly as if
 the caller had queried the base table:
 
-- An application-role session (`meridian_app`) bound via
+- An application-role session (`marula_app`) bound via
   `set_config('app.org_id', …)` sees its own org's rows and nothing else.
 - **No binding ⇒ zero rows** (default-deny, like every RLS policy).
 - Every view retains an explicit `org_id` column as the tenancy seam.
 - The table OWNER bypasses RLS (views add no gate of their own); the core-db
   smoke test (`tests/ops_read_model.rs`) proves owner vs app-role scoping.
 
-### Operator recipe (external BI, zero Meridian code — ADR 0001)
+### Operator recipe (external BI, zero Marula code — ADR 0001)
 
 ```sql
-CREATE ROLE meridian_reports_ro LOGIN PASSWORD '<secret>'
+CREATE ROLE marula_reports_ro LOGIN PASSWORD '<secret>'
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
-GRANT USAGE ON SCHEMA ops TO meridian_reports_ro;
-GRANT SELECT ON ALL TABLES IN SCHEMA ops TO meridian_reports_ro;
+GRANT USAGE ON SCHEMA ops TO marula_reports_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA ops TO marula_reports_ro;
 -- RLS-through-views: without an app.org_id binding the role sees ZERO rows.
 -- Bind deliberately, one org per role:
-ALTER ROLE meridian_reports_ro SET app.org_id = '<org uuid>';
+ALTER ROLE marula_reports_ro SET app.org_id = '<org uuid>';
 ```
 
 In-app RBAC does **not** extend into external tools: granting a SQL login is

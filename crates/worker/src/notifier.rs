@@ -62,7 +62,7 @@ impl NotificationEmailSink for HttpNotificationSink {
         let token = self
             .internal_token
             .as_deref()
-            .ok_or_else(|| "MERIDIAN_INTERNAL_TOKEN is unset".to_string())?;
+            .ok_or_else(|| "MARULA_INTERNAL_TOKEN is unset".to_string())?;
         let response = self
             .client
             .post(format!(

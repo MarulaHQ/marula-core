@@ -5,7 +5,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Card, CardContent, Spinner, StatusTag } from "@meridian/ui";
+import { Card, CardContent, Spinner, StatusTag } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { portalApi, useRequirePortalAuth, type PortalQuote } from "../../../lib/portal-api";

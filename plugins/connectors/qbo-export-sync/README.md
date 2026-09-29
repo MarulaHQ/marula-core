@@ -1,6 +1,6 @@
 # qbo-export-sync
 
-Purpose: first-party HTTP adapter that pushes Meridian invoices and
+Purpose: first-party HTTP adapter that pushes Marula invoices and
 payments into a customer-provided QuickBooks Online company over the
 PUBLIC QBO REST API — the Stage-2 acceptance pattern proven by the
 NinjaOne and Hudu reference connectors, in Rust crate form (`ExportSink`
@@ -10,10 +10,10 @@ Status: implemented (Wave 9 lane `p9-adapters-export`, first tranche).
 
 ## What it does
 
-- `ExportSink::push_invoice` maps a Meridian invoice to
+- `ExportSink::push_invoice` maps a Marula invoice to
   `POST /v3/company/{realmId}/invoice` (ACCREC-style `CustomerRef`,
   `Line` with `SalesItemLineDetail`, `DocNumber`, `CurrencyRef`), and
-  carries `[meridian:invoice:{id}]` in `PrivateNote` so the vendor-side
+  carries `[marula:invoice:{id}]` in `PrivateNote` so the vendor-side
   record stays auditable back to its source.
 - `ExportSink::push_payment` maps a payment to
   `POST /v3/company/{realmId}/payment`, linking to the previously
@@ -28,7 +28,7 @@ Status: implemented (Wave 9 lane `p9-adapters-export`, first tranche).
 ## Credentials (BYOK, sealed)
 
 QBO uses OAuth2 with the `com.intuit.quickbooks.accounting` scope. The
-operator supplies their own access token + realm id; Meridian hosts no
+operator supplies their own access token + realm id; Marula hosts no
 OAuth app and performs no token refresh. Tokens ride the core's generic
 BYOK sealed store (`byok_secrets`, provider id `qbo`): AES-256-GCM at
 rest, admin-gated writes, never logged, never returned by any API. When

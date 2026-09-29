@@ -1,0 +1,47 @@
+{{/* Migrations: Helm pre-install/pre-upgrade hook applying the chain from
+the marula-core-cli image (owner role — chain replay, not RLS traffic). */}}
+{{- if .Values.migrations.enabled -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "marula.fullname" . }}-migrate
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        {{- $ctx := deepCopy .Values.podSecurityContext -}}
+        {{- $_ := set $ctx "runAsUser" (index .Values.runAsUserByComponent "cli" | default 65532) -}}
+        {{- $_ := set $ctx "fsGroup" .Values.fsGroup | default 65532 -}}
+        {{- toYaml $ctx | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "marula.image" (dict "ctx" . "image" .Values.images.cli "key" "cli") }}
+          securityContext:
+            {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          # Explicit subcommand: the runtime image entrypoint is the bare
+          # `marula` binary (p36 Dockerfile normalization), which prints
+          # help and exits nonzero with no args. The retry loop covers the
+          # window where postgres is created (hook weight -5) but its pod
+          # has not passed readiness yet.
+          command: ["sh", "-c"]
+          args:
+            - |
+              for i in $(seq 1 60); do
+                /usr/local/bin/marula migrate && exit 0
+                echo "postgres not ready, retry $i"; sleep 5
+              done
+              exit 1
+          env:
+            - name: DATABASE_URL
+              value: {{ include "marula.dbUrl" . | quote }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

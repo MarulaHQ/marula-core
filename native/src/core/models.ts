@@ -1,14 +1,14 @@
 // Typed read models the foundation caches offline.
 //
 // Purpose: name every read model once (stable cache keys + a typed fetcher
-// over @meridian/sdk) so screens, the sync engine, and the realtime
+// over @marula-core/sdk) so screens, the sync engine, and the realtime
 // invalidation map all agree. The SDK's generated `paths` types are the only
 // source of truth for response shapes — nothing here hand-declares an
 // entity (docs/rn-groundwork.md rule 1).
 //
 // Non-purpose: no cache, no hooks, no offline queue.
 
-import { MeridianClient, type paths } from "@meridian/sdk";
+import { MarulaClient, type paths } from "@marula-core/sdk";
 
 import { unwrap, type TransportResult } from "./http";
 
@@ -97,20 +97,20 @@ export const ON_CALL_WINDOW_DAYS = 14;
 
 export const QUERY_DEFAULT_LIMIT = 100;
 
-export async function fetchMe(client: MeridianClient): Promise<Me> {
+export async function fetchMe(client: MarulaClient): Promise<Me> {
   return unwrap(await client.api.GET("/api/v1/me"));
 }
 
-export async function fetchMyWork(client: MeridianClient): Promise<MyWorkItem[]> {
+export async function fetchMyWork(client: MarulaClient): Promise<MyWorkItem[]> {
   return unwrap(await client.api.GET("/api/v1/tickets/my-work"));
 }
 
-export async function fetchTicket(client: MeridianClient, id: string): Promise<TicketDetail> {
+export async function fetchTicket(client: MarulaClient, id: string): Promise<TicketDetail> {
   return unwrap(await client.api.GET("/api/v1/tickets/{id}", { params: { path: { id } } }));
 }
 
 export async function fetchTicketComments(
-  client: MeridianClient,
+  client: MarulaClient,
   id: string,
 ): Promise<TicketComment[]> {
   return unwrap(
@@ -118,14 +118,14 @@ export async function fetchTicketComments(
   );
 }
 
-export async function fetchActiveTimer(client: MeridianClient): Promise<TimerSession | null> {
+export async function fetchActiveTimer(client: MarulaClient): Promise<TimerSession | null> {
   // The pin types this response as a bare object because the Rust handler
   // returns Option<TimerSession>; at runtime it is the session or null.
   const result = await client.api.GET("/api/v1/timers/active");
   return unwrap(result) as unknown as TimerSession | null;
 }
 
-export async function fetchOnHand(client: MeridianClient): Promise<OnHandRow[]> {
+export async function fetchOnHand(client: MarulaClient): Promise<OnHandRow[]> {
   return unwrap(
     await client.api.GET("/api/v1/stock/on-hand", {
       params: { query: { limit: QUERY_DEFAULT_LIMIT } },
@@ -133,7 +133,7 @@ export async function fetchOnHand(client: MeridianClient): Promise<OnHandRow[]> 
   );
 }
 
-export async function fetchStockItems(client: MeridianClient): Promise<StockItemView[]> {
+export async function fetchStockItems(client: MarulaClient): Promise<StockItemView[]> {
   return unwrap(
     await client.api.GET("/api/v1/stock-items", {
       params: { query: { active: true, limit: QUERY_DEFAULT_LIMIT } },
@@ -141,12 +141,12 @@ export async function fetchStockItems(client: MeridianClient): Promise<StockItem
   );
 }
 
-export async function fetchStockItem(client: MeridianClient, id: string): Promise<StockItemView> {
+export async function fetchStockItem(client: MarulaClient, id: string): Promise<StockItemView> {
   return unwrap(await client.api.GET("/api/v1/stock-items/{id}", { params: { path: { id } } }));
 }
 
 export async function fetchStockMovements(
-  client: MeridianClient,
+  client: MarulaClient,
   id: string,
 ): Promise<StockMovementView[]> {
   return unwrap(
@@ -155,7 +155,7 @@ export async function fetchStockMovements(
 }
 
 export async function fetchToolCheckouts(
-  client: MeridianClient,
+  client: MarulaClient,
 ): Promise<ToolCheckoutDetail[]> {
   return unwrap(
     await client.api.GET("/api/v1/tool-checkouts", {
@@ -164,14 +164,14 @@ export async function fetchToolCheckouts(
   );
 }
 
-export async function fetchStockSerials(client: MeridianClient): Promise<SerialWhereabouts[]> {
+export async function fetchStockSerials(client: MarulaClient): Promise<SerialWhereabouts[]> {
   return unwrap(await client.api.GET("/api/v1/stock-serials"));
 }
 
 export type StockLocation = Ok<paths["/api/v1/stock-locations/{id}"]["get"]>;
 
 export async function fetchStockLocation(
-  client: MeridianClient,
+  client: MarulaClient,
   id: string,
 ): Promise<StockLocation> {
   return unwrap(
@@ -179,11 +179,11 @@ export async function fetchStockLocation(
   );
 }
 
-export async function fetchAsset(client: MeridianClient, id: string): Promise<DeviceAsset> {
+export async function fetchAsset(client: MarulaClient, id: string): Promise<DeviceAsset> {
   return unwrap(await client.api.GET("/api/v1/assets/{id}", { params: { path: { id } } }));
 }
 
-export async function fetchNotifications(client: MeridianClient): Promise<NotificationPage> {
+export async function fetchNotifications(client: MarulaClient): Promise<NotificationPage> {
   return unwrap(
     await client.api.GET("/api/v1/notifications", {
       params: { query: { limit: 50 } },
@@ -191,12 +191,12 @@ export async function fetchNotifications(client: MeridianClient): Promise<Notifi
   );
 }
 
-export async function fetchUnreadCount(client: MeridianClient): Promise<UnreadCount> {
+export async function fetchUnreadCount(client: MarulaClient): Promise<UnreadCount> {
   return unwrap(await client.api.GET("/api/v1/notifications/unread-count"));
 }
 
 export async function fetchDispatchDay(
-  client: MeridianClient,
+  client: MarulaClient,
   date?: string,
 ): Promise<DispatchDay> {
   return unwrap(
@@ -207,7 +207,7 @@ export async function fetchDispatchDay(
 }
 
 export async function fetchTimeEntries(
-  client: MeridianClient,
+  client: MarulaClient,
   ticketId: string,
 ): Promise<TimeEntry[]> {
   return unwrap(
@@ -218,7 +218,7 @@ export async function fetchTimeEntries(
 }
 
 export async function fetchStockLocations(
-  client: MeridianClient,
+  client: MarulaClient,
 ): Promise<StockLocationRow[]> {
   return unwrap(
     await client.api.GET("/api/v1/stock-locations", {
@@ -228,7 +228,7 @@ export async function fetchStockLocations(
 }
 
 export async function fetchTicketAttachments(
-  client: MeridianClient,
+  client: MarulaClient,
   ticketId: string,
 ): Promise<TicketAttachment[]> {
   return unwrap(
@@ -239,7 +239,7 @@ export async function fetchTicketAttachments(
 }
 
 export async function fetchTicketStockMovements(
-  client: MeridianClient,
+  client: MarulaClient,
   ticketId: string,
 ): Promise<TicketStockMovement[]> {
   return unwrap(
@@ -249,7 +249,7 @@ export async function fetchTicketStockMovements(
   );
 }
 
-export async function fetchTravelDrafts(client: MeridianClient): Promise<TravelDraft[]> {
+export async function fetchTravelDrafts(client: MarulaClient): Promise<TravelDraft[]> {
   return unwrap(
     await client.api.GET("/api/v1/dispatch/travel-drafts", {
       params: { query: { limit: 100 } },
@@ -259,7 +259,7 @@ export async function fetchTravelDrafts(client: MeridianClient): Promise<TravelD
 
 /** Per-tool-item in-stock counts, optionally narrowed to one item. */
 export async function fetchToolsAvailability(
-  client: MeridianClient,
+  client: MarulaClient,
   itemId?: string,
 ): Promise<ToolAvailabilityRow[]> {
   return unwrap(
@@ -275,7 +275,7 @@ export async function fetchToolsAvailability(
 }
 
 export async function fetchOnCallBlocks(
-  client: MeridianClient,
+  client: MarulaClient,
   from: Date,
   to: Date,
 ): Promise<OnCallBlock[]> {
@@ -292,22 +292,22 @@ export async function fetchOnCallBlocks(
 
 /** The caller's day pack. No date means today in the user's timezone, which
  * is exactly the phone's question; the cache key stays stable. */
-export async function fetchDayPack(client: MeridianClient): Promise<DayPack> {
+export async function fetchDayPack(client: MarulaClient): Promise<DayPack> {
   return unwrap(await client.api.GET("/api/v1/day-pack", { params: { query: {} } }));
 }
 
-export async function fetchToolKits(client: MeridianClient): Promise<ToolKit[]> {
+export async function fetchToolKits(client: MarulaClient): Promise<ToolKit[]> {
   return unwrap(
     await client.api.GET("/api/v1/tool-kits", { params: { query: { active: true } } }),
   );
 }
 
-export async function fetchToolKit(client: MeridianClient, id: string): Promise<ToolKitDetail> {
+export async function fetchToolKit(client: MarulaClient, id: string): Promise<ToolKitDetail> {
   return unwrap(await client.api.GET("/api/v1/tool-kits/{id}", { params: { path: { id } } }));
 }
 
 export async function fetchKitAvailability(
-  client: MeridianClient,
+  client: MarulaClient,
   id: string,
   locationId?: string,
 ): Promise<KitAvailability> {

@@ -287,7 +287,7 @@ pub struct EdgeLinkInfo {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateEdgeLinkRequest {
-    /// Local Meridian user to bind. The admin is the verified-email
+    /// Local Marula user to bind. The admin is the verified-email
     /// authority here: linking asserts "this local account is this
     /// edge identity".
     #[schema(value_type = uuid::Uuid)]
@@ -485,7 +485,7 @@ pub enum EdgeExchangeResponse {
 }
 
 /// POST /api/auth/edge/{name}/exchange — swaps a valid
-/// `Cf-Access-Jwt-Assertion` (header) for Meridian tokens. The
+/// `Cf-Access-Jwt-Assertion` (header) for Marula tokens. The
 /// assertion MUST verify against the source's pinned team JWKS with
 /// issuer AND audience pinned; failures are a uniform typed 401.
 #[utoipa::path(operation_id = "edge_exchange", post, path = "/api/auth/edge/{name}/exchange",

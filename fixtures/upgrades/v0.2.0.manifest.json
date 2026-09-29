@@ -295,7 +295,7 @@
     "webhooks": [
       {
         "id": "00000000-0000-4000-8000-000000000131",
-        "url": "https://hooks.northwind.example/meridian/tickets",
+        "url": "https://hooks.northwind.example/marula/tickets",
         "event_types": [
           "ticket.created",
           "ticket.status_changed"
@@ -315,7 +315,7 @@
       {
         "id": "00000000-0000-4000-8000-000000000041",
         "name": "CI integration",
-        "prefix": "mrd_ab12cd34",
+        "prefix": "mrl_ab12cd34",
         "scopes": [
           "tickets:read",
           "clients:read",
@@ -329,7 +329,7 @@
       {
         "id": "00000000-0000-4000-8000-000000000042",
         "name": "Legacy exporter",
-        "prefix": "mrd_ef90ab12",
+        "prefix": "mrl_ef90ab12",
         "scopes": [
           "clients:read"
         ],

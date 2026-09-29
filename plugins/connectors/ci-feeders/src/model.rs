@@ -14,7 +14,7 @@ use uuid::Uuid;
 /// guaranteed by [`crate::identity`], not by the container.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FeederRecord {
-    /// The Meridian source system id: `ninjaone` | `it_glue` | `auvix`.
+    /// The Marula source system id: `ninjaone` | `it_glue` | `auvix`.
     /// Lowercase, stable — this is the CI2 link key's first component.
     pub source_system: String,
     /// The record's id IN the source system (stringified when the vendor
@@ -52,7 +52,7 @@ impl FeederRecord {
         )
     }
 
-    /// The record this sync targets, under one Meridian client.
+    /// The record this sync targets, under one Marula client.
     pub(crate) fn request_body(&self, client_id: Uuid) -> Value {
         serde_json::json!({
             "source_system": self.source_system,

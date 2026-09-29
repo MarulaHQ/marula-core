@@ -31,7 +31,7 @@ test("plugin widget renders on the classic ticket pane", async ({ authedPage, ow
       slug,
       name: "Escalation Policy Widget",
       description: "e2e widget plugin",
-      publisher: "meridian",
+      publisher: "marula",
       version: "1.0.0",
       manifest: {
         description: "e2e widget plugin",
@@ -185,7 +185,7 @@ test("field editor lists plugin validators", async ({ authedPage, ownerTokens })
       slug,
       name: "Asset Tag Validator",
       description: "e2e validator plugin",
-      publisher: "meridian",
+      publisher: "marula",
       version: "1.0.0",
       manifest: {
         description: "e2e validator plugin",

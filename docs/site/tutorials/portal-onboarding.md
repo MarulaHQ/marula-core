@@ -37,7 +37,7 @@ never org-wide.
 
 ## 3. Hand over the sign-in
 
-The portal lives at its own shell: "Meridian — client portal sign-in",
+The portal lives at its own shell: "Marula — client portal sign-in",
 with its own nav (Requests / Invoices / Knowledge / Schedule) and a footer
 stating **"Support access provided by your service desk"**. Credential
 facts to hand over honestly:

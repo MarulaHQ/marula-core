@@ -1,14 +1,14 @@
 //! Dev-tools surface gating (TASKLIST DX2).
 //!
 //! Purpose: prove the hard rule — `/api/dev/*` routes DO NOT EXIST unless
-//! the process runs with MERIDIAN_DEV_TOOLS=1. "Not exist" is the stronger
+//! the process runs with MARULA_DEV_TOOLS=1. "Not exist" is the stronger
 //! existence-sentinel shape from api_versioning: axum's unmatched 404 has
 //! an EMPTY body and no content-type, while every real rejection returns a
 //! JSON envelope. When the gate is on, the same probes must land on the
 //! real handlers (JSON bodies, no auth required — the env IS the gate).
 //!
 //! Database contract follows settings_flow/api_versioning:
-//! MERIDIAN_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
+//! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
 use axum::Router;
 use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
@@ -29,9 +29,9 @@ async fn test_state(dev_tools: bool) -> AppState {
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("dev-surface e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("dev-surface e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect(&admin_url).await.expect("pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");

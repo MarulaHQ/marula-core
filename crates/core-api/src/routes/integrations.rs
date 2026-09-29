@@ -275,8 +275,8 @@ pub async fn test(
     let cfg: Value = serde_json::from_slice(&config)
         .map_err(|_| ApiError::Unavailable("the sealed connector config is unreadable".into()))?;
     let payload = app_bridges::NotificationPayload {
-        title: "Meridian test".into(),
-        body: "A provisioned test ping from the Meridian integrations surface.".into(),
+        title: "Marula test".into(),
+        body: "A provisioned test ping from the Marula integrations surface.".into(),
         link_url: None,
     };
     match kind {
@@ -315,7 +315,7 @@ pub async fn test(
                 org: cfg
                     .get("org")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("meridian")
+                    .unwrap_or("marula")
                     .to_string(),
                 event: "connector.test".into(),
                 notification: payload,

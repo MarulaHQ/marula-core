@@ -12,7 +12,7 @@ import "./globals.css";
 import { AuthProvider } from "../lib/api";
 import { AppShell } from "../components/shell/app-shell";
 import { cn } from "@/lib/utils";
-import { builtinPresetCss } from "@meridian/ui/theme-tokens";
+import { builtinPresetCss } from "@marula-core/ui/theme-tokens";
 
 // Wave 24: the theme-token schema v1 preset range ships as a head style
 // block (scoped by data-preset; the unset root stays the tokens.css
@@ -27,7 +27,7 @@ const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mon
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Meridian",
+  title: "Marula",
   description: "Open-core PSA — tickets, time, dispatch.",
   manifest: "/manifest.webmanifest",
   // PWA store-readiness (Wave 20 lane 1): iOS standalone-install posture.
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
   // recorded in design/qa-p20-ga-packaging/LANDING.md.
   appleWebApp: {
     capable: true,
-    title: "Meridian",
+    title: "Marula",
     statusBarStyle: "black-translucent",
   },
   icons: {
@@ -57,7 +57,7 @@ export const viewport: Viewport = {
   ],
 };
 
-const themeBootstrap =`(function(){try{var t=localStorage.getItem("meridian-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.dataset.theme=t;var p=localStorage.getItem("meridian-theme-preset");if(p){document.documentElement.dataset.preset=p;}}catch(e){}})();`;
+const themeBootstrap =`(function(){try{var t=localStorage.getItem("marula-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.dataset.theme=t;var p=localStorage.getItem("marula-theme-preset");if(p){document.documentElement.dataset.preset=p;}}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

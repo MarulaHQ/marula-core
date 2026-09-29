@@ -3,9 +3,9 @@ const BASE="http://127.0.0.1:15435"; const API="http://127.0.0.1:15433";
 const b=await chromium.launch({ args: ["--no-proxy-server"] });
 const ctx=await b.newContext(); const p=await ctx.newPage();
 await p.addInitScript(([apiBase,mode,preset])=>{
-  window.__MERIDIAN_API_URL__=apiBase;
-  localStorage.setItem("meridian-theme",mode);
-  localStorage.setItem("meridian-theme-preset",preset);
+  window.__MARULA_API_URL__=apiBase;
+  localStorage.setItem("marula-theme",mode);
+  localStorage.setItem("marula-theme-preset",preset);
 },[API,"light","slate"]);
 await p.goto(`${BASE}/login`,{waitUntil:"networkidle"});
 await p.locator('input[type="email"], input[name*="email" i]').first().fill("owner@demo.local");

@@ -6,7 +6,7 @@
 // pin the render, the revert, and the no-cache no-op. Travel drafts follow
 // the same optimistic pattern with a real idempotency key.
 
-import type { MeridianClient } from "@meridian/sdk";
+import type { MarulaClient } from "@marula-core/sdk";
 import { describe, expect, it } from "vitest";
 
 import { ReadCache } from "@/core/cache";
@@ -122,7 +122,7 @@ describe("setAppointmentStatus", () => {
       previousStatus: "scheduled" as const,
     };
     const body = setAppointmentStatus.build(args, { idempotencyKey: "k3" });
-    await setAppointmentStatus.send(api.asClient<MeridianClient>(), body);
+    await setAppointmentStatus.send(api.asClient<MarulaClient>(), body);
     expect(api.calls).toEqual([
       { method: "PATCH", path: "/api/v1/appointments/{id}", body: { status: "in_progress" } },
     ]);
@@ -201,7 +201,7 @@ describe("travel drafts", () => {
     const api = new FakeApi();
     const createBody = createTravelDraft.build(args, { idempotencyKey: "draft-key" });
     expect(createBody.idempotency_key).toBe("draft-key");
-    await createTravelDraft.send(api.asClient<MeridianClient>(), createBody);
+    await createTravelDraft.send(api.asClient<MarulaClient>(), createBody);
     expect(api.calls[0]?.method).toBe("POST");
     expect(api.calls[0]?.path).toBe("/api/v1/dispatch/travel-drafts");
     const posted = api.calls[0]?.body as Record<string, unknown>;
@@ -209,7 +209,7 @@ describe("travel drafts", () => {
     expect(posted["distance_unit"]).toBe("km");
 
     const submitBody = submitTravelDraft.build({ draftId: "draft-1" }, { idempotencyKey: "s1" });
-    await submitTravelDraft.send(api.asClient<MeridianClient>(), submitBody);
+    await submitTravelDraft.send(api.asClient<MarulaClient>(), submitBody);
     expect(api.calls[1]?.method).toBe("POST");
     expect(api.calls[1]?.path).toBe("/api/v1/dispatch/travel-drafts/{id}/submit");
     expect((api.calls[1]?.body as Record<string, unknown>)["idempotency_key"]).toBe("s1");

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
 const root =
-  "/Users/iordn/Documents/GitHub/meridian-open-psa-core/.kilo/worktrees/p24-theming-system";
+  "/Users/iordn/Documents/GitHub/marula-open-psa-core/.kilo/worktrees/p24-theming-system";
 const OUT = join(root, "design/qa-p24-theming-system/captures");
 mkdirSync(OUT, { recursive: true });
 
@@ -25,7 +25,7 @@ function clearAuthGates() {
   try {
     execFileSync("/usr/bin/env", [
       `PGPASSWORD=postgres`, "psql", "-h", "127.0.0.1", "-p", PG_PORT,
-      "-U", "postgres", "-d", "meridian", "-c", "DELETE FROM auth_lockouts",
+      "-U", "postgres", "-d", "marula", "-c", "DELETE FROM auth_lockouts",
     ], { stdio: "ignore", env: { ...process.env, PGPASSWORD: "postgres" } });
   } catch { /* gate table may not exist on older bundles */ }
 }
@@ -57,12 +57,12 @@ for (const label of wanted) {
     const page = await ctx.newPage();
     await page.addInitScript(
       ([themeKey, presetKey, theme, presetName, apiBase]) => {
-        window.__MERIDIAN_API_URL__ = apiBase;
+        window.__MARULA_API_URL__ = apiBase;
         localStorage.setItem(themeKey, theme);
         if (presetName && presetName !== "null")
           localStorage.setItem(presetKey, presetName);
       },
-      ["meridian-theme", "meridian-theme-preset", mode, preset, API],
+      ["marula-theme", "marula-theme-preset", mode, preset, API],
     );
     // Sign in (with retry — the only credential path this build owns).
     for (let attempt = 0; attempt < 4; attempt += 1) {

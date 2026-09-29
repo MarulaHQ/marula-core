@@ -1,6 +1,6 @@
 # Self-host reference: the local stack
 
-> **Audience:** site operator / MSP admin — you host Meridian yourself and
+> **Audience:** site operator / MSP admin — you host Marula yourself and
 > own its deployment.
 
 Allocation: `deploy/docker-compose.yml` is the canonical definition of the
@@ -14,7 +14,7 @@ and the [backup/restore runbook](backup-restore.md).
 
 | Service | Port | Notes |
 |---|---|---|
-| Postgres (pg18 + pgvector) | 15432 | user/db `meridian` |
+| Postgres (pg18 + pgvector) | 15432 | user/db `marula` |
 | Redis (Valkey) | 16379 | `noeviction`, 192 MB cap |
 | core-api | 8080 | the single write surface |
 | realtime (WS hub) | 8081 | |
@@ -30,7 +30,7 @@ and the [backup/restore runbook](backup-restore.md).
 ## Bring-up
 
 ```sh
-git clone https://github.com/Marlin-Hofmeyer/meridian && cd meridian
+git clone https://github.com/Marlin-Hofmeyer/marula && cd marula
 docker compose -f deploy/docker-compose.yml up --build
 ```
 
@@ -54,29 +54,29 @@ test app additionally seeds the demo org the tutorials use
   Grafana. Telemetry export is disabled by default: it activates only when
   `OTEL_EXPORTER_OTLP_ENDPOINT` is set (e.g. `http://otel-collector:4318`)
   together with the profile. Grafana ships preprovisioned Tempo/Loki/
-  MeridianMetrics datasources plus a starter dashboard.
+  MarulaMetrics datasources plus a starter dashboard.
 
 ## Role split (why two database roles)
 
-Migrations and the worker connect as the **table owner** (`meridian`) — the
+Migrations and the worker connect as the **table owner** (`marula`) — the
 worker's outbox relay must read every organization's rows and therefore
-bypasses row-level security. The API connects as `meridian_app`
+bypasses row-level security. The API connects as `marula_app`
 (RLS-constrained) so tenant isolation is enforced first by the database
-itself, with the application as the second line. `meridian_app` and its
+itself, with the application as the second line. `marula_app` and its
 grants are provisioned by migration 0001. Do not collapse the two roles.
 
 ## Secrets
 
 The compose file carries dev-only defaults for `JWT_SECRET` and the
 at-rest seal key. For anything beyond a local test harness, override
-`JWT_SECRET`, `MERIDIAN_SECRET_KEY` (worker and core-api must match, or
+`JWT_SECRET`, `MARULA_SECRET_KEY` (worker and core-api must match, or
 sealed webhook secrets become undecryptable) and set `EMAIL_INBOUND_HMAC_SECRET`
 from the start — the inbound webhook mail path stays disabled until it is.
 
 Optional: asymmetric access-token signing. Set
-`MERIDIAN_JWT_EDDSA_PRIVATE_KEY` and `MERIDIAN_JWT_EDDSA_PUBLIC_KEY` (PEM
-contents) on core-api, and `MERIDIAN_JWT_EDDSA_PUBLIC_KEY` on realtime, to
-sign with Ed25519 instead of the shared secret. `MERIDIAN_JWT_KID` names
+`MARULA_JWT_EDDSA_PRIVATE_KEY` and `MARULA_JWT_EDDSA_PUBLIC_KEY` (PEM
+contents) on core-api, and `MARULA_JWT_EDDSA_PUBLIC_KEY` on realtime, to
+sign with Ed25519 instead of the shared secret. `MARULA_JWT_KID` names
 the key (default `m1`). The pair must be complete and parse, or core-api
 refuses to boot. HS256 keeps verifying during a rollout, so you can
 switch without logging anyone out. The [threat
@@ -88,7 +88,7 @@ shared secret.
 Every container in this stack runs least-privilege. The practical facts an
 operator needs:
 
-**Who runs.** All three Meridian images drop to a fixed numeric user at
+**Who runs.** All three Marula images drop to a fixed numeric user at
 build time. Core-api, realtime, worker, and the CLI run as the hardened
 base's `nonroot` user (uid 65532), the web console as uid 1000, the backup
 runner as uid 10003. Nothing runs as root except Postgres' one-time
@@ -123,7 +123,7 @@ A volume owned by root that a non-root uid cannot write is the most common
 first-boot failure after enabling a profile.
 
 **Version pinning.** Every image reference is pinned: an exact tag plus a
-registry digest, in the three Meridian Dockerfiles and every third-party
+registry digest, in the three Marula Dockerfiles and every third-party
 slot in the compose file and Helm chart. When you bump a version, move the
 tag and the digest together. The digest is what actually runs.
 

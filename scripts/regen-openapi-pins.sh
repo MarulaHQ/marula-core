@@ -31,14 +31,14 @@ fi
 API_URL="$(echo "$API_URL" | sed 's|/$||')"
 cleanup() {
   if [ "$RUN_MODE" = "1" ]; then
-    RUN_ID="$(grep -m1 '^MERIDIAN_RUN_ID=' e2e/.e2e-stack.env 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
+    RUN_ID="$(grep -m1 '^MARULA_RUN_ID=' e2e/.e2e-stack.env 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
     bash scripts/e2e-stack.sh down "$RUN_ID" || true
   fi
 }
 trap cleanup EXIT
 
 echo "[regen-pins] fetching /openapi.json from $API_URL"
-curl -fsS "$API_URL/openapi.json" -o /tmp/meridian-openapi-pretty.json
+curl -fsS "$API_URL/openapi.json" -o /tmp/marula-openapi-pretty.json
 
 # Write both pins as the SAME compact bytes: python minifies once (single-
 # line, sorted-key-free — preserves server key order), then the identical
@@ -48,15 +48,15 @@ curl -fsS "$API_URL/openapi.json" -o /tmp/meridian-openapi-pretty.json
 # the in-place minify), and the identical buffer lands on both paths.
 node -e '
 const fs = require("fs");
-const compact = JSON.stringify(JSON.parse(fs.readFileSync("/tmp/meridian-openapi-pretty.json", "utf8")));
+const compact = JSON.stringify(JSON.parse(fs.readFileSync("/tmp/marula-openapi-pretty.json", "utf8")));
 for (const pin of ["packages/sdk/openapi.json", "fixtures/openapi/v1/openapi.json"]) {
   fs.writeFileSync(pin, compact);
 }
 console.log("[regen-pins] wrote both pins compact (" + compact.length + " bytes)");
 '
 
-echo "[regen-pins] regenerate SDK (@meridian/sdk generate)"
-pnpm --filter @meridian/sdk generate
+echo "[regen-pins] regenerate SDK (@marula-core/sdk generate)"
+pnpm --filter @marula-core/sdk generate
 
 echo "[regen-pins] run the format gate"
 bash scripts/check-openapi-pins.sh

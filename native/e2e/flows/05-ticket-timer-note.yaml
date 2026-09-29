@@ -1,6 +1,6 @@
 # Ticket detail: notes and timer are server-backed entities.
 # Opens a ticket from the board and exercises both mutations.
-appId: tech.meridian.app
+appId: org.marula.app
 ---
 - launchApp
 - extendedWaitUntil:

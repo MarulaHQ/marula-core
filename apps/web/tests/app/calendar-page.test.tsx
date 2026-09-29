@@ -101,7 +101,7 @@ function setupApi(): MockApi {
         {
           ticket_id: TICKET_ID,
           board_id: "00000000-0000-4000-8000-0000000000b1",
-          number: "MER-42",
+          number: "MAR-42",
           title: "Mail server rejecting inbound",
           due_at: at(TODAY, 12, 0),
           category: "open",
@@ -141,7 +141,7 @@ describe("CalendarPage", () => {
     expect(screen.getByTestId(`week-block-${SYNCED_ID}`)).toHaveTextContent("Synced · Vendor maintenance window");
     expect(
       screen.getByTestId(`week-block-deadline:${TICKET_ID}`),
-    ).toHaveTextContent("MER-42");
+    ).toHaveTextContent("MAR-42");
     expect(screen.getByTestId(`day-overlaps-${isoDay(TODAY)}`)).toHaveTextContent("1 overlap");
     cleanup();
   });
@@ -153,7 +153,7 @@ describe("CalendarPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Agenda" }));
     const list = await screen.findByTestId("agenda-list");
     expect(list).toHaveTextContent("Site visit");
-    expect(list).toHaveTextContent("MER-42 Mail server rejecting inbound");
+    expect(list).toHaveTextContent("MAR-42 Mail server rejecting inbound");
     expect(screen.getByTestId(`agenda-entry-${SYNCED_ID}`)).toHaveTextContent("Synced busy");
     const apptRow = screen.getByTestId(`agenda-entry-${APPT_ID}`);
     expect(apptRow).toHaveTextContent("overlaps");

@@ -6,7 +6,7 @@
 //! Every `/api` handler surface is mounted TWICE by [`build_router`]:
 //!
 //! - `/api/v1/...` — the CANONICAL, documented contract. The OpenAPI
-//!   document (and therefore `@meridian/sdk`) describes v1 paths only.
+//!   document (and therefore `@marula/sdk`) describes v1 paths only.
 //! - `/api/...` — the unversioned LEGACY ALIAS from before versioning was
 //!   introduced. It hits the very same handlers through the same middleware
 //!   sequence with identical payloads, status codes, auth behavior and error
@@ -222,7 +222,7 @@ pub fn build_router(state: AppState) -> Router {
     let docs = openapi::scalar_router();
 
     // Dev-tools surface (TASKLIST DX2): mounted ONLY when the process runs
-    // with MERIDIAN_DEV_TOOLS=1. Unset, the routes DO NOT EXIST — no
+    // with MARULA_DEV_TOOLS=1. Unset, the routes DO NOT EXIST — no
     // registration at all, not a 403 — and they stay outside the /api/v1
     // contract, the OpenAPI document, and the two-mount rule (a dev surface
     // is not an API generation).
@@ -234,7 +234,7 @@ pub fn build_router(state: AppState) -> Router {
 
     // Request telemetry (TASKLIST 2.18): outermost so the span covers the
     // entire pipeline; the route TEMPLATE + status + duration become span
-    // attrs and `meridian.http.*` metrics. Unmatched routes collapse to
+    // attrs and `marula.http.*` metrics. Unmatched routes collapse to
     // the constant "unmatched" — never raw paths (redact module docs).
     //
     // Typed rejections (Wave 13 lane 1) sit just inside telemetry: every

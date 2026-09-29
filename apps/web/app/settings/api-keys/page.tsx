@@ -23,8 +23,8 @@ import {
   Input,
   Label,
   Tag,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SaveBar, SettingsHeader } from "../../../components/settings/settings-shell";

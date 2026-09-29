@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Process registry for agents (report §3.5): list the running Meridian stack
+# Process registry for agents (report §3.5): list the running Marula stack
 # — pids, ports, env fingerprint — so a lane stops guessing which process it
 # may kill. Sources of truth:
 #   1. .kilo/dev-registry/run-*-pids.json — per-run entries written by
 #      scripts/e2e-stack.sh
-#   2. live docker containers matching meridian-e2e-* (image pgvector/valkey)
+#   2. live docker containers matching marula-e2e-* (image pgvector/valkey)
 #   3. listening ports held by the registered processes (re-checked live)
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)" 2>/dev/null
@@ -41,20 +41,20 @@ else
 fi
 
 echo
-echo "== live meridian-e2e-* containers =="
+echo "== live marula-e2e-* containers =="
 if command -v docker >/dev/null 2>&1; then
-  docker ps --filter "name=meridian-e2e" --format \
+  docker ps --filter "name=marula-e2e" --format \
     "table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}" 2>/dev/null \
     | { read -r header; echo "  $header"; while read -r l; do echo "  $l"; done; }
   echo
-  echo "To inspect:  docker logs meridian-e2e-pg-<run-id>"
+  echo "To inspect:  docker logs marula-e2e-pg-<run-id>"
 else
   echo "  (docker unavailable)"
 fi
 
 echo
-echo "== other common Meridian processes (core-api / realtime / next standalone) =="
-ps -axo pid,command | grep -E "release/(core-api|realtime)|\.next/standalone/server\.js|meridian-cli" \
+echo "== other common Marula processes (core-api / realtime / next standalone) =="
+ps -axo pid,command | grep -E "release/(core-api|realtime)|\.next/standalone/server\.js|marula-core-cli" \
   | grep -v grep | sed 's/^/  /' || echo "  (none)"
 echo
 echo "Teardown: bash scripts/e2e-stack.sh down <RUN_ID>   # keyed to that run id only"

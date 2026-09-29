@@ -725,7 +725,7 @@ export interface paths {
         /**
          * GET /api/attachments/{id}/download — streams the stored bytes through
          *     the API behind board-view authz (no public URLs in v1). Integrity is
-         *     verifiable against the recorded sha256 (`x-meridian-sha256` header).
+         *     verifiable against the recorded sha256 (`x-marula-sha256` header).
          */
         get: operations["attachments_download"];
         put?: never;
@@ -867,7 +867,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/auth/edge/{name}/exchange — swaps a valid
-         *     `Cf-Access-Jwt-Assertion` (header) for Meridian tokens. The
+         *     `Cf-Access-Jwt-Assertion` (header) for Marula tokens. The
          *     assertion MUST verify against the source's pinned team JWKS with
          *     issuer AND audience pinned; failures are a uniform typed 401.
          */
@@ -10770,7 +10770,7 @@ export interface paths {
          *     (linked to a comment later by the composer submit).
          * @description Headers: `x-filename` (required), `content-type` (declared; verified
          *     against sniffed magic bytes). Body: raw bytes, capped by
-         *     `MERIDIAN_MAX_UPLOAD_MB` (default 25 MB).
+         *     `MARULA_MAX_UPLOAD_MB` (default 25 MB).
          */
         post: operations["attachments_upload"];
         delete?: never;
@@ -12745,7 +12745,7 @@ export interface components {
          */
         ApiKeyCreatedResponse: {
             key: components["schemas"]["ApiKeyView"];
-            /** @description Raw bearer material: `mrd_<32 hex>`. */
+            /** @description Raw bearer material: `mrl_<32 hex>`. */
             raw_key: string;
         };
         ApiKeyList: {
@@ -12759,7 +12759,7 @@ export interface components {
             /** Format: date-time */
             last_used_at?: string | null;
             name: string;
-            /** @description Non-secret display prefix, e.g. "mrd_ab12cd34". */
+            /** @description Non-secret display prefix, e.g. "mrl_ab12cd34". */
             prefix: string;
             /** Format: date-time */
             revoked_at?: string | null;
@@ -14575,7 +14575,7 @@ export interface components {
         };
         /**
          * @description The durable operator mapping a reconciliation accept writes: one row
-         *     per (source system, vendor org id), pointing at one Meridian client.
+         *     per (source system, vendor org id), pointing at one Marula client.
          */
         ClientOrgMap: {
             /** Format: uuid */
@@ -15691,7 +15691,7 @@ export interface components {
             subject: string;
             /**
              * Format: uuid
-             * @description Local Meridian user to bind. The admin is the verified-email
+             * @description Local Marula user to bind. The admin is the verified-email
              *     authority here: linking asserts "this local account is this
              *     edge identity".
              */
@@ -15774,7 +15774,7 @@ export interface components {
         CreateImportTemplateRequest: {
             entity_kind: components["schemas"]["EntityKind"];
             /**
-             * @description Source column → canonical Meridian column. Targets are validated
+             * @description Source column → canonical Marula column. Targets are validated
              *     against the canonical field catalog for the entity kind.
              */
             mapping: Record<string, never>;
@@ -18235,7 +18235,7 @@ export interface components {
             due_at?: string | null;
             /** Format: uuid */
             id: string;
-            /** @description Human number (e.g. "MER-12") — the bundle's stable ticket key. */
+            /** @description Human number (e.g. "MAR-12") — the bundle's stable ticket key. */
             number: string;
             priority: components["schemas"]["Priority"];
             /** Format: uuid */
@@ -19632,7 +19632,7 @@ export interface components {
             /** Format: date-time */
             last_used_at?: string | null;
             name: string;
-            /** @description Non-secret display identifier (e.g. `mrd_ab12cd34`). */
+            /** @description Non-secret display identifier (e.g. `mrl_ab12cd34`). */
             prefix: string;
             /** Format: date-time */
             revoked_at?: string | null;
@@ -23419,7 +23419,7 @@ export interface components {
             /** @description URL-safe org slug (unique). */
             org_slug: string;
             password: string;
-            /** @description Ticket number prefix, e.g. "MER" → MER-2841. Defaults to "MER". */
+            /** @description Ticket number prefix, e.g. "MAR" → MAR-2841. Defaults to "MAR". */
             ticket_prefix?: string | null;
             /** @default UTC */
             timezone: string | null;
@@ -25123,7 +25123,7 @@ export interface components {
             target: string;
             /** Format: uuid */
             ticket_id: string;
-            /** @description Human-facing headline, e.g. "[MER-12] SLA risk on resolution". */
+            /** @description Human-facing headline, e.g. "[MAR-12] SLA risk on resolution". */
             title: string;
             /** @description 'risk' | 'breach' | 'escalate' */
             trigger: string;
@@ -26197,7 +26197,7 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
         };
         /**
-         * @description Human-facing ticket number, e.g. `MER-2841`. Globally unique per org,
+         * @description Human-facing ticket number, e.g. `MAR-2841`. Globally unique per org,
          *     assigned from a per-org sequence.
          */
         TicketNumber: string;

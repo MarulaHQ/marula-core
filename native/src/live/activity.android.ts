@@ -14,7 +14,7 @@ interface NativeLiveActivity {
   pushToken(): string | null;
 }
 
-const native = requireOptionalNativeModule<NativeLiveActivity>("MeridianLiveActivity");
+const native = requireOptionalNativeModule<NativeLiveActivity>("MarulaLiveActivity");
 
 export const liveTimerActivity = {
   async isSupported(): Promise<boolean> {

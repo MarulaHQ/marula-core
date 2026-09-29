@@ -13,8 +13,8 @@
 // no undo for other entities in v1.
 "use client";
 
-import { Button, Label, Spinner, StatusTag, Tag } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Button, Label, Spinner, StatusTag, Tag } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { newIdempotencyKey } from "../lib/instant/instant-write";

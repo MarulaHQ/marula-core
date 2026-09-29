@@ -9,8 +9,8 @@
 // Non-purpose: no board/status editing (admin surface owns that).
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, StatusTag } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, StatusTag } from "@marula-core/ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 type BoardStatus = components["schemas"]["BoardStatus"];

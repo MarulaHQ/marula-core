@@ -35,7 +35,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { resultErrorText } from "../../lib/error-copy";
 import { doubleDiff as diffSummary } from "../../lib/decision-diff";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   Button,
   Card,
@@ -43,7 +43,7 @@ import {
   Label,
   Spinner,
   Tag,
-} from "@meridian/ui";
+} from "@marula-core/ui";
 
 type SurfaceOverview = components["schemas"]["DecisionSurfaceOverview"];
 type DecisionPreviewRequest = components["schemas"]["DecisionPreviewRequest"];

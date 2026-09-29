@@ -24,8 +24,8 @@ import {
   SelectValue,
   Spinner,
   Tag,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useEffect, useRef, useState } from "react";
 import { LINK_KIND_OPTIONS, searchLinkTargets, type LinkTarget } from "../../lib/entity-links";
 

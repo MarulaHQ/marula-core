@@ -12,7 +12,7 @@
     "created_at": "2023-11-14T22:13:38Z",
     "interface_version": 1,
     "name": "Ticket Summarizer",
-    "publisher": "meridian",
+    "publisher": "marula",
     "slug": "ticket-summarizer",
     "version": "1.0.0"
   }

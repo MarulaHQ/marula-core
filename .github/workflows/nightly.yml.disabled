@@ -19,13 +19,13 @@ name: Nightly perf
 #     too deep, so the file never parsed (GitHub would have rejected it
 #     on the first push) — fixed;
 #   * core-api boots fail-closed since Wave 19 (explicit 64-hex
-#     JWT_SECRET + MERIDIAN_SECRET_KEY), and neither job set them — the
+#     JWT_SECRET + MARULA_SECRET_KEY), and neither job set them — the
 #     Boot steps would have refused to start — fixed with dev-only
 #     constants;
 #   * the Boot steps inherited the privileged DATABASE_URL (postgres
 #     superuser bypasses RLS), which would have measured a different
 #     security posture than production — boot now connects as
-#     meridian_app (the same role every deployment uses).
+#     marula_app (the same role every deployment uses).
 # The `.disabled` suffix is deliberate and USER-GATED: re-enabling the
 # schedule/triggers is a user decision, never a lane action.
 
@@ -47,7 +47,7 @@ jobs:
         image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: meridian_perf
+          POSTGRES_DB: marula_perf
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -57,13 +57,13 @@ jobs:
         ports: ["6379:6379"]
     env:
       # Privileged role for migrations + deterministic seeding.
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_perf
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_perf
       REDIS_URL: redis://localhost:6379
       # Dev-only CI constants: core-api and realtime refuse to boot
       # without explicit values since Wave 19 (fail-closed). They never
       # leave this ephemeral runner.
       JWT_SECRET: 5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e
-      MERIDIAN_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
+      MARULA_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -77,7 +77,7 @@ jobs:
         run: |
           # RLS-scoped app role (production parity): the superuser in the
           # job env would bypass every RLS policy and flatter the numbers.
-          DATABASE_URL=postgres://meridian_app:meridian_app@localhost:5432/meridian_perf \
+          DATABASE_URL=postgres://marula_app:marula_app@localhost:5432/marula_perf \
             BIND_ADDR=127.0.0.1:18080 ./target/release/core-api &
           for i in $(seq 1 60); do
             curl -fsS http://127.0.0.1:18080/api/health >/dev/null 2>&1 && break
@@ -126,7 +126,7 @@ jobs:
         image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: meridian_perf
+          POSTGRES_DB: marula_perf
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -136,11 +136,11 @@ jobs:
         ports: ["6379:6379"]
     env:
       # Privileged role for migrations + deterministic seeding (100k).
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_perf
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_perf
       REDIS_URL: redis://localhost:6379
       # Dev-only CI constants (see perf-load-budget above).
       JWT_SECRET: 5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e
-      MERIDIAN_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
+      MARULA_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -152,7 +152,7 @@ jobs:
       - name: Boot core-api
         run: |
           # RLS-scoped app role, same reason as the budget job.
-          DATABASE_URL=postgres://meridian_app:meridian_app@localhost:5432/meridian_perf \
+          DATABASE_URL=postgres://marula_app:marula_app@localhost:5432/marula_perf \
             BIND_ADDR=127.0.0.1:18080 ./target/release/core-api &
           for i in $(seq 1 60); do
             curl -fsS http://127.0.0.1:18080/api/health >/dev/null 2>&1 && break

@@ -294,5 +294,5 @@ function findPaneId(root: LayoutNode, paneId: NodeId): NodeId | null {
 }
 
 function defaultIssueReporter(issue: string): void {
-  console.warn(`[meridian/layout] ${issue}`);
+  console.warn(`[marula/layout] ${issue}`);
 }

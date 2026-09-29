@@ -296,7 +296,7 @@ pub struct ApiKeyRow {
     pub name: String,
     /// hex(HMAC-SHA256(secret_key, raw)). Raw material is never stored.
     pub key_hash: String,
-    /// Non-secret display identifier (e.g. "mrd_ab12cd34") for listings.
+    /// Non-secret display identifier (e.g. "mrl_ab12cd34") for listings.
     pub prefix: String,
     /// Capability scope strings ("tickets:read", …).
     pub scopes: Vec<String>,
@@ -417,7 +417,7 @@ where
 /// DESIGN — the key itself selects the org and no `app.org_id` scope can
 /// exist yet — so this goes through the narrow SECURITY DEFINER function
 /// from migration 0020 (works identically under the constrained
-/// `meridian_app` role and the table owner). Only active keys resolve.
+/// `marula_app` role and the table owner). Only active keys resolve.
 pub async fn find_active_api_key_by_hash<'e, E>(
     executor: E,
     key_hash: &str,

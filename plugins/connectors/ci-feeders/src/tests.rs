@@ -2,7 +2,7 @@
 //! against the NinjaOne fixture and a stub API server. The FULL CI gate
 //! over the real core lives in `crates/core-api/tests/ci_feeder_gate.rs`;
 //! this file keeps the connector's own surface honest without ever
-//! importing a Meridian crate. Marketplace feeder mappers (Auvik, IT
+//! importing a Marula crate. Marketplace feeder mappers (Auvik, IT
 //! Glue, community adapters) carry their own conformance suites in their
 //! repos, over the same public [`vendors`] surface.
 
@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::identity::{fingerprint, IdentityKeysBuilder};
 use crate::model::FeederRecord;
 use crate::sink::{
-    FeederSink, MeridianFeederConfig, MeridianFeederSink, NoneFeederSink, SinkError,
+    FeederSink, MarulaFeederConfig, MarulaFeederSink, NoneFeederSink, SinkError,
 };
 use crate::sync::{ApplyMode, FeederSync, SyncConfig};
 use crate::vendors;
@@ -100,7 +100,7 @@ fn fingerprint_changes_only_when_content_changes() {
 // --- wire mechanics (stub server) ---------------------------------------------
 
 #[tokio::test]
-async fn meridian_sink_posts_feed_upsert_with_api_key_and_deterministic_key() {
+async fn marula_sink_posts_feed_upsert_with_api_key_and_deterministic_key() {
     #[derive(Default)]
     struct Captured {
         path: Option<String>,
@@ -144,9 +144,9 @@ async fn meridian_sink_posts_feed_upsert_with_api_key_and_deterministic_key() {
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
     let record = vendors::map_ninjaone_device(&ninjaone_fixture()).unwrap();
-    let sink = MeridianFeederSink::new(MeridianFeederConfig {
+    let sink = MarulaFeederSink::new(MarulaFeederConfig {
         base_url: format!("http://{addr}"),
-        api_key: "mrd_feeder_key".into(),
+        api_key: "mrl_feeder_key".into(),
     });
 
     let first = sink.feed_upsert(&record, Uuid::now_v7()).await;
@@ -166,7 +166,7 @@ async fn meridian_sink_posts_feed_upsert_with_api_key_and_deterministic_key() {
     );
     assert_eq!(
         captured.lock().unwrap().api_key.as_deref(),
-        Some("mrd_feeder_key")
+        Some("mrl_feeder_key")
     );
 
     // Same content ⇒ same deterministic key (a retried sync replays).
@@ -195,9 +195,9 @@ async fn sink_surfaces_typed_errors_for_auth_and_rejection() {
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
     let record = vendors::map_ninjaone_device(&ninjaone_fixture()).unwrap();
-    let sink = MeridianFeederSink::new(MeridianFeederConfig {
+    let sink = MarulaFeederSink::new(MarulaFeederConfig {
         base_url: format!("http://{addr}"),
-        api_key: "mrd_scoped_wrong".into(),
+        api_key: "mrl_scoped_wrong".into(),
     });
     let err = sink.feed_upsert(&record, Uuid::now_v7()).await.unwrap_err();
     assert!(matches!(err, SinkError::Unauthorized(_)));

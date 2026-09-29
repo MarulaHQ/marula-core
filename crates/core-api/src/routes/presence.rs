@@ -10,7 +10,7 @@
 //!
 //! Multi-replica note (Wave 13 lane 10): the store is per-core-api-process
 //! but heartbeats are RELAYED to the other replicas over the pg NOTIFY
-//! channel `meridian_presence` (`realtime::publish_heartbeat_notify`) —
+//! channel `marula_presence` (`realtime::publish_heartbeat_notify`) —
 //! each replica applies the relayed heartbeat locally, so rosters
 //! converge and transition frames carry the identical shape everywhere.
 //! Frame shape stays identical to the documented contract in

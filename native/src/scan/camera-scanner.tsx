@@ -58,7 +58,7 @@ export function CameraScanner({
             <Text style={[styles.fallbackBody, { color: tokens.textMuted }]}>
               {simulator
                 ? "The simulator has no lens. Type or paste the code instead — every scan path behaves the same."
-                : "Meridian scans labels on this device only. Nothing is uploaded until you confirm a movement."}
+                : "Marula scans labels on this device only. Nothing is uploaded until you confirm a movement."}
             </Text>
             {!simulator && permission !== null && !permission.granted ? (
               <Button

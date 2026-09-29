@@ -22,8 +22,8 @@
 // dropped, so there is nothing to resolve server-side.
 "use client";
 
-import { Button, Card, EmptyState, FieldHint, Input, Label, Spinner, Tag } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Button, Card, EmptyState, FieldHint, Input, Label, Spinner, Tag } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, api } from "../lib/api";
 import { friendlyMutationText, resultErrorText } from "../lib/error-copy";

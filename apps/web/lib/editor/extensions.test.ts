@@ -3,11 +3,11 @@
 // Tiptap paid bundle (Collaboration/Comments/AI/Conversion) can appear
 // because the names below are asserted exhaustively.
 import { describe, expect, it } from "vitest";
-import { meridianExtensionSet } from "./extensions";
+import { marulaExtensionSet } from "./extensions";
 
-describe("meridian editor extension set", () => {
-  it("loads the OSS composite — StarterKit + MIT extras + Meridian nodes", () => {
-    const names = meridianExtensionSet.map((e) => e.name);
+describe("marula editor extension set", () => {
+  it("loads the OSS composite — StarterKit + MIT extras + Marula nodes", () => {
+    const names = marulaExtensionSet.map((e) => e.name);
     // StarterKit's own entries are nested; its presence gates every core
     // node/mark above (`"document"` etc.). Extras are asserted wholesale.
     for (const name of [
@@ -16,16 +16,16 @@ describe("meridian editor extension set", () => {
       "taskList",
       "taskItem",
       "youtube",
-      "meridianAssetLink",
-      "meridianKbEmbed",
-      "meridianTaxonomyTerm",
+      "marulaAssetLink",
+      "marulaKbEmbed",
+      "marulaTaxonomyTerm",
     ]) {
       expect(names).toContain(name);
     }
   });
 
   it("loads no Tiptap paid-bundle extension names", () => {
-    const names = meridianExtensionSet.map((e) => e.name);
+    const names = marulaExtensionSet.map((e) => e.name);
     for (const paid of [
       "collaboration",
       "comments",

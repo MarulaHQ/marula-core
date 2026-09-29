@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { MeridianClient } from "@meridian/sdk";
+import type { MarulaClient } from "@marula-core/sdk";
 
 import type { ScanResolution } from "@/core/models";
 import { accepts, pickCandidate, scanRoute } from "@/core/scan";
@@ -22,7 +22,7 @@ import {
 
 const base = { idempotencyKey: "idem-1" };
 
-function fakeClient(captured: { path: string; opts: unknown }[]): MeridianClient {
+function fakeClient(captured: { path: string; opts: unknown }[]): MarulaClient {
   return {
     api: {
       POST: (path: string, opts: unknown) => {
@@ -33,7 +33,7 @@ function fakeClient(captured: { path: string; opts: unknown }[]): MeridianClient
         });
       },
     },
-  } as unknown as MeridianClient;
+  } as unknown as MarulaClient;
 }
 
 function resolution(overrides: Partial<ScanResolution>): ScanResolution {
@@ -217,7 +217,7 @@ describe("day pack ticks", () => {
           });
         },
       },
-    } as unknown as MeridianClient;
+    } as unknown as MarulaClient;
     await untickDayPack.send(client, built);
     expect(captured[0]?.path).toBe("/api/v1/day-pack/ticks");
     const opts = captured[0]?.opts as { params: { query: { date: string; line_key: string } } };

@@ -1,4 +1,4 @@
-# Garage (S3-compat object storage) config for the meridian stage2 compose slot.
+# Garage (S3-compat object storage) config for the marula stage2 compose slot.
 # Single-node layout: create the cluster once after first start (commands in
 # deploy/docker-compose.yml above the garage service).
 metadata_dir = "/var/lib/garage/meta"

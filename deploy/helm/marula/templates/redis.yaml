@@ -1,0 +1,61 @@
+{{- if .Values.redis.deploy -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "marula.fullname" . }}-redis
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "marula.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "marula.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: redis
+    spec:
+      securityContext:
+        {{- $ctx := deepCopy .Values.podSecurityContext -}}
+        {{- $_ := set $ctx "runAsUser" (.Values.runAsUserByComponent.redis | default 65532) -}}
+        {{- $_ := set $ctx "fsGroup" (.Values.runAsUserByComponent.redis | default 65532) -}}
+        {{- toYaml $ctx | nindent 8 }}
+      containers:
+        - name: redis
+          image: {{ include "marula.pinnedImage" (dict "ctx" . "image" .Values.redis.image "digest" .Values.redis.imageDigest) | quote }}
+          securityContext:
+            {{- /* Valkey only writes /data; rootfs can be read-only. */ -}}
+            {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          env: []
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 3
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "marula.fullname" . }}-redis
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "marula.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+{{- end }}

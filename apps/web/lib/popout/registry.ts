@@ -10,7 +10,7 @@
 //
 // Desktop contract (lane 2 handoff): the route keys here are the SAME keys
 // the Tauri shell uses for native multi-window, and `pathOf` builds the
-// canonical in-app URL for any key + params. The `meridian://` deep-link
+// canonical in-app URL for any key + params. The `marula://` deep-link
 // grammar (crates/core-domain labels.rs `deep_link`) maps onto these keys
 // via `kindForPath` — one grammar, two shells.
 
@@ -74,7 +74,7 @@ export function pathOf(key: string, params: Record<string, string> = {}): string
   return def.template.replace(/\[([a-z_]+)\]/g, (_, name: string) => params[name] ?? "");
 }
 
-/** The route key a `meridian://<kind>/<id>` deep link opens as a popout.
+/** The route key a `marula://<kind>/<id>` deep link opens as a popout.
  * Mirrors deepLinkTarget (apps/web/lib/labels/model.ts). */
 export function popoutKeyForDeepLinkKind(kind: string): string | null {
   switch (kind) {

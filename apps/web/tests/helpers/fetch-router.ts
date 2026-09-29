@@ -1,6 +1,6 @@
 // Global fetch router for page-level integration tests.
 //
-// Purpose: vitest setup stubs globalThis.fetch ONCE — before @meridian/sdk
+// Purpose: vitest setup stubs globalThis.fetch ONCE — before @marula-core/sdk
 // is imported, so openapi-fetch's default capture lands on this wrapper —
 // and delegtes every call to whichever MockApi route-table is currently
 // installed. Tests register their fixtures through MockApi#install().
@@ -16,7 +16,7 @@ interface Registry {
   current: RoutedFetchHandler | null;
 }
 
-const REGISTRY_KEY = "__meridian_test_fetch_registry__";
+const REGISTRY_KEY = "__marula_test_fetch_registry__";
 
 function registry(): Registry {
   const g = globalThis as typeof globalThis & Record<string, unknown>;

@@ -1,5 +1,5 @@
 //! The out-of-tree routing adapter: any provider pack that implements the
-//! documented Meridian Routing Contract over HTTP (ADR 0014, normative
+//! documented Marula Routing Contract over HTTP (ADR 0014, normative
 //! wire shape in `docs/routing-providers.md`).
 //!
 //! This is how premium/relay routing connectors (TravelTime, Geoapify, …)

@@ -91,7 +91,7 @@ GlitchTip's own UI is the right surface, so the pane links to it instead
 of forking it. Set the browser-reachable URL on core-api:
 
 ```bash
-MERIDIAN_GLITCHTIP_URL=http://localhost:8010   # compose's GlitchTip port
+MARULA_GLITCHTIP_URL=http://localhost:8010   # compose's GlitchTip port
 ```
 
 The card also lists which services have a DSN configured. The DSNs are
@@ -108,7 +108,7 @@ errors are flowing.
 
 ## 4. Operator UIs for dashboards, traces, logs and metrics
 
-Meridian gives links, not forks. Start the observability profile, then
+Marula gives links, not forks. Start the observability profile, then
 point the pane at the browser-reachable URLs:
 
 ```bash
@@ -116,10 +116,10 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
   docker compose -f deploy/docker-compose.yml --profile observability up
 
 # core-api environment (browser URLs, not service names):
-MERIDIAN_GRAFANA_URL=http://localhost:3001       # dashboards
-MERIDIAN_OTEL_METRICS_URL=http://localhost:18899 # collector scrape target
-MERIDIAN_TEMPO_URL=http://localhost:3200         # traces
-MERIDIAN_LOKI_URL=http://localhost:3100          # logs
+MARULA_GRAFANA_URL=http://localhost:3001       # dashboards
+MARULA_OTEL_METRICS_URL=http://localhost:18899 # collector scrape target
+MARULA_TEMPO_URL=http://localhost:3200         # traces
+MARULA_LOKI_URL=http://localhost:3100          # logs
 ```
 
 The reference page [Observability: distributed traces, logs, metrics](../reference/self-host-observability.md)
@@ -138,9 +138,9 @@ docker compose --profile stage2 up -d garage
 docker compose --profile stage2 exec garage /garage status
 docker compose --profile stage2 exec garage /garage layout assign -z dc1 -c 1G <NODE_ID>
 docker compose --profile stage2 exec garage /garage layout apply --version 1
-docker compose --profile stage2 exec garage /garage bucket create meridian
-docker compose --profile stage2 exec garage /garage key create meridian
-docker compose --profile stage2 exec garage /garage bucket allow --read --write meridian --key meridian
+docker compose --profile stage2 exec garage /garage bucket create marula
+docker compose --profile stage2 exec garage /garage key create marula
+docker compose --profile stage2 exec garage /garage bucket allow --read --write marula --key marula
 ```
 
 The card's **S3 mode** tag comes from core-api's own object-store config,
@@ -164,5 +164,5 @@ usage reporting lives with the attachment surfaces, not here.
 - Scanning is opt-in (`EMAIL_SCAN=clamd` plus `CLAMD_ADDR`). Without it,
   mail is stored with scan status `skipped`.
 - GlitchTip, Grafana, Tempo, Loki, and the collector are link-out cards
-  driven by `MERIDIAN_*_URL` variables. Garage is CLI-first and stays
+  driven by `MARULA_*_URL` variables. Garage is CLI-first and stays
   that way.

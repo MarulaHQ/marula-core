@@ -34,7 +34,7 @@ const ORG = '00000000-0000-4000-8000-000000000002';
 const ME = {
   user_id: '00000000-0000-4000-8000-000000000001',
   org_id: ORG,
-  email: 'owner@meridian.test',
+  email: 'owner@marula.test',
   display_name: 'Taylor Reed',
   timezone: 'UTC',
   permissions: ['special:manage_plugins', 'admin:org'],
@@ -142,7 +142,7 @@ const CATALOG = [
     id: 'a8000000-0000-4000-8000-000000000001',
     slug: 'collector-http',
     name: 'Collector HTTP',
-    publisher: 'Meridian Labs',
+    publisher: 'Marula Labs',
     description: 'Webhook collector for inbound client events.',
     latest_version: '0.9.0',
     revoked: false,
@@ -153,7 +153,7 @@ const CATALOG = [
     id: 'a8000000-0000-4000-8000-000000000002',
     slug: 'sla-watchdog',
     name: 'SLA Watchdog',
-    publisher: 'Meridian Labs',
+    publisher: 'Marula Labs',
     description: 'WASM watchdog that flags at-risk tickets.',
     latest_version: '2.1.0',
     revoked: false,
@@ -226,14 +226,14 @@ async function probe(browser, viewport, theme, page_, name) {
   const url = new URL(`${BASE}${page_.path}`);
   if (theme === 'dark') url.searchParams.set('theme', 'dark');
   await page.addInitScript((t) => {
-    window.localStorage.setItem('meridian-theme', t);
-    window.localStorage.setItem('meridian-tokens', JSON.stringify({
+    window.localStorage.setItem('marula-theme', t);
+    window.localStorage.setItem('marula-tokens', JSON.stringify({
       access_token: 'test-access',
       refresh_token: 'test-refresh',
       session_id: 'sess',
       expires_in: 900,
     }));
-    window.localStorage.setItem('meridian-tokens-exp', String(Date.now() + 60_000));
+    window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal{display:none!important}';
     document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));

@@ -119,7 +119,7 @@ fn deprecation_clock_passes_for_this_build() {
 /// Creates a unique throwaway directory with the given files.
 fn temp_tree(files: &[(&str, &str)]) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
-        "meridian-deprecation-clock-{}-{}",
+        "marula-deprecation-clock-{}-{}",
         std::process::id(),
         uuid::Uuid::now_v7().simple()
     ));

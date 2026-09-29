@@ -1,6 +1,6 @@
-//! Signed webhook receiver for Meridian events (the IN half).
+//! Signed webhook receiver for Marula events (the IN half).
 //!
-//! Purpose: accept POSTs from a Meridian webhook subscription and verify
+//! Purpose: accept POSTs from a Marula webhook subscription and verify
 //! them EXACTLY the way first-party receivers must: constant-time HMAC-
 //! SHA256 over `"{t}.{rawBody}"` with the `t=<ts>,v1=<hex>` header, plus
 //! the ±10-minute anti-replay window. Raw bytes are verified BEFORE any
@@ -8,7 +8,7 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export const SIGNATURE_HEADER = "x-meridian-signature";
+export const SIGNATURE_HEADER = "x-marula-signature";
 /** Generous for queue delay, tight enough to kill replays (~10 min). */
 export const REPLAY_TOLERANCE_SECS = 600;
 

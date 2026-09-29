@@ -3,8 +3,8 @@
 // Next.js forbids non-page exports from app/*/page.tsx).
 "use client";
 
-import { Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 
 type DocumentLayout = components["schemas"]["DocumentLayout"];
 type LayoutField = components["schemas"]["LayoutField"];

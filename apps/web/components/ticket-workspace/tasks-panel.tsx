@@ -14,8 +14,8 @@
 "use client";
 
 import { rejectionText } from "../../lib/error-copy";
-import type { components } from "@meridian/sdk";
-import { Button, Input } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Input } from "@marula-core/ui";
 import { useState, type ReactNode } from "react";
 import { NoteComposer } from "../notes/note-composer";
 

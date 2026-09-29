@@ -1,4 +1,4 @@
-//! core-db — SQLx queries and versioned migrations for Meridian.
+//! core-db — SQLx queries and versioned migrations for Marula.
 //!
 //! Purpose: the only place SQL lives. Every query is compile-time checked
 //! against the schema (offline `.sqlx` data committed to the repo); RLS is
@@ -31,7 +31,7 @@ pub mod custom_fields;
 pub mod day_pack;
 pub mod decision;
 // Dev-tool surface (TASKLIST DX1–DX2): only reachable behind
-// MERIDIAN_DEV_TOOLS=1 — the CLI refuses and the API router is not mounted
+// MARULA_DEV_TOOLS=1 — the CLI refuses and the API router is not mounted
 // without it.
 pub mod costs;
 pub mod credit_notes;

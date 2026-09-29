@@ -1,4 +1,4 @@
-# Meridian web app image (apps/web).
+# Marula web app image (apps/web).
 #
 # Purpose: production Next.js build of the browser client, served from the
 # standalone output — no dev dependencies ship in the runtime layer.
@@ -28,7 +28,7 @@ COPY apps/web/package.json apps/web/
 COPY packages/ui/package.json packages/ui/
 COPY packages/layout/package.json packages/layout/
 COPY packages/sdk/package.json packages/sdk/
-RUN pnpm --filter @meridian/web... install --frozen-lockfile
+RUN pnpm --filter @marula/web... install --frozen-lockfile
 
 COPY . .
 WORKDIR /repo/apps/web
@@ -36,7 +36,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_API_URL=http://localhost:8080
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY deploy/web-standalone-remap.cjs /remap.cjs
-RUN pnpm --filter @meridian/web build && node /remap.cjs
+RUN pnpm --filter @marula/web build && node /remap.cjs
 
 FROM dhi.io/node:22@sha256:399d261fd41851aa1ff39458de69f2fec26304f499a6ee6a17bdcad8290e014a AS run
 WORKDIR /repo/apps/web/.next/standalone

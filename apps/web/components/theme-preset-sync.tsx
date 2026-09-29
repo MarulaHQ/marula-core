@@ -15,9 +15,9 @@
  * pack distribution (theme packs over ADR 0009).
  */
 import { useEffect } from "react";
-import { applyPackStyles, setThemePreset } from "@meridian/ui";
-import type { Theme } from "@meridian/ui";
-import { applyTheme } from "@meridian/ui";
+import { applyPackStyles, setThemePreset } from "@marula-core/ui";
+import type { Theme } from "@marula-core/ui";
+import { applyTheme } from "@marula-core/ui";
 import { api, useAuth } from "../lib/api";
 
 export function ThemePresetSync(): null {

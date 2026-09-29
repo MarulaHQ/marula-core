@@ -1,7 +1,7 @@
 # Today: the day rail renders, and a scheduled booking accepts.
 # Defensive: demo data may already hold an in-progress booking, so the
 # accept leg runs only when the action button is present.
-appId: tech.meridian.app
+appId: org.marula.app
 ---
 - launchApp
 - extendedWaitUntil:

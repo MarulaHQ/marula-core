@@ -13,7 +13,7 @@
 "use client";
 
 import { api } from "./api";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 
 export type TimeCategory = components["schemas"]["TimeCategory"];

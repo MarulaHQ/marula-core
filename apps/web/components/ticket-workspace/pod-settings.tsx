@@ -10,7 +10,7 @@
 
 "use client";
 
-import { Button, StatusTag } from "@meridian/ui";
+import { Button, StatusTag } from "@marula-core/ui";
 import { useState, type ReactNode } from "react";
 
 import {

@@ -5,8 +5,8 @@
   "payload_schema_ref": "core-domain/v1",
   "pinned_in": "0.1.0",
   "payload": {
-    "display_name": "Meridian Labs",
-    "publisher": "github.com/meridian-labs",
+    "display_name": "Marula Labs",
+    "publisher": "github.com/marula-labs",
     "verification_id": "00000000-0000-0000-0000-000000000037",
     "verified_at": "2023-11-14T22:13:40Z",
     "verified_by": "00000000-0000-0000-0000-000000000036"

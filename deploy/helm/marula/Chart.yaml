@@ -1,0 +1,14 @@
+apiVersion: v2
+name: marula
+description: Marula Open PSA — self-hosted PSA core (API, realtime, worker, web)
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+home: https://github.com/marula-open/marula-open-psa-core
+license: Apache-2.0
+keywords:
+  - psa
+  - self-hosted
+maintainers:
+  - name: Marula maintainers
+dependencies: []

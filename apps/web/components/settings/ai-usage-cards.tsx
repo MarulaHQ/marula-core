@@ -13,8 +13,8 @@
 // Tokens: docs/theme.md only; JetBrains Mono numerals; motion ≤120ms.
 
 import { useEffect, useState } from "react";
-import { Card, Spinner, Tag } from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+import { Card, Spinner, Tag } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { api } from "../../lib/api";
 
 type AiOrgUsageResponse = components["schemas"]["AiOrgUsageResponse"];

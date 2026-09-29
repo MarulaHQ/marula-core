@@ -1,9 +1,9 @@
-/* eslint-disable react-hooks/refs -- the MeridianClient is created once and
+/* eslint-disable react-hooks/refs -- the MarulaClient is created once and
    held in a ref (the documented lazy-init idiom) so every callback and the
    provider value share one stable instance; the compiler's refs rule cannot
    see through the once-only write. */
 // Auth provider — login, MFA (TOTP entry), refresh rotation, biometric
-// unlock, and the single MeridianClient every layer shares.
+// unlock, and the single MarulaClient every layer shares.
 //
 // Purpose: mirror the web auth semantics exactly (typed IF3 failures,
 // MFA-gated login via the bridge token, rotating refresh cookies replaced by
@@ -15,11 +15,11 @@
 // ownership (the sync provider clears caches on session end).
 
 import {
-  MeridianApiError,
-  MeridianClient,
+  MarulaApiError,
+  MarulaClient,
   type LoginResult,
   type MfaRequired,
-} from "@meridian/sdk";
+} from "@marula-core/sdk";
 import * as LocalAuthentication from "expo-local-authentication";
 import {
   createContext,
@@ -48,7 +48,7 @@ export interface AuthContextValue {
   biometricAvailable: boolean;
   biometricEnabled: boolean;
   error: string | null;
-  client: MeridianClient;
+  client: MarulaClient;
   signIn(email: string, password: string): Promise<void>;
   submitMfa(code: string): Promise<void>;
   cancelMfa(): void;
@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const mfaTokenRef = useRef<string | null>(null);
   const sessionRef = useRef<{ refreshToken: string; sessionId: string } | null>(null);
-  const clientRef = useRef<MeridianClient | null>(null);
+  const clientRef = useRef<MarulaClient | null>(null);
   const session = sessionStore;
 
   const refreshTokens = useCallback(async (): Promise<string | null> => {
@@ -98,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session]);
 
   if (clientRef.current === null) {
-    clientRef.current = new MeridianClient({
+    clientRef.current = new MarulaClient({
       baseUrl: API_URL,
       fetch: fetchWithAuthRefresh(globalThis.fetch.bind(globalThis), refreshTokens),
     });
@@ -238,7 +238,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const unlock = useCallback(async (): Promise<boolean> => {
     const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: "Unlock Meridian",
+      promptMessage: "Unlock Marula",
       cancelLabel: "Cancel",
       disableDeviceFallback: false,
     }).catch(() => ({ success: false }));
@@ -355,4 +355,4 @@ function isMfaRequired(result: LoginResult): result is MfaRequired {
   return (result as { mfa_required?: unknown }).mfa_required === true;
 }
 
-export { MeridianApiError };
+export { MarulaApiError };

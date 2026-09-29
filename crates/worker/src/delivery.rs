@@ -73,7 +73,7 @@ pub fn windowed_statement(
 
 /// Executes a windowed statement on the reporting pool inside an
 /// org-bound transaction and renders the CSV. The reporting pool runs
-/// the RLS-constrained `meridian_app` role (same rewrite as core-api's
+/// the RLS-constrained `marula_app` role (same rewrite as core-api's
 /// `AppState::reporting_pool`), so tenancy flows through the
 /// security-invoker views plus the explicit `app.org_id` bind — never
 /// through the worker's owner privileges.
@@ -228,18 +228,18 @@ pub async fn plan_recipient(
 // --- the delivery loop ---------------------------------------------------------------
 
 /// Builds the RLS-constrained reporting pool the delivery path executes
-/// on — the SAME credential rewrite core-api applies (`meridian_app`
+/// on — the SAME credential rewrite core-api applies (`marula_app`
 /// when the configured URL carries elevated creds).
 fn reporting_target(database_url: &str) -> String {
-    if database_url.contains("meridian_app:") {
+    if database_url.contains("marula_app:") {
         return database_url.to_string();
     }
     let (scheme_rest, rest) = database_url
         .split_once("://")
         .unwrap_or(("postgres", database_url));
     match rest.split_once('@') {
-        Some((_creds, host)) => format!("{scheme_rest}://meridian_app:meridian_app@{host}"),
-        None => format!("{scheme_rest}://meridian_app:meridian_app@{rest}"),
+        Some((_creds, host)) => format!("{scheme_rest}://marula_app:marula_app@{host}"),
+        None => format!("{scheme_rest}://marula_app:marula_app@{rest}"),
     }
 }
 
@@ -459,7 +459,7 @@ async fn run_one(
                     body_text: csv.clone(),
                     // Stable threading anchor minted per (slot, recipient)
                     // pair — redeliveries of the same slot stay one thread.
-                    rfc_message_id: format!("<report-{delivery_id}-{user_id}@meridian.local>"),
+                    rfc_message_id: format!("<report-{delivery_id}-{user_id}@marula.local>"),
                     in_reply_to: None,
                     references: vec![],
                 };

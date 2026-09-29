@@ -3,11 +3,11 @@
 // Purpose: reducers + diff/payload helpers for statuses, the transition
 // matrix, and the checklist template — dirty tracking and save-payload
 // shaping only, fully unit-testable with no React or fetch involved.
-// Payload types mirror @meridian/sdk request schemas exactly.
+// Payload types mirror @marula-core/sdk request schemas exactly.
 //
 // Non-purpose: no network I/O and no rendering; the page owns calls and
 // error surfacing.
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 export type BoardStatus = components["schemas"]["BoardStatus"];
 export type TicketStatusCategory = components["schemas"]["TicketStatusCategory"];

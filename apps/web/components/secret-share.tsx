@@ -32,8 +32,8 @@ import {
   SelectValue,
   Spinner,
   Tag,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { EntityPicker, type EntityPickerProps } from "./entities/entity-picker";

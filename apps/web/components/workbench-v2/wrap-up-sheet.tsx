@@ -18,8 +18,8 @@
 
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Textarea } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Textarea } from "@marula-core/ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";

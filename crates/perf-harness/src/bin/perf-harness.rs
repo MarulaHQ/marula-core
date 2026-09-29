@@ -8,7 +8,7 @@
 //!   same check CI runs via `scripts/perf-smoke.sh`
 //!
 //! Database selection mirrors the core-db test contract:
-//! `MERIDIAN_TEST_DATABASE_URL` → `DATABASE_URL` → error (no container
+//! `MARULA_TEST_DATABASE_URL` → `DATABASE_URL` → error (no container
 //! auto-start in the bin; the smoke test inside `cargo test` does the
 //! testcontainer dance). The pool must be a PRIVILEGED role (migrations +
 //! seed run as the tables' owner).
@@ -21,7 +21,7 @@ use std::time::Duration;
 #[derive(Parser)]
 #[command(
     name = "perf-harness",
-    about = "Meridian perf program harness (test infra)"
+    about = "Marula perf program harness (test infra)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -174,9 +174,9 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn connect() -> anyhow::Result<(String, sqlx::PgPool)> {
-    let url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .context("set MERIDIAN_TEST_DATABASE_URL or DATABASE_URL (privileged role)")?;
+        .context("set MARULA_TEST_DATABASE_URL or DATABASE_URL (privileged role)")?;
     let pool = core_db::connect(&url)
         .await
         .context("connect to postgres")?;
@@ -187,7 +187,7 @@ async fn connect() -> anyhow::Result<(String, sqlx::PgPool)> {
 async fn connect_app(admin_url: &str) -> anyhow::Result<sqlx::PgPool> {
     core_db::connect(&perf_harness::app_pool_url(admin_url))
         .await
-        .context("connect as meridian_app (migrations must have run)")
+        .context("connect as marula_app (migrations must have run)")
 }
 
 fn print_report(report: &measure::MeasureReport, budget_ms: Option<f64>) -> anyhow::Result<()> {

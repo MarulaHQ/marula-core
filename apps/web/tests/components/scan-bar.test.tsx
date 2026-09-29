@@ -20,7 +20,7 @@ const STOCK_ITEM = {
   device_asset_id: null,
   display_name: "Cat6 patch cable (1 m)",
   secondary: "C6-1M",
-  deep_link: "meridian://stock-item/00000000-0000-4000-8000-000000000010",
+  deep_link: "marula://stock-item/00000000-0000-4000-8000-000000000010",
   is_tool: false,
   item_kind: "consumable",
   serial_status: null,

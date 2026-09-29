@@ -17,7 +17,7 @@
 // CLI probe), no secret values, no per-service status machinery.
 "use client";
 
-import { Button, Card, Spinner, Tag } from "@meridian/ui";
+import { Button, Card, Spinner, Tag } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import {
   apiBaseUrl,
@@ -458,7 +458,7 @@ export default function SelfHostSettingsPage() {
                   </a>
                 ) : (
                   <p className="text-xs font-mono" style={{ color: "var(--m-text-muted)" }}>
-                    Set MERIDIAN_GLITCHTIP_URL on core-api
+                    Set MARULA_GLITCHTIP_URL on core-api
                   </p>
                 )}
                 <div
@@ -495,30 +495,30 @@ export default function SelfHostSettingsPage() {
 
               <LinkCard
                 title="Grafana"
-                description="Dashboards over the Tempo, Loki and MeridianMetrics datasources."
+                description="Dashboards over the Tempo, Loki and MarulaMetrics datasources."
                 url={view.links.grafana}
-                envVar="MERIDIAN_GRAFANA_URL"
+                envVar="MARULA_GRAFANA_URL"
                 openLabel="Open Grafana"
               />
               <LinkCard
                 title="Collector metrics"
                 description="The OTel collector's Prometheus scrape target."
                 url={view.links.otel_metrics}
-                envVar="MERIDIAN_OTEL_METRICS_URL"
+                envVar="MARULA_OTEL_METRICS_URL"
                 openLabel="Open metrics"
               />
               <LinkCard
                 title="Tempo"
                 description="Trace storage and query UI for exported spans."
                 url={view.links.tempo}
-                envVar="MERIDIAN_TEMPO_URL"
+                envVar="MARULA_TEMPO_URL"
                 openLabel="Open Tempo"
               />
               <LinkCard
                 title="Loki"
                 description="Log storage and query UI for exported service logs."
                 url={view.links.loki}
-                envVar="MERIDIAN_LOKI_URL"
+                envVar="MARULA_LOKI_URL"
                 openLabel="Open Loki"
               />
             </div>

@@ -14,7 +14,7 @@ vi.mock("next/navigation", () => ({
 const USER_A = {
   id: "00000000-0000-4000-8000-00000000u001",
   org_id: "o",
-  email: "tech@meridian.test",
+  email: "tech@marula.test",
   display_name: "Tara Tech",
   is_active: true,
   created_at: "2026-08-01T00:00:00Z",

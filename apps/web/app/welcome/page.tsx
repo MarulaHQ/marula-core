@@ -18,8 +18,8 @@
 
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Card, Input, Tag } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Card, Input, Tag } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
@@ -505,7 +505,7 @@ export default function WelcomeWizardPage() {
                 and this page itself all re-open it. Skipped steps never nag.
               </p>
               <Button variant="primary" onClick={() => router.replace("/today")}>
-                Enter Meridian
+                Enter Marula
               </Button>
             </Card>
           )}

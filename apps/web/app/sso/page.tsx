@@ -7,7 +7,7 @@
 
 "use client";
 
-import { Button, Card, Spinner } from "@meridian/ui";
+import { Button, Card, Spinner } from "@marula-core/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { AuthBrand } from "../../components/auth/auth-brand";
@@ -27,7 +27,7 @@ function SsoLanding() {
       setStatus("error");
       setMessage(
         error === "link_required"
-          ? "Sign-in refused: this identity is not linked to a Meridian account yet. An administrator must link it first."
+          ? "Sign-in refused: this identity is not linked to a Marula account yet. An administrator must link it first."
           : `Sign-in failed (${error}).`,
       );
       return;
@@ -75,7 +75,7 @@ function SsoLanding() {
       style={{ background: "var(--m-canvas)" }}
     >
       <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="sso-card">
-        <AuthBrand subtitle="Meridian account security." />
+        <AuthBrand subtitle="Marula account security." />
         <div className="mt-5 grid justify-items-center gap-3 text-center">
           {status === "working" && (
             <span

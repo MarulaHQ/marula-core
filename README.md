@@ -1,7 +1,7 @@
-# Meridian
+# Marula
 
 <p>
-  <img src="meridian-ci/logo/lockup-navy@2x.png" height="34" alt="Meridian logo lockup" title="Meridian logo lockup">
+  <img src="design/marula/logo/lockup-navy@2x.png" height="34" alt="Marula logo lockup" title="Marula logo lockup">
 </p>
 
 **The open-source PSA that MSPs own.** Tickets, time, clients, dispatch, projects, invoicing, knowledge base — everything an IT service team runs on, self-hosted, in a database you control.
@@ -10,7 +10,7 @@
 > **License:** AGPL-3.0 · SDK, plugins & connectors: Apache-2.0
 
 <!-- TODO(ci): badge row once pipelines exist
-![CI](https://github.com/Marlin-Hofmeyer/meridian/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/marula-open/marula-core/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue) -->
 
 ---
@@ -19,7 +19,7 @@
 
 Every commercial PSA taxes tickets, locks the data, and bends your workflow to its roadmap. We got tired of it.
 
-Meridian is complete on its own. Invoicing, knowledge base, CSAT, scheduling — all native, no third-party subscriptions required to run a real MSP.
+Marula is complete on its own. Invoicing, knowledge base, CSAT, scheduling — all native, no third-party subscriptions required to run a real MSP.
 
 Some things we care about enough to enforce in CI:
 
@@ -34,7 +34,7 @@ Some things we care about enough to enforce in CI:
 ## Quick start
 
 ```bash
-git clone https://github.com/Marlin-Hofmeyer/meridian && cd meridian
+git clone https://github.com/marula-open/marula-core && cd marula-core
 docker compose -f deploy/docker-compose.yml up -d     # Postgres+pgvector, Redis, MinIO, services, web
 open http://localhost:3000                            # workspace UI
 ```
@@ -42,8 +42,8 @@ open http://localhost:3000                            # workspace UI
 Developer harness with hot reload:
 
 ```bash
-cargo install --path crates/meridian-cli
-meridian dev
+cargo install --path crates/marula-core-cli
+marula dev
 ```
 
 > Full installation guide, configuration reference, and upgrade runbooks live in [`docs/`](docs/); generated API reference (Scalar UI) is served by `core-api` at `/docs`.
@@ -70,7 +70,7 @@ web (Next.js) ──► core-api (Rust/Axum) ──► PostgreSQL (RLS · FTS ·
         │                │   outbox ──► Redis streams ──► realtime (WebSocket hub)
         │                ├── worker (jobs: email · SLA · sync · AI hooks)
         │                └── plugin-host (Extism WASM + HTTP connectors)
-        └── @meridian/sdk clients · MCP server · signed webhooks
+        └── @marula-core/sdk clients · MCP server · signed webhooks
 ```
 
 One writer. Every mutation emits a versioned domain event. REST, WebSocket, webhooks, plugins, and MCP are four surfaces over one contract.
@@ -95,7 +95,7 @@ Development runs in stages: foundation → daily driver → commercial engine �
 
 PRs welcome — trunk-based, DCO-signed, conventional commits. Two approvals are required for `crates/core-domain` and anything touching authz/RLS. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md); significant changes begin as RFCs in `docs/rfc/`.
 
-Extension authors usually don't need this repo: connectors are ordinary web apps using [`@meridian/sdk`](packages/sdk/) and receiving signed webhooks — the NinjaOne and Hudu connectors are the reference implementations. Beyond the standard set, connectors publish through the connector marketplace, first-party and community alike (ADR 0013).
+Extension authors usually don't need this repo: connectors are ordinary web apps using [`@marula-core/sdk`](packages/sdk/) and receiving signed webhooks — the NinjaOne and Hudu connectors are the reference implementations. Beyond the standard set, connectors publish through the connector marketplace, first-party and community alike (ADR 0013).
 
 ## Security
 
@@ -124,10 +124,10 @@ crates/
 ├── worker/         # Postgres-backed job queue + job definitions
 ├── plugin-host/    # Extism WASM runtime + connector proxy
 ├── mcp-server/     # MCP protocol adapter — derived from OpenAPI + capability registry
-└── meridian-cli/   # `meridian dev`, setup, admin tasks
+└── marula-core-cli/   # `marula dev`, setup, admin tasks
 apps/web/           # Next.js app (workspace UI + client portal)
 packages/
-├── sdk/            # @meridian/sdk — typed client generated from OpenAPI (Apache-2.0)
+├── sdk/            # @marula-core/sdk — typed client generated from OpenAPI (Apache-2.0)
 ├── ui/             # design system components — Workbench theme tokens (Apache-2.0)
 ├── layout/         # multi-pane layout engine
 └── plugin-kit/     # TS plugin PDK + dev harness (Apache-2.0)
@@ -145,6 +145,6 @@ Every module's README states its purpose *and its non-purpose* — read them bef
 
 ## Acknowledgments
 
-Meridian is built on Rust, Axum, SQLx, PostgreSQL, Next.js, Tailwind CSS, shadcn/ui, Extism, and faster-whisper. Thanks to everyone behind them.
+Marula is built on Rust, Axum, SQLx, PostgreSQL, Next.js, Tailwind CSS, shadcn/ui, Extism, and faster-whisper. Thanks to everyone behind them.
 
 

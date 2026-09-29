@@ -12,8 +12,8 @@
 // the form — typed-registry doctrine) and no install authoring here.
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Card, Dialog, DialogActions, DialogContent, EmptyState, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Tag } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Card, Dialog, DialogActions, DialogContent, EmptyState, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Tag } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";

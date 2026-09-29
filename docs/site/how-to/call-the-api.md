@@ -2,7 +2,7 @@
 
 > **Audience:** both — developers and self-host operators calling the API directly.
 
-The REST API is the single write surface for Meridian: all mutations flow
+The REST API is the single write surface for Marula: all mutations flow
 through it and emit domain events.
 
 ## Prerequisites
@@ -42,12 +42,12 @@ plus a human-readable message. Never parse prose. Example reasons:
 
 ## Use the typed SDK
 
-[`@meridian/sdk`](../../../packages/sdk/) is generated from the committed
+[`@marula-core/sdk`](../../../packages/sdk/) is generated from the committed
 OpenAPI snapshot — the same one the [API reference](../reference/api.md) is
 generated from. If a route exists in the docs, it exists in the client.
 
 ```ts
-import { createClient } from "@meridian/sdk";
+import { createClient } from "@marula-core/sdk";
 
 const client = createClient({ baseUrl: "https://your-host" });
 ```

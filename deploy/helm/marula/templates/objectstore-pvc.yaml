@@ -1,0 +1,18 @@
+{{/* Local-fs object storage PVC for core-api when objectStore.mode=local
+(single-replica evaluation mode; S3/Garage mode does not use this). */}}
+{{- if and (not .Values.garage.enabled) (eq .Values.objectStore.mode "local") -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "marula.fullname" . }}-objects
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.postgresql.storage.className }}
+  storageClassName: {{ .Values.postgresql.storage.className }}
+  {{- end }}
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+{{- end }}

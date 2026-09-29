@@ -100,7 +100,7 @@ export function tourTargetsReady(tour: Tour): boolean {
 
 export function sessionTourCount(): number {
   try {
-    return Number(window.sessionStorage.getItem("meridian-tour-session") ?? "0");
+    return Number(window.sessionStorage.getItem("marula-tour-session") ?? "0");
   } catch {
     return 0;
   }
@@ -109,7 +109,7 @@ export function sessionTourCount(): number {
 export function bumpSessionTourCount(): void {
   try {
     window.sessionStorage.setItem(
-      "meridian-tour-session",
+      "marula-tour-session",
       String(sessionTourCount() + 1),
     );
   } catch {

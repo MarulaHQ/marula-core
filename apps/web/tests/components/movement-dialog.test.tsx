@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import { AuthProvider } from "../../lib/api";
 import { MovementDialog } from "../../components/stock/movement-dialog";
 import { MockApi, ME_FIXTURE, seedAuthTokens } from "../helpers/mock-api";
@@ -44,7 +44,7 @@ const RESOLUTION = {
   device_asset_id: null,
   display_name: "Cat6 patch cable (1 m)",
   secondary: "C6-1M",
-  deep_link: `meridian://stock-item/${ITEM.id}`,
+  deep_link: `marula://stock-item/${ITEM.id}`,
   is_tool: false,
   item_kind: "consumable",
   serial_status: null,

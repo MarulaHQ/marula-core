@@ -71,7 +71,7 @@ describe("executeInstantWrite — accepted path", () => {
 
     store.ledger.observe("t1", { seq: 3, updatedAt: "2026-08-30T10:03:00Z" });
     const result = await executeInstantWrite(store, queue, transport, {
-      describe: "Set status In Progress on MER-1",
+      describe: "Set status In Progress on MAR-1",
       entityId: "t1",
       method: "POST",
       path: "/api/v1/tickets/t1/status",
@@ -170,7 +170,7 @@ describe("executeInstantWrite — offline handoff (IF6)", () => {
       request: async () => ({ outcome: "network" }),
     };
     const result = await executeInstantWrite(store, queue, transport, {
-      describe: "Set status In Progress on MER-1",
+      describe: "Set status In Progress on MAR-1",
       entityId: "t1",
       method: "POST",
       path: "/api/v1/tickets/t1/status",

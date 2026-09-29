@@ -27,7 +27,7 @@ members = [
     "crates/realtime",
     "crates/worker",
     "crates/plugin-host",
-    "crates/meridian-cli",
+    "crates/marula-core-cli",
     # Wave 9 adapters lane: first-party Apache-2.0 connector crates
     # (public-API-only edge adapters; separate license from the AGPL core).
     # All first-party extensions live under plugins/ (ADR 0013): connectors
@@ -57,7 +57,7 @@ members = [
 ]
 
 # Desktop lane (2026-09-13, ADR 0005): lighter release profile for the
-# double-clickable Meridian test app. opt-level=2 + thin LTO instead of
+# double-clickable Marula test app. opt-level=2 + thin LTO instead of
 # the default release settings keeps link times and .app size down —
 # desktop startup latency and incremental rebuilds matter more than the
 # last few percent of throughput that fat LTO buys a server binary.
@@ -97,7 +97,7 @@ debug = false
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/Marlin-Hofmeyer/meridian"
+repository = "https://github.com/marula-open/marula-core"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }

@@ -9,11 +9,11 @@
 # harness (perf-harness seed/load) — see docs/perf.md.
 #
 # Database selection mirrors the core-db test suites (handled inside the
-# test bootstrap, not here): DATABASE_URL / MERIDIAN_TEST_DATABASE_URL env
+# test bootstrap, not here): DATABASE_URL / MARULA_TEST_DATABASE_URL env
 # wins; otherwise a throwaway pgvector/pgvector:pg18 testcontainer spins up
 # on a random host port (no PG port claims — the lane convention).
 set -eu
 
-export MERIDIAN_PERF_SMOKE=1
+export MARULA_PERF_SMOKE=1
 
 exec cargo test -p perf-harness --test perf_smoke -- --nocapture

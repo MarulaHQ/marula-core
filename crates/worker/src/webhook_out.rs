@@ -11,7 +11,7 @@
 //! writes), and settles the job done / retry-with-backoff / dead.
 //!
 //! Operational note: signing requires DECRYPTING the subscription secret,
-//! so this process needs the at-rest key (`MERIDIAN_SECRET_KEY`). Unset ⇒
+//! so this process needs the at-rest key (`MARULA_SECRET_KEY`). Unset ⇒
 //! delivery jobs dead-letter with a loud reason — a documented fail-closed
 //! none mode, never plaintext anywhere in between.
 //!

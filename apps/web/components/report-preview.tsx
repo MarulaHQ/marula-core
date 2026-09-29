@@ -5,7 +5,7 @@
 // sizes; prefers-reduced-motion is honored by disabling animation.
 "use client";
 
-import { useTheme } from "@meridian/ui";
+import { useTheme } from "@marula-core/ui";
 import {
   Bar,
   BarChart,

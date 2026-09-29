@@ -8,8 +8,8 @@
 // the API's board-admin endpoints, not this surface).
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useDialogA11y } from "../lib/a11y/use-dialog-a11y";

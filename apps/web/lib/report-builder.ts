@@ -10,7 +10,7 @@
 // POST /api/v1/reports/run-spec (inline preview) and
 // GET /api/v1/report-definitions/{id}/run (saved reports), compiled
 // server-side by the Rust compiler exclusively.
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 type ViewId = components["schemas"]["ViewId"];
 type VizHint = components["schemas"]["VizHint"];

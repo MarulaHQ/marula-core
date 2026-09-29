@@ -1,7 +1,7 @@
 //! Shared bootstrap for the email query tests — same database-selection
 //! contract as `crates/core-db/tests/common/mod.rs`:
 //!
-//!   1. `MERIDIAN_TEST_DATABASE_URL` — explicit override, tried first.
+//!   1. `MARULA_TEST_DATABASE_URL` — explicit override, tried first.
 //!   2. `DATABASE_URL`                — CI service container.
 //!   3. Neither set                   — reusable local testcontainer
 //!      (`pgvector/pgvector:pg18`, prod parity).
@@ -33,7 +33,7 @@ static BOOTSTRAP: tokio::sync::OnceCell<Bootstrap> = tokio::sync::OnceCell::cons
 async fn bootstrap() -> &'static Bootstrap {
     BOOTSTRAP
         .get_or_init(|| async {
-            if let Ok(url) = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+            if let Ok(url) = std::env::var("MARULA_TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
             {
                 let admin = connect_with_retry(&url).await;
@@ -53,11 +53,11 @@ async fn bootstrap() -> &'static Bootstrap {
                     ))
                     .with_exposed_port(ContainerPort::Tcp(5432)),
             )
-            .with_container_name("meridian-email-db-tests-pg18")
+            .with_container_name("marula-email-db-tests-pg18")
             .with_reuse(ReuseDirective::Always)
-            .with_env_var("POSTGRES_USER", "meridian")
-            .with_env_var("POSTGRES_PASSWORD", "meridian")
-            .with_env_var("POSTGRES_DB", "meridian_email_test");
+            .with_env_var("POSTGRES_USER", "marula")
+            .with_env_var("POSTGRES_PASSWORD", "marula")
+            .with_env_var("POSTGRES_DB", "marula_email_test");
             let container = request
                 .start()
                 .await
@@ -65,7 +65,7 @@ async fn bootstrap() -> &'static Bootstrap {
             let host = container.get_host().await.expect("host");
             let port = container.get_host_port_ipv4(5432_u16).await.expect("port");
             let admin_url =
-                format!("postgres://meridian:meridian@{host}:{port}/meridian_email_test");
+                format!("postgres://marula:marula@{host}:{port}/marula_email_test");
             let admin = connect_with_retry(&admin_url).await;
             reset_schema(&admin).await;
             core_db::run_migrations(&admin).await.expect("migrations");
@@ -89,7 +89,7 @@ pub async fn test_db() -> TestDb {
     let b = bootstrap().await;
     TestDb {
         admin: connect_with_retry(&b.admin_url).await,
-        // App role pool for RLS checks; meridian_app is created by 0001.
+        // App role pool for RLS checks; marula_app is created by 0001.
         app: connect_with_retry(&app_url(&b.admin_url)).await,
     }
 }
@@ -141,9 +141,9 @@ fn app_url(admin_url: &str) -> String {
         .unwrap_or(("postgres", admin_url));
     match rest.split_once('@') {
         Some((_creds, host_part)) => {
-            format!("{scheme_rest}://meridian_app:meridian_app@{host_part}")
+            format!("{scheme_rest}://marula_app:marula_app@{host_part}")
         }
-        None => format!("{scheme_rest}://meridian_app:meridian_app@{rest}"),
+        None => format!("{scheme_rest}://marula_app:marula_app@{rest}"),
     }
 }
 

@@ -12,7 +12,7 @@
 import { presetCss } from "./theme-tokens";
 
 export const PACK_STYLE_PREFIX = "m-theme-pack-";
-export const PRESET_STORAGE_KEY = "meridian-theme-preset";
+export const PRESET_STORAGE_KEY = "marula-theme-preset";
 
 export interface PackTokens {
   slug: string;

@@ -18,7 +18,7 @@ const WH_ID = "50000000-0000-4000-8000-000000000001";
 function webhookView(overrides: Record<string, unknown> = {}) {
   return {
     id: WH_ID,
-    url: "https://hooks.example.test/meridian",
+    url: "https://hooks.example.test/marula",
     event_types: [] as string[],
     enabled: true,
     created_at: "2026-01-01T00:00:00Z",
@@ -125,7 +125,7 @@ describe("/settings/integrations integration", () => {
     // rotation must carry that config over unchanged.
     mock.on("POST", "/api/v1/webhooks", ({ body }) => {
       expect(body).toEqual({
-        url: "https://hooks.example.test/meridian",
+        url: "https://hooks.example.test/marula",
         event_types: [],
       });
       return {

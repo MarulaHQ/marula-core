@@ -24,7 +24,7 @@ await mkdir(OUT, { recursive: true });
 const ME = {
   user_id: '00000000-0000-4000-8000-000000000001',
   org_id: '00000000-0000-4000-8000-000000000002',
-  email: 'owner@meridian.test',
+  email: 'owner@marula.test',
   display_name: 'Taylor Reed',
   timezone: 'UTC',
   permissions: ['special:manage_users', 'special:manage_boards', 'tickets:create', 'admin:org'],
@@ -72,14 +72,14 @@ async function shot(browser, viewport, theme, name, path, interactions, seedTour
   if (theme === 'dark') url.searchParams.set('theme', 'dark');
   const themeToken = theme === 'dark' ? 'dark' : 'light';
   await page.addInitScript((opts) => {
-    window.localStorage.setItem('meridian-theme', opts.theme);
+    window.localStorage.setItem('marula-theme', opts.theme);
     window.sessionStorage.clear();
     // Suppress auto tours on every shot except the dedicated overlay shot
     // (which clears this key right after) — the tour must not pollute the
     // closed/panel/search captures.
     if (opts.seedTours) {
       window.localStorage.setItem(
-        'meridian-tours-completed',
+        'marula-tours-completed',
         JSON.stringify(['workbar', 'inventory-workbench', 'help-entry']),
       );
     }

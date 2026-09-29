@@ -1,7 +1,7 @@
 # Scan injector: the deterministic scan path (no camera needed).
 # An unknown payload must land on the honest "Nothing matches" state, and a
 # deep-link payload must open the typed scan-result screen.
-appId: tech.meridian.app
+appId: org.marula.app
 ---
 - launchApp
 - extendedWaitUntil:
@@ -19,7 +19,7 @@ appId: tech.meridian.app
       id: "scan-resolution"
     timeout: 10000
 - assertVisible: "No match"
-- openLink: "meridian://scan-result?text=NOPE-NOPE-000"
+- openLink: "marula://scan-result?text=NOPE-NOPE-000"
 # iOS asks once before handing a custom-scheme link to the app.
 - runFlow:
     when:

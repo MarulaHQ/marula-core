@@ -405,7 +405,7 @@ try {
 }
 
 // --- 10. Dark parity on the key new surfaces --------------------------------------
-await page.evaluate(() => localStorage.setItem("meridian-theme", "dark"));
+await page.evaluate(() => localStorage.setItem("marula-theme", "dark"));
 await page.goto(`${BASE}/settings/team`, { waitUntil: "networkidle" });
 await shown(page.getByRole("button", { name: "Invite member" }));
 await shot(page, "30-team-dark");

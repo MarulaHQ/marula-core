@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Build the double-clickable Meridian desktop test app (ADR 0005).
+# Build the double-clickable Marula desktop test app (ADR 0005).
 #
 # One command = update the app:
 #   1. pnpm web build (Next standalone bundle)
 #   2. stage the standalone server into desktop/resources/web
 #   3. cargo build via tauri (custom profile "desktop", SHARED target dir
 #      .kilo/target-shared via .cargo/config.toml — never a worktree-local
-#      CARGO_TARGET_DIR, DX6), then assemble Meridian.app by hand
+#      CARGO_TARGET_DIR, DX6), then assemble Marula.app by hand
 #      (the Tauri npm CLI has no --profile flag and its bundler globs skip
 #      hidden dirs, so the script owns the bundle layout)
 #
 # Incremental: web-only changes skip the Rust rebuild almost entirely;
 # Rust changes are incremental on the shared cache. The data dir
-# (~/Library/Application Support/Meridian) is untouched by rebuilds.
+# (~/Library/Application Support/Marula) is untouched by rebuilds.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,7 +20,7 @@ START_TS=$(date +%s)
 WEB_DIR=apps/web
 
 echo "==> [1/4] building the Next standalone bundle"
-pnpm --filter @meridian/web build
+pnpm --filter @marula-core/web build
 STANDALONE="$WEB_DIR/.next/standalone"
 [ -f "$STANDALONE/server.js" ] || { echo "error: $STANDALONE/server.js missing" >&2; exit 1; }
 
@@ -68,18 +68,18 @@ echo "==> [3/4] cargo build (profile: desktop, shared target dir)"
 
 TARGET_DIR=$(cargo metadata --format-version 1 --no-deps 2>/dev/null \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')
-BIN="$TARGET_DIR/desktop/meridian-desktop"
+BIN="$TARGET_DIR/desktop/marula-desktop"
 [ -f "$BIN" ] || { echo "expected binary at $BIN" >&2; exit 1; }
 
-echo "==> [4/4] assembling Meridian.app"
+echo "==> [4/4] assembling Marula.app"
 # The double-clickable app lands in the repo-local dist/ (gitignored —
 # the bundle stays local; easy to find next to the checkout). Override
-# with MERIDIAN_DESKTOP_APP_DIR=/some/dir ./scripts/build-desktop.sh.
-APP_DIR="${MERIDIAN_DESKTOP_APP_DIR:-dist}"
-APP="$APP_DIR/Meridian.app"
+# with MARULA_DESKTOP_APP_DIR=/some/dir ./scripts/build-desktop.sh.
+APP_DIR="${MARULA_DESKTOP_APP_DIR:-dist}"
+APP="$APP_DIR/Marula.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/resources"
-cp "$BIN" "$APP/Contents/MacOS/meridian-desktop"
+cp "$BIN" "$APP/Contents/MacOS/marula-desktop"
 cp -R desktop/resources/web "$APP/Contents/Resources/resources/web"
 cp desktop/icons/icon.icns "$APP/Contents/Resources/icon.icns"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -87,10 +87,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Meridian</string>
-  <key>CFBundleDisplayName</key><string>Meridian</string>
-  <key>CFBundleIdentifier</key><string>com.meridian.desktop</string>
-  <key>CFBundleExecutable</key><string>meridian-desktop</string>
+  <key>CFBundleName</key><string>Marula</string>
+  <key>CFBundleDisplayName</key><string>Marula</string>
+  <key>CFBundleIdentifier</key><string>org.marula.desktop</string>
+  <key>CFBundleExecutable</key><string>marula-desktop</string>
   <key>CFBundleIconFile</key><string>icon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
@@ -100,10 +100,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
-      <key>CFBundleURLName</key><string>com.meridian.desktop</string>
+      <key>CFBundleURLName</key><string>org.marula.desktop</string>
       <key>CFBundleURLSchemes</key>
       <array>
-        <string>meridian</string>
+        <string>marula</string>
       </array>
     </dict>
   </array>
@@ -118,4 +118,4 @@ SIZE=$(du -sh "$APP" | cut -f1)
 echo
 echo "Built $APP"
 echo "Size: $SIZE · wall time: ${ELAPSED}s"
-echo "Data dir (persists across rebuilds): ~/Library/Application Support/Meridian"
+echo "Data dir (persists across rebuilds): ~/Library/Application Support/Marula"

@@ -3,11 +3,11 @@
 //! Purpose: provision a real Postgres 17 (pgvector image, prod parity),
 //! reset + migrate the schema once per test-binary process, and hand out
 //! two pools — an admin pool for migrations/DDL probes and a
-//! `meridian_app` pool that runs under RLS exactly like production
+//! `marula_app` pool that runs under RLS exactly like production
 //! traffic.
 //!
 //! Database selection mechanism (documented contract, see CI rust job):
-//!   1. `MERIDIAN_TEST_DATABASE_URL` — explicit test override, tried first.
+//!   1. `MARULA_TEST_DATABASE_URL` — explicit test override, tried first.
 //!   2. `DATABASE_URL`                — CI service-container Postgres; when
 //!      set, tests attach directly and never touch Docker (no dind needed).
 //!   3. Neither set                    — spin up a testcontainers
@@ -15,7 +15,7 @@
 //!
 //! Notes:
 //! - The env URL must point at a *privileged* role: the harness derives the
-//!   app URL by switching credentials to `meridian_app` (created by
+//!   app URL by switching credentials to `marula_app` (created by
 //!   migration 0001), which only works if the login may create roles.
 //! - The per-process schema reset makes fixed deterministic UUIDs safe
 //!   across runs: every `cargo test` invocation starts from an empty,
@@ -68,7 +68,7 @@ static BOOTSTRAP: tokio::sync::OnceCell<Bootstrap> = tokio::sync::OnceCell::cons
 async fn bootstrap() -> &'static Bootstrap {
     BOOTSTRAP
         .get_or_init(|| async {
-            if let Ok(url) = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+            if let Ok(url) = std::env::var("MARULA_TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
             {
                 let admin = connect_with_retry(&url).await;
@@ -87,12 +87,12 @@ async fn bootstrap() -> &'static Bootstrap {
             // leaking an orphan per run (statics are never dropped at
             // test-process exit, so graceful auto-removal cannot run).
             // Override the name per worktree/agent lane via
-            //   MERIDIAN_TEST_PG_NAME=<unique>
+            //   MARULA_TEST_PG_NAME=<unique>
             // so concurrent suites never fight over one fixed name; remove
             // a stale instance with:
-            //   docker rm -f meridian-core-db-tests-pg17
-            let container_name = std::env::var("MERIDIAN_TEST_PG_NAME")
-                .unwrap_or_else(|_| "meridian-core-db-tests-pg18".to_string());
+            //   docker rm -f marula-core-db-tests-pg17
+            let container_name = std::env::var("MARULA_TEST_PG_NAME")
+                .unwrap_or_else(|_| "marula-core-db-tests-pg18".to_string());
             let request = ContainerRequest::from(
                 GenericImage::new("pgvector/pgvector", "pg18")
                     .with_wait_for(WaitFor::message_on_stderr(
@@ -102,9 +102,9 @@ async fn bootstrap() -> &'static Bootstrap {
             )
             .with_container_name(container_name)
             .with_reuse(ReuseDirective::Always)
-            .with_env_var("POSTGRES_USER", "meridian")
-            .with_env_var("POSTGRES_PASSWORD", "meridian")
-            .with_env_var("POSTGRES_DB", "meridian_test");
+            .with_env_var("POSTGRES_USER", "marula")
+            .with_env_var("POSTGRES_PASSWORD", "marula")
+            .with_env_var("POSTGRES_DB", "marula_test");
             let container = request
                 .start()
                 .await
@@ -114,7 +114,7 @@ async fn bootstrap() -> &'static Bootstrap {
                 .get_host_port_ipv4(5432_u16)
                 .await
                 .expect("mapped port");
-            let admin_url = format!("postgres://meridian:meridian@{host}:{port}/meridian_test");
+            let admin_url = format!("postgres://marula:marula@{host}:{port}/marula_test");
             let admin = connect_with_retry(&admin_url).await;
             reset_schema(&admin).await;
             core_db::run_migrations(&admin)
@@ -128,7 +128,7 @@ async fn bootstrap() -> &'static Bootstrap {
         .await
 }
 
-/// Admin pool (migrations/probes) + app pool (`meridian_app`, RLS applies),
+/// Admin pool (migrations/probes) + app pool (`marula_app`, RLS applies),
 /// freshly bound to the calling test's runtime.
 pub struct TestDb {
     pub admin: PgPool,
@@ -137,7 +137,7 @@ pub struct TestDb {
 }
 
 impl TestDb {
-    /// A second `meridian_app` pool whose connections have never run
+    /// A second `marula_app` pool whose connections have never run
     /// `set_config('app.org_id', …)`. Needed because Postgres keeps custom
     /// GUCs DEFINED after a transaction-local set ends — on reused sessions
     /// `current_setting('app.org_id', true)` then yields `''` (not NULL),
@@ -197,9 +197,9 @@ fn app_url(admin_url: &str) -> String {
         .unwrap_or(("postgres", admin_url));
     match rest.split_once('@') {
         Some((_creds, host_part)) => {
-            format!("{scheme_rest}://meridian_app:meridian_app@{host_part}")
+            format!("{scheme_rest}://marula_app:marula_app@{host_part}")
         }
-        None => format!("{scheme_rest}://meridian_app:meridian_app@{rest}"),
+        None => format!("{scheme_rest}://marula_app:marula_app@{rest}"),
     }
 }
 

@@ -6,7 +6,7 @@
 // Unit-testable pure functions only.
 //
 // Non-purpose: no network I/O; SLA evaluation itself stays server-side.
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 export type EscalationStep = components["schemas"]["EscalationStep"];
 export type LadderStepSpec = components["schemas"]["LadderStepSpec"];

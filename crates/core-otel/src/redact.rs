@@ -2,7 +2,7 @@
 //!
 //! Purpose: pure, testable helpers that decide WHAT may ever become a span
 //! attribute or metric label. Every lane routes attribute candidates
-//! through these functions; nothing in Meridian records raw paths, query
+//! through these functions; nothing in Marula records raw paths, query
 //! strings, auth material, or user content.
 //!
 //! Rules (each enforced by a unit test below):

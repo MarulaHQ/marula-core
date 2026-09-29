@@ -83,7 +83,7 @@ pub async fn totp_enroll_begin(
     let user = &authed.principal.user;
 
     let enrollment =
-        totp_service::new_enrollment(&user.email, "Meridian").map_err(ApiError::Validation)?;
+        totp_service::new_enrollment(&user.email, "Marula").map_err(ApiError::Validation)?;
     let sealed = crate::crypto::seal(
         &state.config.secret_key,
         enrollment.secret_base32.as_bytes(),

@@ -3,7 +3,7 @@
     "target": "ES2022",
     "lib": ["ES2022"],
     "module": "ESNext",
-    // Bundler resolution matches @meridian/sdk's own tsconfig so the
+    // Bundler resolution matches @marula-core/sdk's own tsconfig so the
     // TypeScript-source package typechecks exactly as its authors ship it.
     "moduleResolution": "bundler",
     "types": ["node"],
@@ -16,10 +16,10 @@
     "noEmit": true,
     "skipLibCheck": true,
     // In-repo resolution for the acceptance probe. Outside this repo the
-    // published `@meridian/sdk` package resolves normally — nothing here
-    // may import Meridian internals, only this specifier.
+    // published `@marula-core/sdk` package resolves normally — nothing here
+    // may import Marula internals, only this specifier.
     "paths": {
-      "@meridian/sdk": ["../../packages/sdk/src/index.ts"]
+      "@marula-core/sdk": ["../../packages/sdk/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"]

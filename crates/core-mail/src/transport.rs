@@ -11,7 +11,7 @@ pub mod smtp;
 use async_trait::async_trait;
 
 /// A fully rendered outbound message. `rfc_message_id` is the stable
-/// threading anchor Meridian assigns; adapters should transmit it as the
+/// threading anchor Marula assigns; adapters should transmit it as the
 /// actual RFC 5322 Message-ID so replies thread back to us.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboundEmail {

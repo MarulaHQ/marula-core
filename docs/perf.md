@@ -38,7 +38,7 @@ Test-infra crate, AGPL, not part of the API surface. Three pieces:
   path of `GET /api/tickets`
   (`tx.begin → set_org_and_user →
   core_db::tickets::list_tickets → custom_fields::list_values_many →
-  commit`) through the `meridian_app` pool under RLS, over five request
+  commit`) through the `marula_app` pool under RLS, over five request
   mixes (page 1, priority p1, assignee, client, deep page), 5 warmups +
   40 timed runs, p50/p95/p99/max per mix, plus `EXPLAIN (ANALYZE,
   BUFFERS)` for the page-1 mix. `perf-harness smoke` = seed + measure +
@@ -58,12 +58,12 @@ Test-infra crate, AGPL, not part of the API surface. Three pieces:
 ./scripts/perf-smoke.sh            # DATABASE_URL env or throwaway testcontainer
 
 # Local baseline against a scratch DB (use a port outside the lane range)
-MERIDIAN_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:54399/meridian_perf \
+MARULA_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:54399/marula_perf \
   perf-harness seed --tickets 50000
-MERIDIAN_TEST_DATABASE_URL=... perf-harness measure --budget-ms 150
+MARULA_TEST_DATABASE_URL=... perf-harness measure --budget-ms 150
 
 # Scale leg: 100k tickets/org through the HTTP stack
-MERIDIAN_TEST_DATABASE_URL=... perf-harness seed --tickets 100000 --clients 1000 --users 25
+MARULA_TEST_DATABASE_URL=... perf-harness seed --tickets 100000 --clients 1000 --users 25
 DATABASE_URL=... BIND_ADDR=127.0.0.1:18080 core-api   # scratch port
 perf-harness load --base-url http://127.0.0.1:18080 --duration 30s --concurrency 8 --budget-ms 150
 ```
@@ -78,7 +78,7 @@ a pre-keyset server — the runner stays usable across versions).
 
 Environment: local dev machine (Apple Silicon, macOS), Postgres 17
 (pgvector image parity), release build, warm planner/pool cache, seeded
-perf org, RLS-scoped `meridian_app` traffic. 5 warmups + 40 timed runs
+perf org, RLS-scoped `marula_app` traffic. 5 warmups + 40 timed runs
 per mix.
 
 ### SQL path @ 50k tickets/org — the budget dataset (all PASS)
@@ -210,12 +210,12 @@ order-of-magnitude tripwire (capacity observation, not budget).
   50k, measures (page-1, priority, assignee, client, keyset deep-page,
   legacy offset mixes), asserts. The SQL gate covers every shape the
   budget covers — including the keyset deep page since the cursor
-  shipped. The test is env-gated (`MERIDIAN_PERF_SMOKE=1`) so the plain
+  shipped. The test is env-gated (`MARULA_PERF_SMOKE=1`) so the plain
   `cargo test --workspace` sweep skips it (fast sweeps).
 - `Nightly perf` (`.github/workflows/nightly.yml.disabled`, cron 05:30 UTC
   + workflow_dispatch): gates the saturated HTTP capacity point
   (`perf-harness load --concurrency 8 --budget-ms 150` @50k through the
-  release-built core-api, connected as `meridian_app` so RLS is in the
+  release-built core-api, connected as `marula_app` so RLS is in the
   path) and measures the 100k scale leg on a 600ms tripwire (not gated).
   Results surface as a step summary + `nightly-load-report` /
   `nightly-scale-report` artifacts. A red nightly is investigated in the
@@ -223,7 +223,7 @@ order-of-magnitude tripwire (capacity observation, not budget).
   - Wave 34 lane 6 repaired this definition before any re-enable: the
     `perf-load-budget` `services:` block was indented one level too deep
     (the file had never parsed), both Boot steps omitted the explicit
-    `JWT_SECRET` / `MERIDIAN_SECRET_KEY` that fail-closed core-api
+    `JWT_SECRET` / `MARULA_SECRET_KEY` that fail-closed core-api
     requires since Wave 19, and both inherited the superuser
     `DATABASE_URL` (RLS bypassed) instead of the app role.
   - The `.disabled` suffix is USER-GATED: turning the schedule on is a

@@ -12,7 +12,7 @@
 
 "use client";
 
-import { Button } from "@meridian/ui";
+import { Button } from "@marula-core/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkDesktopUpdate,
@@ -70,7 +70,7 @@ export function DesktopUpdateStrip() {
       setDismissed(false);
       setState((prev) =>
         prev.kind === "installing"
-          ? { kind: "failed", update: prev.update, message: "A Meridian window still has unsaved edits — save or discard them, then restart the update." }
+          ? { kind: "failed", update: prev.update, message: "A Marula window still has unsaved edits — save or discard them, then restart the update." }
           : prev,
       );
       return;
@@ -107,7 +107,7 @@ export function DesktopUpdateStrip() {
       {state.kind === "available" ? (
         <>
           <span className="min-w-0 flex-1 truncate">
-            {`Meridian ${state.update.version} is ready to install — you're on ${state.update.currentVersion}.`}
+            {`Marula ${state.update.version} is ready to install — you're on ${state.update.currentVersion}.`}
           </span>
           <Button
             size="sm"
@@ -132,7 +132,7 @@ export function DesktopUpdateStrip() {
       {state.kind === "installing" ? (
         <>
           <span className="min-w-0 flex-1 truncate" data-testid="desktop-update-installing">
-            {`Installing Meridian ${state.update.version} — the app restarts when it's done.`}
+            {`Installing Marula ${state.update.version} — the app restarts when it's done.`}
           </span>
           <Button
             size="sm"

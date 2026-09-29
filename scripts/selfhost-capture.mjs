@@ -26,7 +26,7 @@ if (!existsSync(OUT)) await mkdir(OUT, { recursive: true });
 const ME = {
   user_id: '00000000-0000-4000-8000-000000000001',
   org_id: '00000000-0000-4000-8000-000000000002',
-  email: 'owner@meridian.test',
+  email: 'owner@marula.test',
   display_name: 'Taylor Reed',
   timezone: 'UTC',
   permissions: ['special:manage_users', 'special:manage_boards', 'tickets:create', 'admin:org'],
@@ -94,13 +94,13 @@ const MIXED = {
       'docker compose --profile stage2 exec garage /garage status',
       'docker compose --profile stage2 exec garage /garage layout assign -z dc1 -c 1G <NODE_ID>',
       'docker compose --profile stage2 exec garage /garage layout apply --version 1',
-      'docker compose --profile stage2 exec garage /garage bucket create meridian',
-      'docker compose --profile stage2 exec garage /garage key create meridian',
-      'docker compose --profile stage2 exec garage /garage bucket allow --read --write meridian --key meridian',
+      'docker compose --profile stage2 exec garage /garage bucket create marula',
+      'docker compose --profile stage2 exec garage /garage key create marula',
+      'docker compose --profile stage2 exec garage /garage bucket allow --read --write marula --key marula',
     ],
     admin_api_docs_url: 'https://garagehq.deuxfleurs.fr/documentation/reference-manual/admin-api/',
     s3_endpoint: 'http://garage:3900',
-    s3_bucket: 'meridian',
+    s3_bucket: 'marula',
   },
 };
 
@@ -165,7 +165,7 @@ async function shot(browser, viewport, theme, name, selfHost) {
   const url = new URL(`${BASE}/settings/self-host`);
   if (theme === 'dark') url.searchParams.set('theme', 'dark');
   await page.addInitScript((t) => {
-    window.localStorage.setItem('meridian-theme', t);
+    window.localStorage.setItem('marula-theme', t);
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal{display:none!important}';
     document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));

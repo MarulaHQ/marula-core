@@ -167,7 +167,7 @@ async fn create_role_window(
     .title(role_title(role))
     .min_inner_size(640.0, 420.0)
     .inner_size(dw, dh)
-    .initialization_script(format!("window.__MERIDIAN_API_URL__ = '{api_url}';"));
+    .initialization_script(format!("window.__MARULA_API_URL__ = '{api_url}';"));
 
     // Restore remembered geometry for THIS role+instance, clamped to the
     // monitors currently visible (hotplug: remember frame is always brought
@@ -261,13 +261,13 @@ async fn create_role_window(
 /// inside keeps the renderer's own labels).
 fn role_title(role: &str) -> &str {
     match role {
-        "ticket-workspace" => "Ticket workspace — Meridian",
-        "ticket-detail" => "Ticket — Meridian",
-        "dispatch-board" => "Dispatch board — Meridian",
-        "stock-lookup" => "Stock lookup — Meridian",
-        "decisions" => "Decisions — Meridian",
-        "merge-workbench" => "Merge workbench — Meridian",
-        _ => "Meridian",
+        "ticket-workspace" => "Ticket workspace — Marula",
+        "ticket-detail" => "Ticket — Marula",
+        "dispatch-board" => "Dispatch board — Marula",
+        "stock-lookup" => "Stock lookup — Marula",
+        "decisions" => "Decisions — Marula",
+        "merge-workbench" => "Merge workbench — Marula",
+        _ => "Marula",
     }
 }
 
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn state_file_round_trip_and_defaults() {
-        let dir = std::env::temp_dir().join("meridian-window-registry-test");
+        let dir = std::env::temp_dir().join("marula-window-registry-test");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("windows.json");
         let registry = WindowRegistry::new(path.clone());

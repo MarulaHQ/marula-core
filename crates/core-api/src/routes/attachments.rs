@@ -1,7 +1,7 @@
 //! Attachment endpoints (TASKLIST 2.14): upload, list, stream-download,
 //! author-gated delete.
 //!
-//! Purpose: the ONLY door for binary objects into Meridian. Every upload
+//! Purpose: the ONLY door for binary objects into Marula. Every upload
 //! passes the core-domain allowlist gate (size cap + magic bytes vs
 //! declared type vs extension), hashes to sha256, reuses already-stored
 //! objects per org (content-addressed dedup), and persists its metadata
@@ -57,7 +57,7 @@ pub type UploadResponse = Attachment;
 ///
 /// Headers: `x-filename` (required), `content-type` (declared; verified
 /// against sniffed magic bytes). Body: raw bytes, capped by
-/// `MERIDIAN_MAX_UPLOAD_MB` (default 25 MB).
+/// `MARULA_MAX_UPLOAD_MB` (default 25 MB).
 #[utoipa::path(operation_id = "attachments_upload", post,
     path = "/api/tickets/{id}/attachments", tag = "attachments",
     security(("bearer" = [])),
@@ -226,7 +226,7 @@ pub async fn list_for_comment(
 
 /// GET /api/attachments/{id}/download — streams the stored bytes through
 /// the API behind board-view authz (no public URLs in v1). Integrity is
-/// verifiable against the recorded sha256 (`x-meridian-sha256` header).
+/// verifiable against the recorded sha256 (`x-marula-sha256` header).
 #[utoipa::path(operation_id = "attachments_download", get,
     path = "/api/attachments/{id}/download", tag = "attachments",
     security(("bearer" = [])), params(("id" = Uuid, Path)),
@@ -273,7 +273,7 @@ pub async fn download(
             attachment.content_type.clone(),
         )
         .header(axum::http::header::CONTENT_DISPOSITION, content_disposition)
-        .header("x-meridian-sha256", attachment.sha256.clone());
+        .header("x-marula-sha256", attachment.sha256.clone());
     builder = builder.header(axum::http::header::CONTENT_LENGTH, obj.size_bytes);
     let body = Body::from_stream(obj.stream);
     builder

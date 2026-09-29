@@ -10,7 +10,7 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, Card, FieldHint, Input, Label, Tag } from "@meridian/ui";
+import { Button, Card, FieldHint, Input, Label, Tag } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { resolveApiBaseUrl, useAuth, useRequireAuth } from "../../../lib/api";
@@ -69,7 +69,7 @@ async function apiCall<T>(
   body?: unknown,
 ): Promise<T> {
   const tokens = JSON.parse(
-    window.localStorage.getItem("meridian-tokens") ?? "{}",
+    window.localStorage.getItem("marula-tokens") ?? "{}",
   );
   const response = await fetch(`${API_BASE}${path}`, {
     method,

@@ -2,7 +2,7 @@
  * @module localStorage-backed {@link PanelStateStore} keyed per user id.
  *
  * Purpose: ship the default per-user persistence adapter for browser runs.
- * Keys follow `<namespace>:<userId>` (default namespace `meridian.layout`) so
+ * Keys follow `<namespace>:<userId>` (default namespace `marula.layout`) so
  * multiple apps or environments can share one origin safely. A future server
  * adapter implements the identical interface.
  * Non-purpose: no cross-tab synchronization, encryption, or quota management.
@@ -41,7 +41,7 @@ function defaultStorage(): StorageLike {
 export interface LocalStorageStoreOptions {
   /** Inject a custom backend (tests, sessionStorage). Defaults to `window.localStorage`. */
   storage?: StorageLike;
-  /** Key namespace. Default `"meridian.layout"`. */
+  /** Key namespace. Default `"marula.layout"`. */
   namespace?: string;
 }
 
@@ -51,7 +51,7 @@ export class LocalStoragePanelStateStore implements PanelStateStore {
 
   constructor(options: LocalStorageStoreOptions = {}) {
     this.storageOption = options.storage;
-    this.namespace = options.namespace ?? "meridian.layout";
+    this.namespace = options.namespace ?? "marula.layout";
   }
 
   async load(userId: string): Promise<string | null> {

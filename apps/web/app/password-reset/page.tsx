@@ -15,8 +15,8 @@
 // itself comes from core-mail outbox.
 "use client";
 
-import { Button, Card, FieldHint, Input, Label, Spinner } from "@meridian/ui";
-import { applyTheme } from "@meridian/ui";
+import { Button, Card, FieldHint, Input, Label, Spinner } from "@marula-core/ui";
+import { applyTheme } from "@marula-core/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 
@@ -260,7 +260,7 @@ function PasswordResetInner(): ReactNode {
           Set a new password
         </h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Pick a new password for your Meridian account.
+          Pick a new password for your Marula account.
         </p>
         <form onSubmit={confirmReset} className="m-rise mt-4 grid gap-3" style={{ animationDelay: "40ms" }}>
           <label className="grid gap-1">

@@ -64,14 +64,14 @@ impl SeedScale {
     }
 }
 
-/// Derives the `meridian_app` connection URL from a privileged admin URL.
+/// Derives the `marula_app` connection URL from a privileged admin URL.
 /// The role is created by migration 0001 with the fixed dev password — the
 /// same derivation the core-db test harness performs. Measurement MUST run
 /// through this pool (RLS + org GUC = production traffic parity); the
 /// privileged pool is only for migrations and fixture seeding.
 #[must_use]
 pub fn app_pool_url(admin_url: &str) -> String {
-    // Replace everything between "scheme://" and "@" with the meridian_app
+    // Replace everything between "scheme://" and "@" with the marula_app
     // credentials (fixed dev password from migration 0001). Works whether
     // the admin URL carries a password or not.
     let (scheme, rest) = admin_url
@@ -81,5 +81,5 @@ pub fn app_pool_url(admin_url: &str) -> String {
         Some((_, host)) => host,
         None => rest,
     };
-    format!("{scheme}://meridian_app:meridian_app@{host_part}")
+    format!("{scheme}://marula_app:marula_app@{host_part}")
 }

@@ -20,7 +20,7 @@
 //! 9. Documents attachments: upload/list/download/delete over the
 //!    content-addressed core-store seam (0089 surface).
 //!
-//! Database selection follows export_flow's contract: MERIDIAN_TEST_DATABASE_URL
+//! Database selection follows export_flow's contract: MARULA_TEST_DATABASE_URL
 //! or DATABASE_URL (no schema reset). Where the seed is a queue-side fact
 //! (alert rows / search_index rows — the worker indexer's territory), the
 //! test seeds the SAME query-layer surface the production indexer writes.
@@ -38,9 +38,9 @@ async fn test_state() -> AppState {
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("backend gaps e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("backend gaps e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect(&admin_url).await.expect("pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");
@@ -204,7 +204,7 @@ async fn alert_acknowledge_and_resolve_flows() {
     let app = core_api::routes::build_router(state);
     let token = register_org(&app, "alertgap").await;
     let pool = connect(
-        &std::env::var("MERIDIAN_TEST_DATABASE_URL")
+        &std::env::var("MARULA_TEST_DATABASE_URL")
             .or_else(|_| std::env::var("DATABASE_URL"))
             .unwrap(),
     )
@@ -534,7 +534,7 @@ async fn search_pins_crud_flow() {
     let app = core_api::routes::build_router(state);
     let token = register_org(&app, "pingap").await;
     let pool = connect(
-        &std::env::var("MERIDIAN_TEST_DATABASE_URL")
+        &std::env::var("MARULA_TEST_DATABASE_URL")
             .or_else(|_| std::env::var("DATABASE_URL"))
             .unwrap(),
     )
@@ -1061,7 +1061,7 @@ async fn documents_attachments_upload_list_download_delete() {
     assert_eq!(
         response
             .headers()
-            .get("x-meridian-sha256")
+            .get("x-marula-sha256")
             .and_then(|v| v.to_str().ok())
             .unwrap_or(""),
         expected_sha

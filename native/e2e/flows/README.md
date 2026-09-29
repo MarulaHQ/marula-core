@@ -1,7 +1,7 @@
 # Maestro flow index (Wave 33 lane 1).
 #
 # These flows run against an iOS Simulator dev/release build of the app
-# (appId tech.meridian.app) pointed at a booted e2e stack. They cover the
+# (appId org.marula.app) pointed at a booted e2e stack. They cover the
 # deterministic surfaces the simulator can exercise: navigation, auth, the
 # scan injector, deep links, and the offline queue toggle. The camera,
 # haptics, and background push legs are TestFlight-checklist items (see

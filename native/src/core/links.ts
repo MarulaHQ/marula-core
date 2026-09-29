@@ -1,18 +1,18 @@
-// Deep-link parsing for the `meridian://` scheme.
+// Deep-link parsing for the `marula://` scheme.
 //
 // Purpose: turn inbound links into typed destinations. The printed-QR
-// vocabulary (meridian://stock-item/<uuid>, …) is frozen by the Wave 32
-// lane 5 scan contract; `meridian://scan-result?text=…` is the dev
-// injector's deterministic harness; push taps land on `meridian://ticket/<id>`
+// vocabulary (marula://stock-item/<uuid>, …) is frozen by the Wave 32
+// lane 5 scan contract; `marula://scan-result?text=…` is the dev
+// injector's deterministic harness; push taps land on `marula://ticket/<id>`
 // (or the notification center when the event carries no ticket).
 //
 // Non-purpose: no navigation (expo-router renders the routes) and no
 // resolver calls — a QR link is resolved through POST /scan/resolve by the
 // screen that receives it, exactly like a camera scan.
 
-export const MERIDIAN_SCHEME = "meridian";
+export const MARULA_SCHEME = "marula";
 
-export type MeridianLink =
+export type MarulaLink =
   | { kind: "scan-result"; text: string }
   | {
       kind: "entity";
@@ -25,7 +25,7 @@ export type MeridianLink =
 
 const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
-export function parseMeridianLink(rawUrl: string): MeridianLink | null {
+export function parseMarulaLink(rawUrl: string): MarulaLink | null {
   const url = rawUrl.trim();
   if (url === "") return null;
   const withoutScheme = stripScheme(url);
@@ -56,9 +56,9 @@ export function parseMeridianLink(rawUrl: string): MeridianLink | null {
 }
 
 function stripScheme(url: string): string | null {
-  const schemePrefix = `${MERIDIAN_SCHEME}://`;
+  const schemePrefix = `${MARULA_SCHEME}://`;
   if (url.startsWith(schemePrefix)) {
-    // Tolerate the conventional empty-authority form meridian:///path.
+    // Tolerate the conventional empty-authority form marula:///path.
     return url.slice(schemePrefix.length).replace(/^\/+/, "");
   }
   // Expo web renders deep links as root-relative paths.

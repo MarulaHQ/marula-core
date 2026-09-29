@@ -175,11 +175,11 @@ pub async fn get(
         services,
         glitchtip_dsns,
         links: SelfHostLinksView {
-            glitchtip: env_text("MERIDIAN_GLITCHTIP_URL"),
-            grafana: env_text("MERIDIAN_GRAFANA_URL"),
-            tempo: env_text("MERIDIAN_TEMPO_URL"),
-            loki: env_text("MERIDIAN_LOKI_URL"),
-            otel_metrics: env_text("MERIDIAN_OTEL_METRICS_URL"),
+            glitchtip: env_text("MARULA_GLITCHTIP_URL"),
+            grafana: env_text("MARULA_GRAFANA_URL"),
+            tempo: env_text("MARULA_TEMPO_URL"),
+            loki: env_text("MARULA_LOKI_URL"),
+            otel_metrics: env_text("MARULA_OTEL_METRICS_URL"),
         },
         garage: GarageView {
             volumes: vec!["garagedata".into(), "garagemeta".into()],
@@ -204,9 +204,9 @@ const GARAGE_BOOTSTRAP_COMMANDS: &[&str] = &[
     "docker compose --profile stage2 exec garage /garage status",
     "docker compose --profile stage2 exec garage /garage layout assign -z dc1 -c 1G <NODE_ID>",
     "docker compose --profile stage2 exec garage /garage layout apply --version 1",
-    "docker compose --profile stage2 exec garage /garage bucket create meridian",
-    "docker compose --profile stage2 exec garage /garage key create meridian",
-    "docker compose --profile stage2 exec garage /garage bucket allow --read --write meridian --key meridian",
+    "docker compose --profile stage2 exec garage /garage bucket create marula",
+    "docker compose --profile stage2 exec garage /garage key create marula",
+    "docker compose --profile stage2 exec garage /garage bucket allow --read --write marula --key marula",
 ];
 
 /// One probe outcome. `state` is the wire vocabulary the pane switches on:

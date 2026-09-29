@@ -19,9 +19,9 @@ interface Connection {
 const ICS_BODY = [
   "BEGIN:VCALENDAR",
   "VERSION:2.0",
-  "PRODID:-//Meridian E2E//EN",
+  "PRODID:-//Marula E2E//EN",
   "BEGIN:VEVENT",
-  "UID:e2e-busy-1@meridian.test",
+  "UID:e2e-busy-1@marula.test",
   "DTSTAMP:20260915T090000Z",
   "DTSTART:20260916T100000Z",
   "DTEND:20260916T110000Z",

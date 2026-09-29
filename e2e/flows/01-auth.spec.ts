@@ -39,6 +39,6 @@ test("wrong password renders friendly error copy, not raw JSON", async ({ page }
 test("seeded theme preference persists for the authed session", async ({ authedPage }) => {
   await authedPage.goto("/today");
   await expect(authedPage.getByRole("heading", { name: "Today" })).toBeVisible({ timeout: 30_000 });
-  const stored = await authedPage.evaluate(() => localStorage.getItem("meridian-theme"));
+  const stored = await authedPage.evaluate(() => localStorage.getItem("marula-theme"));
   expect(["light", "dark"]).toContain(stored);
 });

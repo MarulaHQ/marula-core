@@ -14,9 +14,9 @@
 
 "use client";
 
-import { FieldError } from "@meridian/ui";
+import { FieldError } from "@marula-core/ui";
 import { friendlyMutationText } from "../../lib/error-copy";
-import { Button, Card, Input, Label, Spinner, Tag } from "@meridian/ui";
+import { Button, Card, Input, Label, Spinner, Tag } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AuthBrand } from "../../components/auth/auth-brand";
@@ -58,7 +58,7 @@ export default function MfaChallengePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const pending = window.sessionStorage.getItem("meridian-mfa-pending");
+    const pending = window.sessionStorage.getItem("marula-mfa-pending");
     if (!pending) {
       router.replace("/login");
       return;
@@ -74,7 +74,7 @@ export default function MfaChallengePage() {
     session_id: string;
     expires_in: number;
   }) {
-    window.sessionStorage.removeItem("meridian-mfa-pending");
+    window.sessionStorage.removeItem("marula-mfa-pending");
     saveTokens(tokens);
     window.location.assign("/today");
   }
@@ -162,7 +162,7 @@ export default function MfaChallengePage() {
       style={{ background: "var(--m-canvas)" }}
     >
       <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="mfa-card">
-        <AuthBrand subtitle="Meridian account security." />
+        <AuthBrand subtitle="Marula account security." />
         <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
           Two-factor verification
         </h1>

@@ -14,7 +14,7 @@
 //! Non-purpose: domain rules (core-domain notes unit tests) and HTTP
 //! behavior (core-api flows). Database selection follows the contract in
 //! tests/common/mod.rs (lane-exclusive PG port 54380 via
-//! MERIDIAN_TEST_DATABASE_URL).
+//! MARULA_TEST_DATABASE_URL).
 
 mod common;
 

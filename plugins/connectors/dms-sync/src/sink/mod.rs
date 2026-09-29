@@ -1,15 +1,15 @@
-//! The Meridian-side apply seam ([`DmsSink`]) plus the documented
+//! The Marula-side apply seam ([`DmsSink`]) plus the documented
 //! [`NoneDmsSink`].
 //!
 //! The sink owns the WIRE mechanics (REST calls, auth, envelopes); the
 //! engine owns SEMANTICS (identity resolution, conflicts, reports). The
-//! sink therefore deals only in concrete Meridian-side facts:
+//! sink therefore deals only in concrete Marula-side facts:
 //! layouts (`document_layouts`), clients, assets (`device_assets`),
 //! documents, links (`document_links`), and the vault path.
 //!
 //! Shipped implementations:
 //!
-//! * [`meridian::MeridianRestSink`] — the public v1 REST API over a
+//! * [`marula::MarulaRestSink`] — the public v1 REST API over a
 //!   scoped machine API key (x-api-key); instant-first idempotency keys
 //!   derived from identity keys make retried creates free replays.
 //! * [`NoneDmsSink`] — zero I/O, every call returns
@@ -27,18 +27,18 @@ use crate::model::LinkKind;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SinkError {
     /// None mode: no credentials configured; zero network performed.
-    #[error("dms sink disabled: no Meridian connection configured (none mode)")]
+    #[error("dms sink disabled: no Marula connection configured (none mode)")]
     Disabled,
     /// The caller omitted something the sink requires.
     #[error("invalid sink request: {0}")]
     InvalidRequest(String),
-    /// The Meridian API rejected the credential (401/403) — the
+    /// The Marula API rejected the credential (401/403) — the
     /// operator rotates the scoped key.
     #[error("sink unauthorized: {0}")]
     Unauthorized(String),
     #[error("sink rate limited: {0}")]
     RateLimited(String),
-    /// Target record vanished mid-sync (record deleted Meridian-side).
+    /// Target record vanished mid-sync (record deleted Marula-side).
     #[error("sink record not found: {0}")]
     NotFound(String),
     #[error("sink conflict: {0}")]
@@ -143,7 +143,7 @@ pub struct DocumentUpdate {
     pub idempotency_key: String,
 }
 
-/// One link plan: from a Meridian record (already resolved) to another
+/// One link plan: from a Marula record (already resolved) to another
 /// resolved record. Unresolved ends never reach the sink — they are
 /// reported by the engine instead (broken targets surfaced, never
 /// dropped and never invented).
@@ -226,7 +226,7 @@ pub trait DmsSink: Send + Sync {
 }
 
 /// Built-in none-mode sink: disabled, zero network, zero side effects.
-/// The shipped default sink for an org with no Meridian connection.
+/// The shipped default sink for an org with no Marula connection.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoneDmsSink;
 
@@ -300,4 +300,4 @@ impl DmsSink for NoneDmsSink {
     }
 }
 
-pub mod meridian;
+pub mod marula;

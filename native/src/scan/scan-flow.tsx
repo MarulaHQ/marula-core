@@ -4,7 +4,7 @@
 // Purpose: a scan NEVER guesses and NEVER auto-submits. The resolver returns
 // the typed meaning; ambiguous scans render a picker; unknown scans echo the
 // text back and say so; accepted kinds offer an explicit "Open" action
-// routed by the frozen vocabulary (meridian://stock-item/<uuid>, …).
+// routed by the frozen vocabulary (marula://stock-item/<uuid>, …).
 
 import { useCallback, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";

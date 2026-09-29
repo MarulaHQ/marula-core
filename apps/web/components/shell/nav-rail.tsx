@@ -14,7 +14,7 @@
 
 "use client";
 
-import { Tooltip, TooltipProvider } from "@meridian/ui";
+import { Tooltip, TooltipProvider } from "@marula-core/ui";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";

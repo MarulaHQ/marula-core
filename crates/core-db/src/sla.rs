@@ -561,7 +561,7 @@ where
 pub struct SlaEvaluationCandidate {
     pub org_id: Uuid,
     pub ticket_id: Uuid,
-    /// Human number ("MER-42") for notification titles.
+    /// Human number ("MAR-42") for notification titles.
     pub number: String,
     pub policy_id: Uuid,
     pub priority: String,

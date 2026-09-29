@@ -4,7 +4,7 @@
 // OpenAPI re-pin carries for this lane's endpoints; the calls go through the
 // typed client with no structural casts.
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 import { api } from "./api";
 import { friendlyMutationError, friendlyMutationText } from "./error-copy";

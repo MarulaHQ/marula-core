@@ -1,4 +1,4 @@
-// Vitest runner configuration for @meridian/web.
+// Vitest runner configuration for @marula-core/web.
 //
 // Purpose: one config serves both test families — headless unit suites of
 // pure lib modules (dispatch drag-state reducer, admin form reducers) and

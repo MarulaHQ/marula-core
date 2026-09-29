@@ -4,7 +4,7 @@
 # scan or search → stage → pick context → human commits. The ticket anchor
 # rides the ticket screen; every commit is a public stock movement endpoint.
 # Fixtures come from native/e2e/seed-fieldops.mjs.
-appId: tech.meridian.app
+appId: org.marula.app
 ---
 - launchApp
 - extendedWaitUntil:

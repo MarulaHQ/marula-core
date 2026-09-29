@@ -8,7 +8,7 @@
 
 "use client";
 
-import { Button } from "@meridian/ui";
+import { Button } from "@marula-core/ui";
 import { useEffect, useState } from "react";
 import type { Tour, TourStep } from "../../lib/tours/tours";
 

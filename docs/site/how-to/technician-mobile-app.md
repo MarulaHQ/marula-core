@@ -1,4 +1,4 @@
-# How to use the Meridian mobile app
+# How to use the Marula mobile app
 
 > **Audience:** both — technicians carry the app, and owners and admins install
 > builds and turn on biometric sign-in.
@@ -19,7 +19,7 @@ Builds come from EAS. The repository ships three profiles in `native/eas.json`:
 | `production` | store builds |
 
 ```bash
-pnpm --filter @meridian/native exec eas build --profile preview --platform ios
+pnpm --filter @marula-core/native exec eas build --profile preview --platform ios
 ```
 
 An operator registers the EAS project once and stores the Expo token as a
@@ -69,7 +69,7 @@ Simulate offline**, write a note, then switch it back.
 
 ## Scan a code
 
-Printed labels carry `meridian://` links and short codes. The Scan tab reads
+Printed labels carry `marula://` links and short codes. The Scan tab reads
 them both ways:
 
 1. Open **Scan**.
@@ -79,7 +79,7 @@ them both ways:
 3. The card shows what the code means. If several records match, pick one —
    the app never guesses. If nothing matches, it says so and keeps your text.
 
-Deep links work too: opening `meridian://stock-item/<uuid>` from anywhere
+Deep links work too: opening `marula://stock-item/<uuid>` from anywhere
 resolves the same way a camera scan does.
 
 ## Check tools and stock

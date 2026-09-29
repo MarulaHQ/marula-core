@@ -1,9 +1,9 @@
-# How to use Meridian with a keyboard, a screen reader, and themes
+# How to use Marula with a keyboard, a screen reader, and themes
 
 > **Audience:** both — technicians and admins share the same surfaces, and
 > every control described here works the same on either side.
 
-Meridian is built to be usable without a mouse. You can run a ticket from
+Marula is built to be usable without a mouse. You can run a ticket from
 the keyboard end to end, hear what changes through a screen reader, and
 pick a theme that you can actually read. This page covers all three.
 

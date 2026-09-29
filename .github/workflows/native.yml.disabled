@@ -39,13 +39,13 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Typecheck
-        run: pnpm --filter @meridian/native typecheck
+        run: pnpm --filter @marula-core/native typecheck
       - name: Lint
-        run: pnpm --filter @meridian/native lint
+        run: pnpm --filter @marula-core/native lint
       - name: Unit tests (offline queue, cache, realtime, sync engine)
-        run: pnpm --filter @meridian/native test
+        run: pnpm --filter @marula-core/native test
       - name: Expo web export (bundle check — fast-iteration surface)
-        run: pnpm --filter @meridian/native export:web
+        run: pnpm --filter @marula-core/native export:web
       - name: Upload web export
         uses: actions/upload-artifact@v4
         with:
@@ -91,7 +91,7 @@ jobs:
           echo "SIMULATOR_UDID=$DEVICE" >> "$GITHUB_ENV"
           xcrun simctl boot "$DEVICE" || true
       - name: Build + install the app (Release, New Architecture)
-        run: pnpm --filter @meridian/native exec expo run:ios --configuration Release --device "$SIMULATOR_UDID" --no-bundler
+        run: pnpm --filter @marula-core/native exec expo run:ios --configuration Release --device "$SIMULATOR_UDID" --no-bundler
         env:
           CI: "1"
           # The dev-menu offline toggle and scan injector are off in release

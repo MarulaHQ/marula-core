@@ -1,6 +1,6 @@
 //! Shared harness for core-projects integration tests (same contract as
-//! the core-db suite): `MERIDIAN_TEST_DATABASE_URL` / `DATABASE_URL` else
-//! a reusable pgvector container; admin + `meridian_app` pools; per-process
+//! the core-db suite): `MARULA_TEST_DATABASE_URL` / `DATABASE_URL` else
+//! a reusable pgvector container; admin + `marula_app` pools; per-process
 //! schema reset so fixed UUIDs are safe.
 
 #![allow(dead_code)]
@@ -28,7 +28,7 @@ static BOOTSTRAP: tokio::sync::OnceCell<Bootstrap> = tokio::sync::OnceCell::cons
 async fn bootstrap() -> &'static Bootstrap {
     BOOTSTRAP
         .get_or_init(|| async {
-            if let Ok(url) = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+            if let Ok(url) = std::env::var("MARULA_TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
             {
                 let admin = connect_with_retry(&url).await;
@@ -41,8 +41,8 @@ async fn bootstrap() -> &'static Bootstrap {
                     _container: None,
                 };
             }
-            let container_name = std::env::var("MERIDIAN_TEST_PG_NAME")
-                .unwrap_or_else(|_| "meridian-projects-tests-pg18".to_string());
+            let container_name = std::env::var("MARULA_TEST_PG_NAME")
+                .unwrap_or_else(|_| "marula-projects-tests-pg18".to_string());
             let request = ContainerRequest::from(
                 GenericImage::new("pgvector/pgvector", "pg18")
                     .with_wait_for(WaitFor::message_on_stderr(
@@ -52,9 +52,9 @@ async fn bootstrap() -> &'static Bootstrap {
             )
             .with_container_name(container_name)
             .with_reuse(ReuseDirective::Always)
-            .with_env_var("POSTGRES_USER", "meridian")
-            .with_env_var("POSTGRES_PASSWORD", "meridian")
-            .with_env_var("POSTGRES_DB", "meridian_projects_test");
+            .with_env_var("POSTGRES_USER", "marula")
+            .with_env_var("POSTGRES_PASSWORD", "marula")
+            .with_env_var("POSTGRES_DB", "marula_projects_test");
             let container = request
                 .start()
                 .await
@@ -62,7 +62,7 @@ async fn bootstrap() -> &'static Bootstrap {
             let host = container.get_host().await.expect("container host");
             let port = container.get_host_port_ipv4(5432_u16).await.expect("port");
             let admin_url =
-                format!("postgres://meridian:meridian@{host}:{port}/meridian_projects_test");
+                format!("postgres://marula:marula@{host}:{port}/marula_projects_test");
             let admin = connect_with_retry(&admin_url).await;
             reset_schema(&admin).await;
             core_db::run_migrations(&admin)
@@ -81,7 +81,7 @@ pub struct TestDb {
     pub app: PgPool,
 }
 
-/// Admin pool (probes) + app pool (`meridian_app`, RLS applies), bound to
+/// Admin pool (probes) + app pool (`marula_app`, RLS applies), bound to
 /// the calling test's runtime.
 pub async fn test_db() -> TestDb {
     let b = bootstrap().await;
@@ -124,9 +124,9 @@ fn app_url(admin_url: &str) -> String {
         .unwrap_or(("postgres", admin_url));
     match rest.split_once('@') {
         Some((_creds, host_part)) => {
-            format!("{scheme_rest}://meridian_app:meridian_app@{host_part}")
+            format!("{scheme_rest}://marula_app:marula_app@{host_part}")
         }
-        None => format!("{scheme_rest}://meridian_app:meridian_app@{rest}"),
+        None => format!("{scheme_rest}://marula_app:marula_app@{rest}"),
     }
 }
 

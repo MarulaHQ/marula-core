@@ -11,7 +11,7 @@ disk, plus dangling references in order/session maps. Prints a summary.
 import json, os, sys
 
 P = os.path.expanduser(
-    "~/Documents/GitHub/meridian-open-psa-core/.kilo/agent-manager.json"
+    "~/Documents/GitHub/marula-open-psa-core/.kilo/agent-manager.json"
 )
 
 with open(P) as f:

@@ -28,7 +28,7 @@ const ORG = '00000000-0000-4000-8000-000000000002';
 const ME = {
   user_id: '00000000-0000-4000-8000-000000000001',
   org_id: ORG,
-  email: 'owner@meridian.test',
+  email: 'owner@marula.test',
   display_name: 'Taylor Reed',
   timezone: 'UTC',
   permissions: ['special:manage_users', 'special:manage_boards', 'tickets:create', 'admin:org'],
@@ -203,9 +203,9 @@ const DRAFTS = [
 
 const USERS = {
   users: [
-    { id: U_ANA, org_id: ORG, email: 'ana@meridian.test', display_name: 'Ana Sousa', is_active: true, org_role: 'member', created_at: iso(-90 * 86_400_000) },
-    { id: U_MARCO, org_id: ORG, email: 'marco@meridian.test', display_name: 'Marco Diaz', is_active: true, org_role: 'member', created_at: iso(-80 * 86_400_000) },
-    { id: '00000000-0000-4000-8000-00000000s0b3', org_id: ORG, email: 'priya@meridian.test', display_name: 'Priya Nair', is_active: true, org_role: 'admin', created_at: iso(-70 * 86_400_000) },
+    { id: U_ANA, org_id: ORG, email: 'ana@marula.test', display_name: 'Ana Sousa', is_active: true, org_role: 'member', created_at: iso(-90 * 86_400_000) },
+    { id: U_MARCO, org_id: ORG, email: 'marco@marula.test', display_name: 'Marco Diaz', is_active: true, org_role: 'member', created_at: iso(-80 * 86_400_000) },
+    { id: '00000000-0000-4000-8000-00000000s0b3', org_id: ORG, email: 'priya@marula.test', display_name: 'Priya Nair', is_active: true, org_role: 'admin', created_at: iso(-70 * 86_400_000) },
   ],
   total: 3,
 };
@@ -219,7 +219,7 @@ const MEETING_TYPES = [
   { id: 'mt-2', org_id: ORG, name: 'Phone intake', description: null, duration_minutes: 30, buffer_minutes: 0, booking_window_days: 14, assignee_scope: 'user', assignee_user_id: U_ANA, assignee_group_id: null, auto_email_enabled: false, auto_email_subject: null, auto_email_body: null, is_active: true, parameters: {}, created_at: iso(-10 * 86_400_000), created_by: null },
 ];
 
-const ORG_FIXTURE = { id: ORG, name: 'Meridian Demo', ticket_prefix: 'MER' };
+const ORG_FIXTURE = { id: ORG, name: 'Marula Demo', ticket_prefix: 'MER' };
 const TIMER = {
   id: 's0000000-0000-4000-8000-000000000001',
   org_id: ORG,
@@ -274,14 +274,14 @@ async function shot(browser, viewport, theme, name, path, interactions) {
   if (theme === 'dark') url.searchParams.set('theme', 'dark');
   const themeToken = theme === 'dark' ? 'dark' : 'light';
   await page.addInitScript((t) => {
-    window.localStorage.setItem('meridian-theme', t);
-    window.localStorage.setItem('meridian-tokens', JSON.stringify({
+    window.localStorage.setItem('marula-theme', t);
+    window.localStorage.setItem('marula-tokens', JSON.stringify({
       access_token: 'test-access',
       refresh_token: 'test-refresh',
       session_id: 'sess',
       expires_in: 900,
     }));
-    window.localStorage.setItem('meridian-tokens-exp', String(Date.now() + 60_000));
+    window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal{display:none!important}';
     document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));

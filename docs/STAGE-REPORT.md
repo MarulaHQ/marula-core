@@ -14,12 +14,12 @@ shipped and merged. Remaining: Garage + Mailpit are declared compose slots
 
 | Area | State |
 |---|---|
-| Monorepo scaffold | `crates/{core-domain,core-db,core-events,core-api,realtime,worker,meridian-cli}`, `packages/{ui,layout,sdk}`, `apps/`, `deploy/`, `design/mockups/` |
+| Monorepo scaffold | `crates/{core-domain,core-db,core-events,core-api,realtime,worker,marula-core-cli}`, `packages/{ui,layout,sdk}`, `apps/`, `deploy/`, `design/mockups/` |
 | Postgres (+pgvector pg17) & Redis | dev ports 15432 / 16379; migrations self-provision the RLS-constrained `meridian_app` role |
 | core-api | Axum :8080 · argon2id + JWT/refresh rotation · org/user/role · clients hierarchy · boards/tickets/comments/checklists · timers/time entries · notifications · audit · utoipa→Scalar OpenAPI at `/openapi.json` |
 | realtime | WS hub :8081 · JWT-verified handshakes · per-user/per-board routing · presence |
 | worker | outbox→Redis relay host :8082 (`/healthz`); hosts `core_events::run_relay` |
-| meridian-cli | `migrate`, `serve-worker`, `serve-realtime` |
+| marula-core-cli | `migrate`, `serve-worker`, `serve-realtime` |
 | Event bus contract | transactional outbox → versioned envelope → single Redis stream (`meridian:events`) |
 | packages/ui | Workbench tokens (light+dark from one set), 14 base components |
 | packages/layout | multi-pane engine, persisted panel state, 66 tests |
@@ -94,7 +94,7 @@ private dev ports; each lane shipped its tests with the implementation.
 
 - Shared-file merges resolved additively (`routes/mod.rs`, `openapi.rs`, worker loop wiring); SDK snapshot regenerated from the live merged API (**58 paths**, up from 43)
 - One real integration bug found & fixed: two lanes drew the same db_suite seed slot (21) → org-PK collision under parallel tests; slot ranges are now pre-assigned per lane (`ec8a84c`)
-- Testcontainer name made env-overridable so concurrent lanes never collide (`855f886`, `MERIDIAN_TEST_PG_NAME`)
+- Testcontainer name made env-overridable so concurrent lanes never collide (`855f886`, `MARULA_TEST_PG_NAME`)
 
 ### Known gaps / deferred
 
@@ -118,7 +118,7 @@ acceptance re-run on merged main: **18/18** incl. WS push chain, p95 ≤ 38 ms.
 | 2.9/2.10 Timer discipline + missing time | `stage2-timer` | `0017_timer_discipline--breaking.sql` — single-active invariant via generated `is_running` column + partial unique index (paused timers dock, not block); switch = atomic auto-pause-with-reason + start; gap-audit ledger with once-per-day nudge claim; EOD nudge scheduler loop feeding the notification center (`missing_time` kind honors prefs/quiet hours); docked timer bar + missing-time strip + quick-log dialog per Today mockup |
 | 2.11 Board organize + RBAC + my-work | `stage2-mywork` | `0019_board_organize_rbac.sql` — board groups/favorites, board_members roles (viewer/member/admin) with deny-wins matrix over ops, cross-board my-work endpoint (priority→SLA-due ordering); left-nav board tree + Today my-work queue per mockup |
 | 2.13 Client portal v1 | `stage2-portal` | `0021_portal_v1.sql` — portal_users (contact/approver/it_manager), separate JWT audience, per-client RLS scoping ON TOP of org RLS; ticket view/reply restricted to client-visible notes (it_manager additionally reads in-house updates, never internal); staff admin CRUD for portal users + board exposure flags; distinct /portal shell |
-| 2.15 Webhooks out + API keys + connectors | `stage2-webhooks` | `0020_webhooks_connectors.sql` — HMAC-signed deliveries w/ timestamp anti-replay, exponential backoff, per-attempt delivery logs visible via API; scoped rotatable API keys (hash-at-rest, show-once, last-used tracked, x-api-key machine auth); NinjaOne + Hudu reference connectors under `connectors/` written against ONLY @meridian/sdk |
+| 2.15 Webhooks out + API keys + connectors | `stage2-webhooks` | `0020_webhooks_connectors.sql` — HMAC-signed deliveries w/ timestamp anti-replay, exponential backoff, per-attempt delivery logs visible via API; scoped rotatable API keys (hash-at-rest, show-once, last-used tracked, x-api-key machine auth); NinjaOne + Hudu reference connectors under `connectors/` written against ONLY @marula-core/sdk |
 
 ### Criteria status
 
@@ -134,7 +134,7 @@ acceptance re-run on merged main: **18/18** incl. WS push chain, p95 ≤ 38 ms.
 ### Known gaps / deferred
 
 1. Admin config screens (2.6): workflow editor, SLA/calendar editors, webhook delivery-log UI — backends all exist; UI consolidation is the remaining settings-hub slice.
-2. Webhook subscription secrets dead-letter fail-closed when `MERIDIAN_SECRET_KEY` unset on worker (documented none mode).
+2. Webhook subscription secrets dead-letter fail-closed when `MARULA_SECRET_KEY` unset on worker (documented none mode).
 3. Portal MFA deferred to portal v2.
 4. Scheduling reminders/notification hooks deferred (data model dispatch-ready).
 

@@ -1,5 +1,5 @@
 //! `LocalFsStore` — the filesystem "none" mode (§2 Storage row): a
-//! self-hosted Meridian runs with NO object store service, persisting
+//! self-hosted Marula runs with NO object store service, persisting
 //! attachments under a configured directory.
 //!
 //! Purpose: durable-enough single-node storage with the exact trait
@@ -299,7 +299,7 @@ mod tests {
                 })?;
                 let st = store(dir.path());
                 let body = Bytes::from(bytes);
-                let ct = "application/x-meridian-test";
+                let ct = "application/x-marula-test";
                 let meta = st.put(&key, ct, body.clone()).await
                     .map_err(fail)?;
                 proptest::prop_assert_eq!(meta.size_bytes, body.len() as u64);

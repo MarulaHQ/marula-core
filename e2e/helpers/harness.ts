@@ -12,12 +12,12 @@
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
 import { API_URL, DEMO_OWNER_EMAIL, DEMO_PASSWORD, apiLogin, type TokenPair } from "./api";
 
-export const TOKENS_KEY = "meridian-tokens";
-export const TOKENS_EXP_KEY = "meridian-tokens-exp";
-export const THEME_KEY = "meridian-theme";
+export const TOKENS_KEY = "marula-tokens";
+export const TOKENS_EXP_KEY = "marula-tokens-exp";
+export const THEME_KEY = "marula-theme";
 /** Wave 24: the persisted preset attribute (localStorage key the app's
  * pre-paint bootstrap reads; empty/absent = Tangerine baseline). */
-export const THEME_PRESET_KEY = "meridian-theme-preset";
+export const THEME_PRESET_KEY = "marula-theme-preset";
 
 export type Theme = "light" | "dark";
 /** A shipped default preset id (playwright only covers shipped defaults

@@ -100,7 +100,7 @@ impl FieldKind {
 /// Which side of a [`LinkEndpoint`] a record sits on — the
 /// `document_links` kind vocabulary (migration 0053 + the 0054 asset
 /// kind). External relationships map onto these; anything an external
-/// system links that has no Meridian kind is reported, not invented.
+/// system links that has no Marula kind is reported, not invented.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LinkKind {
     Document,
@@ -125,7 +125,7 @@ impl LinkKind {
 }
 
 /// One end of a relationship: the external record's id (the source's
-/// own id space) plus the Meridian kind it maps to.
+/// own id space) plus the Marula kind it maps to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkEndpoint {
     /// The external record id this endpoint resolves to (source id space).
@@ -181,7 +181,7 @@ pub struct SyncLayout {
     /// Human type name ("Server", "Password Asset").
     pub name: String,
     pub description: String,
-    /// Suggested Meridian icon (best-effort; cosmetic only).
+    /// Suggested Marula icon (best-effort; cosmetic only).
     pub icon: String,
     pub fields: Vec<SyncField>,
 }
@@ -242,7 +242,7 @@ pub struct DmsSnapshot {
     pub relations: Vec<Relation>,
     /// External client/organization scope: id → display name (the
     /// engine resolves record `client_ref`s through this map, then
-    /// operator aliases, then Meridian client name matching).
+    /// operator aliases, then Marula client name matching).
     pub client_refs: BTreeMap<String, String>,
     /// Credentials the source exposed. EMPTY unless the source was
     /// explicitly constructed to surface them; the engine gates the

@@ -6,7 +6,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Spinner } from "@meridian/ui";
+import { Spinner } from "@marula-core/ui";
 
 export default function MailSettingsRedirect() {
   const router = useRouter();

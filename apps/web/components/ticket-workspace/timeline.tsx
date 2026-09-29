@@ -11,8 +11,8 @@
 
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Spinner, StatusTag } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Spinner, StatusTag } from "@marula-core/ui";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";

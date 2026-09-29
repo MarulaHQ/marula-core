@@ -1,12 +1,12 @@
 /**
- * @module @meridian/layout — multi-pane layout engine public API.
+ * @module @marula-core/layout — multi-pane layout engine public API.
  *
  * Purpose: the complete import surface for host apps: tree types and
  * factories, pure constraint math and tree operations, serialization with
  * defensive repair, pluggable persistence adapters, and the React controller
  * plus renderer.
  * Non-purpose: no domain knowledge of any kind — this package arranges panes
- * and knows nothing about tickets, timers, or Meridian's product surfaces.
+ * and knows nothing about tickets, timers, or Marula's product surfaces.
  */
 
 // Types

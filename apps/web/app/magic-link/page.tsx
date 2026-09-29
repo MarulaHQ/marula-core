@@ -6,15 +6,15 @@
 // Purpose: WITHOUT ?token= the REQUEST half — email → POST /request with
 // one uniform answer and typed 429 `auth_rate_limited`. WITH ?token= the
 // mail-link confirm: the link's POST goes through the SDK transport
-// mechanics (credentials + `x-meridian-csrf` echo, mirroring authCall in
-// @meridian/sdk — the double-submit guard applies when a session cookie
+// mechanics (credentials + `x-marula-csrf` echo, mirroring authCall in
+// @marula-core/sdk — the double-submit guard applies when a session cookie
 // already exists) and lands a TokenPair, stored through the same
 // memory-jar path as login, then a full navigation so AuthProvider
 // re-bootstraps. Envelope failures are typed, never fabricated.
 "use client";
 
-import { Button, Card, Input, Label, Spinner } from "@meridian/ui";
-import { applyTheme } from "@meridian/ui";
+import { Button, Card, Input, Label, Spinner } from "@marula-core/ui";
+import { applyTheme } from "@marula-core/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 
@@ -31,8 +31,8 @@ function csrfEcho(): Record<string, string> {
   const csrf = document.cookie
     .split(";")
     .map((c) => c.trim())
-    .find((c) => c.startsWith("meridian_csrf="));
-  return csrf ? { "x-meridian-csrf": csrf.slice("meridian_csrf=".length) } : {};
+    .find((c) => c.startsWith("marula_csrf="));
+  return csrf ? { "x-marula-csrf": csrf.slice("marula_csrf=".length) } : {};
 }
 
 function MagicLinkInner(): ReactNode {
@@ -199,7 +199,7 @@ function MagicLinkInner(): ReactNode {
               </svg>
             </span>
             <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              Signed in — continuing into Meridian…
+              Signed in — continuing into Marula…
             </p>
           </div>
         ) : (

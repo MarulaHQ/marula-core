@@ -35,8 +35,8 @@ import {
   Td,
   Th,
   Tr,
-} from "@meridian/ui";
-import type { components } from "@meridian/sdk";
+} from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
@@ -344,7 +344,7 @@ export default function AlertsPage() {
             <FieldHint>
               Copy this secret now. It is encrypted in storage and will NEVER be
               shown again. Sign HTTP payloads with hex HMAC-SHA256 in the{" "}
-              <code className="text-[11px]">X-Meridian-Signature</code> header.
+              <code className="text-[11px]">X-Marula-Signature</code> header.
             </FieldHint>
             <div className="mt-1">
               <Button variant="ghost" size="sm" onClick={() => setRevealedSecret(null)}>

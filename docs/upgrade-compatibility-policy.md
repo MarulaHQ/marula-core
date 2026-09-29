@@ -6,7 +6,7 @@
 
 ## 1. Why this policy exists
 
-Meridian asks organizations to bet their operating system on it. That bet is only rational if upgrades are boring. Modular, customizable systems acquire a reputation for being painful to upgrade exactly when compatibility is treated as a hope instead of a property. This policy makes compatibility **bounded and mechanically enforced**: generous where it is cheap to be generous, and explicitly honest about where the guarantees end.
+Marula asks organizations to bet their operating system on it. That bet is only rational if upgrades are boring. Modular, customizable systems acquire a reputation for being painful to upgrade exactly when compatibility is treated as a hope instead of a property. This policy makes compatibility **bounded and mechanically enforced**: generous where it is cheap to be generous, and explicitly honest about where the guarantees end.
 
 Two commitments define the whole document:
 
@@ -19,7 +19,7 @@ Compatibility is a property of boundaries, not of the whole system. Exactly four
 
 | Surface | Contract | Stability rule |
 |---|---|---|
-| **REST + WebSocket API** | Path-versioned (`/api/v1`…). The generated OpenAPI spec (`utoipa`) is the contract, and `@meridian/sdk` is generated from a committed snapshot of it | A supported API version never breaks inside its support window. New versions are added alongside, never swapped in place |
+| **REST + WebSocket API** | Path-versioned (`/api/v1`…). The generated OpenAPI spec (`utoipa`) is the contract, and `@marula-core/sdk` is generated from a committed snapshot of it | A supported API version never breaks inside its support window. New versions are added alongside, never swapped in place |
 | **Domain events & webhooks** | Versioned envelope (`id`, `type`, `org_id`, `entity`, `occurred_at`, `payload_schema_ref`, `payload`) emitted once per mutation from the transactional outbox | Payload evolution is additive-only. Consumers are required to tolerate unknown fields (documented contract). Retired event types keep emitting alongside their replacements for one generation |
 | **Plugin API (PDK)** | Extism/WASM host functions. Plugins declare their required `api_version` in the manifest | Host functions are add-only — new capability always means a new function, never a changed signature. The host supports PDK generations for one major cycle |
 | **Declared customizations** | Custom fields, board statuses (always bound to semantic categories), automations, webhook subscriptions, settings registry values | These are declarative rows, migrated as data under the same rules as §4. See §5 |
@@ -51,7 +51,7 @@ The migration chain (`crates/core-db/migrations`, SQLx) is forward-only and appe
 Everything an organization configures lives as declarative rows bound to stable semantic primitives — that is why the defaults-first doctrine (semantic status categories, settings registry) matters beyond UX: it keeps customization expressible without forkable logic, which is what makes it migratable.
 
 - **Customization manifest** *(planned)*: a canonical, versioned export describing everything an org has customized. It doubles as backup documentation and as the input to the upgrade preflight.
-- **Upgrade preflight** *(planned)*: `meridian upgrade --check` runs offline against a manifest + database copy and reports exactly which customizations touch constructs deprecated in the target version — auto-migratable ones flagged as such, judgment-call ones described in plain language. Run before upgrading, not after.
+- **Upgrade preflight** *(planned)*: `marula upgrade --check` runs offline against a manifest + database copy and reports exactly which customizations touch constructs deprecated in the target version — auto-migratable ones flagged as such, judgment-call ones described in plain language. Run before upgrading, not after.
 - **Semantic-category guarantee**: renaming boards, statuses, or workflows never alters SLA, billing, automation, or reporting behavior, because those bind to categories, not labels. This is the reason custom workflow changes are *not* breaking changes under this policy.
 
 ## 6. Plugins & extensions
@@ -64,7 +64,7 @@ Everything an organization configures lives as declarative rows bound to stable 
 
 1. Read the release notes section **"Breaking & deprecated"** (present in every release, even when empty).
 2. Optionally run the upgrade preflight (§5) against a backup.
-3. Apply migrations (automatic on container start or via `meridian-cli`).
+3. Apply migrations (automatic on container start or via `marula-core-cli`).
 4. Supported jump distance: your version may be up to two releases behind. Further jumps apply the same machinery sequentially.
 
 ## 8. Enforcement

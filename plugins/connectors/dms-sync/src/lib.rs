@@ -1,26 +1,26 @@
-//! Meridian DMS sync connector (`connectors/dms-sync` — TASKLIST Money +
+//! Marula DMS sync connector (`connectors/dms-sync` — TASKLIST Money +
 //! docs T3, external-DMS parity directive 2026-09-10).
 //!
 //! Purpose: move an org's documentation BETWEEN an external documentation
-//! system (IT Glue, Hudu, or a generic REST DMS) and Meridian's
-//! docs-platform without losing data — via the PUBLIC Meridian API seam
+//! system (IT Glue, Hudu, or a generic REST DMS) and Marula's
+//! docs-platform without losing data — via the PUBLIC Marula API seam
 //! only (the same pattern the NinjaOne/Hudu reference connectors prove:
 //! scoped machine API key, resource REST, instant-first envelope).
 //!
-//! The crate is deliberately self-contained: no Meridian internals are
+//! The crate is deliberately self-contained: no Marula internals are
 //! imported. It is a library of four pieces:
 //!
 //! * **Pull** — [`source`]: a [`DmsSource`] parses vendor exports (IT
 //!   Glue JSON:API export files, Hudu export JSON) or speaks a generic
 //!   REST DMS, producing one vendor-neutral [`DmsSnapshot`] of layouts,
 //!   assets, documents, links, and (gated) credentials.
-//! * **Push** — [`push`]: parity in the other direction. A Meridian
+//! * **Push** — [`push`]: parity in the other direction. A Marula
 //!   snapshot read through the public API is rendered back OUT in the
 //!   same export format (`render_hudu_export`) or pushed record-at-a-time
 //!   to a generic REST endpoint. IT Glue's source and renderer ship as
 //!   the marketplace `it-glue` connector (ADR 0013).
-//! * **Sink** — [`sink`]: the Meridian-side apply seam ([`DmsSink`]) plus
-//!   the shipped [`MeridianRestSink`] and the documented
+//! * **Sink** — [`sink`]: the Marula-side apply seam ([`DmsSink`]) plus
+//!   the shipped [`MarulaRestSink`] and the documented
 //!   [`NoneDmsSink`]. External layouts map onto `document_layouts` (org
 //!   layouts are created for external types; seeded `is_system` rows are
 //!   READ and matched, never mutated), asset instances land in
@@ -42,7 +42,7 @@
 //!
 //! # Vault boundary (binding)
 //!
-//! External credentials/passwords are NOT pulled into Meridian unless the
+//! External credentials/passwords are NOT pulled into Marula unless the
 //! operator explicitly enables credential mapping
 //! (`SyncConfig::map_credentials`, default `false`). When enabled they
 //! are handed to the sink's vault path once — the audited
@@ -57,12 +57,12 @@
 //! The org-level `connectors.dms_sync` setting is the operator-side
 //! enable/disable surface for this connector (default ON; Wave 15 lane
 //! 4): a sync run that starts while it is off reports disabled before
-//! touching a single Meridian record.
+//! touching a single Marula record.
 //!
 //! None mode
 //!
 //! [`NoneDmsSink`] is the shipped default sink: zero network I/O, every
-//! call returns [`SinkError::Disabled`]. An org with no Meridian
+//! call returns [`SinkError::Disabled`]. An org with no Marula
 //! connection configured operates standalone (standalone-first
 //! doctrine); every call site must treat `Disabled` as "would have
 //! synced". The [`DmsSource`] side has no implicit none mode — sources
@@ -73,7 +73,7 @@
 //! # Non-purposes
 //!
 //! No OAuth/token refresh (operators rotate scoped API keys in their own
-//! secret store), no Meridian schema changes (external shapes map onto
+//! secret store), no Marula schema changes (external shapes map onto
 //! `document_layouts` / `device_assets` / `document_links` as-is), no
 //! credential storage on the connector side, no server-side merge-queue
 //! UI (conflicts are reported to the operator in the run report; the

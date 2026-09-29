@@ -27,7 +27,7 @@ const ME_ID = '00000000-0000-4000-8000-000000000001';
 const ME = {
   user_id: ME_ID,
   org_id: ORG,
-  email: 'owner@meridian.test',
+  email: 'owner@marula.test',
   display_name: 'Taylor Reed',
   timezone: 'UTC',
   permissions: ['special:manage_users', 'admin:org'],
@@ -119,7 +119,7 @@ const SYNC_CONNECTIONS = [
 
 const FIXTURES = {
   '/api/v1/me': ME,
-  '/api/v1/org': { id: ORG, name: 'Meridian Demo', ticket_prefix: 'MER' },
+  '/api/v1/org': { id: ORG, name: 'Marula Demo', ticket_prefix: 'MER' },
   '/api/v1/settings/user': [],
   '/api/v1/settings/org': [],
   '/api/v1/notifications/unread-count': { count: 0 },
@@ -166,14 +166,14 @@ async function shot(browser, viewport, theme, name, path, interactions) {
   if (theme === 'dark') url.searchParams.set('theme', 'dark');
   const themeToken = theme === 'dark' ? 'dark' : 'light';
   await page.addInitScript((t) => {
-    window.localStorage.setItem('meridian-theme', t);
-    window.localStorage.setItem('meridian-tokens', JSON.stringify({
+    window.localStorage.setItem('marula-theme', t);
+    window.localStorage.setItem('marula-tokens', JSON.stringify({
       access_token: 'test-access',
       refresh_token: 'test-refresh',
       session_id: 'sess',
       expires_in: 900,
     }));
-    window.localStorage.setItem('meridian-tokens-exp', String(Date.now() + 60_000));
+    window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal{display:none!important}';
     document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));

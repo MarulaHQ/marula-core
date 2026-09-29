@@ -3,28 +3,28 @@
 
 import { describe, expect, it } from "vitest";
 
-import { notificationRoute, parseMeridianLink, routeForPushPayload } from "@/core/links";
+import { notificationRoute, parseMarulaLink, routeForPushPayload } from "@/core/links";
 
 const ID = "0192a1b2-c3d4-7000-8000-000000000001";
 
-describe("parseMeridianLink", () => {
+describe("parseMarulaLink", () => {
   it("parses every frozen printed-QR shape", () => {
-    expect(parseMeridianLink(`meridian://stock-item/${ID}`)).toEqual({
+    expect(parseMarulaLink(`marula://stock-item/${ID}`)).toEqual({
       kind: "entity",
       entity: "stock-item",
       id: ID,
     });
-    expect(parseMeridianLink(`meridian://stock-location/${ID}`)).toEqual({
+    expect(parseMarulaLink(`marula://stock-location/${ID}`)).toEqual({
       kind: "entity",
       entity: "stock-location",
       id: ID,
     });
-    expect(parseMeridianLink(`meridian://stock-serial/${ID}`)).toEqual({
+    expect(parseMarulaLink(`marula://stock-serial/${ID}`)).toEqual({
       kind: "entity",
       entity: "stock-serial",
       id: ID,
     });
-    expect(parseMeridianLink(`meridian://device-asset/${ID}`)).toEqual({
+    expect(parseMarulaLink(`marula://device-asset/${ID}`)).toEqual({
       kind: "entity",
       entity: "device-asset",
       id: ID,
@@ -32,7 +32,7 @@ describe("parseMeridianLink", () => {
   });
 
   it("tolerates surrounding whitespace, a trailing slash, and an empty authority", () => {
-    expect(parseMeridianLink(`  meridian:///stock-item/${ID}/  `)).toEqual({
+    expect(parseMarulaLink(`  marula:///stock-item/${ID}/  `)).toEqual({
       kind: "entity",
       entity: "stock-item",
       id: ID,
@@ -40,28 +40,28 @@ describe("parseMeridianLink", () => {
   });
 
   it("parses the dev scan injector link", () => {
-    expect(parseMeridianLink("meridian://scan-result?text=RSV-1234")).toEqual({
+    expect(parseMarulaLink("marula://scan-result?text=RSV-1234")).toEqual({
       kind: "scan-result",
       text: "RSV-1234",
     });
-    expect(parseMeridianLink("meridian://scan-result?text=")).toEqual({
+    expect(parseMarulaLink("marula://scan-result?text=")).toEqual({
       kind: "scan-result",
       text: "",
     });
   });
 
   it("parses ticket and notifications destinations", () => {
-    expect(parseMeridianLink(`meridian://ticket/${ID}`)).toEqual({ kind: "ticket", id: ID });
-    expect(parseMeridianLink("meridian://notifications")).toEqual({ kind: "notifications" });
+    expect(parseMarulaLink(`marula://ticket/${ID}`)).toEqual({ kind: "ticket", id: ID });
+    expect(parseMarulaLink("marula://notifications")).toEqual({ kind: "notifications" });
   });
 
   it("refuses near-misses instead of guessing", () => {
-    expect(parseMeridianLink("meridian://stock-item/not-a-uuid")).toEqual({
+    expect(parseMarulaLink("marula://stock-item/not-a-uuid")).toEqual({
       kind: "unknown",
-      url: "meridian://stock-item/not-a-uuid",
+      url: "marula://stock-item/not-a-uuid",
     });
-    expect(parseMeridianLink("https://example.com/stock-item/x")).toBeNull();
-    expect(parseMeridianLink("")).toBeNull();
+    expect(parseMarulaLink("https://example.com/stock-item/x")).toBeNull();
+    expect(parseMarulaLink("")).toBeNull();
   });
 });
 

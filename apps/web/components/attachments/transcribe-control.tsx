@@ -5,9 +5,9 @@
 // explicit, never fabricated transcripts.
 "use client";
 
-import { Button, Spinner } from "@meridian/ui";
+import { Button, Spinner } from "@marula-core/ui";
 import { useEffect, useState } from "react";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import { api } from "../../lib/api";
 import { reasonCopy } from "../../lib/error-copy";
 

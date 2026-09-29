@@ -205,7 +205,7 @@ export function Divider({ split, index, direction, onResize }: DividerProps) {
   return (
     <div
       ref={elementRef}
-      className="meridian-divider"
+      className="marula-divider"
       data-direction={direction}
       data-dragging={dragging ? "true" : undefined}
       role="separator"

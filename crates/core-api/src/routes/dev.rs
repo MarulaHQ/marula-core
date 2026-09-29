@@ -5,7 +5,7 @@
 //! testing, and dump recent outbox envelopes.
 //!
 //! Gating contract (hard rule): the router is mounted ONLY when
-//! `MERIDIAN_DEV_TOOLS=1` (see `build_router`). Unset, these routes DO NOT
+//! `MARULA_DEV_TOOLS=1` (see `build_router`). Unset, these routes DO NOT
 //! EXIST — no registration at all, not a 403 — and they never appear in
 //! OpenAPI/the SDK (same undocumented-surface posture as /internal). No
 //! bearer auth: the gate is the environment; dev stacks bind the API to a
@@ -72,7 +72,7 @@ pub async fn status(State(state): State<AppState>) -> ApiResult<Json<serde_json:
     let seeded = core_db::demo::is_seeded(&state.pool).await.unwrap_or(false);
     Ok(Json(json!({
         "enabled": true,
-        "git_sha": option_env!("MERIDIAN_GIT_SHA").unwrap_or("dev"),
+        "git_sha": option_env!("MARULA_GIT_SHA").unwrap_or("dev"),
         "migration_head": core_db::migration_head(),
         "demo_seeded": seeded,
         "demo_org_id": core_db::demo::DEMO_ORG_ID,

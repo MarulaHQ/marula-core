@@ -1,8 +1,8 @@
-# Grafana Tempo — local traces backend for Meridian (TASKLIST 2.18).
+# Grafana Tempo — local traces backend for Marula (TASKLIST 2.18).
 #
 # Purpose: minimal single-binary config that accepts OTLP/HTTP on :4318
 # and requires no object storage (local WAL only). Trace-to-metrics and
-# service graphs are OFF — dashboards chart meridian.* metrics from the
+# service graphs are OFF — dashboards chart marula.* metrics from the
 # collector's Prometheus exporter instead.
 #
 # Non-purpose: not a production topology (no S3 backend, no quorum).

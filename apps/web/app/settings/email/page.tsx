@@ -35,7 +35,7 @@ import {
   Td,
   Th,
   Tr,
-} from "@meridian/ui";
+} from "@marula-core/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import {

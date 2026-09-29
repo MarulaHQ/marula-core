@@ -27,7 +27,7 @@ if (!existsSync(OUT)) await mkdir(OUT, { recursive: true });
 const ME = {
   user_id: '00000000-0000-4000-8000-000000000001',
   org_id: '00000000-0000-4000-8000-000000000002',
-  email: 'owner@meridian.test',
+  email: 'owner@marula.test',
   display_name: 'Taylor Reed',
   timezone: 'UTC',
   permissions: ['special:manage_users', 'special:manage_boards', 'tickets:create', 'admin:org'],
@@ -35,8 +35,8 @@ const ME = {
 
 const ORG = {
   id: '00000000-0000-4000-8000-000000000002',
-  name: 'Meridian IT Ltd',
-  slug: 'meridian',
+  name: 'Marula IT Ltd',
+  slug: 'marula',
   ticket_prefix: 'MER',
   base_currency: 'USD',
 };
@@ -53,7 +53,7 @@ const REGISTRY = {
     { key: 'connectors.ci_feeders', label: 'CI feeders connector (NinjaOne / IT Glue / Auvix)', description: 'Accept device/configuration feed upserts from the RMM / docs / NMS feeder sources; off rejects their writes with a typed 403.', scope: 'org', section: 'integrations', visibility: 'ui', kind: { type: 'boolean', value: null }, options: [], default: true },
     { key: 'connectors.immybot', label: 'ImmyBot connector', description: 'Operator-side toggle for the ImmyBot patch-state inventory connector.', scope: 'org', section: 'integrations', visibility: 'ui', kind: { type: 'boolean', value: null }, options: [], default: true },
     { key: 'connectors.m365_graph', label: 'M365 Graph connector', description: 'Operator-side toggle for the Microsoft Intune/Entra device inventory connector.', scope: 'org', section: 'integrations', visibility: 'ui', kind: { type: 'boolean', value: null }, options: [], default: true },
-    { key: 'connectors.dms_sync', label: 'DMS sync connector (IT Glue / Hudu ↔ Meridian docs)', description: 'Operator-side toggle for the documentation-system sync.', scope: 'org', section: 'integrations', visibility: 'ui', kind: { type: 'boolean', value: null }, options: [], default: true },
+    { key: 'connectors.dms_sync', label: 'DMS sync connector (IT Glue / Hudu ↔ Marula docs)', description: 'Operator-side toggle for the documentation-system sync.', scope: 'org', section: 'integrations', visibility: 'ui', kind: { type: 'boolean', value: null }, options: [], default: true },
   ],
 };
 
@@ -64,7 +64,7 @@ const USERS = {
     {
       id: 'u1',
       org_id: ORG.id,
-      email: 'taylor@meridian.test',
+      email: 'taylor@marula.test',
       display_name: 'Taylor Reed',
       timezone: 'UTC',
       is_active: true,
@@ -74,7 +74,7 @@ const USERS = {
     {
       id: 'u2',
       org_id: ORG.id,
-      email: 'ada@meridian.test',
+      email: 'ada@marula.test',
       display_name: 'Ada Whitfield',
       timezone: 'Europe/London',
       is_active: true,
@@ -113,7 +113,7 @@ const webhookRow = (id, name) => ({
   id,
   org_id: ORG.id,
   name,
-  url: 'https://ops.example.com/hooks/meridian',
+  url: 'https://ops.example.com/hooks/marula',
   description: null,
   event_types: ['ticket.created', 'ticket.updated'],
   active: true,
@@ -166,14 +166,14 @@ async function shot(browser, viewport, theme, name, path, interactions) {
   if (theme === 'dark') url.searchParams.set('theme', 'dark');
   const themeToken = theme === 'dark' ? 'dark' : 'light';
   await page.addInitScript((t) => {
-    window.localStorage.setItem('meridian-theme', t);
-    window.localStorage.setItem('meridian-tokens', JSON.stringify({
+    window.localStorage.setItem('marula-theme', t);
+    window.localStorage.setItem('marula-tokens', JSON.stringify({
       access_token: 'test-access',
       refresh_token: 'test-refresh',
       session_id: 'sess',
       expires_in: 900,
     }));
-    window.localStorage.setItem('meridian-tokens-exp', String(Date.now() + 60_000));
+    window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal{display:none!important}';
     document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));

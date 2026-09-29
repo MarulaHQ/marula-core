@@ -16,7 +16,7 @@ proving your domain with DNS, and choosing how outbound mail leaves.
 
 ## 1. Route inbound mail to boards
 
-Meridian receives mail through a signed webhook, matches the recipient
+Marula receives mail through a signed webhook, matches the recipient
 address against your routing table, and lands the message on the target
 board. Two kinds of addresses exist:
 
@@ -58,7 +58,7 @@ server. While it is unset every request answers `503`. When it is set,
 each request must carry:
 
 ```text
-X-Meridian-Signature: <hex HMAC-SHA256 of the exact request body>
+X-Marula-Signature: <hex HMAC-SHA256 of the exact request body>
 ```
 
 Compute the HMAC over the raw body bytes with the shared secret. There is
@@ -84,13 +84,13 @@ normalized JSON message:
 }
 ```
 
-Your provider's inbound parser writes this shape. Meridian does no MIME
+Your provider's inbound parser writes this shape. Marula does no MIME
 parsing itself. Message-ID is the idempotency key, so a provider retry
 cannot create a second ticket.
 
 ## 2. Prove your domain with DNS
 
-Deliverability is DNS work, not a Meridian setting. Add these records at
+Deliverability is DNS work, not a Marula setting. Add these records at
 your DNS host, then give them an hour to propagate before you test.
 
 | Record | Host | Value | Why |
@@ -181,7 +181,7 @@ with a branded wrapper around it:
 
 ## 5. Reply by email
 
-When a client replies to a message from a ticket, Meridian matches the
+When a client replies to a message from a ticket, Marula matches the
 `In-Reply-To` and `References` headers against the message ledger and
 threads the reply onto the ticket. For that to work:
 
@@ -224,7 +224,7 @@ POSTMARK_BASE_URL=https://api.postmarkapp.com
 # or, for SMTP:
 SMTP_HOST=smtp.internal.example
 SMTP_PORT=587
-SMTP_USERNAME=meridian
+SMTP_USERNAME=marula
 SMTP_PASSWORD=<password>
 
 # Optional malware scanning
@@ -232,7 +232,7 @@ EMAIL_SCAN=clamd
 CLAMD_ADDR=clamd:3310
 
 # Worker to core-api send pipeline (the worker claims and reports sends)
-MERIDIAN_INTERNAL_TOKEN=<shared random token>
+MARULA_INTERNAL_TOKEN=<shared random token>
 ```
 
 Notes:
@@ -240,7 +240,7 @@ Notes:
 - A transport chosen on Settings → Email wins over `EMAIL_TRANSPORT`. The
   environment value is the fallback for workspaces with no selection.
 - Workspace credentials stored through Settings → Email are sealed with
-  `MERIDIAN_SECRET_KEY`. core-api and the worker must share that key. If
+  `MARULA_SECRET_KEY`. core-api and the worker must share that key. If
   they do not, the worker cannot open what the API sealed, and sends fail
   with a decrypt error on the row.
 - With `EMAIL_TRANSPORT=none`, the worker reports send failures as

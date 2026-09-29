@@ -15,7 +15,7 @@
 
 "use client";
 
-import { Tag } from "@meridian/ui";
+import { Tag } from "@marula-core/ui";
 import { useConnectionState, useOutbox } from "../../lib/use-instant";
 
 export function ConnectionBanner() {

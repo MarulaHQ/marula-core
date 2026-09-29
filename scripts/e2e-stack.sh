@@ -87,13 +87,13 @@ except Exception:
 PY
   done
   # containers carry the run id in the NAME — decouple only what we own.
-  for name in "meridian-e2e-pg-$run" "meridian-e2e-redis-$run"; do
+  for name in "marula-e2e-pg-$run" "marula-e2e-redis-$run"; do
     docker rm -f "$name" >/dev/null 2>&1 && echo "[e2e-stack] removed container $name" || true
   done
   #shared scratch PG: drop this run's DATABASE (containers stay for other runs).
-  if [ -n "${MERIDIAN_SHARED_PG_CONTAINER:-}" ] && command -v docker >/dev/null 2>&1; then
-    local shared="${MERIDIAN_SHARED_PG_CONTAINER}"
-    local dbname="meridian_e2e_${run//[^a-z0-9]/_}"
+  if [ -n "${MARULA_SHARED_PG_CONTAINER:-}" ] && command -v docker >/dev/null 2>&1; then
+    local shared="${MARULA_SHARED_PG_CONTAINER}"
+    local dbname="marula_e2e_${run//[^a-z0-9]/_}"
     if docker exec "$shared" psql -U postgres -lqt 2>/dev/null | cut -d\| -f1 | grep -qw "$dbname"; then
       echo "[e2e-stack] dropping database $dbname on shared pg $shared"
     fi
@@ -101,7 +101,7 @@ PY
   # env file: only remove it when it belongs to THIS run (never another's).
   if [ -f "$ENV_FILE" ]; then
     local frun
-    frun="$(grep -m1 '^MERIDIAN_RUN_ID=' "$ENV_FILE" | cut -d= -f2 | tr -d '"' || true)"
+    frun="$(grep -m1 '^MARULA_RUN_ID=' "$ENV_FILE" | cut -d= -f2 | tr -d '"' || true)"
     if [ "$frun" = "$run" ]; then
       rm -f "$ENV_FILE"
       echo "[e2e-stack] removed $ENV_FILE (run matched)"
@@ -117,7 +117,7 @@ PY
 case "${1:-up}" in
   down)
     # explicit teardown: RUN comes from arg, else from the env file
-    local_run="$(grep -m1 '^MERIDIAN_RUN_ID=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
+    local_run="$(grep -m1 '^MARULA_RUN_ID=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
     down_run "${2:-$local_run}"
     exit 0
     ;;
@@ -128,13 +128,13 @@ esac
 # ########## mode selection ##########
 if [ -n "${E2E_PG_CONTAINER:-}" ] || [ -n "${CI:-}" ]; then
   # Legacy hosted-DB mode (CI): env is fixed, no per-run namespacing.
-  RUN_ID="${MERIDIAN_RUN_ID:-ci}"
+  RUN_ID="${MARULA_RUN_ID:-ci}"
   DB_NAME="$(echo "${DATABASE_URL:-}" | sed 's|.*/||' || true)"
   PG_PORT=5432
   API_PORT=8080
   WS_PORT=8081
   WEB_PORT="${E2E_WEB_PORT:-3000}"
-  export DATABASE_URL="${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/meridian_test}"
+  export DATABASE_URL="${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/marula_test}"
   export BIND_ADDR="${BIND_ADDR:-0.0.0.0:${API_PORT}}"
   export JWT_SECRET="${JWT_SECRET:-e2e-demo-secret-not-for-production}"
   export WEB_BASE_URL="${WEB_BASE_URL:-http://localhost:${WEB_PORT}}"
@@ -146,17 +146,17 @@ else
   API_PORT="$(free_port 28480)"
   WS_PORT="$(free_port 29481)"
   WEB_PORT="${E2E_WEB_PORT:-$(free_port 3000)}"
-  DB_NAME="meridian_e2e_${RUN_ID//[^a-z0-9]/_}"
+  DB_NAME="marula_e2e_${RUN_ID//[^a-z0-9]/_}"
   DB_NAME="${DB_NAME:0:63}"
   export JWT_SECRET="$(openssl rand -hex 32 2>/dev/null || true)"
   [ ${#JWT_SECRET} -eq 64 ] || die "openssl rand -hex 32 unavailable"
-  export MERIDIAN_SECRET_KEY="$JWT_SECRET" # same dev seal key as the seed
+  export MARULA_SECRET_KEY="$JWT_SECRET" # same dev seal key as the seed
   REDIS_PORT="$(free_port 26379)"
   export REDIS_URL="redis://localhost:${REDIS_PORT}/0"
   export CORS_ORIGIN="http://localhost:${WEB_PORT}"
   export BIND_ADDR="0.0.0.0:${API_PORT}"
   export WEB_BASE_URL="http://localhost:${WEB_PORT}"
-  export MERIDIAN_DEV_TOOLS=1
+  export MARULA_DEV_TOOLS=1
   export SQLX_OFFLINE=1
   MODE=isolated
   echo "[e2e-stack] run $RUN_ID (isolated mode — unique DB/ports/names)"
@@ -167,10 +167,10 @@ pg_ready() { pg_isready -q -d "$1" 2>/dev/null; }
 if [ "${MODE:-}" = "isolated" ]; then
   ########## scratch Postgres: per-run container + per-run DB ##########
   export DATABASE_URL="postgres://postgres:postgres@localhost:${PG_PORT}/${DB_NAME}"
-  docker rm -f "meridian-e2e-pg-$RUN_ID" >/dev/null 2>&1 || true
-  echo "[e2e-stack] starting scratch Postgres meridian-e2e-pg-$RUN_ID on port $PG_PORT"
-  docker run -d --name "meridian-e2e-pg-$RUN_ID" \
-    -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=meridian_test \
+  docker rm -f "marula-e2e-pg-$RUN_ID" >/dev/null 2>&1 || true
+  echo "[e2e-stack] starting scratch Postgres marula-e2e-pg-$RUN_ID on port $PG_PORT"
+  docker run -d --name "marula-e2e-pg-$RUN_ID" \
+    -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=marula_test \
     -p "$PG_PORT:5432" pgvector/pgvector:pg18 >/dev/null \
     || die "could not start scratch Postgres (docker down?)"
   for _ in $(seq 1 40); do
@@ -178,16 +178,16 @@ if [ "${MODE:-}" = "isolated" ]; then
   done
   pg_ready "$DATABASE_URL" || die "scratch Postgres never became ready ($DATABASE_URL)"
   # the image only initializes POSTGRES_DB; create the per-run database
-  docker exec "meridian-e2e-pg-$RUN_ID" psql -U postgres -c "CREATE DATABASE $DB_NAME" \
+  docker exec "marula-e2e-pg-$RUN_ID" psql -U postgres -c "CREATE DATABASE $DB_NAME" \
     >/dev/null 2>&1 || true
   # NOTE: no EXIT trap removing the container — the default `up` mode leaves
   # the stack running for Playwright; teardown is `e2e-stack.sh down $RUN_ID`
   # (keyed to this run id) or E2E_FOREGROUND's own trap.
 
   ########## scratch Valkey (redis name kept — REDIS_URL contract) ##########
-  docker rm -f "meridian-e2e-redis-$RUN_ID" >/dev/null 2>&1 || true
-  echo "[e2e-stack] starting scratch Valkey meridian-e2e-redis-$RUN_ID on port $REDIS_PORT"
-  docker run -d --name "meridian-e2e-redis-$RUN_ID" \
+  docker rm -f "marula-e2e-redis-$RUN_ID" >/dev/null 2>&1 || true
+  echo "[e2e-stack] starting scratch Valkey marula-e2e-redis-$RUN_ID on port $REDIS_PORT"
+  docker run -d --name "marula-e2e-redis-$RUN_ID" \
     -p "$REDIS_PORT:6379" valkey/valkey:8-alpine \
     valkey-server --maxmemory 128mb --maxmemory-policy noeviction >/dev/null \
     || die "could not start scratch Valkey"
@@ -195,16 +195,16 @@ fi
 
 ########## migrate + deterministic demo seed (mechanical reseed) ##########
 echo "[e2e-stack] migrate schema"
-cargo run -q -p meridian-cli -- migrate
+cargo run -q -p marula-core-cli -- migrate
 
 echo "[e2e-stack] seed the deterministic demo org (seed-demo --force)"
-MERIDIAN_DEV_TOOLS=1 cargo run -q -p meridian-cli -- seed-demo --force
+MARULA_DEV_TOOLS=1 cargo run -q -p marula-core-cli -- seed-demo --force
 
 echo "[e2e-stack] reset volatile state (auth gate + per-user onboarding/tours)"
 if [ -n "${E2E_PG_CONTAINER:-}" ]; then
   PG_EXEC=(docker exec "${E2E_PG_CONTAINER}")
 else
-  PG_EXEC=(docker exec "meridian-e2e-pg-$RUN_ID")
+  PG_EXEC=(docker exec "marula-e2e-pg-$RUN_ID")
 fi
 "${PG_EXEC[@]}" psql -U postgres -d "$(echo "$DATABASE_URL" | sed 's|.*/||')" -q -c \
   'TRUNCATE auth_lockouts; TRUNCATE auth_attempt_log;
@@ -239,7 +239,7 @@ echo "[e2e-stack] core-api healthy — demo env ready (owner@demo.local / demo-p
 
 # ########## env file for Playwright (kills NEXT_PUBLIC_API_URL drift) ##########
 cat > "$ENV_FILE" <<EOF
-MERIDIAN_RUN_ID=$RUN_ID
+MARULA_RUN_ID=$RUN_ID
 E2E_API_URL=http://${API_HOST}/
 E2E_API_PORT=$API_PORT
 E2E_WEB_PORT=$WEB_PORT
@@ -250,7 +250,7 @@ E2E_DATABASE_URL=$DATABASE_URL
 DATABASE_URL=$DATABASE_URL
 BIND_ADDR=$BIND_ADDR
 JWT_SECRET=$JWT_SECRET
-MERIDIAN_SECRET_KEY=$MERIDIAN_SECRET_KEY
+MARULA_SECRET_KEY=$MARULA_SECRET_KEY
 REDIS_URL=$REDIS_URL
 CORS_ORIGIN=$CORS_ORIGIN
 EOF

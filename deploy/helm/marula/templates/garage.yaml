@@ -1,0 +1,267 @@
+{{- /* Garage (S3-compatible object storage) — replaces the MinIO sample
+(2026-09 decision; MinIO's community edition degraded post-2025).
+Config-over-env mirrors the compose stage2 slot; layout, bucket, and
+access-key grant are bootstrapped by a single-shot Job against Garage's
+v1 admin API. */ -}}
+{{- if and .Values.garage.enabled (eq .Values.objectStore.mode "s3") -}}
+{{- $fullname := include "marula.fullname" . -}}
+{{- $secretName := default (printf "%s-secrets" $fullname) .Values.existingSecret -}}
+{{- $hostname := printf "%s-garage-0.%s-garage-headless" $fullname $fullname -}}
+{{- /* Garage requires a config FILE at /etc/garage.toml (GARAGE_* env vars
+only override file values); secrets ride env overrides on top of it. */}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-garage-config
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: garage
+data:
+  garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir = "/var/lib/garage/data"
+    db_engine = "lmdb"
+    replication_factor = 1
+    rpc_bind_addr = "[::]:3901"
+    rpc_public_addr = "{{ $hostname }}:3901"
+
+    [s3_api]
+    s3_region = "{{ .Values.garage.s3Region }}"
+    api_bind_addr = "[::]:3900"
+
+    [admin]
+    api_bind_addr = "[::]:3903"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-garage-headless
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: garage
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: {{ include "marula.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: garage
+  ports:
+    - name: rpc
+      port: 3901
+    - name: admin
+      port: 3903
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-garage
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: garage
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "marula.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: garage
+  ports:
+    - name: s3
+      port: 3900
+      targetPort: s3
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}-garage
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: garage
+spec:
+  serviceName: {{ $fullname }}-garage-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "marula.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: garage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "marula.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: garage
+    spec:
+      securityContext:
+        {{- $ctx := deepCopy .Values.podSecurityContext -}}
+        {{- $_ := set $ctx "runAsUser" (.Values.runAsUserByComponent.garage | default 10004) -}}
+        {{- $_ := set $ctx "fsGroup" (.Values.runAsUserByComponent.garage | default 10004) -}}
+        {{- toYaml $ctx | nindent 8 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullname }}-garage-config
+      containers:
+        - name: garage
+          image: {{ include "marula.pinnedImage" (dict "ctx" . "image" .Values.garage.image "digest" .Values.garage.imageDigest) | quote }}
+          securityContext:
+            {{- /* Garage runs as explicit uid 10004 (runAsUser); only its
+            data/meta PVCs are written, so the rootfs is read-only. */ -}}
+            {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          env:
+            - name: GARAGE_RPC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: GARAGE_RPC_SECRET
+            - name: GARAGE_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: GARAGE_ADMIN_TOKEN
+            - name: GARAGE_S3_REGION
+              value: {{ .Values.garage.s3Region | quote }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          ports:
+            - name: s3
+              containerPort: 3900
+            - name: rpc
+              containerPort: 3901
+            - name: admin
+              containerPort: 3903
+          volumeMounts:
+            - name: config
+              mountPath: /etc/garage.toml
+              subPath: garage.toml
+              readOnly: true
+            - name: meta
+              mountPath: /var/lib/garage/meta
+            - name: data
+              mountPath: /var/lib/garage/data
+          readinessProbe:
+            # /health requires the admin token in v1.1 when GARAGE_ADMIN_TOKEN
+            # is set; k8s probes cannot read Secrets — a TCP check is honest.
+            tcpSocket:
+              port: s3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: meta
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.garage.storage.metaSize }}
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.garage.storage.size }}
+---
+{{- /* Single-shot layout bootstrap (idempotent on re-runs): assigns the
+node into its zone, applies the layout, creates the bucket, and grants the
+operator-supplied access key. The access KEY itself must already exist in
+Garage (provision once with `garage key create <name>` via kubectl exec —
+the secret is shown only once); the Job fails with a clear message. */ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullname }}-garage-bootstrap
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: garage
+spec:
+  backoffLimit: 12
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "marula.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: garage
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          # The garage image is distroless (no shell) — drive the admin API
+          # with curl instead; parsing is grep/cut, no jq needed.
+          image: {{ include "marula.pinnedImage" (dict "ctx" . "image" .Values.garage.bootstrapImage "digest" .Values.garage.bootstrapImageDigest) | quote }}
+          securityContext:
+            {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+          env:
+            - name: GARAGE_BASE
+              value: {{ printf "http://%s-garage-headless:3903" $fullname | quote }}
+            - name: GARAGE_ADMIN_TOKEN_VALUE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: GARAGE_ADMIN_TOKEN
+            - name: GARAGE_BUCKET
+              value: {{ .Values.objectStore.s3.bucket | quote }}
+            - name: GARAGE_ZONE
+              value: {{ .Values.garage.zone | quote }}
+            - name: GARAGE_NODE_CAPACITY
+              value: {{ .Values.garage.capacity | quote }}
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: S3_ACCESS_KEY_ID
+          command: ["sh", "-c"]
+          args:
+            - |
+              AUTH="Authorization: Bearer ${GARAGE_ADMIN_TOKEN_VALUE}"
+              [ -n "${GARAGE_ADMIN_TOKEN_VALUE}" ] || { echo "GARAGE_ADMIN_TOKEN unmet — set garage.adminToken values"; exit 1; }
+              echo "waiting for the garage admin api..."
+              i=0
+              until curl -sf -H "$AUTH" "$GARAGE_BASE/v1/status" >/dev/null; do
+                i=$((i+1)); [ $i -ge 60 ] && { echo "garage admin api unreachable"; exit 1; }
+                sleep 5
+              done
+              NODE_ID=$(curl -sf -H "$AUTH" "$GARAGE_BASE/v1/status" \
+                | grep -oE '"(node|id)": *"[0-9a-f]*"' | head -1 \
+                | sed 's/.*: *"//; s/"$//' )
+              echo "node id: ${NODE_ID}"
+              echo "staging layout role (zone ${GARAGE_ZONE}, capacity ${GARAGE_NODE_CAPACITY})..."
+              # v1 contract: POST /v1/layout takes an ARRAY of role changes
+              # (staged), then /v1/layout/apply with the NEW version number.
+              curl -sf -X POST -H "$AUTH" -H 'Content-Type: application/json' \
+                "$GARAGE_BASE/v1/layout" \
+                -d "[{\"id\":\"$NODE_ID\",\"zone\":\"$GARAGE_ZONE\",\"capacity\":$GARAGE_NODE_CAPACITY,\"tags\":[\"marula\"]}]" \
+                || { echo "layout stage refused"; exit 1; }
+              CUR=$(curl -sf -H "$AUTH" "$GARAGE_BASE/v1/layout" \
+                | grep -oE '"version": *[0-9]+' | head -1 | grep -oE '[0-9]+')
+              NEW=$((CUR + 1))
+              echo "applying layout version ${NEW}..."
+              curl -sf -X POST -H "$AUTH" -H 'Content-Type: application/json' \
+                "$GARAGE_BASE/v1/layout/apply" -d "{\"version\":$NEW}" \
+                || { echo "layout apply refused"; exit 1; }
+              echo "ensuring bucket ${GARAGE_BUCKET}..."
+              curl -sf -X POST -H "$AUTH" -H 'Content-Type: application/json' \
+                "$GARAGE_BASE/v1/bucket" -d "{\"globalAlias\":\"$GARAGE_BUCKET\"}" \
+                || echo "bucket create rejected (often means it already exists)"
+              BUCKET_ID=$(curl -sf -H "$AUTH" "$GARAGE_BASE/v1/bucket?globalAlias=$GARAGE_BUCKET" \
+                | grep -oE '"id": *"[0-9a-f-]*"' | head -1 | sed 's/.*: *"//; s/"$//')
+              echo "bucket id: ${BUCKET_ID}"
+              if [ "{{ .Values.garage.createS3Key }}" = "true" ]; then
+                # Self-provision: create the key here and print the secret
+                # ONCE to the job logs (garage never re-shows it) — copy it
+                # into objectStore.s3.secretAccessKey for core-api.
+                curl -sf -X POST -H "$AUTH" -H 'Content-Type: application/json' \
+                  "$GARAGE_BASE/v1/key" -d "{\"name\":\"marula\"}" \
+                  | sed -n 's/.*"secretAccessKey": *"\([^"]*\)".*/SECRET_KEY: \1/p'
+                curl -sf -X POST -H "$AUTH" -H 'Content-Type: application/json' \
+                  "$GARAGE_BASE/v1/key" -d "{\"name\":\"marula\"}" >/dev/null \
+                  && echo "key marula ensured" || echo "key create rejected (may already exist)"
+              else
+                curl -sf -H "$AUTH" "$GARAGE_BASE/v1/key?id=$S3_ACCESS_KEY_ID" >/dev/null \
+                  || { echo "S3 key $S3_ACCESS_KEY_ID does not exist in garage — set garage.createS3Key=true to self-provision, or run 'garage key create marula' once and set objectStore.s3.accessKeyId"; exit 1; }
+              fi
+              curl -sf -X POST -H "$AUTH" -H 'Content-Type: application/json' \
+                "$GARAGE_BASE/v1/bucket/allow" \
+                -d "{\"bucketId\":\"$BUCKET_ID\",\"accessKeyId\":\"$S3_ACCESS_KEY_ID\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":true}}" \
+                || { echo "bucket allow refused"; exit 1; }
+              echo "garage bootstrap complete: layout applied, bucket ${GARAGE_BUCKET} granted to ${S3_ACCESS_KEY_ID}"
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+{{- end }}

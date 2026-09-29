@@ -4,7 +4,7 @@
 // render read-only/disabled states BEFORE the API rejects — never a
 // security boundary, only UX honesty (the backend stays authoritative).
 // Non-purpose: no fetching; callers pass already-loaded state.
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 export type BoardNavEntry = components["schemas"]["BoardNavEntry"];
 

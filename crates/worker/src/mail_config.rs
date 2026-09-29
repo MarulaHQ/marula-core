@@ -66,7 +66,7 @@ impl DbOrgMailResolver {
         };
         let Some(key) = self.key else {
             return Err(format!(
-                "credential {provider} is sealed but MERIDIAN_SECRET_KEY is unset"
+                "credential {provider} is sealed but MARULA_SECRET_KEY is unset"
             ));
         };
         let plaintext = key

@@ -1,4 +1,4 @@
-// Compiler configuration for @meridian/sdk.
+// Compiler configuration for @marula-core/sdk.
 // Purpose: strict, bundler-resolution TypeScript; the generated schema is
 // declaration-only and consumed via `import type`.
 // Non-purpose: no emit step — apps consume the TypeScript sources directly.

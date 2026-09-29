@@ -2,7 +2,7 @@
 //! adapter seam, the first-party iCal provider, and the connection /
 //! poll / feed surfaces.
 //!
-//! Purpose: BIDIRECTIONAL sync between a user's Meridian calendar and an
+//! Purpose: BIDIRECTIONAL sync between a user's Marula calendar and an
 //! external iCal feed. OUTBOUND: a private token-scoped iCal feed of the
 //! user's live appointments (the external calendar subscribes to it —
 //! the raw token is shown exactly once at creation/rotation and only its
@@ -304,16 +304,16 @@ pub fn render_feed(user_name: &str, appointments: &[core_domain::entities::Appoi
     let mut out = String::new();
     out.push_str("BEGIN:VCALENDAR\r\n");
     out.push_str("VERSION:2.0\r\n");
-    out.push_str("PRODID:-//Meridian PSA//Calendar Sync 1.0//EN\r\n");
+    out.push_str("PRODID:-//Marula PSA//Calendar Sync 1.0//EN\r\n");
     out.push_str("CALSCALE:GREGORIAN\r\n");
     out.push_str("METHOD:PUBLISH\r\n");
-    out.push_str(&format!("X-WR-CALNAME:Meridian — {user_name}\r\n"));
+    out.push_str(&format!("X-WR-CALNAME:Marula — {user_name}\r\n"));
     for a in appointments {
         if a.status == AppointmentStatus::Cancelled {
             continue;
         }
         out.push_str("BEGIN:VEVENT\r\n");
-        out.push_str(&format!("UID:{}@meridian\r\n", a.id));
+        out.push_str(&format!("UID:{}@marula\r\n", a.id));
         out.push_str(&format!("DTSTAMP:{now}\r\n"));
         out.push_str(&format!("DTSTART:{}\r\n", ical_utc(a.starts_at)));
         out.push_str(&format!("DTEND:{}\r\n", ical_utc(a.ends_at)));

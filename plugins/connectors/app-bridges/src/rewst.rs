@@ -20,7 +20,7 @@ pub struct RewstBridge {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RewstTriggerPayload {
-    /// Freetext org key the workflow filters on (never a Meridian id
+    /// Freetext org key the workflow filters on (never a Marula id
     /// unless the org chooses to put one in).
     pub org: String,
     pub event: String,
@@ -57,7 +57,7 @@ impl RewstBridge {
     }
 
     /// Triggers a workflow with an HMAC-signed body (Rewst verifies the
-    /// Meridian signature header before trusting the envelope).
+    /// Marula signature header before trusting the envelope).
     pub async fn trigger(&self, payload: &RewstTriggerPayload) -> Result<(), BridgeError> {
         self.validate()?;
         let body = payload.to_json()?;
@@ -66,7 +66,7 @@ impl RewstBridge {
             .http
             .post(&self.webhook_url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .header("x-meridian-signature", &signed)
+            .header("x-marula-signature", &signed)
             .body(body)
             .send()
             .await

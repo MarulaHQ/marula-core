@@ -1,4 +1,4 @@
-# Meridian native app (`@meridian/native`)
+# Marula native app (`@marula-core/native`)
 
 The Expo / React Native client. Wave 33 lane 1 ships the foundation: auth
 with MFA and biometric sign-in, the app shell, an offline-first read cache, a
@@ -6,7 +6,7 @@ replay-safe write queue, live sync over the realtime hub, push registration,
 deep links, and the adaptive two-pane layout. Field screens (scanning,
 receiving, the technician's day) build on top of these seams.
 
-Everything talks to the public API through `@meridian/sdk`. There are no
+Everything talks to the public API through `@marula-core/sdk`. There are no
 mobile-only endpoints and no hand-declared entity types. The SDK's generated
 types are the contract (`docs/rn-groundwork.md`).
 
@@ -19,7 +19,7 @@ native-behavior check (camera, haptics, offline queue, push).
 | Service | Port | Notes |
 |---|---|---|
 | Metro / Expo dev server | 8181 | Per-lane convention. 8081 is the realtime hub |
-| Expo web | 8182 | `pnpm --filter @meridian/native dev:web` |
+| Expo web | 8182 | `pnpm --filter @marula-core/native dev:web` |
 | core-api | per-run | From `scripts/e2e-stack.sh up` (random high port) |
 | realtime WS | per-run | Same, `/ws` path |
 
@@ -31,13 +31,13 @@ bash scripts/e2e-stack.sh up
 # 2. Point the app at it and start Metro
 EXPO_PUBLIC_API_URL="http://localhost:${API_PORT}" \
 EXPO_PUBLIC_WS_URL="ws://localhost:${WS_PORT}/ws" \
-pnpm --filter @meridian/native dev
+pnpm --filter @marula-core/native dev
 
 # iOS Simulator (Xcode required)
-pnpm --filter @meridian/native ios
+pnpm --filter @marula-core/native ios
 
 # Android emulator (secondary, host is 10.0.2.2)
-pnpm --filter @meridian/native android
+pnpm --filter @marula-core/native android
 ```
 
 Demo logins come from the seed: `owner@demo.local`, `tech@demo.local` (and
@@ -46,10 +46,10 @@ Demo logins come from the seed: `owner@demo.local`, `tech@demo.local` (and
 ## Checks
 
 ```bash
-pnpm --filter @meridian/native typecheck   # tsc --noEmit
-pnpm --filter @meridian/native lint        # eslint (token + raw-hex guard)
-pnpm --filter @meridian/native test        # vitest: queue, cache, realtime, sync
-pnpm --filter @meridian/native export:web  # bundle check for the web surface
+pnpm --filter @marula-core/native typecheck   # tsc --noEmit
+pnpm --filter @marula-core/native lint        # eslint (token + raw-hex guard)
+pnpm --filter @marula-core/native test        # vitest: queue, cache, realtime, sync
+pnpm --filter @marula-core/native export:web  # bundle check for the web surface
 ```
 
 Against a live stack:
@@ -67,7 +67,7 @@ checkout replays each land one ledger/status change.
 Maestro flows live in `native/e2e/flows` and drive the simulator build:
 
 ```bash
-pnpm --filter @meridian/native e2e
+pnpm --filter @marula-core/native e2e
 ```
 
 The day surface is captured at phone and tablet widths, light and dark, with

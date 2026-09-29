@@ -14,7 +14,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const appSide = fs.readFileSync(
   path.resolve(
     here,
-    "../modules/meridian-live-activity/ios/TimerActivityAttributes.swift",
+    "../modules/marula-live-activity/ios/TimerActivityAttributes.swift",
   ),
   "utf8",
 );

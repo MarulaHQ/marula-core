@@ -15,18 +15,18 @@ Per tagged release `X.Y.Z`:
 | File | What it is |
 |---|---|
 | `vX.Y.Z.seed.sql.gz` | `pg_dump` (schema + data + migration state) of the seeded org, gzipped. THE fixture. |
-| `vX.Y.Z.manifest.json` | The U5 customization manifest emitted from the seeded DB at capture time (`meridian fixture --manifest`) — the preflight-consumable summary of covered surfaces. |
+| `vX.Y.Z.manifest.json` | The U5 customization manifest emitted from the seeded DB at capture time (`marula fixture --manifest`) — the preflight-consumable summary of covered surfaces. |
 | `vX.Y.Z/seed_org.sql` | The reviewed seed source that produced the dump (deterministic UUIDs/timestamps, re-runnable). |
 
 ## Capture procedure (AT TAG TIME — old snapshots cannot be reconstructed)
 
 Run against a scratch Postgres (prod-parity `pgvector/pgvector:pg17`):
 
-1. `meridian migrate` with `DATABASE_URL` pointing at the scratch DB, from a
+1. `marula migrate` with `DATABASE_URL` pointing at the scratch DB, from a
    tree at exactly the tag being released.
 2. Seed: `psql -v ON_ERROR_STOP=1 -f fixtures/upgrades/vX.Y.Z/seed_org.sql`
 3. Emit the manifest:
-   `DATABASE_URL=… meridian fixture --manifest --org-id 00000000-0000-4000-8000-000000000001 --out fixtures/upgrades/vX.Y.Z.manifest.json`
+   `DATABASE_URL=… marula fixture --manifest --org-id 00000000-0000-4000-8000-000000000001 --out fixtures/upgrades/vX.Y.Z.manifest.json`
 4. Dump:
    `pg_dump --no-owner --no-privileges … | gzip > fixtures/upgrades/vX.Y.Z.seed.sql.gz`
 5. Restore-verify: restore into a fresh database, re-emit the manifest from

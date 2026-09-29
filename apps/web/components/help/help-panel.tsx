@@ -14,7 +14,7 @@
 
 "use client";
 
-import { Button, Tag } from "@meridian/ui";
+import { Button, Tag } from "@marula-core/ui";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../lib/api";

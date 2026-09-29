@@ -13,7 +13,7 @@
 // Non-purpose: no data fetching; the widget card owns loading/empty/error.
 "use client";
 
-import { useTheme } from "@meridian/ui";
+import { useTheme } from "@marula-core/ui";
 import {
   Bar,
   BarChart,

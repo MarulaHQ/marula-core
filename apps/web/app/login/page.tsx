@@ -2,7 +2,7 @@
 // org registration.
 //
 // Purpose: segmented form (Sign in / Create org) against the public auth
-// endpoints via @meridian/sdk; routes MFA-gated logins to /mfa; renders
+// endpoints via @marula-core/sdk; routes MFA-gated logins to /mfa; renders
 // config-driven SSO buttons from the enabled OIDC providers.
 // Non-purpose: no enrollment/management UI here (see /settings/security).
 //
@@ -12,9 +12,9 @@
 // collapses). Security copy and all wired APIs unchanged.
 "use client";
 
-import { FieldError, FieldHint } from "@meridian/ui";
+import { FieldError, FieldHint } from "@marula-core/ui";
 import { friendlyMutationText } from "../../lib/error-copy";
-import { Button, Card, Input, Label, Spinner } from "@meridian/ui";
+import { Button, Card, Input, Label, Spinner } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AuthBrand } from "../../components/auth/auth-brand";
@@ -84,7 +84,7 @@ export default function LoginPage() {
         const result = await api.login({ email, password });
         if ("mfa_required" in result) {
           window.sessionStorage.setItem(
-            "meridian-mfa-pending",
+            "marula-mfa-pending",
             JSON.stringify({ mfa_token: result.mfa_token, methods: result.methods }),
           );
           window.location.assign("/mfa");

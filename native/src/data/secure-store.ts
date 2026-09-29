@@ -16,8 +16,8 @@ export interface StoredSession {
   sessionId: string;
 }
 
-const SESSION_KEY = "meridian.session.v1";
-const BIOMETRIC_KEY = "meridian.biometric-unlock.v1";
+const SESSION_KEY = "marula.session.v1";
+const BIOMETRIC_KEY = "marula.biometric-unlock.v1";
 
 const secureAvailable = Platform.OS === "ios" || Platform.OS === "android";
 

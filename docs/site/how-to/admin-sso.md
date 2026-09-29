@@ -20,12 +20,12 @@ deep-linking the SSO page without an IdP handoff renders the explainable
 error **"Missing handoff code"**. There is no shortcut SSO — the flow is
 always:
 
-1. **Initiate at login.** The user starts sign-in at Meridian's login
+1. **Initiate at login.** The user starts sign-in at Marula's login
    surface, which redirects to your IdP.
 2. **IdP authenticates.** Whatever your IdP requires (password, passkey,
-   its own MFA) happens on its site, not Meridian's.
-3. **Handoff back.** The IdP returns a handoff code to Meridian, and
-   the SSO completion exchanges that code for a Meridian session.
+   its own MFA) happens on its site, not Marula's.
+3. **Handoff back.** The IdP returns a handoff code to Marula, and
+   the SSO completion exchanges that code for a Marula session.
 
 ## 1. Configure the provider
 
@@ -33,14 +33,14 @@ Wire the provider settings in the auth configuration surface: client
 credentials or metadata your IdP defines, redirect URIs pointing back at
 your deployment. Deployments behind a reverse proxy should keep the
 redirect URIs consistent with the [TLS runbook's](../reference/reverse-proxy-tls.md)
-public URL — redirect mismatches fail at the IdP, not at Meridian.
+public URL — redirect mismatches fail at the IdP, not at Marula.
 
 ### Presets save the URL typing
 
 The provider catalog carries declarative presets — Google Workspace,
 Microsoft Entra ID, Okta, and Keycloak. Pick one and fill its parameters
 (Entra takes a tenant, Okta a domain, Keycloak a host and `realm`)
-instead of typing issuer and discovery URLs by hand. Meridian derives
+instead of typing issuer and discovery URLs by hand. Marula derives
 both and pins the issuer at verification time.
 
 Anything else that speaks standard OIDC (an Ory Kratos deployment behind
@@ -74,6 +74,6 @@ Test with a real account:
 
 ## What you learned
 
-- SSO is a redirect round-trip and nothing else in Meridian's posture.
+- SSO is a redirect round-trip and nothing else in Marula's posture.
   Handoff codes are the proof, and their absence fails closed.
 - The provider contract document is authoritative for anything wire-level.

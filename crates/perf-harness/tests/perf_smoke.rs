@@ -5,11 +5,11 @@
 //! mixes through the REAL RLS-scoped query path (list_tickets + the
 //! batched custom-field enrichment inside one org-bound transaction).
 //!
-//! Gated behind `MERIDIAN_PERF_SMOKE=1` so the plain `cargo test
+//! Gated behind `MARULA_PERF_SMOKE=1` so the plain `cargo test
 //! --workspace` sweep stays fast: the dedicated CI job (see
 //! .github/workflows/ci.yml `perf-smoke`) and `scripts/perf-smoke.sh` set
 //! the gate. Database selection mirrors the core-db suites:
-//! `MERIDIAN_TEST_DATABASE_URL` → `DATABASE_URL` → a local testcontainer.
+//! `MARULA_TEST_DATABASE_URL` → `DATABASE_URL` → a local testcontainer.
 //!
 //! Budget override: `PERF_SMOKE_BUDGET_MS` (default 150). CI runners are
 //! noisy; the documented discipline is: a failure is investigated, not
@@ -29,9 +29,9 @@ fn budget_ms() -> f64 {
 
 #[tokio::test]
 async fn ticket_list_p95_within_budget_at_50k() {
-    if std::env::var("MERIDIAN_PERF_SMOKE").as_deref() != Ok("1") {
+    if std::env::var("MARULA_PERF_SMOKE").as_deref() != Ok("1") {
         eprintln!(
-            "skipped: perf smoke is env-gated (set MERIDIAN_PERF_SMOKE=1; \
+            "skipped: perf smoke is env-gated (set MARULA_PERF_SMOKE=1; \
              CI runs it as its own job)"
         );
         return;

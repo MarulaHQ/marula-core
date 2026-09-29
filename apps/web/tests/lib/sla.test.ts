@@ -2,7 +2,7 @@
 // payload shaping (typed against ReplaceLadderRequest), policy target
 // summaries, calendar draft reducer + validation.
 import { describe, expect, it } from "vitest";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 type EscalationStep = components["schemas"]["EscalationStep"];
 import {

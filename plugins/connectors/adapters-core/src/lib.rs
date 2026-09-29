@@ -1,4 +1,4 @@
-//! Shared live-REST transport primitives for Meridian's first-party
+//! Shared live-REST transport primitives for Marula's first-party
 //! connector adapters (adapters tranche 2, Wave 12 lane 9).
 //!
 //! The lane-8 feeder crates established the SEMANTIC half of the
@@ -19,12 +19,12 @@
 //!   short-page termination (ImmyBot, Hudu). A pull follows every page
 //!   or fails with a typed error — a silently truncated inventory is a
 //!   wrong inventory.
-//! * **Vendor-org → Meridian-client mapping.** [`org_map`]:
+//! * **Vendor-org → Marula-client mapping.** [`org_map`]:
 //!   the operator's explicit mapping, resolved deterministically —
 //!   an unmapped vendor org is an ERROR, never a guess (records are
 //!   never attributed to a client the operator did not name).
 //!
-//! Everything here speaks plain HTTP + JSON: no Meridian internals are
+//! Everything here speaks plain HTTP + JSON: no Marula internals are
 //! imported, so connector crates (feeder-line and DMS-line alike) share
 //! one transport vocabulary. Credential material is never logged —
 //! `Debug` impls redact.

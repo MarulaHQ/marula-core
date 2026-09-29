@@ -8,7 +8,7 @@ facts for lookup (that is [reference](../reference/index.md)).
 Every explanation page states its **Audience** up front — site operator /
 MSP admin, MSP staff, or both.
 
-- [Why we're building Meridian](why-meridian.md) — the canonical positioning
+- [Why we're building Marula](why-marula.md) — the canonical positioning
   narrative, quoted from `MANIFESTO.md` verbatim. Audience: both.
 - [Provenance vs audit](provenance-vs-audit.md) — two append-only ledgers,
   field-level vs event-level, and why both never rewrite history.
@@ -28,7 +28,7 @@ MSP admin, MSP staff, or both.
 - [Instant-first interaction](instant-first.md) — the binding interaction
   doctrine and its support contract. Audience: both.
 - [Contract relationship types](contract-relationship-types.md) — the six
-  MSP-client agreement shapes Meridian bills, the configuration that
+  MSP-client agreement shapes Marula bills, the configuration that
   rides them (prepaid blocks, NTE caps, minimums, escalators, change
   orders, SLA credits), and why tax stays at the accounting-export
   boundary. Audience: both.

@@ -51,7 +51,7 @@ export function TabsStrip({ pane, onActivate, onClose }: TabsStripProps) {
   };
 
   return (
-    <div className="meridian-tabs" role="tablist" aria-label="Panes" onKeyDown={handleKeyDown}>
+    <div className="marula-tabs" role="tablist" aria-label="Panes" onKeyDown={handleKeyDown}>
       {pane.tabs.map((tab, index) => (
         <div
           key={tab.id}
@@ -59,18 +59,18 @@ export function TabsStrip({ pane, onActivate, onClose }: TabsStripProps) {
             tabRefs.current[index] = element;
           }}
           role="tab"
-          id={`meridian-tab-${tab.id}`}
+          id={`marula-tab-${tab.id}`}
           aria-selected={tab.id === pane.activeTabId}
-          aria-controls={`meridian-panel-${pane.id}`}
+          aria-controls={`marula-panel-${pane.id}`}
           tabIndex={index === activeIndex ? 0 : -1}
-          className="meridian-tab"
+          className="marula-tab"
           data-active={tab.id === pane.activeTabId ? "true" : undefined}
           onClick={() => onActivate(tab.id)}
         >
-          <span className="meridian-tab__title">{tab.title}</span>
+          <span className="marula-tab__title">{tab.title}</span>
           <button
             type="button"
-            className="meridian-tab__close"
+            className="marula-tab__close"
             aria-label={`Close ${tab.title || "tab"}`}
             onClick={(event) => {
               event.stopPropagation();

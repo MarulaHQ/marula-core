@@ -26,7 +26,7 @@ use crate::model::{DmsSnapshot, FieldKind, LinkKind, SyncField, SyncLayout, Sync
 pub struct RestCollection {
     /// Source-relative path, e.g. `configurations` or `api/v2/assets`.
     pub path: String,
-    /// Which Meridian side these records map to.
+    /// Which Marula side these records map to.
     pub record_kind: RecordKind,
     /// JSON key of the record's external id.
     pub id_key: String,
@@ -48,7 +48,7 @@ pub struct RestCollection {
     pub field_kinds: std::collections::BTreeMap<String, FieldKind>,
 }
 
-/// Which Meridian side a collection maps onto.
+/// Which Marula side a collection maps onto.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordKind {
     Asset,

@@ -4,7 +4,7 @@
 // display name and org accent color — consumed by the /portal shell, the
 // portal login cover, and the public scheduling surface. HONEST DEFAULT
 // POSTURE: both values are deployment configuration; in the default build
-// neither is set, every surface falls back to the Meridian tokens, and no
+// neither is set, every surface falls back to the Marula tokens, and no
 // UI invents a brand (no fake logo uploads, no fabricated preview).
 //
 // Non-purpose: NOT a theming engine — the name substitutes text only and
@@ -20,7 +20,7 @@
 const ENV_ORG_NAME = (process.env.NEXT_PUBLIC_ORG_NAME ?? "").trim();
 const ENV_ORG_COLOR = (process.env.NEXT_PUBLIC_ORG_COLOR ?? "").trim();
 
-/** The (honest) portal brand name; null ⇒ keep the Meridian cover text. */
+/** The (honest) portal brand name; null ⇒ keep the Marula cover text. */
 export function portalOrgName(): string | null {
   return ENV_ORG_NAME !== "" ? ENV_ORG_NAME : null;
 }

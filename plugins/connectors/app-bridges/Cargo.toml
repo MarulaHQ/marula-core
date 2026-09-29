@@ -3,7 +3,7 @@ name = "app-bridges"
 version = "0.1.0"
 edition.workspace = true
 license = "Apache-2.0"
-description = "App bridges for Project Meridian (Wave 22): Slack / Microsoft Teams forwarders + the Rewst workflow trigger bridge (Apache-2.0)"
+description = "App bridges for Project Marula (Wave 22): Slack / Microsoft Teams forwarders + the Rewst workflow trigger bridge (Apache-2.0)"
 
 [dependencies]
 async-trait = { workspace = true }

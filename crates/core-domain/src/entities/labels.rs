@@ -9,7 +9,7 @@
 //! that keeps the stored token lists honest per purpose.
 //!
 //! The QR always encodes the entity's canonical deep link
-//! (`meridian://<kind>/<uuid>`), never a free-form payload: a scan must mean
+//! (`marula://<kind>/<uuid>`), never a free-form payload: a scan must mean
 //! ONE thing on every surface (the shared scanned-payload contract).
 
 use crate::error::DomainError;
@@ -101,7 +101,7 @@ pub fn token_label(token: &str) -> &'static str {
 }
 
 /// Deep-link kind segment for a purpose. These are the canonical scan
-/// targets: `meridian://stock-item/<uuid>` and friends.
+/// targets: `marula://stock-item/<uuid>` and friends.
 pub fn deep_link_kind(purpose: &str) -> &'static str {
     match purpose {
         "stock_item" => "stock-item",
@@ -116,7 +116,7 @@ pub fn deep_link_kind(purpose: &str) -> &'static str {
 /// The canonical deep link for a rendered entity: the QR payload, and the
 /// round-trip a scanner hands back to `POST /api/scan/resolve`.
 pub fn deep_link(purpose: &str, id: Uuid) -> String {
-    format!("meridian://{}/{}", deep_link_kind(purpose), id)
+    format!("marula://{}/{}", deep_link_kind(purpose), id)
 }
 
 /// A typed, org-scoped label template.
@@ -299,19 +299,19 @@ mod tests {
         let id = Uuid::nil();
         assert_eq!(
             deep_link("stock_item", id),
-            format!("meridian://stock-item/{id}")
+            format!("marula://stock-item/{id}")
         );
         assert_eq!(
             deep_link("serialized_unit", id),
-            format!("meridian://stock-serial/{id}")
+            format!("marula://stock-serial/{id}")
         );
         assert_eq!(
             deep_link("device_asset", id),
-            format!("meridian://device-asset/{id}")
+            format!("marula://device-asset/{id}")
         );
         assert_eq!(
             deep_link("stock_location", id),
-            format!("meridian://stock-location/{id}")
+            format!("marula://stock-location/{id}")
         );
     }
 }

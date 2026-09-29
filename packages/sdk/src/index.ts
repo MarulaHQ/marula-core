@@ -1,11 +1,11 @@
-// @meridian/sdk public surface.
+// @marula-core/sdk public surface.
 //
 // Non-purpose: never imports server crates; generated code is regenerated,
 // never hand-edited.
-export { MeridianClient, snapshotOf, MeridianApiError } from "./client";
+export { MarulaClient, snapshotOf, MarulaApiError } from "./client";
 export type {
-  MeridianClientOptions,
-  MeridianPaths,
+  MarulaClientOptions,
+  MarulaPaths,
   LoginRequest,
   LoginResult,
   MfaRequired,

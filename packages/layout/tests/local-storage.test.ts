@@ -45,7 +45,7 @@ describe("LocalStoragePanelStateStore", () => {
     await store.save("alice", encodeLayoutState(alice));
     await store.save("bob", encodeLayoutState(bob));
 
-    expect(storage.dump().get("meridian.layout:alice")).toContain("Alice");
+    expect(storage.dump().get("marula.layout:alice")).toContain("Alice");
     expect((await roundTrip(store, "alice")) as { root: { tabs: unknown[] } }).toMatchObject({
       root: { tabs: [{ title: "Alice" }] },
     });

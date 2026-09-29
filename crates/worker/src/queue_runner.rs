@@ -169,7 +169,7 @@ async fn settle_job<S: DeliverySink, E: EffectApi>(
             }
             None => {
                 // Fail-closed none mode: no at-rest key ⇒ never deliver.
-                core_db::queue::mark_dead(pool, job.id, "MERIDIAN_SECRET_KEY unset").await?;
+                core_db::queue::mark_dead(pool, job.id, "MARULA_SECRET_KEY unset").await?;
                 counters.dead.fetch_add(1, Ordering::Relaxed);
                 Ok(SettleOutcome::Dead)
             }

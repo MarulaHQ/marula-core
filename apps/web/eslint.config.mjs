@@ -1,5 +1,5 @@
 /**
- * ESLint 9 flat config for @meridian/web — Wave 25 lane 1 (p25-shadcn-lint).
+ * ESLint 9 flat config for @marula-core/web — Wave 25 lane 1 (p25-shadcn-lint).
  *
  * Purpose: make `docs/theme.md` + Workbench token policy MECHANICAL via
  * @shadcn/lint (an agent-first Tailwind design-system plugin), succeeding the
@@ -43,7 +43,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import { defineConfig, globalIgnores } from "eslint/config";
 
 const THEME_NOTE =
-  "Meridian design doctrine lives in docs/theme.md (Workbench tokens, Inter/JetBrains Mono typography, Tangerine palette, Ember interactive-only, motion law ≤120ms) and design/mockups/meridian-ticket-workbench-html-mockup-v2.html. Fix by using theme tokens/components — never by retyping hexes or restyling primitives.";
+  "Marula design doctrine lives in docs/theme.md (Workbench tokens, Inter/JetBrains Mono typography, Tangerine palette, Ember interactive-only, motion law ≤120ms) and design/mockups/marula-ticket-workbench-html-mockup-v2.html. Fix by using theme tokens/components — never by retyping hexes or restyling primitives.";
 
 export default defineConfig([
   globalIgnores(["node_modules/**", ".next/**", "public/**"]),
@@ -62,11 +62,11 @@ export default defineConfig([
     },
     settings: {
       shadcn: {
-        // Primitives ship from @meridian/ui (packages/ui/src/components).
+        // Primitives ship from @marula-core/ui (packages/ui/src/components).
         // apps/web/components.json points at @/components/ui only nominally —
         // no such directory exists; recognition must ride the workspace pkg.
-        componentImports: ["^@meridian/ui(/|$)"],
-        ignoreImports: ["^@meridian/ui/tokens$", "^@meridian/ui/components\\.css$"],
+        componentImports: ["^@marula-core/ui(/|$)"],
+        ignoreImports: ["^@marula-core/ui/tokens$", "^@marula-core/ui/components\\.css$"],
         mergeFunctions: ["cn"],
         note: THEME_NOTE,
       },

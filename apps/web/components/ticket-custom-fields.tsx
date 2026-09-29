@@ -9,8 +9,8 @@
 // writes — the API verdict always wins.
 "use client";
 
-import type { components } from "@meridian/sdk";
-import { Button, Input, Label, Spinner } from "@meridian/ui";
+import type { components } from "@marula-core/sdk";
+import { Button, Input, Label, Spinner } from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 

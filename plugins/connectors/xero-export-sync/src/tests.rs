@@ -142,8 +142,8 @@ async fn push_invoice_maps_to_xero_wire_shape() {
         body["Reference"]
             .as_str()
             .unwrap()
-            .contains("[meridian:invoice:"),
-        "the meridian id must ride Reference for vendor-side auditability"
+            .contains("[marula:invoice:"),
+        "the marula id must ride Reference for vendor-side auditability"
     );
     let line = &body["LineItems"][0];
     assert_eq!(line["Description"], "Managed IT retainer — September");

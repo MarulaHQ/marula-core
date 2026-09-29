@@ -16,13 +16,13 @@ SSO, and refresh-token reuse detection.
 | OIDC SSO | Generic provider config (org-scoped). Authorization-code flow with signed state JWT (provider-bound), nonce echo check, PKCE S256 always on, RS256 id_token verification against provider JWKS, issuer pinning. Conservative linking (explicit authenticated link flow only), JIT provisioning default OFF and requiring a verified email claim |
 | Audit query API | `GET /api/audit-events` gains actor / action-prefix / from–to filters plus opaque keyset cursor (`next_cursor`). Legacy `before` param still works |
 | Audit emission | auth.register, login (+failures), mfa_challenge_issued, mfa_verify_failed (+reasons incl. replay), mfa_login_success (method-tagged), totp enabled/disabled/enroll-started, recovery regenerated, webauthn credential added/removed, logout, session_revoked, refresh_reuse_detected, oidc_provider_saved/deleted, oidc_login_success/failed, oidc_account_linked, oidc_jit_provisioned |
-| Secrets rule | Provider client secrets and TOTP secrets sealed with AES-256-GCM (12-byte nonce prefix). Never returned after write (verified by test + e2e). Key: `MERIDIAN_SECRET_KEY` env (64 hex chars) |
+| Secrets rule | Provider client secrets and TOTP secrets sealed with AES-256-GCM (12-byte nonce prefix). Never returned after write (verified by test + e2e). Key: `MARULA_SECRET_KEY` env (64 hex chars) |
 | Web UI | `/mfa` challenge screen (code or passkey), `/settings/security` (TOTP wizard, recovery display-once, passkey register/remove, session list + revoke), SSO buttons on `/login` driven by enabled providers, `/sso` handoff landing |
 
 ### Known gaps (honest)
 
 - **At-rest encryption is app-level, not envelope encryption.** One AES-256
-  key from `MERIDIAN_SECRET_KEY` (dev fallback derives it from
+  key from `MARULA_SECRET_KEY` (dev fallback derives it from
   `JWT_SECRET`, loudly logged). Per-org data keys under a rotating master
   key remain the documented upgrade path. Call sites won't change.
 - **JIT-provisioned users get the org's builtin Technician role** — role
@@ -35,11 +35,11 @@ SSO, and refresh-token reuse detection.
 ## Environment
 
 ```sh
-docker run -d --name meridian-auth -e POSTGRES_USER=meridian \
-  -e POSTGRES_PASSWORD=meridian -e POSTGRES_DB=meridian \
+docker run -d --name marula-auth -e POSTGRES_USER=marula \
+  -e POSTGRES_PASSWORD=marula -e POSTGRES_DB=marula \
   -p 25434:5432 pgvector/pgvector:pg17
 
-export DATABASE_URL=postgres://meridian:meridian@localhost:25434/meridian
+export DATABASE_URL=postgres://marula:marula@localhost:25434/marula
 cd crates/core-db && sqlx migrate run && cd ../..
 
 # core-api (compose parity: owner role)

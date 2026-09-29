@@ -1,5 +1,5 @@
 //! core-store — the `ObjectStore` edge trait (§4.7 traits-at-the-edge) and
-//! its adapters: every byte Meridian persists outside Postgres crosses this
+//! its adapters: every byte Marula persists outside Postgres crosses this
 //! one boundary, so no vendor SDK or filesystem detail leaks past it.
 //!
 //! Purpose:
@@ -15,7 +15,7 @@
 //! scanning, no multipart/resumable uploads, no bucket lifecycle — callers
 //! (core-api) own policy; this crate moves bytes. Downloads stream through
 //! the API in v1; presigned URLs are offered where the backend supports
-//! them but nothing in Meridian hands them to browsers yet.
+//! them but nothing in Marula hands them to browsers yet.
 
 pub mod local;
 pub mod memory;
@@ -86,7 +86,7 @@ pub trait ObjectStore: Send + Sync {
     fn name(&self) -> &'static str;
 
     /// Stores one object atomically; concurrent puts of the same key are
-    /// last-writer-wins per adapter semantics (Meridian keys are
+    /// last-writer-wins per adapter semantics (Marula keys are
     /// content-addressed, so writers of one key write identical bytes).
     async fn put(
         &self,
@@ -103,7 +103,7 @@ pub trait ObjectStore: Send + Sync {
     async fn delete(&self, key: &str) -> Result<(), StoreError>;
 
     /// Presigned GET URL when the backend supports it (`None` ⇒ caller
-    /// must stream through the API). Meridian v1 never issues public
+    /// must stream through the API). Marula v1 never issues public
     /// URLs; the hook exists so later stages can opt in per deployment.
     async fn presign_get(&self, key: &str, ttl: Duration) -> Result<Option<String>, StoreError>;
 }

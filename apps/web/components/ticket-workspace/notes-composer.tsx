@@ -11,7 +11,7 @@
 
 "use client";
 
-import { Button, Input, Label, StatusTag, Textarea } from "@meridian/ui";
+import { Button, Input, Label, StatusTag, Textarea } from "@marula-core/ui";
 import { useState, type ReactNode } from "react";
 
 import { PaperclipIcon } from "./icons";

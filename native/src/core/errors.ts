@@ -97,7 +97,7 @@ export const TIMEOUT_QUEUED_COPY =
 export const TIMEOUT_RETRY_COPY =
   "The server took too long to respond — try again in a moment.";
 
-/** Extracts the IF3 envelope from an SDK MeridianApiError body, a bare
+/** Extracts the IF3 envelope from an SDK MarulaApiError body, a bare
  * envelope object, or an openapi-fetch `error` value. Mirror of web
  * envelopeOf(): never trusts a thrown Error's own `message` as copy. */
 export function envelopeOf(error: unknown): EnvelopeError {

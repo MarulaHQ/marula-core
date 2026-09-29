@@ -1,4 +1,4 @@
-# Meridian backup runner image.
+# Marula backup runner image.
 #
 # Purpose: nightly pg_dump (base image), restic snapshots (apk), optional
 # WAL-G (build-arg installs a pinned release from go-wal-g/wal-g releases).

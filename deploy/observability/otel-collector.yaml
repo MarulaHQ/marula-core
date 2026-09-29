@@ -1,4 +1,4 @@
-# OpenTelemetry Collector — the single ingest point for Meridian telemetry.
+# OpenTelemetry Collector — the single ingest point for Marula telemetry.
 #
 # Purpose: receive OTLP from core-api / realtime / worker and route each
 # signal to its store:
@@ -29,7 +29,7 @@ exporters:
   otlphttp/loki:
     endpoint: http://loki:3100/otlp
 
-  # Grafana scrapes meridian.* metrics from here (PromQL datasource).
+  # Grafana scrapes marula.* metrics from here (PromQL datasource).
   prometheus:
     endpoint: 0.0.0.0:18899
 

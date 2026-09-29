@@ -1,11 +1,11 @@
-//! Meridian desktop test app (ADR 0005).
+//! Marula desktop test app (ADR 0005).
 //!
 //! One double-clickable .app for local testing: an embedded Postgres
 //! (`postgresql_embedded`) + the existing core-api axum router mounted in
 //! this process + the built web app as Tauri assets. No Docker, no
 //! sidecar binaries — the API is a library call.
 //!
-//! Data lives in `~/Library/Application Support/Meridian` and persists
+//! Data lives in `~/Library/Application Support/Marula` and persists
 //! across rebuilds; migrations apply incrementally on startup.
 
 use anyhow::{bail, Context};
@@ -49,9 +49,9 @@ fn data_root() -> PathBuf {
     // platforms fall back to a conventional user-data location.
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     if cfg!(target_os = "macos") {
-        PathBuf::from(home).join("Library/Application Support/Meridian")
+        PathBuf::from(home).join("Library/Application Support/Marula")
     } else {
-        PathBuf::from(home).join(".local/share/Meridian")
+        PathBuf::from(home).join(".local/share/Marula")
     }
 }
 
@@ -413,35 +413,35 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
             .context("replaying the archived PG17 cluster into the PG18 cluster")?;
     }
     // Parity with deploy/docker-compose.yml: migrations and the worker run
-    // as the TABLE OWNER `meridian`; migration 0001 itself provisions the
-    // RLS-constrained `meridian_app` role the API connects as. Compose's
-    // POSTGRES_USER is a bootstrap superuser, so `meridian` gets the same
+    // as the TABLE OWNER `marula`; migration 0001 itself provisions the
+    // RLS-constrained `marula_app` role the API connects as. Compose's
+    // POSTGRES_USER is a bootstrap superuser, so `marula` gets the same
     // here (the idempotent ALTER also repairs data dirs created before
     // this was a superuser).
-    if !role_exists(&super_pool, "meridian").await? {
-        sqlx::query("CREATE ROLE meridian LOGIN SUPERUSER PASSWORD 'meridian'")
+    if !role_exists(&super_pool, "marula").await? {
+        sqlx::query("CREATE ROLE marula LOGIN SUPERUSER PASSWORD 'marula'")
             .execute(&super_pool)
             .await
-            .context("creating the meridian owner role")?;
+            .context("creating the marula owner role")?;
     } else {
-        sqlx::query("ALTER ROLE meridian SUPERUSER")
+        sqlx::query("ALTER ROLE marula SUPERUSER")
             .execute(&super_pool)
             .await
-            .context("aligning the meridian owner role with compose parity")?;
+            .context("aligning the marula owner role with compose parity")?;
     }
-    let db_missing = sqlx::query("SELECT 1 FROM pg_database WHERE datname = 'meridian'")
+    let db_missing = sqlx::query("SELECT 1 FROM pg_database WHERE datname = 'marula'")
         .fetch_optional(&super_pool)
         .await?
         .is_none();
     if db_missing {
-        sqlx::query("CREATE DATABASE meridian OWNER meridian")
+        sqlx::query("CREATE DATABASE marula OWNER marula")
             .execute(&super_pool)
             .await
-            .context("creating the meridian database")?;
+            .context("creating the marula database")?;
     }
     super_pool.close().await;
 
-    let owner_url = format!("postgres://meridian:meridian@127.0.0.1:{pg_port}/meridian");
+    let owner_url = format!("postgres://marula:marula@127.0.0.1:{pg_port}/marula");
     let owner_pool = core_db::connect(&owner_url)
         .await
         .context("connecting as the schema owner")?;
@@ -452,7 +452,7 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
         .await
         .context("RLS coverage check")?;
 
-    // Seed the deterministic demo org (same path as `meridian-cli
+    // Seed the deterministic demo org (same path as `marula-core-cli
     // seed-demo`); idempotent — an existing seed is left untouched.
     let seal = core_db::demo::derive_dev_seal_key(DEV_JWT_SECRET);
     let opts = core_db::demo::DemoSeedOptions { seal_key: seal };
@@ -465,7 +465,7 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     }
     owner_pool.close().await;
 
-    let app_url = format!("postgres://meridian_app:meridian_app@127.0.0.1:{pg_port}/meridian");
+    let app_url = format!("postgres://marula_app:marula_app@127.0.0.1:{pg_port}/marula");
     let api_port = free_port(PREFERRED_API_PORT);
     let api_url = format!("http://127.0.0.1:{api_port}");
     let web_port = free_port(PREFERRED_WEB_PORT);
@@ -516,7 +516,7 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
             .allow_headers([
                 axum::http::header::CONTENT_TYPE,
                 axum::http::header::AUTHORIZATION,
-                axum::http::header::HeaderName::from_static("x-meridian-csrf"),
+                axum::http::header::HeaderName::from_static("x-marula-csrf"),
             ])
             .allow_credentials(true),
     );
@@ -701,7 +701,7 @@ fn main() {
     let (backend, api_url, web_url) = match tauri::async_runtime::block_on(bootstrap_backend()) {
         Ok(ok) => ok,
         Err(e) => {
-            eprintln!("Meridian desktop failed to start: {e:#}");
+            eprintln!("Marula desktop failed to start: {e:#}");
             std::process::exit(1);
         }
     };
@@ -720,7 +720,7 @@ fn main() {
         // granted; the UI rides the app ACL only. Release workflow lives in
         // docs/desktop-release.md.
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // Wave 38 lane 2: `meridian://` deep links open-or-focus the right
+        // Wave 38 lane 2: `marula://` deep links open-or-focus the right
         // window; single instance makes a second launch focus the running
         // app (and hand it the deep link it was opened with). Deep-link OS
         // registration is the bundle Info.plist (build-desktop.sh); runtime
@@ -730,7 +730,7 @@ fn main() {
             // Second-launch focus: bring the fleet forward. Deep links
             // arriving via argv are handled by the normal event path on
             // macOS RunEvent::Opened; on Linux/Windows argv carries them.
-            if let Some(link) = argv.iter().find(|a| a.starts_with("meridian://")) {
+            if let Some(link) = argv.iter().find(|a| a.starts_with("marula://")) {
                 let app = _app.clone();
                 let link = link.clone();
                 tauri::async_runtime::spawn(async move {
@@ -754,7 +754,7 @@ fn main() {
             install_desktop_update,
             window_manager::open_native_window,
             window_manager::focus_native_window,
-            os_integrations::route_meridian_link
+            os_integrations::route_marula_link
         ])
         .manage(backend)
         .manage(PendingUpdate::default())
@@ -769,10 +769,10 @@ fn main() {
                 "main",
                 tauri::WebviewUrl::External(web_url.parse().expect("valid web URL")),
             )
-            .title("Meridian")
+            .title("Marula")
             .inner_size(1440.0, 900.0)
             .min_inner_size(900.0, 640.0)
-            .initialization_script(format!("window.__MERIDIAN_API_URL__ = '{api_url}';"))
+            .initialization_script(format!("window.__MARULA_API_URL__ = '{api_url}';"))
             // Windows are the point: native tabbing stays OFF. Without an
             // explicit tabbing identifier macOS never auto-groups this
             // window into tabs, and the Window menu below lists windows
@@ -794,7 +794,7 @@ fn main() {
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 for arg in std::env::args().skip(1) {
-                    if arg.starts_with("meridian://") {
+                    if arg.starts_with("marula://") {
                         let app = handle.clone();
                         let arg = arg.clone();
                         tauri::async_runtime::block_on(async move {

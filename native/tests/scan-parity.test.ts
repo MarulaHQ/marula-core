@@ -32,7 +32,7 @@ function resolution(overrides: Partial<ScanResolution>): ScanResolution {
     display_name: "Example item",
     is_tool: false,
     secondary: "SKU-1",
-    deep_link: "meridian://stock-item/0192",
+    deep_link: "marula://stock-item/0192",
     entity_id: "0192",
     stock_item_id: "0192",
     serial_id: null,

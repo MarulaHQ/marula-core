@@ -29,7 +29,7 @@ export default function LoginScreen() {
   return (
     <Screen>
       <View style={styles.brand}>
-        <Text style={[styles.wordmark, { color: tokens.text }]}>Meridian</Text>
+        <Text style={[styles.wordmark, { color: tokens.text }]}>Marula</Text>
         <Text style={[styles.tagline, { color: tokens.textMuted }]}>
           Field service, on your phone.
         </Text>

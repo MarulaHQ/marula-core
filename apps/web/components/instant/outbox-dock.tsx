@@ -11,7 +11,7 @@
 
 "use client";
 
-import { StatusTag } from "@meridian/ui";
+import { StatusTag } from "@marula-core/ui";
 import { useState } from "react";
 import { useOutbox } from "../../lib/use-instant";
 import { reasonCopy } from "../../lib/error-copy";

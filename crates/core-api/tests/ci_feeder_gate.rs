@@ -1,7 +1,7 @@
 //! CI7 feeder conformance gate (ADR 0003, Wave 12 lane 8) — the REAL
 //! feeder adapters over the REAL core-api router and lane DB.
 //!
-//! The suite drives the same `MeridianFeederSink` a live transport
+//! The suite drives the same `MarulaFeederSink` a live transport
 //! would (x-api-key machine key, public `/api/v1/config-items/feed-upsert`
 //! seam). NinjaOne maps through its shipped normalizer; Auvik and IT Glue
 //! records are built directly on the public feed model because those
@@ -30,11 +30,11 @@
 //!    on the write.
 //!
 //! Database selection follows config_items_flow's contract:
-//! MERIDIAN_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
+//! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
 use axum::Router;
 use ci_feeders::{
-    vendors, FeederSink, FeederSync, MeridianFeederConfig, MeridianFeederSink, SyncConfig,
+    vendors, FeederSink, FeederSync, MarulaFeederConfig, MarulaFeederSink, SyncConfig,
 };
 use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
 use serde_json::{json, Value};
@@ -47,9 +47,9 @@ async fn test_state() -> AppState {
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("ci feeder gate needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("ci feeder gate needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect(&admin_url).await.expect("pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");
@@ -197,8 +197,8 @@ async fn setup(prefix: &str) -> FeederOrg {
     }
 }
 
-fn sink_for(org: &FeederOrg, api_key: &str) -> MeridianFeederSink {
-    MeridianFeederSink::new(MeridianFeederConfig {
+fn sink_for(org: &FeederOrg, api_key: &str) -> MarulaFeederSink {
+    MarulaFeederSink::new(MarulaFeederConfig {
         base_url: org.base_url.clone(),
         api_key: api_key.to_string(),
     })
@@ -677,8 +677,8 @@ async fn read_scoped_key_is_refused_the_feeder_write() {
     );
 }
 
-fn sink_for_by_base(base_url: &str, api_key: &str) -> MeridianFeederSink {
-    MeridianFeederSink::new(MeridianFeederConfig {
+fn sink_for_by_base(base_url: &str, api_key: &str) -> MarulaFeederSink {
+    MarulaFeederSink::new(MarulaFeederConfig {
         base_url: base_url.to_string(),
         api_key: api_key.to_string(),
     })

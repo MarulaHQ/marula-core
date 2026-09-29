@@ -17,7 +17,7 @@
 
 "use client";
 
-import { Button, Card, Input } from "@meridian/ui";
+import { Button, Card, Input } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";

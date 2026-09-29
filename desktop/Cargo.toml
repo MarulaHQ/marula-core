@@ -1,9 +1,9 @@
 [package]
-name = "meridian-desktop"
+name = "marula-desktop"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Double-clickable local Meridian test app: embedded Postgres + core-api in a Tauri shell"
+description = "Double-clickable local Marula test app: embedded Postgres + core-api in a Tauri shell"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -28,7 +28,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { MeridianClient } from "@meridian/sdk";
+import { MarulaClient } from "@marula-core/sdk";
 
 import { fetchStockItems, fetchStockSerials } from "../src/core/models";
 import { SyncEngine } from "../src/core/sync";
@@ -108,7 +108,7 @@ async function openSocket(token: string, channels: string[] = []): Promise<Socke
   return { frames, socket };
 }
 
-function makeEngine(client: MeridianClient, state: { online: boolean }): SyncEngine {
+function makeEngine(client: MarulaClient, state: { online: boolean }): SyncEngine {
   const engine = new SyncEngine({
     client,
     stores: {
@@ -145,10 +145,10 @@ async function waitFor<T>(
 
 async function main(): Promise<void> {
   console.log(`[proof] api ${API_URL} · ws ${WS_URL}`);
-  const owner = new MeridianClient({ baseUrl: API_URL });
+  const owner = new MarulaClient({ baseUrl: API_URL });
   await owner.login({ email: "owner@demo.local", password: PASSWORD });
   const ownerToken = owner.tokens.accessToken ?? "";
-  const tech = new MeridianClient({ baseUrl: API_URL });
+  const tech = new MarulaClient({ baseUrl: API_URL });
   await tech.login({ email: "tech@demo.local", password: PASSWORD });
   const techToken = tech.tokens.accessToken ?? "";
 

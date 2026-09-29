@@ -169,7 +169,7 @@ async fn initialize_and_tools_list_honor_deny_by_default() {
         json!({ "protocolVersion": "2025-03-26" }),
     )
     .await;
-    assert_eq!(hello["result"]["serverInfo"]["name"], "meridian-mcp");
+    assert_eq!(hello["result"]["serverInfo"]["name"], "marula-mcp");
     assert_eq!(hello["result"]["protocolVersion"], "2025-03-26");
 
     // The stub registry grants clients + tickets only; every OTHER

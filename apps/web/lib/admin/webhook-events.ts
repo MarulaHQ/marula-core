@@ -6,7 +6,7 @@
 // /settings/integrations. Unit-testable pure functions only.
 //
 // Non-purpose: no network I/O; retry/backoff policy stays worker-side.
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 
 export type DeliveryAttemptView = components["schemas"]["DeliveryAttemptView"];
 

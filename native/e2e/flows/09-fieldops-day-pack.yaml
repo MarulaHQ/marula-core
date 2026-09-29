@@ -4,7 +4,7 @@
 # technician's own ticket, so Today carries exactly one pack line. Ticking
 # writes the plan note; the header count flips with it, and the second tap
 # removes the tick. The tick never touches the movement ledger.
-appId: tech.meridian.app
+appId: org.marula.app
 ---
 - launchApp
 - extendedWaitUntil:

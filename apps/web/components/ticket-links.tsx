@@ -18,7 +18,7 @@
 "use client";
 
 import { rejectionText } from "../lib/error-copy";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   Button,
   Card,
@@ -34,7 +34,7 @@ import {
   Td,
   Th,
   Tr,
-} from "@meridian/ui";
+} from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 

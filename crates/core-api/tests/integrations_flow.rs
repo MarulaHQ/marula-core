@@ -11,7 +11,7 @@
 //! and UI rendering.
 //!
 //! Database selection follows settings_flow's contract:
-//! MERIDIAN_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
+//! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
 use axum::Router;
 use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
@@ -26,9 +26,9 @@ async fn test_state() -> AppState {
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
         .try_init();
-    let admin_url = std::env::var("MERIDIAN_TEST_DATABASE_URL")
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("integrations e2e needs MERIDIAN_TEST_DATABASE_URL or DATABASE_URL");
+        .expect("integrations e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let pool = connect(&admin_url).await.expect("pool");
     core_db::run_migrations(&pool).await.expect("migrations");
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");
@@ -126,7 +126,7 @@ async fn webhook_crud_delivery_log_and_test_fire_flow() {
         "/api/webhooks",
         &[auth(&token)],
         Some(json!({
-            "url": "https://hooks.example.test/meridian",
+            "url": "https://hooks.example.test/marula",
             "event_types": ["ticket.created", "ticket.closed"],
         })),
     )
@@ -283,7 +283,7 @@ async fn api_key_creation_scope_matrix_and_revocation() {
     assert_eq!(response.status(), 201, "key creation must succeed");
     let created = body_json(response).await;
     let raw_key = created["raw_key"].as_str().expect("raw key shown once");
-    assert!(raw_key.starts_with("mrd_") && raw_key.len() > 20);
+    assert!(raw_key.starts_with("mrl_") && raw_key.len() > 20);
     assert_eq!(created["key"]["scopes"][0], "tickets:read");
     let key_id = created["key"]["id"].as_str().expect("key id").to_string();
 
@@ -382,7 +382,7 @@ async fn api_key_creation_scope_matrix_and_revocation() {
         &app,
         axum::http::Method::GET,
         "/api/tickets",
-        &[("x-api-key", "mrd_deadbeefdeadbeef".to_string())],
+        &[("x-api-key", "mrl_deadbeefdeadbeef".to_string())],
         None,
     )
     .await;

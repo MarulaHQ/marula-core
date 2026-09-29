@@ -1,7 +1,7 @@
 // Unit tests: calendar-view — entry classification, merge order, overlap
 // detection, month-grid + week-fetch planning, snap (Wave 17 lane 4).
 import { describe, expect, it } from "vitest";
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   assignLanes,
   detectOverlaps,
@@ -78,10 +78,10 @@ describe("classification", () => {
     expect(entryFromItem(item({ ticket_id: "t9" }))).toMatchObject({ ticketId: "t9" });
   });
   it("entryFromTicketDeadline is null without a due date", () => {
-    expect(entryFromTicketDeadline({ id: "t1", number: "MER-1", title: "X", due_at: null })).toBeNull();
+    expect(entryFromTicketDeadline({ id: "t1", number: "MAR-1", title: "X", due_at: null })).toBeNull();
     expect(
-      entryFromTicketDeadline({ id: "t1", number: "MER-1", title: "X", due_at: NOW.toISOString() }),
-    ).toMatchObject({ kind: "ticket_deadline", number: "MER-1" });
+      entryFromTicketDeadline({ id: "t1", number: "MAR-1", title: "X", due_at: NOW.toISOString() }),
+    ).toMatchObject({ kind: "ticket_deadline", number: "MAR-1" });
   });
 });
 

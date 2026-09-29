@@ -7,7 +7,7 @@
 //
 // Non-purpose: no step logic; parents own the mutation calls.
 
-import { Button } from "@meridian/ui";
+import { Button } from "@marula-core/ui";
 
 export function StepActions({
   onSkip,

@@ -18,7 +18,7 @@
 // Non-purpose: no report-spec editing (R3) and no shared/org dashboards.
 "use client";
 
-import { Button, Card, EmptyState, Spinner } from "@meridian/ui";
+import { Button, Card, EmptyState, Spinner } from "@marula-core/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ReportWidget } from "../../components/dashboards/report-widget";
 import { PluginWidgetsSection } from "../../components/dashboards/plugin-widget";

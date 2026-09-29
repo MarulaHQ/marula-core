@@ -12,7 +12,7 @@
 // send/manage); no availability windows (calendar surface owns those).
 "use client";
 
-import type { components } from "@meridian/sdk";
+import type { components } from "@marula-core/sdk";
 import {
   Button,
   Card,
@@ -31,7 +31,7 @@ import {
   Spinner,
   StatusTag,
   Tag,
-} from "@meridian/ui";
+} from "@marula-core/ui";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useRequireAuth } from "../../../lib/api";
