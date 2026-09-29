@@ -1,8 +1,8 @@
 # Acknowledgments — third-party software, fonts & vendored content
 
-> Meridian would not exist without the open-source ecosystem. This file
+> Marula would not exist without the open-source ecosystem. This file
 > thanks the projects we build on and documents every third-party license
-> we ship or vendor. **Meridian itself is AGPL-3.0-or-later** (see
+> we ship or vendor. **Marula itself is AGPL-3.0-or-later** (see
 > [`LICENSE`](LICENSE)); the SDK, plugin kit, first-party plugins &
 > connectors are Apache-2.0 (see
 > [`packages/sdk/LICENSE`](packages/sdk/LICENSE)).
@@ -82,8 +82,8 @@ First-party skills written for this repo (rebuild-local-test-app) are ours.
 ## 5. Self-host deployment stack (compose/helm services)
 
 The standard deployment ships small third-party services alongside the
-Meridian binaries. These run as separate processes — none are linked into
-Meridian's binaries — but they are part of what distributes:
+Marula binaries. These run as separate processes — none are linked into
+Marula's binaries — but they are part of what distributes:
 
 | Service | Project | License |
 |---|---|---|
@@ -93,7 +93,7 @@ Meridian's binaries — but they are part of what distributes:
 | **ClamAV** (attachment/file scanning, stage2 profile; added 2026-09) | https://www.clamav.net / https://github.com/Cisco-Talos/clamav | GPL-3.0-or-later |
 | **GlitchTip** (Sentry-compatible error tracking, observability profile; activated 2026-09) | https://glitchtip.com / https://gitlab.com/glitchtip/glitchtip | BSD-3-Clause |
 | Mailpit (dev SMTP sink, stage2 profile) | https://github.com/axllent/mailpit | MIT |
-| OpenTelemetry Collector · Grafana Tempo · Grafana Loki · Grafana | https://github.com/open-telemetry/opentelemetry-collector-contrib, https://github.com/grafana | Apache-2.0 / AGPL-3.0 (while the self-host binaries stay unmodified, AGPL obligations do not extend to Meridian's code) |
+| OpenTelemetry Collector · Grafana Tempo · Grafana Loki · Grafana | https://github.com/open-telemetry/opentelemetry-collector-contrib, https://github.com/grafana | Apache-2.0 / AGPL-3.0 (while the self-host binaries stay unmodified, AGPL obligations do not extend to Marula's code) |
 
 Removed entries: **MinIO** (was the compose S3 sample through 2026-09; its
 community edition degraded — AGPL, stripped web console, stalled releases).

@@ -1,7 +1,7 @@
-# Meridian
+# Marula
 
 <p>
-  <img src="meridian-ci/logo/lockup-navy@2x.png" height="34" alt="Meridian logo lockup" title="Meridian logo lockup">
+  <img src="design/marula/logo/lockup-navy@2x.png" height="34" alt="Marula logo lockup" title="Marula logo lockup">
 </p>
 
 **The open-source PSA that MSPs own.** Tickets, time, clients, dispatch, projects, invoicing, knowledge base — everything an IT service team runs on, self-hosted, in a database you control.
@@ -10,7 +10,7 @@
 > **License:** AGPL-3.0 · SDK, plugins & connectors: Apache-2.0
 
 <!-- TODO(ci): badge row once pipelines exist
-![CI](https://github.com/Marlin-Hofmeyer/meridian/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/marula-open/marula-core/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue) -->
 
 ---
@@ -19,7 +19,7 @@
 
 Every commercial PSA taxes tickets, locks the data, and bends your workflow to its roadmap. We got tired of it.
 
-Meridian is complete on its own. Invoicing, knowledge base, CSAT, scheduling — all native, no third-party subscriptions required to run a real MSP.
+Marula is complete on its own. Invoicing, knowledge base, CSAT, scheduling — all native, no third-party subscriptions required to run a real MSP.
 
 Some things we care about enough to enforce in CI:
 
@@ -34,7 +34,7 @@ Some things we care about enough to enforce in CI:
 ## Quick start
 
 ```bash
-git clone https://github.com/Marlin-Hofmeyer/meridian && cd meridian
+git clone https://github.com/marula-open/marula-core && cd marula-core
 docker compose -f deploy/docker-compose.yml up -d     # Postgres+pgvector, Redis, MinIO, services, web
 open http://localhost:3000                            # workspace UI
 ```
@@ -43,7 +43,7 @@ Developer harness with hot reload:
 
 ```bash
 cargo install --path crates/marula-core-cli
-meridian dev
+marula dev
 ```
 
 > Full installation guide, configuration reference, and upgrade runbooks live in [`docs/`](docs/); generated API reference (Scalar UI) is served by `core-api` at `/docs`.
@@ -124,7 +124,7 @@ crates/
 ├── worker/         # Postgres-backed job queue + job definitions
 ├── plugin-host/    # Extism WASM runtime + connector proxy
 ├── mcp-server/     # MCP protocol adapter — derived from OpenAPI + capability registry
-└── marula-core-cli/   # `meridian dev`, setup, admin tasks
+└── marula-core-cli/   # `marula dev`, setup, admin tasks
 apps/web/           # Next.js app (workspace UI + client portal)
 packages/
 ├── sdk/            # @marula-core/sdk — typed client generated from OpenAPI (Apache-2.0)
@@ -145,6 +145,6 @@ Every module's README states its purpose *and its non-purpose* — read them bef
 
 ## Acknowledgments
 
-Meridian is built on Rust, Axum, SQLx, PostgreSQL, Next.js, Tailwind CSS, shadcn/ui, Extism, and faster-whisper. Thanks to everyone behind them.
+Marula is built on Rust, Axum, SQLx, PostgreSQL, Next.js, Tailwind CSS, shadcn/ui, Extism, and faster-whisper. Thanks to everyone behind them.
 
 

@@ -29,25 +29,46 @@ const LEDGER_EXACT = new Set([
 const LEDGER_PREFIXES = [
   "design/qa-", // L4 landing records / reviews / captures
   "design/REPORT-", // historical design reports
-  "design/mockups/", // marula-* mockup sources, historical
-  "marula-ci/", // old brand asset pack (historical source bundle)
+  "design/mockups/", // meridian-* mockup sources, historical
+  "design/website/", // website brief: historical design record (site is frozen per D10)
+  "docs/prompts/", // the original one-shot build brief: historical record
+  "meridian-ci/", // old brand asset pack (historical source bundle)
   "website/", // FROZEN per D10 — moves to Marula-HQ; mechanical only
   ".kilo/", // agent-local tooling
   "graft/",
   "graphify-out/",
   "node_modules/",
+  "Cargo.lock",
 ];
+
+// L2/L3-class: old migrations are history (byte-identical, never rewritten);
+// migration 0114+ (this lane and later) MUST be clean and is NOT ledged.
+const MIGRATION_RE = /^crates\/core-db\/migrations\/(\d{4})_/;
+function isLedgedMigration(file) {
+  const m = MIGRATION_RE.exec(file);
+  if (!m) return false;
+  return Number(m[1]) < 114;
+}
 
 function git(args) {
   try {
     return execFileSync("git", args, { encoding: "utf8", maxBuffer: 1 << 28 });
   } catch (e) {
-    // git grep exits 1 on zero matches
-    return e.stdout ?? "";
+    // git grep exits 1 on zero matches; anything else is fatal.
+    if (e.status === 1) return e.stdout ?? "";
+    throw e;
   }
 }
 
-const lines = git(["grep", "-i", "-n", "marula", "--", "."]).split("\n").filter(Boolean);
+// Count OLD-brand hits (Meridian/meridian) outside the ledger. The pattern
+// list is explicit so the gate byte-matches docs/reference/marula-name-map.md.
+const PATTERNS = ["meridian"];
+let lines = [];
+for (const pat of PATTERNS) {
+  lines = lines.concat(git(["grep", "-i", "-n", pat, "--", "."]).split("\n").filter(Boolean));
+}
+// dedupe (same line can match multiple patterns)
+lines = [...new Set(lines)];
 
 const violations = [];
 for (const line of lines) {
@@ -56,9 +77,18 @@ for (const line of lines) {
   const file = line.slice(0, colon);
   if (LEDGER_EXACT.has(file)) continue;
   if (LEDGER_PREFIXES.some((p) => file.startsWith(p))) continue;
+  if (isLedgedMigration(file)) continue; // pre-0114 migrations are history (L3)
   // L1: relay-technical symbols, not brand.
   const rest = line.slice(colon + 1);
   if (rest.includes("PresenceRelayListener")) continue;
+  // L2: third-party repo paths that carry the old name.
+  if (rest.includes("project-meridian-relay-psa")) continue;
+  // Pending-regen: the OpenAPI pins are re-pinned ONLY via
+  // scripts/regen-openapi-pins.sh (gate-time, stack needed); the shipping-SDK
+  // twin (packages/sdk) is regenerated from the pin. This allowance expires
+  // at the pins step of the verification battery.
+  if (file.startsWith("fixtures/openapi/")) continue;
+  if (file.startsWith("packages/sdk/openapi.json")) continue;
   violations.push(line);
 }
 

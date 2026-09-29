@@ -295,7 +295,7 @@
     "webhooks": [
       {
         "id": "00000000-0000-4000-8000-000000000131",
-        "url": "https://hooks.northwind.example/meridian/tickets",
+        "url": "https://hooks.northwind.example/marula/tickets",
         "event_types": [
           "ticket.created",
           "ticket.status_changed"

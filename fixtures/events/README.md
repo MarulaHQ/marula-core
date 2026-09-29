@@ -1,6 +1,6 @@
 # Event golden fixtures (policy §2 / TASKLIST U2)
 
-Purpose: the pinned wire shape of every payload Meridian publishes on the
+Purpose: the pinned wire shape of every payload Marula publishes on the
 domain-event stream, one file per (event type, entity, variant) under
 `v1/` — the additive-only conformance baseline. The envelope's
 `payload_schema_ref` (`core-domain/v1`) names this generation.

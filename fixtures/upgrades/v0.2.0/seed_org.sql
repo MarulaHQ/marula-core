@@ -47,7 +47,7 @@ INSERT INTO user_roles (user_id, role_id) VALUES
 
 -- SSO + MFA state (auth customization surface)
 INSERT INTO oidc_providers (id, org_id, name, display_name, issuer, discovery_url, client_id, client_secret_enc, jit_provisioning, enabled, created_by) VALUES
-  ('00000000-0000-4000-8000-000000000031', '00000000-0000-4000-8000-000000000001', 'jumpcloud', 'JumpCloud SSO', 'https://oauth.jumpcloud.com/', 'https://oauth.jumpcloud.com/.well-known/openid-configuration', 'acme-meridian-sp', decode('9faf5d0c1b2e4a6780c3d5e7f1902a4b6c8d0e2f4a6b8c0d2e4f6a8b0c2d4e6f','hex'), true, true, '00000000-0000-4000-8000-000000000021');
+  ('00000000-0000-4000-8000-000000000031', '00000000-0000-4000-8000-000000000001', 'jumpcloud', 'JumpCloud SSO', 'https://oauth.jumpcloud.com/', 'https://oauth.jumpcloud.com/.well-known/openid-configuration', 'acme-marula-sp', decode('9faf5d0c1b2e4a6780c3d5e7f1902a4b6c8d0e2f4a6b8c0d2e4f6a8b0c2d4e6f','hex'), true, true, '00000000-0000-4000-8000-000000000021');
 
 INSERT INTO oidc_accounts (id, org_id, provider_id, user_id, subject, email, linked_by, linked_at, last_login_at) VALUES
   ('00000000-0000-4000-8000-000000000032', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000031', '00000000-0000-4000-8000-000000000024', 'priya.natarajan@jumpcloud', 'priya@acme-it.example', '00000000-0000-4000-8000-000000000021', '2026-06-15T14:00:00Z', '2026-09-01T09:12:00Z');
@@ -155,7 +155,7 @@ INSERT INTO automation_rules (id, org_id, board_id, name, trigger_event, conditi
 
 -- ====================================================== webhooks =========
 INSERT INTO webhooks (id, org_id, url, secret_encrypted, event_types, enabled, created_by) VALUES
-  ('00000000-0000-4000-8000-000000000131', '00000000-0000-4000-8000-000000000001', 'https://hooks.northwind.example/meridian/tickets', decode('3f8a1c2d5e7b90a1c3d5e7f90a1b3c5d7e9f0a2b4c6d8e0f2a4b6c8d0e2f4a6b','hex'), '{ticket.created,ticket.status_changed}', true, '00000000-0000-4000-8000-000000000021'),
+  ('00000000-0000-4000-8000-000000000131', '00000000-0000-4000-8000-000000000001', 'https://hooks.northwind.example/marula/tickets', decode('3f8a1c2d5e7b90a1c3d5e7f90a1b3c5d7e9f0a2b4c6d8e0f2a4b6c8d0e2f4a6b','hex'), '{ticket.created,ticket.status_changed}', true, '00000000-0000-4000-8000-000000000021'),
   ('00000000-0000-4000-8000-000000000132', '00000000-0000-4000-8000-000000000001', 'https://ops.acme-it.example/webhooks/wildcard',    decode('7b2d9f4e1a3c5b7d9f0e2a4c6b8d0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d','hex'), '{}', false, '00000000-0000-4000-8000-000000000021');
 
 -- ====================================================== settings =========
@@ -341,7 +341,7 @@ INSERT INTO email_inbound_settings (id, org_id, catchall_address, catchall_board
 
 INSERT INTO email_messages (id, org_id, direction, rfc_message_id, in_reply_to, email_refs, subject, from_address, from_name, to_addresses, body_text, ticket_id, comment_id, scan_status, transport) VALUES
   ('00000000-0000-4000-8000-000000000352', '00000000-0000-4000-8000-000000000001', 'inbound',  '<fw-update-1@northwind.example>', NULL, '{}', 'Re: Firewall flapping', 'lena.fischer@northwind.example', 'Lena Fischer', '{support-8f2k@inbound.acme-it.example}', 'Any update on the drops?', '00000000-0000-4000-8000-000000000301', '00000000-0000-4000-8000-000000000312', 'clean', 'smtp'),
-  ('00000000-0000-4000-8000-000000000353', '00000000-0000-4000-8000-000000000001', 'outbound', '<meridian-reply-001@acme-it.example>', '<fw-update-1@northwind.example>', '{<fw-update-1@northwind.example>}', 'Re: Firewall flapping', 'support@acme-it.example', 'Acme IT Support', '{lena.fischer@northwind.example}', 'Rollback scheduled tonight.', '00000000-0000-4000-8000-000000000301', '00000000-0000-4000-8000-000000000311', 'clean', 'smtp');
+  ('00000000-0000-4000-8000-000000000353', '00000000-0000-4000-8000-000000000001', 'outbound', '<marula-reply-001@acme-it.example>', '<fw-update-1@northwind.example>', '{<fw-update-1@northwind.example>}', 'Re: Firewall flapping', 'support@acme-it.example', 'Acme IT Support', '{lena.fischer@northwind.example}', 'Rollback scheduled tonight.', '00000000-0000-4000-8000-000000000301', '00000000-0000-4000-8000-000000000311', 'clean', 'smtp');
 
 INSERT INTO email_outbound (id, org_id, email_message_id, status, attempts, max_attempts, next_attempt_at, provider_message_id) VALUES
   ('00000000-0000-4000-8000-000000000354', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000353', 'sent', 1, 8, '2026-09-01T13:30:00Z', 'relay-20260901-001');
@@ -431,7 +431,7 @@ INSERT INTO agent_skills (id, org_id, slug, version, manifest, created_by) VALUE
   ('00000000-0000-4000-8000-000000000423', '00000000-0000-4000-8000-000000000001', 'ticket-triage', 1, '{"name":"ticket-triage","api_version":1,"description":"Suggest triage for inbound tickets","tools":["tickets:read","tickets:write"]}', '00000000-0000-4000-8000-000000000021');
 
 INSERT INTO agent_proposals (id, org_id, entity, entity_id, op, before_value, proposed_value, classification, capability, dial_mode, base_version, status, agent_kind, agent_ref, skill_slug, skill_version, rule_set_hash, session_id, tool, for_user, rationale) VALUES
-  ('00000000-0000-4000-8000-000000000424', '00000000-0000-4000-8000-000000000001', 'ticket', '00000000-0000-4000-8000-000000000305', 'update', '{"priority":"p3"}', '{"priority":"p2"}', 'internal', 'tickets:write', 'proposed', 3, 'proposed', 'agent', 'triage-bot@meridian', 'ticket-triage', 1, 'rules-2026-08', 'sess-fixture-001', 'set_priority', '00000000-0000-4000-8000-000000000021', '5 accounts affected, onboarding deadline');
+  ('00000000-0000-4000-8000-000000000424', '00000000-0000-4000-8000-000000000001', 'ticket', '00000000-0000-4000-8000-000000000305', 'update', '{"priority":"p3"}', '{"priority":"p2"}', 'internal', 'tickets:write', 'proposed', 3, 'proposed', 'agent', 'triage-bot@marula', 'ticket-triage', 1, 'rules-2026-08', 'sess-fixture-001', 'set_priority', '00000000-0000-4000-8000-000000000021', '5 accounts affected, onboarding deadline');
 
 INSERT INTO user_skills (id, org_id, user_id, skill, expires_at) VALUES
   ('00000000-0000-4000-8000-000000000425', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000024', 'networking', '2027-06-30T00:00:00Z');
@@ -455,7 +455,7 @@ INSERT INTO idempotency_keys (id, org_id, key, entity, entity_id, request_hash, 
 -- =============================================== audit + outbox ==========
 INSERT INTO audit_events (id, org_id, actor_kind, actor_id, action, entity_type, entity_id, detail, ip, occurred_at) VALUES
   ('00000000-0000-4000-8000-000000000441', '00000000-0000-4000-8000-000000000001', 'human',   '00000000-0000-4000-8000-000000000021', 'auth.login',        'user', '00000000-0000-4000-8000-000000000021', '{"mfa":false}', '203.0.113.10', '2026-09-01T12:55:00Z'),
-  ('00000000-0000-4000-8000-000000000442', '00000000-0000-4000-8000-000000000001', 'agent',   'triage-bot@meridian',                  'ticket.update',     'ticket', '00000000-0000-4000-8000-000000000301', '{"field":"priority"}', NULL, '2026-09-01T13:02:00Z'),
+  ('00000000-0000-4000-8000-000000000442', '00000000-0000-4000-8000-000000000001', 'agent',   'triage-bot@marula',                  'ticket.update',     'ticket', '00000000-0000-4000-8000-000000000301', '{"field":"priority"}', NULL, '2026-09-01T13:02:00Z'),
   ('00000000-0000-4000-8000-000000000443', '00000000-0000-4000-8000-000000000001', 'import',  '00000000-0000-4000-8000-000000000381', 'import.batch',      'import_batch', '00000000-0000-4000-8000-000000000381', '{"rows":42}', NULL, '2026-04-10T09:04:00Z'),
   ('00000000-0000-4000-8000-000000000444', '00000000-0000-4000-8000-000000000001', 'system',  NULL,                                   'sla.escalation',    'ticket', '00000000-0000-4000-8000-000000000301', '{"step":0,"target":"first_response"}', NULL, '2026-09-01T09:29:00Z'),
   ('00000000-0000-4000-8000-000000000445', '00000000-0000-4000-8000-000000000001', 'portal_contact', '00000000-0000-4000-8000-000000000391', 'portal.login', 'portal_user', '00000000-0000-4000-8000-000000000391', '{}', '198.51.100.7', '2026-09-02T08:00:00Z');

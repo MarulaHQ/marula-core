@@ -1,6 +1,6 @@
 # Roadmap
 
-Meridian is developed in the open: the work lives in this repository's tracked
+Marula is developed in the open: the work lives in this repository's tracked
 task list and lands as reviewed pull requests. This file answers the question
 behind it: what works today, what is being built now, and where the next work
 goes.
