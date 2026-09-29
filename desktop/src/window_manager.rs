@@ -187,14 +187,27 @@ async fn create_role_window(
                     y: pos.y,
                     width: size.width,
                     height: size.height,
+                    scale_factor: m.scale_factor(),
                 }
             })
             .collect();
         let state = reg.in_memory.lock().expect("window state mutex");
         if let Some((x, y, w, h)) = restore_frame(&state, role, instance, &monitors) {
+            // The state file and the monitor bounds are both in PHYSICAL
+            // pixels (outer_size/outer_size report physical; the builder's
+            // position/inner_size want LOGICAL points). Converting here is
+            // what keeps a restored window the size the user left it — on a
+            // Retina display the raw values come back doubled.
+            let saved = state
+                .roles
+                .get(role)
+                .and_then(|r| r.windows.get(instance).or_else(|| r.windows.last()));
+            let scale = saved.map_or(1.0, |frame| {
+                super::windows::scale_for_frame(&monitors, frame)
+            });
             builder = builder
-                .position(x as f64, y as f64)
-                .inner_size(w as f64, h as f64);
+                .position(x as f64 / scale, y as f64 / scale)
+                .inner_size(w as f64 / scale, h as f64 / scale);
         }
     }
 

@@ -106,7 +106,9 @@ pub fn save_state(path: &PathBuf, state: &WindowStateFile) {
 }
 
 /// Plain bounds snapshot of one monitor (physical pixels) — testable
-/// without Tauri runtime internals.
+/// without Tauri runtime internals. `scale_factor` is the display's
+/// backingscale (2.0 on Retina) and is what converts a remembered
+/// physical frame into the LOGICAL points the window builder wants.
 #[derive(Debug, Clone)]
 pub struct MonitorBounds {
     pub name: Option<String>,
@@ -114,6 +116,28 @@ pub struct MonitorBounds {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    pub scale_factor: f64,
+}
+
+/// The scale to use when converting a physical frame into logical points:
+/// the saved frame's own monitor when it still exists, else the first
+/// monitor reported. 1.0 is the honest fallback — better a window at the
+/// wrong size than one divided by a zero/garbage factor.
+pub fn scale_for_frame(monitors: &[MonitorBounds], frame: &WindowGeometry) -> f64 {
+    let on_saved = frame.monitor.as_ref().and_then(|name| {
+        monitors
+            .iter()
+            .find(|m| m.name.as_deref() == Some(name.as_str()))
+    });
+    let scale = on_saved
+        .or_else(|| monitors.first())
+        .map(|m| m.scale_factor)
+        .unwrap_or(1.0);
+    if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    }
 }
 
 /// Clamp a remembered frame into the union of the currently visible
@@ -184,12 +208,17 @@ mod tests {
     use super::*;
 
     fn monitor(x: i32, y: i32, w: u32, h: u32) -> MonitorBounds {
+        monitor_scaled(x, y, w, h, 1.0)
+    }
+
+    fn monitor_scaled(x: i32, y: i32, w: u32, h: u32, scale_factor: f64) -> MonitorBounds {
         MonitorBounds {
             name: Some(String::from("m")),
             x,
             y,
             width: w,
             height: h,
+            scale_factor,
         }
     }
 
@@ -290,5 +319,92 @@ mod tests {
         );
         assert!(!is_lane_window_label("main"));
         assert_eq!(role_of_label("main"), None);
+    }
+
+    #[test]
+    fn retina_scale_comes_from_the_frame_s_own_monitor() {
+        let frame = WindowGeometry {
+            x: 600,
+            y: 400,
+            width: 1400,
+            height: 1000,
+            monitor: Some(String::from("built-in")),
+            index: 0,
+        };
+        let monitors = vec![
+            monitor_scaled(0, 0, 3024, 1964, 2.0), // name "m", from the helper
+            MonitorBounds {
+                name: Some(String::from("built-in")),
+                x: 0,
+                y: 0,
+                width: 1512,
+                height: 982,
+                scale_factor: 2.0,
+            },
+        ];
+        assert_eq!(scale_for_frame(&monitors, &frame), 2.0);
+    }
+
+    #[test]
+    fn a_2x_display_does_not_double_a_restored_frame() {
+        // The defect this pins: outer_size() reports PHYSICAL pixels, and
+        // the builder's inner_size() wants LOGICAL points. Feeding the raw
+        // saved values back made every restored window twice its size on a
+        // Retina display. These are the exact numbers a real run produced.
+        let frame = WindowGeometry {
+            x: 600,
+            y: 400,
+            width: 1400,
+            height: 1000,
+            monitor: Some(String::from("m")),
+            index: 0,
+        };
+        let monitors = vec![monitor_scaled(0, 0, 3024, 1964, 2.0)];
+        let state = WindowStateFile {
+            roles: [(
+                String::from("ticket-detail"),
+                RoleState {
+                    windows: vec![frame.clone()],
+                },
+            )]
+            .into_iter()
+            .collect(),
+            label_counter: 0,
+        };
+        let (x, y, w, h) = restore_frame(&state, "ticket-detail", 0, &monitors).expect("restored");
+        let scale = scale_for_frame(&monitors, &frame);
+        assert_eq!((x as f64 / scale, y as f64 / scale), (300.0, 200.0));
+        assert_eq!((w as f64 / scale, h as f64 / scale), (700.0, 500.0));
+    }
+
+    #[test]
+    fn a_1x_display_restores_unchanged() {
+        let frame = WindowGeometry {
+            x: 100,
+            y: 120,
+            width: 900,
+            height: 640,
+            monitor: Some(String::from("m")),
+            index: 0,
+        };
+        let monitors = vec![monitor_scaled(0, 0, 1920, 1080, 1.0)];
+        let scale = scale_for_frame(&monitors, &frame);
+        assert_eq!(scale, 1.0);
+        assert_eq!((frame.width as f64 / scale, frame.height as f64 / scale), (900.0, 640.0));
+    }
+
+    #[test]
+    fn a_missing_or_hostile_scale_factor_falls_back_to_one() {
+        let frame = WindowGeometry {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+            monitor: None,
+            index: 0,
+        };
+        assert_eq!(scale_for_frame(&[], &frame), 1.0);
+        let bad = vec![monitor_scaled(0, 0, 100, 100, 0.0)];
+        assert_eq!(scale_for_frame(&bad, &frame), 1.0);
     }
 }
