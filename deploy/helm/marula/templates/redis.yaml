@@ -2,21 +2,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "meridian.fullname" . }}-redis
+  name: {{ include "marula.fullname" . }}-redis
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: redis
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "meridian.name" . }}
+      app.kubernetes.io/name: {{ include "marula.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: redis
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ include "meridian.name" . }}
+        app.kubernetes.io/name: {{ include "marula.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: redis
     spec:
@@ -27,10 +27,10 @@ spec:
         {{- toYaml $ctx | nindent 8 }}
       containers:
         - name: redis
-          image: {{ include "meridian.pinnedImage" (dict "ctx" . "image" .Values.redis.image "digest" .Values.redis.imageDigest) | quote }}
+          image: {{ include "marula.pinnedImage" (dict "ctx" . "image" .Values.redis.image "digest" .Values.redis.imageDigest) | quote }}
           securityContext:
             {{- /* Valkey only writes /data; rootfs can be read-only. */ -}}
-            {{- include "meridian.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+            {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           env: []
           ports:
             - name: redis
@@ -45,13 +45,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "meridian.fullname" . }}-redis
+  name: {{ include "marula.fullname" . }}-redis
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: redis
 spec:
   selector:
-    app.kubernetes.io/name: {{ include "meridian.name" . }}
+    app.kubernetes.io/name: {{ include "marula.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: redis
   ports:

@@ -21,7 +21,7 @@ jobs:
         image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: meridian_test
+          POSTGRES_DB: marula_test
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -30,7 +30,7 @@ jobs:
         image: valkey/valkey:8
         ports: ["6379:6379"]
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
       REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
@@ -93,13 +93,13 @@ jobs:
         image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: meridian_test
+          POSTGRES_DB: marula_test
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -141,7 +141,7 @@ jobs:
         image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: meridian_test
+          POSTGRES_DB: marula_test
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -150,7 +150,7 @@ jobs:
         image: valkey/valkey:8
         ports: ["6379:6379"]
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-conformance-secret
     steps:
@@ -180,7 +180,7 @@ jobs:
         image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: meridian_test
+          POSTGRES_DB: marula_test
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -189,7 +189,7 @@ jobs:
         image: valkey/valkey:8
         ports: ["6379:6379"]
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
       REDIS_URL: redis://localhost:6379
       E2E_API_URL: http://localhost:8080
       E2E_WEB_URL: http://localhost:3000
@@ -242,13 +242,13 @@ jobs:
         image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: meridian_perf
+          POSTGRES_DB: marula_perf
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_perf
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_perf
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -269,13 +269,13 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: meridian_upgrade
+          POSTGRES_DB: marula_upgrade
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/meridian_upgrade
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_upgrade
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -286,7 +286,7 @@ jobs:
       - name: Restore v0.2.0 fixture
         run: |
           gunzip -c fixtures/upgrades/v0.2.0.seed.sql.gz \
-            | psql postgres://postgres:postgres@localhost:5432/meridian_upgrade -v ON_ERROR_STOP=1 -q
+            | psql postgres://postgres:postgres@localhost:5432/marula_upgrade -v ON_ERROR_STOP=1 -q
       - name: Migrate fixture to HEAD
         run: cargo run -q -p marula-core-cli -- migrate
       - name: Fixture org survives the migration
@@ -299,5 +299,5 @@ jobs:
       - name: Upgrade preflight consumes the captured manifest
         run: |
           cargo build -q -p marula-core-cli
-          ./target/debug/meridian upgrade --check \
+          ./target/debug/marula upgrade --check \
             --manifest fixtures/upgrades/v0.2.0.manifest.json

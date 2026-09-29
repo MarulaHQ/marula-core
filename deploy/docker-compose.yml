@@ -1,4 +1,4 @@
-# Meridian local stack.
+# Marula local stack.
 #
 # Purpose: one command brings up the full Stage-1 system — Postgres (pg18 +
 # pgvector), Valkey (Redis-compatible), schema migration, core-api, realtime
@@ -41,7 +41,7 @@
 #   OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
 #     docker compose -f deploy/docker-compose.yml --profile observability up
 # Grafana (http://localhost:3001) ships preprovisioned Tempo/Loki/
-# MeridianMetrics datasources plus the "Meridian Starter" dashboard.
+# MarulaMetrics datasources plus the "Marula Starter" dashboard.
 # GlitchTip slot is live; its per-service DSN env is declared on each
 # service block and presence (never the value) is reported by the
 # Settings → Self-host services pane. Uptime-Kuma was deliberately left
@@ -403,9 +403,9 @@ services:
   # Wiring: core-api/realtime/worker export OTLP/HTTP (protobuf) to the
   # collector when OTEL_EXPORTER_OTLP_ENDPOINT is set (see header); the
   # collector fans out traces → Tempo, metrics → its own Prometheus
-  # exposition (:18899, scraped by Grafana's MeridianMetrics datasource),
+  # exposition (:18899, scraped by Grafana's MarulaMetrics datasource),
   # logs → Loki's native OTLP endpoint. Grafana ships preprovisioned
-  # datasources + the "Meridian Starter" dashboard from
+  # datasources + the "Marula Starter" dashboard from
   # deploy/observability/. Config files: deploy/observability/*.yaml.
   otel-collector:
     mem_limit: 256m

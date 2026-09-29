@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "meridian.fullname" . }}-core-api
+  name: {{ include "marula.fullname" . }}-core-api
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: core-api
 spec:
   replicas: {{ .Values.coreApi.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "meridian.name" . }}
+      app.kubernetes.io/name: {{ include "marula.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: core-api
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ include "meridian.name" . }}
+        app.kubernetes.io/name: {{ include "marula.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: core-api
     spec:
@@ -26,26 +26,26 @@ spec:
         {{- toYaml $ctx | nindent 8 }}
       containers:
         - name: core-api
-          image: {{ include "meridian.image" (dict "ctx" . "image" .Values.images.coreApi "key" "coreApi") }}
+          image: {{ include "marula.image" (dict "ctx" . "image" .Values.images.coreApi "key" "coreApi") }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
           securityContext:
-            {{- include "meridian.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+            {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           env:
             - name: DATABASE_URL
-              value: {{ include "meridian.dbAppUrl" . | quote }}
+              value: {{ include "marula.dbAppUrl" . | quote }}
             - name: REDIS_URL
-              value: {{ include "meridian.redisUrl" . | quote }}
+              value: {{ include "marula.redisUrl" . | quote }}
             - name: BIND_ADDR
               value: {{ .Values.coreApi.bindAddr | quote }}
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: JWT_SECRET
             - name: MARULA_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: MARULA_SECRET_KEY
                   optional: true
             # Optional EdDSA signing pair (Wave 34 lane 6): both keys must
@@ -53,31 +53,31 @@ spec:
             - name: MARULA_JWT_EDDSA_PRIVATE_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: MARULA_JWT_EDDSA_PRIVATE_KEY
                   optional: true
             - name: MARULA_JWT_EDDSA_PUBLIC_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: MARULA_JWT_EDDSA_PUBLIC_KEY
                   optional: true
             - name: MARULA_JWT_KID
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: MARULA_JWT_KID
                   optional: true
             - name: EMAIL_INBOUND_HMAC_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: EMAIL_INBOUND_HMAC_SECRET
                   optional: true
             - name: EMAIL_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: EMAIL_INTERNAL_TOKEN
             - name: EMAIL_TRANSPORT
               value: {{ .Values.email.transport | quote }}
@@ -91,7 +91,7 @@ spec:
             {{- /* endpoint/region default to the in-chart Garage slot when
             unset (an operator-supplied external S3/R2 endpoint wins). */}}
             - name: S3_ENDPOINT
-              value: {{ .Values.objectStore.s3.endpoint | default (printf "http://%s-garage:3900" (include "meridian.fullname" .)) | quote }}
+              value: {{ .Values.objectStore.s3.endpoint | default (printf "http://%s-garage:3900" (include "marula.fullname" .)) | quote }}
             - name: S3_BUCKET
               value: {{ .Values.objectStore.s3.bucket | quote }}
             - name: S3_REGION
@@ -99,12 +99,12 @@ spec:
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: S3_ACCESS_KEY_ID
             - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: S3_SECRET_ACCESS_KEY
             {{- else }}
             - name: OBJECT_STORE_LOCAL_DIR
@@ -148,14 +148,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "meridian.fullname" . }}-core-api
+  name: {{ include "marula.fullname" . }}-core-api
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: core-api
 spec:
   type: {{ .Values.service.coreApi.type }}
   selector:
-    app.kubernetes.io/name: {{ include "meridian.name" . }}
+    app.kubernetes.io/name: {{ include "marula.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: core-api
   ports:

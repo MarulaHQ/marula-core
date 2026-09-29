@@ -3526,6 +3526,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "marula-core-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "core-api",
+ "core-db",
+ "core-otel",
+ "hex",
+ "realtime",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sqlx 0.8.6",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "uuid",
+ "worker",
+]
+
+[[package]]
+name = "marula-desktop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.8.9",
+ "core-api",
+ "core-db",
+ "core-store",
+ "hex",
+ "libc",
+ "postgresql_embedded",
+ "serde",
+ "serde_json",
+ "sqlx 0.8.6",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3598,54 +3646,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "marula-core-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "core-api",
- "core-db",
- "core-otel",
- "hex",
- "realtime",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sqlx 0.8.6",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "uuid",
- "worker",
-]
-
-[[package]]
-name = "meridian-desktop"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum 0.8.9",
- "core-api",
- "core-db",
- "core-store",
- "hex",
- "libc",
- "postgresql_embedded",
- "serde",
- "serde_json",
- "sqlx 0.8.6",
- "tauri",
- "tauri-build",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tokio",
- "tower-http",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

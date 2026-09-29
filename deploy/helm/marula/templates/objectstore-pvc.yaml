@@ -4,9 +4,9 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "meridian.fullname" . }}-objects
+  name: {{ include "marula.fullname" . }}-objects
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
 spec:
   {{- if .Values.postgresql.storage.className }}
   storageClassName: {{ .Values.postgresql.storage.className }}

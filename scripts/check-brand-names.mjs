@@ -22,6 +22,8 @@ const LEDGER_EXACT = new Set([
   "ACKNOWLEDGMENTS.md", // historical record
   "docs/BUILD-PROMPT-VERDICTS.md", // verdict excerpts quote shipped strings
   "docs/STAGE-REPORT.md", // historical stage record
+  ".cargo/config.toml", // machine-local dev layout path (repo dir name; repo move is lane 17)
+  ".cursor/hooks.json", // machine-local hook paths, same repo-dir reason
 ]);
 
 const LEDGER_PREFIXES = [

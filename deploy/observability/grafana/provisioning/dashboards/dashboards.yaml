@@ -1,10 +1,10 @@
-# Grafana dashboard provisioning: load the Meridian starter dashboard.
+# Grafana dashboard provisioning: load the Marula starter dashboard.
 apiVersion: 1
 
 providers:
-  - name: Meridian
+  - name: Marula
     orgId: 1
-    folder: Meridian
+    folder: Marula
     type: file
     disableDeletion: false
     updateIntervalSeconds: 30

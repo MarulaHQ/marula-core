@@ -1,4 +1,4 @@
-# Helm chart — deploy/helm/meridian
+# Helm chart — deploy/helm/marula
 
 Values-driven chart mirroring `deploy/docker-compose.yml`: Postgres
 (pgvector image, prod parity; or external), Redis, migrations (pre-upgrade
@@ -13,8 +13,8 @@ provenance attestations (`.github/workflows/release.yml`).
 
 Validate locally (helm 3.14+):
 
-    helm lint meridian
-    helm template meridian --set digestPinningEnforced=false
+    helm lint marula
+    helm template marula --set digestPinningEnforced=false
 
 Non-purpose: not an operator dashboard; no cross-env secret management
 beyond documented values (set `existingSecret` for production secret

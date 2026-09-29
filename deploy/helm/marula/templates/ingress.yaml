@@ -4,9 +4,9 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "meridian.fullname" . }}
+  name: {{ include "marula.fullname" . }}
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations: {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -25,21 +25,21 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "meridian.fullname" . }}-core-api
+                name: {{ include "marula.fullname" . }}-core-api
                 port:
                   number: {{ $apiPort }}
           - path: /openapi.json
             pathType: Prefix
             backend:
               service:
-                name: {{ include "meridian.fullname" . }}-core-api
+                name: {{ include "marula.fullname" . }}-core-api
                 port:
                   number: {{ $apiPort }}
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: {{ include "meridian.fullname" . }}-web
+                name: {{ include "marula.fullname" . }}-web
                 port:
                   number: {{ $webPort }}
 {{- end }}

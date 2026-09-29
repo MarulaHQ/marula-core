@@ -1,11 +1,11 @@
 #!/bin/sh
-# Meridian restore rehearsal — scratch-restore + verify. Run manually:
+# Marula restore rehearsal — scratch-restore + verify. Run manually:
 #   sh deploy/backup/restore.sh <path to .dump>
 # Requires: psql/pg_restore reachable and a running PG. Creates the scratch DB
-# `meridian_restore_test`, restores into it, then asserts the restore is real:
+# `marula_restore_test`, restores into it, then asserts the restore is real:
 #   1. schema landed (tables restored, RLS enforced on every public table);
 #   2. round-trip row parity: when the source DB is reachable (PGDATABASE
-#      set, e.g. `PGDATABASE=meridian` against the live stack), row counts
+#      set, e.g. `PGDATABASE=marula` against the live stack), row counts
 #      for every public table must match the dump's origin — a dump that
 #      loses rows in transit is not restorable cleanly. Override
 #      PGSOURCE_HOST/PGSOURCE_PORT when the source is a different server.
@@ -16,32 +16,32 @@ DUMP="${1:?usage: restore.sh <path to .dump>}"
 [ -f "$DUMP" ] || { echo "no such dump: $DUMP" >&2; exit 1; }
 PGHOST="${PGHOST:-localhost}"
 PGPORT="${PGPORT:-15432}"
-SCRATCH_DB="meridian_restore_test"
+SCRATCH_DB="marula_restore_test"
 
 log() { echo "[restore $(date -u +%FT%TZ)] $*"; }
 fail() { log "FAIL: $*"; exit 1; }
 
 psql_scratch() {
-  psql -h "$PGHOST" -p "$PGPORT" -U meridian -d "$SCRATCH_DB" "$@"
+  psql -h "$PGHOST" -p "$PGPORT" -U marula -d "$SCRATCH_DB" "$@"
 }
 
 log "scratch DB create"
-# The dump carries GRANTs for meridian_app; a scratch PG created straight
+# The dump carries GRANTs for marula_app; a scratch PG created straight
 # (compose stack: the app role already exists) — only a bare scratch server
 # needs it created. pg_restore ignores missing-grant errors regardless, but
 # a green leg should not have them.
-if ! psql -h "$PGHOST" -p "$PGPORT" -U meridian -d postgres -tA \
-  -c "SELECT 1 FROM pg_roles WHERE rolname='meridian_app';" | grep -q 1; then
-  psql -h "$PGHOST" -p "$PGPORT" -U meridian -d postgres \
-    -c "CREATE ROLE meridian_app LOGIN PASSWORD 'meridian' BYPASSRLS NOINHERIT;" >/dev/null
-  log "created scratch-only role meridian_app"
+if ! psql -h "$PGHOST" -p "$PGPORT" -U marula -d postgres -tA \
+  -c "SELECT 1 FROM pg_roles WHERE rolname='marula_app';" | grep -q 1; then
+  psql -h "$PGHOST" -p "$PGPORT" -U marula -d postgres \
+    -c "CREATE ROLE marula_app LOGIN PASSWORD 'marula' BYPASSRLS NOINHERIT;" >/dev/null
+  log "created scratch-only role marula_app"
 fi
-psql -h "$PGHOST" -p "$PGPORT" -U meridian -d postgres \
+psql -h "$PGHOST" -p "$PGPORT" -U marula -d postgres \
   -c "DROP DATABASE IF EXISTS $SCRATCH_DB;" \
-  -c "CREATE DATABASE $SCRATCH_DB OWNER meridian;"
+  -c "CREATE DATABASE $SCRATCH_DB OWNER marula;"
 
 log "pg_restore into scratch"
-pg_restore -h "$PGHOST" -p "$PGPORT" -U meridian -d "$SCRATCH_DB" \
+pg_restore -h "$PGHOST" -p "$PGPORT" -U marula -d "$SCRATCH_DB" \
   --no-owner --clean --if-exists "$DUMP"
 
 log "verify: schema landed (table count)"
@@ -74,7 +74,7 @@ if [ -n "${PGDATABASE:-}" ]; then
     "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename;" |
   while IFS= read -r t; do
     a=$(psql_scratch -tA -c "SELECT count(*) FROM \"$t\";" || echo '?')
-    b=$(psql -h "$SRC_HOST" -p "$SRC_PORT" -U meridian -d "$PGDATABASE" \
+    b=$(psql -h "$SRC_HOST" -p "$SRC_PORT" -U marula -d "$PGDATABASE" \
       -tA -c "SELECT count(*) FROM \"$t\";" || echo '?')
     if [ "$a" != "$b" ]; then
       echo "$t: scratch=$a source=$b" >>"$MISMATCHES"
@@ -91,5 +91,5 @@ else
 fi
 
 log "drop scratch"
-psql -h "$PGHOST" -p "$PGPORT" -U meridian -d postgres -c "DROP DATABASE $SCRATCH_DB;"
+psql -h "$PGHOST" -p "$PGPORT" -U marula -d postgres -c "DROP DATABASE $SCRATCH_DB;"
 log "scratch restore OK — schema complete, RLS enforced, row parity holds"

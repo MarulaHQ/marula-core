@@ -4,7 +4,7 @@ Config-over-env mirrors the compose stage2 slot; layout, bucket, and
 access-key grant are bootstrapped by a single-shot Job against Garage's
 v1 admin API. */ -}}
 {{- if and .Values.garage.enabled (eq .Values.objectStore.mode "s3") -}}
-{{- $fullname := include "meridian.fullname" . -}}
+{{- $fullname := include "marula.fullname" . -}}
 {{- $secretName := default (printf "%s-secrets" $fullname) .Values.existingSecret -}}
 {{- $hostname := printf "%s-garage-0.%s-garage-headless" $fullname $fullname -}}
 {{- /* Garage requires a config FILE at /etc/garage.toml (GARAGE_* env vars
@@ -15,7 +15,7 @@ kind: ConfigMap
 metadata:
   name: {{ $fullname }}-garage-config
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: garage
 data:
   garage.toml: |
@@ -38,12 +38,12 @@ kind: Service
 metadata:
   name: {{ $fullname }}-garage-headless
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: garage
 spec:
   clusterIP: None
   selector:
-    app.kubernetes.io/name: {{ include "meridian.name" . }}
+    app.kubernetes.io/name: {{ include "marula.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: garage
   ports:
@@ -57,11 +57,11 @@ kind: Service
 metadata:
   name: {{ $fullname }}-garage
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: garage
 spec:
   selector:
-    app.kubernetes.io/name: {{ include "meridian.name" . }}
+    app.kubernetes.io/name: {{ include "marula.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: garage
   ports:
@@ -74,20 +74,20 @@ kind: StatefulSet
 metadata:
   name: {{ $fullname }}-garage
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: garage
 spec:
   serviceName: {{ $fullname }}-garage-headless
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "meridian.name" . }}
+      app.kubernetes.io/name: {{ include "marula.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: garage
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ include "meridian.name" . }}
+        app.kubernetes.io/name: {{ include "marula.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: garage
     spec:
@@ -102,11 +102,11 @@ spec:
             name: {{ $fullname }}-garage-config
       containers:
         - name: garage
-          image: {{ include "meridian.pinnedImage" (dict "ctx" . "image" .Values.garage.image "digest" .Values.garage.imageDigest) | quote }}
+          image: {{ include "marula.pinnedImage" (dict "ctx" . "image" .Values.garage.image "digest" .Values.garage.imageDigest) | quote }}
           securityContext:
             {{- /* Garage runs as explicit uid 10004 (runAsUser); only its
             data/meta PVCs are written, so the rootfs is read-only. */ -}}
-            {{- include "meridian.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+            {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           env:
             - name: GARAGE_RPC_SECRET
               valueFrom:
@@ -170,14 +170,14 @@ kind: Job
 metadata:
   name: {{ $fullname }}-garage-bootstrap
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: garage
 spec:
   backoffLimit: 12
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ include "meridian.name" . }}
+        app.kubernetes.io/name: {{ include "marula.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: garage
     spec:
@@ -186,9 +186,9 @@ spec:
         - name: bootstrap
           # The garage image is distroless (no shell) — drive the admin API
           # with curl instead; parsing is grep/cut, no jq needed.
-          image: {{ include "meridian.pinnedImage" (dict "ctx" . "image" .Values.garage.bootstrapImage "digest" .Values.garage.bootstrapImageDigest) | quote }}
+          image: {{ include "marula.pinnedImage" (dict "ctx" . "image" .Values.garage.bootstrapImage "digest" .Values.garage.bootstrapImageDigest) | quote }}
           securityContext:
-            {{- include "meridian.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+            {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           env:
             - name: GARAGE_BASE
               value: {{ printf "http://%s-garage-headless:3903" $fullname | quote }}
@@ -228,7 +228,7 @@ spec:
               # (staged), then /v1/layout/apply with the NEW version number.
               curl -sf -X POST -H "$AUTH" -H 'Content-Type: application/json' \
                 "$GARAGE_BASE/v1/layout" \
-                -d "[{\"id\":\"$NODE_ID\",\"zone\":\"$GARAGE_ZONE\",\"capacity\":$GARAGE_NODE_CAPACITY,\"tags\":[\"meridian\"]}]" \
+                -d "[{\"id\":\"$NODE_ID\",\"zone\":\"$GARAGE_ZONE\",\"capacity\":$GARAGE_NODE_CAPACITY,\"tags\":[\"marula\"]}]" \
                 || { echo "layout stage refused"; exit 1; }
               CUR=$(curl -sf -H "$AUTH" "$GARAGE_BASE/v1/layout" \
                 | grep -oE '"version": *[0-9]+' | head -1 | grep -oE '[0-9]+')
@@ -249,14 +249,14 @@ spec:
                 # ONCE to the job logs (garage never re-shows it) — copy it
                 # into objectStore.s3.secretAccessKey for core-api.
                 curl -sf -X POST -H "$AUTH" -H 'Content-Type: application/json' \
-                  "$GARAGE_BASE/v1/key" -d "{\"name\":\"meridian\"}" \
+                  "$GARAGE_BASE/v1/key" -d "{\"name\":\"marula\"}" \
                   | sed -n 's/.*"secretAccessKey": *"\([^"]*\)".*/SECRET_KEY: \1/p'
                 curl -sf -X POST -H "$AUTH" -H 'Content-Type: application/json' \
-                  "$GARAGE_BASE/v1/key" -d "{\"name\":\"meridian\"}" >/dev/null \
-                  && echo "key meridian ensured" || echo "key create rejected (may already exist)"
+                  "$GARAGE_BASE/v1/key" -d "{\"name\":\"marula\"}" >/dev/null \
+                  && echo "key marula ensured" || echo "key create rejected (may already exist)"
               else
                 curl -sf -H "$AUTH" "$GARAGE_BASE/v1/key?id=$S3_ACCESS_KEY_ID" >/dev/null \
-                  || { echo "S3 key $S3_ACCESS_KEY_ID does not exist in garage — set garage.createS3Key=true to self-provision, or run 'garage key create meridian' once and set objectStore.s3.accessKeyId"; exit 1; }
+                  || { echo "S3 key $S3_ACCESS_KEY_ID does not exist in garage — set garage.createS3Key=true to self-provision, or run 'garage key create marula' once and set objectStore.s3.accessKeyId"; exit 1; }
               fi
               curl -sf -X POST -H "$AUTH" -H 'Content-Type: application/json' \
                 "$GARAGE_BASE/v1/bucket/allow" \

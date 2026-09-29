@@ -1,10 +1,10 @@
 {{/* Chart helpers — naming and image resolution (digest-pinned per U10b). */}}
 
-{{- define "meridian.name" -}}
+{{- define "marula.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "meridian.fullname" -}}
+{{- define "marula.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
@@ -12,21 +12,21 @@
 {{- end -}}
 {{- end -}}
 
-{{- define "meridian.labels" -}}
-app.kubernetes.io/name: {{ include "meridian.name" . }}
+{{- define "marula.labels" -}}
+app.kubernetes.io/name: {{ include "marula.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
-{{- /* Bare-string third-party image slot. When nonMeridianDigestPinningEnforced
+{{- /* Bare-string third-party image slot. When nonMarulaDigestPinningEnforced
 is on, the value must carry an @sha256:... digest itself or have a
 companion imageDigest value — the final reference is tag@digest. */ -}}
-{{- define "meridian.pinnedImage" -}}
+{{- define "marula.pinnedImage" -}}
 {{- $image := toString .image -}}
 {{- $digest := .digest -}}
-{{- if and .ctx.Values.nonMeridianDigestPinningEnforced (not (contains "@sha256:" $image)) (not $digest) -}}
-{{- fail (printf "image %s has no digest (nonMeridianDigestPinningEnforced=true): set the companion imageDigest value" $image) -}}
+{{- if and .ctx.Values.nonMarulaDigestPinningEnforced (not (contains "@sha256:" $image)) (not $digest) -}}
+{{- fail (printf "image %s has no digest (nonMarulaDigestPinningEnforced=true): set the companion imageDigest value" $image) -}}
 {{- end -}}
 {{- if $digest -}}
 {{- $base := $image | splitList "@" | first -}}
@@ -40,7 +40,7 @@ companion imageDigest value — the final reference is tag@digest. */ -}}
 privilege escalation, all capabilities dropped, seccomp RuntimeDefault.
 readOnlyRootFilesystem is opt-in per workload via `readOnly` since only
 some components tolerate it. */ -}}
-{{- define "meridian.containerSecurityContext" -}}
+{{- define "marula.containerSecurityContext" -}}
 {{- $readOnly := default false .readOnly -}}
 allowPrivilegeEscalation: false
 capabilities:
@@ -53,7 +53,7 @@ readOnlyRootFilesystem: {{ $readOnly }}
 {{- /* One image reference per binary. Enforces digest pinning when
 digestPinningEnforced is on — renders an invalid field (fails schema
 validation / admission) rather than silently floating. */ -}}
-{{- define "meridian.image" -}}
+{{- define "marula.image" -}}
 {{- $img := .image -}}
 {{- if and .ctx.Values.digestPinningEnforced (not $img.digest) -}}
 {{- fail (printf "image %s has no digest set (digestPinningEnforced=true): set images.%s.digest from the release's published attestation" $img.repository .key) -}}
@@ -66,25 +66,25 @@ validation / admission) rather than silently floating. */ -}}
 {{- end -}}
 {{- end -}}
 
-{{- define "meridian.dbUrl" -}}
+{{- define "marula.dbUrl" -}}
 {{- if .Values.postgresql.deploy -}}
-postgres://{{ .Values.postgresql.ownerUser }}:{{ .Values.postgresql.ownerPassword | default "changeme-owner" }}@{{ include "meridian.fullname" . }}-postgres:5432/{{ .Values.postgresql.database }}
+postgres://{{ .Values.postgresql.ownerUser }}:{{ .Values.postgresql.ownerPassword | default "changeme-owner" }}@{{ include "marula.fullname" . }}-postgres:5432/{{ .Values.postgresql.database }}
 {{- else -}}
 {{- required "postgresql.externalUrl required when postgresql.deploy=false" (.Values.postgresql.externalUrl) -}}
 {{- end -}}
 {{- end -}}
 
-{{- define "meridian.dbAppUrl" -}}
+{{- define "marula.dbAppUrl" -}}
 {{- if .Values.postgresql.deploy -}}
-postgres://{{ .Values.postgresql.appUser }}:{{ .Values.postgresql.appPassword | default "changeme-app" }}@{{ include "meridian.fullname" . }}-postgres:5432/{{ .Values.postgresql.database }}
+postgres://{{ .Values.postgresql.appUser }}:{{ .Values.postgresql.appPassword | default "changeme-app" }}@{{ include "marula.fullname" . }}-postgres:5432/{{ .Values.postgresql.database }}
 {{- else -}}
 {{- required "postgresql.externalAppUrl required when postgresql.deploy=false" (.Values.postgresql.externalAppUrl) -}}
 {{- end -}}
 {{- end -}}
 
-{{- define "meridian.redisUrl" -}}
+{{- define "marula.redisUrl" -}}
 {{- if .Values.redis.deploy -}}
-redis://{{ include "meridian.fullname" . }}-redis:6379/0
+redis://{{ include "marula.fullname" . }}-redis:6379/0
 {{- else -}}
 {{- required "redis.externalUrl required when redis.deploy=false" .Values.redis.externalUrl -}}
 {{- end -}}

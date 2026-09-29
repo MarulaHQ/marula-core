@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "meridian.fullname" . }}-realtime
+  name: {{ include "marula.fullname" . }}-realtime
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: realtime
 spec:
   replicas: {{ .Values.realtime.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "meridian.name" . }}
+      app.kubernetes.io/name: {{ include "marula.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: realtime
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ include "meridian.name" . }}
+        app.kubernetes.io/name: {{ include "marula.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: realtime
     spec:
@@ -26,19 +26,19 @@ spec:
         {{- toYaml $ctx | nindent 8 }}
       containers:
         - name: realtime
-          image: {{ include "meridian.image" (dict "ctx" . "image" .Values.images.realtime "key" "realtime") }}
+          image: {{ include "marula.image" (dict "ctx" . "image" .Values.images.realtime "key" "realtime") }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
           securityContext:
-            {{- include "meridian.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
+            {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           env:
             - name: REDIS_URL
-              value: {{ include "meridian.redisUrl" . | quote }}
+              value: {{ include "marula.redisUrl" . | quote }}
             - name: BIND_ADDR
               value: "0.0.0.0:8081"
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: JWT_SECRET
             # Optional EdDSA verification key (Wave 34 lane 6): present
             # when core-api signs with the asymmetric pair; absent keeps
@@ -46,7 +46,7 @@ spec:
             - name: MARULA_JWT_EDDSA_PUBLIC_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (printf "%s-secrets" (include "meridian.fullname" .)) .Values.existingSecret }}
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: MARULA_JWT_EDDSA_PUBLIC_KEY
                   optional: true
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -71,14 +71,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "meridian.fullname" . }}-realtime
+  name: {{ include "marula.fullname" . }}-realtime
   labels:
-    {{- include "meridian.labels" . | nindent 4 }}
+    {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: realtime
 spec:
   type: {{ .Values.service.realtime.type }}
   selector:
-    app.kubernetes.io/name: {{ include "meridian.name" . }}
+    app.kubernetes.io/name: {{ include "marula.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: realtime
   ports:

@@ -1,4 +1,4 @@
-# Default values for the meridian chart.
+# Default values for the marula chart.
 #
 # Image policy (release engineering, TASKLIST U10b): every image reference is
 # digest-pinned in production — set `tag` for readability AND `digest` for
@@ -10,12 +10,12 @@
 # resource otherwise. Opt out ONLY for local development.
 digestPinningEnforced: true
 
-# Global guard for NON-meridian images too (p38): when true, every bare
+# Global guard for NON-marula images too (p38): when true, every bare
 # string image value (postgresql.image, redis.image, mailpit.image,
 # garage.image, garage.bootstrapImage) must carry an @sha256:... digest.
 # The companion *Digest values below provide the enforced digests; the
 # `tag@digest` form still keeps the readable tag.
-nonMeridianDigestPinningEnforced: true
+nonMarulaDigestPinningEnforced: true
 
 nameOverride: ""
 fullnameOverride: ""
@@ -41,18 +41,18 @@ secrets:
 imagePullSecrets: []
 
 images:
-  registry: ghcr.io/meridian-open
+  registry: ghcr.io/marula-open
   pullPolicy: IfNotPresent
   coreApi:
-    repository: meridian-core-api
+    repository: marula-core-api
     tag: "v0.2.0"
     digest: ""
   realtime:
-    repository: meridian-realtime
+    repository: marula-realtime
     tag: "v0.2.0"
     digest: ""
   worker:
-    repository: meridian-worker
+    repository: marula-worker
     tag: "v0.2.0"
     digest: ""
   cli:
@@ -60,7 +60,7 @@ images:
     tag: "v0.2.0"
     digest: ""
   web:
-    repository: meridian-web
+    repository: marula-web
     tag: "v0.2.0"
     digest: ""
 
@@ -68,7 +68,7 @@ images:
 # Either deploy in-chart Postgres (pgvector image, prod parity) or point at
 # an external instance. The in-chart deployment is sized for evaluation;
 # production installs should bring their own Postgres.
-# Image values carry `tag` AND `digest` (same policy as the meridian images:
+# Image values carry `tag` AND `digest` (same policy as the marula images:
 # the digest enforces, the tag is readable). Third-party slots use Docker
 # Hardened Images where the DHI catalog covers them (pgvector, valkey,
 # grafana stack, curl; garage/mailpit/glitchtip/otel have no DHI).
@@ -80,10 +80,10 @@ postgresql:
   deploy: true
   image: dhi.io/pgvector:0.8-pg18
   imageDigest: "sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946"
-  database: meridian
-  ownerUser: meridian
+  database: marula
+  ownerUser: marula
   ownerPassword: ""
-  appUser: meridian_app
+  appUser: marula_app
   appPassword: ""
   storage:
     className: ""
@@ -146,7 +146,7 @@ objectStore:
   localDir: /data/objects
   s3:
     endpoint: ""
-    bucket: meridian
+    bucket: marula
     # empty = follow the in-chart Garage region (garage.s3Region)
     region: ""
     accessKeyId: ""
@@ -161,7 +161,7 @@ objectStore:
 # capacity is bytes (e.g. 200_000_000_000 for a 200GB ceiling).
 garage:
   enabled: false
-  # createS3Key: the bootstrap Job creates the "meridian" access key and
+  # createS3Key: the bootstrap Job creates the "marula" access key and
   # prints its secret to the job logs (shown once) — copy it into
   # objectStore.s3.secretAccessKey. Keep false when you pre-provision keys.
   image: dxflrs/garage:v1.1.0
@@ -209,7 +209,7 @@ podSecurityContext:
   runAsNonRoot: true
 
 # Per-deployable uid/gid matching the images (p38-container-hardening):
-# meridian rust images run as the DHI debian-base `nonroot` user (65532),
+# marula rust images run as the DHI debian-base `nonroot` user (65532),
 # web as 1000, postgres image inits as root (chown-based init — runAsUser 0
 # is a documented exemption there), garage distroless as 10004 via
 # runAsUser, valkey as the DHI nonroot 65532.

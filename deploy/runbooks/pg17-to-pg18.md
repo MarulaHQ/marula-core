@@ -21,8 +21,8 @@ GB. Both are forward-only — take a backup first either way
 ## 0. Detect
 
 ```sh
-docker run --rm -v meridian_pgdata:/v pgvector/pgvector:pg18 cat /v/PG_VERSION 2>/dev/null \
-  || docker run --rm -v meridian_pgdata:/v alpine cat /v/data/PG_VERSION
+docker run --rm -v marula_pgdata:/v pgvector/pgvector:pg18 cat /v/PG_VERSION 2>/dev/null \
+  || docker run --rm -v marula_pgdata:/v alpine cat /v/data/PG_VERSION
 ```
 
 `17` (or lower) → cut needed. `18` → nothing to do.
@@ -37,35 +37,35 @@ in `deploy/docker-compose.yml`).
    keeps the old `pg17` image usable:
 
    ```sh
-   docker run -d --name p17-cut -v meridian_pgdata:/var/lib/postgresql \
+   docker run -d --name p17-cut -v marula_pgdata:/var/lib/postgresql \
      pgvector/pgvector:pg17 sleep 600
    docker exec p17-cut su postgres -c \
      "pg_ctl -D /var/lib/postgresql -o '-p 5499' -w start"
    docker exec p17-cut su postgres -c \
-     "pg_dumpall -p 5499 -U meridian > /tmp/dump.sql"
-   docker cp p17-cut:/tmp/dump.sql ./meridian-pg17-dump.sql
+     "pg_dumpall -p 5499 -U marula > /tmp/dump.sql"
+   docker cp p17-cut:/tmp/dump.sql ./marula-pg17-dump.sql
    docker exec p17-cut su postgres -c "pg_ctl -D /var/lib/postgresql -m fast -w stop"
    docker rm -f p17-cut
    ```
 
-   `-U meridian` (not `postgres`) — the compose bootstrap superuser is
-   `meridian`; there is no `postgres` role.
+   `-U marula` (not `postgres`) — the compose bootstrap superuser is
+   `marula`; there is no `postgres` role.
 
 2. **Wipe the volume and start PG18** (the dump IS the backup):
 
    ```sh
    docker compose -f deploy/docker-compose.yml down
-   docker volume rm meridian_pgdata
+   docker volume rm marula_pgdata
    docker compose -f deploy/docker-compose.yml up -d postgres
    ```
 
-3. **Restore.** `CREATE ROLE meridian` fails benignly (the fresh initdb
+3. **Restore.** `CREATE ROLE marula` fails benignly (the fresh initdb
    already made it a superuser) — run without `ON_ERROR_STOP` and filter:
 
    ```sh
-   docker compose -f deploy/docker-compose.yml cp meridian-pg17-dump.sql postgres:/tmp/dump.sql
-   docker compose -f deploy/docker-compose.yml exec -e PGPASSWORD=meridian postgres sh -c \
-     'psql -U meridian -d postgres -v ON_ERROR_STOP=0 -f /tmp/dump.sql 2>&1 \
+   docker compose -f deploy/docker-compose.yml cp marula-pg17-dump.sql postgres:/tmp/dump.sql
+   docker compose -f deploy/docker-compose.yml exec -e PGPASSWORD=marula postgres sh -c \
+     'psql -U marula -d postgres -v ON_ERROR_STOP=0 -f /tmp/dump.sql 2>&1 \
       | grep -i error | grep -iv "already exists"'
    ```
 
@@ -74,7 +74,7 @@ in `deploy/docker-compose.yml`).
 4. **Verify + bring the stack up:**
 
    ```sh
-   docker compose -f deploy/docker-compose.yml exec postgres psql -U meridian -d meridian \
+   docker compose -f deploy/docker-compose.yml exec postgres psql -U marula -d marula \
      -tc "SELECT version FROM _sqlx_migrations ORDER BY version DESC LIMIT 1;"
    # → 0102
    docker compose -f deploy/docker-compose.yml up -d
