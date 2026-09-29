@@ -83,6 +83,11 @@ for (const line of lines) {
   if (rest.includes("PresenceRelayListener")) continue;
   // L2: third-party repo paths that carry the old name.
   if (rest.includes("project-meridian-relay-psa")) continue;
+  // 0114 must quote the old names it RETIRES (DROP TRIGGER legacy names +
+  // history rationale in comments). Every future string-data migration may
+  // quote only to drop superseded names — additions of new old-name surface
+  // still fail this gate.
+  if (file === "crates/core-db/migrations/0114_wave41_marula_rebrand.sql") continue;
   // Pending-regen: the OpenAPI pins are re-pinned ONLY via
   // scripts/regen-openapi-pins.sh (gate-time, stack needed); the shipping-SDK
   // twin (packages/sdk) is regenerated from the pin. This allowance expires
