@@ -17,6 +17,8 @@ import {
   POPOUT_ROUTES,
 } from "./registry";
 import { announceWindow } from "./window-bus";
+import { openNativeWindow } from "../desktop/windows";
+import { isDesktopShell } from "../desktop/shell";
 
 export type OpenPopoutResult =
   | { ok: true; windowKey: string; window: Window | null }
@@ -47,6 +49,23 @@ export function openPopout(
   const path = pathOf(routeKey, params);
   if (path === null) {
     return { ok: false, blocked: true, routeKey, path: routeKey };
+  }
+  // Desktop shell (Wave 38 lane 2): the SAME affordance becomes a native
+  // OS window — same route key, same compact shell, per-role remembered
+  // geometry. Fire-and-honest: the sync return keeps every caller's
+  // contract; a rare factory failure is console-reported (support reality,
+  // same posture as the desktop update check) rather than an inline hint,
+  // because the normal outcome is a window on screen, not a blocker.
+  if (isDesktopShell()) {
+    const pathSuffix = path.replace(/^\//, "").replace(/\?.*$/, "");
+    void openNativeWindow(routeKey, pathSuffix).then((result) => {
+      if (result !== null && !result.ok) {
+        console.warn(
+          `native window for ${routeKey} failed to open (factory returned an error)`,
+        );
+      }
+    });
+    return { ok: true, windowKey: `${routeKey}:${params.id ?? ""}`, window: null };
   }
   const def = POPOUT_ROUTES.find((d) => d.key === routeKey) ?? null;
   const url = `${path}?popout=${encodeURIComponent(routeKey)}`;

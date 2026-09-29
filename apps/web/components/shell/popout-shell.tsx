@@ -27,6 +27,12 @@ export function setPopoutDirty(dirty: boolean): void {
   popoutDirty = dirty;
 }
 
+/** Read the flag (the desktop updater's restart survey asks every window;
+ * the strip in each window answers with this). */
+export function popoutDirtyFlag(): boolean {
+  return popoutDirty;
+}
+
 function onBeforeUnload(event: BeforeUnloadEvent): void {
   if (!popoutDirty) return;
   event.preventDefault();

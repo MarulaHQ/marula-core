@@ -1,14 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop-web",
-  "description": "Grants the web app (served by the bundled Next server on a loopback port, i.e. a REMOTE origin for Tauri) exactly the three app commands it drives: raw-ZPL label transport and the update check/apply pair. No plugin permissions are granted to this origin and no core permission is needed to invoke app commands. Since tauri 2.11.1 remote origins are ACL-gated for custom commands too, so without this capability all three commands are denied in the real shell.",
-  "windows": ["main"],
+  "description": "Grants the web app (served by the bundled Next server on a loopback port, i.e. a REMOTE origin for Tauri) exactly the app commands it drives: raw-ZPL label transport, the update check/apply pair, and the Wave 38 lane 2 native window commands (open/focus role windows, route meridian:// links — geometry persistence is Rust-side window events, not renderer-driven). No plugin permissions are granted to this origin and no core permission is needed to invoke app commands. Since tauri 2.11.1 remote origins are ACL-gated for custom commands too, so without this capability all commands are denied in the real shell. 'main' plus 'subwindow::*' labels: every native role window carries the same remote origin and drives the same command surface (ZPL printing works from ANY window).",
+  "windows": ["main", "subwindow:*"],
   "remote": {
     "urls": ["http://127.0.0.1:*"]
   },
   "permissions": [
     "allow-print-raw-zpl",
     "allow-check-desktop-update",
-    "allow-install-desktop-update"
+    "allow-install-desktop-update",
+    "allow-open-native-window",
+    "allow-focus-native-window",
+    "allow-route-meridian-link"
   ]
 }

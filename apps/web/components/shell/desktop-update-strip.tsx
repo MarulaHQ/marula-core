@@ -19,6 +19,8 @@ import {
   installDesktopUpdate,
   type DesktopUpdateInfo,
 } from "../../lib/desktop/updater";
+import { anyWindowDirty, answerRestartChecks } from "../../lib/popout/window-bus";
+import { popoutDirtyFlag } from "./popout-shell";
 
 type StripState =
   /** Nothing to say (no update, not the desktop shell, check failed). */
@@ -31,6 +33,10 @@ export function DesktopUpdateStrip() {
   const [state, setState] = useState<StripState>({ kind: "hidden" });
   const [dismissed, setDismissed] = useState(false);
   const alive = useRef(true);
+
+  // Answer sibling restart surveys with THIS window's dirty state (the
+  // popout close guard's flag — one truth per window).
+  useEffect(() => answerRestartChecks(() => popoutDirtyFlag()), []);
 
   useEffect(() => {
     alive.current = true;
@@ -54,6 +60,21 @@ export function DesktopUpdateStrip() {
     setState((prev) =>
       prev.kind === "available" ? { kind: "installing", update: prev.update } : prev,
     );
+    // Multi-window honesty (Wave 38 lane 2): before the shell restarts,
+    // ask EVERY window whether it still has unsaved edits (the save-bar
+    // state — one truth per window). Any dirty window blocks the restart:
+    // the strip flips back with the reason. No window is killed silently.
+    const survey = await anyWindowDirty();
+    if (survey.dirty) {
+      if (!alive.current) return;
+      setDismissed(false);
+      setState((prev) =>
+        prev.kind === "installing"
+          ? { kind: "failed", update: prev.update, message: "A Meridian window still has unsaved edits — save or discard them, then restart the update." }
+          : prev,
+      );
+      return;
+    }
     const result = await installDesktopUpdate();
     if (!alive.current) return;
     if (result.kind === "error") {

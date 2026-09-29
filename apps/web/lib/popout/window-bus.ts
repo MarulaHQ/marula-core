@@ -26,7 +26,11 @@ export type BusMessage =
   | { kind: "entity-changed"; entityIds: string[]; meta: unknown; from: string }
   | { kind: "session"; state: "expired" | "restored" }
   | { kind: "claim"; flightKey: string; from: string }
-  | { kind: "held"; flightKey: string; to: string };
+  | { kind: "held"; flightKey: string; to: string }
+  // Desktop fleet (Wave 38 lane 2): an update restart asks EVERY window;
+  // each answers dirty (unsaved edits exist — save-bar semantics) or clean.
+  | { kind: "restart-check"; requestId: string; from: string }
+  | { kind: "restart-answer"; requestId: string; dirty: boolean; from: string };
 
 /** A per-JS-context id. NOT sessionStorage-backed: browsers COPY sessionStorage
  * into popups opened via window.open, which would make main + popout share
@@ -191,6 +195,46 @@ export function answerClaims(isFlying: (flightKey: string) => boolean): () => vo
     if (!isFlying(msg.flightKey)) return;
     const bus = ensure();
     bus?.channel?.postMessage({ kind: "held", flightKey: msg.flightKey, to: msg.from } satisfies BusMessage);
+  });
+}
+
+/**
+ * Desktop fleet restart handshake (Wave 38 lane 2): before the updater
+ * restarts the app, the initiating window asks every sibling "anything
+ * unsaved?". Each window that registers an isDirty resolver answers;
+ * `true` means some window still has unsaved edits.
+ */
+export async function anyWindowDirty(
+  requestId: string = `restart-${Date.now()}`,
+): Promise<{ dirty: boolean; peers: number }> {
+  const bus = ensure();
+  if (bus === null) return { dirty: false, peers: 0 };
+  let dirty = false;
+  const seen = new Set<string>();
+  const off = onBusMessage((msg) => {
+    if (msg.kind !== "restart-answer" || msg.requestId !== requestId) return;
+    seen.add(msg.from);
+    if (msg.dirty) dirty = true;
+  });
+  bus.channel?.postMessage({ kind: "restart-check", requestId, from: bus.id } satisfies BusMessage);
+  // Fleet survey: a real round-trip window for co-located windows.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  off();
+  return { dirty, peers: seen.size };
+}
+
+/** Register THIS window's dirtiness for restart surveys (the same state
+ * the close guard uses — one truth for "unsaved edits exist here"). */
+export function answerRestartChecks(isDirty: () => boolean): () => void {
+  return onBusMessage((msg) => {
+    if (msg.kind !== "restart-check" || msg.from === ensure()?.id) return;
+    const bus = ensure();
+    bus?.channel?.postMessage({
+      kind: "restart-answer",
+      requestId: msg.requestId,
+      dirty: isDirty(),
+      from: bus.id,
+    } satisfies BusMessage);
   });
 }
 

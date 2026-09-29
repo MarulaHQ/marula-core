@@ -9,8 +9,11 @@ description = "Double-clickable local Meridian test app: embedded Postgres + cor
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# tray-icon (menu-bar tray quick actions) + image-png (bundled icon) for
+# Wave 38 lane 2 multi-window/OS-integration work.
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "2"
 postgresql_embedded = { version = "0.20", features = ["tokio"] }
 tokio.workspace = true
 serde.workspace = true
