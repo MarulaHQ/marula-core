@@ -1,7 +1,7 @@
 // Live timer activity — iOS implementation over the local ActivityKit module.
 //
 // The module is compiled into the app by CNG (native/modules/
-// meridian-live-activity) together with the widget extension target
+// marula-live-activity) together with the widget extension target
 // (native/targets/live-timer). When the module is not linked (Expo Go, web,
 // tests), `requireOptionalNativeModule` returns null and every call reports
 // unsupported instead of throwing.
@@ -22,7 +22,7 @@ interface NativeLiveActivity {
   ): { remove(): void };
 }
 
-const native = requireOptionalNativeModule<NativeLiveActivity>("MeridianLiveActivity");
+const native = requireOptionalNativeModule<NativeLiveActivity>("MarulaLiveActivity");
 
 export const liveTimerActivity = {
   async isSupported(): Promise<boolean> {

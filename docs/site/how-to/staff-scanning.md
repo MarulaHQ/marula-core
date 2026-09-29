@@ -18,9 +18,9 @@
 Every scan resolves to exactly ONE typed record before anything acts on
 it. The resolver reads, in this order:
 
-1. A **deep link** — the QR's `meridian://stock-item/…`,
-   `meridian://stock-location/…`, `meridian://stock-serial/…`, or
-   `meridian://device-asset/…`.
+1. A **deep link** — the QR's `marula://stock-item/…`,
+   `marula://stock-location/…`, `marula://stock-serial/…`, or
+   `marula://device-asset/…`.
 2. A **serial number** of a tracked unit.
 3. A stock item's **SKU or part number**.
 4. A location's **code**.

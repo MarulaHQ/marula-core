@@ -5,7 +5,7 @@
 # status screen must report the bridge. This flow needs a build with the
 # native module (the CI Release build and a dev client); in Expo Go the
 # status screen honestly reports UNSUPPORTED instead.
-appId: tech.meridian.app
+appId: org.marula.app
 ---
 - launchApp
 - extendedWaitUntil:

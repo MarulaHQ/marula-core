@@ -8,7 +8,7 @@ import { MODELS } from "@/core/models";
 import { MemoryStore } from "@/core/storage";
 import { SyncEngine, invalidationFor } from "@/core/sync";
 import type { EventEnvelope } from "@/core/realtime";
-import type { MeridianClient } from "@marula-core/sdk";
+import type { MarulaClient } from "@marula-core/sdk";
 import { startTimer } from "@/core/writes";
 
 import { FakeApi, FakeSocketFactory } from "./helpers";
@@ -23,7 +23,7 @@ function makeEngine(
   const factory = options.factory ?? new FakeSocketFactory();
   const state = { online: options.online ?? true };
   const engine = new SyncEngine({
-    client: api.asClient<MeridianClient>(),
+    client: api.asClient<MarulaClient>(),
     stores: {
       cache: new MemoryStore(),
       queue: new MemoryStore(),
@@ -92,7 +92,7 @@ describe("SyncEngine", () => {
       versions: new MemoryStore(),
     };
     const first = new SyncEngine({
-      client: new FakeApi().asClient<MeridianClient>(),
+      client: new FakeApi().asClient<MarulaClient>(),
       stores,
       realtime: {
         url: () => "ws://localhost:8081/ws",
@@ -109,7 +109,7 @@ describe("SyncEngine", () => {
     const api = new FakeApi();
     api.route("POST", "/api/v1/timers/start", { data: { id: "s1", mutation: { version: 1 } } });
     const second = new SyncEngine({
-      client: api.asClient<MeridianClient>(),
+      client: api.asClient<MarulaClient>(),
       stores,
       realtime: {
         url: () => "ws://localhost:8081/ws",

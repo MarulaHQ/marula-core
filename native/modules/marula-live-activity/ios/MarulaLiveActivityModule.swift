@@ -14,12 +14,12 @@ import ActivityKit
 import ExpoModulesCore
 import Foundation
 
-public class MeridianLiveActivityModule: Module {
+public class MarulaLiveActivityModule: Module {
     private var activity: Activity<TimerActivityAttributes>?
     private var tokenTask: Task<Void, Never>?
 
     public func definition() -> ModuleDefinition {
-        Name("MeridianLiveActivity")
+        Name("MarulaLiveActivity")
 
         Events("onPushToken")
 

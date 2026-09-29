@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "Meridian",
-    "slug": "meridian",
+    "name": "Marula",
+    "slug": "marula",
     "version": "0.1.0",
     "orientation": "default",
-    "scheme": "meridian",
+    "scheme": "marula",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "icon": "./assets/icon.png",
     "ios": {
-      "bundleIdentifier": "tech.meridian.app",
+      "bundleIdentifier": "org.marula.app",
       "supportsTablet": true,
       "requireFullScreen": false,
       "infoPlist": {
@@ -20,7 +20,7 @@
       }
     },
     "android": {
-      "package": "tech.meridian.app",
+      "package": "org.marula.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#E05D38"
@@ -43,13 +43,13 @@
       [
         "expo-secure-store",
         {
-          "faceIDPermission": "Meridian uses Face ID to unlock your saved session on this device."
+          "faceIDPermission": "Marula uses Face ID to unlock your saved session on this device."
         }
       ],
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Meridian uses Face ID to unlock your saved session on this device."
+          "faceIDPermission": "Marula uses Face ID to unlock your saved session on this device."
         }
       ],
       [
@@ -72,7 +72,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Meridian scans labels and toolbox tags on this device. Nothing is uploaded until you confirm a movement."
+          "cameraPermission": "Marula scans labels and toolbox tags on this device. Nothing is uploaded until you confirm a movement."
         }
       ],
       "@bacons/apple-targets"

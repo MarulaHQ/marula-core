@@ -1,4 +1,4 @@
-# Meridian native app (`@marula-core/native`)
+# Marula native app (`@marula-core/native`)
 
 The Expo / React Native client. Wave 33 lane 1 ships the foundation: auth
 with MFA and biometric sign-in, the app shell, an offline-first read cache, a

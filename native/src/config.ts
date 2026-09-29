@@ -50,6 +50,6 @@ export const DEV_TOOLS_ENABLED =
   __DEV__ || process.env.EXPO_PUBLIC_ENABLE_DEV_TOOLS === "1";
 
 /** Deep-link scheme, frozen by the scan contract. */
-export const APP_SCHEME = "meridian";
+export const APP_SCHEME = "marula";
 
 export const APP_VERSION = "0.1.0";

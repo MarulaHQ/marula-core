@@ -44,7 +44,7 @@ const RESOLUTION = {
   device_asset_id: null,
   display_name: "Cat6 patch cable (1 m)",
   secondary: "C6-1M",
-  deep_link: `meridian://stock-item/${ITEM.id}`,
+  deep_link: `marula://stock-item/${ITEM.id}`,
   is_tool: false,
   item_kind: "consumable",
   serial_status: null,

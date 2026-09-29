@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android", "web"],
+  "apple": {
+    "modules": ["MarulaLiveActivityModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.marulaliveactivity.MarulaLiveActivityModule"]
+  }
+}

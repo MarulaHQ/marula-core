@@ -43,7 +43,7 @@ back. The editor header summarizes the whole kit.
 
 1. Select the kit and press **Print label**.
 2. Choose the Toolbox template. The QR encodes
-   `meridian://tool-kit/<id>`. If the template carries a Code128, that
+   `marula://tool-kit/<id>`. If the template carries a Code128, that
    encodes the kit code.
 3. Scan the printed tag with the scan bar at the top of the page. The
    editor selects that kit, which proves the tag resolves before it goes

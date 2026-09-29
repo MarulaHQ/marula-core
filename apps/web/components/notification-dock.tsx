@@ -139,7 +139,7 @@ export function NotificationDock() {
       if (requestFocus(path)) return;
       // Desktop fleet (lane 2): ask the shell to open-or-focus the ticket
       // ROLE window; when the shell declines (plain web), navigate here.
-      void routeMeridianLink(`meridian://ticket/${item.ticket_id}`).then(
+      void routeMeridianLink(`marula://ticket/${item.ticket_id}`).then(
         (routed) => {
           if (routed === null) router.push(path);
         },

@@ -3,11 +3,11 @@ plugins {
   id 'expo-module-gradle-plugin'
 }
 
-group = 'expo.modules.meridianliveactivity'
+group = 'expo.modules.marulaliveactivity'
 version = '0.1.0'
 
 android {
-  namespace "expo.modules.meridianliveactivity"
+  namespace "expo.modules.marulaliveactivity"
   defaultConfig {
     versionCode 1
     versionName "0.1.0"

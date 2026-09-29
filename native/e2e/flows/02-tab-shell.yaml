@@ -1,6 +1,6 @@
 # Tab shell navigation: Today -> Board -> Scan -> More -> Today.
 # Tabs are peers and switch instantly (no slide) per the motion law.
-appId: tech.meridian.app
+appId: org.marula.app
 ---
 - launchApp
 - extendedWaitUntil:

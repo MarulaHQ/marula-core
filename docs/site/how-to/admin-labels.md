@@ -29,7 +29,7 @@ can print and what its QR code points at. Four purposes ship:
 | Loan device | Name, asset tag, serial, org | the device asset |
 
 The QR never carries free text. It always carries the record's deep link
-(`meridian://…`), which is what the scan bar resolves back to the record —
+(`marula://…`), which is what the scan bar resolves back to the record —
 so a label and the thing it names cannot drift.
 
 ## Create a template

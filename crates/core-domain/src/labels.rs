@@ -394,7 +394,7 @@ mod tests {
                 ("serial".into(), "TW-000123".into()),
                 ("location".into(), "Van 2".into()),
             ],
-            qr_data: "meridian://stock-serial/00000000-0000-0000-0000-000000000000".into(),
+            qr_data: "marula://stock-serial/00000000-0000-0000-0000-000000000000".into(),
         }
     }
 
@@ -525,7 +525,7 @@ mod tests {
         t.fields = vec!["sku".into()];
         let i = LabelInput {
             values: vec![],
-            qr_data: "meridian://stock-item/1".into(),
+            qr_data: "marula://stock-item/1".into(),
         };
         let label = render_label(&t, &i);
         assert_eq!(label.lines[0].text, "");

@@ -15,7 +15,7 @@ envelopes, no mobile fork of anything.
 | Live sync | one authed socket to `/ws`, org and board subscriptions, event → cache invalidation | `native/src/core/realtime.ts`, `native/src/core/sync.ts` |
 | Timers and notes | server-backed entities: `GET /timers/active` plus queued start/pause/resume/stop. Notes are comments with optimistic render and server reconcile | `native/src/tickets/ticket-detail.tsx` |
 | Adaptive layout | width class decides two-pane master–detail at 768pt and up. Compact pushes. Stage Manager resizes into the same breakpoint | `native/src/ui/adaptive.ts` |
-| Scan injector | paste a scan or open `meridian://scan-result?text=…`. The typed resolver drives routing, ambiguity renders a picker, unknown stays unknown | `native/app/(tabs)/scan.tsx`, `native/src/core/scan.ts` |
+| Scan injector | paste a scan or open `marula://scan-result?text=…`. The typed resolver drives routing, ambiguity renders a picker, unknown stays unknown | `native/app/(tabs)/scan.tsx`, `native/src/core/scan.ts` |
 | Push seam | permission, Android channel, device/expo token acquisition, notification tap routing | `native/src/push/push.ts` |
 
 Verification lives with the lane: 43 unit tests (`native/tests`), a live-stack

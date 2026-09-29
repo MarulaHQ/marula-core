@@ -4,7 +4,7 @@
 # the kit resolves through POST /api/v1/scan/resolve; the checkout runs the
 # lane-3 transaction; scanning the tool's serial then returns that unit with a
 # per-line checkin. Fixtures come from native/e2e/seed-fieldops.mjs.
-appId: tech.meridian.app
+appId: org.marula.app
 ---
 - launchApp
 - extendedWaitUntil:

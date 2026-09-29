@@ -3,13 +3,13 @@ import SwiftUI
 import WidgetKit
 
 /// The brand accent, mirroring native/src/ui/tokens.ts (`primary` #E05D38).
-private let meridianPrimary = Color(red: 224 / 255, green: 93 / 255, blue: 56 / 255)
+private let marulaPrimary = Color(red: 224 / 255, green: 93 / 255, blue: 56 / 255)
 
 /// Brand-adjacent ink for the in-island surfaces (readable on the system's
 /// black island in both appearances).
-private let meridianInk = Color(red: 51 / 255, green: 51 / 255, blue: 51 / 255)
-private let meridianPaper = Color(red: 232 / 255, green: 235 / 255, blue: 237 / 255)
-private let meridianDark = Color(red: 28 / 255, green: 36 / 255, blue: 51 / 255)
+private let marulaInk = Color(red: 51 / 255, green: 51 / 255, blue: 51 / 255)
+private let marulaPaper = Color(red: 232 / 255, green: 235 / 255, blue: 237 / 255)
+private let marulaDark = Color(red: 28 / 255, green: 36 / 255, blue: 51 / 255)
 
 /// The one Live Activity for a running job timer.
 ///
@@ -25,7 +25,7 @@ struct LiveTimerWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: TimerActivityAttributes.self) { context in
             LockScreenTimer(context: context)
-                .activityBackgroundTint(meridianDark)
+                .activityBackgroundTint(marulaDark)
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             DynamicIsland {
@@ -33,10 +33,10 @@ struct LiveTimerWidget: Widget {
                     HStack(spacing: 6) {
                         Image(systemName: iconName(context.state))
                             .font(.title2)
-                            .foregroundStyle(meridianPrimary)
+                            .foregroundStyle(marulaPrimary)
                         Text(shortTicket(context.state.ticketNumber))
                             .font(.caption.weight(.heavy))
-                            .foregroundStyle(meridianPrimary)
+                            .foregroundStyle(marulaPrimary)
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
@@ -65,7 +65,7 @@ struct LiveTimerWidget: Widget {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.white)
                     .padding(5)
-                    .background(meridianPrimary, in: Capsule())
+                    .background(marulaPrimary, in: Capsule())
             } compactTrailing: {
                 CompactClockBody(state: context.state)
                     .font(.body.weight(.semibold).monospacedDigit())
@@ -76,12 +76,12 @@ struct LiveTimerWidget: Widget {
                 // clock keeps working even in the smallest form.
                 CompactClockBody(state: context.state)
                     .font(.caption2.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(meridianPrimary)
+                    .foregroundStyle(marulaPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
-            .widgetURL(URL(string: "meridian://timer/\(context.attributes.sessionId)"))
-            .keylineTint(meridianPrimary)
+            .widgetURL(URL(string: "marula://timer/\(context.attributes.sessionId)"))
+            .keylineTint(marulaPrimary)
         }
     }
 }
@@ -95,11 +95,11 @@ private struct LockScreenTimer: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: iconName(context.state))
                 .font(.title2)
-                .foregroundStyle(meridianPrimary)
+                .foregroundStyle(marulaPrimary)
             VStack(alignment: .leading, spacing: 3) {
                 Text(shortTicket(context.state.ticketNumber))
                     .font(.caption.weight(.heavy))
-                    .foregroundStyle(meridianPrimary)
+                    .foregroundStyle(marulaPrimary)
                 Text(jobTitle(context.state))
                     .font(.headline)
                     .foregroundStyle(.white)

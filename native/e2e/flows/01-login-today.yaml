@@ -1,6 +1,6 @@
 # Sign in (or land on Today when a session is already stored) and prove the
 # tab shell renders.
-appId: tech.meridian.app
+appId: org.marula.app
 ---
 - launchApp:
     clearState: true

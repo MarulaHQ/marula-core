@@ -49,7 +49,7 @@ export async function registerForPush(projectId: string): Promise<PushState> {
   try {
     if (Platform.OS === "android") {
       await Notifications.setNotificationChannelAsync("default", {
-        name: "Meridian",
+        name: "Marula",
         importance: Notifications.AndroidImportance.DEFAULT,
         lightColor: lightTokens.primary,
       });
@@ -63,7 +63,7 @@ export async function registerForPush(projectId: string): Promise<PushState> {
     if (!granted) {
       return {
         status: "denied",
-        detail: "Notifications are off for Meridian — turn them on in system settings.",
+        detail: "Notifications are off for Marula — turn them on in system settings.",
         serverRegistration: false,
       };
     }

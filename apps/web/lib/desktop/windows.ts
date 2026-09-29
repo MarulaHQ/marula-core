@@ -40,7 +40,7 @@ export async function openNativeWindow(
   }
 }
 
-/** Ask the shell to open-or-FOCUS the window a meridian:// link targets.
+/** Ask the shell to open-or-FOCUS the window a marula:// link targets.
  * Returns the acted-on label, or null when the shell is absent. */
 export async function routeMeridianLink(url: string): Promise<string | null> {
   if (!isDesktopShell()) return null;

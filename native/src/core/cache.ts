@@ -25,7 +25,7 @@ export interface CacheOptions {
   now?: () => Date;
 }
 
-const DEFAULT_PREFIX = "meridian.rn.cache.";
+const DEFAULT_PREFIX = "marula.rn.cache.";
 
 interface PersistedEntry {
   data: unknown;

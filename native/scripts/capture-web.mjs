@@ -66,7 +66,7 @@ async function main() {
       });
       await context.addInitScript(
         ([sessionJson, themeMode]) => {
-          localStorage.setItem("meridian.session.v1", sessionJson);
+          localStorage.setItem("marula.session.v1", sessionJson);
           localStorage.setItem("@marula-core/prefs/theme.mode", themeMode);
         },
         [JSON.stringify(session), theme],

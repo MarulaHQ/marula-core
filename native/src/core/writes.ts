@@ -9,7 +9,7 @@
 //
 // Non-purpose: no queue or cache state here — pure operation declarations.
 
-import type { MeridianClient } from "@marula-core/sdk";
+import type { MarulaClient } from "@marula-core/sdk";
 
 import {
   MODELS,
@@ -45,7 +45,7 @@ export interface WriteOperation<A, B extends Record<string, unknown>> {
   path: (args: A) => string;
   invalidate: (args: A) => string[];
   build: (args: A, base: MutationBase) => B;
-  send: (client: MeridianClient, body: B) => Promise<TransportResult<unknown>>;
+  send: (client: MarulaClient, body: B) => Promise<TransportResult<unknown>>;
   versionOf?: (data: unknown) => number | undefined;
   /** Synchronous local render before the wire (never awaited by the UI). */
   optimistic?: (args: A, base: MutationBase, ctx: WriteContext) => Promise<void>;

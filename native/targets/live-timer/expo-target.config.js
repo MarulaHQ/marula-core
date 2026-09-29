@@ -2,7 +2,7 @@
 module.exports = () => ({
   type: "widget",
   name: "live-timer",
-  displayName: "Meridian Timer",
+  displayName: "Marula Timer",
   // Live Activities need iOS 16.2 (ActivityKit stable).
   deploymentTarget: "16.2",
 });

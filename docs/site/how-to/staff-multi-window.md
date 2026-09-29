@@ -65,7 +65,7 @@ way your other Mac apps do:
   stay separate, because separate windows are the point.
 - **Tray.** The menu-bar icon opens a new ticket window, the dispatch
   board, or stock lookup without touching the main window.
-- **Links open the right window.** Scanning or opening a `meridian://`
+- **Links open the right window.** Scanning or opening a `marula://`
   link (from a QR label, say) brings forward the window for that ticket or
   stock item — or opens a new one if no window has it.
 - **One app at a time.** Launching Meridian a second time just brings the

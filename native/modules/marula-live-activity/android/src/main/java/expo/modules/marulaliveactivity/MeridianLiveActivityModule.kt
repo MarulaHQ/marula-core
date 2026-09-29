@@ -1,13 +1,13 @@
-package expo.modules.meridianliveactivity
+package expo.modules.marulaliveactivity
 
 import android.content.Intent
 import android.os.Build
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
-class MeridianLiveActivityModule : Module() {
+class MarulaLiveActivityModule : Module() {
     override fun definition() = ModuleDefinition {
-        Name("MeridianLiveActivity")
+        Name("MarulaLiveActivity")
 
         Function("isSupported") { true }
 

@@ -69,7 +69,7 @@ Simulate offline**, write a note, then switch it back.
 
 ## Scan a code
 
-Printed labels carry `meridian://` links and short codes. The Scan tab reads
+Printed labels carry `marula://` links and short codes. The Scan tab reads
 them both ways:
 
 1. Open **Scan**.
@@ -79,7 +79,7 @@ them both ways:
 3. The card shows what the code means. If several records match, pick one —
    the app never guesses. If nothing matches, it says so and keeps your text.
 
-Deep links work too: opening `meridian://stock-item/<uuid>` from anywhere
+Deep links work too: opening `marula://stock-item/<uuid>` from anywhere
 resolves the same way a camera scan does.
 
 ## Check tools and stock

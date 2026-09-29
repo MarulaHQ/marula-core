@@ -10,7 +10,7 @@
 // Non-purpose: no React. The data layer binds this with hooks; screens
 // never touch sockets, stores, or the queue directly.
 
-import type { MeridianClient } from "@marula-core/sdk";
+import type { MarulaClient } from "@marula-core/sdk";
 
 import { ReadCache } from "./cache";
 import {
@@ -63,7 +63,7 @@ export interface MutationResult {
 }
 
 export interface SyncEngineDeps {
-  client: MeridianClient;
+  client: MarulaClient;
   stores: {
     cache: KeyValueStore;
     queue: KeyValueStore;
@@ -95,7 +95,7 @@ export class SyncEngine {
 
   private readonly deps: SyncEngineDeps;
   private readonly states = new Map<string, ModelState>();
-  private readonly fetchers = new Map<string, (client: MeridianClient) => Promise<unknown>>();
+  private readonly fetchers = new Map<string, (client: MarulaClient) => Promise<unknown>>();
   private readonly inflight = new Map<string, Promise<void>>();
   private readonly listeners = new Set<() => void>();
   private readonly versions = new Map<string, VersionEntry>();
@@ -222,8 +222,8 @@ export class SyncEngine {
 
   /** Bind a model key to its fetcher while a screen needs it. Events still
    * mark the entry stale after detach; the next mount refreshes. */
-  registerModel<T>(key: string, fetcher: (client: MeridianClient) => Promise<T>): () => void {
-    this.fetchers.set(key, fetcher as (client: MeridianClient) => Promise<unknown>);
+  registerModel<T>(key: string, fetcher: (client: MarulaClient) => Promise<T>): () => void {
+    this.fetchers.set(key, fetcher as (client: MarulaClient) => Promise<unknown>);
     return () => {
       this.fetchers.delete(key);
     };
@@ -231,10 +231,10 @@ export class SyncEngine {
 
   async refresh<T>(
     key: string,
-    fetcher?: (client: MeridianClient) => Promise<T>,
+    fetcher?: (client: MarulaClient) => Promise<T>,
     options?: { force?: boolean; maxAgeMs?: number },
   ): Promise<void> {
-    const resolved = (fetcher as ((client: MeridianClient) => Promise<unknown>) | undefined) ??
+    const resolved = (fetcher as ((client: MarulaClient) => Promise<unknown>) | undefined) ??
       this.fetchers.get(key);
     if (resolved === undefined) return;
     if (options?.force !== true && options?.maxAgeMs !== undefined) {
@@ -287,7 +287,7 @@ export class SyncEngine {
 
   private async doRefresh(
     key: string,
-    fetcher: (client: MeridianClient) => Promise<unknown>,
+    fetcher: (client: MarulaClient) => Promise<unknown>,
   ): Promise<void> {
     if (!this.deps.isOnline()) {
       const cached = this.cache.get(key);
@@ -574,7 +574,7 @@ export class SyncEngine {
   }
 }
 
-const VERSIONS_KEY = "meridian.rn.versions";
+const VERSIONS_KEY = "marula.rn.versions";
 
 /** Entity → cache-key map for the event trail the hub delivers. Mirrors
  * crates/realtime/src/channel.rs routing plus the envelope entities each

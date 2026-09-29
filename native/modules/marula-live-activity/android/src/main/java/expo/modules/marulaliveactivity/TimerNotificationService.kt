@@ -9,7 +9,7 @@
 // Non-purpose: no timer logic. The JS side derives the snapshot and calls
 // start/update/end; this service only draws it.
 
-package expo.modules.meridianliveactivity
+package expo.modules.marulaliveactivity
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -24,10 +24,10 @@ import androidx.core.app.NotificationCompat
 
 class TimerNotificationService : Service() {
     companion object {
-        const val CHANNEL_ID = "meridian-live-timer"
+        const val CHANNEL_ID = "marula-live-timer"
         const val NOTIFICATION_ID = 7117
-        const val ACTION_START = "tech.meridian.app.live_timer.START"
-        const val ACTION_STOP = "tech.meridian.app.live_timer.STOP"
+        const val ACTION_START = "org.marula.app.live_timer.START"
+        const val ACTION_STOP = "org.marula.app.live_timer.STOP"
 
         const val EXTRA_SESSION_ID = "sessionId"
         const val EXTRA_TICKET_ID = "ticketId"
@@ -86,7 +86,7 @@ class TimerNotificationService : Service() {
 
         val openIntent = Intent(Intent.ACTION_VIEW).apply {
             data = android.net.Uri.parse(
-                if (!ticketId.isNullOrEmpty()) "meridian://ticket/$ticketId" else "meridian://timer",
+                if (!ticketId.isNullOrEmpty()) "marula://ticket/$ticketId" else "marula://timer",
             )
             setPackage(packageName)
         }

@@ -1,7 +1,7 @@
 # Offline queue: force offline from the dev menu, write a note, watch it
 # queue, then toggle back and watch it sync — the DX-standard proof that
 # never touches OS-level network settings.
-appId: tech.meridian.app
+appId: org.marula.app
 ---
 - launchApp
 - extendedWaitUntil:

@@ -11,7 +11,7 @@
 //! 2. Draft preview: deterministic sample values, QR as inline SVG, and the
 //!    same label geometry the print path renders (one renderer).
 //! 3. Entity render: values resolved from the real entity, the QR payload
-//!    equal to the canonical deep link (`meridian://stock-serial/<id>`),
+//!    equal to the canonical deep link (`marula://stock-serial/<id>`),
 //!    and the ZPL carrying the Code128 + QR commands.
 //! 4. Scan resolution semantics: deep links resolve by id; bare codes match
 //!    serial → SKU/part → location code → asset tag in that fixed order,
@@ -437,7 +437,7 @@ async fn label_templates_crud_preview_render_and_single_default() {
     assert_eq!(rendered["sample"], false);
     assert_eq!(
         rendered["entity"]["deep_link"],
-        format!("meridian://stock-serial/{serial}")
+        format!("marula://stock-serial/{serial}")
     );
     assert_eq!(
         rendered["entity"]["display_name"],
@@ -537,7 +537,7 @@ async fn scan_resolution_is_typed_deterministic_and_never_a_guess() {
     assert_eq!(hit["stock_item_id"], item);
     assert_eq!(hit["item_kind"], "consumable");
     assert_eq!(hit["display_name"], "Cat6 patch cable (1 m)");
-    assert_eq!(hit["deep_link"], format!("meridian://stock-item/{item}"));
+    assert_eq!(hit["deep_link"], format!("marula://stock-item/{item}"));
     assert_eq!(hit["candidates"], json!([]));
 
     // 2. Part number.
@@ -555,7 +555,7 @@ async fn scan_resolution_is_typed_deterministic_and_never_a_guess() {
     assert_eq!(hit["serial_status"], "in_stock");
     assert_eq!(
         hit["deep_link"],
-        format!("meridian://stock-serial/{serial}")
+        format!("marula://stock-serial/{serial}")
     );
 
     // 4. Location code.
@@ -564,14 +564,14 @@ async fn scan_resolution_is_typed_deterministic_and_never_a_guess() {
     assert_eq!(hit["location_id"], location);
     assert_eq!(
         hit["deep_link"],
-        format!("meridian://stock-location/{location}")
+        format!("marula://stock-location/{location}")
     );
 
     // 5. Deep links resolve by id (the label round-trip).
-    let hit = resolve_scan(&app, &token, &format!("meridian://stock-serial/{serial}")).await;
+    let hit = resolve_scan(&app, &token, &format!("marula://stock-serial/{serial}")).await;
     assert_eq!(hit["kind"], "serialized_unit");
     assert_eq!(hit["serial_id"], serial);
-    let hit = resolve_scan(&app, &token, &format!("meridian://stock-item/{item}")).await;
+    let hit = resolve_scan(&app, &token, &format!("marula://stock-item/{item}")).await;
     assert_eq!(hit["kind"], "stock_item");
     assert_eq!(hit["entity_id"], item);
 
@@ -606,7 +606,7 @@ async fn scan_resolution_is_typed_deterministic_and_never_a_guess() {
     assert_eq!(hit["secondary"], "EXCH-01");
     assert_eq!(
         hit["deep_link"],
-        format!("meridian://device-asset/{asset_id}")
+        format!("marula://device-asset/{asset_id}")
     );
 
     // 7. Ambiguity: two items sharing a part number come back as candidates.
@@ -651,9 +651,9 @@ async fn scan_resolution_is_typed_deterministic_and_never_a_guess() {
     assert_eq!(hit["entity_id"], kit_id);
     assert_eq!(hit["display_name"], "Field network kit");
     assert_eq!(hit["secondary"], "KIT-FIELD-1");
-    assert_eq!(hit["deep_link"], format!("meridian://tool-kit/{kit_id}"));
+    assert_eq!(hit["deep_link"], format!("marula://tool-kit/{kit_id}"));
     assert_eq!(hit["is_tool"], false);
-    let hit = resolve_scan(&app, &token, &format!("meridian://tool-kit/{kit_id}")).await;
+    let hit = resolve_scan(&app, &token, &format!("marula://tool-kit/{kit_id}")).await;
     assert_eq!(hit["kind"], "tool_kit");
     assert_eq!(hit["entity_id"], kit_id);
 
@@ -696,7 +696,7 @@ async fn scan_resolution_is_typed_deterministic_and_never_a_guess() {
     .await;
     assert_eq!(
         rendered["entity"]["deep_link"],
-        format!("meridian://device-asset/{asset_id}")
+        format!("marula://device-asset/{asset_id}")
     );
     assert_eq!(rendered["label"]["barcode"]["data"], "EXCH-01");
     assert_eq!(rendered["label"]["purpose"], "device_asset");

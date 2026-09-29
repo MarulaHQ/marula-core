@@ -9,7 +9,7 @@
 // Non-purpose: no camera, no transport. It turns a resolved scan into a
 // decision; screens render it.
 
-import type { MeridianClient } from "@marula-core/sdk";
+import type { MarulaClient } from "@marula-core/sdk";
 
 import { unwrap } from "./http";
 import type { ScanResolution } from "./models";
@@ -92,7 +92,7 @@ export function rejectionCopy(surface: string, resolution: ScanResolution): stri
 }
 
 export async function resolveScan(
-  client: MeridianClient,
+  client: MarulaClient,
   text: string,
 ): Promise<ScanResolution> {
   return unwrap(

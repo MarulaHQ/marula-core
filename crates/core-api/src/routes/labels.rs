@@ -16,7 +16,7 @@
 //!     (`zpl`, for the desktop shell's Zebra transport).
 //!
 //! The QR payload is always the entity's canonical deep link
-//! (`meridian://<kind>/<uuid>`) — the SAME string the scan bar resolves, so
+//! (`marula://<kind>/<uuid>`) — the SAME string the scan bar resolves, so
 //! a printed label scans back to exactly the entity it names.
 
 use crate::auth::middleware::{authed, require_permission};
@@ -1102,7 +1102,7 @@ mod tests {
 
     #[test]
     fn qr_svg_renders_a_scannable_payload_shape() {
-        let svg = qr_svg("meridian://stock-item/abc").expect("qr");
+        let svg = qr_svg("marula://stock-item/abc").expect("qr");
         assert!(svg.contains("<svg"));
         assert!(svg.contains("<path"), "qr modules as a path");
     }

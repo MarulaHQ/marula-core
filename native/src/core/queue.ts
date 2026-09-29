@@ -112,7 +112,7 @@ export interface FlushReport {
   offline: boolean;
 }
 
-const DEFAULT_PREFIX = "meridian.rn.queue.";
+const DEFAULT_PREFIX = "marula.rn.queue.";
 const DEFAULT_MAX_ATTEMPTS = 5;
 
 export class WriteQueue {

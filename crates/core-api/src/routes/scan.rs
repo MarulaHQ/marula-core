@@ -5,9 +5,9 @@
 //! the keyboard-wedge scan bar today, the mobile camera leg in Wave 33, and
 //! any future automation. The rule is deliberately boring and total:
 //!
-//!   1. A canonical deep link (`meridian://stock-item/<uuid>`,
-//!      `meridian://stock-location/<uuid>`, `meridian://stock-serial/<uuid>`,
-//!      `meridian://device-asset/<uuid>` — what printed labels encode)
+//!   1. A canonical deep link (`marula://stock-item/<uuid>`,
+//!      `marula://stock-location/<uuid>`, `marula://stock-serial/<uuid>`,
+//!      `marula://device-asset/<uuid>` — what printed labels encode)
 //!      resolves directly by id.
 //!   2. Otherwise the string is treated as a human/Code128 code and matched,
 //!      case-insensitively and org-scoped, in this FIXED priority order:
@@ -131,7 +131,7 @@ fn unknown(input: &str) -> ScanResolutionView {
 /// anything else is not a deep link.
 pub fn parse_deep_link(text: &str) -> Option<(&'static str, Uuid)> {
     let trimmed = text.trim().trim_end_matches('/');
-    let rest = trimmed.strip_prefix("meridian://")?;
+    let rest = trimmed.strip_prefix("marula://")?;
     let (kind, id) = rest.split_once('/')?;
     let purpose = match kind {
         "stock-item" => "stock_item",
@@ -461,23 +461,23 @@ mod tests {
     fn deep_links_parse_for_every_printed_kind() {
         let id = Uuid::now_v7();
         assert_eq!(
-            parse_deep_link(&format!("meridian://stock-item/{id}")),
+            parse_deep_link(&format!("marula://stock-item/{id}")),
             Some(("stock_item", id))
         );
         assert_eq!(
-            parse_deep_link(&format!("meridian://stock-location/{id}/")),
+            parse_deep_link(&format!("marula://stock-location/{id}/")),
             Some(("stock_location", id))
         );
         assert_eq!(
-            parse_deep_link(&format!(" meridian://stock-serial/{id} ")),
+            parse_deep_link(&format!(" marula://stock-serial/{id} ")),
             Some(("serialized_unit", id))
         );
         assert_eq!(
-            parse_deep_link(&format!("meridian://device-asset/{id}")),
+            parse_deep_link(&format!("marula://device-asset/{id}")),
             Some(("device_asset", id))
         );
         assert_eq!(
-            parse_deep_link(&format!("meridian://tool-kit/{id}")),
+            parse_deep_link(&format!("marula://tool-kit/{id}")),
             Some(("tool_kit", id))
         );
     }
@@ -485,8 +485,8 @@ mod tests {
     #[test]
     fn non_links_are_codes_not_errors() {
         assert_eq!(parse_deep_link("C6-1M"), None);
-        assert_eq!(parse_deep_link("meridian://unknown-kind/abc"), None);
+        assert_eq!(parse_deep_link("marula://unknown-kind/abc"), None);
         assert_eq!(parse_deep_link("https://example.com"), None);
-        assert_eq!(parse_deep_link("meridian://stock-item/not-a-uuid"), None);
+        assert_eq!(parse_deep_link("marula://stock-item/not-a-uuid"), None);
     }
 }
