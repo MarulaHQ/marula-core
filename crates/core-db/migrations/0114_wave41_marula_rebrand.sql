@@ -111,7 +111,12 @@ BEGIN
     'scheduling_link_mark_viewed',
     'scheduling_link_mark_scheduled',
     'alert_source_auth_lookup',
-    'resolve_secret_share_link'
+    'resolve_secret_share_link',
+    'app_auth_gate_check',
+    'app_auth_gate_fail',
+    'app_auth_gate_clear',
+    'app_resolve_auth_email',
+    'app_consume_one_use_token'
   ] LOOP
     EXECUTE format(
       'GRANT EXECUTE ON FUNCTION %s TO marula_app;',
