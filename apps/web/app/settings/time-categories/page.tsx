@@ -22,8 +22,14 @@ import type { components } from "@marula-core/sdk";
 import {
   Button,
   Card,
+  FieldHint,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Spinner,
   Table,
   Td,
@@ -39,6 +45,7 @@ import { SettingsHeader } from "../../../components/settings/settings-shell";
 
 type TimeCategoryView = components["schemas"]["TimeCategoryView"];
 type TimeCategory = components["schemas"]["TimeCategory"];
+type WorkTypeMapRow = components["schemas"]["WorkTypeMapRowWire"];
 
 const MANAGE_BILLING = "special:manage_billing";
 
@@ -73,15 +80,35 @@ export default function TimeCategoriesSettingsPage() {
   const [draftBillable, setDraftBillable] = useState(true);
   const [draftAffinity, setDraftAffinity] = useState(false);
 
+  // The legacy-value map: the free text capture surfaces normalize against
+  // it, so a pasted "onsite" still lands on `on_site` instead of being
+  // refused as unknown. Migration 0110 seeded it once; these are the rows
+  // an admin adds by hand afterwards.
+  const [mapRows, setMapRows] = useState<WorkTypeMapRow[] | null>(null);
+  const [mapLegacy, setMapLegacy] = useState("");
+  const [mapSlug, setMapSlug] = useState("");
+  const [mapNotice, setMapNotice] = useState<string | null>(null);
+
   const canManage = auth.me?.permissions?.includes(MANAGE_BILLING) === true;
+
+  // The 0110 backfill wrote a row for every distinct value it found,
+  // including values that were already a slug. Those identity rows say
+  // nothing to an admin reading the table, so they are left out of it and
+  // counted in the note under it. Every other mapping is shown.
+  const mappings = (mapRows ?? []).filter((r) => r.legacy_value !== r.category_slug);
+  const identityCount = (mapRows ?? []).length - mappings.length;
 
   const load = useCallback(async () => {
     try {
-      const { data, error: apiError } = await api.api.GET("/api/v1/time-categories", {
-        params: { query: { include_retired: true } },
-      });
+      const [{ data, error: apiError }, mapped] = await Promise.all([
+        api.api.GET("/api/v1/time-categories", {
+          params: { query: { include_retired: true } },
+        }),
+        api.api.GET("/api/v1/time-categories/work-type-map"),
+      ]);
       if (apiError !== undefined || data === undefined) throw new Error("could not load");
       setRows(data.categories);
+      setMapRows(mapped.data ?? []);
       setError(null);
     } catch {
       setError("Could not load the time categories.");
@@ -218,6 +245,64 @@ export default function TimeCategoriesSettingsPage() {
     }
   }
 
+  async function addMapping() {    const legacy = mapLegacy.trim();
+    const slug = mapSlug;
+    if (legacy === "" || slug === "") return;
+    // A mapping to a slug that does not exist would normalize captures onto
+    // nothing, so it is refused here rather than discovered at capture time.
+    if (!(rows ?? []).some((r) => r.slug === slug)) {
+      setError("Pick a category from the list.");
+      return;
+    }
+    setBusy(true);
+    setMapNotice(null);
+    setError(null);
+    // These two go straight through the typed client rather than
+    // `runEnvelopeMutation`: the operator's feedback IS the response body
+    // (the rewritten map, the number of entries re-keyed), and the
+    // envelope helper discards it. Both still carry an idempotency key.
+    const result = await api.api.POST("/api/v1/time-categories/work-type-map", {
+      body: {
+        idempotency_key: crypto.randomUUID(),
+        legacy_value: legacy,
+        category_slug: slug,
+      },
+    });
+    setBusy(false);
+    if (result.error !== undefined) {
+      setError(rejectionText(result.error, "Could not save the mapping."));
+      return;
+    }
+    setMapLegacy("");
+    setMapSlug("");
+    setMapNotice(`“${legacy}” now resolves to ${slug} on capture.`);
+    await load();
+  }
+
+  // Applying a mapping is a bulk rewrite of history: every entry (and rate
+  // card row) carrying the legacy text is re-keyed onto the slug. It is
+  // deliberately a separate, explicit action rather than a side effect of
+  // adding the row, because the blast radius is the entries it touches.
+  async function applyMapping(row: WorkTypeMapRow) {
+    setBusy(true);
+    setMapNotice(null);
+    setError(null);
+    const result = await api.api.POST("/api/v1/time-categories/work-type-map/apply", {
+      body: {
+        idempotency_key: crypto.randomUUID(),
+        legacy_value: row.legacy_value,
+        category_slug: row.category_slug,
+      },
+    });
+    setBusy(false);
+    if (result.error !== undefined) {
+      setError(rejectionText(result.error, "Could not apply the mapping."));
+      return;
+    }
+    setMapNotice(`Re-keyed ${result.data?.entries_updated ?? 0} entries onto ${row.category_slug}.`);
+    await load();
+  }
+
   if (auth.status !== "authed") return null;
   const list = visible ?? [];
 
@@ -298,7 +383,7 @@ export default function TimeCategoriesSettingsPage() {
           not retired rows interleaved by position. Display-only — the
           stored positions (and therefore the capture pickers) are
           untouched, and each group keeps its own relative order. */}
-      {visible !== null ? (
+      {visible === null ? (
         <Spinner />
       ) : (
         <Table>
@@ -443,6 +528,108 @@ export default function TimeCategoriesSettingsPage() {
           </tbody>
         </Table>
       )}
+      {canManage ? (
+        <Card className="flex flex-col gap-3" data-testid="work-type-map">
+          <div>
+            <h2 className="text-sm font-semibold">Legacy work types</h2>
+            <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+              Free text people already typed before the taxonomy existed. Capture surfaces
+              normalize against this map, so an old value still lands on the right category
+              instead of being refused.
+            </p>
+          </div>
+          {mapNotice !== null ? (
+            <p role="status" className="text-[13px]" style={{ color: "var(--m-status-success-fg)" }}>
+              {mapNotice}
+            </p>
+          ) : null}
+          {mapRows === null || mappings.length === 0 ? (
+            <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+              No mappings yet. Anything unmatched is refused at capture rather than guessed.
+              {identityCount > 0
+                ? ` ${identityCount} row${identityCount === 1 ? "" : "s"} map${identityCount === 1 ? "s" : ""} a value to itself and ${identityCount === 1 ? "is" : "are"} not listed here.`
+                : ""}
+            </p>
+          ) : (
+            <>
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Legacy value</Th>
+                    <Th>Resolves to</Th>
+                    <Th>Source</Th>
+                    <Th>Added</Th>
+                    <Th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {mappings.map((row) => (
+                    <Tr key={`${row.legacy_value}:${row.category_slug}`}>
+                      <Td>{row.legacy_value}</Td>
+                      <Td>{row.category_slug}</Td>
+                      <Td>{row.source === "backfill" ? "migration 0110" : "added here"}</Td>
+                      <Td>{row.created_at.slice(0, 10)}</Td>
+                      <Td>
+                        {row.source === "manual" ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={() => void applyMapping(row)}
+                            data-testid={`apply-map-${row.legacy_value}`}
+                          >
+                            Re-key history
+                          </Button>
+                        ) : null}
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+              {identityCount > 0 ? (
+                <p className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                  {identityCount} further row{identityCount === 1 ? "" : "s"} from migration 0110 map
+                  a value to itself and {identityCount === 1 ? "is" : "are"} hidden.
+                </p>
+              ) : null}
+            </>
+          )}
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-48 flex-1">
+              <Label htmlFor="map-legacy">Free text a tech might type</Label>
+              <Input
+                id="map-legacy"
+                value={mapLegacy}
+                placeholder="onsite"
+                onChange={(e) => setMapLegacy(e.target.value)}
+              />
+            </div>
+            <div className="w-64">
+              <Label htmlFor="map-slug">Category</Label>
+              <Select value={mapSlug} onValueChange={setMapSlug}>
+                <SelectTrigger id="map-slug" className="w-full">
+                  <SelectValue placeholder="Choose a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {list.map((row) => (
+                    <SelectItem key={row.id} value={row.slug}>
+                      {row.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              onClick={() => void addMapping()}
+              disabled={busy || mapLegacy.trim() === "" || mapSlug === ""}
+              data-testid="save-work-type-map"
+            >
+              Save mapping
+            </Button>
+          </div>
+          <FieldHint>Matching is case-insensitive and ignores surrounding spaces.</FieldHint>
+        </Card>
+      ) : null}
     </main>
   );
 }

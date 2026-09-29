@@ -14,8 +14,9 @@ carries an **Audience** tag and a prerequisites block — check the tag
   real endpoints.
 - [Your first inventory sync](first-inventory-sync.md) — connector →
   merge queue → device → asset → client link.
-- [Your first invoice](first-invoice.md) — approved time → billing run →
-  issued invoice → corrections the honest way.
+- [Your first invoice](first-invoice.md) — categorized time → approval →
+  verification workspace → billing run → issued invoice → corrections
+  the honest way.
 - [Your first agent run](first-agent-run.md) — the seven-step agent
   ladder, plus turning one AI surface on for one role.
 - [Portal onboarding](portal-onboarding.md) — provision a portal user,

@@ -40,6 +40,12 @@
           "audience": "both",
           "updated": "2026-09-25",
           "title": "How to use the Marula mobile app"
+        },
+        {
+          "path": "how-to/staff-time-categories",
+          "audience": "both",
+          "updated": "2026-09-29",
+          "title": "How to log billable time with categories"
         }
       ]
     },
@@ -182,7 +188,7 @@
         {
           "path": "tutorials/first-invoice",
           "audience": "admin",
-          "updated": "2026-09-22",
+          "updated": "2026-09-29",
           "title": "Tutorial: your first invoice"
         },
         {
@@ -196,6 +202,24 @@
           "audience": "admin",
           "updated": "2026-09-29",
           "title": "How to verify a billing period before you invoice it"
+        },
+        {
+          "path": "how-to/admin-contract-types",
+          "audience": "admin",
+          "updated": "2026-09-29",
+          "title": "How to price a service contract"
+        },
+        {
+          "path": "reference/billing-schemas",
+          "audience": "all",
+          "updated": "2026-09-29",
+          "title": "Billing schema reference (Wave 39)"
+        },
+        {
+          "path": "explanation/billing-corrections",
+          "audience": "both",
+          "updated": "2026-09-29",
+          "title": "Billing corrections, and where tax lives"
         }
       ]
     },
@@ -204,7 +228,7 @@
         {
           "path": "tutorials/first-invoice",
           "audience": "admin",
-          "updated": "2026-09-22",
+          "updated": "2026-09-29",
           "title": "Tutorial: your first invoice"
         }
       ]
@@ -552,6 +576,12 @@
           "audience": "both",
           "updated": "2026-09-23",
           "title": "How to use the keyboard shortcuts"
+        },
+        {
+          "path": "how-to/staff-time-categories",
+          "audience": "both",
+          "updated": "2026-09-29",
+          "title": "How to log billable time with categories"
         }
       ]
     },
@@ -624,7 +654,14 @@
       ]
     },
     "projects": {
-      "docs": []
+      "docs": [
+        {
+          "path": "how-to/project-billing",
+          "audience": "admin",
+          "updated": "2026-09-29",
+          "title": "How to bill project work — contracts, milestones, fees"
+        }
+      ]
     }
   }
 }

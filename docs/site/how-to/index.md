@@ -42,9 +42,15 @@ the tag is **both** or points to the staff/client catalog below.
 - [Connect an IdP (SSO)](admin-sso.md) — the IdP handoff round-trip
 - [Buy: vendors, purchase orders, receiving, bills](admin-purchasing.md)
   — the order lifecycle, receipts into stock, posted bills
+- [Price a service contract](admin-contract-types.md) — the six contract
+  types and their fields, prepaid blocks, NTE caps, minimums, escalators,
+  change orders, service credits, and the PO number
 - [Bill project work](project-billing.md) — link a project to its
   contract, phase budgets and burn, milestone and fixed-fee releases,
   project-scoped time entries
+- [Verify a billing period](admin-billing-verification.md) — read the
+  window, disposition every entry, sign it off, and what the sign-off
+  does not do
 - [Watch your self-hosted services](admin-self-host-services.md) — the
   Settings pane's health sweep and ClamAV quarantines, plus links to
   every operator UI
@@ -70,6 +76,9 @@ Audience tag: **both** unless a guide is staff-only by nature.
   who-has-what, check-in, loan issue and return
 - [Work a day pack](staff-day-pack.md) — trips, the grab list, one-tap
   checkout, and tomorrow's list tonight
+- [Log billable time with categories](staff-time-categories.md) — what
+  you pick, why a non-billable entry needs a reason, and the taxonomy
+  behind the picker
 - [Get help inside Marula](get-help.md) — the ? help panel, guide
   search, and turning feature tours off
 

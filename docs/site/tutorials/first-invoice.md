@@ -1,83 +1,125 @@
 # Tutorial: your first invoice
 
-> **Audience:** admin (billing runs are an admin + bookkeeper surface) —
-> staff contribute the billable time; this lesson runs the run itself.
+> **Audience:** admin — staff contribute the billable time; this lesson
+> runs the review and the run that turn it into an invoice.
 
-The path from "someone's ticket work was approved" to money follows one
-arrow that never bends near your calendar: time entry → approval → billing
-run → invoice. This lesson walks that arrow on the seeded demo org
-(`owner@demo.local` / `demo-password-123`).
+Money follows one arrow: time entry → approval → verification → billing
+run → invoice. Wave 39 added the middle step, and the middle step is
+where a bill gets looked at before anyone sends it. This lesson walks
+the whole arrow on the seeded demo org (`owner@demo.local` /
+`demo-password-123`).
 
 ## Prerequisites
 
-- The seeded demo org (`owner@demo.local` / `demo-password-123`) or your own
-  stack with at least one client and a time entry awaiting approval.
-- Access to the Billing and Approvals surfaces (billing is admin +
-  bookkeeper scope).
+- The seeded demo org, or your own stack with one client, one active
+  contract, and time entries sitting in the approvals queue.
+- Billing scope (admin or bookkeeper). Approving time is staff scope;
+  verifying and invoicing is not.
 
+## 1. The time entry carries a category
 
-## 1. Confirm approved time exists
+Open **Time categories** (/settings/time-categories) and skim the list.
+Each row is a slug the capture surfaces write onto an entry: `on_site`,
+`remote`, `incident`, `warranty`. Two flags per row matter downstream —
+whether the category bills by default, and whether flipping an entry
+non-billable demands a typed reason. Reasons are a fixed set (warranty,
+courtesy, in_retainer_block, sla_covered, internal, mistake), so a
+non-billable entry with no reason is refused rather than stored blank.
 
-Open **Approvals** (/approvals). The queue lists submitted time
-entries. Approved entries are what billing consumes, and entries once
-invoiced lock permanently. There is no un-invoicing, only correction
-documents. If the
-demo queue is empty, work a ticket first ([first ticket lesson](first-ticket.md)
-shows the timer path) and approve the entry. Note the client: the demo org
-already has clients with contracts, so you are not creating scaffolding.
+Entries logged before the taxonomy existed still work: the free text
+normalizes through the legacy map, and anything unmapped is refused
+instead of guessed. [The how-to](../how-to/staff-time-categories.md)
+covers capture and the map.
 
-## 2. Create and run a billing run
+## 2. Approve the time
 
-Open **Billing** (/billing). Stat cards show open / overdue / outstanding /
-paid. Below, the invoice-runs surface and the **unbilled ticket
-candidates**
-read-only panel — a list of tickets whose time and expenses (with cost and
-expense kinds) are not yet on an invoice, including the explicit
-consumption note (a consumed line is marked by `invoice_line_id`). Start a
-run against the client. The run reads:
-- **Contracts: drafts are excluded** — "no runs bill drafts" (contracts
-  with status draft are skipped, while recurring and time-and-materials
-  types both flow).
-- The run creates invoice lines with kind `time_materials` and a period
-  window. Lines are **fixed at run**: the invoice is a snapshot of the
-  numbers, not a live re-render.
+**Approvals** (/approvals) lists submitted entries. Billing consumes
+approved entries only. Once an entry is on an invoice it locks for
+good — there is no un-invoicing, only correction documents
+([corrections](../explanation/billing-corrections.md)).
 
-## 3. The issued invoice
+## 3. Verify the period
 
-Open the new invoice. It is **read-only once issued**: lines fixed, a
-payments panel, and the actions available to correct rather than edit —
-Issue credit note, Void, Record payment, Print document, Send statement.
-Email delivery of a statement in the demo/none-mode is honest about being
-queued, not sent.
+Open **Billing → Billing verification** (/billing/verification). Pick the
+contract and the window; the Billing page links straight into the same
+window it was about to run, and a `contract_id` in the URL is honoured
+so a link into one contract never lands on somebody else's.
 
-## 4. If money reverses: credit notes and collections
+Read the counters first. They are the gate:
 
-Both corrections start from the invoice page's actions:
+- **Undispositioned** — entries nobody has ruled on yet.
+- **Unclassified** — approved entries with no work-type slug.
+- **Not approved** — time that will not bill at all.
 
-- **Credit note / void** live in the credit-notes lifecycle
-  (/billing/credit-notes): notes are derived from usage, and applying /
-  refunding / voiding leaves a bar-metered usage trail. There is no
-  invoice-line rewriting — corrections preserve ledger truth.
-- **Collections ladder** is forward-only: current → reminder sent → payment
-  overdue → final notice → in collections. Each advance requires a note
-  and the ladder never rewinds.
+Every entry row opens an action dialog with six actions. Approve and
+reject move the entry through the same queue the Approvals page uses, so
+the two surfaces cannot disagree about what "approved" means.
+Adjust-minutes is the one that surprises people: it requires a reason
+and it only ever lowers a bill. Asking it to add minutes is refused with
+a 422, because adding minutes is an edit to the entry, not a review
+decision. Entries already on an invoice are locked — visible, labelled
+locked, and refusing every action with a 409.
 
-## 5. Multi-currency stacks: one note
+Two numbers sit next to each other on purpose: the sum of what the
+table prices, and the engine's own preview for the same window. When
+they agree, the invoice will agree with the screen. When they differ,
+the gap is a charge the entry table cannot itemise. A base fee, a
+minimum commitment, a cap, a block sale — the note under the table says
+which.
 
-If a contract is priced in a currency other than the org's base currency
-(Settings→General), the run snapshots FX rates. Read the rationale in
-[FX additivity](../explanation/fx-additivity.md) and record rates with the
-[FX how-to](../how-to/admin-fx-rates.md). The demo contracts include a
-priced-book stat. The mechanics are identical across currencies, and
-the ledger stays anchored to base currency.
+If the contract has prepaid blocks, the block panel shows the balance
+honestly: minutes drawn before this window, minutes drawn in it, what is
+left, and any overage that spilled onto the overage card.
+
+## 4. Sign off the period
+
+The close card lists three claims: every entry dispositioned, zero
+unclassified, preview read. The server re-derives all three against the
+live window before it stores anything, so a partial period cannot be
+signed. Your name, the moment, and any note you wrote are kept with it.
+
+A sign-off is evidence, not a lock. A run over an unverified window still
+issues — the run claims whatever sign-offs cover it, and that is how
+"who checked this period, and when" stays a single lookup later.
+
+## 5. Run the invoice
+
+Open **Billing** (/billing) and start a run against the same contract
+and dates. What the engine does at that moment:
+
+- **Draft contracts are skipped.** A draft previews; it never bills.
+- The run evaluates every line kind the contract has configured: time
+  from the rate card, block sales, cap behaviour, minimum true-ups,
+  escalator uplifts, approved change orders, service credits, and
+  project milestone releases. So do the metered kinds: block
+  draw-down, a per-unit line, a per-incident line.
+- Lines are **fixed at run**. The invoice is a snapshot of the numbers,
+  not a live re-render.
+- Everything the run consumed is marked consumed inside that run's own
+  transaction: the block balance it drew down, the service credit it
+  applied, the change order it billed, the milestone release it settled.
+  A replay cannot bill any of them twice.
+
+## 6. The issued invoice
+
+The invoice is read-only once issued. What remains are corrections:
+issue a credit note, void it, record a payment, print, send a statement.
+Email in the demo mail mode is honest about being queued rather than
+sent.
+
+## 7. Multi-currency stacks
+
+If a contract is priced in a currency other than the org's base
+currency, the run snapshots FX rates. The rationale is in
+[FX additivity](../explanation/fx-additivity.md) and the mechanics in
+[the FX how-to](../how-to/admin-fx-rates.md). Mixed currencies in one
+run are refused rather than converted behind your back.
 
 ## What you learned
 
-- Billing time comes from **approved** entries only, and invoiced
-  entries lock.
-- A billing run is a snapshot engine: lines fixed at run, contracts-drafts
-  excluded, per-line kind `time_materials` against a period window.
-- Corrections are additive (credit notes, voids, forward-only collections)
-  — never rewrites.
-- The reconciliation math this implies is explained in
-  [FX additivity](../explanation/fx-additivity.md).
+- Categories decide billing semantics before anybody approves anything.
+- Verification lowers a bill, never raises one, and every action is
+  audited.
+- A run is a snapshot engine. It consumes what it bills, in one
+  transaction, and drafts never bill.
+- Corrections are additive documents, never edits to an issued invoice.

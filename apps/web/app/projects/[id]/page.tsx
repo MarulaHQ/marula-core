@@ -56,6 +56,9 @@ type ProjectMutationResponse = components["schemas"]["ProjectMutationResponse"];
 type PhaseMutationResponse = components["schemas"]["PhaseMutationResponse"];
 type TaskMutationResponse = components["schemas"]["TaskMutationResponse"];
 type DependencyListResponse = components["schemas"]["DependencyListResponse"];
+type Contract = components["schemas"]["Contract"];
+type PhaseBurn = components["schemas"]["PhaseBurn"];
+type BillingRelease = components["schemas"]["ProjectBillingRelease"];
 
 const STATUS_LABEL: Record<string, string> = {
   planning: "Planning",
@@ -77,6 +80,13 @@ export default function ProjectDetailPage() {
   const [tasks, setTasks] = useState<ProjectTask[]>([]);
   const [deps, setDeps] = useState<Record<string, ProjectTask[]>>({});
   const [rollup, setRollup] = useState<components["schemas"]["ProjectCostRollupView"] | null>(null);
+  // Wave 39 lane 4's billing reads: per-phase burn against the linked
+  // contract's rate card, and the release ledger of what has been handed
+  // to invoicing. Each answers 403 without financial:read, so the card
+  // renders empty rather than the page failing.
+  const [burn, setBurn] = useState<PhaseBurn[]>([]);
+  const [releases, setReleases] = useState<BillingRelease[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [actionError, setActionError] = useState<string | null>(null);
@@ -87,6 +97,8 @@ export default function ProjectDetailPage() {
   const [phaseName, setPhaseName] = useState("");
   const [phaseMilestone, setPhaseMilestone] = useState(false);
   const [phaseAmount, setPhaseAmount] = useState("");
+  const [phaseBudget, setPhaseBudget] = useState("");
+  const [phaseFee, setPhaseFee] = useState("");
 
   const [taskOpen, setTaskOpen] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
@@ -138,6 +150,14 @@ export default function ProjectDetailPage() {
       params: { path: { id: projectId } },
     });
     setRollup(cost.data ?? null);
+    const [burnResult, releaseResult, contractResult] = await Promise.all([
+      api.api.GET("/api/v1/projects/{id}/phase-burn", { params: { path: { id: projectId } } }),
+      api.api.GET("/api/v1/projects/{id}/billing-releases", { params: { path: { id: projectId } } }),
+      api.api.GET("/api/v1/contracts"),
+    ]);
+    setBurn(burnResult.data ?? []);
+    setReleases(releaseResult.data ?? []);
+    setContracts((contractResult.data ?? []) as Contract[]);
   }, [projectId]);
 
   useEffect(() => {
@@ -296,7 +316,17 @@ export default function ProjectDetailPage() {
         is_milestone: phaseMilestone,
         milestone_amount_minor:
           phaseMilestone && phaseAmount.trim() !== "" ? Math.round(Number(phaseAmount) * 100) : null,
-        milestone_currency: phaseMilestone && phaseAmount.trim() !== "" ? "USD" : null,
+        milestone_currency:
+          phaseMilestone && phaseAmount.trim() !== "" ? "USD" : null,
+        // A budget is what the burn read model measures against; a fee is
+        // a fixed-price phase that releases on completion. Both are
+        // optional and neither replaces the milestone amount.
+        budget_minor:
+          phaseBudget.trim() === "" ? null : Math.round(Number(phaseBudget) * 100),
+        budget_currency: phaseBudget.trim() === "" ? null : "USD",
+        fee_minor:
+          !phaseMilestone && phaseFee.trim() !== "" ? Math.round(Number(phaseFee) * 100) : null,
+        fee_currency: !phaseMilestone && phaseFee.trim() !== "" ? "USD" : null,
       }),
       request: (c, body) =>
         c.POST("/api/v1/projects/{id}/phases", { params: { path: { id: projectId } }, body }),
@@ -311,6 +341,8 @@ export default function ProjectDetailPage() {
     setPhaseName("");
     setPhaseMilestone(false);
     setPhaseAmount("");
+    setPhaseBudget("");
+    setPhaseFee("");
     void refresh();
   };
 
@@ -409,6 +441,61 @@ export default function ProjectDetailPage() {
     void refresh();
   };
 
+  // Linking is a tri-state on the wire: an id links, null unlinks, and
+  // omitting the field leaves the link alone. The server refuses a
+  // contract belonging to another client or a cancelled one, so the
+  // picker only ever offers this client's live contracts.
+  const setBillingContract = async (contractId: string | null) => {
+    setBusy(true);
+    setActionError(null);
+    const result = await runEnvelopeMutation<
+      components["schemas"]["PatchProjectRequest"],
+      ProjectMutationResponse
+    >({
+      describe: contractId === null ? "Unlink billing contract" : "Link billing contract",
+      entityId: projectId,
+      optimistic: () => undefined,
+      revert: () => undefined,
+      buildBody: (base) => ({ ...base, billing_contract_id: contractId }),
+      request: (c, body) =>
+        c.PATCH("/api/v1/projects/{id}", { params: { path: { id: projectId } }, body }),
+      versions: (response) => [[response.id, response.mutation.version]],
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setActionError(rejectionText(result, "The billing link was rejected. Nothing changed."));
+      return;
+    }
+    void refresh();
+  };
+
+  const cancelRelease = async (release: BillingRelease) => {
+    setBusy(true);
+    setActionError(null);
+    const result = await runEnvelopeMutation<
+      components["schemas"]["MutationParams"],
+      BillingRelease
+    >({
+      describe: `Cancel release ${release.label}`,
+      entityId: release.id,
+      optimistic: () => undefined,
+      revert: () => undefined,
+      buildBody: (base) => ({ ...base }),
+      request: (c) =>
+        // No body on this route: the release id in the path is the whole
+        // instruction, and a repeat cancel answers with the same row.
+        c.POST("/api/v1/projects/{id}/billing-releases/{release_id}/cancel", {
+          params: { path: { id: projectId, release_id: release.id } },
+        }),
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setActionError(rejectionText(result, "The release could not be cancelled. Nothing changed."));
+      return;
+    }
+    void refresh();
+  };
+
   if (auth.status !== "authed") return null;
 
   if (loadError !== null) {
@@ -435,6 +522,16 @@ export default function ProjectDetailPage() {
   const pProgress = phaseProgress(phases);
   const tProgress = taskProgress(tasks);
   const risk = projectRisk(project);
+  // A project bills through one of its own client's live contracts, so
+  // the picker never offers a contract the server would refuse.
+  const clientContracts = contracts.filter(
+    (c) =>
+      project.client_id !== null &&
+      project.client_id !== undefined &&
+      c.client_id === project.client_id &&
+      c.status !== "cancelled",
+  );
+  const linkedContract = contracts.find((c) => c.id === project.billing_contract_id) ?? null;
 
   return (
     <div className="mx-auto grid w-full max-w-[1200px] gap-5 p-4 md:p-6">
@@ -562,6 +659,133 @@ export default function ProjectDetailPage() {
         </Card>
       ) : null}
 
+      <Card className="m-rise p-0" style={{ animationDelay: "75ms" }} data-testid="project-billing">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4" style={{ borderColor: "var(--m-border)" }}>
+          <div>
+            <h2 className="text-sm font-semibold">Billing</h2>
+            <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+              {linkedContract === null
+                ? "No contract linked, so project time is not priced by this card."
+                : "Approved time on each phase prices against the linked contract's rate card."}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value={project.billing_contract_id ?? "none"}
+              onValueChange={(v) => void setBillingContract(v === "none" ? null : v)}
+            >
+              <SelectTrigger aria-label="Billing contract" className="w-64" data-testid="project-billing-contract">
+                <SelectValue placeholder="Link a contract" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No contract</SelectItem>
+                {clientContracts.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.number} — {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {linkedContract !== null ? (
+              <Link
+                href={`/contracts/${linkedContract.id}`}
+                className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+                style={{ color: "var(--m-text-secondary)" }}
+              >
+                Open contract
+              </Link>
+            ) : null}
+          </div>
+        </div>
+
+        {(
+          <div className="grid gap-4 p-4">            {burn.length > 0 ? (
+              <div>
+                <div className="flex items-baseline justify-between">
+                  <h3 className="text-[13px] font-semibold">Phase burn</h3>
+                  <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                    approved billable time, priced at the contract card
+                  </span>
+                </div>
+                <ul className="mt-2 grid gap-1">
+                  {burn.map((row) => (
+                    <li key={row.phase_id} className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
+                      <span className="flex items-center gap-2">
+                        {row.alert !== "none" ? (
+                          <Tag tone={row.alert === "over" ? "danger" : "warning"}>{row.alert}</Tag>
+                        ) : null}
+                        {row.phase_name}
+                      </span>
+                      <span className="font-mono tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                        {money(row.consumed_minor, row.currency ?? "USD")}
+                        {row.budget_minor !== null && row.budget_minor !== undefined
+                          ? ` of ${money(row.budget_minor, row.currency ?? "USD")}`
+                          : " · no budget"}
+                        <span style={{ color: "var(--m-text-muted)" }}> · {row.consumed_minutes} min</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div>
+                <h3 className="text-[13px] font-semibold">Phase burn</h3>
+                <p className="mt-1 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                  No phase budgets on this project yet. Add a budget to a phase and its approved
+                  time is measured against it.
+                </p>
+              </div>
+            )}
+
+            <div>
+              <div className="flex items-baseline justify-between">
+                <h3 className="text-[13px] font-semibold">Released to billing</h3>
+                <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                  a pending release bills on the first run that reaches its date
+                </span>
+              </div>
+              {/* The ledger renders even when it is empty. Hiding it would
+                  leave "nothing has been released" and "the ledger did not
+                  load" looking identical. */}
+              {releases.length === 0 ? (
+                <p className="mt-1 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                  Nothing released yet. A completed milestone or a fixed-fee phase stages its
+                  release here, and the next run bills it.
+                </p>
+              ) : (
+                <ul className="mt-2 grid gap-1">
+                  {releases.map((release) => (
+                    <li key={release.id} className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
+                      <span className="flex items-center gap-2">
+                        <Tag tone={releaseTone(release.status)}>{release.status}</Tag>
+                        {release.label}
+                        <span style={{ color: "var(--m-text-muted)" }}>{release.released_on}</span>
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className="font-mono tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                          {money(release.amount_minor, release.currency)}
+                        </span>
+                        {release.invoice_id === null || release.invoice_id === undefined ? (
+                          release.status === "pending" ? (
+                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void cancelRelease(release)}>
+                              Cancel
+                            </Button>
+                          ) : null
+                        ) : (
+                          <Link href={`/billing/${release.invoice_id}`} className="underline underline-offset-2">
+                            invoice
+                          </Link>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
+
       <Card className="m-rise p-0" style={{ animationDelay: "80ms" }}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4" style={{ borderColor: "var(--m-border)" }}>
           <div className="flex items-center gap-3">
@@ -590,6 +814,10 @@ export default function ProjectDetailPage() {
               setMilestone={setPhaseMilestone}
               amount={phaseAmount}
               setAmount={setPhaseAmount}
+              budget={phaseBudget}
+              setBudget={setPhaseBudget}
+              fee={phaseFee}
+              setFee={setPhaseFee}
               busy={busy}
               onCreate={() => void createPhase()}
             />
@@ -888,6 +1116,12 @@ function TaskRow({
   );
 }
 
+function releaseTone(status: string): "success" | "warning" | "danger" | "neutral" {
+  if (status === "billed") return "success";
+  if (status === "pending") return "warning";
+  return "neutral";
+}
+
 function AddPhaseDialog(props: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -897,6 +1131,10 @@ function AddPhaseDialog(props: {
   setMilestone: (v: boolean) => void;
   amount: string;
   setAmount: (v: string) => void;
+  budget: string;
+  setBudget: (v: string) => void;
+  fee: string;
+  setFee: (v: string) => void;
   busy: boolean;
   onCreate: () => void;
 }) {
@@ -918,7 +1156,23 @@ function AddPhaseDialog(props: {
               <Input id="phase-amount" type="number" min={0} step="0.01" value={props.amount} onChange={(e) => props.setAmount(e.target.value)} />
               <FieldHint>Released to billing when the phase completes.</FieldHint>
             </div>
-          ) : null}
+          ) : (
+            <div>
+              <Label htmlFor="phase-fee">Fixed phase fee (USD, optional)</Label>
+              <Input id="phase-fee" type="number" min={0} step="0.01" value={props.fee} onChange={(e) => props.setFee(e.target.value)} />
+              <FieldHint>
+                A completed fixed-fee phase releases this on its own, with no milestone.
+              </FieldHint>
+            </div>
+          )}
+          <div>
+            <Label htmlFor="phase-budget">Phase budget (USD, optional)</Label>
+            <Input id="phase-budget" type="number" min={0} step="0.01" value={props.budget} onChange={(e) => props.setBudget(e.target.value)} />
+            <FieldHint>
+              What the phase burn is measured against. Leave it empty for an unbudgeted phase —
+              no budget is not a zero budget.
+            </FieldHint>
+          </div>
           <DialogActions>
             <Button variant="ghost" onClick={() => props.onOpenChange(false)}>
               Cancel

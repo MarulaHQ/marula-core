@@ -104,6 +104,8 @@ export default function ContractsPage() {
   const [poNumber, setPoNumber] = useState("");
   const [minimum, setMinimum] = useState("");
   const [caps, setCaps] = useState<CapSpec[]>([]);
+  const [escalatorBps, setEscalatorBps] = useState("");
+  const [escalatorFrom, setEscalatorFrom] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -190,9 +192,23 @@ export default function ContractsPage() {
     setFees([]);
     setBlocks([]);
     setCaps([]);
+    setEscalatorBps("");
+    setEscalatorFrom("");
   };
 
   const needsAmount = type === "recurring" || type === "retainer";
+  // Prepaid labor blocks ride the two labor-billing types; NTE caps are
+  // T&M-only. The server refuses both otherwise (validate_specs), so the
+  // form never offers them where they would be rejected.
+  const blockBearing = type === "time_and_materials" || type === "retainer";
+  const capBearing = type === "time_and_materials";
+  // A minimum tops a period up against base + consumed labor, and the
+  // engine prices consumed labor for T&M as well as retainer, so the
+  // labor types carry a floor too. An escalator walks billing
+  // anniversaries off the anchor instead, so it needs a billing
+  // frequency: the types that have one.
+  const minimumBearing = needsAmount || type === "time_and_materials";
+  const escalatorBearing = needsAmount;
   const createDisabled =
     creating ||
     number.trim() === "" ||
@@ -277,13 +293,17 @@ export default function ContractsPage() {
         po_number: poNumber.trim() !== "" ? poNumber.trim() : null,
         minimum_commitment_minor:
           minimum.trim() !== "" ? Math.round(Number(minimum) * 100) : null,
+        escalator:
+          escalatorBps.trim() === ""
+            ? undefined
+            : {
+                uplift_bps: Math.round(Number(escalatorBps)),
+                first_uplift_on: escalatorFrom === "" ? null : escalatorFrom,
+              },
         rates: type === "time_and_materials" && rates.length > 0 ? rates : undefined,
         fees: type === "fixed_fee" && fees.length > 0 ? fees : undefined,
-        blocks:
-          (type === "time_and_materials" || type === "retainer") && blocks.length > 0
-            ? blocks
-            : undefined,
-        caps: type === "time_and_materials" && caps.length > 0 ? caps : undefined,
+        blocks: blockBearing && blocks.length > 0 ? blocks : undefined,
+        caps: capBearing && caps.length > 0 ? caps : undefined,
       }),
       request: (client, body) => client.POST("/api/v1/contracts", { body }),
       versions: (response) => [[response.id, response.mutation.version]],
@@ -405,6 +425,7 @@ export default function ContractsPage() {
               ) : null}
 
               {type === "retainer" ? (
+                <>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor="c-minutes">Included minutes / period</Label>
@@ -415,6 +436,26 @@ export default function ContractsPage() {
                     <Input id="c-overage" type="number" min={0} step="0.01" value={overageRate} onChange={(e) => setOverageRate(e.target.value)} />
                   </div>
                 </div>
+                <div>
+                  <Label>Prepaid hour blocks</Label>
+                  <FieldHint>
+                    Buy-forward hours on top of the retainer&apos;s included minutes. Draws come off
+                    the oldest block first.
+                  </FieldHint>
+                  {blocks.map((b, i) => (
+                    <div key={i} className="mb-1 flex flex-wrap items-center gap-2 text-[13px]">
+                      <span className="flex-1">
+                        {b.label} · {b.total_minutes} min · {money(b.sale_price_minor, currency)}
+                      </span>
+                      <span style={{ color: "var(--m-text-muted)" }}>{b.rollover_policy}</span>
+                      <Button variant="ghost" size="sm" onClick={() => setBlocks(blocks.filter((_, j) => j !== i))}>
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                  <BlockRow onAdd={(block) => setBlocks([...blocks, block])} />
+                </div>
+                </>
               ) : null}
 
               {type === "per_unit" ? (
@@ -470,11 +511,39 @@ export default function ContractsPage() {
                 <FieldHint>Printed on every invoice this contract produces. Tax is not computed here — it stays an accounting-export setting.</FieldHint>
               </div>
 
-              {needsAmount ? (
+              {minimumBearing ? (
                 <div>
                   <Label htmlFor="c-minimum">Minimum commitment per period (USD, optional)</Label>
                   <Input id="c-minimum" type="number" min={0} step="0.01" value={minimum} onChange={(e) => setMinimum(e.target.value)} />
-                  <FieldHint>A true-up line tops each period up when billing falls short of it.</FieldHint>
+                  <FieldHint>A true-up line tops a period up when billing falls short of it, counting the labor the period consumed.</FieldHint>
+                </div>
+              ) : null}
+
+              {escalatorBearing ? (
+                <div>
+                  <Label htmlFor="c-escalator">Annual escalator (basis points, optional)</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="c-escalator"
+                      className="w-32"
+                      type="number"
+                      min={1}
+                      max={5000}
+                      step={50}
+                      value={escalatorBps}
+                      onChange={(e) => setEscalatorBps(e.target.value)}
+                    />
+                    <Input
+                      aria-label="First uplift on"
+                      type="date"
+                      value={escalatorFrom}
+                      onChange={(e) => setEscalatorFrom(e.target.value)}
+                    />
+                  </div>
+                  <FieldHint>
+                    300 is +3.0% at every billing anniversary. Leave the date empty to start at the
+                    anchor&apos;s first full period.
+                  </FieldHint>
                 </div>
               ) : null}
 
@@ -497,6 +566,51 @@ export default function ContractsPage() {
                       </div>
                     ))}
                     <RateRow onAdd={(workType, rateMinor) => setRates([...rates, { work_type: workType, rate_minor: rateMinor }])} />
+                  </div>
+                  <div>
+                    <Label>Not-to-exceed caps</Label>
+                    <FieldHint>
+                      A ceiling on billable work. Reaching it is never silent: the cap says what
+                      happens — stop billing, warn only, or bill the overage at a rate you set.
+                    </FieldHint>
+                    {caps.map((c, i) => (
+                      <div key={i} className="mb-1 flex flex-wrap items-center gap-2 text-[13px]">
+                        <span className="flex-1">
+                          {c.scope === "period" ? "Per period" : "Per contract"}
+                          {c.work_type ? ` · ${c.work_type}` : ""} · {money(c.cap_minor, currency)}
+                        </span>
+                        <span style={{ color: "var(--m-text-muted)" }}>
+                          {c.reached_behavior === "stop"
+                            ? "stops at the cap"
+                            : c.reached_behavior === "warn"
+                              ? "warns only"
+                              : "bills the overage"}
+                        </span>
+                        <Button variant="ghost" size="sm" onClick={() => setCaps(caps.filter((_, j) => j !== i))}>
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                    <CapRow onAdd={(cap) => setCaps([...caps, cap])} />
+                  </div>
+                  <div>
+                    <Label>Prepaid hour blocks</Label>
+                    <FieldHint>
+                      Hours the client paid for up front. Draws come off the oldest block first;
+                      minutes past the balance spill onto the overage card.
+                    </FieldHint>
+                    {blocks.map((b, i) => (
+                      <div key={i} className="mb-1 flex flex-wrap items-center gap-2 text-[13px]">
+                        <span className="flex-1">
+                          {b.label} · {b.total_minutes} min · {money(b.sale_price_minor, currency)}
+                        </span>
+                        <span style={{ color: "var(--m-text-muted)" }}>{b.rollover_policy}</span>
+                        <Button variant="ghost" size="sm" onClick={() => setBlocks(blocks.filter((_, j) => j !== i))}>
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                    <BlockRow onAdd={(block) => setBlocks([...blocks, block])} />
                   </div>
                 </>
               ) : null}
@@ -697,6 +811,130 @@ function RateRow({ onAdd }: { onAdd: (workType: string, rateMinor: number) => vo
         }}
       >
         Add row
+      </Button>
+    </div>
+  );
+}
+
+function BlockRow({ onAdd }: { onAdd: (block: BlockSpec) => void }) {
+  const [label, setLabel] = useState("");
+  const [minutes, setMinutes] = useState("");
+  const [sale, setSale] = useState("");
+  const [rate, setRate] = useState("");
+  const [rollover, setRollover] = useState<"expire" | "rollover" | "none">("expire");
+  const [expires, setExpires] = useState("");
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <div className="min-w-40 flex-1">
+        <Input aria-label="Block label" placeholder="label (e.g. 50-hour block, March)" value={label} onChange={(e) => setLabel(e.target.value)} />
+      </div>
+      <div className="w-28">
+        <Input aria-label="Block minutes" type="number" min={1} step={15} placeholder="minutes" value={minutes} onChange={(e) => setMinutes(e.target.value)} />
+      </div>
+      <div className="w-28">
+        <Input aria-label="Block sale price (USD)" type="number" min={0} step="0.01" placeholder="sale price" value={sale} onChange={(e) => setSale(e.target.value)} />
+      </div>
+      <div className="w-28">
+        <Input aria-label="Block draw-down rate (USD/hour)" type="number" min={0} step="0.01" placeholder="block rate" value={rate} onChange={(e) => setRate(e.target.value)} />
+      </div>
+      <div className="w-32">
+        <Select value={rollover} onValueChange={(v) => setRollover(v as "expire" | "rollover" | "none")}>
+          <SelectTrigger aria-label="Rollover policy" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="expire">unused minutes lapse</SelectItem>
+            <SelectItem value="rollover">roll into a successor</SelectItem>
+            <SelectItem value="none">hold, no rollover</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="w-40">
+        <Input aria-label="Block expires on" type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
+      </div>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={label.trim() === "" || minutes.trim() === "" || sale.trim() === ""}
+        onClick={() => {
+          onAdd({
+            label: label.trim(),
+            total_minutes: Math.round(Number(minutes)),
+            sale_price_minor: Math.round(Number(sale) * 100),
+            rollover_policy: rollover,
+            block_rate_minor: rate.trim() === "" ? null : Math.round(Number(rate) * 100),
+            expires_on: expires === "" ? null : expires,
+          });
+          setLabel("");
+          setMinutes("");
+          setSale("");
+          setRate("");
+        }}
+      >
+        Add block
+      </Button>
+    </div>
+  );
+}
+
+function CapRow({ onAdd }: { onAdd: (cap: CapSpec) => void }) {
+  const [scope, setScope] = useState<"period" | "contract">("period");
+  const [cap, setCap] = useState("");
+  const [behavior, setBehavior] = useState<"stop" | "warn" | "overage_billable">("warn");
+  const [workType, setWorkType] = useState("");
+  const [overage, setOverage] = useState("");
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <div className="w-32">
+        <Select value={scope} onValueChange={(v) => setScope(v as "period" | "contract")}>
+          <SelectTrigger aria-label="Cap scope" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="period">Per period</SelectItem>
+            <SelectItem value="contract">Whole contract</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="w-28">
+        <Input aria-label="Cap amount (USD)" type="number" min={0} step="0.01" placeholder="cap" value={cap} onChange={(e) => setCap(e.target.value)} />
+      </div>
+      <div className="w-44">
+        <Select value={behavior} onValueChange={(v) => setBehavior(v as "stop" | "warn" | "overage_billable")}>
+          <SelectTrigger aria-label="Cap reached behavior" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="warn">Warn only</SelectItem>
+            <SelectItem value="stop">Stop at the cap</SelectItem>
+            <SelectItem value="overage_billable">Bill the overage</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="min-w-32 flex-1">
+        <Input aria-label="Cap work type (optional)" placeholder="work type (all labor)" value={workType} onChange={(e) => setWorkType(e.target.value)} />
+      </div>
+      <div className="w-28">
+        <Input aria-label="Overage rate (USD/hour)" type="number" min={0} step="0.01" placeholder="overage rate" value={overage} onChange={(e) => setOverage(e.target.value)} />
+      </div>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={cap.trim() === ""}
+        onClick={() => {
+          onAdd({
+            scope,
+            cap_minor: Math.round(Number(cap) * 100),
+            reached_behavior: behavior,
+            work_type: workType.trim() === "" ? null : workType.trim(),
+            overage_rate_minor: overage.trim() === "" ? null : Math.round(Number(overage) * 100),
+          });
+          setCap("");
+          setWorkType("");
+          setOverage("");
+        }}
+      >
+        Add cap
       </Button>
     </div>
   );
