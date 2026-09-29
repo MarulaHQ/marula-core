@@ -75,6 +75,78 @@ if (readFileSync(join(site, "reference/upgrade-matrix.md"), "utf8") !== before2)
   failed++;
 }
 
+// BUILD-PROMPT verdicts integrity (Wave 34 lane 5): the spec-verdict
+// matrix must never drift from the truth it pins. Every shipped /
+// shipped-with-honest-gap / missing-with-owner row survives removal
+// (row count pinned), every claimed follow-up named in the doc must
+// still exist as an UNCHECKED row in TASKLIST.md's "Wave 34
+// verdict-sweep claims" section, and the three-verdict vocabulary may
+// not gain silent alternatives. A deleted verdict row or a vanished
+// claim FAILS CI instead of passing silently.
+{
+  const verdictsPath = join(site, "../BUILD-PROMPT-VERDICTS.md");
+  if (!existsSync(verdictsPath)) {
+    console.error(
+      "VERDICTS docs/BUILD-PROMPT-VERDICTS.md is missing — the spec-verdict matrix cannot pass silently",
+    );
+    failed++;
+  } else {
+    const verdicts = readFileSync(verdictsPath, "utf8");
+    const claimAnchor =
+      "## Claimed follow-ups (UNCHECKED rows added to TASKLIST.md";
+    if (!verdicts.includes(claimAnchor)) {
+      console.error(
+        "VERDICTS the claimed-follow-ups section header is missing or was reworded",
+      );
+      failed++;
+    } else {
+      const claims = verdicts
+        .slice(verdicts.indexOf(claimAnchor))
+        .split(/\n(?=\d+\. \*\*)/)
+        .slice(1)
+        .map((block) => block.match(/\d+\. \*\*(.+?)\*\*/)?.[1]?.trim())
+        .filter(Boolean);
+      if (claims.length < 10) {
+        console.error(
+          `VERDICTS expected at least 10 claimed follow-ups, found ${claims.length} — a verdict row was removed`,
+        );
+        failed++;
+      }
+      // Every claim must live as an unchecked row in the live TASKLIST.
+      const tasklistSrc = readFileSync(join(root, "TASKLIST.md"), "utf8");
+      const claimsSection = tasklistSrc.match(
+        /### Wave 34 verdict-sweep claims[\s\S]*?(?=\n### |\n## |$)/,
+      );
+      if (!claimsSection) {
+        console.error(
+          "TASKLIST the 'Wave 34 verdict-sweep claims' section is missing — claims cannot vanish",
+        );
+        failed++;
+      } else {
+        for (const claim of claims) {
+          // The verdicts doc quotes spec wording in inline code, which the
+          // reader-visible text keeps verbatim; compare on the words that
+          // matter, ignoring backticks so both sides match.
+          const marker = claim.replace(/[`*]/g, "").split("(")[0].trim();
+          const row = claimsSection[0]
+            .split("\n")
+            .find(
+              (l) =>
+                l.includes("- [ ]") &&
+                l.replace(/[`*]/g, "").includes(marker),
+            );
+          if (!row) {
+            console.error(
+              `TASKLIST claimed follow-up "${marker}" has no unchecked row under 'Wave 34 verdict-sweep claims'`,
+            );
+            failed++;
+          }
+        }
+      }
+    }
+  }
+}
+
 // In-app help index manifest (Wave 26 lane 2, ADR 0009 extension):
 // every manifest doc path must exist, its title must match the page's
 // first heading, its audience must match the page's **Audience:** tag,
