@@ -55,6 +55,7 @@ const GROUPS: NavGroup[] = [
       { href: "/settings/boards", label: "Boards" },
       { href: "/settings/taxonomy", label: "Taxonomy" },
       { href: "/settings/tags", label: "Tags" },
+      { href: "/settings/time-categories", label: "Time categories" },
       { href: "/settings/workflow", label: "Workflow" },
       { href: "/settings/sla", label: "SLA" },
       { href: "/settings/portal", label: "Portal" },

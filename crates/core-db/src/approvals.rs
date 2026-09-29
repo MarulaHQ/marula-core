@@ -87,8 +87,8 @@ pub async fn submit(
               AND NOT EXISTS (
                   SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)
            RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
-                     notes, work_type, timer_session_id, approval_status, approval_reason_code,
-                     created_at"#,
+                     notes, work_type, unbillable_reason, timer_session_id, approval_status,
+                     approval_reason_code, created_at"#,
         org_id,
         entry_id,
         now,
@@ -112,6 +112,7 @@ pub async fn submit(
         row.timer_session_id,
         row.approval_status,
         row.approval_reason_code,
+        row.unbillable_reason,
         row.created_at,
     );
     append_audit(
@@ -156,8 +157,8 @@ pub async fn decide(
               AND NOT EXISTS (
                   SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)
            RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
-                     notes, work_type, timer_session_id, approval_status, approval_reason_code,
-                     created_at"#,
+                     notes, work_type, unbillable_reason, timer_session_id, approval_status,
+                     approval_reason_code, created_at"#,
         org_id,
         entry_ids,
         target,
@@ -183,6 +184,7 @@ pub async fn decide(
             row.timer_session_id,
             row.approval_status,
             row.approval_reason_code,
+            row.unbillable_reason,
             row.created_at,
         );
         append_audit(
@@ -258,8 +260,8 @@ pub async fn reopen(
               AND NOT EXISTS (
                   SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)
            RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
-                     notes, work_type, timer_session_id, approval_status, approval_reason_code,
-                     created_at"#,
+                     notes, work_type, unbillable_reason, timer_session_id, approval_status,
+                     approval_reason_code, created_at"#,
         org_id,
         entry_id,
     )
@@ -280,6 +282,7 @@ pub async fn reopen(
         row.timer_session_id,
         row.approval_status,
         row.approval_reason_code,
+        row.unbillable_reason,
         row.created_at,
     );
     append_audit(
@@ -313,8 +316,8 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let sql = "SELECT te.id, te.org_id, te.ticket_id, te.user_id, te.started_at, te.ended_at, \
-         te.minutes, te.billable, te.notes, te.work_type, te.timer_session_id, \
-         te.approval_status, te.approval_reason_code, te.created_at, \
+         te.minutes, te.billable, te.notes, te.work_type, te.unbillable_reason, \
+         te.timer_session_id, te.approval_status, te.approval_reason_code, te.created_at, \
          te.approval_submitted_by, te.approval_submitted_at, \
          te.approval_decided_by, te.approval_decided_at, \
          EXISTS (SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = te.id) AS locked \
@@ -406,6 +409,7 @@ fn entry_from_parts(
     timer_session_id: Option<Uuid>,
     approval_status: String,
     approval_reason_code: Option<String>,
+    unbillable_reason: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
 ) -> TimeEntry {
     TimeEntry {
@@ -422,6 +426,7 @@ fn entry_from_parts(
         timer_session_id,
         approval_status: ApprovalStatus::parse(&approval_status),
         approval_reason_code,
+        unbillable_reason,
         created_at,
     }
 }
@@ -445,6 +450,9 @@ fn map_row(row: sqlx::postgres::PgRow) -> TimeEntry {
         timer_session_id: row.get("timer_session_id"),
         approval_status: status.as_deref().and_then(ApprovalStatus::parse),
         approval_reason_code: row.get("approval_reason_code"),
+        unbillable_reason: row
+            .try_get::<Option<String>, _>("unbillable_reason")
+            .unwrap_or(None),
         created_at: row.get("created_at"),
     }
 }

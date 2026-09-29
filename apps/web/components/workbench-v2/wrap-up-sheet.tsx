@@ -26,6 +26,11 @@ import { api } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { useDialogA11y } from "../../lib/a11y/use-dialog-a11y";
 import {
+  suggestCategorySlug,
+  useBillingSuggestions,
+  useTimeCategories,
+} from "../../lib/use-time-categories";
+import {
   formatElapsed,
   sessionElapsedSecs,
 } from "../../lib/use-timer";
@@ -57,6 +62,9 @@ export interface WrapUpSheetProps {
   onChangeStatus(statusId: string): Promise<void>;
   /** Refreshes the caller's timer + ticket models after writes. */
   onRefresh(): void;
+  /** Ticket-context hints for the category default (V5); optional. */
+  boardName?: string | null;
+  clientName?: string | null;
 }
 
 function suggestedDraft(session: TimerSession | null, ticketNumber: string): string {
@@ -83,18 +91,50 @@ function WrapUpSheetInner({
   statusId,
   onChangeStatus,
   onRefresh,
+  boardName,
+  clientName,
 }: WrapUpSheetProps): ReactNode {
   // Inner mounts only while open; the hook traps focus, closes on Escape,
   // and restores focus to the trigger on unmount.
   const sheetRef = useDialogA11y<HTMLElement>(true, onCloseSheet);
   const [next, setNext] = useState<WrapNext>("resolve");
   const [draft, setDraft] = useState("");
-  const [workType, setWorkType] = useState("Remote Support");
+  const [workType, setWorkType] = useState("");
   const [billable, setBillable] = useState(true);
+  const [unbillableReason, setUnbillableReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
   const [session, setSession] = useState<TimerSession | null>(null);
+  const { categories, map, refresh: refreshCategories } = useTimeCategories();
+
+  // Wave 39 V6: the newest billing-audit answers for this ticket's
+  // recent entries, read-only chips — adopt is always a user click that
+  // prefills the form, never an automatic write.
+  const recentEntryIds = useMemo(() => (entries ?? []).slice(0, 3).map((e) => e.id), [entries]);
+  const suggestionsByEntry = useBillingSuggestions(recentEntryIds);
+  const chipSuggestions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { label: string; kind: "category" | "billable"; value: string }[] = [];
+    for (const id of recentEntryIds) {
+      for (const s of suggestionsByEntry[id] ?? []) {
+        if (s.state === "ignore" && s.chip !== "billable_false") continue;
+        const kind = s.chip === "billable_false" ? "billable" : "category";
+        const dupKey = `${kind}:${s.chip}`;
+        if (seen.has(dupKey)) continue;
+        seen.add(dupKey);
+        out.push({
+          label:
+            kind === "billable"
+              ? "Audit: looks non-billable"
+              : "Audit: looks billable",
+          kind,
+          value: s.chip,
+        });
+      }
+    }
+    return out.slice(0, 3);
+  }, [recentEntryIds, suggestionsByEntry]);
 
   useEffect(() => {
     if (!open) return;
@@ -120,6 +160,31 @@ function WrapUpSheetInner({
     setDraft(suggestedDraft(session, ticketNumber));
   }, [open, session, ticketNumber]);
 
+  // Category default (V5): org taxonomy order; picks a real taxonomy
+  // slug or leaves the first category. Server ALSO suggests from ticket
+  // context on stop when the client omits work_type (capture-defaults
+  // read is the same ordering, so picker ≠ default never conflicts).
+  useEffect(() => {
+    if (!open || categories === null || categories.length === 0) return;
+    setWorkType((current) => {
+      if (current !== "" && categories.some((c) => c.slug === current)) return current;
+      return suggestCategorySlug(
+        { boardName: boardName ?? null, clientName: clientName ?? null },
+        categories,
+        map,
+      ) ?? categories[0]!.slug;
+    });
+  }, [open, categories, map, boardName, clientName]);
+
+  // Billing default follows the selected category's semantics.
+  useEffect(() => {
+    const category = categories?.find((c) => c.slug === workType);
+    if (category !== undefined && category.defaultBillable === false) setBillable(false);
+  }, [workType, categories]);
+
+  const selectedCategory = categories?.find((c) => c.slug === workType);
+  const needsUnbillableReason = billable === false && (selectedCategory?.requiresUnbillableReason ?? true);
+
   const captured = useMemo(
     () => (session === null ? null : sessionElapsedSecs(session, Date.now())),
     [session],
@@ -134,6 +199,10 @@ function WrapUpSheetInner({
 
   async function stopTimer(): Promise<boolean> {
     if (session === null) return true;
+    if (!billable && unbillableReason === "") {
+      setError("Picking a typed reason for non-billable time keeps the billing audit honest.");
+      return false;
+    }
     const result = await runEnvelopeMutation({
       describe: `Stop timer on ${ticketNumber}`,
       entityId: ticketId,
@@ -141,6 +210,8 @@ function WrapUpSheetInner({
         session_id: session.id,
         notes: draft.trim() === "" ? null : draft.trim(),
         billable,
+        work_type: workType === "" ? null : workType,
+        unbillable_reason: billable ? null : unbillableReason,
         ...base,
       }),
       optimistic: () => undefined,
@@ -231,7 +302,9 @@ function WrapUpSheetInner({
             </div>
             <div className="flex-1 rounded-lg border p-2.5" style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)" }}>
               <div className="text-[15px] font-bold" style={{ color: "var(--m-text)" }}>{billable ? "Billable" : "Non-billable"}</div>
-              <div className="mt-0.5 text-[10px]" style={{ color: "var(--m-text-muted)" }}>{workType}</div>
+              <div className="mt-0.5 text-[10px]" style={{ color: "var(--m-text-muted)" }}>
+                {selectedCategory?.label ?? "Uncategorized"}
+              </div>
             </div>
           </div>
 
@@ -257,22 +330,57 @@ function WrapUpSheetInner({
           />
 
           <div className="mb-1.5 mt-3.5 text-[10px] font-extrabold uppercase tracking-[0.06em]" style={{ color: "var(--m-text-muted)" }}>
-            Work type
+            Category
           </div>
           <div className="flex items-center justify-between rounded-lg border px-2.5" style={{ borderColor: "var(--m-border)", height: 35 }}>
             <select
-              aria-label="Work type"
+              aria-label="Category"
               value={workType}
               onChange={(e) => setWorkType(e.target.value)}
               className="w-full cursor-pointer border-0 bg-transparent text-[12px] outline-none"
               style={{ color: "var(--m-text)" }}
+              data-testid="wb-wrapup-category"
             >
-              {["Remote Support", "On-site", "Project work", "Consulting", "Internal"].map((t) => (
-                <option key={t} value={t}>{t}</option>
+              {(categories ?? []).length === 0 && <option value="">Loading categories…</option>}
+              {(categories ?? []).map((c) => (
+                <option key={c.slug} value={c.slug}>
+                  {c.label}
+                  {c.defaultBillable ? "" : " (non-billable)"}
+                </option>
               ))}
             </select>
             <span aria-hidden style={{ color: "var(--m-text-muted)" }}>⌄</span>
           </div>
+          {selectedCategory?.description !== undefined && selectedCategory?.description !== null && (
+            <p className="mt-1 text-[10px]" style={{ color: "var(--m-text-muted)" }}>{selectedCategory.description}</p>
+          )}
+
+          {chipSuggestions.length > 0 && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5" data-testid="wb-wrapup-chips">
+              {chipSuggestions.map((chip) => (
+                <button
+                  key={`${chip.kind}:${chip.value}`}
+                  type="button"
+                  className="cursor-pointer rounded-full border px-2 py-0.5 text-[10px]"
+                  style={{
+                    borderColor: "var(--m-border)",
+                    background: "var(--m-bg-subtle)",
+                    color: "var(--m-text-secondary)",
+                  }}
+                  onClick={() => {
+                    if (chip.kind === "billable") {
+                      setBillable(false);
+                      setUnbillableReason((r) => (r === "" ? "internal" : r));
+                    } else {
+                      refreshCategories();
+                    }
+                  }}
+                >
+                  ✦ {chip.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="mb-1.5 mt-3.5 text-[10px] font-extrabold uppercase tracking-[0.06em]" style={{ color: "var(--m-text-muted)" }}>
             Billable
@@ -290,6 +398,42 @@ function WrapUpSheetInner({
             </select>
             <span aria-hidden style={{ color: "var(--m-text-muted)" }}>⌄</span>
           </div>
+
+          {!billable && (
+            <div className="mt-2.5">
+              <div className="mb-1.5 text-[10px] font-extrabold uppercase tracking-[0.06em]" style={{ color: "var(--m-text-muted)" }}>
+                Why not billable?
+              </div>
+              <div className="flex items-center justify-between rounded-lg border px-2.5" style={{ borderColor: "var(--m-border)", height: 35 }}>
+                <select
+                  aria-label="Unbillable reason"
+                  value={unbillableReason}
+                  onChange={(e) => setUnbillableReason(e.target.value)}
+                  className="w-full cursor-pointer border-0 bg-transparent text-[12px] outline-none"
+                  style={{ color: "var(--m-text)" }}
+                  data-testid="wb-wrapup-unbillable-reason"
+                >
+                  <option value="">Pick a reason…</option>
+                  {[
+                    ["warranty", "Covered by warranty"],
+                    ["courtesy", "Courtesy / goodwill"],
+                    ["in_retainer_block", "Inside a retainer block"],
+                    ["sla_covered", "Covered by the SLA"],
+                    ["internal", "Internal work"],
+                    ["mistake", "Mistake — do not bill"],
+                  ].map(([code, label]) => (
+                    <option key={code} value={code}>{label}</option>
+                  ))}
+                </select>
+                <span aria-hidden style={{ color: "var(--m-text-muted)" }}>⌄</span>
+              </div>
+              {needsUnbillableReason && unbillableReason === "" && (
+                <p className="mt-1 text-[10px]" style={{ color: "var(--m-status-danger-fg)" }} data-testid="wb-wrapup-reason-required">
+                  The billing workflow needs a typed reason before this entry can be marked non-billable.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="mb-1.5 mt-3.5 text-[10px] font-extrabold uppercase tracking-[0.06em]" style={{ color: "var(--m-text-muted)" }}>
             What happens next?

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE time_entries\n              SET approval_status = 'submitted',\n                  approval_submitted_at = $3, approval_submitted_by = $4,\n                  approval_reason_code = NULL\n            WHERE org_id = $1 AND id = $2\n              AND approval_status IN ('draft', 'rejected')\n              AND NOT EXISTS (\n                  SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)\n           RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,\n                     notes, work_type, timer_session_id, approval_status, approval_reason_code,\n                     created_at",
+  "query": "SELECT id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,\n                  notes, work_type, unbillable_reason, timer_session_id, approval_status,\n                  approval_reason_code, created_at\n           FROM time_entries WHERE org_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
@@ -55,21 +55,26 @@
       },
       {
         "ordinal": 10,
+        "name": "unbillable_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
         "name": "timer_session_id",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "approval_status",
         "type_info": "Text"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "approval_reason_code",
         "type_info": "Text"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -77,8 +82,6 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Timestamptz",
         "Uuid"
       ]
     },
@@ -94,10 +97,11 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       false
     ]
   },
-  "hash": "d384afbd6045a506408b406a131573bdf65d22430046fb56c00c5fdb74bec609"
+  "hash": "9e896f8cb95c42e10fb3a30ad00b60b6f9f0f1af00cc38d489cb0bec83dadc1f"
 }

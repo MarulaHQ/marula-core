@@ -499,6 +499,7 @@ pub struct TimeEntrySpec {
     pub billable: bool,
     pub notes: Option<String>,
     pub work_type: Option<String>,
+    pub unbillable_reason: Option<String>,
 }
 
 /// A validated KB category row (TASKLIST D5) — the parent family for
@@ -1166,6 +1167,7 @@ fn validate_row(kind: EntityKind, raw: &RawRow) -> Result<ImportSpec, Vec<String
                 billable: parse_bool_field(raw, "billable", &mut errors),
                 notes: opt_text!("notes", 10_000),
                 work_type: opt_text!("work_type", 64),
+                unbillable_reason: opt_text!("unbillable_reason", 32),
             })
         }
         EntityKind::KbCategory => {

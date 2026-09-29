@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, useRequireAuth } from "../../lib/api";
 import { friendlyMutationText, resultErrorText } from "../../lib/error-copy";
+import { useBillingSuggestions, useTimeCategories } from "../../lib/use-time-categories";
 
 type Entry = components["schemas"]["TimeEntry"];
 type ApprovalRecord = components["schemas"]["TimeEntryApprovalRecord"];
@@ -58,6 +59,51 @@ const OUTCOME_COPY: Readonly<Record<string, string>> = {
   not_in_queue: "No longer in the queue — refresh to see its current state",
   not_found: "No longer visible in your scope",
 };
+
+/** Typed unbillable-reason vocabulary (Wave 39 V3) — label map for the
+ * row badge; unknown codes render verbatim so future values stay honest. */
+const UNBILLABLE_REASON_LABELS: Readonly<Record<string, string>> = {
+  warranty: "covered by warranty",
+  courtesy: "courtesy / goodwill",
+  in_retainer_block: "inside a retainer block",
+  sla_covered: "covered by the SLA",
+  internal: "internal work",
+  mistake: "mistake — do not bill",
+};
+
+/** Category label resolver over the org taxonomy (wave 39): the row
+ * shows the human label; unknown/free-text legacy slugs render as-is. */
+function useCategoryLabels(): (slug: string) => string {
+  const { categories } = useTimeCategories();
+  return useCallback(
+    (slug: string) => categories?.find((c) => c.slug === slug)?.label ?? slug,
+    [categories],
+  );
+}
+
+/** The decision_billing_audit chip for one row (Wave 39 V6):
+ * suggestion-grade only — reading never mutates, and the chip renders
+ * NOTHING when the audit surface is unconfigured (visibly-absent). */
+function ApprovalAuditChip({ entryId, entryBillable }: { entryId: string; entryBillable: boolean }) {
+  const suggestions = useBillingSuggestions([entryId]);
+  const chip = suggestions[entryId]?.[0];
+  if (chip === undefined) return null;
+  const disagreeing =
+    (chip.chip === "billable_false" && entryBillable) ||
+    (chip.chip === "billable_true" && !entryBillable);
+  const tone = disagreeing ? "var(--m-status-warning-fg, var(--m-text-secondary))" : "var(--m-text-muted)";
+  return (
+    <div className="mt-1" data-testid={`approval-audit-${entryId}`}>
+      <span
+        className="rounded-full border px-2 py-0.5 text-[10px]"
+        style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)", color: tone }}
+        title={`decision_billing_audit · ${chip.mode} · p=${chip.billableProbability ?? "?"}`}
+      >
+        ✦ Audit: {chip.label}
+      </span>
+    </div>
+  );
+}
 
 function fmtMins(mins: number): string {
   const m = Math.max(0, Math.round(mins));
@@ -452,6 +498,7 @@ function QueueRow({
   onHistory: () => void;
 }) {
   const e = item.entry;
+  const categoryLabel = useCategoryLabels();
   const ownEntry = e.user_id === meId;
   const inQueueTab = tab === "queue" && isApprover;
   return (
@@ -508,6 +555,22 @@ function QueueRow({
                 {e.notes}
               </p>
             )}
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]" style={{ color: "var(--m-text-secondary)" }}>
+              {e.work_type ? (
+                <span data-testid={`approval-category-${e.id}`}>{categoryLabel(e.work_type)}</span>
+              ) : (
+                <span style={{ color: "var(--m-status-warning-fg, var(--m-text-muted))" }}>Uncategorized</span>
+              )}
+              {!e.billable && (
+                <span>
+                  Non-billable —{" "}
+                  {UNBILLABLE_REASON_LABELS[e.unbillable_reason ?? ""] ??
+                    e.unbillable_reason ??
+                    "reason pending"}
+                </span>
+              )}
+            </div>
+            <ApprovalAuditChip entryId={e.id} entryBillable={e.billable} />
             {e.approval_reason_code && (
               <p role="alert" className="mt-1 text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
                 Rejected — {reasonLabel(e.approval_reason_code)}

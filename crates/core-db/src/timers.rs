@@ -145,8 +145,9 @@ where
 {
     sqlx::query!(
         r#"INSERT INTO time_entries (id, org_id, ticket_id, user_id, started_at, ended_at,
-                                     minutes, billable, notes, work_type, timer_session_id, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
+                                     minutes, billable, notes, work_type, unbillable_reason,
+                                     timer_session_id, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"#,
         e.id,
         e.org_id,
         e.ticket_id,
@@ -157,6 +158,7 @@ where
         e.billable,
         e.notes,
         e.work_type,
+        e.unbillable_reason,
         e.timer_session_id,
         e.created_at,
     )
@@ -179,17 +181,19 @@ pub async fn update_time_entry<'e, E>(
     billable: bool,
     notes: Option<&str>,
     work_type: Option<&str>,
+    unbillable_reason: Option<&str>,
 ) -> DbResult<TimeEntry>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let row = sqlx::query!(
         r#"UPDATE time_entries SET started_at = $3, ended_at = $4, minutes = $5,
-                                  billable = $6, notes = $7, work_type = $8
-           WHERE org_id = $1 AND id = $2
-           RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes,
-                     billable, notes, work_type, timer_session_id, approval_status,
-                     approval_reason_code, created_at"#,
+                                  billable = $6, notes = $7, work_type = $8,
+                                  unbillable_reason = $9
+            WHERE org_id = $1 AND id = $2
+            RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes,
+                      billable, notes, work_type, unbillable_reason, timer_session_id,
+                      approval_status, approval_reason_code, created_at"#,
         org_id,
         id,
         started_at,
@@ -198,6 +202,7 @@ where
         billable,
         notes,
         work_type,
+        unbillable_reason,
     )
     .fetch_optional(executor)
     .await?
@@ -216,6 +221,7 @@ where
         timer_session_id: row.timer_session_id,
         approval_status: core_domain::entities::ApprovalStatus::parse(&row.approval_status),
         approval_reason_code: row.approval_reason_code,
+        unbillable_reason: row.unbillable_reason,
         created_at: row.created_at,
     })
 }
@@ -226,8 +232,8 @@ where
 {
     let row = sqlx::query!(
         r#"SELECT id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
-                  notes, work_type, timer_session_id, approval_status, approval_reason_code,
-                  created_at
+                  notes, work_type, unbillable_reason, timer_session_id, approval_status,
+                  approval_reason_code, created_at
            FROM time_entries WHERE org_id = $1 AND id = $2"#,
         org_id,
         id
@@ -249,6 +255,7 @@ where
         timer_session_id: row.timer_session_id,
         approval_status: core_domain::entities::ApprovalStatus::parse(&row.approval_status),
         approval_reason_code: row.approval_reason_code,
+        unbillable_reason: row.unbillable_reason,
         created_at: row.created_at,
     })
 }
@@ -256,6 +263,8 @@ where
 fn row_to_entry(row: sqlx::postgres::PgRow) -> TimeEntry {
     use sqlx::Row;
     let approval_status: Option<String> = row.try_get("approval_status").unwrap_or(None);
+    let unbillable_reason: Option<String> =
+        row.try_get("unbillable_reason").unwrap_or(None);
     TimeEntry {
         id: row.get("id"),
         org_id: row.get("org_id"),
@@ -272,6 +281,7 @@ fn row_to_entry(row: sqlx::postgres::PgRow) -> TimeEntry {
             .as_deref()
             .and_then(core_domain::entities::ApprovalStatus::parse),
         approval_reason_code: row.get("approval_reason_code"),
+        unbillable_reason,
         created_at: row.get("created_at"),
     }
 }
@@ -288,8 +298,8 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let sql = r#"SELECT id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,
-                        notes, work_type, timer_session_id, approval_status, approval_reason_code,
-                        created_at
+                        notes, work_type, unbillable_reason, timer_session_id, approval_status,
+                        approval_reason_code, created_at
                   FROM time_entries
                  WHERE org_id = $1
                    AND ($2::uuid IS NULL OR ticket_id = $2)

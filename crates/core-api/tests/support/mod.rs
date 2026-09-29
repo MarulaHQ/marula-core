@@ -297,6 +297,12 @@ impl MailHarness {
         core_db::orgs::seed_default_sla_policy(&mut *tx, org)
             .await
             .expect("sla");
+        // Wave 39 lane 1: capture surfaces validate work_type against the
+        // org taxonomy, so the harness org gets the standard set too
+        // (mirrors sign-up provisioning + the demo seeder).
+        core_db::time_categories::seed_default_time_categories(&mut tx, org)
+            .await
+            .expect("time categories");
         let board: Uuid =
             sqlx::query_scalar("SELECT id FROM boards WHERE org_id=$1 AND is_default")
                 .bind(org)

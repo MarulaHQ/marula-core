@@ -274,6 +274,25 @@ fn sample_tag() -> Tag {
     }
 }
 
+/// Representative time category for the Wave 39 taxonomy samples.
+fn sample_time_category() -> core_domain::entities::TimeCategory {
+    core_domain::entities::TimeCategory {
+        id: su(46),
+        org_id: su(2),
+        slug: "onsite".into(),
+        label: "On-site".into(),
+        description: Some("Work at the client location".into()),
+        default_billable: true,
+        requires_unbillable_reason: false,
+        rate_card_affinity: true,
+        position: 10,
+        retired: false,
+        created_by: Some(su(5)),
+        created_at: st(1),
+        updated_at: st(1),
+    }
+}
+
 /// Representative ticket cost line for the workflow-construct samples.
 fn sample_cost_line() -> TicketCostLine {
     TicketCostLine {
@@ -480,8 +499,9 @@ use core_domain::events::{
     TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded,
     TicketCostLineAdded, TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded,
     TicketExpenseRemoved, TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged,
-    TicketTagsChanged, TimeEntryApprovalApproved, TimeEntryApprovalRejected,
-    TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused, TimerStarted, TimerStopped,
+    TicketTagsChanged, TimeCategoryCreated, TimeCategoryUpdated, TimeEntryApprovalApproved,
+    TimeEntryApprovalRejected, TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused,
+    TimerStarted, TimerStopped,
     ToolCheckinCompleted, ToolCheckoutCompleted, ToolKitCreated, ToolKitUpdated,
     TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
     VendorCreated, VendorUpdated,
@@ -1439,8 +1459,33 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                     timer_session_id: Some(su(15)),
                     approval_status: None,
                     approval_reason_code: None,
+                    unbillable_reason: None,
                     created_at: st(6),
                 },
+            }
+        ),
+    },
+    // Wave 39 lane 1 (p39-time-categories, migration 0110): the org's
+    // semantic time taxonomy. Payloads carry the full category row.
+    PublishedEvent {
+        event_type: types::TIME_CATEGORY_CREATED,
+        entity: "time_category",
+        variant: "default",
+        shape: typed_shape!(
+            TimeCategoryCreated,
+            TimeCategoryCreated {
+                category: sample_time_category(),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::TIME_CATEGORY_UPDATED,
+        entity: "time_category",
+        variant: "default",
+        shape: typed_shape!(
+            TimeCategoryUpdated,
+            TimeCategoryUpdated {
+                category: sample_time_category(),
             }
         ),
     },

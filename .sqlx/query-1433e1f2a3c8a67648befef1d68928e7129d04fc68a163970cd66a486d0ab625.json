@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE time_entries\n              SET approval_status = 'draft', approval_reason_code = NULL,\n                  approval_submitted_at = NULL, approval_submitted_by = NULL,\n                  approval_decided_at = NULL, approval_decided_by = NULL\n            WHERE org_id = $1 AND id = $2 AND approval_status = 'rejected'\n              AND NOT EXISTS (\n                  SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)\n           RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,\n                     notes, work_type, timer_session_id, approval_status, approval_reason_code,\n                     created_at",
+  "query": "UPDATE time_entries SET started_at = $3, ended_at = $4, minutes = $5,\n                                  billable = $6, notes = $7, work_type = $8,\n                                  unbillable_reason = $9\n            WHERE org_id = $1 AND id = $2\n            RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes,\n                      billable, notes, work_type, unbillable_reason, timer_session_id,\n                      approval_status, approval_reason_code, created_at",
   "describe": {
     "columns": [
       {
@@ -55,21 +55,26 @@
       },
       {
         "ordinal": 10,
+        "name": "unbillable_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
         "name": "timer_session_id",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "approval_status",
         "type_info": "Text"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "approval_reason_code",
         "type_info": "Text"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -77,7 +82,14 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid"
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz",
+        "Int4",
+        "Bool",
+        "Text",
+        "Text",
+        "Text"
       ]
     },
     "nullable": [
@@ -92,10 +104,11 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       false
     ]
   },
-  "hash": "3f1da053b4ed4427640bfd4301a75df0bda0e8242a11b1f148e675f219cf6526"
+  "hash": "1433e1f2a3c8a67648befef1d68928e7129d04fc68a163970cd66a486d0ab625"
 }

@@ -255,7 +255,20 @@ pub async fn replace_rates(
     let ids: Vec<Uuid> = rates.iter().map(|r| r.id).collect();
     let orgs: Vec<Uuid> = rates.iter().map(|_| org_id).collect();
     let contracts: Vec<Uuid> = rates.iter().map(|_| contract_id).collect();
-    let work_types: Vec<String> = rates.iter().map(|r| r.work_type.clone()).collect();
+    // Wave 39: the card keys `work_type` onto the same category slugs
+    // entries now carry, so normalize each card row through the org's
+    // kept mapping (exact slug, then alias). A value with no category
+    // keeps its own trimmed key — an admin's custom bucket still
+    // applies, and it simply matches entries carrying the same text.
+    let mut work_types: Vec<String> = Vec::with_capacity(rates.len());
+    for r in rates {
+        let normalized =
+            crate::time_categories::resolve_work_type_slug(&mut *executor, org_id, &r.work_type)
+                .await?;
+        work_types.push(
+            normalized.unwrap_or_else(|| r.work_type.trim().to_string()),
+        );
+    }
     let rate_minors: Vec<i64> = rates.iter().map(|r| r.rate_minor).collect();
     sqlx::query!(
         r#"INSERT INTO contract_rates (id, org_id, contract_id, work_type, rate_minor)

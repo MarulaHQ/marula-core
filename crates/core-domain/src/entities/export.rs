@@ -206,6 +206,7 @@ pub struct ExportTimeEntry {
     pub billable: bool,
     pub notes: Option<String>,
     pub work_type: Option<String>,
+    pub unbillable_reason: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 

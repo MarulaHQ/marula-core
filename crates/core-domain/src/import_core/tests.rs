@@ -809,6 +809,7 @@ fn ticket_and_time_entry_parent_keys_resolve_through_the_lookup() {
         billable: true,
         notes: None,
         work_type: None,
+        unbillable_reason: Some("internal".into()),
     });
     assert!(check_parents(&entry, lookup).is_ok());
     let ImportSpec::TimeEntry(entry_spec) = entry else {
@@ -1033,10 +1034,12 @@ fn new_family_projections_agree_between_incoming_and_stored() {
         billable: false,
         notes: Some("n".into()),
         work_type: Some("remote".into()),
+        unbillable_reason: Some("internal".into()),
     });
     let entry = TimeEntry {
         approval_status: None,
         approval_reason_code: None,
+        unbillable_reason: None,
         id: Uuid::now_v7(),
         org_id: Uuid::now_v7(),
         ticket_id: Uuid::now_v7(),

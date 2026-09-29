@@ -272,6 +272,8 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     // Standard taxonomy baseline (Wave 11 lane 3): the demo org gets the
     // same client-agnostic IT/MSP trees a registered org would.
     crate::orgs::seed_default_taxonomy(&mut tx, DEMO_ORG_ID).await?;
+    // Time-category taxonomy (Wave 39 lane 1): the ten standard slugs.
+    crate::time_categories::seed_default_time_categories(&mut tx, DEMO_ORG_ID).await?;
 
     // --- builtin roles (fixed ids, shared permission sets) ----------------
     let mut role_ids: Vec<(String, Uuid)> = Vec::new();
@@ -892,7 +894,9 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     }
 
     // Time entries for every other bulk ticket so the gap report and
-    // billing views have volume.
+    // billing views have volume. Non-billable demo rows carry the typed
+    // unbillable reason (Wave 39 V3) so the verification fixtures show
+    // the workflow end to end.
     let bulk_work_types = ["remote", "onsite", "remote", "depot"];
     for i in (0u64..45).step_by(2) {
         let started = now - Duration::days((i % 14) as i64) - Duration::hours(3);
@@ -901,8 +905,8 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         let work_type = bulk_work_types[(i % 4) as usize];
         sqlx::query(
             "INSERT INTO time_entries (id, org_id, ticket_id, user_id, started_at, ended_at,
-                                       minutes, billable, notes, work_type)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                                       minutes, billable, notes, work_type, unbillable_reason)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(demo_uuid(600 + i))
         .bind(DEMO_ORG_ID)
@@ -914,6 +918,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         .bind(billable)
         .bind("Generated demo work")
         .bind(work_type)
+        .bind(if billable { None } else { Some("internal") })
         .execute(&mut *tx)
         .await?;
     }
@@ -1237,8 +1242,8 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         let id = demo_uuid(spec.id_offset);
         sqlx::query(
             "INSERT INTO time_entries (id, org_id, ticket_id, user_id, started_at, ended_at,
-                                       minutes, billable, notes, work_type)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                                       minutes, billable, notes, work_type, unbillable_reason)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(id)
         .bind(DEMO_ORG_ID)
@@ -1250,6 +1255,11 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         .bind(spec.billable)
         .bind(spec.notes)
         .bind(spec.work_type)
+        .bind(if spec.billable {
+            None
+        } else {
+            Some("warranty")
+        })
         .execute(&mut *tx)
         .await?;
         if spec.billable
