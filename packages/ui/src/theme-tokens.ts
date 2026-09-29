@@ -2,21 +2,32 @@
  * Theme-token schema v1 — the frontend mirror of
  * crates/core-domain/src/theme_pack.rs (docs/theme.md §3, Wave 24).
  *
- * Purpose: generalize the Tangerine token set into a VERSIONED preset
- * schema and ship the built-in range. `TANGERINE` is default-v1 — its
- * values are EXACTLY the `--m-*` anchors tokens.css already declares, so
- * selecting any other preset is the only visual delta this schema can
- * produce.
+ * Purpose: generalize the Marula token set into a VERSIONED preset schema and
+ * ship the built-in range. `MARULA` is default-v1 — its values are EXACTLY the
+ * `--m-*` anchors tokens.css already declares, so selecting any other preset is
+ * the only visual delta this schema can produce.
  *
  * Non-purpose: persistence (typed settings on the core-api), distribution
  * (theme packs over ADR 0009), and custom pack application (the packs'
- * coerced manifests arrive from the backend already schema-valid; apply
- * is a `data-preset` attribute swap for built-ins and an inline style-tag
- * for packs).
+ * coerced manifests arrive from the backend already schema-valid; apply is a
+ * `data-preset` attribute swap for built-ins and an inline style-tag for packs).
+ *
+ * WHAT A PRESET MAY AND MAY NOT MOVE (wave41 D8, brand spec §4.5). A preset
+ * restyles surfaces. It may not redefine what a colour MEANS. The primary and
+ * its ink-to-gold mode flip, `destructive`, the status pairs and the assistant
+ * inversion are the brand's, and an interface built against them has to keep
+ * working when the brand is restyled. So the vocabulary below is split in two:
+ * SHIFTABLE_AXIS (neutrals, chrome, the accent TINT) is writable, and
+ * FIXED_ROLES is not. The fixed roles are deliberately absent from
+ * ROLE_TO_TOKEN, which makes the constraint structural rather than a matter of
+ * checker configuration — `assertPresetIsLegal` is the belt to that braces.
+ *
+ * Terracotta, talavera and kraft stay illustration-only per spec §4.2. They
+ * become marketplace packs, bound by the same rule.
  */
 
 export const THEME_TOKEN_SCHEMA_VERSION = 1;
-export const DEFAULT_PRESET = "tangerine";
+export const DEFAULT_PRESET = "marula";
 
 /** The closed semantic role vocabulary (mirrors TOKEN_ROLES in Rust). */
 export const TOKEN_ROLES = [
@@ -48,6 +59,34 @@ export const TOKEN_ROLES = [
 export type TokenRole = (typeof TOKEN_ROLES)[number];
 export type TokenValues = Partial<Record<TokenRole, string>> & Record<string, string | undefined>;
 
+/**
+ * Roles a preset may never write. The tokens they would have reached are not
+ * in ROLE_TO_TOKEN at all, so a preset naming one is dropped rather than
+ * repainted; this list exists so the boundary is legible and testable instead
+ * of implied by an omission.
+ */
+export const FIXED_ROLES = [
+  "primary",
+  "on_primary",
+  "assistant",
+  "assistant_foreground",
+  "assistant_button",
+  "assistant_button_foreground",
+  "assistant_line",
+  "timeline_client",
+  "timeline_note",
+  "timeline_system",
+  "timeline_time",
+  "timeline_agent",
+  "gold_text",
+  "input",
+  "edition_core",
+  "edition_enterprise",
+  "edition_cloud",
+] as const;
+
+export type FixedRole = (typeof FIXED_ROLES)[number];
+
 export interface ThemePreset {
   /** Stable id (settings + data-preset attribute value). */
   readonly id: string;
@@ -57,125 +96,117 @@ export interface ThemePreset {
   readonly dark: TokenValues;
 }
 
-/** Tangerine, verbatim from tokens.css — the pinned default-v1 (docs/theme.md §2). */
-export const TANGERINE: ThemePreset = {
-  id: "tangerine",
-  label: "Tangerine",
-  description: "The warm default — cream canvas, soft ink, tangerine interactive.",
+/**
+ * `marula` — the Neutral light column of the rendered pack, verbatim from
+ * tokens.css. This is the pinned default-v1 (docs/theme.md §2). The accent
+ * carried here is the gold-soft TINT, not gold: gold is 1.7:1 on this canvas
+ * and fails, and the flipping primary lives on tokens.css where the mode flip
+ * happens.
+ */
+export const MARULA: ThemePreset = {
+  id: "marula",
+  label: "Marula",
+  description: "Neutral canvas, ink text, gold-soft interactive tint. The default.",
   light: {
-    background: "#e8ebed",
+    background: "#f8f7f4",
     surface: "#ffffff",
     overlay: "#ffffff",
-    border: "#dcdfe2",
-    text: "#333333",
-    text_secondary: "#4b5563",
-    text_muted: "#505967",
-    accent: "#e05d38",
-    on_accent: "#ffffff",
-    destructive: "#ef4444",
-    status_success_fg: "#15803d",
-    status_success_bg: "#dcfce7",
-    status_warning_fg: "#b45309",
-    status_warning_bg: "#fef3c7",
-    status_danger_fg: "#b91c1c",
-    status_danger_bg: "#fee2e2",
-    status_neutral_fg: "#4b5563",
-    status_neutral_bg: "#e5e7eb",
-    chart_1: "#86a7c8",
-    chart_2: "#eea591",
-    chart_3: "#5a7ca6",
-    chart_4: "#466494",
-    chart_5: "#334c82",
+    border: "#e2e0da",
+    text: "#2b2a33",
+    text_secondary: "#5f584f",
+    text_muted: "#6f685d",
+    accent: "#f7e3a8",
+    on_accent: "#6b4308",
+    destructive: "#b42318",
+    status_success_fg: "#3b5222",
+    status_success_bg: "#e4edcb",
+    status_warning_fg: "#6b4308",
+    status_warning_bg: "#fbebbf",
+    status_danger_fg: "#b42318",
+    status_danger_bg: "#fde8e5",
+    status_neutral_fg: "#4a443d",
+    status_neutral_bg: "#efece6",
+    chart_1: "#a8641a",
+    chart_2: "#5e7f3a",
+    chart_3: "#d9822b",
+    chart_4: "#7c746a",
+    chart_5: "#a9c25d",
   },
   dark: {
-    background: "#1c2433",
-    surface: "#2a3040",
-    overlay: "#262b38",
-    border: "#3d4354",
-    text: "#e5e5e5",
-    text_secondary: "#a3a3a3",
-    text_muted: "#a3a3a3",
-    accent: "#e05d38",
-    on_accent: "#ffffff",
-    destructive: "#ef4444",
-    status_success_fg: "#4ade80",
-    status_success_bg: "#14532d",
-    status_warning_fg: "#fbbf24",
-    status_warning_bg: "#78350f",
-    status_danger_fg: "#fca5a5",
-    status_danger_bg: "#7f1d1d",
-    status_neutral_fg: "#a3a3a3",
-    status_neutral_bg: "#2a303e",
-    chart_1: "#86a7c8",
-    chart_2: "#e6a08f",
-    chart_3: "#5a7ca6",
-    chart_4: "#466494",
-    chart_5: "#334c82",
+    background: "#2b2a33",
+    surface: "#34333d",
+    overlay: "#34333d",
+    border: "#43424d",
+    text: "#f6efd9",
+    text_secondary: "#beb5a2",
+    text_muted: "#b0a894",
+    accent: "#3a3944",
+    on_accent: "#e8b83a",
+    destructive: "#fb8a80",
+    status_success_fg: "#d6e5a8",
+    status_success_bg: "#2e3a25",
+    status_warning_fg: "#f2cd6b",
+    status_warning_bg: "#4a3a1a",
+    status_danger_fg: "#fb8a80",
+    status_danger_bg: "#3b1a18",
+    status_neutral_fg: "#e2cfa9",
+    status_neutral_bg: "#3a342a",
+    chart_1: "#e8b83a",
+    chart_2: "#a9c25d",
+    chart_3: "#f0b27a",
+    chart_4: "#beb5a2",
+    chart_5: "#cdb38b",
   },
 };
 
-/** Built-in range (documents/apes the accent-only rule; every value set
- * passes the same AA/3:1 floors the backend asserts at the boundary). */
-export const SLATE: ThemePreset = {
-  id: "slate",
-  label: "Slate",
-  description: "Neutral tool-grade grey, cool in both modes.",
+/**
+ * `marula-warm` — the cream column of the same pack, and the mobile default
+ * (wave41 D2). It moves the neutral axis and nothing else: the canvas warms,
+ * the chrome warms with it, and the border cools a touch. The status pairs are
+ * carried here only so the manifest round-trips whole; ROLE_TO_TOKEN will not
+ * write them, which is exactly the constraint that keeps both light themes
+ * legal under spec §4.5.
+ */
+export const MARULA_WARM: ThemePreset = {
+  id: "marula-warm",
+  label: "Marula warm",
+  description: "Cream canvas with the same ink and gold. The mobile default.",
   light: {
-    background: "#eef0f2",
+    background: "#fbf7ec",
     surface: "#ffffff",
     overlay: "#ffffff",
-    border: "#d3d8dd",
-    text: "#111827",
-    text_secondary: "#374151",
-    text_muted: "#4b5563",
-    accent: "#3d5467",
-    on_accent: "#ffffff",
-    destructive: "#ef4444",
-    status_success_fg: "#15803d",
-    status_success_bg: "#dcfce7",
-    status_warning_fg: "#b45309",
-    status_warning_bg: "#fef3c7",
-    status_danger_fg: "#b91c1c",
-    status_danger_bg: "#fee2e2",
-    status_neutral_fg: "#4b5563",
-    status_neutral_bg: "#e5e7eb",
-    chart_1: "#6b7f92",
-    chart_2: "#8ba3b0",
-    chart_3: "#4c6273",
-    chart_4: "#31414f",
-    chart_5: "#1f2b35",
+    border: "#e6dcc2",
+    text: "#2b2a33",
+    text_secondary: "#5f584f",
+    text_muted: "#6b6357",
+    accent: "#f7e3a8",
+    on_accent: "#6b4308",
+    destructive: "#b42318",
+    status_success_fg: "#3b5222",
+    status_success_bg: "#e4edcb",
+    status_warning_fg: "#6b4308",
+    status_warning_bg: "#fbebbf",
+    status_danger_fg: "#b42318",
+    status_danger_bg: "#fde8e5",
+    // Brand-fixed, so identical to `marula`. The rendered pack varies its
+    // offline tint between the two light columns; that variation is the canvas
+    // showing through, not a second status pair, so the warm column takes the
+    // brand value and the warm canvas supplies the warmth.
+    status_neutral_fg: "#4a443d",
+    status_neutral_bg: "#efece6",
+    chart_1: "#a8641a",
+    chart_2: "#5e7f3a",
+    chart_3: "#d9822b",
+    chart_4: "#7c746a",
+    chart_5: "#a9c25d",
   },
-  dark: {
-    background: "#141a21",
-    surface: "#1e2731",
-    overlay: "#182029",
-    border: "#333d47",
-    text: "#e6e9eb",
-    text_secondary: "#a9b3bc",
-    text_muted: "#8c98a2",
-    accent: "#7fa8c6",
-    on_accent: "#10161c",
-    destructive: "#ef4444",
-    status_success_fg: "#4ade80",
-    status_success_bg: "#14532d",
-    status_warning_fg: "#fbbf24",
-    status_warning_bg: "#78350f",
-    status_danger_fg: "#fca5a5",
-    status_danger_bg: "#7f1d1d",
-    status_neutral_fg: "#a3a3a3",
-    status_neutral_bg: "#2a303e",
-    chart_1: "#7f95a6",
-    chart_2: "#9db1c0",
-    chart_3: "#5f7585",
-    chart_4: "#3f5160",
-    chart_5: "#2a3844",
-  },
+  dark: MARULA.dark,
 };
 
 export const HIGH_CONTRAST: ThemePreset = {
   id: "high_contrast",
   label: "High contrast",
-  description: "Accessibility preset — deep ink on plain paper, boosted status pairs.",
+  description: "Accessibility preset — plain paper, pure ink, boosted status pairs.",
   light: {
     background: "#ffffff",
     surface: "#f2f2f2",
@@ -184,12 +215,12 @@ export const HIGH_CONTRAST: ThemePreset = {
     text: "#000000",
     text_secondary: "#24292e",
     text_muted: "#3a4147",
-    accent: "#7a2e10",
-    on_accent: "#ffffff",
+    accent: "#f7e3a8",
+    on_accent: "#5c3606",
     destructive: "#8b1a15",
     status_success_fg: "#134f22",
     status_success_bg: "#d8f0dc",
-    status_warning_fg: "#7a4a08",
+    status_warning_fg: "#5c3606",
     status_warning_bg: "#fbe8b8",
     status_danger_fg: "#8b1a15",
     status_danger_bg: "#fde0dd",
@@ -209,8 +240,8 @@ export const HIGH_CONTRAST: ThemePreset = {
     text: "#ffffff",
     text_secondary: "#e4e8ea",
     text_muted: "#cdd6da",
-    accent: "#ffb193",
-    on_accent: "#000000",
+    accent: "#3a3944",
+    on_accent: "#e8b83a",
     destructive: "#ff9b92",
     status_success_fg: "#58f585",
     status_success_bg: "#0b2b13",
@@ -228,66 +259,36 @@ export const HIGH_CONTRAST: ThemePreset = {
   },
 };
 
-export const COPPER: ThemePreset = {
-  id: "copper",
-  label: "Copper",
-  description: "Brand-warm second option — cream canvas, copper interactive, ochre charts.",
-  light: {
-    background: "#f6efe6",
-    surface: "#fffaf3",
-    overlay: "#fffaf3",
-    border: "#ded0bd",
-    text: "#302418",
-    text_secondary: "#544232",
-    text_muted: "#5f4d3a",
-    accent: "#ab4e20",
-    on_accent: "#ffffff",
-    destructive: "#ba2525",
-    status_success_fg: "#1d6634",
-    status_success_bg: "#dcf2e0",
-    status_warning_fg: "#8a5c0e",
-    status_warning_bg: "#fbeabf",
-    status_danger_fg: "#991b1b",
-    status_danger_bg: "#fde3e3",
-    status_neutral_fg: "#514435",
-    status_neutral_bg: "#e8e0d4",
-    chart_1: "#96694a",
-    chart_2: "#c99a6e",
-    chart_3: "#6f4a2a",
-    chart_4: "#4c3222",
-    chart_5: "#322020",
-  },
-  dark: {
-    background: "#221912",
-    surface: "#2e241c",
-    overlay: "#281f18",
-    border: "#4a3c2d",
-    text: "#f2eae1",
-    text_secondary: "#c9b9a6",
-    text_muted: "#a4927e",
-    accent: "#e2915f",
-    on_accent: "#211610",
-    destructive: "#f2866c",
-    status_success_fg: "#7bdb9d",
-    status_success_bg: "#123a1d",
-    status_warning_fg: "#f4cd7c",
-    status_warning_bg: "#3d2c09",
-    status_danger_fg: "#f79b93",
-    status_danger_bg: "#430b0b",
-    status_neutral_fg: "#d4c6b1",
-    status_neutral_bg: "#332a20",
-    chart_1: "#b58a63",
-    chart_2: "#d0ab84",
-    chart_3: "#85613f",
-    chart_4: "#5d4229",
-    chart_5: "#3e2a21",
-  },
-};
-
 /** Shipped built-ins, display order. */
-export const BUILTIN_PRESETS: readonly ThemePreset[] = [TANGERINE, SLATE, COPPER, HIGH_CONTRAST];
+export const BUILTIN_PRESETS: readonly ThemePreset[] = [MARULA, MARULA_WARM, HIGH_CONTRAST];
 
 export const BUILTIN_PRESET_IDS = BUILTIN_PRESETS.map((p) => p.id);
+
+/**
+ * The one axis a preset is allowed to move, stated positively so the checker
+ * and this module read the same way. Neutrals, chrome and the accent tint.
+ */
+export const SHIFTABLE_AXIS: readonly TokenRole[] = [
+  "background",
+  "surface",
+  "overlay",
+  "border",
+  "text",
+  "text_secondary",
+  "text_muted",
+  "accent",
+  "on_accent",
+  "chart_1",
+  "chart_2",
+  "chart_3",
+  "chart_4",
+  "chart_5",
+];
+
+/** Roles in TOKEN_ROLES that a preset may not write (wave41 D8). */
+export const UNSHIFTABLE_ROLES: readonly TokenRole[] = TOKEN_ROLES.filter(
+  (role) => !(SHIFTABLE_AXIS as readonly string[]).includes(role),
+);
 
 export function isBuiltinPreset(id: string): boolean {
   return BUILTIN_PRESET_IDS.includes(id);
@@ -299,8 +300,10 @@ export function presetById(id: string): ThemePreset | undefined {
 
 /**
  * The CSS custom-property block for one preset mode: roles → token names.
- * Only the CLOSED vocabulary is written (off-schema keys cannot exist —
- * the backend validates themed manifests against the same vocabulary).
+ * Only the SHIFTABLE axis is writable. `destructive` and the status pairs stay
+ * in TOKEN_ROLES so a full pack round-trips through the same validator, but
+ * ROLE_TO_TOKEN omits them, so a preset naming one is dropped rather than
+ * repainted.
  */
 const ROLE_TO_TOKEN: Record<string, string> = {
   background: "--m-canvas",
@@ -312,15 +315,6 @@ const ROLE_TO_TOKEN: Record<string, string> = {
   text_muted: "--m-text-muted",
   accent: "--m-accent",
   on_accent: "--m-on-accent",
-  destructive: "--m-destructive",
-  status_success_fg: "--m-status-success-fg",
-  status_success_bg: "--m-status-success-bg",
-  status_warning_fg: "--m-status-warning-fg",
-  status_warning_bg: "--m-status-warning-bg",
-  status_danger_fg: "--m-status-danger-fg",
-  status_danger_bg: "--m-status-danger-bg",
-  status_neutral_fg: "--m-status-neutral-fg",
-  status_neutral_bg: "--m-status-neutral-bg",
   chart_1: "--m-chart-1",
   chart_2: "--m-chart-2",
   chart_3: "--m-chart-3",
@@ -332,6 +326,45 @@ const HEX_RE = /^#[0-9a-f]{6}$/;
 
 export function isValidTokenValue(role: string, value: string): boolean {
   return TOKEN_ROLES.includes(role as TokenRole) && HEX_RE.test(value);
+}
+
+/** Why a preset is not legal, or `null` when it is. */
+export function presetViolation(presetId: string, values: TokenValues): string | null {
+  for (const [role, value] of Object.entries(values)) {
+    if (typeof value !== "string") continue;
+    if ((FIXED_ROLES as readonly string[]).includes(role)) {
+      return `${presetId}: "${role}" is a brand-fixed role and may not be set by a theme preset`;
+    }
+    if ((UNSHIFTABLE_ROLES as readonly string[]).includes(role)) {
+      return `${presetId}: "${role}" is outside the shiftable axis (neutrals, chrome, accent tint)`;
+    }
+    if (!HEX_RE.test(value)) {
+      return `${presetId}: "${role}" is not a #rrggbb hex (got "${value}")`;
+    }
+  }
+  return null;
+}
+
+/**
+ * The subset of a preset's values that it actually DECLARES as an override:
+ * the shiftable axis. A built-in carries the whole resolved vocabulary so a
+ * full pack round-trips through the same validator; this is the part that
+ * reaches the DOM, and the part `presetViolation` is asked to judge.
+ */
+export function shiftableValues(values: TokenValues): TokenValues {
+  const out: TokenValues = {};
+  for (const [role, value] of Object.entries(values)) {
+    if ((SHIFTABLE_AXIS as readonly string[]).includes(role) && typeof value === "string") {
+      out[role] = value;
+    }
+  }
+  return out;
+}
+
+/** Throws when a preset would repaint a brand semantic. */
+export function assertPresetIsLegal(presetId: string, values: TokenValues): void {
+  const violation = presetViolation(presetId, values);
+  if (violation) throw new Error(violation);
 }
 
 export interface PackTheme {
@@ -355,7 +388,7 @@ export function presetCss(
     ROLE_TO_TOKEN[roleName] ? `${ROLE_TO_TOKEN[roleName]}: ${value};` : "";
   const lines = (values: TokenValues): string[] =>
     Object.entries(values)
-      .filter(([roleName, v]) => typeof v === "string" && isValidTokenValue(roleName, v))
+      .filter(([roleName, v]) => typeof v === "string" && isValidTokenValue(roleName, v as string))
       .map(([roleName, v]) => role(roleName, v as string))
       .filter(Boolean);
   rules.push(`:root[data-preset="${presetId}"] {\n${lines(light).join("\n")}\n}`);

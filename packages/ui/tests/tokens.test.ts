@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PALETTE, contrastRatio, STATUS_TONES } from "../src/tokens.js";
+import { PALETTE, TOKEN, contrastRatio, STATUS_TONES } from "../src/tokens.js";
 
 const src = join(process.cwd(), "src");
 const tokensCss = readFileSync(join(src, "tokens.css"), "utf8");
@@ -63,8 +63,11 @@ function makeResolver(blocks: Array<Map<string, string>>) {
       }
       const v = token.match(/^var\((--[\w-]+)\)$/);
       if (!v) return null;
-      for (const block of blocks) {
-        const next = block.get(v[1]!);
+      // blocks are ordered [base, override]; the LAST match wins, so a dark
+      // mix naming --m-surface resolves the dark surface. Reading forward made
+      // every dark color-mix resolve against the light canvas.
+      for (let i = blocks.length - 1; i >= 0; i -= 1) {
+        const next = blocks[i]!.get(v[1]!);
         if (next !== undefined) return toRgb(resolve(next));
       }
       return null;
@@ -84,8 +87,8 @@ function makeResolver(blocks: Array<Map<string, string>>) {
   function resolve(value: string, depth = 0): string {
     const m = value.match(/^var\((--[\w-]+)\)$/);
     if (m && depth <= 3) {
-      for (const block of blocks) {
-        const next = block.get(m[1]!);
+      for (let i = blocks.length - 1; i >= 0; i -= 1) {
+        const next = blocks[i]!.get(m[1]!);
         if (next !== undefined) return resolve(next, depth + 1);
       }
     }
@@ -112,7 +115,9 @@ function toHex(c: string): string {
 
 describe("token source of truth", () => {
   it("declares every hex inside the theme.md palette", () => {
-    const hexes = new Set(declaredHexes(tokensCss));
+    // strippedCss, not tokensCss: the file header names the retired hexes on
+    // purpose, as a tombstone. A comment is not a declaration.
+    const hexes = new Set(declaredHexes(strippedCss));
     expect(hexes.size).toBe(PALETTE.length);
     for (const hex of hexes) {
       expect(PALETTE).toContain(hex);
@@ -124,9 +129,46 @@ describe("token source of truth", () => {
   });
 
   it("keeps tokens.ts PALETTE in sync with tokens.css", () => {
-    const cssHexes = new Set(declaredHexes(tokensCss));
+    const cssHexes = new Set(declaredHexes(strippedCss));
     for (const hex of PALETTE) {
       expect(cssHexes, `${hex} missing from tokens.css`).toContain(hex.toUpperCase());
+    }
+  });
+
+  it("keeps the named TOKEN record identical to PALETTE", () => {
+    // Nothing may index into PALETTE by position: its order is the hex-scan
+    // contract, and a reorder would silently repoint a chart series. TOKEN is
+    // the addressable view, and this pins the two together.
+    // Set identity in both directions. Aliases are legitimate and useful
+    // (`ink` and `text` are the same value under two names); what must never
+    // happen is a colour in one record that the other does not carry.
+    const named = new Set(Object.values(TOKEN).map((v) => v.toUpperCase()));
+    const allowed = new Set(PALETTE.map((v) => v.toUpperCase()));
+    for (const hex of named) {
+      expect([...allowed], `${hex} in TOKEN but not in PALETTE`).toContain(hex);
+    }
+    for (const hex of allowed) {
+      expect([...named], `${hex} in PALETTE but not in TOKEN`).toContain(hex);
+    }
+  });
+
+  it("carries no retired Tangerine or Workbench hex", () => {
+    // Tangerine is retired and Workbench went before it. Both ramps are
+    // blacklisted so a later mechanical pass cannot reintroduce a colour that
+    // has no authority in the brand spec.
+    const retired = [
+      "#E05D38", // Tangerine accent
+      "#E8EBED", // Tangerine light canvas
+      "#1C2433", // Tangerine dark canvas
+      "#2A3040", // Tangerine dark surface
+      "#3D4354", // Tangerine dark border
+      "#86A7C8", // Tangerine chart-1
+      "#D64B0A", // Ember, retired by spec §4.6
+      "#FF8A4C", // Ember, retired by spec §4.6
+    ];
+    const live = new Set([...declaredHexes(strippedCss), ...PALETTE.map((h) => h.toUpperCase())]);
+    for (const hex of retired) {
+      expect(live, `${hex} is retired and must not appear`).not.toContain(hex);
     }
   });
 });
@@ -136,14 +178,36 @@ describe("dark mode completeness", () => {
     "--m-canvas",
     "--m-surface",
     "--m-overlay-surface",
+    "--m-nav",
+    "--m-sidebar",
+    "--m-surface-2",
     "--m-text",
     "--m-text-secondary",
     "--m-text-muted",
     "--m-border",
-    "--m-border-strong",
+    "--m-input",
+    "--m-disabled-bg",
+    "--m-disabled-fg",
+    "--m-primary",
+    "--m-on-primary",
     "--m-accent",
     "--m-on-accent",
+    "--m-accent-text",
     "--m-focus-ring",
+    "--m-asb",
+    "--m-asf",
+    "--m-asbtn",
+    "--m-asbtnf",
+    "--m-asline",
+    "--m-client",
+    "--m-note",
+    "--m-note-fg",
+    "--m-sys",
+    "--m-time",
+    "--m-time-fg",
+    "--m-agent",
+    "--m-on-success",
+    "--m-destructive",
     ...STATUS_TONES.flatMap((t) => [`--m-status-${t}-fg`, `--m-status-${t}-bg`]),
     "--m-scrim",
     "--m-shadow",
@@ -157,15 +221,171 @@ describe("dark mode completeness", () => {
     }
   });
 
-  it("uses the lightened ember as the dark accent", () => {
-    expect(parseVars(darkBlock).get("--m-accent")).toBe("var(--m-ember-dark)");
-  });
-
   it("resolves dark canvas/surface/text to the spec anchors", () => {
     const vars = parseVars(darkBlock);
-    expect(resolveDark(vars.get("--m-canvas")!).toUpperCase()).toBe("#1C2433");
-    expect(resolveDark(vars.get("--m-surface")!).toUpperCase()).toBe("#2A3040");
-    expect(resolveDark(vars.get("--m-text")!).toUpperCase()).toBe("#E5E5E5");
+    expect(resolveDark(vars.get("--m-canvas")!).toUpperCase()).toBe("#2B2A33");
+    expect(resolveDark(vars.get("--m-surface")!).toUpperCase()).toBe("#34333D");
+    expect(resolveDark(vars.get("--m-text")!).toUpperCase()).toBe("#F6EFD9");
+  });
+
+  it("keeps three distinct chrome tones, not one", () => {
+    // The icon rail, the context column and the cards are three SEPARATE
+    // tokens, which is the fix: the old system had one "chrome" tone and the
+    // layout lost its depth. The rendered pack then collapses one pair per mode
+    // (nav==surface in light, nav==sidebar in dark), so the provable claim is
+    // that all three are declared and not all three are the same value.
+    for (const mode of ["light", "dark"] as const) {
+      const block = mode === "light" ? rootBlock : darkBlock;
+      const tones = ["--m-nav", "--m-sidebar", "--m-surface"].map((v) =>
+        parseVars(block).get(v),
+      );
+      for (const [i, v] of tones.entries()) {
+        expect(v, `${mode} ${["--m-nav", "--m-sidebar", "--m-surface"][i]}`).toBeDefined();
+      }
+      expect(new Set(tones).size, `${mode} chrome collapsed to one tone`).toBeGreaterThan(1);
+    }
+  });
+});
+
+describe("the timer bar does not follow the mode flip", () => {
+  it("is declared once, in :root, and never overridden in the dark block", () => {
+    // DESIGN-NOTES §2: the timer bar is ink in EVERY theme. It lives in :root
+    // precisely so the mechanical dark-mode pass skips it. Moving it into
+    // [data-theme="dark"] would paint it cream.
+    expect(parseVars(rootBlock).get("--m-bar")?.toUpperCase()).toBe("#2B2A33");
+    expect(parseVars(darkBlock).has("--m-bar")).toBe(false);
+  });
+
+  it("puts gold on the bar, never deep amber", () => {
+    // #E8B83A on #2B2A33 is 7.7:1. #9A5B0F is 2.6:1 and would fail outright.
+    expect(contrastRatio(TOKEN.gold, TOKEN.ink)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(TOKEN.goldText, TOKEN.ink)).toBeLessThan(4.5);
+  });
+});
+
+describe("the flipping primary", () => {
+  it("is ink with gold text on light and gold with ink text on dark", () => {
+    const light = parseVars(rootBlock);
+    const dark = parseVars(darkBlock);
+    expect(light.get("--m-primary")?.toUpperCase()).toBe("#2B2A33");
+    expect(light.get("--m-on-primary")?.toUpperCase()).toBe("#E8B83A");
+    expect(dark.get("--m-primary")?.toUpperCase()).toBe("#E8B83A");
+    expect(dark.get("--m-on-primary")?.toUpperCase()).toBe("#2B2A33");
+  });
+
+  it("clears 4.5:1 for the button's label in BOTH modes", () => {
+    // Tangerine shipped white-on-orange at 3.6:1, a documented spec tradeoff.
+    // Marula has no such tradeoff: both sides clear AA comfortably.
+    expect(contrastRatio(TOKEN.gold, TOKEN.ink)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(TOKEN.ink, TOKEN.gold)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe("the accent redesign (wave41 D)", () => {
+  it("uses a gold-soft TINT and a deep-amber TEXT on light, never gold", () => {
+    const light = parseVars(rootBlock);
+    expect(light.get("--m-accent")?.toUpperCase()).toBe("#F7E3A8");
+    expect(light.get("--m-accent-text")?.toUpperCase()).toBe("#9A5B0F");
+    // Gold as TEXT or as a FILL on the light canvas fails; only the tint and
+    // the deep amber pass.
+    expect(contrastRatio(TOKEN.gold, TOKEN.canvas)).toBeLessThan(3.0);
+    expect(contrastRatio(TOKEN.goldText, TOKEN.canvas)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("derives the hover steps from the tint, not from a hue mix", () => {
+    // The old formula was color-mix(accent, ink), which in light mode is a
+    // mix of ink with ink and produces no visible step at all. Each step now
+    // names the tint explicitly.
+    for (const [mode, block] of [
+      ["light", rootBlock],
+      ["dark", darkBlock],
+    ] as const) {
+      for (const step of ["--m-accent-soft", "--m-accent-muted", "--m-accent-hover", "--m-accent-active"]) {
+        const value = parseVars(block).get(step) ?? "";
+        expect(value, `${mode} ${step} must derive from the tint`).toMatch(
+          /color-mix\(in srgb, var\(--m-accent\)/,
+        );
+      }
+    }
+  });
+
+  it("recedes on hover in dark so the gold label keeps its contrast", () => {
+    // Dark hovers go DARKER. Lightening the fill toward cream drops gold from
+    // 6.5:1 to 3.9:1 and fails.
+    const hover = parseVars(darkBlock).get("--m-accent-hover")!;
+    expect(hover).toContain("var(--m-canvas)");
+    const resolved = toHex(resolveDark(hover));
+    expect(contrastRatio(TOKEN.gold, resolved)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe("input borders are distinct from decorative borders", () => {
+  it("holds --input at 3:1 against its own background and --border below it", () => {
+    // design.md §4.2 splits them: form-control borders need 3:1, decorative
+    // dividers need nothing. The old system used one token for both.
+    expect(contrastRatio(TOKEN.input, TOKEN.canvas)).toBeGreaterThanOrEqual(3.0);
+    expect(contrastRatio(TOKEN.input, TOKEN.surface)).toBeGreaterThanOrEqual(3.0);
+    expect(contrastRatio(TOKEN.inputDark, TOKEN.surfaceDark)).toBeGreaterThanOrEqual(3.0);
+    expect(contrastRatio(TOKEN.border, TOKEN.canvas)).toBeLessThan(3.0);
+  });
+});
+
+describe("disabled is a muted fill, not an opacity", () => {
+  it("gives disabled text its own token pair at the 3:1 UI floor", () => {
+    expect(contrastRatio(TOKEN.disabledFg, TOKEN.surface2)).toBeGreaterThanOrEqual(3.0);
+    expect(contrastRatio(TOKEN.disabledFgDark, TOKEN.surface2Dark)).toBeGreaterThanOrEqual(3.0);
+  });
+});
+
+describe("the assistant inversion", () => {
+  it("is ink on cream in light and cream on ink in dark", () => {
+    const light = parseVars(rootBlock);
+    const dark = parseVars(darkBlock);
+    expect(light.get("--m-asb")?.toUpperCase()).toBe("#2B2A33");
+    expect(light.get("--m-asf")?.toUpperCase()).toBe("#F6EFD9");
+    expect(dark.get("--m-asb")?.toUpperCase()).toBe("#F6EFD9");
+    expect(dark.get("--m-asf")?.toUpperCase()).toBe("#2B2A33");
+  });
+
+  it("carries all five internals, and its button clears AA both ways", () => {
+    for (const mode of [rootBlock, darkBlock]) {
+      for (const v of ["--m-asb", "--m-asf", "--m-asbtn", "--m-asbtnf", "--m-asline"]) {
+        expect(parseVars(mode).get(v), v).toBeDefined();
+      }
+    }
+    expect(contrastRatio(TOKEN.ink, TOKEN.gold)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("keeps the divider decorative, at the pack's own rendered value", () => {
+    // #5F584F on the ink card is 2.02:1. WCAG 1.4.11 covers dividers that
+    // identify a control or its state, not a rule inside a card, so this is a
+    // deliberate pass rather than a gap. Pinned so nobody "fixes" it.
+    expect(contrastRatio(TOKEN.textSecondary, TOKEN.ink)).toBeLessThan(3.0);
+    expect(contrastRatio(TOKEN.textSecondary, TOKEN.ink)).toBeGreaterThanOrEqual(1.5);
+  });
+});
+
+describe("the five timeline entry tints", () => {
+  it("declares all five in both modes", () => {
+    for (const mode of [rootBlock, darkBlock]) {
+      for (const v of ["--m-client", "--m-note", "--m-sys", "--m-time", "--m-agent"]) {
+        expect(parseVars(mode).get(v), v).toBeDefined();
+      }
+    }
+  });
+
+  it("keeps entry text readable on every tint", () => {
+    for (const [fg, bg] of [
+      [TOKEN.text, TOKEN.client],
+      [TOKEN.text, TOKEN.note],
+      [TOKEN.text, TOKEN.sys],
+      [TOKEN.text, TOKEN.time],
+      [TOKEN.text, TOKEN.agent],
+      [TOKEN.noteFg, TOKEN.note],
+      [TOKEN.timeFg, TOKEN.time],
+    ] as const) {
+      expect(contrastRatio(fg, bg), `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });
 
@@ -181,9 +401,13 @@ describe("WCAG contrast", () => {
   ];
 
   for (const mode of modes) {
-    it(`meets AA (4.5) for primary/secondary text on canvas+surface (${mode.label})`, () => {
+    it(`meets AA (4.5) for primary/secondary/muted text on canvas+surface (${mode.label})`, () => {
       const vars = mode.label === "light" ? parseVars(rootBlock) : parseVars(darkBlock);
-      const text = [vars.get("--m-text")!, vars.get("--m-text-secondary")!];
+      const text = [
+        vars.get("--m-text")!,
+        vars.get("--m-text-secondary")!,
+        vars.get("--m-text-muted")!,
+      ];
       const surfaces = [
         mode.resolve(vars.get("--m-canvas")!),
         mode.resolve(vars.get("--m-surface")!),
@@ -196,68 +420,90 @@ describe("WCAG contrast", () => {
       }
     });
 
-    it(`meets AA (4.5) for muted text on canvas+surface+accent-soft (${mode.label})`, () => {
-      // Regression guard: the first Tangerine pass carried the Workbench
-      // color-mix muted formula into dark mode, producing a mid-grey on the
-      // blue-slate surfaces (~1.4–3.5:1 — illegible). Muted text must pass
-      // AA everywhere it appears: canvases, surfaces, and the tangerine
-      // accent-soft hover fills used behind nav chevrons.
+    it(`keeps the on-accent label readable across the whole tint ramp (${mode.label})`, () => {
+      // The tint has four strengths. A label that passes on the base tint and
+      // fails on its own hover step is the bug this catches.
       const vars = mode.label === "light" ? parseVars(rootBlock) : parseVars(darkBlock);
-      const muted = toHex(mode.resolve(vars.get("--m-text-muted")!));
-      const surface = toHex(mode.resolve(vars.get("--m-surface")!));
-      const canvas = toHex(mode.resolve(vars.get("--m-canvas")!));
-      // accent-soft: color-mix(accent N%, transparent) composited over surface
-      const softRaw = mode.resolve(vars.get("--m-accent-soft")!);
-      const accent = toHex(mode.resolve(vars.get("--m-accent")!));
-      const pct = softRaw.match(/([\d.]+)%,\s*transparent/);
-      const a = pct ? parseFloat(pct[1]!) / 100 : 0.1;
-      const composite = [1, 3, 5]
-        .map((i) => parseInt(accent.slice(i, i + 2), 16))
-        .map((av, i) => {
-          const sv = parseInt(surface.slice(1 + i * 2, 3 + i * 2), 16);
-          return Math.round(av * a + sv * (1 - a));
-        });
-      const softBg =
-        "#" + composite.map((v) => v.toString(16).padStart(2, "0")).join("").toUpperCase();
-      for (const bg of [canvas, surface, softBg]) {
-        const ratio = contrastRatio(muted, bg);
-        expect(ratio, `muted ${muted} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+      const onAccent = toHex(mode.resolve(vars.get("--m-on-accent")!));
+      for (const step of ["--m-accent-soft", "--m-accent-muted", "--m-accent", "--m-accent-hover", "--m-accent-active"]) {
+        const bg = toHex(mode.resolve(vars.get(step)!));
+        expect(contrastRatio(onAccent, bg), `${mode.label} ${step}`).toBeGreaterThanOrEqual(4.5);
       }
     });
   }
 
-  it("meets non-text contrast (3.0) for focus ring on both canvases", () => {
-    expect(contrastRatio("#E05D38", "#E8EBED")).toBeGreaterThanOrEqual(3.0);
-    expect(contrastRatio("#E05D38", "#1C2433")).toBeGreaterThanOrEqual(3.0);
+  it("meets non-text contrast (3.0) for the focus ring on both canvases", () => {
+    expect(contrastRatio(TOKEN.ring, TOKEN.canvas)).toBeGreaterThanOrEqual(3.0);
+    expect(contrastRatio(TOKEN.gold, TOKEN.ink)).toBeGreaterThanOrEqual(3.0);
   });
 
-  it("primary button pairing meets the spec-pinned floor", () => {
-    // theme.md §6 pins solid Tangerine + white text in both modes (≈3.63:1):
-    // the preset's own pairing — above the 3:1 large/UI floor, below
-    // normal-text 4.5 — documented spec tradeoff (docs/theme.md §3.1).
-    expect(contrastRatio("#FFFFFF", "#E05D38")).toBeGreaterThanOrEqual(3.5);
+  it("keeps gold off light text entirely", () => {
+    // design.md §4.2: gold is never text on a light background. The spec puts
+    // it at 1.7:1 on cream; on the Neutral canvas it is no better.
+    expect(contrastRatio(TOKEN.gold, "#FBF7EC")).toBeLessThan(3.0);
+    expect(contrastRatio(TOKEN.goldText, "#FFFFFF")).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each([...STATUS_TONES])("%s tag pair meets the UI floor (3.0)", (tone) => {
-    const vars = parseVars(rootBlock);
-    const fgLight = resolveLight(vars.get(`--m-status-${tone}-fg`)!);
-    const bgLight = resolveLight(vars.get(`--m-status-${tone}-bg`)!);
-    const fgDark = resolveLight(parseVars(darkBlock).get(`--m-status-${tone}-fg`)!);
-    const bgDark = resolveLight(parseVars(darkBlock).get(`--m-status-${tone}-bg`)!);
-    // Dark danger (#F87171 on #7F1D1D ≈ 3.62) is spec-pinned; floor is UI-level 3.0.
-    expect(contrastRatio(fgLight, bgLight), `light ${tone}`).toBeGreaterThanOrEqual(3.0);
-    expect(contrastRatio(fgDark, bgDark), `dark ${tone}`).toBeGreaterThanOrEqual(3.0);
+  it.each([...STATUS_TONES])("%s tag pair meets full AA 4.5", (tone) => {
+    const light = parseVars(rootBlock);
+    const dark = parseVars(darkBlock);
+    expect(
+      contrastRatio(
+        resolveLight(light.get(`--m-status-${tone}-fg`)!),
+        resolveLight(light.get(`--m-status-${tone}-bg`)!),
+      ),
+      `light ${tone}`,
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(
+      contrastRatio(
+        resolveLight(dark.get(`--m-status-${tone}-fg`)!),
+        resolveLight(dark.get(`--m-status-${tone}-bg`)!),
+      ),
+      `dark ${tone}`,
+    ).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each([
-    ["#15803D", "#DCFCE7", "light success"],
-    ["#B45309", "#FEF3C7", "light warning"],
-    ["#B91C1C", "#FEE2E2", "light danger"],
-    ["#4B5563", "#E5E7EB", "light neutral"],
-    ["#4ADE80", "#14532D", "dark success"],
-    ["#FBBF24", "#78350F", "dark warning"],
-    ["#A3A3A3", "#2A303E", "dark neutral"],
-  ])("%s on %s (%s) meets full AA 4.5", (fg, bg, label) => {
-    expect(contrastRatio(fg, bg), label).toBeGreaterThanOrEqual(4.5);
+  it("the due-today pair clears AA on the blush family", () => {
+    // design.md §8 gives due-today its own pair rather than reusing warning;
+    // it is the pair most likely to be collapsed into amber by a later pass.
+    expect(contrastRatio(TOKEN.dueFg, TOKEN.dueBg)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(TOKEN.dueFgDark, TOKEN.dueBgDark)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(TOKEN.destructive, TOKEN.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(TOKEN.dangerFgDark, TOKEN.surfaceDark)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("uses deep canopy for small text on a canopy fill", () => {
+    // design.md §4.2: cream on a canopy fill is 3.99:1 and fails, so small text
+    // on green uses deep canopy at 5.39:1. Both figures are the spec's.
+    expect(contrastRatio(TOKEN.cream, TOKEN.canopy)).toBeLessThan(4.5);
+    expect(contrastRatio(TOKEN.cream, TOKEN.canopyDeep)).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+describe("density steps (wave41 D7)", () => {
+  it("defaults to comfortable and offers compact and dense", () => {
+    for (const step of ["comfortable", "compact", "dense"]) {
+      expect(tokensCss, step).toContain(`[data-density="${step}"]`);
+    }
+  });
+
+  it("pins each step to its spec triple", () => {
+    const block = (step: string): Map<string, string> => {
+      const at = tokensCss.indexOf(`[data-density="${step}"]`);
+      const chunk = tokensCss.slice(at, tokensCss.indexOf("}", at));
+      return parseVars(chunk);
+    };
+    expect(block("comfortable").get("--m-density-control")).toBe("44px");
+    expect(block("comfortable").get("--m-density-row")).toBe("48px");
+    expect(block("comfortable").get("--m-card-padding")).toBe("24px");
+    expect(block("compact").get("--m-density-control")).toBe("36px");
+    expect(block("compact").get("--m-density-row")).toBe("40px");
+    expect(block("compact").get("--m-card-padding")).toBe("16px");
+    // dense reproduces the repo's pre-Marula values so the fleet, stock and
+    // billing tables built at 28px rows do not regress.
+    expect(block("dense").get("--m-density-control")).toBe("32px");
+    expect(block("dense").get("--m-density-row")).toBe("32px");
+    expect(block("dense").get("--m-card-padding")).toBe("12px");
+  });
+});
+

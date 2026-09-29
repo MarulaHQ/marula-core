@@ -1,6 +1,6 @@
 "use client";
 /**
- * @marula-core/ui — Workbench design system barrel.
+ * @marula-core/ui — Marula design system barrel.
  * Purpose: single public entry point for tokens API, theming, and components.
  * Non-purpose: stylesheets ship separately (`@marula-core/ui/tokens.css` +
  * `components.css`) and must be imported by the host app once at its root.
@@ -9,19 +9,29 @@
 export { cn } from "./lib/cn";
 export * from "./tokens";
 export * from "./theme";
-export type { PackTheme, TokenRole, TokenValues, ThemePreset } from "./theme-tokens";
+export type {
+  FixedRole,
+  PackTheme,
+  TokenRole,
+  TokenValues,
+  ThemePreset,
+} from "./theme-tokens";
 export {
   BUILTIN_PRESETS,
-  TANGERINE,
-  SLATE,
-  COPPER,
+  MARULA,
+  MARULA_WARM,
   HIGH_CONTRAST,
   DEFAULT_PRESET,
   TOKEN_ROLES,
+  FIXED_ROLES,
+  SHIFTABLE_AXIS,
+  UNSHIFTABLE_ROLES,
   isValidTokenValue,
   isBuiltinPreset,
   presetById,
   presetCss,
+  presetViolation,
+  assertPresetIsLegal,
   builtinPresetCss,
   THEME_TOKEN_SCHEMA_VERSION,
 } from "./theme-tokens";

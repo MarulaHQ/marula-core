@@ -1,59 +1,152 @@
 /**
  * Typed token API mirroring tokens.css.
- * Purpose: give TS consumers (and tests) a typed view of the Tangerine
- * palette, status colors, and WCAG math without re-parsing CSS.
+ * Purpose: give TS consumers (and tests) a typed view of the Marula palette,
+ * status colors, and WCAG math without re-parsing CSS.
  * Non-purpose: this file defines no new colors — every hex must also exist in
  * tokens.css; a test enforces the two stay in sync.
+ *
+ * Tangerine is retired. The retired ramp is not carried here in any form: no
+ * #E05D38, no cool-grey #E8EBED canvas, no blue-slate dark mode. The CI
+ * hex-scan blacklists them so they cannot return through the front door.
  */
 
 /** Every hex permitted anywhere in Marula UI (docs/theme.md §3).
- * Preset-only surfaces (accent tints, sidebar) live in the shadcn layer as
- * verbatim oklch and are intentionally NOT part of the --m-* hex set. */
+ * Preset-only surfaces live in the shadcn layer as verbatim oklch and are
+ * intentionally NOT part of the --m-* hex set. */
 export const PALETTE = [
-  // Greyscale ramp + surfaces (light)
-  "#333333",
-  "#4B5563",
-  "#6B7280",
-  "#DCDFE2",
-  "#FFFFFF",
-  "#E8EBED",
-  // Tangerine primary (interactive accent — identical in both modes)
-  "#E05D38",
-  // Preset destructive
-  "#EF4444",
-  // Preset chart ramp (light; chart-2 switches to #E6A08F in dark)
-  "#86A7C8",
-  "#EEA591",
-  "#5A7CA6",
-  "#466494",
-  "#334C82",
-  "#E6A08F",
-  // Neutral tag bg (light)
-  "#E5E7EB",
-  // Dark mode anchors (blue-slate family)
-  "#1C2433",
-  "#2A3040",
-  "#262B38",
-  "#2A303E",
-  "#3D4354",
-  "#A3A3A3",
-  "#E5E5E5",
-  // Semantic status — light / dark pairs (PSA conventions)
-  "#15803D",
-  "#DCFCE7",
-  "#4ADE80",
-  "#14532D",
-  "#B45309",
-  "#FEF3C7",
-  "#FBBF24",
-  "#78350F",
-  "#B91C1C",
-  "#FEE2E2",
-  "#FCA5A5",
-  "#7F1D1D",
+  // Brand primitives (DESIGN-NOTES §7)
+  "#E8B83A", // gold
+  "#F7E3A8", // gold-soft, the interactive tint
+  "#9A5B0F", // gold-text, deep amber for text on light
+  "#A8641A", // ring on light
+  "#2B2A33", // dusk ink
+  "#222129", // the bar in dark mode — still ink
+  "#F6EFD9", // flesh cream
+  "#5E7F3A", // canopy
+  "#4A6A2A", // deep canopy, text on a canopy fill
+  "#A9C25D", // unripe lime
+  "#D9822B", // ripe blush
+  "#CDB38B", // bushveld sand
+  "#7C746A", // bark grey
+  // Light: the `marula` preset, Neutral column
+  "#F8F7F4", // canvas
+  "#FFFFFF", // surface, nav, client entry
+  "#EFEEEA", // surface-2, sidebar, muted, disabled fill
+  "#5F584F", // secondary text
+  "#6F685D", // muted text
+  "#E2E0DA", // border
+  "#8C877C", // input
+  "#8A8479", // disabled foreground
+  "#6B4308", // on-accent / progress / time-entry text
+  // Dark: the `marula` preset, Dark column
+  "#34333D", // surface
+  "#3A3944", // surface-2, accent, disabled fill
+  "#BEB5A2", // secondary text
+  "#B0A894", // muted text
+  "#43424D", // border
+  "#8A8378", // input
+  "#9A9384", // disabled foreground
+  // Timeline entry tints
+  "#EFECE6", // internal note
+  "#4A443D", // note text, neutral status text
+  "#2F2E37", // system entry
+  "#FBEBBF", // time entry
+  "#F2CD6B", // time-entry text
+  "#F7F3E8", // assistant entry
+  "#4A3A1A", // progress + time-entry background (dark)
+  "#3A342A", // note background (dark), offline background
+  "#E2CFA9", // note text (dark), neutral/offline text (dark)
+  "#33302A", // assistant entry (dark)
+  // Status pairs
+  "#3B5222", // success text
+  "#E4EDCB", // success background
+  "#D6E5A8", // success text (dark)
+  "#2E3A25", // success background (dark)
+  "#7A3F0C", // due-today text
+  "#F8DCC0", // due-today background
+  "#F0B27A", // due-today text (dark)
+  "#4D2F14", // due-today background (dark)
+  "#B42318", // destructive + danger text
+  "#FDE8E5", // danger background
+  "#FB8A80", // destructive + danger text (dark)
+  "#3B1A18", // danger background (dark)
+  "#5C4631", // offline text
+  "#000000", // dark scrim and overlay shadow
 ] as const;
 
 export type PaletteHex = (typeof PALETTE)[number];
+
+/**
+ * The same hexes, addressed BY NAME.
+ *
+ * PALETTE is the ordered whitelist the CI hex-scan and the tokens test read,
+ * so its order is a contract and nothing should index into it. This record is
+ * how a consumer names a colour; every entry is drawn from PALETTE, and a
+ * test asserts the two stay identical, so a reorder of PALETTE can never
+ * silently repoint a chart series at a different hue.
+ */
+export const TOKEN = {
+  gold: "#E8B83A",
+  goldSoft: "#F7E3A8",
+  goldText: "#9A5B0F",
+  ring: "#A8641A",
+  ink: "#2B2A33",
+  bar: "#222129",
+  cream: "#F6EFD9",
+  canopy: "#5E7F3A",
+  canopyDeep: "#4A6A2A",
+  lime: "#A9C25D",
+  blush: "#D9822B",
+  sand: "#CDB38B",
+  bark: "#7C746A",
+  canvas: "#F8F7F4",
+  surface: "#FFFFFF",
+  client: "#FFFFFF", // timeline client entry: a surface box with a border
+  surface2: "#EFEEEA",
+  text: "#2B2A33",
+  textSecondary: "#5F584F",
+  textMuted: "#6F685D",
+  border: "#E2E0DA",
+  input: "#8C877C",
+  disabledFg: "#8A8479",
+  onAccent: "#6B4308",
+  surfaceDark: "#34333D",
+  surface2Dark: "#3A3944",
+  textSecondaryDark: "#BEB5A2",
+  textMutedDark: "#B0A894",
+  borderDark: "#43424D",
+  inputDark: "#8A8378",
+  disabledFgDark: "#9A9384",
+  note: "#EFECE6",
+  noteFg: "#4A443D",
+  sys: "#F8F7F4",
+  sysDark: "#2F2E37",
+  time: "#FBEBBF",
+  timeFg: "#6B4308",
+  timeFgDark: "#F2CD6B",
+  agent: "#F7F3E8",
+  timeBgDark: "#4A3A1A",
+  noteBgDark: "#3A342A",
+  noteFgDark: "#E2CFA9",
+  agentDark: "#33302A",
+  successFg: "#3B5222",
+  successBg: "#E4EDCB",
+  successFgDark: "#D6E5A8",
+  successBgDark: "#2E3A25",
+  dueFg: "#7A3F0C",
+  dueBg: "#F8DCC0",
+  dueFgDark: "#F0B27A",
+  dueBgDark: "#4D2F14",
+  dangerFg: "#B42318",
+  dangerBg: "#FDE8E5",
+  dangerFgDark: "#FB8A80",
+  dangerBgDark: "#3B1A18",
+  offlineFg: "#5C4631",
+  destructive: "#B42318",
+  black: "#000000",
+} as const;
+
+export type TokenName = keyof typeof TOKEN;
 
 export const STATUS_TONES = ["success", "warning", "danger", "neutral"] as const;
 export type StatusTone = (typeof STATUS_TONES)[number];
