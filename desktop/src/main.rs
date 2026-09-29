@@ -14,6 +14,10 @@ use std::sync::Arc;
 use tauri::{Manager, RunEvent};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
+mod os_integrations;
+mod window_manager;
+mod windows;
+
 const PREFERRED_PG_PORT: u16 = 15434;
 const PREFERRED_API_PORT: u16 = 15433;
 const PREFERRED_WEB_PORT: u16 = 15435;
@@ -34,6 +38,11 @@ struct Backend {
 /// Pid of the spawned Next.js standalone server, for the SIGTERM handler
 /// (see spawn_next_server). Local to this process by construction.
 static NEXT_SERVER_PID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+
+/// The loopback URL the webviews are served from — managed state so the
+/// window factory can build sibling webviews onto the SAME server (one
+/// origin: session cookie, BroadcastChannel bus, and CORS all hold).
+struct WebUrl(String);
 
 fn data_root() -> PathBuf {
     // macOS-first (this lane targets a double-clickable .app); other
@@ -765,6 +774,10 @@ fn main() {
     };
     install_sigterm_handler(data_root().join("pgdata"));
 
+    // Window-geometry state for the native fleet (Wave 38 lane 2): one
+    // JSON file under the app data dir, roles keyed by route key.
+    let window_state_path = data_root().join("window-state.json");
+
     tauri::Builder::default()
         // Auto-update channel (GA packaging): the updater reads its
         // endpoint + pubkey from tauri.conf.json `plugins.updater`. The
@@ -774,6 +787,30 @@ fn main() {
         // granted; the UI rides the app ACL only. Release workflow lives in
         // docs/desktop-release.md.
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Wave 38 lane 2: `meridian://` deep links open-or-focus the right
+        // window; single instance makes a second launch focus the running
+        // app (and hand it the deep link it was opened with). Deep-link OS
+        // registration is the bundle Info.plist (build-desktop.sh); runtime
+        // delivery is RunEvent::Opened (macOS warm launch), argv on first
+        // launch, and this hook's argv for Linux/Windows re-launches.
+        .plugin(tauri_plugin_single_instance::init(|_app, argv, _cwd| {
+            // Second-launch focus: bring the fleet forward. Deep links
+            // arriving via argv are handled by the normal event path on
+            // macOS RunEvent::Opened; on Linux/Windows argv carries them.
+            if let Some(link) = argv.iter().find(|a| a.starts_with("meridian://")) {
+                let app = _app.clone();
+                let link = link.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = os_integrations::route_deep_link(&app, &link).await {
+                        tracing::warn!("deep link routing failed: {e}");
+                    }
+                });
+            } else if let Some(main) = _app.get_webview_window("main") {
+                let _ = main.show();
+                let _ = main.unminimize();
+                let _ = main.set_focus();
+            }
+        }))
         // Wave 32 lane 5: typed raw-ZPL door for label printing. Custom app
         // commands are ACL-gated for this shell's remote web origin (tauri
         // >= 2.11); the grants live in desktop/capabilities/desktop-web.json
@@ -781,10 +818,16 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             print_raw_zpl,
             check_desktop_update,
-            install_desktop_update
+            install_desktop_update,
+            window_manager::open_native_window,
+            window_manager::focus_native_window,
+            os_integrations::route_meridian_link
         ])
         .manage(backend)
         .manage(PendingUpdate::default())
+        .manage(window_manager::WindowRegistry::new(window_state_path))
+        .manage(WebUrl(web_url.clone()))
+        .manage(window_manager::ApiUrl(api_url.clone()))
         .setup(move |app| {
             // Rust-built window so the initialization script (API base
             // URL injection, ADR 0005) runs before the page's scripts.
@@ -797,24 +840,70 @@ fn main() {
             .inner_size(1440.0, 900.0)
             .min_inner_size(900.0, 640.0)
             .initialization_script(format!("window.__MERIDIAN_API_URL__ = '{api_url}';"))
+            // Windows are the point: native tabbing stays OFF. Without an
+            // explicit tabbing identifier macOS never auto-groups this
+            // window into tabs, and the Window menu below lists windows
+            // rather than merging them.
             .build()?;
+
+            // Native chrome: menu bar (Window menu with tabs-off posture)
+            // + tray quick actions. Failures are honest but non-fatal — a
+            // tray-less launch beats a dead app.
+            if let Err(e) = os_integrations::build_menu(app.handle()) {
+                tracing::warn!("menu bar unavailable: {e}");
+            }
+            if let Err(e) = os_integrations::build_tray(app.handle()) {
+                tracing::warn!("tray unavailable: {e}");
+            }
+
+            // Any deep link this FIRST launch was opened with (macOS hands
+            // it over via RunEvent::Opened below for warm launches).
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                for arg in std::env::args().skip(1) {
+                    if arg.starts_with("meridian://") {
+                        let app = handle.clone();
+                        let arg = arg.clone();
+                        tauri::async_runtime::block_on(async move {
+                            if let Err(e) = os_integrations::route_deep_link(&app, &arg).await {
+                                tracing::warn!("launch deep link failed: {e}");
+                            }
+                        });
+                    }
+                }
+            });
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("building the Tauri app")
         .run(|app, event| {
-            if let RunEvent::Exit = event {
-                // Graceful shutdown: stop the embedded Postgres so the
-                // data dir is left consistent for the next launch.
-                if let Some(b) = app.try_state::<Backend>() {
-                    if let Err(e) = tauri::async_runtime::block_on(b.postgres.stop()) {
-                        eprintln!("stopping embedded Postgres failed: {e}");
-                    }
-                    // kill_on_drop also covers this; explicit kill keeps
-                    // the shutdown order deterministic (web, then PG).
-                    let _ = b.next_server.lock().map(|mut c| c.start_kill());
+            match event {
+                // macOS: warm-launch deep links (dock right-click "Open
+                // URL", OS open with app running) arrive here.
+                RunEvent::Opened { urls } => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        for url in urls {
+                            let link = url.to_string();
+                            if let Err(e) = os_integrations::route_deep_link(&app, &link).await {
+                                tracing::warn!("deep link {link} failed: {e}");
+                            }
+                        }
+                    });
                 }
+                RunEvent::Exit => {
+                    // Graceful shutdown: stop the embedded Postgres so the
+                    // data dir is left consistent for the next launch.
+                    if let Some(b) = app.try_state::<Backend>() {
+                        if let Err(e) = tauri::async_runtime::block_on(b.postgres.stop()) {
+                            eprintln!("stopping embedded Postgres failed: {e}");
+                        }
+                        // kill_on_drop also covers this; explicit kill keeps
+                        // the shutdown order deterministic (web, then PG).
+                        let _ = b.next_server.lock().map(|mut c| c.start_kill());
+                    }
+                }
+                _ => {}
             }
         });
 }
-// touch 1789340445

@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { kindLabel, useNotifications, type NotificationItem } from "../lib/use-notifications";
 import { requestFocus } from "../lib/popout/window-bus";
+import { routeMeridianLink } from "../lib/desktop/windows";
 
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -136,7 +137,13 @@ export function NotificationDock() {
       // FOCUS it there — never duplicate navigation (or toasts) in two
       // windows at once. Falls back to in-window navigation.
       if (requestFocus(path)) return;
-      router.push(path);
+      // Desktop fleet (lane 2): ask the shell to open-or-focus the ticket
+      // ROLE window; when the shell declines (plain web), navigate here.
+      void routeMeridianLink(`meridian://ticket/${item.ticket_id}`).then(
+        (routed) => {
+          if (routed === null) router.push(path);
+        },
+      );
     }
   };
 

@@ -17,6 +17,7 @@
 import { RAIL_SECTIONS } from "@/components/shell/rail-model";
 import { openPopout } from "@/lib/popout/popout";
 import { paramsFor, popoutRouteFor } from "@/lib/popout/registry";
+import { openNativeWindow } from "@/lib/desktop/windows";
 import type { CommandContext, CommandDef, CommandVerb } from "./types";
 
 /** Click-parity target for surfaces that expose their own create control. */
@@ -154,11 +155,45 @@ const POPOUT_COMMANDS: CommandDef[] = [
   },
 ];
 
+/**
+ * Desktop fleet commands (Wave 38 lane 2): open the quick-action windows
+ * the tray also offers. They run everywhere in the desktop shell; on plain
+ * web the native opener honestly returns null and the command is a no-op
+ * that never lies (the desktop-only labeling keeps the cheat sheet honest —
+ * plain-web users see "desktop" in the description).
+ */
+const FLEET_COMMANDS: CommandDef[] = [
+  {
+    id: "popout.dispatch-native",
+    verb: "popout",
+    label: "Open dispatch board window",
+    description:
+      "Desktop: open the dispatch board as its own app window (remembered position per window).",
+    chord: "alt+d",
+    surfaces: [],
+    run: () => {
+      void openNativeWindow("dispatch-board", "dispatch");
+    },
+  },
+  {
+    id: "popout.stock-native",
+    verb: "popout",
+    label: "Open stock lookup window",
+    description: "Desktop: open the stock lookup as its own app window (remembered position per window).",
+    chord: "alt+s",
+    surfaces: [],
+    run: () => {
+      void openNativeWindow("stock-lookup", "stock");
+    },
+  },
+];
+
 /** The registry, in dispatch order: surface-scoped rows first, then global. */
 export const COMMAND_REGISTRY: ReadonlyArray<CommandDef> = [
   ...NEW_RECORD_COMMANDS,
   ...COPY_LINK_COMMANDS,
   ...POPOUT_COMMANDS,
+  ...FLEET_COMMANDS,
   ...GLOBAL_COMMANDS,
   ...RAIL_COMMANDS,
 ];
@@ -180,6 +215,7 @@ export function registryGroups(): ReadonlyArray<{ title: string; commands: Reado
     },
     { title: "On specific surfaces", commands: [...NEW_RECORD_COMMANDS, ...COPY_LINK_COMMANDS] },
     { title: "Multi-window (pop out)", commands: POPOUT_COMMANDS },
+    { title: "Desktop windows", commands: FLEET_COMMANDS },
   ];
 }
 

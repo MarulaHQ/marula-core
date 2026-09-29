@@ -7,14 +7,18 @@ fn main() {
     // ACL-gated" note was the old behavior. Declaring the app commands
     // here generates the `allow-<command>` app permissions that the
     // `desktop-web` capability grants to the loopback origin, which is
-    // what makes `print_raw_zpl`, `check_desktop_update`, and
-    // `install_desktop_update` reachable from the web app at all.
+    // what makes the app commands reachable from the web app at all.
+    // Wave 38 lane 2 adds the native multi-window commands (open/focus
+    // role windows, self-capture geometry, route meridian:// links).
     tauri_build::try_build(
         tauri_build::Attributes::new().app_manifest(
             tauri_build::AppManifest::new().commands(&[
                 "print_raw_zpl",
                 "check_desktop_update",
                 "install_desktop_update",
+                "open_native_window",
+                "focus_native_window",
+                "route_meridian_link",
             ]),
         ),
     )
