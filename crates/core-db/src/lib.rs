@@ -100,6 +100,7 @@ pub mod theme_packs;
 pub mod ticket_links;
 pub mod tickets;
 pub mod time_audit;
+pub mod time_categories;
 pub mod timers;
 pub mod tools;
 pub mod undo;

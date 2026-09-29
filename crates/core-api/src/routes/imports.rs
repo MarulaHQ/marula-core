@@ -1996,6 +1996,7 @@ async fn commit_insert(
             let row = core_domain::entities::TimeEntry {
                 approval_status: Some(core_domain::entities::ApprovalStatus::Draft),
                 approval_reason_code: None,
+                unbillable_reason: None,
                 id,
                 org_id,
                 ticket_id,
@@ -2309,6 +2310,7 @@ async fn commit_update(
                 entry.billable,
                 entry.notes.as_deref(),
                 entry.work_type.as_deref(),
+                entry.unbillable_reason.as_deref(),
             )
             .await?;
             touch_last_seen(

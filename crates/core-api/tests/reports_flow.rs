@@ -259,6 +259,8 @@ async fn post_entry(
             "started_at": start.to_rfc3339(),
             "ended_at": end.to_rfc3339(),
             "billable": billable,
+            // Wave 39 V3: a non-billable entry carries a typed reason.
+            "unbillable_reason": if billable { Value::Null } else { json!("internal") },
         })),
     )
     .await;

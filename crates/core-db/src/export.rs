@@ -246,7 +246,7 @@ async fn load_time_entries(
 ) -> DbResult<Vec<ExportTimeEntry>> {
     let rows = sqlx::query!(
         "SELECT id, ticket_id, user_id, started_at, ended_at, minutes, billable,
-                notes, work_type, created_at
+                notes, work_type, unbillable_reason, created_at
          FROM time_entries WHERE org_id = $1 ORDER BY started_at, id",
         org_id
     )
@@ -264,6 +264,7 @@ async fn load_time_entries(
             billable: r.billable,
             notes: r.notes,
             work_type: r.work_type,
+            unbillable_reason: r.unbillable_reason,
             created_at: r.created_at,
         })
         .collect())

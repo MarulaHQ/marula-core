@@ -1449,6 +1449,7 @@ async function changeStatus(statusId: string): Promise<void> {
           statusId={ticket.status_id}
           onChangeStatus={changeStatus}
           onRefresh={() => void refresh()}
+          clientName={clientName}
         />
       )}
 

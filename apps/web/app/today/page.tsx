@@ -25,6 +25,11 @@ import { DayPackPanel } from "../../components/today/day-pack-panel";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { dueBucket, dueLabel, fmtMins } from "../../lib/format";
+import {
+  suggestCategorySlug,
+  useBillingAuditForTicket,
+  useTimeCategories,
+} from "../../lib/use-time-categories";
 import { formatElapsed, sessionElapsedSecs, useTimer, type TimerSession } from "../../lib/use-timer";
 
 type MyWorkItem = components["schemas"]["MyWorkItem"];
@@ -633,8 +638,34 @@ function QuickLogForm({
   const [minutes, setMinutes] = useState("60");
   const [startTime, setStartTime] = useState("09:00");
   const [notes, setNotes] = useState("");
+  const [workType, setWorkType] = useState("");
+  const [billable, setBillable] = useState(true);
+  const [unbillableReason, setUnbillableReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { categories, map, refresh: refreshCategories } = useTimeCategories();
+
+  // Billing-audit chips for the picked ticket's existing entries; adopt
+  // prefills the form, never auto-submits (V6 — suggestion-grade).
+  const audit = useBillingAuditForTicket(ticketId);
+
+  // Default category: ticket-context suggestion, else first category.
+  useEffect(() => {
+    if (categories === null || categories.length === 0) return;
+    setWorkType((current) => {
+      if (current !== "" && categories.some((c) => c.slug === current)) return current;
+      const ticket = items.find((t) => t.id === ticketId);
+      return (
+        suggestCategorySlug(
+          { boardName: ticket?.board_name ?? null, clientName: ticket?.client_name ?? null },
+          categories,
+          map,
+        ) ?? categories[0]!.slug
+      );
+    });
+  }, [categories, map, ticketId, items]);
+
+  const selectedCategory = categories?.find((c) => c.slug === workType);
 
   async function submit() {
     const mins = Number.parseInt(minutes, 10);
@@ -648,6 +679,10 @@ function QuickLogForm({
       setError("Invalid start time.");
       return;
     }
+    if (!billable && unbillableReason === "") {
+      setError("Pick a reason for the non-billable time.");
+      return;
+    }
     setBusy(true);
     try {
       const { error: apiError } = await api.api.POST("/api/v1/time-entries", {
@@ -655,8 +690,10 @@ function QuickLogForm({
           ticket_id: ticketId,
           started_at: started.toISOString(),
           ended_at: new Date(started.getTime() + mins * 60_000).toISOString(),
-          billable: true,
+          billable,
           notes: notes === "" ? null : notes,
+          work_type: workType === "" ? null : workType,
+          unbillable_reason: billable ? null : unbillableReason,
         },
       });
       if (apiError !== undefined) throw new Error("could not save the entry");
@@ -742,6 +779,101 @@ function QuickLogForm({
           style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
         />
       </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-xs" htmlFor="log-category" style={{ color: "var(--m-text-secondary)" }}>
+          Category
+        </label>
+        <div className="flex items-center justify-between rounded-[var(--m-radius-container)] px-2 py-1" style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)" }}>
+          <select
+            id="log-category"
+            value={workType}
+            onChange={(e) => setWorkType(e.target.value)}
+            className="w-full cursor-pointer border-0 bg-transparent text-xs outline-none"
+            style={{ color: "var(--m-text)" }}
+            data-testid="quicklog-category"
+          >
+            {(categories ?? []).length === 0 && <option value="">Loading categories…</option>}
+            {(categories ?? []).map((c) => (
+              <option key={c.slug} value={c.slug}>
+                {c.label}
+                {c.defaultBillable ? "" : " (non-billable)"}
+              </option>
+            ))}
+          </select>
+          <span aria-hidden className="text-xs" style={{ color: "var(--m-text-muted)" }}>⌄</span>
+        </div>
+        {audit !== null && (
+          <button
+            type="button"
+            className="mt-1 w-fit cursor-pointer rounded-full border px-2 py-0.5 text-[10px]"
+            style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)", color: "var(--m-text-secondary)" }}
+            data-testid="quicklog-audit-chip"
+            onClick={() => {
+              if (audit === "billable_false") {
+                setBillable(false);
+                setUnbillableReason((r) => (r === "" ? "internal" : r));
+              } else {
+                setBillable(true);
+                setUnbillableReason("");
+              }
+              void refreshCategories();
+            }}
+          >
+            ✦ Audit: {audit === "billable_false" ? "looks non-billable — add a reason?" : "looks billable"}
+          </button>
+        )}
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-xs" htmlFor="log-billable" style={{ color: "var(--m-text-secondary)" }}>
+          Billable
+        </label>
+        <div className="flex items-center justify-between rounded-[var(--m-radius-container)] px-2 py-1" style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)" }}>
+          <select
+            id="log-billable"
+            value={billable ? "yes" : "no"}
+            onChange={(e) => {
+              setBillable(e.target.value === "yes");
+              if (e.target.value === "yes") setUnbillableReason("");
+            }}
+            className="w-full cursor-pointer border-0 bg-transparent text-xs outline-none"
+            style={{ color: "var(--m-text)" }}
+          >
+            <option value="yes">● Yes</option>
+            <option value="no">○ No</option>
+          </select>
+          <span aria-hidden className="text-xs" style={{ color: "var(--m-text-muted)" }}>⌄</span>
+        </div>
+      </div>
+      {!billable && (
+        <div className="flex flex-col gap-1">
+          <label className="text-xs" htmlFor="log-unbillable-reason" style={{ color: "var(--m-text-secondary)" }}>
+            Why not billable?
+          </label>
+          <div className="flex items-center justify-between rounded-[var(--m-radius-container)] px-2 py-1" style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)" }}>
+            <select
+              id="log-unbillable-reason"
+              value={unbillableReason}
+              onChange={(e) => setUnbillableReason(e.target.value)}
+              className="w-full cursor-pointer border-0 bg-transparent text-xs outline-none"
+              style={{ color: "var(--m-text)" }}
+              data-testid="quicklog-unbillable-reason"
+            >
+              <option value="">Pick a reason…</option>
+              {[
+                ["warranty", "Covered by warranty"],
+                ["courtesy", "Courtesy / goodwill"],
+                ["in_retainer_block", "Inside a retainer block"],
+                ["sla_covered", "Covered by the SLA"],
+                ["internal", "Internal work"],
+                ["mistake", "Mistake — do not bill"],
+              ].map(([code, label]) => (
+                <option key={code} value={code}>{label}</option>
+              ))}
+            </select>
+            <span aria-hidden className="text-xs" style={{ color: "var(--m-text-muted)" }}>⌄</span>
+          </div>
+        </div>
+      )}
       {error !== null && (
         <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
           {error}

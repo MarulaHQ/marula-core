@@ -134,6 +134,7 @@ pub mod ticket_emails;
 pub mod ticket_links;
 pub mod tickets;
 pub mod time;
+pub mod time_categories;
 pub mod timers;
 pub mod tools;
 pub mod transcription;
@@ -1831,6 +1832,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // merge/linking, ticket costs/expenses, and PM schedules — each
         // module owns its own router.
         .merge(tags::routes(gen))
+        // time categories (Wave 39 lane 1, migration 0110): org time
+        // taxonomy, capture defaults, billing-audit suggestion reads —
+        // module-owned router; mutations ride the IF1-IF3 envelope.
+        .merge(time_categories::routes(gen))
         .merge(ticket_links::routes(gen))
         .merge(costs::routes(gen))
         .merge(recurring::routes(gen))

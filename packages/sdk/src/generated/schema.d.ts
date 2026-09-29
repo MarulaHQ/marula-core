@@ -11183,6 +11183,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/time-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/time-categories — the org's taxonomy (admin + pickers). */
+        get: operations["time_categories_list"];
+        put?: never;
+        /** POST /api/time-categories — create a category. */
+        post: operations["time_categories_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-categories/capture-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/time-categories/capture-defaults — the picker read for the
+         *     wrap-up sheet + quick-log: ordered non-retired categories + the
+         *     kept backfill mapping.
+         */
+        get: operations["time_categories_capture_defaults"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-categories/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/time-categories/reorder — rewrite display order from an
+         *     ordered id list (settings drag-order).
+         */
+        post: operations["time_categories_reorder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-categories/work-type-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/time-categories/work-type-map — the kept backfill + manual
+         *     mapping (settings read).
+         */
+        get: operations["time_categories_work_type_map_list"];
+        put?: never;
+        /** POST /api/time-categories/work-type-map — add a manual alias. */
+        post: operations["time_categories_work_type_map_upsert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-categories/work-type-map/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/time-categories/work-type-map/apply — recategorize
+         *     existing entries (explicit alias application).
+         */
+        post: operations["time_categories_work_type_map_apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-categories/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/time-categories/{id} — soft retire (pickers drop it,
+         *     entries keep the slug reference; nothing is hard-deleted).
+         */
+        delete: operations["time_categories_delete"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/time-categories/{id} — content update (slug immutable). */
+        patch: operations["time_categories_update"];
+        trace?: never;
+    };
     "/api/v1/time-entries": {
         parameters: {
             query?: never;
@@ -11245,6 +11366,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/time-entries/billing-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/time-entries/billing-suggestions?ids=a,b,c — the bulk read
+         *     for approvals rows (≤ 100 ids per call).
+         */
+        get: operations["time_entries_billing_suggestions_bulk"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/time-entries/{id}/approvals": {
         parameters: {
             query?: never;
@@ -11258,6 +11399,27 @@ export interface paths {
          *     users only their own entries'.
          */
         get: operations["time_entries_approval_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/time-entries/{id}/billing-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/time-entries/{id}/billing-suggestions — the
+         *     `decision_billing_audit` shadow answers for one entry, classified
+         *     into suggestion chips. Read-only: chips never mutate anything.
+         */
+        get: operations["time_entry_billing_suggestions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -12410,6 +12572,16 @@ export interface components {
             /** Format: uuid */
             tag_id: string;
         };
+        ApplyWorkTypeMapRequest: components["schemas"]["MutationParams"] & {
+            category_slug: string;
+            /** @description Free-text value to recategorize (case-insensitive, trimmed). */
+            legacy_value: string;
+        };
+        ApplyWorkTypeMapResponse: {
+            /** Format: int64 */
+            entries_updated: number;
+            mutation: components["schemas"]["MutationMeta"];
+        };
         /**
          * @description A booked slot on one user's calendar, optionally tied to a ticket and
          *     client/site. `travel_minutes` is travel time booked immediately BEFORE
@@ -13191,6 +13363,9 @@ export interface components {
         BulkDecisionResponse: {
             results: components["schemas"]["BulkDecisionItem"][];
         };
+        BulkEntrySuggestionsResponse: {
+            items: components["schemas"]["EntrySuggestionsResponse"][];
+        };
         BulkMoveRequest: {
             moves: components["schemas"]["MoveSpec"][];
         };
@@ -13539,6 +13714,16 @@ export interface components {
             days?: number | null;
             /** Format: date */
             from?: string | null;
+        };
+        /** @description The capture surface's read: ordered picker + theHELP defaults. */
+        CaptureDefaultsResponse: {
+            /** @description Non-retired categories ordered by position (the picker). */
+            categories: components["schemas"]["TimeCategory"][];
+            /**
+             * @description The backfill/manual mapping (legacy value → slug) so capture
+             *     surfaces can normalize pasted free text honestly.
+             */
+            work_type_map: components["schemas"]["WorkTypeMapRowWire"][];
         };
         /**
          * @description One catalog column: the static identifier plus its value class slug
@@ -15568,6 +15753,9 @@ export interface components {
             started_at: string;
             /** Format: uuid */
             ticket_id: string;
+            /** @description Typed unbillable reason — required when `billable` is false (V3). */
+            unbillable_reason?: string | null;
+            /** @description Category slug from the org's time taxonomy (Wave 39 V5). */
             work_type?: string | null;
         };
         /** @description POST /api/dispatch/travel-drafts body. */
@@ -17066,6 +17254,38 @@ export interface components {
             fields: components["schemas"]["EntityWorkbenchFieldRow"][];
             primary: components["schemas"]["EntityWorkbenchSide"];
         };
+        /** @description Suggestion payload built from one `decision_billing_audit` row. */
+        EntrySuggestion: {
+            /**
+             * Format: double
+             * @description The audit's `billable` probability, when recorded.
+             */
+            billable_probability?: number | null;
+            /**
+             * @description The suggested classification chip: how to interpret the audit.
+             *     `billable_false` = "looks non-billable", `billable_true` =
+             *     "looks billable". Derived from the `billable` answer's
+             *     threshold state — never auto-applied.
+             */
+            chip: string;
+            /** @description Human-readable chip text the UI renders (typed, no model prose). */
+            label: string;
+            /** @description `shadow` rows drive nothing and are labeled as such. */
+            mode: string;
+            /** Format: date-time */
+            recorded_at: string;
+            /** @description `act` | `pending` | `ignore` — threshold gate at read time. */
+            state?: string | null;
+        };
+        EntrySuggestionsResponse: {
+            /** Format: uuid */
+            entry_id: string;
+            /**
+             * @description Empty when the surface is unconfigured or no answers exist —
+             *     the honest visibly-absent state.
+             */
+            suggestions: components["schemas"]["EntrySuggestion"][];
+        };
         /** @description One escalation ladder step as stored (`sla_escalation_steps`). */
         EscalationStep: {
             /** Format: int64 */
@@ -17343,6 +17563,7 @@ export interface components {
             started_at: string;
             /** Format: uuid */
             ticket_id: string;
+            unbillable_reason?: string | null;
             /** Format: uuid */
             user_id: string;
             work_type?: string | null;
@@ -22345,6 +22566,10 @@ export interface components {
             body: string;
             subject?: string | null;
         };
+        ReorderCategoriesRequest: components["schemas"]["MutationParams"] & {
+            /** @description Category ids in their new display order. */
+            ordered_ids: string[];
+        };
         ReparentCategoryRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: uuid
@@ -24244,6 +24469,17 @@ export interface components {
              * @description Omit to stop the caller's active timer.
              */
             session_id?: string | null;
+            /**
+             * @description Typed unbillable reason (Wave 39 V3) — required by validation
+             *     when `billable` is false.
+             */
+            unbillable_reason?: string | null;
+            /**
+             * @description Category slug (Wave 39 V5): keys onto the org's time_categories
+             *     taxonomy; additive — legacy clients omit it and the entry stays
+             *     honestly unclassified.
+             */
+            work_type?: string | null;
         };
         SubmitEntryRequest: {
             /** @description Optional free-text context recorded on the decision trail. */
@@ -25150,6 +25386,85 @@ export interface components {
          */
         TimeApprovalAction: "submitted" | "approved" | "rejected" | "reopened";
         /**
+         * @description An org's semantic time category (Wave 39 V4). Entries key their
+         *     `work_type` column onto `slug`; the T&M rate card keys
+         *     `contract_rates.work_type` onto the same slugs. Renames change the
+         *     label only — slugs are stable forever.
+         */
+        TimeCategory: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** @description Billing default applied at capture time. */
+            default_billable: boolean;
+            description?: string | null;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: int32
+             * @description Admin-managed display order; capture surfaces sort by it.
+             */
+            position: number;
+            /**
+             * @description Hint that T&M card rows key onto this slug (admin documentation;
+             *     the card itself stays contract-owned).
+             */
+            rate_card_affinity: boolean;
+            /**
+             * @description When true, flipping billable off demands a typed
+             *     [`UnbillableReason`] first (validated in the domain + API).
+             */
+            requires_unbillable_reason: boolean;
+            /** @description Soft retire: pickers drop retired categories, entries keep them. */
+            retired: boolean;
+            /** @description Lowercase snake_case semantic key. `work_type` values are these. */
+            slug: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        TimeCategoryCreateRequest: components["schemas"]["MutationParams"] & {
+            default_billable?: boolean;
+            description?: string | null;
+            label: string;
+            /** Format: int32 */
+            position?: number | null;
+            rate_card_affinity?: boolean;
+            requires_unbillable_reason?: boolean;
+            slug: string;
+        };
+        TimeCategoryListResponse: {
+            categories: components["schemas"]["TimeCategoryView"][];
+        };
+        TimeCategoryMutationResponse: {
+            category: components["schemas"]["TimeCategoryView"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        TimeCategoryUpdateRequest: components["schemas"]["MutationParams"] & {
+            default_billable?: boolean | null;
+            /** @description Some → set (null clears); absent → no change. */
+            description?: string | null;
+            label?: string | null;
+            rate_card_affinity?: boolean | null;
+            requires_unbillable_reason?: boolean | null;
+            /**
+             * @description Un-retire a soft-retired category. `Some(false)` restores it to
+             *     the pickers; retirement is reversible because entries and rate
+             *     cards keep the slug.
+             */
+            retired?: boolean | null;
+        };
+        TimeCategoryView: components["schemas"]["TimeCategory"] & {
+            /**
+             * Format: int64
+             * @description Live count of entries carrying this slug (settings usage read).
+             */
+            entry_count: number;
+        };
+        /**
          * @description A durable, reviewable record of worked time. Created from a timer session
          *     or entered manually; subject to bulk review and approval workflows.
          */
@@ -25189,6 +25504,11 @@ export interface components {
              * @description Origin: timer-derived entries keep their session for audit.
              */
             timer_session_id?: string | null;
+            /**
+             * @description Typed unbillable reason (the [`UnbillableReason`] wire code) —
+             *     required when `billable` is false; null on billable entries.
+             */
+            unbillable_reason?: string | null;
             /** Format: uuid */
             user_id: string;
             work_type?: string | null;
@@ -25602,6 +25922,12 @@ export interface components {
             /** Format: int64 */
             short_minutes?: number | null;
         };
+        /**
+         * @description Why an entry is not billable (report V3). Typed values only — the
+         *     verification run and scoring reports aggregate on these codes.
+         * @enum {string}
+         */
+        UnbillableReason: "warranty" | "courtesy" | "in_retainer_block" | "sla_covered" | "internal" | "mistake";
         /** @description One field of one applied write — per-field undo granularity. */
         UndoFieldStep: {
             /** Format: uuid */
@@ -26214,6 +26540,10 @@ export interface components {
                 [key: string]: string;
             } | null;
         };
+        UpsertWorkTypeMapRequest: components["schemas"]["MutationParams"] & {
+            category_slug: string;
+            legacy_value: string;
+        };
         /** @description The full-replace mutation envelope (IF2). */
         UserSkillsMutationResponse: components["schemas"]["UserSkillsView"] & {
             mutation: components["schemas"]["MutationMeta"];
@@ -26452,6 +26782,17 @@ export interface components {
         WipLimitUpdate: "Unchanged" | "Clear" | {
             /** Format: int32 */
             Set: number;
+        };
+        WorkTypeMapRowWire: {
+            category_slug: string;
+            /** Format: date-time */
+            created_at: string;
+            legacy_value: string;
+            /**
+             * @description `backfill` (the one-time migration mapping) or `manual` (an
+             *     admin alias added later).
+             */
+            source: string;
         };
         WorkTypeSlice: {
             /** Format: int64 */
@@ -49008,6 +49349,239 @@ export interface operations {
             };
         };
     };
+    time_categories_list: {
+        parameters: {
+            query?: {
+                /** @description Include retired categories (settings admin reads) */
+                include_retired?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeCategoryListResponse"];
+                };
+            };
+        };
+    };
+    time_categories_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimeCategoryCreateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeCategoryMutationResponse"];
+                };
+            };
+            /** @description duplicate slug or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    time_categories_capture_defaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureDefaultsResponse"];
+                };
+            };
+        };
+    };
+    time_categories_reorder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderCategoriesRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeCategoryListResponse"];
+                };
+            };
+        };
+    };
+    time_categories_work_type_map_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkTypeMapRowWire"][];
+                };
+            };
+        };
+    };
+    time_categories_work_type_map_upsert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertWorkTypeMapRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkTypeMapRowWire"][];
+                };
+            };
+            /** @description category slug not found in this org */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    time_categories_work_type_map_apply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyWorkTypeMapRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyWorkTypeMapResponse"];
+                };
+            };
+            /** @description category slug not found in this org */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    time_categories_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeCategoryMutationResponse"];
+                };
+            };
+            /** @description category not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    time_categories_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimeCategoryUpdateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeCategoryMutationResponse"];
+                };
+            };
+            /** @description category not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     timers_list_entries: {
         parameters: {
             query?: {
@@ -49112,6 +49686,28 @@ export interface operations {
             };
         };
     };
+    time_entries_billing_suggestions_bulk: {
+        parameters: {
+            query: {
+                /** @description Comma-separated entry ids (≤ 100 — approvals page batches). */
+                ids: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkEntrySuggestionsResponse"];
+                };
+            };
+        };
+    };
     time_entries_approval_history: {
         parameters: {
             query?: never;
@@ -49132,6 +49728,34 @@ export interface operations {
                 };
             };
             /** @description entry not visible in scope (not_found) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    time_entry_billing_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntrySuggestionsResponse"];
+                };
+            };
+            /** @description entry not visible in scope (rls_sparse) */
             404: {
                 headers: {
                     [name: string]: unknown;

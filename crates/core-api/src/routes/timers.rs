@@ -13,7 +13,7 @@ use axum::{
     http::Extensions,
     Json,
 };
-use core_domain::entities::{TimeEntry, TimerSession};
+use core_domain::entities::{TimeEntry, TimerSession, UnbillableReason};
 use core_domain::events::types;
 use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
@@ -50,6 +50,13 @@ pub struct StopTimerRequest {
     pub reason: Option<String>,
     pub billable: Option<bool>,
     pub notes: Option<String>,
+    /// Category slug (Wave 39 V5): keys onto the org's time_categories
+    /// taxonomy; additive — legacy clients omit it and the entry stays
+    /// honestly unclassified.
+    pub work_type: Option<String>,
+    /// Typed unbillable reason (Wave 39 V3) — required by validation
+    /// when `billable` is false.
+    pub unbillable_reason: Option<String>,
     /// Omit to stop the caller's active timer.
     pub session_id: Option<Uuid>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
@@ -83,7 +90,10 @@ pub struct CreateTimeEntryRequest {
     pub ended_at: chrono::DateTime<chrono::Utc>,
     pub billable: bool,
     pub notes: Option<String>,
+    /// Category slug from the org's time taxonomy (Wave 39 V5).
     pub work_type: Option<String>,
+    /// Typed unbillable reason — required when `billable` is false (V3).
+    pub unbillable_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
@@ -421,11 +431,52 @@ pub async fn stop(
         session.stop(now, req.reason.clone())?;
         core_db::timers::update_session(&mut *ctx.tx, &session).await?;
 
+        // Wave 39 V5: capture-time category + typed unbillable reason.
+        // The work_type slug is validated against the org taxonomy when
+        // present; the unbillable reason is REQUIRED when the entry is
+        // not billable (V3) — free text is rejected at the domain edge.
+        let billable = req.billable.unwrap_or(true);
+        let unbillable_reason = match req.unbillable_reason.as_deref() {
+            Some(r) => Some(
+                UnbillableReason::parse(r).ok_or_else(|| {
+                    ApiError::Validation(format!(
+                        "unknown unbillable_reason '{r}' — use one of \
+                         warranty, courtesy, in_retainer_block, sla_covered, internal, mistake"
+                    ))
+                })?,
+            ),
+            None => None,
+        };
+        if !billable && unbillable_reason.is_none() {
+            return Err(ApiError::Validation(
+                "marking the entry non-billable requires a typed unbillable reason \
+                 (warranty, courtesy, in_retainer_block, sla_covered, internal, mistake)"
+                    .into(),
+            ));
+        }
+        // Resolve the submitted value onto a live slug: exact slug, else
+        // the org's kept mapping table (legacy free text like `onsite`
+        // normalizes onto `on_site`). Unknown values fail loudly rather
+        // than being guessed.
+        let work_type = match req.work_type.as_deref() {
+            Some(raw) if !raw.trim().is_empty() => Some(
+                core_db::time_categories::resolve_work_type_slug(&mut ctx.tx, org_id, raw)
+                    .await?
+                    .ok_or_else(|| {
+                        ApiError::Validation(format!(
+                            "unknown work_type '{raw}' — pick a category from the org taxonomy"
+                        ))
+                    })?,
+            ),
+            _ => None,
+        };
         let entry = TimeEntry::from_session(
             &session,
             now,
             req.notes.clone(),
-            req.billable.unwrap_or(true),
+            billable,
+            work_type,
+            unbillable_reason,
         )?;
         core_db::timers::insert_time_entry(&mut *ctx.tx, &entry).await?;
         ctx.emit(
@@ -540,6 +591,46 @@ pub async fn create_entry(
     if minutes < 0 {
         return Err(ApiError::Validation("duration is negative".into()));
     }
+    // Wave 39 V3: typed unbillable reason required when not billable;
+    // V5: work_type must be a slug of the org's category taxonomy.
+    let unbillable_reason = match req.unbillable_reason.as_deref() {
+        Some(r) => Some(
+            core_domain::entities::UnbillableReason::parse(r).ok_or_else(|| {
+                ApiError::Validation(format!(
+                    "unknown unbillable_reason '{r}' — use one of \
+                     warranty, courtesy, in_retainer_block, sla_covered, internal, mistake"
+                ))
+            })?,
+        ),
+        None => None,
+    };
+    if !req.billable && unbillable_reason.is_none() {
+        return Err(ApiError::Validation(
+            "marking the entry non-billable requires a typed unbillable reason \
+             (warranty, courtesy, in_retainer_block, sla_covered, internal, mistake)"
+                .into(),
+        ));
+    }
+    // Same slug-or-alias resolution as the timer stop path (see
+    // resolve_work_type_slug): legacy free text normalizes, unknown
+    // values are refused.
+    let work_type = match req.work_type.as_deref() {
+        Some(raw) if !raw.trim().is_empty() => {
+            let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+            core_db::set_org_and_user(&mut tx, org_id, user_id)
+                .await
+                .map_err(ApiError::from)?;
+            let resolved =
+                core_db::time_categories::resolve_work_type_slug(&mut tx, org_id, raw).await?;
+            tx.commit().await.map_err(ApiError::from)?;
+            Some(resolved.ok_or_else(|| {
+                ApiError::Validation(format!(
+                    "unknown work_type '{raw}' — pick a category from the org taxonomy"
+                ))
+            })?)
+        }
+        _ => None,
+    };
 
     let entry = TimeEntry {
         approval_status: Some(core_domain::entities::ApprovalStatus::Draft),
@@ -553,8 +644,9 @@ pub async fn create_entry(
         minutes,
         billable: req.billable,
         notes: req.notes,
-        work_type: req.work_type,
+        work_type,
         timer_session_id: None,
+        unbillable_reason: unbillable_reason.map(|r| r.as_str().to_string()),
         created_at: chrono::Utc::now(),
     };
 

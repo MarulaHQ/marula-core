@@ -109,6 +109,10 @@ pub mod types {
     pub const TIMER_STOPPED: &str = "timer.stopped";
     pub const TIME_ENTRY_CREATED: &str = "time_entry.created";
     pub const TIME_ENTRY_UPDATED: &str = "time_entry.updated";
+    /// Wave 39 time categories: the org taxonomy changed (create /
+    /// update / reorder / retire). One event per mutation.
+    pub const TIME_CATEGORY_CREATED: &str = "time_category.created";
+    pub const TIME_CATEGORY_UPDATED: &str = "time_category.updated";
     /// Wave 14 lane 1 approval workflow: one event per lifecycle step,
     /// emitted from the same transaction as the state change.
     pub const TIME_ENTRY_APPROVAL_SUBMITTED: &str = "time_entry.approval_submitted";
@@ -1020,6 +1024,21 @@ pub struct TimerStopped {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TimeEntryCreated {
     pub entry: TimeEntry,
+}
+
+/// `time_category.created` — a category joined the org taxonomy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TimeCategoryCreated {
+    pub category: crate::entities::TimeCategory,
+}
+
+/// `time_category.updated` — label/description/defaults changed, the
+/// category was reordered, or it was (un)retired. Refetch the taxonomy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TimeCategoryUpdated {
+    pub category: crate::entities::TimeCategory,
 }
 
 /// Wave 14 lane 1 — the entry owner (or an admin) pushed the entry into

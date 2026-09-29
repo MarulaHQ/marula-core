@@ -258,6 +258,8 @@ async fn add_time_entry_billable(
             "started_at": started,
             "ended_at": ended,
             "billable": billable,
+            // Wave 39 V3: a non-billable entry carries a typed reason.
+            "unbillable_reason": if billable { Value::Null } else { json!("internal") },
             "work_type": work_type,
         })),
     )

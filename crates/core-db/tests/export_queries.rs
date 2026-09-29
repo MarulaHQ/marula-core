@@ -212,6 +212,7 @@ async fn seed_full_org(db: &common::TestDb, n: u64) -> (Uuid, Uuid, Uuid, Vec<Uu
         &core_domain::entities::TimeEntry {
             approval_status: None,
             approval_reason_code: None,
+            unbillable_reason: None,
             id: Uuid::now_v7(),
             org_id: org,
             ticket_id: ticket_ids[0],

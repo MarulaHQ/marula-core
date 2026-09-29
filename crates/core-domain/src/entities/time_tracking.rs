@@ -405,15 +405,25 @@ pub struct TimeEntry {
     /// the entry was rejected; cleared on resubmit.
     #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
     pub approval_reason_code: Option<String>,
+    /// Typed unbillable reason (the [`UnbillableReason`] wire code) —
+    /// required when `billable` is false; null on billable entries.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>))]
+    pub unbillable_reason: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
 impl TimeEntry {
+    /// Mints a draft entry from a stopped session. `work_type` keys the
+    /// org's category slugs (validated by the caller against the
+    /// taxonomy); `unbillable_reason` is required when `billable` is
+    /// false (V3) — the pair arrives as capture-time inputs.
     pub fn from_session(
         session: &TimerSession,
         now: DateTime<Utc>,
         notes: Option<String>,
         billable: bool,
+        work_type: Option<String>,
+        unbillable_reason: Option<UnbillableReason>,
     ) -> Result<Self, DomainError> {
         let total = session.total_elapsed_secs(now);
         if total <= 0 {
@@ -429,10 +439,11 @@ impl TimeEntry {
             minutes: (total + 59) / 60, // round up to whole minutes
             billable,
             notes,
-            work_type: None,
+            work_type,
             timer_session_id: Some(session.id),
             approval_status: Some(ApprovalStatus::Draft),
             approval_reason_code: None,
+            unbillable_reason: unbillable_reason.map(|r| r.as_str().to_string()),
             created_at: now,
         })
     }
@@ -470,6 +481,143 @@ impl TimeEntry {
             _ => None,
         };
         Ok(next)
+    }
+
+    /// Typed unbillable reason (Wave 39 V3). Every value MUST map to a
+    /// wire-vocabulary code; free text is rejected at the domain edge so
+    /// verification reports aggregate honestly.
+    pub fn set_unbillable_reason(
+        &mut self,
+        billable: bool,
+        reason: Option<UnbillableReason>,
+    ) -> Result<(), DomainError> {
+        match (billable, reason) {
+            (true, _) => {
+                self.billable = true;
+                self.unbillable_reason = None;
+            }
+            (false, None) => {
+                return Err(DomainError::Validation(
+                    "marking an entry non-billable requires a typed unbillable reason".into(),
+                ));
+            }
+            (false, Some(r)) => {
+                self.billable = false;
+                self.unbillable_reason = Some(r.as_str().to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Why an entry is not billable (report V3). Typed values only — the
+/// verification run and scoring reports aggregate on these codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum UnbillableReason {
+    Warranty,
+    Courtesy,
+    InRetainerBlock,
+    SlaCovered,
+    Internal,
+    Mistake,
+}
+
+impl UnbillableReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            UnbillableReason::Warranty => "warranty",
+            UnbillableReason::Courtesy => "courtesy",
+            UnbillableReason::InRetainerBlock => "in_retainer_block",
+            UnbillableReason::SlaCovered => "sla_covered",
+            UnbillableReason::Internal => "internal",
+            UnbillableReason::Mistake => "mistake",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "warranty" => UnbillableReason::Warranty,
+            "courtesy" => UnbillableReason::Courtesy,
+            "in_retainer_block" => UnbillableReason::InRetainerBlock,
+            "sla_covered" => UnbillableReason::SlaCovered,
+            "internal" => UnbillableReason::Internal,
+            "mistake" => UnbillableReason::Mistake,
+            _ => return None,
+        })
+    }
+}
+
+/// An org's semantic time category (Wave 39 V4). Entries key their
+/// `work_type` column onto `slug`; the T&M rate card keys
+/// `contract_rates.work_type` onto the same slugs. Renames change the
+/// label only — slugs are stable forever.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TimeCategory {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    /// Lowercase snake_case semantic key. `work_type` values are these.
+    pub slug: String,
+    pub label: String,
+    pub description: Option<String>,
+    /// Billing default applied at capture time.
+    pub default_billable: bool,
+    /// When true, flipping billable off demands a typed
+    /// [`UnbillableReason`] first (validated in the domain + API).
+    pub requires_unbillable_reason: bool,
+    /// Hint that T&M card rows key onto this slug (admin documentation;
+    /// the card itself stays contract-owned).
+    pub rate_card_affinity: bool,
+    /// Admin-managed display order; capture surfaces sort by it.
+    pub position: i32,
+    /// Soft retire: pickers drop retired categories, entries keep them.
+    pub retired: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub created_by: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl TimeCategory {
+    pub const SLUG_MAX: usize = 48;
+    pub const LABEL_MAX: usize = 80;
+    pub const DESCRIPTION_MAX: usize = 500;
+
+    pub fn validate(&self) -> Result<(), DomainError> {
+        let slug_ok = {
+            let b = self.slug.as_bytes();
+            !b.is_empty()
+                && b.len() <= Self::SLUG_MAX
+                && b[0].is_ascii_lowercase()
+                && b[1..]
+                    .iter()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_')
+        };
+        if !slug_ok {
+            return Err(DomainError::Validation(
+                "slug must be lowercase snake_case (letters, digits, underscores)".into(),
+            ));
+        }
+        let label = self.label.trim();
+        if label.is_empty() || label.len() > Self::LABEL_MAX {
+            return Err(DomainError::Validation(format!(
+                "label must be 1..{} characters",
+                Self::LABEL_MAX
+            )));
+        }
+        if let Some(d) = &self.description {
+            if d.len() > Self::DESCRIPTION_MAX {
+                return Err(DomainError::Validation(format!(
+                    "description must be at most {} characters",
+                    Self::DESCRIPTION_MAX
+                )));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -530,7 +678,7 @@ mod tests {
         let (t0, org, user, ticket) = base();
         let mut s = TimerSession::start(org, user, ticket, t0);
         s.stop(t0 + Duration::seconds(61), None).unwrap();
-        let e = TimeEntry::from_session(&s, t0 + Duration::seconds(61), None, true).unwrap();
+        let e = TimeEntry::from_session(&s, t0 + Duration::seconds(61), None, true, None, None).unwrap();
         assert_eq!(e.minutes, 2);
     }
 
@@ -539,7 +687,7 @@ mod tests {
         let (t0, org, user, ticket) = base();
         let mut s = TimerSession::start(org, user, ticket, t0);
         s.stop(t0 + Duration::minutes(30), None).unwrap();
-        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(30), None, true).unwrap();
+        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(30), None, true, None, None).unwrap();
         assert_eq!(e.approval(), ApprovalStatus::Draft);
         e.apply_approval_action(ApprovalAction::Submit, None)
             .unwrap();
@@ -564,7 +712,7 @@ mod tests {
         let (t0, org, user, ticket) = base();
         let mut s = TimerSession::start(org, user, ticket, t0);
         s.stop(t0 + Duration::minutes(10), None).unwrap();
-        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(10), None, true).unwrap();
+        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(10), None, true, None, None).unwrap();
         e.apply_approval_action(ApprovalAction::Submit, None)
             .unwrap();
         // A rejection without a typed reason code is refused.
@@ -593,7 +741,7 @@ mod tests {
         let (t0, org, user, ticket) = base();
         let mut s = TimerSession::start(org, user, ticket, t0);
         s.stop(t0 + Duration::minutes(5), None).unwrap();
-        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(5), None, true).unwrap();
+        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(5), None, true, None, None).unwrap();
         e.apply_approval_action(ApprovalAction::Submit, None)
             .unwrap();
         e.apply_approval_action(

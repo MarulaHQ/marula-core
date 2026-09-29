@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE time_entries\n              SET approval_status = $3,\n                  approval_decided_at = $4, approval_decided_by = $5,\n                  approval_reason_code = $6\n            WHERE org_id = $1 AND id = ANY($2) AND approval_status = 'submitted'\n              AND NOT EXISTS (\n                  SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)\n           RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,\n                     notes, work_type, timer_session_id, approval_status, approval_reason_code,\n                     created_at",
+  "query": "UPDATE time_entries\n              SET approval_status = 'draft', approval_reason_code = NULL,\n                  approval_submitted_at = NULL, approval_submitted_by = NULL,\n                  approval_decided_at = NULL, approval_decided_by = NULL\n            WHERE org_id = $1 AND id = $2 AND approval_status = 'rejected'\n              AND NOT EXISTS (\n                  SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)\n           RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes, billable,\n                     notes, work_type, unbillable_reason, timer_session_id, approval_status,\n                     approval_reason_code, created_at",
   "describe": {
     "columns": [
       {
@@ -55,21 +55,26 @@
       },
       {
         "ordinal": 10,
+        "name": "unbillable_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
         "name": "timer_session_id",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "approval_status",
         "type_info": "Text"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "approval_reason_code",
         "type_info": "Text"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -77,11 +82,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "UuidArray",
-        "Text",
-        "Timestamptz",
-        "Uuid",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -96,10 +97,11 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       false
     ]
   },
-  "hash": "de9aaca4c70ceac2ead911191b01b05ef62f93d51478738e72ef40624a27eb66"
+  "hash": "8f1f0ab4911c8d054a08d3c03d83998b629ff7ee22ff5fcba152468d36b45909"
 }

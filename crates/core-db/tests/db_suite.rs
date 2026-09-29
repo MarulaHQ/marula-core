@@ -949,6 +949,7 @@ async fn time_entries_insert_list_and_daily_total() {
     let e1 = TimeEntry {
         approval_status: None,
         approval_reason_code: None,
+        unbillable_reason: None,
         id: fixed_uuid(1103),
         org_id: s.org,
         ticket_id: t1.id,
@@ -965,6 +966,7 @@ async fn time_entries_insert_list_and_daily_total() {
     let e2 = TimeEntry {
         approval_status: None,
         approval_reason_code: None,
+        unbillable_reason: None,
         id: fixed_uuid(1104),
         org_id: s.org,
         ticket_id: t2.id,
