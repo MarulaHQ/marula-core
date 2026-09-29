@@ -97,7 +97,7 @@ describe("filterTickets", () => {
     ticket({ id: "b", title: "Ship docs", number: "MAR-2", priority: "P3" }),
   ];
   it("matches query against title and number case-insensitively", () => {
-    expect(filterTickets(tickets, { query: "mer-2", priorities: [], unassignedOnly: false, assigneeId: null })).toHaveLength(1);
+    expect(filterTickets(tickets, { query: "mar-2", priorities: [], unassignedOnly: false, assigneeId: null })).toHaveLength(1);
     expect(filterTickets(tickets, { query: "LOGIN", priorities: [], unassignedOnly: false, assigneeId: null })).toHaveLength(1);
   });
   it("filters by priority case-insensitively", () => {

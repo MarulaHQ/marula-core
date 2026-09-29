@@ -23419,7 +23419,7 @@ export interface components {
             /** @description URL-safe org slug (unique). */
             org_slug: string;
             password: string;
-            /** @description Ticket number prefix, e.g. "MER" → MAR-2841. Defaults to "MER". */
+            /** @description Ticket number prefix, e.g. "MAR" → MAR-2841. Defaults to "MAR". */
             ticket_prefix?: string | null;
             /** @default UTC */
             timezone: string | null;

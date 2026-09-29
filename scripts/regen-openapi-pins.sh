@@ -55,8 +55,8 @@ for (const pin of ["packages/sdk/openapi.json", "fixtures/openapi/v1/openapi.jso
 console.log("[regen-pins] wrote both pins compact (" + compact.length + " bytes)");
 '
 
-echo "[regen-pins] regenerate SDK (@marula/sdk generate)"
-pnpm --filter @marula/sdk generate
+echo "[regen-pins] regenerate SDK (@marula-core/sdk generate)"
+pnpm --filter @marula-core/sdk generate
 
 echo "[regen-pins] run the format gate"
 bash scripts/check-openapi-pins.sh

@@ -16,9 +16,9 @@ describe("marula editor extension set", () => {
       "taskList",
       "taskItem",
       "youtube",
-      "MarulaAssetLink",
-      "MarulaKbEmbed",
-      "MarulaTaxonomyTerm",
+      "marulaAssetLink",
+      "marulaKbEmbed",
+      "marulaTaxonomyTerm",
     ]) {
       expect(names).toContain(name);
     }
