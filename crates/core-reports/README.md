@@ -19,7 +19,7 @@ Reporting engine types, field catalog, and query compiler for the versioned
 * **Tenancy flows through RLS.** All views are `WITH (security_invoker =
   true)`; the API layer additionally binds `app.org_id` per request inside
   an explicit transaction (`core_api::routes::reports::run_rows`) using the
-  dedicated `meridian_app`-role pool.
+  dedicated `marula_app`-role pool.
 
 ## v1 report kinds
 
@@ -42,21 +42,21 @@ days — documented in the view header), no OLAP/marts (ADR 0001 scale note).
 
 ## None-mode operator recipe: external BI over the views
 
-Zero Meridian code required — Metabase/Superset/Grafana/PowerBI connect
+Zero Marula code required — Metabase/Superset/Grafana/PowerBI connect
 directly to Postgres through a read-only login role. The ready-to-adapt SQL
 lives in the migration header comments; the essence:
 
 ```sql
-CREATE ROLE meridian_reports_ro LOGIN PASSWORD '<secret>'
+CREATE ROLE marula_reports_ro LOGIN PASSWORD '<secret>'
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
-GRANT USAGE ON SCHEMA ops TO meridian_reports_ro;
-GRANT SELECT ON ALL TABLES IN SCHEMA ops TO meridian_reports_ro;
+GRANT USAGE ON SCHEMA ops TO marula_reports_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA ops TO marula_reports_ro;
 ALTER DEFAULT PRIVILEGES IN SCHEMA ops
-  GRANT SELECT ON TABLES TO meridian_reports_ro;
+  GRANT SELECT ON TABLES TO marula_reports_ro;
 
 -- RLS-through-views: with NO org binding this role sees ZERO rows
 -- (default deny). Bind deliberately, one org per role:
-ALTER ROLE meridian_reports_ro SET app.org_id = '<org uuid>';
+ALTER ROLE marula_reports_ro SET app.org_id = '<org uuid>';
 ```
 
 In-app RBAC does not extend into external tools (ADR 0001): granting this

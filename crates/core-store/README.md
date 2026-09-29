@@ -1,6 +1,6 @@
 # core-store
 
-The `ObjectStore` edge for Meridian (§4.7 traits-at-the-edge): one trait,
+The `ObjectStore` edge for Marula (§4.7 traits-at-the-edge): one trait,
 several adapters, zero vendor leakage.
 
 ## Purpose
@@ -10,7 +10,7 @@ several adapters, zero vendor leakage.
   first-class on every object.
 - **Adapters**
   - `local::LocalFsStore` — the documented **filesystem none mode**: a
-    self-hosted Meridian needs NO object store service; attachments land
+    self-hosted Marula needs NO object store service; attachments land
     under a data directory with atomic publishes and `.meta.json`
     sidecars.
   - `s3::S3Store` — any S3-compatible endpoint (MinIO in the compose
@@ -48,7 +48,7 @@ browsers in v1 — downloads stream through the API behind authz.
 
 ```sh
 OBJECT_STORE=local
-OBJECT_STORE_LOCAL_DIR=/var/lib/meridian/objects   # default ./data/objects
+OBJECT_STORE_LOCAL_DIR=/var/lib/marula/objects   # default ./data/objects
 ```
 
 Back this directory up like any other stateful volume.
@@ -57,11 +57,11 @@ Back this directory up like any other stateful volume.
 
 ```sh
 docker compose -f deploy/docker-compose.yml --profile stage2 up minio -d
-docker run --rm --network meridian_default minio/mc \
-  sh -c "mc alias set m http://minio:9000 meridian meridian-dev-minio && mc mb -p m/meridian"
+docker run --rm --network marula_default minio/mc \
+  sh -c "mc alias set m http://minio:9000 marula marula-dev-minio && mc mb -p m/marula"
 # then:
-OBJECT_STORE=s3 S3_ENDPOINT=http://localhost:9000 S3_BUCKET=meridian \
-S3_REGION=us-east-1 S3_ACCESS_KEY_ID=meridian S3_SECRET_ACCESS_KEY=meridian-dev-minio
+OBJECT_STORE=s3 S3_ENDPOINT=http://localhost:9000 S3_BUCKET=marula \
+S3_REGION=us-east-1 S3_ACCESS_KEY_ID=marula S3_SECRET_ACCESS_KEY=marula-dev-minio
 ```
 
 Buckets are NOT auto-created; create once with `mc mb` (or your IaC).
@@ -70,14 +70,14 @@ Buckets are NOT auto-created; create once with `mc mb` (or your IaC).
 
 Same as MinIO with `S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com`
 (R2) or unset (AWS), plus real credentials. Least-privilege key scoped to
-the single Meridian bucket.
+the single Marula bucket.
 
 ## Manual smoke (once per release)
 
 With MinIO running locally on :9000:
 
 ```sh
-OBJECT_STORE=s3 S3_ENDPOINT=http://localhost:9000 S3_BUCKET=meridian \
-S3_REGION=us-east-1 S3_ACCESS_KEY_ID=meridian S3_SECRET_ACCESS_KEY=meridian-dev-minio \
+OBJECT_STORE=s3 S3_ENDPOINT=http://localhost:9000 S3_BUCKET=marula \
+S3_REGION=us-east-1 S3_ACCESS_KEY_ID=marula S3_SECRET_ACCESS_KEY=marula-dev-minio \
 cargo test -p core-store --features live-s3 -- --ignored s3_live
 ```

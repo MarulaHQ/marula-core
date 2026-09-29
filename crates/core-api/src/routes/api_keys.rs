@@ -1,7 +1,7 @@
 //! API-key management (TASKLIST 2.15 / §6): scoped, rotatable, last-used
 //! tracked — with show-once creation.
 //!
-//! Purpose: admin CRUD over org API keys. Raw key material (`mrd_<hex>`)
+//! Purpose: admin CRUD over org API keys. Raw key material (`mrl_<hex>`)
 //! exists only in the creation response; storage keeps hex(HMAC-SHA256(
 //! secret_key, raw)) plus a non-secret display prefix. Scopes use plugin
 //! capability names ("tickets:read") and are enforced by the x-api-key
@@ -76,7 +76,7 @@ fn validate_scopes(scopes: &[String]) -> ApiResult<()> {
 pub struct ApiKeyView {
     pub id: Uuid,
     pub name: String,
-    /// Non-secret display prefix, e.g. "mrd_ab12cd34".
+    /// Non-secret display prefix, e.g. "mrl_ab12cd34".
     pub prefix: String,
     pub scopes: Vec<String>,
     pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -115,7 +115,7 @@ pub struct CreateApiKeyRequest {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ApiKeyCreatedResponse {
     pub key: ApiKeyView,
-    /// Raw bearer material: `mrd_<32 hex>`.
+    /// Raw bearer material: `mrl_<32 hex>`.
     pub raw_key: String,
 }
 
@@ -159,8 +159,8 @@ pub async fn create(
     validate_scopes(&req.scopes)?;
 
     // 128 bits of entropy is plenty for an offline-verifiable token.
-    let raw_key = format!("mrd_{}", uuid::Uuid::now_v7().simple());
-    // Display prefix: first 12 chars ("mrd_" + 8 hex), never the tail.
+    let raw_key = format!("mrl_{}", uuid::Uuid::now_v7().simple());
+    // Display prefix: first 12 chars ("mrl_" + 8 hex), never the tail.
     let prefix = raw_key[..12].to_string();
 
     let id = Uuid::now_v7();

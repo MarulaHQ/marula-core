@@ -209,7 +209,7 @@ async fn sync_pushes_call_logs_with_ticket_context() {
     let context = HashMap::from([("call-ctx-1".to_string(), ticket)]);
     let sink = MeridianCallLogSink::new(MeridianCallLogConfig {
         base_url: base.clone(),
-        api_key: "mrd_test_key".into(),
+        api_key: "mrl_test_key".into(),
     });
     let threecx = ThreecxClient::new(&pbx, "cid", "secret");
     let report = ThreecxSync::run(&threecx, Some(&context), &sink)
@@ -221,7 +221,7 @@ async fn sync_pushes_call_logs_with_ticket_context() {
     assert!(report.is_clean());
 
     let pushed = pushed.lock().unwrap();
-    assert!(pushed.iter().all(|(key, _)| key == "mrd_test_key"));
+    assert!(pushed.iter().all(|(key, _)| key == "mrl_test_key"));
     let linked = pushed
         .iter()
         .find(|(_, body)| body["call_id"] == "call-ctx-1")
@@ -271,7 +271,7 @@ async fn meridian_rejections_map_to_typed_errors() {
         let base = spawn(app).await;
         MeridianCallLogSink::new(MeridianCallLogConfig {
             base_url: base.clone(),
-            api_key: "mrd_test_key".into(),
+            api_key: "mrl_test_key".into(),
         })
     }
 

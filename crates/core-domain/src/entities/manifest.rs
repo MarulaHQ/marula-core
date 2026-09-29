@@ -296,7 +296,7 @@ pub struct ManifestApiKey {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub id: uuid::Uuid,
     pub name: String,
-    /// Non-secret display identifier (e.g. `mrd_ab12cd34`).
+    /// Non-secret display identifier (e.g. `mrl_ab12cd34`).
     pub prefix: String,
     /// Capability scope strings ("tickets:read", …).
     pub scopes: Vec<String>,

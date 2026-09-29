@@ -250,7 +250,7 @@ async fn seed_full_org(db: &common::TestDb, n: u64) -> (Uuid, Uuid, Uuid, Vec<Uu
         org,
         "Export Bot",
         &org_hash,
-        &format!("mrd_d1key{n:02}"),
+        &format!("mrl_d1key{n:02}"),
         &["tickets:read".to_string()],
         user,
     )

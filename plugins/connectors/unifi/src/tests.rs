@@ -277,9 +277,9 @@ async fn sync_feeds_per_site_and_records_interfaces_once() {
         .build();
     let sink = MarulaFeederSink::new(MarulaFeederConfig {
         base_url: base.clone(),
-        api_key: "mrd_test_key".into(),
+        api_key: "mrl_test_key".into(),
     });
-    let interfaces = MeridianInterfaceSink::new(base.clone(), "mrd_test_key");
+    let interfaces = MeridianInterfaceSink::new(base.clone(), "mrl_test_key");
 
     let (stub, _) = controller_stub(
         vec![site("site-1", "HQ"), site("site-2", "Branch")],

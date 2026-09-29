@@ -283,7 +283,7 @@ async fn api_key_creation_scope_matrix_and_revocation() {
     assert_eq!(response.status(), 201, "key creation must succeed");
     let created = body_json(response).await;
     let raw_key = created["raw_key"].as_str().expect("raw key shown once");
-    assert!(raw_key.starts_with("mrd_") && raw_key.len() > 20);
+    assert!(raw_key.starts_with("mrl_") && raw_key.len() > 20);
     assert_eq!(created["key"]["scopes"][0], "tickets:read");
     let key_id = created["key"]["id"].as_str().expect("key id").to_string();
 
@@ -382,7 +382,7 @@ async fn api_key_creation_scope_matrix_and_revocation() {
         &app,
         axum::http::Method::GET,
         "/api/tickets",
-        &[("x-api-key", "mrd_deadbeefdeadbeef".to_string())],
+        &[("x-api-key", "mrl_deadbeefdeadbeef".to_string())],
         None,
     )
     .await;

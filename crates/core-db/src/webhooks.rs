@@ -296,7 +296,7 @@ pub struct ApiKeyRow {
     pub name: String,
     /// hex(HMAC-SHA256(secret_key, raw)). Raw material is never stored.
     pub key_hash: String,
-    /// Non-secret display identifier (e.g. "mrd_ab12cd34") for listings.
+    /// Non-secret display identifier (e.g. "mrl_ab12cd34") for listings.
     pub prefix: String,
     /// Capability scope strings ("tickets:read", …).
     pub scopes: Vec<String>,

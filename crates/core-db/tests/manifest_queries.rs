@@ -312,7 +312,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
         base.org,
         "Provisioning Bot",
         &org_hash,
-        &format!("mrd_u5key{n:02}"),
+        &format!("mrl_u5key{n:02}"),
         &["tickets:read".to_string(), "tickets:write".to_string()],
         base.user,
     )
@@ -643,7 +643,7 @@ async fn full_org_manifest_covers_every_section() {
     assert_eq!(keys.len(), 1);
     assert_eq!(keys[0]["name"], "Provisioning Bot");
     assert_eq!(
-        keys[0]["prefix"], "mrd_u5key170",
+        keys[0]["prefix"], "mrl_u5key170",
         "per-slot display prefix round-trips"
     );
     assert_eq!(keys[0]["scopes"], json!(["tickets:read", "tickets:write"]));

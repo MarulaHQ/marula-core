@@ -13,7 +13,7 @@
 
 Upgrading past a pinned schema version is a REVIEWED diff in CI: the new file
 replaces this one and the sha256 here is updated in the same commit, together
-with any validator extension needed (Meridian node allowlist in
+with any validator extension needed (Marula node allowlist in
 `crates/core-kb/src/content.rs`). A dependent `tiptap-yaml/README`-style note is
 not needed — this file is the diff-review artifact itself: any PR touching
 `tiptap-json-schema.json` must state pulled-sha and the reason; the CI hex-scan
@@ -26,6 +26,6 @@ schema-engine dependency): required `type`, `content` arrays of nodes, `marks`
 shape, text-node/text-key exclusivity (`allOf` conditionals). The pinned file
 remains the source of truth for shape UPGRADES: when Tiptap publishes a new
 schema, the diff between versions defines which validator changes to make.
-Node/MARK names are additionally constrained by the Meridian extension
+Node/MARK names are additionally constrained by the Marula extension
 allowlist (schema control = extension allowlist) — the published schema is
 structural, ours is structural + allowlist.

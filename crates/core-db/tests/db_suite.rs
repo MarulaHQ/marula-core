@@ -4642,7 +4642,7 @@ async fn api_keys_hash_lifecycle_scopes_and_revocation() {
     let s = seed_org(&app, 93).await;
     let creator = seed_user(&app, &s, 9030).await;
 
-    let raw = "mrd_0123456789abcdef0123456789abcdef";
+    let raw = "mrl_0123456789abcdef0123456789abcdef";
     let hash = format!("{:064x}", 0xbeef_u128); // hex(HMAC(...)) shape
     let id = fixed_uuid(931);
 
@@ -4664,7 +4664,7 @@ async fn api_keys_hash_lifecycle_scopes_and_revocation() {
         key
     };
     assert_eq!(key.scopes.len(), 2);
-    assert_eq!(key.prefix, "mrd_01234567");
+    assert_eq!(key.prefix, "mrl_01234567");
     assert!(key.revoked_at.is_none());
 
     // Active lookup resolves cross-org by hash (auth path).

@@ -63,8 +63,8 @@ INSERT INTO auth_sessions (id, user_id, refresh_token_hash, user_agent, expires_
   ('00000000-0000-4000-8000-000000000036', '00000000-0000-4000-8000-000000000021', 'sha256$fixtureseed$authsession01', 'Mozilla/5.0 fixture', '2026-10-01T00:00:00Z', '00000000-0000-4000-8000-000000000037');
 
 INSERT INTO api_keys (id, org_id, name, key_hash, prefix, scopes, created_by, last_used_at, revoked_at) VALUES
-  ('00000000-0000-4000-8000-000000000041', '00000000-0000-4000-8000-000000000001', 'CI integration',  'argon2$fixtureseed$apikey01', 'mrd_ab12cd34', '["tickets:read","clients:read","time_entries:read"]', '00000000-0000-4000-8000-000000000021', '2026-09-02T02:00:00Z', NULL),
-  ('00000000-0000-4000-8000-000000000042', '00000000-0000-4000-8000-000000000001', 'Legacy exporter', 'argon2$fixtureseed$apikey02', 'mrd_ef90ab12', '["clients:read"]', '00000000-0000-4000-8000-000000000021', '2026-07-01T00:00:00Z', '2026-08-01T00:00:00Z');
+  ('00000000-0000-4000-8000-000000000041', '00000000-0000-4000-8000-000000000001', 'CI integration',  'argon2$fixtureseed$apikey01', 'mrl_ab12cd34', '["tickets:read","clients:read","time_entries:read"]', '00000000-0000-4000-8000-000000000021', '2026-09-02T02:00:00Z', NULL),
+  ('00000000-0000-4000-8000-000000000042', '00000000-0000-4000-8000-000000000001', 'Legacy exporter', 'argon2$fixtureseed$apikey02', 'mrl_ef90ab12', '["clients:read"]', '00000000-0000-4000-8000-000000000021', '2026-07-01T00:00:00Z', '2026-08-01T00:00:00Z');
 
 -- ====================================================== clients / CRM ====
 INSERT INTO clients (id, org_id, name, restricted_to, notes) VALUES

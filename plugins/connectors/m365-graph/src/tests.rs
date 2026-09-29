@@ -168,7 +168,7 @@ async fn sync_feeds_through_the_seam_and_reports_both_inventories() {
                 async move {
                     assert_eq!(
                         headers.get("x-api-key").and_then(|v| v.to_str().ok()),
-                        Some("mrd_test_key")
+                        Some("mrl_test_key")
                     );
                     let external = body["external_id"].as_str().unwrap().to_string();
                     assert!(body["idempotency_key"]
@@ -204,7 +204,7 @@ async fn sync_feeds_through_the_seam_and_reports_both_inventories() {
     let client_id = Uuid::now_v7();
     let sink = ci_feeders::sink::MarulaFeederSink::new(ci_feeders::sink::MarulaFeederConfig {
         base_url: graph_base,
-        api_key: "mrd_test_key".into(),
+        api_key: "mrl_test_key".into(),
     });
     let report = GraphSync::run(&graph, Some(client_id), &sink)
         .await

@@ -699,7 +699,7 @@ async fn meridian_sink_rides_the_public_api_shapes() {
     let sink = crate::sink::marula::MarulaRestSink::with_http(
         crate::sink::marula::MarulaConfig {
             base_url: stub.base_url(),
-            api_key: "mrd_test_key".into(),
+            api_key: "mrl_test_key".into(),
         },
         stub.http(),
     );
@@ -742,7 +742,7 @@ async fn meridian_sink_rides_the_public_api_shapes() {
     assert_ne!(receipt.password_id, Uuid::nil());
 
     let lines = stub.lines();
-    assert!(lines.iter().any(|l| l.contains("x-api-key:mrd_test_key")));
+    assert!(lines.iter().any(|l| l.contains("x-api-key:mrl_test_key")));
     assert!(
         lines
             .iter()

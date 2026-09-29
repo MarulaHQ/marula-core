@@ -2632,7 +2632,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     }
 
     // --- org API key (settings/api-keys; hash keyed by the at-rest secret) ----
-    let demo_api_raw = "mrd_demo0000000000000000000000000000000000000000000000000000key";
+    let demo_api_raw = "mrl_demo0000000000000000000000000000000000000000000000000000key";
     use hmac::Mac;
     let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(&opts.seal_key)
         .map_err(|e| DemoError::Crypto(e.to_string()))?;
@@ -2640,7 +2640,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     let api_key_id = demo_uuid(795);
     sqlx::query(
         "INSERT INTO api_keys (id, org_id, name, key_hash, prefix, scopes, created_by)
-         VALUES ($1, $2, 'Demo connector', $3, 'mrd_demo0000', $4, $5)",
+         VALUES ($1, $2, 'Demo connector', $3, 'mrl_demo0000', $4, $5)",
     )
     .bind(api_key_id)
     .bind(DEMO_ORG_ID)

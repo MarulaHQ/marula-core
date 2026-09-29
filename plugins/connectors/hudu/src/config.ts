@@ -8,7 +8,7 @@
 export interface Config {
   /** Base URL of the Meridian core API. */
   meridianBaseUrl: string;
-  /** Scoped Meridian API key (raw `mrd_…` material). */
+  /** Scoped Meridian API key (raw `mrl_…` material). */
   meridianApiKey: string;
   /** Shared secret used to verify Meridian's signed webhook deliveries. */
   meridianWebhookSecret: string;

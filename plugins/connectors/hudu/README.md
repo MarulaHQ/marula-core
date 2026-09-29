@@ -29,7 +29,7 @@ anti-replay window. Raw bytes are verified before any JSON parsing.
 
 ```bash
 export MARULA_BASE_URL=https://meridian.example.test
-export MARULA_API_KEY=mrd_…            # clients:read
+export MARULA_API_KEY=mrl_…            # clients:read
 export MARULA_WEBHOOK_SECRET=whsec_…
 
 # Optional — absent ⇒ NONE MODE:

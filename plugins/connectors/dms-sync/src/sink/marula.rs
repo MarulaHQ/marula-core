@@ -45,7 +45,7 @@ use crate::model::LinkKind;
 pub struct MarulaConfig {
     /// Meridian core API base URL (e.g. `https://meridian.example`).
     pub base_url: String,
-    /// Scoped machine API key (raw `mrd_…` material). Never logged.
+    /// Scoped machine API key (raw `mrl_…` material). Never logged.
     pub api_key: String,
 }
 

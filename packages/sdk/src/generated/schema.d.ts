@@ -12745,7 +12745,7 @@ export interface components {
          */
         ApiKeyCreatedResponse: {
             key: components["schemas"]["ApiKeyView"];
-            /** @description Raw bearer material: `mrd_<32 hex>`. */
+            /** @description Raw bearer material: `mrl_<32 hex>`. */
             raw_key: string;
         };
         ApiKeyList: {
@@ -12759,7 +12759,7 @@ export interface components {
             /** Format: date-time */
             last_used_at?: string | null;
             name: string;
-            /** @description Non-secret display prefix, e.g. "mrd_ab12cd34". */
+            /** @description Non-secret display prefix, e.g. "mrl_ab12cd34". */
             prefix: string;
             /** Format: date-time */
             revoked_at?: string | null;
@@ -19632,7 +19632,7 @@ export interface components {
             /** Format: date-time */
             last_used_at?: string | null;
             name: string;
-            /** @description Non-secret display identifier (e.g. `mrd_ab12cd34`). */
+            /** @description Non-secret display identifier (e.g. `mrl_ab12cd34`). */
             prefix: string;
             /** Format: date-time */
             revoked_at?: string | null;

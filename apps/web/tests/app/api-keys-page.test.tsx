@@ -24,7 +24,7 @@ function setupApi(): MockApi {
         {
           id: KEY_ID,
           name: "NinjaOne sync",
-          prefix: "mrd_ab12cd34",
+          prefix: "mrl_ab12cd34",
           scopes: ["tickets:read"],
           created_at: "2026-01-01T00:00:00Z",
           last_used_at: null,
@@ -68,13 +68,13 @@ describe("/settings/api-keys integration", () => {
           key: {
             id: KEY_ID + "-2",
             name: "Hudu export",
-            prefix: "mrd_ef12gh34",
+            prefix: "mrl_ef12gh34",
             scopes: ["clients:read"],
             created_at: "2026-02-02T00:00:00Z",
             last_used_at: null,
             revoked_at: null,
           },
-          raw_key: "mrd_ef12gh34deadbeefdeadbeef",
+          raw_key: "mrl_ef12gh34deadbeefdeadbeef",
         },
       };
     });
@@ -96,10 +96,10 @@ describe("/settings/api-keys integration", () => {
     await waitFor(() => {
       expect(mock.callsTo("POST", "/api/v1/api-keys").length).toBe(1);
     });
-    expect(await screen.findByText("mrd_ef12gh34deadbeefdeadbeef")).toBeInTheDocument();
+    expect(await screen.findByText("mrl_ef12gh34deadbeefdeadbeef")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
-    expect(screen.queryByText("mrd_ef12gh34deadbeefdeadbeef")).not.toBeInTheDocument();
+    expect(screen.queryByText("mrl_ef12gh34deadbeefdeadbeef")).not.toBeInTheDocument();
     cleanup();
   });
 
@@ -113,7 +113,7 @@ describe("/settings/api-keys integration", () => {
           {
             id: KEY_ID,
             name: "NinjaOne sync",
-            prefix: "mrd_ab12cd34",
+            prefix: "mrl_ab12cd34",
             scopes: ["tickets:read"],
             created_at: "2026-01-01T00:00:00Z",
             last_used_at: "2026-03-03T10:11:12Z",
