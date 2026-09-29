@@ -32,6 +32,9 @@ MSP admin, MSP staff, or both.
   rides them (prepaid blocks, NTE caps, minimums, escalators, change
   orders, SLA credits), and why tax stays at the accounting-export
   boundary. Audience: both.
+- [Billing corrections](billing-corrections.md) — why every correction is
+  a new document, what a sign-off does and does not gate, and why no
+  invoice carries a computed tax. Audience: both.
 - [Customizations are data](customizations-are-data.md) — why declarative
   rows make upgrades boring. Audience: both.
 - [The upgrade compatibility policy](upgrade-policy.md) — bounded promises,

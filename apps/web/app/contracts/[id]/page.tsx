@@ -44,6 +44,10 @@ type ContractMutationResponse = components["schemas"]["ContractMutationResponse"
 type BillingEvaluation = components["schemas"]["BillingEvaluation"];
 type RateSpec = components["schemas"]["RateSpec"];
 type FeeSpec = components["schemas"]["FeeSpec"];
+type BlockSpec = components["schemas"]["BlockSpec"];
+type CapSpec = components["schemas"]["CapSpec"];
+type ChangeOrder = components["schemas"]["ContractChangeOrder"];
+type SlaCredit = components["schemas"]["ContractSlaCredit"];
 
 export default function ContractDetailPage(): ReactNode {
   const auth = useRequireAuth();
@@ -68,6 +72,32 @@ export default function ContractDetailPage(): ReactNode {
   const [includedMinutes, setIncludedMinutes] = useState("");
   const [overageRate, setOverageRate] = useState("");
   const [notes, setNotes] = useState("");
+  const [poNumber, setPoNumber] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+  const [unitBasis, setUnitBasis] = useState<"devices" | "users">("devices");
+  const [incidentPrice, setIncidentPrice] = useState("");
+  const [incidentPriority, setIncidentPriority] = useState<string>("any");
+  const [minimum, setMinimum] = useState("");
+  const [escalatorBps, setEscalatorBps] = useState("");
+  const [escalatorFrom, setEscalatorFrom] = useState("");
+  const [dropEscalator, setDropEscalator] = useState(false);
+
+  // Child-entity editors (blocks, caps, change orders, service credits)
+  // each save through their own endpoint; `childError` is the single line
+  // they report rejections on so a failed write never reads as a success.
+  const [childError, setChildError] = useState<string | null>(null);
+  const [childBusy, setChildBusy] = useState(false);
+  const [orderDraft, setOrderDraft] = useState({
+    number: "",
+    title: "",
+    amount: "",
+    description: "",
+  });
+  const [creditDraft, setCreditDraft] = useState({
+    reason: "",
+    amount: "",
+    appliesOn: "",
+  });
 
   const [previewFrom, setPreviewFrom] = useState(effectiveFrom);
   const [previewTo, setPreviewTo] = useState("");
@@ -96,6 +126,27 @@ export default function ContractDetailPage(): ReactNode {
     setIncludedMinutes(data.included_minutes !== null && data.included_minutes !== undefined ? String(data.included_minutes) : "");
     setOverageRate(data.overage_rate_minor !== null && data.overage_rate_minor !== undefined ? String(data.overage_rate_minor / 100) : "");
     setNotes(data.notes ?? "");
+    setPoNumber(data.po_number ?? "");
+    setUnitPrice(
+      data.unit_price_minor !== null && data.unit_price_minor !== undefined
+        ? String(data.unit_price_minor / 100)
+        : "",
+    );
+    setUnitBasis(data.unit_basis ?? "devices");
+    setIncidentPrice(
+      data.incident_price_minor !== null && data.incident_price_minor !== undefined
+        ? String(data.incident_price_minor / 100)
+        : "",
+    );
+    setIncidentPriority(data.incident_priority ?? "any");
+    setMinimum(
+      data.minimum_commitment_minor !== null && data.minimum_commitment_minor !== undefined
+        ? String(data.minimum_commitment_minor / 100)
+        : "",
+    );
+    setEscalatorBps(data.escalator === null || data.escalator === undefined ? "" : String(data.escalator.uplift_bps));
+    setEscalatorFrom(data.escalator?.first_uplift_on ?? "");
+    setDropEscalator(false);
     if (previewFrom === "") setPreviewFrom(data.effective_from);
   }, [contractId, previewFrom]);
 
@@ -143,6 +194,36 @@ export default function ContractDetailPage(): ReactNode {
             ? Math.round(Number(overageRate) * 100)
             : null,
         notes: notes.trim() === "" ? null : notes.trim(),
+        // A blank field means "leave as it is" for every optional money
+        // column the PATCH treats as `None = unchanged`. Only the two
+        // tri-state fields (minimum, escalator) can actually be cleared,
+        // so blank minimum sends `clear_minimum` and the escalator sends
+        // `clear_escalator`. Silently ignoring a cleared field would be
+        // worse than a hint that says so.
+        po_number: poNumber.trim() === "" ? null : poNumber.trim(),
+        unit_price_minor:
+          contract.contract_type === "per_unit" && unitPrice.trim() !== ""
+            ? Math.round(Number(unitPrice) * 100)
+            : null,
+        unit_basis: contract.contract_type === "per_unit" ? unitBasis : null,
+        incident_price_minor:
+          contract.contract_type === "per_incident" && incidentPrice.trim() !== ""
+            ? Math.round(Number(incidentPrice) * 100)
+            : null,
+        incident_priority: contract.contract_type === "per_incident" ? incidentPriority : null,
+        minimum_commitment_minor:
+          minimum.trim() === "" ? null : Math.round(Number(minimum) * 100),
+        clear_minimum: minimum.trim() === "",
+        ...(dropEscalator
+          ? { clear_escalator: true }
+          : escalatorBps.trim() === ""
+            ? {}
+            : {
+                escalator: {
+                  uplift_bps: Math.round(Number(escalatorBps)),
+                  first_uplift_on: escalatorFrom === "" ? null : escalatorFrom,
+                },
+              }),
         ...extra,
       }),
       request: (client, body) =>
@@ -174,6 +255,131 @@ export default function ContractDetailPage(): ReactNode {
     setPreview(data);
   };
 
+  // Change orders and service credits are their own endpoints rather than
+  // columns on the contract, so each write reports on its own line and a
+  // rejection never leaves a half-saved form looking saved.
+  const createChangeOrder = async () => {
+    if (orderDraft.number.trim() === "" || orderDraft.title.trim() === "") return;
+    if (orderDraft.amount.trim() === "") return;
+    setChildBusy(true);
+    setChildError(null);
+    const result = await runEnvelopeMutation<
+      components["schemas"]["CreateChangeOrderRequest"],
+      ChangeOrder
+    >({
+      describe: `Create change order ${orderDraft.number.trim()}`,
+      entityId: `${contractId}:${orderDraft.number.trim()}`,
+      buildBody: (base) => ({
+        idempotency_key: base.idempotency_key,
+        number: orderDraft.number.trim(),
+        title: orderDraft.title.trim(),
+        amount_minor: Math.round(Number(orderDraft.amount) * 100),
+        description: orderDraft.description.trim() === "" ? null : orderDraft.description.trim(),
+      }),
+      optimistic: () => undefined,
+      revert: () => undefined,
+      request: (client, body) =>
+        client.POST("/api/v1/contracts/{id}/change-orders", {
+          params: { path: { id: contractId } },
+          body,
+        }),
+    });
+    setChildBusy(false);
+    if (!result.ok) {
+      setChildError(result.friendly ?? rejectionText(result, "The change order was rejected."));
+      return;
+    }
+    setOrderDraft({ number: "", title: "", amount: "", description: "" });
+    void load();
+  };
+
+  const transitionOrder = async (order: ChangeOrder, action: "approve" | "reject" | "cancel") => {
+    setChildBusy(true);
+    setChildError(null);
+    const result = await runEnvelopeMutation<
+      components["schemas"]["TransitionChangeOrderRequest"],
+      ChangeOrder
+    >({
+      describe: `${action} change order ${order.number}`,
+      entityId: order.id,
+      buildBody: (base) => ({ ...base, action }),
+      optimistic: () => undefined,
+      revert: () => undefined,
+      request: (client, body) =>
+        client.POST("/api/v1/contracts/{id}/change-orders/{order_id}/transition", {
+          params: { path: { id: contractId, order_id: order.id } },
+          body,
+        }),
+    });
+    setChildBusy(false);
+    if (!result.ok) {
+      setChildError(result.friendly ?? rejectionText(result, `The ${action} was rejected.`));
+      return;
+    }
+    void load();
+  };
+
+  const createCredit = async () => {
+    if (contract === null) return;
+    if (creditDraft.reason.trim() === "") return;
+    if (creditDraft.amount.trim() === "" || creditDraft.appliesOn === "") return;
+    setChildBusy(true);
+    setChildError(null);
+    const result = await runEnvelopeMutation<
+      components["schemas"]["CreateSlaCreditRequest"],
+      SlaCredit
+    >({
+      describe: "Issue service credit",
+      entityId: `${contractId}:${creditDraft.reason.trim().slice(0, 24)}`,
+      buildBody: (base) => ({
+        idempotency_key: base.idempotency_key,
+        reason: creditDraft.reason.trim(),
+        amount_minor: Math.round(Number(creditDraft.amount) * 100),
+        currency: contract.currency,
+        applies_on: creditDraft.appliesOn,
+        ticket_id: null,
+      }),
+      optimistic: () => undefined,
+      revert: () => undefined,
+      request: (client, body) =>
+        client.POST("/api/v1/contracts/{id}/sla-credits", {
+          params: { path: { id: contractId } },
+          body,
+        }),
+    });
+    setChildBusy(false);
+    if (!result.ok) {
+      setChildError(result.friendly ?? rejectionText(result, "The credit was rejected."));
+      return;
+    }
+    setCreditDraft({ reason: "", amount: "", appliesOn: "" });
+    void load();
+  };
+
+  const cancelCredit = async (credit: SlaCredit) => {
+    setChildBusy(true);
+    setChildError(null);
+    const result = await runEnvelopeMutation<components["schemas"]["MutationParams"], SlaCredit>({
+      describe: `Cancel service credit ${credit.id}`,
+      entityId: credit.id,
+      buildBody: (base) => ({ ...base }),
+      optimistic: () => undefined,
+      revert: () => undefined,
+      request: (client) =>
+        // The cancel route takes no body: the credit id in the path is the
+        // whole instruction, and a repeat cancel answers with the same row.
+        client.POST("/api/v1/contracts/{id}/sla-credits/{credit_id}/cancel", {
+          params: { path: { id: contractId, credit_id: credit.id } },
+        }),
+    });
+    setChildBusy(false);
+    if (!result.ok) {
+      setChildError(result.friendly ?? rejectionText(result, "The cancellation was rejected."));
+      return;
+    }
+    void load();
+  };
+
   if (auth.status !== "authed") return null;
 
   if (loadError !== null) {
@@ -200,6 +406,15 @@ export default function ContractDetailPage(): ReactNode {
   const isTm = contract.contract_type === "time_and_materials";
   const isFixed = contract.contract_type === "fixed_fee";
   const isRetainer = contract.contract_type === "retainer";
+  const isPerUnit = contract.contract_type === "per_unit";
+  const isPerIncident = contract.contract_type === "per_incident";
+  // Two different questions, two different answers. A minimum tops a
+  // period up against base + consumed labor, and the engine prices
+  // consumed labor for T&M as well as retainer, so a T&M contract carries
+  // a floor. An escalator walks billing anniversaries off the anchor, so
+  // it needs a billing frequency — the types that have one.
+  const minimumBearing = needsAmount || isTm;
+  const escalatorBearing = needsAmount;
 
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
@@ -322,6 +537,116 @@ export default function ContractDetailPage(): ReactNode {
               </div>
             </div>
           ) : null}
+          {isPerUnit ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="cd-unit-price">Price per unit / period (USD)</Label>
+                <Input id="cd-unit-price" type="number" min={0} step="0.01" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
+                <FieldHint>Counted at each evaluation, so the line follows the inventory.</FieldHint>
+              </div>
+              <div>
+                <Label htmlFor="cd-unit-basis">Count units by</Label>
+                <Select value={unitBasis} onValueChange={(v) => setUnitBasis(v as "devices" | "users")}>
+                  <SelectTrigger id="cd-unit-basis" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="devices">Devices (active client assets)</SelectItem>
+                    <SelectItem value="users">Users (org seats)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FieldHint>Changing the basis re-prices the next period, not past invoices.</FieldHint>
+              </div>
+            </div>
+          ) : null}
+          {isPerIncident ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="cd-incident-price">Price per closed ticket (USD)</Label>
+                <Input id="cd-incident-price" type="number" min={0} step="0.01" value={incidentPrice} onChange={(e) => setIncidentPrice(e.target.value)} />
+                <FieldHint>One line per ticket closed inside the run&apos;s window.</FieldHint>
+              </div>
+              <div>
+                <Label htmlFor="cd-incident-priority">Ticket band</Label>
+                <Select value={incidentPriority} onValueChange={setIncidentPriority}>
+                  <SelectTrigger id="cd-incident-priority" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="any">Any closed ticket</SelectItem>
+                    {["p1", "p2", "p3", "p4"].map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p.toUpperCase()} only
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ) : null}
+          <div>
+            <Label htmlFor="cd-po">Client PO number</Label>
+            <Input id="cd-po" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder="PO-2026-014" />
+            <FieldHint>
+              Copied onto every invoice this contract produces. Tax is not computed here — it stays
+              an accounting-export setting. A blank field leaves the stored PO alone.
+            </FieldHint>
+          </div>
+          {minimumBearing ? (
+            <div>
+              <Label htmlFor="cd-minimum">Minimum commitment / period (USD)</Label>
+              <Input id="cd-minimum" type="number" min={0} step="0.01" value={minimum} onChange={(e) => setMinimum(e.target.value)} />
+              <FieldHint>
+                A true-up line tops a short period up to this, counting the labor the period
+                consumed. Empty clears it.
+              </FieldHint>
+            </div>
+          ) : null}
+          {escalatorBearing ? (
+            <div>
+              <Label htmlFor="cd-escalator">Annual escalator (bps)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="cd-escalator"
+                  className="w-28"
+                  type="number"
+                  min={1}
+                  max={5000}
+                  step={50}
+                  disabled={dropEscalator}
+                  value={escalatorBps}
+                  onChange={(e) => setEscalatorBps(e.target.value)}
+                />
+                <Input
+                  aria-label="First uplift on"
+                  type="date"
+                  disabled={dropEscalator}
+                  value={escalatorFrom}
+                  onChange={(e) => setEscalatorFrom(e.target.value)}
+                />
+              </div>
+              <FieldHint>
+                300 is +3.0% at each billing anniversary.
+                {contract.escalator ? (
+                  <>
+                    {" "}
+                    Currently {contract.escalator.uplift_bps} bps
+                    {contract.escalator.first_uplift_on
+                      ? ` from ${contract.escalator.first_uplift_on}`
+                      : " from the first full period"}
+                    .{" "}
+                    <button
+                      type="button"
+                      className="underline underline-offset-2"
+                      onClick={() => setDropEscalator((v) => !v)}
+                    >
+                      {dropEscalator ? "Keep it" : "Remove on save"}
+                    </button>
+                  </>
+                ) : null}
+              </FieldHint>
+            </div>
+          ) : null}
           <div>
             <Label htmlFor="cd-notes">Notes</Label>
             <Input id="cd-notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -422,6 +747,382 @@ export default function ContractDetailPage(): ReactNode {
         </Card>
       ) : null}
 
+      {childError !== null ? (
+        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }} data-testid="contract-child-error">
+          {childError}
+        </p>
+      ) : null}
+
+      {isTm || isRetainer ? (
+        <Card data-testid="contract-blocks">
+          <h2 className="p-4 pb-0 text-sm font-semibold">Prepaid blocks</h2>
+          <p className="p-4 pb-0 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+            Hours the client paid for up front. Draws come off the oldest block first, and minutes
+            past the balance spill onto the overage rate. The balance itself lives in the
+            verification workspace, which is where a period is checked.
+          </p>
+          {contract.blocks.length === 0 ? (
+            <div className="p-4">
+              <EmptyState message="No prepaid blocks. Every approved entry bills at the rate card until one is sold." />
+            </div>
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Block</Th>
+                  <Th className="text-right">Sold</Th>
+                  <Th className="text-right">Sale price</Th>
+                  <Th className="text-right">Block rate</Th>
+                  <Th>Unused</Th>
+                  <Th>Expires</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {contract.blocks.map((block) => (
+                  <Tr key={block.id}>
+                    <Td>{block.label}</Td>
+                    <Td className="text-right tabular-nums">{block.total_minutes} min</Td>
+                    <Td className="text-right tabular-nums">{money(block.sale_price_minor, contract.currency)}</Td>
+                    <Td className="text-right tabular-nums">
+                      {block.block_rate_minor !== null && block.block_rate_minor !== undefined
+                        ? `${money(block.block_rate_minor, contract.currency)}/h`
+                        : "card rate"}
+                    </Td>
+                    <Td>{block.rollover_policy}</Td>
+                    <Td>{block.expires_on ?? "—"}</Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+          <div className="p-4">
+            <BlockSpecEditor
+              key={`blocks:${contract.updated_at}`}
+              existing={contract.blocks.map((b) => ({
+                label: b.label,
+                total_minutes: String(b.total_minutes),
+                sale: b.sale_price_minor === null || b.sale_price_minor === undefined ? "" : String(b.sale_price_minor / 100),
+                rate:
+                  b.block_rate_minor === null || b.block_rate_minor === undefined
+                    ? ""
+                    : String(b.block_rate_minor / 100),
+                rollover: b.rollover_policy as "expire" | "rollover" | "none",
+                expires: b.expires_on ?? "",
+              }))}
+              onApply={(rows) =>
+                void save({
+                  blocks: rows.map<BlockSpec>((r) => ({
+                    label: r.label,
+                    total_minutes: Math.round(Number(r.total_minutes)),
+                    sale_price_minor: Math.round(Number(r.sale) * 100),
+                    rollover_policy: r.rollover,
+                    block_rate_minor: r.rate === "" ? null : Math.round(Number(r.rate) * 100),
+                    expires_on: r.expires === "" ? null : r.expires,
+                  })),
+                })
+              }
+              saving={saving}
+            />
+          </div>
+        </Card>
+      ) : null}
+
+      {isTm ? (
+        <Card data-testid="contract-caps">
+          <h2 className="p-4 pb-0 text-sm font-semibold">Not-to-exceed caps</h2>
+          <p className="p-4 pb-0 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+            A ceiling on billable work, and what happens when it is reached. A cap is never silent:
+            each one says whether billing stops, a warning rides the evaluation, or the overage
+            bills at its own rate.
+          </p>
+          {contract.caps.length === 0 ? (
+            <div className="p-4">
+              <EmptyState message="No caps. Labor bills in full however high the period runs." />
+            </div>
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Scope</Th>
+                  <Th>Work type</Th>
+                  <Th className="text-right">Cap</Th>
+                  <Th>At the cap</Th>
+                  <Th className="text-right">Overage rate</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {contract.caps.map((cap) => (
+                  <Tr key={cap.id}>
+                    <Td>{cap.scope === "period" ? "Per period" : "Whole contract"}</Td>
+                    <Td>{cap.work_type ?? "all labor"}</Td>
+                    <Td className="text-right tabular-nums">{money(cap.cap_minor, contract.currency)}</Td>
+                    <Td>
+                      {cap.reached_behavior === "stop"
+                        ? "stops billing"
+                        : cap.reached_behavior === "warn"
+                          ? "warns only"
+                          : "bills the overage"}
+                    </Td>
+                    <Td className="text-right tabular-nums">
+                      {cap.overage_rate_minor !== null && cap.overage_rate_minor !== undefined
+                        ? `${money(cap.overage_rate_minor, contract.currency)}/h`
+                        : "—"}
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+          <div className="p-4">
+            <CapSpecEditor
+              key={`caps:${contract.updated_at}`}
+              existing={contract.caps.map((c) => ({
+                scope: c.scope as "period" | "contract",
+                cap: String(c.cap_minor / 100),
+                behavior: c.reached_behavior as "stop" | "warn" | "overage_billable",
+                workType: c.work_type ?? "",
+                overage:
+                  c.overage_rate_minor === null || c.overage_rate_minor === undefined
+                    ? ""
+                    : String(c.overage_rate_minor / 100),
+              }))}
+              onApply={(rows) =>
+                void save({
+                  caps: rows.map<CapSpec>((r) => ({
+                    scope: r.scope,
+                    cap_minor: Math.round(Number(r.cap) * 100),
+                    reached_behavior: r.behavior,
+                    work_type: r.workType === "" ? null : r.workType,
+                    overage_rate_minor: r.overage === "" ? null : Math.round(Number(r.overage) * 100),
+                  })),
+                })
+              }
+              saving={saving}
+            />
+          </div>
+        </Card>
+      ) : null}
+
+      <Card data-testid="contract-change-orders">
+        <h2 className="p-4 pb-0 text-sm font-semibold">Change orders</h2>
+        <p className="p-4 pb-0 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+          Approved scope changes. A draft prices nothing; an approved order bills as its own line
+          inside the window it was approved, and the invoice run marks it billed.
+        </p>
+        {contract.change_orders.length === 0 ? (
+          <div className="p-4">
+            <EmptyState message="No change orders on this agreement." />
+          </div>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Number</Th>
+                <Th>Title</Th>
+                <Th className="text-right">Amount</Th>
+                <Th>Status</Th>
+                <Th>Approved</Th>
+                <Th>Billed on</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody>
+              {contract.change_orders.map((order) => (
+                <Tr key={order.id}>
+                  <Td className="font-mono text-[12px]">{order.number}</Td>
+                  <Td>
+                    <div className="flex flex-col">
+                      <span>{order.title}</span>
+                      {order.description ? (
+                        <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+                          {order.description}
+                        </span>
+                      ) : null}
+                    </div>
+                  </Td>
+                  <Td className="text-right tabular-nums">{money(order.amount_minor, contract.currency)}</Td>
+                  <Td>
+                    <Tag tone={orderTone(order.status)}>{order.status}</Tag>
+                  </Td>
+                  <Td>{order.approved_at?.slice(0, 10) ?? "—"}</Td>
+                  <Td>
+                    {order.billed_invoice_id === null || order.billed_invoice_id === undefined ? (
+                      "—"
+                    ) : (
+                      <Link href={`/billing/${order.billed_invoice_id}`} className="underline underline-offset-2">
+                        invoice
+                      </Link>
+                    )}
+                  </Td>
+                  <Td>
+                    {order.status === "draft" ? (
+                      <div className="flex items-center gap-1">
+                        <Button size="sm" disabled={childBusy} onClick={() => void transitionOrder(order, "approve")}>
+                          Approve
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={childBusy} onClick={() => void transitionOrder(order, "reject")}>
+                          Reject
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={childBusy} onClick={() => void transitionOrder(order, "cancel")}>
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : order.status === "approved" ? (
+                      <Button size="sm" variant="ghost" disabled={childBusy} onClick={() => void transitionOrder(order, "cancel")}>
+                        Cancel
+                      </Button>
+                    ) : null}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+        <div className="grid gap-3 p-4">
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <Label htmlFor="co-number">Number</Label>
+              <Input
+                id="co-number"
+                value={orderDraft.number}
+                placeholder="CO-2026-004"
+                onChange={(e) => setOrderDraft({ ...orderDraft, number: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="co-title">Title</Label>
+              <Input
+                id="co-title"
+                value={orderDraft.title}
+                placeholder="Additional controllers"
+                onChange={(e) => setOrderDraft({ ...orderDraft, title: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="co-amount">Amount (USD)</Label>
+              <Input
+                id="co-amount"
+                type="number"
+                min={0}
+                step="0.01"
+                value={orderDraft.amount}
+                onChange={(e) => setOrderDraft({ ...orderDraft, amount: e.target.value })}
+              />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="co-description">Description (optional)</Label>
+            <Input
+              id="co-description"
+              value={orderDraft.description}
+              onChange={(e) => setOrderDraft({ ...orderDraft, description: e.target.value })}
+            />
+          </div>
+          <div>
+            <Button
+              onClick={() => void createChangeOrder()}
+              disabled={childBusy || orderDraft.number.trim() === "" || orderDraft.title.trim() === "" || orderDraft.amount.trim() === ""}
+              data-testid="create-change-order"
+            >
+              {childBusy ? <Spinner /> : null} Add change order
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card data-testid="contract-sla-credits">
+        <h2 className="p-4 pb-0 text-sm font-semibold">Service credits</h2>
+        <p className="p-4 pb-0 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+          What the agreement owes back when a target was missed. A pending credit whose date falls
+          inside a run&apos;s window becomes a negative line; the run then marks it applied, and an
+          applied credit is immutable — issue a new one to correct it.
+        </p>
+        {contract.sla_credits.length === 0 ? (
+          <div className="p-4">
+            <EmptyState message="No service credits issued." />
+          </div>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Reason</Th>
+                <Th className="text-right">Amount</Th>
+                <Th>Applies on</Th>
+                <Th>Status</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody>
+              {contract.sla_credits.map((credit) => (
+                <Tr key={credit.id}>
+                  <Td>{credit.reason}</Td>
+                  <Td className="text-right tabular-nums">{money(credit.amount_minor, credit.currency)}</Td>
+                  <Td>{credit.applies_on}</Td>
+                  <Td>
+                    <Tag tone={creditTone(credit.status)}>{credit.status}</Tag>
+                  </Td>
+                  <Td>
+                    {credit.status === "pending" ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={childBusy}
+                        onClick={() => void cancelCredit(credit)}
+                      >
+                        Cancel
+                      </Button>
+                    ) : null}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+        <div className="grid gap-3 p-4">
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <Label htmlFor="sla-reason">What was missed</Label>
+              <Input
+                id="sla-reason"
+                value={creditDraft.reason}
+                placeholder="resolution target breached by 2d 4h"
+                onChange={(e) => setCreditDraft({ ...creditDraft, reason: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="sla-amount">Amount (USD)</Label>
+              <Input
+                id="sla-amount"
+                type="number"
+                min={0}
+                step="0.01"
+                value={creditDraft.amount}
+                onChange={(e) => setCreditDraft({ ...creditDraft, amount: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="sla-applies">Applies on</Label>
+              <Input
+                id="sla-applies"
+                type="date"
+                value={creditDraft.appliesOn}
+                onChange={(e) => setCreditDraft({ ...creditDraft, appliesOn: e.target.value })}
+              />
+              <FieldHint>The billing window this credit lands in.</FieldHint>
+            </div>
+          </div>
+          <div>
+            <Button
+              onClick={() => void createCredit()}
+              disabled={childBusy || creditDraft.reason.trim() === "" || creditDraft.amount.trim() === "" || creditDraft.appliesOn === ""}
+              data-testid="create-sla-credit"
+            >
+              {childBusy ? <Spinner /> : null} Issue credit
+            </Button>
+          </div>
+        </div>
+      </Card>
+
       <Card>
         <div className="flex items-center justify-between p-4 pb-0">
           <h2 className="text-sm font-semibold">Billing preview</h2>
@@ -455,6 +1156,270 @@ export default function ContractDetailPage(): ReactNode {
           </div>
         ) : null}
       </Card>
+    </div>
+  );
+}
+
+type BlockRowState = {
+  label: string;
+  total_minutes: string;
+  sale: string;
+  rate: string;
+  rollover: "expire" | "rollover" | "none";
+  expires: string;
+};
+
+type CapRowState = {
+  scope: "period" | "contract";
+  cap: string;
+  behavior: "stop" | "warn" | "overage_billable";
+  workType: string;
+  overage: string;
+};
+
+const EMPTY_BLOCK: BlockRowState = {
+  label: "",
+  total_minutes: "",
+  sale: "",
+  rate: "",
+  rollover: "expire",
+  expires: "",
+};
+
+const EMPTY_CAP: CapRowState = {
+  scope: "period",
+  cap: "",
+  behavior: "warn",
+  workType: "",
+  overage: "",
+};
+
+function orderTone(status: string): "success" | "warning" | "danger" | "neutral" {
+  if (status === "approved") return "success";
+  if (status === "draft") return "neutral";
+  if (status === "billed") return "warning";
+  return "danger";
+}
+
+function creditTone(status: string): "success" | "warning" | "danger" | "neutral" {
+  if (status === "applied") return "success";
+  if (status === "pending") return "warning";
+  return "neutral";
+}
+
+/** Blocks and caps are child rows: PATCH replaces the whole set, so the
+ *  editor opens on what is stored and writes the set the admin leaves
+ *  behind. A save with an empty set is a real removal, and the button says
+ *  so rather than silently doing nothing. */
+function BlockSpecEditor({
+  existing,
+  onApply,
+  saving,
+}: {
+  existing: BlockRowState[];
+  onApply: (rows: BlockRowState[]) => void;
+  saving: boolean;
+}) {
+  const [rows, setRows] = useState<BlockRowState[]>(existing);
+  const complete = rows.every((r) => r.label.trim() !== "" && r.total_minutes !== "" && r.sale !== "");
+  return (
+    <div className="grid gap-3">
+      {rows.map((row, i) => (
+        <div
+          key={i}
+          className="flex flex-wrap items-end gap-2"
+        >
+          {/* Each control sits in a sized wrapper: the Input primitive is
+              w-full, so a width class on the input itself loses the
+              cascade and every field would take a whole line. */}
+          <div className="min-w-40 flex-1">
+            <FieldHint>Label</FieldHint>
+            <Input
+              aria-label="Block label"
+              placeholder="50-hour block, March"
+              value={row.label}
+              onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, label: e.target.value } : r)))}
+            />
+          </div>
+          <div className="w-24">
+            <FieldHint>Minutes</FieldHint>
+            <Input
+              aria-label="Block minutes"
+              type="number"
+              min={1}
+              step={15}
+              value={row.total_minutes}
+              onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, total_minutes: e.target.value } : r)))}
+            />
+          </div>
+          <div className="w-32">
+            <FieldHint>Sale price</FieldHint>
+            <Input
+              aria-label="Block sale price (USD)"
+              type="number"
+              min={0}
+              step="0.01"
+              value={row.sale}
+              onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, sale: e.target.value } : r)))}
+            />
+          </div>
+          <div className="w-32">
+            <FieldHint>Block rate</FieldHint>
+            <Input
+              aria-label="Block draw-down rate (USD/hour)"
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="card rate"
+              value={row.rate}
+              onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, rate: e.target.value } : r)))}
+            />
+          </div>
+          <div className="w-40">
+            <FieldHint>Unused</FieldHint>
+            <Select
+              value={row.rollover}
+              onValueChange={(v) =>
+                setRows(
+                  rows.map((r, j) =>
+                    j === i ? { ...r, rollover: v as BlockRowState["rollover"] } : r,
+                  ),
+                )
+              }
+            >
+              <SelectTrigger aria-label="Rollover policy" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="expire">lapse at expiry</SelectItem>
+                <SelectItem value="rollover">roll forward</SelectItem>
+                <SelectItem value="none">hold</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-36">
+            <FieldHint>Expires</FieldHint>
+            <Input
+              aria-label="Block expires on"
+              type="date"
+              value={row.expires}
+              onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, expires: e.target.value } : r)))}
+            />
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setRows(rows.filter((_, j) => j !== i))}>
+            Remove
+          </Button>
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <Button variant="secondary" size="sm" onClick={() => setRows([...rows, EMPTY_BLOCK])}>
+          Add block
+        </Button>
+        <Button size="sm" disabled={saving || !complete} onClick={() => onApply(rows)} data-testid="apply-blocks">
+          {saving ? <Spinner /> : null} {rows.length === 0 ? "Remove all blocks" : "Replace blocks"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CapSpecEditor({
+  existing,
+  onApply,
+  saving,
+}: {
+  existing: CapRowState[];
+  onApply: (rows: CapRowState[]) => void;
+  saving: boolean;
+}) {
+  const [rows, setRows] = useState<CapRowState[]>(existing);
+  const complete = rows.every((r) => r.cap !== "");
+  return (
+    <div className="grid gap-3">
+      {rows.map((row, i) => (
+        <div key={i} className="flex flex-wrap items-end gap-2">
+          <div className="w-40">
+            <FieldHint>Scope</FieldHint>
+            <Select
+              value={row.scope}
+              onValueChange={(v) =>
+                setRows(rows.map((r, j) => (j === i ? { ...r, scope: v as CapRowState["scope"] } : r)))
+              }
+            >
+              <SelectTrigger aria-label="Cap scope" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="period">Per period</SelectItem>
+                <SelectItem value="contract">Whole contract</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-32">
+            <FieldHint>Cap</FieldHint>
+            <Input
+              aria-label="Cap amount (USD)"
+              type="number"
+              min={0}
+              step="0.01"
+              value={row.cap}
+              onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, cap: e.target.value } : r)))}
+            />
+          </div>
+          <div className="w-48">
+            <FieldHint>At the cap</FieldHint>
+            <Select
+              value={row.behavior}
+              onValueChange={(v) =>
+                setRows(
+                  rows.map((r, j) => (j === i ? { ...r, behavior: v as CapRowState["behavior"] } : r)),
+                )
+              }
+            >
+              <SelectTrigger aria-label="Cap reached behavior" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="warn">Warn only</SelectItem>
+                <SelectItem value="stop">Stop at the cap</SelectItem>
+                <SelectItem value="overage_billable">Bill the overage</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-40">
+            <FieldHint>Work type</FieldHint>
+            <Input
+              aria-label="Cap work type (optional)"
+              placeholder="all labor"
+              value={row.workType}
+              onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, workType: e.target.value } : r)))}
+            />
+          </div>
+          <div className="w-32">
+            <FieldHint>Overage rate</FieldHint>
+            <Input
+              aria-label="Overage rate (USD/hour)"
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="card rate"
+              value={row.overage}
+              onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, overage: e.target.value } : r)))}
+            />
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setRows(rows.filter((_, j) => j !== i))}>
+            Remove
+          </Button>
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <Button variant="secondary" size="sm" onClick={() => setRows([...rows, EMPTY_CAP])}>
+          Add cap
+        </Button>
+        <Button size="sm" disabled={saving || !complete} onClick={() => onApply(rows)} data-testid="apply-caps">
+          {saving ? <Spinner /> : null} {rows.length === 0 ? "Remove all caps" : "Replace caps"}
+        </Button>
+      </div>
     </div>
   );
 }

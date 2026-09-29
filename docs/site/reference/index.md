@@ -9,6 +9,9 @@ structured for lookup, with no narrative and no opinions.
   enforces
 - [Read model view catalog](read-model.md) — the stable `ops.v1_*` SQL views
   (per-view docs under `docs/reference/read-model/`)
+- [Billing schema reference](billing-schemas.md) — the Wave 39 time
+  taxonomy, verification, contract-pricing, and project-billing tables,
+  and the rules an integrator needs before writing to them
 - [Routing & travel reference](routing.md) — provider config, settings keys,
   warning kinds, reconciliation semantics
 - [Upgrade matrix](upgrade-matrix.md) — CI-proven upgrade paths per release

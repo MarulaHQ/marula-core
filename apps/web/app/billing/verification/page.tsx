@@ -920,10 +920,20 @@ function BillingVerificationWorkspace() {
                   </li>
                 </ul>
                 {workspace.signoff && (
-                  <p className="mt-1 text-xs" style={{ color: "var(--m-status-success-fg)" }}>
-                    Signed off {when(workspace.signoff.signed_at)}
-                    {workspace.signoff.run_id ? " · claimed by a run" : " · not yet run"}
-                  </p>
+                  <div className="mt-1 text-xs" style={{ color: "var(--m-status-success-fg)" }} data-testid="verify-signoff-state">
+                    <div>
+                      Signed off {when(workspace.signoff.signed_at)}
+                      {workspace.signoff.run_id ? " · claimed by a run" : " · not yet run"}
+                    </div>
+                    {workspace.signoff.reviewer_note ? (
+                      // The note is the reviewer's own words and the only
+                      // record of what they actually looked at, so it is
+                      // read here rather than left in the API response.
+                      <div style={{ color: "var(--m-text-secondary)" }}>
+                        “{workspace.signoff.reviewer_note}”
+                      </div>
+                    ) : null}
+                  </div>
                 )}
               </div>
               <div className="flex items-center gap-2">
