@@ -9,7 +9,7 @@ import { setThemePreset } from "./theme-pack-apply";
 
 export type Theme = "light" | "dark";
 
-const STORAGE_KEY = "meridian-theme";
+const STORAGE_KEY = "marula-theme";
 const ATTRIBUTE = "data-theme";
 
 function isValidTheme(value: unknown): value is Theme {

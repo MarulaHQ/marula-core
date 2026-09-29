@@ -398,12 +398,12 @@ async fn login_sets_the_hardened_cookie_trio() {
     assert!(
         set_cookies
             .iter()
-            .any(|c| c.starts_with("meridian_session=") && c.contains("HttpOnly")),
+            .any(|c| c.starts_with("marula_session=") && c.contains("HttpOnly")),
         "httpOnly session cookie missing: {set_cookies:?}"
     );
     assert!(set_cookies.iter().any(|c| c.contains("SameSite=Lax")));
     assert!(set_cookies.iter().any(|c| c.contains("Path=/api")));
-    assert!(set_cookies.iter().any(|c| c.starts_with("meridian_csrf=")));
+    assert!(set_cookies.iter().any(|c| c.starts_with("marula_csrf=")));
     // The body STILL carries the token pair (bearer path unchanged).
     let envelope = body_json(response).await;
     assert!(envelope["access_token"].is_string());

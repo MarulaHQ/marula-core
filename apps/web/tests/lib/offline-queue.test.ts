@@ -39,7 +39,7 @@ describe("OfflineQueue — durability", () => {
     const storage = memoryStorage();
     const q = queueWith(async () => ({ outcome: "accepted" as const }), storage);
     q.enqueue(op("k1"));
-    const raw = storage.getItem("meridian-instant-outbox");
+    const raw = storage.getItem("marula-instant-outbox");
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw ?? "[]") as QueuedWrite[];
     expect(parsed).toHaveLength(1);
@@ -66,7 +66,7 @@ describe("OfflineQueue — durability", () => {
     await second.replay();
     expect(seen).toEqual(["k1", "k2"]);
     expect(second.pendingCount).toBe(0);
-    expect(storage.getItem("meridian-instant-outbox")).toBeNull();
+    expect(storage.getItem("marula-instant-outbox")).toBeNull();
   });
 });
 

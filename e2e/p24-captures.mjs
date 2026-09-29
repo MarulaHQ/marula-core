@@ -62,7 +62,7 @@ for (const label of wanted) {
         if (presetName && presetName !== "null")
           localStorage.setItem(presetKey, presetName);
       },
-      ["meridian-theme", "meridian-theme-preset", mode, preset, API],
+      ["marula-theme", "marula-theme-preset", mode, preset, API],
     );
     // Sign in (with retry — the only credential path this build owns).
     for (let attempt = 0; attempt < 4; attempt += 1) {

@@ -10,26 +10,26 @@
 //!   cookie) — ports do not split a site, so same-host different-port
 //!   dev stacks (web :3000 / api :8080) still deliver the cookie.
 //! * PLUS double-submit for the mutating cookie-only surface: core-api
-//!   also sets a NON-httpOnly `meridian_csrf` value that browsers echo
-//!   back on `x-meridian-csrf` (double-submit works BECAUSE JavaScript
+//!   also sets a NON-httpOnly `marula_csrf` value that browsers echo
+//!   back on `x-marula-csrf` (double-submit works BECAUSE JavaScript
 //!   can read a non-httpOnly cookie; a foreign origin cannot read it, so
 //!   it cannot forge the header). Bearer-authenticated calls carry no
 //!   ambient credential and skip the header check entirely.
 //! * Secure is auto-derived from the API base URL (https ⇒ Secure); the
 //!   dev http loops keep the cookie local-only but still httpOnly + Lax.
 //!
-//! Cookie naming: `meridian_session` for the STAFF refresh chain and
-//! `meridian_portal` for the portal family — two jars so a browser
+//! Cookie naming: `marula_session` for the STAFF refresh chain and
+//! `marula_portal` for the portal family — two jars so a browser
 //! profile can never bleed staff refresh into the portal surface or vice
 //! versa (parity with the localStorage families they replace). Both
 //! scoped `Path=/api` because the API mounts every generation under it.
 
 use axum::http::{header, HeaderMap};
 
-pub const SESSION_COOKIE: &str = "meridian_session";
-pub const PORTAL_COOKIE: &str = "meridian_portal";
-pub const CSRF_COOKIE: &str = "meridian_csrf";
-pub const CSRF_HEADER: &str = "x-meridian-csrf";
+pub const SESSION_COOKIE: &str = "marula_session";
+pub const PORTAL_COOKIE: &str = "marula_portal";
+pub const CSRF_COOKIE: &str = "marula_csrf";
+pub const CSRF_HEADER: &str = "x-marula-csrf";
 
 const COOKIE_PATH: &str = "/api";
 
@@ -109,7 +109,7 @@ pub fn session_refresh_pair_from(headers: &HeaderMap) -> Option<(uuid::Uuid, Str
     Some((uuid::Uuid::parse_str(sid).ok()?, secret.to_string()))
 }
 
-/// The portal twin: `{session_id}.{refresh}` inside `meridian_portal`.
+/// The portal twin: `{session_id}.{refresh}` inside `marula_portal`.
 pub fn portal_refresh_pair_from(headers: &HeaderMap) -> Option<(uuid::Uuid, String)> {
     let raw = cookie_from(headers, PORTAL_COOKIE)?;
     let (sid, secret) = raw.split_once('.')?;

@@ -162,7 +162,7 @@ pub struct MergeCandidate {
     pub external_id: String,
     pub external_title: String,
     pub record_kind: String,
-    pub meridian_id: Uuid,
+    pub marula_id: Uuid,
     /// Why the engine matched (key kind + value).
     pub matched_on: String,
     pub meridian_label: String,
@@ -173,7 +173,7 @@ pub struct MergeCandidate {
 #[derive(Debug, Clone, Serialize)]
 pub struct CuratedConflict {
     pub external_id: String,
-    pub meridian_id: Uuid,
+    pub marula_id: Uuid,
     pub field: String,
     /// The human-edited value that stays.
     pub curated_value: String,
@@ -859,8 +859,8 @@ impl SyncEngine {
         // 1) Ledger first: "second sync updates its own record".
         let mut ours: Option<Uuid> = None;
         if let Some(entry) = state.lookup(&ledger_key).filter(|e| e.is_asset()) {
-            if assets_by_id.contains_key(&entry.meridian_id) {
-                ours = Some(entry.meridian_id);
+            if assets_by_id.contains_key(&entry.marula_id) {
+                ours = Some(entry.marula_id);
             } else {
                 // The record vanished Meridian-side; forget and fall
                 // through to deterministic rediscovery.
@@ -922,8 +922,8 @@ impl SyncEngine {
                     Ok(created) => {
                         state.remember(LedgerEntry {
                             source_key: ledger_key,
-                            meridian_kind: "asset",
-                            meridian_id: created.id,
+                            marula_kind: "asset",
+                            marula_id: created.id,
                             last_written_fields: plan.fields.clone(),
                             last_written_fingerprint: fingerprint,
                             updated_at: chrono::Utc::now(),
@@ -941,7 +941,7 @@ impl SyncEngine {
             if !self.config.auto_link_conflicts {
                 return Outcome::MergeCandidate {
                     matched_on,
-                    meridian_id: matched_id,
+                    marula_id: matched_id,
                     label: asset_label(matched),
                     evidence: field_evidence(record, matched.fields.as_object()),
                 };
@@ -983,8 +983,8 @@ impl SyncEngine {
                 // owns this record from now on (no write needed).
                 state.remember(LedgerEntry {
                     source_key: ledger_key,
-                    meridian_kind: "asset",
-                    meridian_id: matched_id,
+                    marula_kind: "asset",
+                    marula_id: matched_id,
                     last_written_fields: serde_json::to_value(&next_fields).unwrap_or_default(),
                     last_written_fingerprint: fingerprint,
                     updated_at: chrono::Utc::now(),
@@ -1008,8 +1008,8 @@ impl SyncEngine {
                 Ok(_) => {
                     state.remember(LedgerEntry {
                         source_key: ledger_key,
-                        meridian_kind: "asset",
-                        meridian_id: matched_id,
+                        marula_kind: "asset",
+                        marula_id: matched_id,
                         last_written_fields: serde_json::Value::Object(next_fields),
                         last_written_fingerprint: fingerprint,
                         updated_at: chrono::Utc::now(),
@@ -1023,10 +1023,10 @@ impl SyncEngine {
         // Ours: curated-beats-observed diff. Skip before diffing when
         // the source content is unchanged since the last write (no
         // version churn).
-        let Some(meridian_id) = ours else {
+        let Some(marula_id) = ours else {
             return Outcome::Skipped("resolution fell through".into());
         };
-        let Some(current) = assets_by_id.get(&meridian_id) else {
+        let Some(current) = assets_by_id.get(&marula_id) else {
             return Outcome::Skipped("our record vanished mid-sync".into());
         };
         let entry = state.lookup(&ledger_key);
@@ -1035,7 +1035,7 @@ impl SyncEngine {
             .map(|e| e.last_written_fingerprint == fingerprint)
             .unwrap_or(false)
         {
-            return Outcome::Unchanged(meridian_id);
+            return Outcome::Unchanged(marula_id);
         }
         let last_written = entry
             .map(|e| e.last_written_fields)
@@ -1045,11 +1045,11 @@ impl SyncEngine {
             current.fields.as_object(),
             last_written.as_object(),
             record,
-            meridian_id,
+            marula_id,
             report,
         );
         if conflicts == 0 && !fields_differ(current.fields.as_object(), &next_fields) {
-            return Outcome::Unchanged(meridian_id);
+            return Outcome::Unchanged(marula_id);
         }
         if dry_run {
             return Outcome::UpdatedDryRun;
@@ -1067,17 +1067,17 @@ impl SyncEngine {
                 short(&fingerprint)
             ),
         };
-        match sink.update_asset(meridian_id, &plan).await {
+        match sink.update_asset(marula_id, &plan).await {
             Ok(_) => {
                 state.remember(LedgerEntry {
                     source_key: ledger_key,
-                    meridian_kind: "asset",
-                    meridian_id,
+                    marula_kind: "asset",
+                    marula_id,
                     last_written_fields: serde_json::Value::Object(next_fields),
                     last_written_fingerprint: fingerprint,
                     updated_at: chrono::Utc::now(),
                 });
-                Outcome::Updated(meridian_id)
+                Outcome::Updated(marula_id)
             }
             Err(e) => Outcome::Failed(format!("update: {e}")),
         }
@@ -1109,8 +1109,8 @@ impl SyncEngine {
         // 1) Ledger + provenance-field resolution (same as assets).
         let mut ours: Option<Uuid> = None;
         if let Some(entry) = state.lookup(&ledger_key).filter(|e| e.is_document()) {
-            if documents_by_id.contains_key(&entry.meridian_id) {
-                ours = Some(entry.meridian_id);
+            if documents_by_id.contains_key(&entry.marula_id) {
+                ours = Some(entry.marula_id);
             } else {
                 state.forget(&ledger_key);
             }
@@ -1146,8 +1146,8 @@ impl SyncEngine {
                     Ok(created) => {
                         state.remember(LedgerEntry {
                             source_key: ledger_key,
-                            meridian_kind: "document",
-                            meridian_id: created.id,
+                            marula_kind: "document",
+                            marula_id: created.id,
                             last_written_fields: plan.fields.clone(),
                             last_written_fingerprint: fingerprint,
                             updated_at: chrono::Utc::now(),
@@ -1163,7 +1163,7 @@ impl SyncEngine {
             if !self.config.auto_link_conflicts {
                 return Outcome::MergeCandidate {
                     matched_on: format!("title={:?}", record.title),
-                    meridian_id: matched_id,
+                    marula_id: matched_id,
                     label: matched.title.clone(),
                     evidence: field_evidence(record, matched.fields.as_object()),
                 };
@@ -1203,8 +1203,8 @@ impl SyncEngine {
             if !filled_any {
                 state.remember(LedgerEntry {
                     source_key: ledger_key,
-                    meridian_kind: "document",
-                    meridian_id: matched_id,
+                    marula_kind: "document",
+                    marula_id: matched_id,
                     last_written_fields: serde_json::to_value(&next_fields).unwrap_or_default(),
                     last_written_fingerprint: fingerprint,
                     updated_at: chrono::Utc::now(),
@@ -1228,8 +1228,8 @@ impl SyncEngine {
                 Ok(_) => {
                     state.remember(LedgerEntry {
                         source_key: ledger_key,
-                        meridian_kind: "document",
-                        meridian_id: matched_id,
+                        marula_kind: "document",
+                        marula_id: matched_id,
                         last_written_fields: serde_json::Value::Object(next_fields),
                         last_written_fingerprint: fingerprint,
                         updated_at: chrono::Utc::now(),
@@ -1243,10 +1243,10 @@ impl SyncEngine {
         // Ours: diff (same curated rule at the document level; the
         // fingerprint gate skips no-op runs — documents version
         // append-only, so churn must be earned).
-        let Some(meridian_id) = ours else {
+        let Some(marula_id) = ours else {
             return Outcome::Skipped("resolution fell through".into());
         };
-        let Some(current) = documents_by_id.get(&meridian_id) else {
+        let Some(current) = documents_by_id.get(&marula_id) else {
             return Outcome::Skipped("our document vanished mid-sync".into());
         };
         let entry = state.lookup(&ledger_key);
@@ -1255,7 +1255,7 @@ impl SyncEngine {
             .map(|e| e.last_written_fingerprint == fingerprint)
             .unwrap_or(false)
         {
-            return Outcome::Unchanged(meridian_id);
+            return Outcome::Unchanged(marula_id);
         }
         let last_written = entry
             .map(|e| e.last_written_fields)
@@ -1265,11 +1265,11 @@ impl SyncEngine {
             current.fields.as_object(),
             last_written.as_object(),
             record,
-            meridian_id,
+            marula_id,
             report,
         );
         if conflicts == 0 && !fields_differ(current.fields.as_object(), &next_fields) {
-            return Outcome::Unchanged(meridian_id);
+            return Outcome::Unchanged(marula_id);
         }
         if dry_run {
             return Outcome::UpdatedDryRun;
@@ -1287,17 +1287,17 @@ impl SyncEngine {
                 short(&fingerprint)
             ),
         };
-        match sink.update_document(meridian_id, &plan).await {
+        match sink.update_document(marula_id, &plan).await {
             Ok(_) => {
                 state.remember(LedgerEntry {
                     source_key: ledger_key,
-                    meridian_kind: "document",
-                    meridian_id,
+                    marula_kind: "document",
+                    marula_id,
                     last_written_fields: serde_json::Value::Object(next_fields),
                     last_written_fingerprint: fingerprint,
                     updated_at: chrono::Utc::now(),
                 });
-                Outcome::Updated(meridian_id)
+                Outcome::Updated(marula_id)
             }
             Err(e) => Outcome::Failed(format!("update: {e}")),
         }
@@ -1317,7 +1317,7 @@ enum Outcome {
     AdoptedDryRun,
     MergeCandidate {
         matched_on: String,
-        meridian_id: Uuid,
+        marula_id: Uuid,
         label: String,
         evidence: Vec<(String, String, String)>,
     },
@@ -1375,7 +1375,7 @@ fn register_outcome(
         }
         Outcome::MergeCandidate {
             matched_on,
-            meridian_id,
+            marula_id,
             label,
             evidence,
         } => {
@@ -1383,7 +1383,7 @@ fn register_outcome(
                 external_id: record.external_id.clone(),
                 external_title: record.title.clone(),
                 record_kind: kind_name.to_string(),
-                meridian_id,
+                marula_id,
                 matched_on,
                 meridian_label: label,
                 evidence,
@@ -1576,7 +1576,7 @@ fn merge_fields(
     current: Option<&serde_json::Map<String, serde_json::Value>>,
     last_written: Option<&serde_json::Map<String, serde_json::Value>>,
     record: &SyncRecord,
-    meridian_id: Uuid,
+    marula_id: Uuid,
     report: &mut SyncReport,
 ) -> (serde_json::Map<String, serde_json::Value>, usize) {
     let mut next = serde_json::Map::new();
@@ -1610,7 +1610,7 @@ fn merge_fields(
                     conflicts += 1;
                     report.curated_conflicts.push(CuratedConflict {
                         external_id: record.external_id.clone(),
-                        meridian_id,
+                        marula_id,
                         field: key.clone(),
                         curated_value: cur.to_string(),
                         source_value: source_value.clone(),

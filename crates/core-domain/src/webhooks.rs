@@ -5,7 +5,7 @@
 //! Purpose: pure, framework-free rules for HMAC-signed webhook delivery.
 //! The signature covers `"{unix_timestamp}.{raw_body}"` under the
 //! subscription secret and travels as `t=<ts>,v1=<hex>` in
-//! `X-Meridian-Signature` plus a redundant `X-Meridian-Timestamp` header —
+//! `X-Marula-Signature` plus a redundant `X-Marula-Timestamp` header —
 //! the timestamp binding is what beats replay of an intercepted body.
 //! Receivers MUST reject timestamps outside `verify`'s tolerance window.
 //!
@@ -20,9 +20,9 @@ use subtle::ConstantTimeEq;
 type HmacSha256 = Hmac<Sha256>;
 
 /// Signature header: `t=<unix_secs>,v1=<hex hmac over "{t}.{body}">`.
-pub const SIGNATURE_HEADER: &str = "X-Meridian-Signature";
+pub const SIGNATURE_HEADER: &str = "X-Marula-Signature";
 /// Redundant plain timestamp header (mirrors the `t=` component).
-pub const TIMESTAMP_HEADER: &str = "X-Meridian-Timestamp";
+pub const TIMESTAMP_HEADER: &str = "X-Marula-Timestamp";
 
 /// Delivery attempts before a job dead-letters (first try + 5 retries).
 pub const MAX_DELIVERY_ATTEMPTS: i32 = 6;

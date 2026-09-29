@@ -5,7 +5,7 @@
 //! owns SEMANTICS (batches, reports, none-mode counting). Shipped
 //! implementations:
 //!
-//! * [`MeridianFeederSink`] — the public v1 REST feed-upsert over a
+//! * [`MarulaFeederSink`] — the public v1 REST feed-upsert over a
 //!   scoped machine API key (x-api-key). Every write carries the
 //!   deterministic instant-first idempotency key from the record
 //!   itself, so retried syncs replay and changed content updates.
@@ -96,11 +96,11 @@ struct WireFeedUpsertResponse {
     contradictions: Vec<String>,
 }
 
-/// Credentials + endpoint configuration for [`MeridianFeederSink`].
+/// Credentials + endpoint configuration for [`MarulaFeederSink`].
 /// Values come from the operator's secret store just-in-time — the
 /// crate never persists them. `Debug` redacts the key material.
 #[derive(Clone)]
-pub struct MeridianFeederConfig {
+pub struct MarulaFeederConfig {
     /// Meridian core API base URL (e.g. `https://meridian.example`).
     pub base_url: String,
     /// Scoped machine API key (raw `mrd_…` material). Never logged.
@@ -109,9 +109,9 @@ pub struct MeridianFeederConfig {
     pub api_key: String,
 }
 
-impl std::fmt::Debug for MeridianFeederConfigDebug<'_> {
+impl std::fmt::Debug for MarulaFeederConfigDebug<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MeridianFeederConfig")
+        f.debug_struct("MarulaFeederConfig")
             .field("base_url", &self.0.base_url)
             .field("api_key", &"[REDACTED]")
             .finish()
@@ -119,22 +119,22 @@ impl std::fmt::Debug for MeridianFeederConfigDebug<'_> {
 }
 
 /// Debug wrapper so config can carry redacted key material.
-pub struct MeridianFeederConfigDebug<'a>(&'a MeridianFeederConfig);
+pub struct MarulaFeederConfigDebug<'a>(&'a MarulaFeederConfig);
 
 /// The public-API sink implementation.
-pub struct MeridianFeederSink {
+pub struct MarulaFeederSink {
     http: reqwest::Client,
-    config: MeridianFeederConfig,
+    config: MarulaFeederConfig,
 }
 
-impl std::fmt::Debug for MeridianFeederSink {
+impl std::fmt::Debug for MarulaFeederSink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        MeridianFeederConfigDebug(&self.config).fmt(f)
+        MarulaFeederConfigDebug(&self.config).fmt(f)
     }
 }
 
-impl MeridianFeederSink {
-    pub fn new(config: MeridianFeederConfig) -> Self {
+impl MarulaFeederSink {
+    pub fn new(config: MarulaFeederConfig) -> Self {
         Self {
             http: reqwest::Client::new(),
             config,
@@ -143,7 +143,7 @@ impl MeridianFeederSink {
 }
 
 #[async_trait]
-impl FeederSink for MeridianFeederSink {
+impl FeederSink for MarulaFeederSink {
     async fn feed_upsert(
         &self,
         record: &FeederRecord,

@@ -194,7 +194,7 @@ async fn sync_feeds_through_the_seam_and_reports_both_inventories() {
         );
     let graph_base = spawn(graph_app).await;
 
-    // Full seam run: stub token endpoint → stub Graph → MeridianFeederSink.
+    // Full seam run: stub token endpoint → stub Graph → MarulaFeederSink.
     let graph = GraphClient::new_with_token_url(
         format!("{token_base}/token"),
         "app-1",
@@ -202,7 +202,7 @@ async fn sync_feeds_through_the_seam_and_reports_both_inventories() {
         graph_base.clone(),
     );
     let client_id = Uuid::now_v7();
-    let sink = ci_feeders::sink::MeridianFeederSink::new(ci_feeders::sink::MeridianFeederConfig {
+    let sink = ci_feeders::sink::MarulaFeederSink::new(ci_feeders::sink::MarulaFeederConfig {
         base_url: graph_base,
         api_key: "mrd_test_key".into(),
     });

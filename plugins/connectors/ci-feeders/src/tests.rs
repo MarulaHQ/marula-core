@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::identity::{fingerprint, IdentityKeysBuilder};
 use crate::model::FeederRecord;
 use crate::sink::{
-    FeederSink, MeridianFeederConfig, MeridianFeederSink, NoneFeederSink, SinkError,
+    FeederSink, MarulaFeederConfig, MarulaFeederSink, NoneFeederSink, SinkError,
 };
 use crate::sync::{ApplyMode, FeederSync, SyncConfig};
 use crate::vendors;
@@ -144,7 +144,7 @@ async fn meridian_sink_posts_feed_upsert_with_api_key_and_deterministic_key() {
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
     let record = vendors::map_ninjaone_device(&ninjaone_fixture()).unwrap();
-    let sink = MeridianFeederSink::new(MeridianFeederConfig {
+    let sink = MarulaFeederSink::new(MarulaFeederConfig {
         base_url: format!("http://{addr}"),
         api_key: "mrd_feeder_key".into(),
     });
@@ -195,7 +195,7 @@ async fn sink_surfaces_typed_errors_for_auth_and_rejection() {
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
     let record = vendors::map_ninjaone_device(&ninjaone_fixture()).unwrap();
-    let sink = MeridianFeederSink::new(MeridianFeederConfig {
+    let sink = MarulaFeederSink::new(MarulaFeederConfig {
         base_url: format!("http://{addr}"),
         api_key: "mrd_scoped_wrong".into(),
     });

@@ -1076,7 +1076,7 @@ pub(crate) async fn render_invoice_html(
          <tbody>{rows}<tr class=\"total\"><td>Total ({currency})</td><td></td><td></td>\
          <td class=\"num\">{total}</td></tr></tbody></table>\
          {payments}\
-         <p class=\"muted\">Meridian invoice {number} · generated {now}</p>\
+         <p class=\"muted\">Marula invoice {number} · generated {now}</p>\
          </body></html>",
         number = esc(&invoice.number),
         issued = invoice.issued_at,

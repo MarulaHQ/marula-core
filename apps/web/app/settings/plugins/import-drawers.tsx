@@ -84,7 +84,7 @@ export function GithubImportDrawer({
             </div>
             <div>
               <Label htmlFor="gh-repo">Repository</Label>
-              <Input id="gh-repo" placeholder="meridian-collector" value={repo} onChange={(e) => setRepo(e.target.value)} />
+              <Input id="gh-repo" placeholder="marula-collector" value={repo} onChange={(e) => setRepo(e.target.value)} />
             </div>
           </div>
           <div>

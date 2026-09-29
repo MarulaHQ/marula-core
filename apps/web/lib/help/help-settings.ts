@@ -106,7 +106,7 @@ export function useToursState(enabled: boolean): ToursState {
       // localStorage fallback: tours finished offline but not yet
       // acknowledged server-side still count as done on this device.
       try {
-        const local = window.localStorage.getItem("meridian-tours-completed");
+        const local = window.localStorage.getItem("marula-tours-completed");
         if (local) parsed = [...new Set([...parsed, ...parseCompletedTours(local)])];
       } catch {
         // storage unavailable — server state only
@@ -129,7 +129,7 @@ export function useToursState(enabled: boolean): ToursState {
       const next = prev.includes(tourId) ? prev : [...prev, tourId].slice(-COMPLETED_CAP);
       try {
         window.localStorage.setItem(
-          "meridian-tours-completed",
+          "marula-tours-completed",
           JSON.stringify(next.slice(-COMPLETED_CAP)),
         );
       } catch {

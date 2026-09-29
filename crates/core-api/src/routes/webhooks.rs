@@ -19,7 +19,7 @@ use axum::Json;
 use core_mail::hmac;
 use serde_json::json;
 
-pub const SIGNATURE_HEADER: &str = "X-Meridian-Signature";
+pub const SIGNATURE_HEADER: &str = "X-Marula-Signature";
 
 /// POST /api/webhooks/email-inbound — accepts one normalized message.
 ///

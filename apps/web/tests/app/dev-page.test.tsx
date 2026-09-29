@@ -28,7 +28,7 @@ function setupApi(opts: { enabled: boolean }): MockApi {
             migration_head: 45,
             demo_seeded: false,
             demo_org_id: "a0000000-0000-4000-8000-00000000d001",
-            demo_slug: "meridian-demo",
+            demo_slug: "marula-demo",
           },
         }
       : { status: 404, json: { error: { message: "not found" } } },
@@ -94,7 +94,7 @@ describe("/dev ops page render-gating", () => {
         migration_head: 45,
         demo_seeded: true,
         demo_org_id: "a0000000-0000-4000-8000-00000000d001",
-        demo_slug: "meridian-demo",
+        demo_slug: "marula-demo",
       },
     }));
     mock.on("POST", "/api/dev/seed", (ctx) =>

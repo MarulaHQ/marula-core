@@ -10,16 +10,16 @@
 //!
 //! | Instrument                     | Type        | Attributes          | Chart it as |
 //! |--------------------------------|-------------|---------------------|-------------|
-//! | `meridian.http.requests`       | counter     | route, method, status | request rate by route/status (`rate()`); error ratio = status ≥ 400 share |
-//! | `meridian.http.request.duration` | histogram (ms) | route, method   | p50/p95/p99 latency per route template |
-//! | `meridian.ws.sessions`         | up-down     | –                   | current connected WS sessions (gauge) |
-//! | `meridian.outbox.lag_ms`       | gauge       | –                   | event-pipeline lag: age of oldest unpublished outbox row at last relay pass |
-//! | `meridian.relay.batch_size`    | histogram   | –                   | relay throughput distribution per tick |
-//! | `meridian.queue.depth`         | gauge       | state=pending\|running\|dead | backlog health; alert on dead > 0 sustained |
-//! | `meridian.queue.jobs`          | counter     | kind, outcome=done\|retried\|dead | job settle rates; dead-letter counter = outcome="dead" |
-//! | `meridian.queue.claim_to_apply` | histogram (ms) | kind            | claim→settle latency per job kind |
-//! | `meridian.sla.sweep.duration`  | histogram (ms) | –                | sweep cost over time |
-//! | `meridian.sla.verdicts`        | counter     | trigger=risk\|breach\|escalation | SLA breach counters (trigger="breach") |
+//! | `marula.http.requests`       | counter     | route, method, status | request rate by route/status (`rate()`); error ratio = status ≥ 400 share |
+//! | `marula.http.request.duration` | histogram (ms) | route, method   | p50/p95/p99 latency per route template |
+//! | `marula.ws.sessions`         | up-down     | –                   | current connected WS sessions (gauge) |
+//! | `marula.outbox.lag_ms`       | gauge       | –                   | event-pipeline lag: age of oldest unpublished outbox row at last relay pass |
+//! | `marula.relay.batch_size`    | histogram   | –                   | relay throughput distribution per tick |
+//! | `marula.queue.depth`         | gauge       | state=pending\|running\|dead | backlog health; alert on dead > 0 sustained |
+//! | `marula.queue.jobs`          | counter     | kind, outcome=done\|retried\|dead | job settle rates; dead-letter counter = outcome="dead" |
+//! | `marula.queue.claim_to_apply` | histogram (ms) | kind            | claim→settle latency per job kind |
+//! | `marula.sla.sweep.duration`  | histogram (ms) | –                | sweep cost over time |
+//! | `marula.sla.verdicts`        | counter     | trigger=risk\|breach\|escalation | SLA breach counters (trigger="breach") |
 //!
 //! Cardinality rules: `route` is always the axum TEMPLATE (see
 //! [`crate::redact::route_template`]); `kind`/`outcome`/`status` come from
@@ -49,47 +49,47 @@ fn instruments() -> &'static Instruments {
         let meter = global::meter("meridian");
         Instruments {
             http_requests: meter
-                .u64_counter("meridian.http.requests")
+                .u64_counter("marula.http.requests")
                 .with_description("HTTP requests by route template, method, status")
                 .build(),
             http_duration: meter
-                .f64_histogram("meridian.http.request.duration")
+                .f64_histogram("marula.http.request.duration")
                 .with_unit("ms")
                 .with_description("End-to-end HTTP request duration")
                 .build(),
             ws_sessions: meter
-                .i64_up_down_counter("meridian.ws.sessions")
+                .i64_up_down_counter("marula.ws.sessions")
                 .with_description("Currently open WebSocket sessions")
                 .build(),
             outbox_lag_ms: meter
-                .u64_gauge("meridian.outbox.lag_ms")
+                .u64_gauge("marula.outbox.lag_ms")
                 .with_unit("ms")
                 .with_description("Age of oldest unpublished outbox row at last relay pass")
                 .build(),
             relay_batch: meter
-                .u64_histogram("meridian.relay.batch_size")
+                .u64_histogram("marula.relay.batch_size")
                 .with_description("Outbox rows published per relay pass")
                 .build(),
             queue_depth: meter
-                .u64_gauge("meridian.queue.depth")
+                .u64_gauge("marula.queue.depth")
                 .with_description("Jobs table depth by state (pending/running/dead)")
                 .build(),
             jobs: meter
-                .u64_counter("meridian.queue.jobs")
+                .u64_counter("marula.queue.jobs")
                 .with_description("Job settlements by kind and outcome")
                 .build(),
             claim_to_apply_ms: meter
-                .f64_histogram("meridian.queue.claim_to_apply")
+                .f64_histogram("marula.queue.claim_to_apply")
                 .with_unit("ms")
                 .with_description("Claim-to-settle latency per job")
                 .build(),
             sla_sweep: meter
-                .f64_histogram("meridian.sla.sweep.duration")
+                .f64_histogram("marula.sla.sweep.duration")
                 .with_unit("ms")
                 .with_description("SLA evaluation sweep duration")
                 .build(),
             sla_verdicts: meter
-                .u64_counter("meridian.sla.verdicts")
+                .u64_counter("marula.sla.verdicts")
                 .with_description("SLA ladder verdicts enqueued by trigger class")
                 .build(),
         }

@@ -4,7 +4,7 @@
 //!
 //! Three pieces:
 //!
-//! * [`MeridianSnapshot`] — the neutral shape a Meridian-side reader
+//! * [`MarulaSnapshot`] — the neutral shape a Meridian-side reader
 //!   produces from the public REST surface (`GET /api/assets`,
 //!   `/api/documents`, `/api/documents/layouts`, `/api/clients`, and
 //!   the per-record link listings).
@@ -39,7 +39,7 @@ pub struct SnapshotLink {
 
 /// The neutral Meridian snapshot the renderers consume.
 #[derive(Debug, Clone, Default)]
-pub struct MeridianSnapshot {
+pub struct MarulaSnapshot {
     pub source: String,
     /// (layout id → layout)
     pub layouts: Vec<SnapshotLayout>,
@@ -109,7 +109,7 @@ impl BTreeMapExport {
 /// Render a Meridian snapshot as a Hudu export JSON document (the
 /// collection keys match the parser's
 /// [`crate::source::hudu::HuduExportFiles`]).
-pub fn render_hudu_export(snapshot: &MeridianSnapshot) -> Value {
+pub fn render_hudu_export(snapshot: &MarulaSnapshot) -> Value {
     let companies: Vec<Value> = snapshot
         .clients
         .iter()
@@ -258,7 +258,7 @@ impl RestPushTarget {
     /// records (2xx).
     pub async fn push_snapshot(
         &self,
-        snapshot: &MeridianSnapshot,
+        snapshot: &MarulaSnapshot,
     ) -> Result<usize, crate::model::SyncError> {
         let mut accepted = 0;
         for layout in &snapshot.layouts {

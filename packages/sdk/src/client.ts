@@ -226,8 +226,8 @@ export class MeridianClient {
       const csrf = document.cookie
         .split(";")
         .map((c) => c.trim())
-        .find((c) => c.startsWith("meridian_csrf="));
-      if (csrf) headers["x-meridian-csrf"] = csrf.slice("meridian_csrf=".length);
+        .find((c) => c.startsWith("marula_csrf="));
+      if (csrf) headers["x-marula-csrf"] = csrf.slice("marula_csrf=".length);
     }
     const response = await this.fetchFn(`${this.baseUrl}${path}`, {
       method: "POST",

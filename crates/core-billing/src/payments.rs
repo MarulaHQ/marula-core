@@ -317,7 +317,7 @@ impl PaymentProvider for StripePaymentProvider {
             ));
         }
         let amount = stripe_amount(request.amount_minor, &currency);
-        let idempotency_key = format!("meridian-charge-{}", request.invoice_id);
+        let idempotency_key = format!("marula-charge-{}", request.invoice_id);
         let params: Vec<(&str, String)> = vec![
             ("amount", amount.to_string()),
             ("currency", currency.to_string()),
@@ -325,13 +325,13 @@ impl PaymentProvider for StripePaymentProvider {
             ("payment_method", payment_method.to_string()),
             (
                 "description",
-                format!("Meridian invoice {}", request.invoice_number),
+                format!("Marula invoice {}", request.invoice_number),
             ),
             (
-                "metadata[meridian_invoice_id]",
+                "metadata[marula_invoice_id]",
                 request.invoice_id.to_string(),
             ),
-            ("metadata[meridian_org_id]", request.org_id.to_string()),
+            ("metadata[marula_org_id]", request.org_id.to_string()),
         ];
         let response = self
             .client

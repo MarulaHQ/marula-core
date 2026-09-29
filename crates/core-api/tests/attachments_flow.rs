@@ -353,7 +353,7 @@ async fn upload_download_matrix_dedup_link_and_authz() {
     assert_eq!(
         response
             .headers()
-            .get("x-meridian-sha256")
+            .get("x-marula-sha256")
             .and_then(|v| v.to_str().ok()),
         Some(expected_sha.as_str())
     );

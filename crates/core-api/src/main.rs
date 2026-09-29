@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
         },
     };
     // Live delivery (Wave 12 lane 12): ONE dedicated LISTEN connection per
-    // process receives `meridian_events` notifications (migration 0068)
+    // process receives `marula_events` notifications (migration 0068)
     // and fans contract events + presence frames out to SSE subscribers.
     tokio::spawn(core_api::realtime::run_listener(
         config.database_url.clone(),
@@ -108,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
                     header::AUTHORIZATION,
                     // Cookie-session CSRF double-submit header (Wave 19
                     // lane 5); bearer-mode callers are unaffected.
-                    header::HeaderName::from_static("x-meridian-csrf"),
+                    header::HeaderName::from_static("x-marula-csrf"),
                 ])
                 // httpOnly refresh cookies ride cross-origin app→API
                 // calls (same-site), so responses must be credentialed.

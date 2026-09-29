@@ -16,7 +16,7 @@ vi.mock("next/navigation", () => ({
 
 function seedPortalTokens(): void {
   window.localStorage.setItem(
-    "meridian-portal-tokens",
+    "marula-portal-tokens",
     JSON.stringify({
       access_token: "a",
       refresh_token: "r",

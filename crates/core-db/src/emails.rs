@@ -18,8 +18,8 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 /// Domain suffix for Meridian-generated outbound Message-IDs. Stored bare
-/// (`uuid@meridian.local`); transport adapters add RFC angle brackets.
-pub const OUTBOUND_ID_SUFFIX: &str = "meridian.local";
+/// (`uuid@marula.local`); transport adapters add RFC angle brackets.
+pub const OUTBOUND_ID_SUFFIX: &str = "marula.local";
 
 /// Generates a fresh bare outbound Message-ID.
 #[must_use]

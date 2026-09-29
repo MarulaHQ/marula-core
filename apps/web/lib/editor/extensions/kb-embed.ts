@@ -32,14 +32,14 @@ export const MeridianKbEmbed = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: 'figure[data-meridian-embed="kb"]' }];
+    return [{ tag: 'figure[data-marula-embed="kb"]' }];
   },
 
   renderHTML({ node }) {
     return [
       "figure",
       {
-        "data-meridian-embed": "kb",
+        "data-marula-embed": "kb",
         class: "kb-embed",
       },
       [

@@ -19,7 +19,7 @@ async function session(theme) {
   await ctx.request.post(`${API}/api/v1/auth/login`, { data: { email: "owner@demo.local", password: "demo-password-123" } });
   const page = await ctx.newPage();
   await page.addInitScript((t) => {
-    try { window.localStorage.setItem("meridian-theme", t); } catch {}
+    try { window.localStorage.setItem("marula-theme", t); } catch {}
   }, theme);
   return { browser, ctx, page };
 }

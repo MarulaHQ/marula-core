@@ -725,7 +725,7 @@ export interface paths {
         /**
          * GET /api/attachments/{id}/download — streams the stored bytes through
          *     the API behind board-view authz (no public URLs in v1). Integrity is
-         *     verifiable against the recorded sha256 (`x-meridian-sha256` header).
+         *     verifiable against the recorded sha256 (`x-marula-sha256` header).
          */
         get: operations["attachments_download"];
         put?: never;

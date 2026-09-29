@@ -8,7 +8,7 @@
 //!
 //! Pipeline: every mutation's outbox row (the authoritative trail) fires a
 //! same-transaction `pg_notify` (migration 0068) on channel
-//! `meridian_events`. ONE dedicated listener connection per core-api
+//! `marula_events`. ONE dedicated listener connection per core-api
 //! process ([`run_listener`], sqlx `PgListener` — never a per-request
 //! connection) receives notifications at commit time and fans frames out
 //! through the process-global [`hub`]. Delivery is at-least-once from the
@@ -30,7 +30,7 @@
 //! from the typed contract events (see `routes::events`). Multi-replica
 //! story (Wave 13 lane 10): every heartbeat is relayed to the OTHER
 //! core-api replicas over the dedicated pg NOTIFY channel
-//! [`PRESENCE_CHANNEL`] (`meridian_presence`, no new infra dependency —
+//! [`PRESENCE_CHANNEL`] (`marula_presence`, no new infra dependency —
 //! same LISTEN fan-out as contract events). Each replica applies the
 //! relayed heartbeat into its local store, so every replica converges on
 //! the same roster, TTLs it identically, and publishes the
@@ -61,13 +61,13 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 /// The dedicated Postgres NOTIFY channel fed by migration 0068's trigger.
-pub const NOTIFY_CHANNEL: &str = "meridian_events";
+pub const NOTIFY_CHANNEL: &str = "marula_events";
 
 /// The dedicated Postgres NOTIFY channel for cross-replica presence
 /// relay (Wave 13 lane 10). Payload is one heartbeat's identity; see
 /// [`HeartbeatNotify`]. No migration needed — NOTIFY channels are
 /// runtime-only.
-pub const PRESENCE_CHANNEL: &str = "meridian_presence";
+pub const PRESENCE_CHANNEL: &str = "marula_presence";
 
 /// Maximum number of outbox events replayed on `Last-Event-ID` resume.
 /// Past this bound the client is too stale for a replay to be useful —
@@ -540,9 +540,9 @@ pub async fn publish_heartbeat_notify(
 // --- listener ----------------------------------------------------------------
 
 /// Long-running dedicated LISTEN connection. Never per-request: ONE
-/// connection per process receives every `meridian_events` notification at
+/// connection per process receives every `marula_events` notification at
 /// commit time and fans it out through the hub, AND every
-/// `meridian_presence` relayed heartbeat (cross-replica presence,
+/// `marula_presence` relayed heartbeat (cross-replica presence,
 /// Wave 13 lane 10). Reconnects with backoff; missed notifications during
 /// a disconnect are covered by the client's snapshot hydration on
 /// reconnect (at-least-once over the ledger) and by the next heartbeat.

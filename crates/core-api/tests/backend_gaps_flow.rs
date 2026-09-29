@@ -1061,7 +1061,7 @@ async fn documents_attachments_upload_list_download_delete() {
     assert_eq!(
         response
             .headers()
-            .get("x-meridian-sha256")
+            .get("x-marula-sha256")
             .and_then(|v| v.to_str().ok())
             .unwrap_or(""),
         expected_sha

@@ -24,8 +24,8 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 async function seedTokens(p) {
   await p.goto(`${BASE}/login`);
   await p.evaluate((tokens) => {
-    window.localStorage.setItem("meridian-tokens", JSON.stringify(tokens));
-    window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 900_000));
+    window.localStorage.setItem("marula-tokens", JSON.stringify(tokens));
+    window.localStorage.setItem("marula-tokens-exp", String(Date.now() + 900_000));
   }, tokens);
 }
 

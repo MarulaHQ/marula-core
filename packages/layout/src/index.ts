@@ -6,7 +6,7 @@
  * defensive repair, pluggable persistence adapters, and the React controller
  * plus renderer.
  * Non-purpose: no domain knowledge of any kind — this package arranges panes
- * and knows nothing about tickets, timers, or Meridian's product surfaces.
+ * and knows nothing about tickets, timers, or Marula's product surfaces.
  */
 
 // Types

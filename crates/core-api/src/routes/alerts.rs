@@ -8,7 +8,7 @@
 //!   ingest endpoint. Mounted OUTSIDE the JWT middleware (like the email
 //!   inbound webhook): the `source_ref` path segment resolves org + sealed
 //!   secret through a narrow SECURITY DEFINER lookup (0014 seam pattern),
-//!   then `X-Meridian-Signature` (hex HMAC-SHA256 over the raw body) is
+//!   then `X-Marula-Signature` (hex HMAC-SHA256 over the raw body) is
 //!   verified constant-time. Dedup/correlation runs synchronously here —
 //!   the worker queue is deliberately not involved.
 //! * `/api/alert-sources` + `GET /api/alerts` — the staff surface on the
@@ -56,7 +56,7 @@ use uuid::Uuid;
 
 /// Signature header for the ingest endpoint (same scheme as the email
 /// inbound webhook: hex HMAC-SHA256 over the exact request body).
-pub const SIGNATURE_HEADER: &str = "X-Meridian-Signature";
+pub const SIGNATURE_HEADER: &str = "X-Marula-Signature";
 
 // --- wire types ---------------------------------------------------------------
 

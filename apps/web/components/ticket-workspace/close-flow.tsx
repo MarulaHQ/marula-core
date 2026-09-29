@@ -37,7 +37,7 @@ type BoardTransitionsResponse = components["schemas"]["BoardTransitionsResponse"
 type ChecklistItem = components["schemas"]["ChecklistItem"];
 type TimeEntry = components["schemas"]["TimeEntry"];
 
-const prefsStore = new LocalStoragePanelStateStore({ namespace: "meridian.email-prefs" });
+const prefsStore = new LocalStoragePanelStateStore({ namespace: "marula.email-prefs" });
 
 interface EmailPrefs {
   greeting: string;

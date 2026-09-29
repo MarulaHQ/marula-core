@@ -11,7 +11,7 @@ The engine renders a declarative pane tree (nested rows/columns with draggable d
 - No drag-and-drop of panes or tabs between containers (programmatic moves are provided; pointer DnD comes later).
 - No cascading resize redistribution: a divider drag affects exactly its two neighboring children.
 - No content rendering of any kind — pane bodies are host-supplied render props.
-- No theme: every color is a `--meridian-*` variable owned by `packages/ui`.
+- No theme: every color is a `--marula-*` variable owned by `packages/ui`.
 
 ## Install / wiring
 
@@ -87,7 +87,7 @@ const layout = usePanelLayout({
 - **Pointer:** press a divider to capture; the grid re-renders live on every animation frame while dragging (no ghost-line preview). Double-click equalizes the pair.
 - **Keyboard:** focus a divider (`role="separator"`), then Arrow keys move it (12px steps; Shift = 48px); Home/End jump to the min/max feasible boundary.
 - **Reduced motion:** all transitions are ≤120ms and wrapped in `@media (prefers-reduced-motion: no-preference)`; dragging itself is direct manipulation, never animated.
-- **Responsive collapse:** below `collapseBelowPx` (measured via ResizeObserver), a top-level `row` split renders stacked as a `column`; nested splits keep their authored direction. Every pane is also an inline-size container (`meridian-pane`) so host content can adapt with its own `@container` rules, and the tab strip compacts itself under 320px pane width.
+- **Responsive collapse:** below `collapseBelowPx` (measured via ResizeObserver), a top-level `row` split renders stacked as a `column`; nested splits keep their authored direction. Every pane is also an inline-size container (`marula-pane`) so host content can adapt with its own `@container` rules, and the tab strip compacts itself under 320px pane width.
 
 ## Persistence contract
 
@@ -99,7 +99,7 @@ interface PanelStateStore {
 }
 ```
 
-- Payloads are **opaque serialized envelopes** produced by `encodeLayoutState`; adapters never interpret them. Shipped adapters: `LocalStoragePanelStateStore` (keys: `<namespace>:<userId>`, namespace default `meridian.layout`) and `MemoryPanelStateStore` (tests/SSR). A server adapter implements the same three methods later — no engine changes required.
+- Payloads are **opaque serialized envelopes** produced by `encodeLayoutState`; adapters never interpret them. Shipped adapters: `LocalStoragePanelStateStore` (keys: `<namespace>:<userId>`, namespace default `marula.layout`) and `MemoryPanelStateStore` (tests/SSR). A server adapter implements the same three methods later — no engine changes required.
 - Envelope: `{ version: 1, savedAt: <ISO-8601 UTC>, root: <tree> }`.
 - **Decode is defensive by design.** `decodeLayoutState` validates untrusted input and repairs recoverable defects, reporting each repair as a warning: unknown versions still parse best-effort; missing/invalid sizes reset to equal fractions; single-child splits collapse recursively up to the root; duplicate ids regenerate; dangling `activeTabId`s clear; malformed tabs drop individually. Structurally hopeless input throws `LayoutStateDecodeError`, and the hook restores the fallback tree.
 - Saves are debounced (default 400ms) after each mutation; write failures surface via `onPersistIssue` and never corrupt React state.
@@ -110,19 +110,19 @@ Import `@marula-core/layout/styles.css` once. The engine consumes **only** these
 
 | Variable | Used for |
 |---|---|
-| `--meridian-color-canvas` | layout background behind panes |
-| `--meridian-color-surface` | pane bodies and the tab strip |
-| `--meridian-color-border` | divider center line, tab strip bottom border, close-button hover |
-| `--meridian-color-accent` | divider hover/drag/focus indicators, active-tab underline, focus outlines |
-| `--meridian-color-text-primary` | active tab label |
-| `--meridian-color-text-secondary` | inactive tab labels, empty-pane placeholder |
-| `--meridian-font-family` | tab strip and placeholder text |
-| `--meridian-radius-sm` | 2px corners on tabs/close buttons |
+| `--marula-color-canvas` | layout background behind panes |
+| `--marula-color-surface` | pane bodies and the tab strip |
+| `--marula-color-border` | divider center line, tab strip bottom border, close-button hover |
+| `--marula-color-accent` | divider hover/drag/focus indicators, active-tab underline, focus outlines |
+| `--marula-color-text-primary` | active tab label |
+| `--marula-color-text-secondary` | inactive tab labels, empty-pane placeholder |
+| `--marula-font-family` | tab strip and placeholder text |
+| `--marula-radius-sm` | 2px corners on tabs/close buttons |
 
 Structural (non-color) variables carry engine defaults overridable per subtree:
-`--meridian-layout-divider-size` (5px hit area). Until `packages/ui` defines the color tokens, unpainted variables degrade gracefully (transparent/borderless chrome) rather than inventing off-palette values.
+`--marula-layout-divider-size` (5px hit area). Until `packages/ui` defines the color tokens, unpainted variables degrade gracefully (transparent/borderless chrome) rather than inventing off-palette values.
 
-Class names: `meridian-layout`, `meridian-split[data-direction][data-depth]`, `meridian-pane`, `meridian-tabs`, `meridian-tab[__title|__close]`, `meridian-pane__body`, `meridian-pane__empty`, `meridian-divider[data-direction][data-dragging]`.
+Class names: `marula-layout`, `marula-split[data-direction][data-depth]`, `marula-pane`, `marula-tabs`, `marula-tab[__title|__close]`, `marula-pane__body`, `marula-pane__empty`, `marula-divider[data-direction][data-dragging]`.
 
 ## Testing
 

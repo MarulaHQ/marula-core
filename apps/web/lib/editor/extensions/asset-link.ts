@@ -22,14 +22,14 @@ export const MeridianAssetLink = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: 'span[data-meridian-asset-link]' }];
+    return [{ tag: 'span[data-marula-asset-link]' }];
   },
 
   renderHTML({ node }) {
     return [
       "span",
       {
-        "data-meridian-asset-link": "true",
+        "data-marula-asset-link": "true",
         "data-asset-id": (node.attrs.assetId as string) ?? "",
         class: "kb-asset-link",
       },

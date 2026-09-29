@@ -23,7 +23,7 @@ use crate::alerts::{
 };
 use crate::{map_device, MeridianInterfaceSink, UnifiClient, UnifiSync};
 use adapters_core::OrgMappingBuilder;
-use ci_feeders::sink::{MeridianFeederConfig, MeridianFeederSink, NoneFeederSink};
+use ci_feeders::sink::{MarulaFeederConfig, MarulaFeederSink, NoneFeederSink};
 
 async fn spawn(app: Router) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -275,7 +275,7 @@ async fn sync_feeds_per_site_and_records_interfaces_once() {
     let mapping = OrgMappingBuilder::new()
         .map("site-1", Uuid::now_v7())
         .build();
-    let sink = MeridianFeederSink::new(MeridianFeederConfig {
+    let sink = MarulaFeederSink::new(MarulaFeederConfig {
         base_url: base.clone(),
         api_key: "mrd_test_key".into(),
     });

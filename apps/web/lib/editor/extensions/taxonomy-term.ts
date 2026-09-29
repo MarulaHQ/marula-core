@@ -21,14 +21,14 @@ export const MeridianTaxonomyTerm = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: "span[data-meridian-taxonomy-term]" }];
+    return [{ tag: "span[data-marula-taxonomy-term]" }];
   },
 
   renderHTML({ node }) {
     return [
       "span",
       {
-        "data-meridian-taxonomy-term": "true",
+        "data-marula-taxonomy-term": "true",
         "data-term-id": (node.attrs.termId as string) ?? "",
         class: "kb-taxonomy-term",
       },

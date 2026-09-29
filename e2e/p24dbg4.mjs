@@ -5,8 +5,8 @@ const ctx=await b.newContext({ viewport: { width: 1440, height: 900 } });
 const p=await ctx.newPage();
 await p.addInitScript(([apiBase,mode,preset])=>{
   window.__MARULA_API_URL__=apiBase;
-  localStorage.setItem("meridian-theme",mode);
-  localStorage.setItem("meridian-theme-preset",preset);
+  localStorage.setItem("marula-theme",mode);
+  localStorage.setItem("marula-theme-preset",preset);
 },[API,"dark","tangerine"]);
 p.on("response", r=>{ if(r.url().includes(API)&&!r.url().includes("oidc")) console.log("API",r.status(),r.url().slice(0,70)); });
 p.on("requestfailed", r=>console.log("FAILED",r.method(),r.url()));

@@ -267,11 +267,11 @@ for (const theme of THEMES) {
     ([apiBase, tokenPair, mode, uiLogin]) => {
       if (apiBase) window.__MARULA_API_URL__ = apiBase;
       if (!uiLogin) {
-        window.localStorage.setItem("meridian-tokens", tokenPair);
-        window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 3_600_000));
+        window.localStorage.setItem("marula-tokens", tokenPair);
+        window.localStorage.setItem("marula-tokens-exp", String(Date.now() + 3_600_000));
       }
-      window.localStorage.setItem("meridian-theme", mode);
-      window.sessionStorage.setItem("meridian-tour-session", "1");
+      window.localStorage.setItem("marula-theme", mode);
+      window.sessionStorage.setItem("marula-tour-session", "1");
     },
     [API, JSON.stringify(tokens), theme, UI_LOGIN],
   );

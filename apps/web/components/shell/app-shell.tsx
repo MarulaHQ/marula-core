@@ -29,7 +29,7 @@ import { ShortcutLayer } from "../shortcuts/shortcut-layer";
 import { LiveRegion } from "../a11y/live-region";
 
 
-const RAIL_COLLAPSE_KEY = "meridian-rail-collapsed";
+const RAIL_COLLAPSE_KEY = "marula-rail-collapsed";
 
 /**
  * Open-ticket count for the rail badge: the three non-closed status

@@ -9,7 +9,7 @@
 //!
 //! Shipped implementations:
 //!
-//! * [`meridian::MeridianRestSink`] — the public v1 REST API over a
+//! * [`meridian::MarulaRestSink`] — the public v1 REST API over a
 //!   scoped machine API key (x-api-key); instant-first idempotency keys
 //!   derived from identity keys make retried creates free replays.
 //! * [`NoneDmsSink`] — zero I/O, every call returns
@@ -300,4 +300,4 @@ impl DmsSink for NoneDmsSink {
     }
 }
 
-pub mod meridian;
+pub mod marula;

@@ -61,8 +61,8 @@ pub enum FileSyncStateError {
 /// against the shipped `asset` / `document` vocabulary on load.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct StoredEntry {
-    meridian_kind: String,
-    meridian_id: Uuid,
+    marula_kind: String,
+    marula_id: Uuid,
     last_written_fields: serde_json::Value,
     last_written_fingerprint: String,
     updated_at: chrono::DateTime<chrono::Utc>,
@@ -79,8 +79,8 @@ struct FileLedger {
 impl StoredEntry {
     fn from_ledger(entry: &LedgerEntry) -> Self {
         Self {
-            meridian_kind: entry.meridian_kind.to_string(),
-            meridian_id: entry.meridian_id,
+            marula_kind: entry.marula_kind.to_string(),
+            marula_id: entry.marula_id,
             last_written_fields: entry.last_written_fields.clone(),
             last_written_fingerprint: entry.last_written_fingerprint.clone(),
             updated_at: entry.updated_at,
@@ -88,17 +88,17 @@ impl StoredEntry {
     }
 
     fn into_ledger(self, source_key: &str) -> Option<LedgerEntry> {
-        match self.meridian_kind.as_str() {
+        match self.marula_kind.as_str() {
             "asset" | "document" => {
-                let meridian_kind: &'static str = if self.meridian_kind == "asset" {
+                let marula_kind: &'static str = if self.marula_kind == "asset" {
                     "asset"
                 } else {
                     "document"
                 };
                 Some(LedgerEntry {
                     source_key: source_key.to_string(),
-                    meridian_kind,
-                    meridian_id: self.meridian_id,
+                    marula_kind,
+                    marula_id: self.marula_id,
                     last_written_fields: self.last_written_fields,
                     last_written_fingerprint: self.last_written_fingerprint,
                     updated_at: self.updated_at,
@@ -244,10 +244,10 @@ impl SyncState for FileSyncState {
         self.lock_entries().get(source_key).cloned()
     }
 
-    fn source_key_of(&self, meridian_id: Uuid) -> Option<String> {
+    fn source_key_of(&self, marula_id: Uuid) -> Option<String> {
         self.lock_entries()
             .values()
-            .find(|entry| entry.meridian_id == meridian_id)
+            .find(|entry| entry.marula_id == marula_id)
             .map(|entry| entry.source_key.clone())
     }
 
@@ -269,11 +269,11 @@ impl SyncState for FileSyncState {
 mod tests {
     use super::*;
 
-    fn entry(source_key: &str, meridian_id: Uuid) -> LedgerEntry {
+    fn entry(source_key: &str, marula_id: Uuid) -> LedgerEntry {
         LedgerEntry {
             source_key: source_key.to_string(),
-            meridian_kind: "asset",
-            meridian_id,
+            marula_kind: "asset",
+            marula_id,
             last_written_fields: serde_json::json!({"name": "Server A"}),
             last_written_fingerprint: "ff".to_string(),
             updated_at: chrono::Utc::now(),
@@ -305,7 +305,7 @@ mod tests {
             let state = FileSyncState::load(&path).expect("load back");
             assert_eq!(state.len(), 1);
             let found = state.lookup("g1:s1:svc-1").expect("entry present");
-            assert_eq!(found.meridian_id, a);
+            assert_eq!(found.marula_id, a);
             assert_eq!(found.last_written_fingerprint, "ff");
             assert_eq!(state.source_key_of(a).as_deref(), Some("g1:s1:svc-1"));
         }

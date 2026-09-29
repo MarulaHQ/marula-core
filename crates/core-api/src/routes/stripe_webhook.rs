@@ -116,11 +116,11 @@ pub async fn receive(
         .unwrap_or("")
         .to_string();
     let org_id = intent
-        .pointer("/metadata/meridian_org_id")
+        .pointer("/metadata/marula_org_id")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let invoice_id = intent
-        .pointer("/metadata/meridian_invoice_id")
+        .pointer("/metadata/marula_invoice_id")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let amount_minor = intent.get("amount_received").and_then(|v| v.as_i64());
@@ -134,7 +134,7 @@ pub async fn receive(
         "payment_intent.succeeded" => {
             let (Some(org), Some(invoice), Some(amount)) = (org_id, invoice_id, amount_minor)
             else {
-                // Not a Meridian-tagged event (foreign webhook traffic) —
+                // Not a Marula-tagged event (foreign webhook traffic) —
                 // accepted (200) but not acted on: webhooks MUST answer
                 // 200 even for foreign/unknown events so Stripe retries
                 // don't hammer this endpoint.

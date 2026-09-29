@@ -17,7 +17,7 @@ function setOnline(online: boolean): void {
 beforeEach(() => {
   __resetInstantRuntimeForTests();
   setOnline(true);
-  window.localStorage.removeItem("meridian-instant-outbox");
+  window.localStorage.removeItem("marula-instant-outbox");
   return () => {
     __resetInstantRuntimeForTests();
     cleanup();

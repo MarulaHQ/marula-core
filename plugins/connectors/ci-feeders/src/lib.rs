@@ -55,7 +55,7 @@ mod tests;
 pub use identity::IdentityKeysBuilder;
 pub use model::FeederRecord;
 pub use sink::{
-    FeedUpsertOutcome, FeederSink, MeridianFeederConfig, MeridianFeederSink, NoneFeederSink,
+    FeedUpsertOutcome, FeederSink, MarulaFeederConfig, MarulaFeederSink, NoneFeederSink,
     SinkError,
 };
 pub use sync::{ApplyMode, FeederSync, SyncConfig, SyncReport};

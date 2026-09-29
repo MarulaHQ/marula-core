@@ -4,7 +4,7 @@
 // feature string, the `?popout=<routeKey>` flag, and an honest popup-blocker
 // outcome (null window → { ok: false, blocked: true }; callers render the
 // inline hint — NEVER silent failure). The opener also records the child in
-// `sessionStorage` (`meridian-popouts`) so a reloaded main window can still
+// `sessionStorage` (`marula-popouts`) so a reloaded main window can still
 // reason about its popouts; each popout announces itself on the window bus
 // so ALL windows share the registry.
 //
@@ -25,7 +25,7 @@ export type OpenPopoutResult =
   | { ok: false; blocked: true; routeKey: string; path: string };
 
 /** Where `openPopout` records its children (same-tab session scope). */
-const CHILDREN_KEY = "meridian-popouts";
+const CHILDREN_KEY = "marula-popouts";
 
 function rememberChild(routeKey: string, params: Record<string, string>): void {
   try {

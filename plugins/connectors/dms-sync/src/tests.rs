@@ -342,8 +342,8 @@ fn hudu_export_parses_with_identity_bearing_assets() {
 
 /// A neutral Meridian snapshot mirroring the parsed snapshot's
 /// semantics (deterministic ids; fields preserved verbatim).
-fn meridian_snapshot_from(snapshot: &DmsSnapshot) -> push::MeridianSnapshot {
-    let mut out = push::MeridianSnapshot {
+fn marula_snapshot_from(snapshot: &DmsSnapshot) -> push::MarulaSnapshot {
+    let mut out = push::MarulaSnapshot {
         source: snapshot.source.clone(),
         ..Default::default()
     };
@@ -399,7 +399,7 @@ fn meridian_snapshot_from(snapshot: &DmsSnapshot) -> push::MeridianSnapshot {
 #[test]
 fn round_trip_hudu_export_preserves_semantics() {
     let snapshot = hudu_snapshot();
-    let rendered = push::render_hudu_export(&meridian_snapshot_from(&snapshot));
+    let rendered = push::render_hudu_export(&marula_snapshot_from(&snapshot));
 
     let files = HuduExportFiles {
         companies: rendered.get("companies").cloned(),
@@ -696,8 +696,8 @@ impl MeridianStub {
 #[tokio::test]
 async fn meridian_sink_rides_the_public_api_shapes() {
     let stub = MeridianStub::start().await;
-    let sink = crate::sink::meridian::MeridianRestSink::with_http(
-        crate::sink::meridian::MeridianConfig {
+    let sink = crate::sink::marula::MarulaRestSink::with_http(
+        crate::sink::marula::MarulaConfig {
             base_url: stub.base_url(),
             api_key: "mrd_test_key".into(),
         },
@@ -900,7 +900,7 @@ async fn rest_push_target_pushes_neutral_records() {
             documents: "dms/documents".into(),
         },
     );
-    let snapshot = push::MeridianSnapshot {
+    let snapshot = push::MarulaSnapshot {
         source: "meridian".into(),
         clients: vec![(acme(), "Acme Corp".into())],
         layouts: vec![push::SnapshotLayout {
@@ -958,11 +958,11 @@ async fn rest_push_target_pushes_neutral_records() {
 #[test]
 fn memory_ledger_remember_forget_and_reverse_lookup() {
     let state = MemorySyncState::new();
-    let meridian_id = Uuid::from_u128(42);
+    let marula_id = Uuid::from_u128(42);
     state.remember(LedgerEntry {
         source_key: "asset:guid:it-glue:301".into(),
-        meridian_kind: "asset",
-        meridian_id,
+        marula_kind: "asset",
+        marula_id,
         last_written_fields: json!({ "serial": "SN-1" }),
         last_written_fingerprint: "abc".into(),
         updated_at: chrono::Utc::now(),
@@ -971,20 +971,20 @@ fn memory_ledger_remember_forget_and_reverse_lookup() {
     let entry = state.lookup("asset:guid:it-glue:301").expect("entry");
     assert!(entry.is_asset());
     assert_eq!(
-        state.source_key_of(meridian_id).as_deref(),
+        state.source_key_of(marula_id).as_deref(),
         Some("asset:guid:it-glue:301")
     );
 
     // Re-keying moves the reverse mapping.
     state.remember(LedgerEntry {
         source_key: "asset:guid:it-glue:301".into(),
-        meridian_kind: "asset",
-        meridian_id: Uuid::from_u128(43),
+        marula_kind: "asset",
+        marula_id: Uuid::from_u128(43),
         last_written_fields: json!({}),
         last_written_fingerprint: "def".into(),
         updated_at: chrono::Utc::now(),
     });
-    assert!(state.source_key_of(meridian_id).is_none());
+    assert!(state.source_key_of(marula_id).is_none());
     assert_eq!(
         state.source_key_of(Uuid::from_u128(43)).as_deref(),
         Some("asset:guid:it-glue:301")

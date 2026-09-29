@@ -33,13 +33,13 @@ popout.on("response", (r) => { if (r.status() >= 400) console.log("POP-HTTP", r.
 page.on("request", (r) => { if (r.url().includes("/comments") || r.url().includes("/events/stream")) console.log("MAIN-REQ", r.url().slice(0, 130)); });
 await popout.waitForLoadState("domcontentloaded");
 console.log("popout url", popout.url());
-console.log("main window-id:", await page.evaluate(() => sessionStorage.getItem("meridian-window-id")));
-console.log("popout window-id:", await popout.evaluate(() => sessionStorage.getItem("meridian-window-id")));
+console.log("main window-id:", await page.evaluate(() => sessionStorage.getItem("marula-window-id")));
+console.log("popout window-id:", await popout.evaluate(() => sessionStorage.getItem("marula-window-id")));
 // Probe the cross-window legs from inside the MAIN window.
 await page.evaluate(() => {
   const w = window;
   w.__probeMsgs = [];
-  new BroadcastChannel("meridian-windows").onmessage = (e) => w.__probeMsgs.push(JSON.stringify(e.data).slice(0, 200));
+  new BroadcastChannel("marula-windows").onmessage = (e) => w.__probeMsgs.push(JSON.stringify(e.data).slice(0, 200));
 });
 // Post a note in the popout (Notes tab).
 await popout.getByTestId("detail-tab-notes").click();

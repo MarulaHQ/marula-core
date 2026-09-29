@@ -324,7 +324,7 @@ describe("/tickets/[id] — offline queue and in-order replay (IF6)", () => {
     expect(screen.getByTestId("ticket-status-text").textContent).toBe("Working");
 
     // The queue is durable: it survives reloads via localStorage.
-    expect(window.localStorage.getItem("meridian-instant-outbox")).not.toBeNull();
+    expect(window.localStorage.getItem("marula-instant-outbox")).not.toBeNull();
 
     // Network returns; replay applies the queued op in order.
     setFetchRouter(base as Parameters<typeof setFetchRouter>[0]);

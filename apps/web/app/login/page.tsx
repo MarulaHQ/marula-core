@@ -84,7 +84,7 @@ export default function LoginPage() {
         const result = await api.login({ email, password });
         if ("mfa_required" in result) {
           window.sessionStorage.setItem(
-            "meridian-mfa-pending",
+            "marula-mfa-pending",
             JSON.stringify({ mfa_token: result.mfa_token, methods: result.methods }),
           );
           window.location.assign("/mfa");

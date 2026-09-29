@@ -295,7 +295,7 @@ pub async fn refresh(
     Ok(portal_json_response(response, cookies_head))
 }
 
-/// Cookie-trio shaper for the portal family (`meridian_portal` jar).
+/// Cookie-trio shaper for the portal family (`marula_portal` jar).
 fn portal_cookie_head(
     state: &AppState,
     session_id: Uuid,

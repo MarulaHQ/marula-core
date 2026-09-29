@@ -1,4 +1,4 @@
-//! The Meridian REST sink: implements [`DmsSink`] against the PUBLIC
+//! The Marula REST sink: implements [`DmsSink`] against the PUBLIC
 //! v1 API only — resource REST over a scoped machine API key
 //! (`x-api-key`), the same seam the NinjaOne/Hudu reference connectors
 //! use. No Meridian internals are imported; the wire shapes below are
@@ -38,20 +38,20 @@ use super::{
 use crate::model::FieldKind;
 use crate::model::LinkKind;
 
-/// Credentials + endpoint configuration for [`MeridianRestSink`].
+/// Credentials + endpoint configuration for [`MarulaRestSink`].
 /// Values come from the operator's secret store just-in-time — the
 /// crate never persists them. `Debug` redacts the key material.
 #[derive(Clone)]
-pub struct MeridianConfig {
+pub struct MarulaConfig {
     /// Meridian core API base URL (e.g. `https://meridian.example`).
     pub base_url: String,
     /// Scoped machine API key (raw `mrd_…` material). Never logged.
     pub api_key: String,
 }
 
-impl std::fmt::Debug for MeridianConfig {
+impl std::fmt::Debug for MarulaConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MeridianConfig")
+        f.debug_struct("MarulaConfig")
             .field("base_url", &self.base_url)
             .field("api_key", &"[REDACTED]")
             .finish()
@@ -59,9 +59,9 @@ impl std::fmt::Debug for MeridianConfig {
 }
 
 /// The public-API sink implementation.
-pub struct MeridianRestSink {
+pub struct MarulaRestSink {
     http: reqwest::Client,
-    config: MeridianConfig,
+    config: MarulaConfig,
 }
 
 /// The server's document layout (mirror of the published
@@ -245,8 +245,8 @@ fn kind_str(kind: LinkKind) -> &'static str {
     kind.as_str()
 }
 
-impl MeridianRestSink {
-    pub fn new(config: MeridianConfig) -> Self {
+impl MarulaRestSink {
+    pub fn new(config: MarulaConfig) -> Self {
         Self {
             http: reqwest::Client::new(),
             config,
@@ -254,7 +254,7 @@ impl MeridianRestSink {
     }
 
     /// Test/observability hook: bring your own HTTP client.
-    pub fn with_http(config: MeridianConfig, http: reqwest::Client) -> Self {
+    pub fn with_http(config: MarulaConfig, http: reqwest::Client) -> Self {
         Self { http, config }
     }
 
@@ -316,7 +316,7 @@ fn map_error(status: u16, body: &str) -> SinkError {
 }
 
 #[async_trait]
-impl DmsSink for MeridianRestSink {
+impl DmsSink for MarulaRestSink {
     fn name(&self) -> &str {
         "meridian"
     }

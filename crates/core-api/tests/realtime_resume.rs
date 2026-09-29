@@ -1,7 +1,7 @@
 //! SSE resume + cross-replica presence relay contract tests (Wave 13
 //! lane 10), driven through the REAL core-api router against a real
 //! Postgres — mirroring `realtime_flow.rs` (same commit→NOTIFY→fan-out→SSE
-//! pipeline, plus the outbox replay path and the `meridian_presence`
+//! pipeline, plus the outbox replay path and the `marula_presence`
 //! relay channel).
 //!
 //! Pinned behavior:
@@ -16,7 +16,7 @@
 //!   replay (an explicit comment marks it); the client falls back to
 //!   full snapshot rehydration. Unknown/presence uuids degrade the same
 //!   way, without the cutoff comment.
-//! * **Presence relay** — a heartbeat publishes a `meridian_presence`
+//! * **Presence relay** — a heartbeat publishes a `marula_presence`
 //!   NOTIFY (cross-replica relay); applying a relayed heartbeat (what
 //!   another replica's listener does) fans out the IDENTICAL presence
 //!   frame shape and converges the roster, with TTL semantics intact.
@@ -579,7 +579,7 @@ impl PresenceRelayListener {
         listener
             .listen(core_api::realtime::PRESENCE_CHANNEL)
             .await
-            .expect("listen meridian_presence");
+            .expect("listen marula_presence");
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         tokio::spawn(async move {
             loop {
@@ -622,7 +622,7 @@ async fn presence_heartbeat_should_relay_and_remote_apply_should_fan_out_identic
     let mut relay = PresenceRelayListener::connect(&listener_url).await;
 
     // Heartbeat through the ROUTE (replica A): the local roster answers,
-    // and a relay NOTIFY lands on meridian_presence.
+    // and a relay NOTIFY lands on marula_presence.
     let hb = send(
         &app,
         axum::http::Method::POST,

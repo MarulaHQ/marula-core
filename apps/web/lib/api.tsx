@@ -15,7 +15,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 import { broadcastSession, onBusMessage } from "./popout/window-bus";
 
-const TOKENS_KEY = "meridian-tokens";
+const TOKENS_KEY = "marula-tokens";
 
 declare global {
   interface Window {

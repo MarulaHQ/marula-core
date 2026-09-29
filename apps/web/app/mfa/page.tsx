@@ -58,7 +58,7 @@ export default function MfaChallengePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const pending = window.sessionStorage.getItem("meridian-mfa-pending");
+    const pending = window.sessionStorage.getItem("marula-mfa-pending");
     if (!pending) {
       router.replace("/login");
       return;
@@ -74,7 +74,7 @@ export default function MfaChallengePage() {
     session_id: string;
     expires_in: number;
   }) {
-    window.sessionStorage.removeItem("meridian-mfa-pending");
+    window.sessionStorage.removeItem("marula-mfa-pending");
     saveTokens(tokens);
     window.location.assign("/today");
   }

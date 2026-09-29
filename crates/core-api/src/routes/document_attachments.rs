@@ -291,7 +291,7 @@ pub async fn download(
             attachment.content_type.clone(),
         )
         .header(axum::http::header::CONTENT_DISPOSITION, content_disposition)
-        .header("x-meridian-sha256", attachment.sha256.clone())
+        .header("x-marula-sha256", attachment.sha256.clone())
         .header(axum::http::header::CONTENT_LENGTH, obj.size_bytes);
     builder
         .body(Body::from_stream(obj.stream))

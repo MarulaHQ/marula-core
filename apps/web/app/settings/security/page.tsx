@@ -69,7 +69,7 @@ async function apiCall<T>(
   body?: unknown,
 ): Promise<T> {
   const tokens = JSON.parse(
-    window.localStorage.getItem("meridian-tokens") ?? "{}",
+    window.localStorage.getItem("marula-tokens") ?? "{}",
   );
   const response = await fetch(`${API_BASE}${path}`, {
     method,

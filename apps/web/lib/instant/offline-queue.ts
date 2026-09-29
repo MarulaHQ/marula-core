@@ -59,7 +59,7 @@ export interface OfflineQueueOptions {
   outcomeHistory?: number;
 }
 
-const QUEUE_KEY = "meridian-instant-outbox";
+const QUEUE_KEY = "marula-instant-outbox";
 
 export class OfflineQueue {
   private readonly storage: OfflineQueueOptions["storage"];

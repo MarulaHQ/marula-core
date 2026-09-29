@@ -89,9 +89,9 @@ for (const theme of ["light", "dark"]) {
       await page.addInitScript(
         ([apiBase, tokenPair, themeName]) => {
           window.__MARULA_API_URL__ = apiBase;
-          window.localStorage.setItem("meridian-tokens", tokenPair);
-          window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 3_600_000));
-          window.localStorage.setItem("meridian-theme", themeName);
+          window.localStorage.setItem("marula-tokens", tokenPair);
+          window.localStorage.setItem("marula-tokens-exp", String(Date.now() + 3_600_000));
+          window.localStorage.setItem("marula-theme", themeName);
         },
         [API, JSON.stringify(tokens), theme],
       );
@@ -119,9 +119,9 @@ for (const theme of ["light", "dark"]) {
       await page.addInitScript(
         ([apiBase, tokenPair, themeName]) => {
           window.__MARULA_API_URL__ = apiBase;
-          window.localStorage.setItem("meridian-tokens", tokenPair);
-          window.localStorage.setItem("meridian-tokens-exp", String(Date.now() + 3_600_000));
-          window.localStorage.setItem("meridian-theme", themeName);
+          window.localStorage.setItem("marula-tokens", tokenPair);
+          window.localStorage.setItem("marula-tokens-exp", String(Date.now() + 3_600_000));
+          window.localStorage.setItem("marula-theme", themeName);
         },
         [API, JSON.stringify(tokens), theme],
       );
