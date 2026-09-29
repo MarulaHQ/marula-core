@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE time_entries SET started_at = $3, ended_at = $4, minutes = $5,\n                                  billable = $6, notes = $7, work_type = $8,\n                                  unbillable_reason = $9\n            WHERE org_id = $1 AND id = $2\n            RETURNING id, org_id, ticket_id, user_id, started_at, ended_at, minutes,\n                      billable, notes, work_type, unbillable_reason, timer_session_id,\n                      approval_status, approval_reason_code, created_at",
+  "query": "SELECT id, org_id, ticket_id, phase_id, user_id, started_at, ended_at, minutes, billable,\n                  notes, work_type, unbillable_reason, timer_session_id, approval_status,\n                  approval_reason_code, created_at\n           FROM time_entries WHERE org_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
@@ -20,61 +20,66 @@
       },
       {
         "ordinal": 3,
-        "name": "user_id",
+        "name": "phase_id",
         "type_info": "Uuid"
       },
       {
         "ordinal": 4,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
         "name": "started_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "ended_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "minutes",
         "type_info": "Int4"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "billable",
         "type_info": "Bool"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "notes",
         "type_info": "Text"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "work_type",
         "type_info": "Text"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "unbillable_reason",
         "type_info": "Text"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "timer_session_id",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "approval_status",
         "type_info": "Text"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "approval_reason_code",
         "type_info": "Text"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -82,20 +87,14 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Timestamptz",
-        "Timestamptz",
-        "Int4",
-        "Bool",
-        "Text",
-        "Text",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
       false,
       false,
-      false,
+      true,
+      true,
       false,
       false,
       false,
@@ -110,5 +109,5 @@
       false
     ]
   },
-  "hash": "1433e1f2a3c8a67648befef1d68928e7129d04fc68a163970cd66a486d0ab625"
+  "hash": "245d9b1c3d6c8564a0d730f6e5c50173b19cacf29788cd5d1d7594aa4c5cd120"
 }

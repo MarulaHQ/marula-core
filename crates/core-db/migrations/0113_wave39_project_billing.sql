@@ -132,13 +132,17 @@ CREATE TABLE project_billing_releases (
   invoice_id uuid REFERENCES invoices(id) ON DELETE SET NULL,
   invoice_line_id uuid,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
   -- One release per completed milestone: the same (project, phase) can
   -- release at most once as pending-or-billed; cancelled rows step
   -- aside so an admin can re-release after a correction (the lifecycle
   -- rides the API layer; cancelled is terminal here).
-  UNIQUE (project_id, phase_id, status) WHERE status <> 'cancelled'
+  -- Partial exclusion as a UNIQUE INDEX (table-level UNIQUE cannot
+  -- carry a WHERE clause — 0113 gate fix).
 );
+CREATE UNIQUE INDEX uq_billing_releases_one_open
+  ON project_billing_releases (project_id, phase_id)
+  WHERE status <> 'cancelled';
 CREATE INDEX idx_billing_releases_org_project
   ON project_billing_releases (org_id, project_id, status);
 ALTER TABLE project_billing_releases ENABLE ROW LEVEL SECURITY;

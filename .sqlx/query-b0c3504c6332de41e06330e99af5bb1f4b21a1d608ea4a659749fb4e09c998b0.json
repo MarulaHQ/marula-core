@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE time_entries\n              SET approval_status = 'draft', approval_reason_code = NULL,\n                  approval_submitted_at = NULL, approval_submitted_by = NULL,\n                  approval_decided_at = NULL, approval_decided_by = NULL\n            WHERE org_id = $1 AND id = $2 AND approval_status = 'rejected'\n              AND NOT EXISTS (\n                  SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)\n           RETURNING id, org_id, ticket_id, phase_id, user_id, started_at, ended_at, minutes, billable,\n                     notes, work_type, unbillable_reason, timer_session_id, approval_status,\n                     approval_reason_code, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "phase_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "ended_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "minutes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "billable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "work_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "unbillable_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "timer_session_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 13,
+        "name": "approval_status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "approval_reason_code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "b0c3504c6332de41e06330e99af5bb1f4b21a1d608ea4a659749fb4e09c998b0"
+}

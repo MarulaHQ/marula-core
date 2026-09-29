@@ -528,7 +528,7 @@ function QueueRow({
                 className="text-[13px] no-underline transition-opacity duration-100 hover:opacity-80"
                 style={{ color: "var(--m-accent)" }}
               >
-                ticket {e.ticket_id.slice(0, 8)}…
+                ticket {e.ticket_id?.slice(0, 8)}…
               </Link>
               {/* Time-entry context entry point (Wave 32 lane 7): log the
                   trip's actual mileage against this entry's ticket. */}

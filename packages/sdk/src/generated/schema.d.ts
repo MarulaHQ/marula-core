@@ -7755,6 +7755,50 @@ export interface paths {
         patch: operations["projects_patch"];
         trace?: never;
     };
+    "/api/v1/projects/{id}/billing-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects/{id}/billing-releases — the release ledger: every
+         *     staged milestone/fee for this project with its status (`pending`
+         *     bills on the next run reaching its window; `billed` carries the
+         *     consuming invoice; `cancelled` terminal).
+         */
+        get: operations["projects_billing_releases"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/billing-releases/{release_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/projects/{id}/billing-releases/{release_id}/cancel — cancel
+         *     a PENDING release (admin correction; terminal). Billed releases are
+         *     immutable — they ride an invoice, and invoices correct through credit
+         *     notes.
+         */
+        post: operations["projects_billing_release_cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{id}/cost-rollup": {
         parameters: {
             query?: never;
@@ -7767,6 +7811,28 @@ export interface paths {
          *     (ADR 0002 locked) plus the project budget for comparison.
          */
         get: operations["projects_cost_rollup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/phase-burn": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects/{id}/phase-burn — the burn read model (report P3):
+         *     consumed approved billable minutes and card-priced value per phase
+         *     against the phase's budget, with the typed `none | warn | over`
+         *     alert state (`warn` at ≥80%, `over` at ≥100%).
+         */
+        get: operations["projects_phase_burn"];
         put?: never;
         post?: never;
         delete?: never;
@@ -13263,7 +13329,7 @@ export interface components {
          * @description Which billing rule produced a candidate line.
          * @enum {string}
          */
-        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee" | "per_unit_base" | "per_incident" | "block_sale" | "block_drawdown" | "cap_overage" | "minimum_trueup" | "change_order" | "sla_credit" | "escalator";
+        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee" | "per_unit_base" | "per_incident" | "block_sale" | "block_drawdown" | "cap_overage" | "minimum_trueup" | "change_order" | "sla_credit" | "escalator" | "project_release";
         /**
          * @description How the project turns delivered work into money. The value rides the
          *     milestone event payload so core-billing can route without re-reading the
@@ -15714,7 +15780,18 @@ export interface components {
             username?: string;
         };
         CreatePhaseRequest: components["schemas"]["MutationParams"] & {
+            budget_currency?: string | null;
+            /**
+             * Format: int64
+             * @description Wave 39 lane 4 (report C/D): the phase's billing budget and/or the
+             *     fixed fee a COMPLETED non-milestone phase releases. Milestone
+             *     phases keep using `milestone_amount_*`.
+             */
+            budget_minor?: number | null;
             description?: string | null;
+            fee_currency?: string | null;
+            /** Format: int64 */
+            fee_minor?: number | null;
             is_milestone?: boolean;
             /** Format: int64 */
             milestone_amount_minor?: number | null;
@@ -15743,6 +15820,14 @@ export interface components {
             role: components["schemas"]["PortalRole"];
         };
         CreateProjectRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description The contract this project bills through (Wave 39 lane 4, report
+             *     P2). Its rate card/blocks/caps price the project's T&M entries and
+             *     its runs carry the project's released milestones. Validated to
+             *     belong to the same client.
+             */
+            billing_contract_id?: string | null;
             billing_method?: components["schemas"]["BillingMethod"];
             /** Format: int64 */
             budget_minor?: number | null;
@@ -16169,10 +16254,20 @@ export interface components {
             /** Format: date-time */
             ended_at: string;
             notes?: string | null;
+            /**
+             * Format: uuid
+             * @description Project-scoped variant (exactly one of ticket_id / phase_id).
+             */
+            phase_id?: string | null;
             /** Format: date-time */
             started_at: string;
-            /** Format: uuid */
-            ticket_id: string;
+            /**
+             * Format: uuid
+             * @description The ticket this entry bills through. `None` ONLY for project-scoped
+             *     entries (Wave 39 lane 4, report P5): supply `phase_id` instead and
+             *     the entry bills through the phase project's linked contract.
+             */
+            ticket_id?: string | null;
             /** @description Typed unbillable reason — required when `billable` is false (V3). */
             unbillable_reason?: string | null;
             /** @description Category slug from the org's time taxonomy (Wave 39 V5). */
@@ -17993,10 +18088,16 @@ export interface components {
             /** Format: int64 */
             minutes: number;
             notes?: string | null;
+            /** Format: uuid */
+            phase_id?: string | null;
             /** Format: date-time */
             started_at: string;
-            /** Format: uuid */
-            ticket_id: string;
+            /**
+             * Format: uuid
+             * @description `None` on project-scoped entries (Wave 39 lane 4): `phase_id`
+             *     scopes the entry instead.
+             */
+            ticket_id?: string | null;
             unbillable_reason?: string | null;
             /** Format: uuid */
             user_id: string;
@@ -20528,7 +20629,19 @@ export interface components {
             ticket_prefix?: string | null;
         };
         PatchPhaseRequest: components["schemas"]["MutationParams"] & {
+            budget_currency?: string | null;
+            /**
+             * Format: int64
+             * @description Wave 39 lane 4: tri-state budget/fee updates on the phase's
+             *     billing record (`Some(Some(v))` sets, `Some(None)` clears,
+             *     `None` = no change; `clear_*` drops the whole record when both
+             *     fields would be empty).
+             */
+            budget_minor?: number | null;
             description?: string | null;
+            fee_currency?: string | null;
+            /** Format: int64 */
+            fee_minor?: number | null;
             is_milestone?: boolean | null;
             /** Format: int64 */
             milestone_amount_minor?: number | null;
@@ -20546,6 +20659,12 @@ export interface components {
             status?: null | components["schemas"]["PortalUserStatus"];
         };
         PatchProjectRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description `Some(Some(v))` links the contract; `Some(None)` unlinks;
+             *     `None` = no change (Wave 39 lane 4, report P2).
+             */
+            billing_contract_id?: string | null;
             billing_method?: null | components["schemas"]["BillingMethod"];
             /** Format: int64 */
             budget_minor?: number | null;
@@ -20663,6 +20782,43 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
             payment: components["schemas"]["InvoicePayment"];
         };
+        /**
+         * @description The burn read model for one phase: consumed minutes priced against the
+         *     project's linked contract versus the contracted budget, with a typed
+         *     alert state (report P3). Amounts are in the budget's currency.
+         */
+        PhaseBurn: {
+            /** @description Typed alert: `none` under budget, `warn` past 80%, `over` past 100%. */
+            alert: components["schemas"]["PhaseBurnAlert"];
+            /**
+             * Format: int64
+             * @description The contracted budget (minor units); `None` = unbudgeted phase.
+             */
+            budget_minor?: number | null;
+            /**
+             * Format: int64
+             * @description Consumed value in minor units (unit_amount_minor per-line pricing
+             *     folded up; 0 when the phase carries a pure fee).
+             */
+            consumed_minor: number;
+            /**
+             * Format: int64
+             * @description Consumed minutes (approved billable entries scoped to the phase).
+             */
+            consumed_minutes: number;
+            /** @description Currency of both amounts. */
+            currency?: string | null;
+            /** Format: uuid */
+            phase_id: string;
+            phase_name: string;
+            phase_status: components["schemas"]["PhaseStatus"];
+        };
+        /**
+         * @description The phase-burn alert state. `warn` fires at ≥80% consumed; `over` at
+         *     ≥100%. Never silent: the read model carries the label, the UI renders it.
+         * @enum {string}
+         */
+        PhaseBurnAlert: "none" | "warn" | "over";
         PhaseMutationResponse: components["schemas"]["ProjectPhase"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
@@ -21612,6 +21768,14 @@ export interface components {
          *     `None`).
          */
         Project: {
+            /**
+             * Format: uuid
+             * @description The contract this project bills through (Wave 39 lane 4, report
+             *     P2): its rate card, blocks, and caps price the project's T&M work.
+             *     `None` = non-billable or not linked. The link validates in the
+             *     app layer (same client, active-or-draft contract).
+             */
+            billing_contract_id?: string | null;
             billing_method: components["schemas"]["BillingMethod"];
             /**
              * Format: int64
@@ -21635,6 +21799,41 @@ export interface components {
             /** Format: date */
             start_date?: string | null;
             status: components["schemas"]["ProjectStatus"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description One released milestone (report P1/P4): the durable record that a
+         *     completed milestone or fixed-fee phase released its amount to the
+         *     invoicing pipeline. `pending` rows bill on the first run that reaches
+         *     the window; the run flips them `billed` with the consuming invoice,
+         *     so a replay can never double-bill.
+         */
+        ProjectBillingRelease: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: date-time */
+            created_at: string;
+            currency: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            invoice_id?: string | null;
+            /** Format: uuid */
+            invoice_line_id?: string | null;
+            /** @description The milestone name at release time (frozen from the event). */
+            label: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            phase_id?: string | null;
+            /** Format: uuid */
+            project_id: string;
+            /** Format: date */
+            released_on: string;
+            status: components["schemas"]["ReleaseStatus"];
+            /** Format: uuid */
+            task_id?: string | null;
             /** Format: date-time */
             updated_at: string;
         };
@@ -21705,6 +21904,39 @@ export interface components {
             /** Format: int32 */
             sort_order: number;
             status: components["schemas"]["PhaseStatus"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description A phase's billing budget and/or fixed-fee record (Wave 39 lane 4,
+         *     report P3/P4). One optional row per phase: `budget_minor` is the
+         *     contracted denominator the burn math consumes (T&M phases), and
+         *     `fee_minor` is the fixed fee a completed NON-milestone phase releases
+         *     (milestone phases carry their own amount on the phase row).
+         */
+        ProjectPhaseBudget: {
+            /**
+             * Format: int64
+             * @description Contracted budget for the phase (minor units); `None` = unbudgeted.
+             */
+            budget_minor?: number | null;
+            /** Format: date-time */
+            created_at: string;
+            /** @description ISO 4217 code for `budget_minor`. */
+            currency?: string | null;
+            /** @description ISO 4217 code for `fee_minor`. */
+            fee_currency?: string | null;
+            /**
+             * Format: int64
+             * @description Fixed fee released on phase completion (minor units); `None` = no fee.
+             */
+            fee_minor?: number | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            phase_id: string;
             /** Format: date-time */
             updated_at: string;
         };
@@ -22997,6 +23229,13 @@ export interface components {
         RegistryResponse: {
             settings: components["schemas"]["DeclarationView"][];
         };
+        /**
+         * @description Release lifecycle: `pending` (released, not yet invoiced), `billed`
+         *     (carried on an invoice line), `cancelled` (terminal — an admin
+         *     correction; the same milestone may re-release afterwards).
+         * @enum {string}
+         */
+        ReleaseStatus: "pending" | "billed" | "cancelled";
         RenderLabelRequest: {
             /**
              * Format: uuid
@@ -25960,10 +26199,24 @@ export interface components {
             notes?: string | null;
             /** Format: uuid */
             org_id: string;
+            /**
+             * Format: uuid
+             * @description The delivery phase this entry scopes to (project-scoped entries
+             *     only; implies the project). `None` on ticket-scoped entries.
+             */
+            phase_id?: string | null;
             /** Format: date-time */
             started_at: string;
-            /** Format: uuid */
-            ticket_id: string;
+            /**
+             * Format: uuid
+             * @description The ticket this entry bills through. `None` ONLY on project-scoped
+             *     entries (Wave 39 lane 4, report P5): the entry scopes to
+             *     [`phase_id`](Self::phase_id) instead and bills through the phase
+             *     project's linked contract — project work pays without a ticket
+             *     detour. Exactly one of (ticket_id, phase_id) is present; the DB
+             *     CHECK mirrors it.
+             */
+            ticket_id?: string | null;
             /**
              * Format: uuid
              * @description Origin: timer-derived entries keep their session for audit.
@@ -42030,6 +42283,56 @@ export interface operations {
             };
         };
     };
+    projects_billing_releases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectBillingRelease"][];
+                };
+            };
+        };
+    };
+    projects_billing_release_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                release_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectBillingRelease"];
+                };
+            };
+            /** @description release not visible/already settled (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     projects_cost_rollup: {
         parameters: {
             query?: never;
@@ -42050,6 +42353,34 @@ export interface operations {
                 };
             };
             /** @description project not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_phase_burn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhaseBurn"][];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
             404: {
                 headers: {
                     [name: string]: unknown;

@@ -1191,8 +1191,8 @@ where
     let rows = sqlx::query!(
         r#"SELECT pp.id AS phase_id, pp.name AS phase_name, pp.status AS phase_status,
                   b.budget_minor, COALESCE(b.currency, p.currency) AS "currency?",
-                  COALESCE(burn.minutes, 0) AS consumed_minutes,
-                  COALESCE(burn.consumed_minor, 0) AS consumed_minor
+                  COALESCE(burn.minutes, 0)::bigint AS "consumed_minutes!",
+                  COALESCE(burn.consumed_minor, 0)::bigint AS "consumed_minor!"
            FROM project_phases pp
            JOIN projects p ON p.id = pp.project_id
            LEFT JOIN project_phase_budgets b ON b.phase_id = pp.id
@@ -1283,7 +1283,7 @@ where
              (id, org_id, project_id, phase_id, task_id, label, amount_minor,
               currency, released_on, source_event_id, status)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
-           ON CONFLICT (project_id, phase_id, status) WHERE status <> 'cancelled'
+           ON CONFLICT (project_id, phase_id) WHERE status <> 'cancelled'
            DO UPDATE SET updated_at = now()
            RETURNING id, org_id, project_id, phase_id, task_id, label,
                      amount_minor, currency, released_on, status,

@@ -1780,9 +1780,12 @@ mod tests {
         assert_eq!(lines[0].description, lines[0].description); // determinism smoke
         let total: i64 = lines.iter().map(|l| l.amount_minor).sum();
         assert_eq!(total, 240_000);
+        // Recurring rides the same evaluation: the fixture's Recurring
+        // contract bills its own Feb-15 monthly base period (200_000)
+        // alongside the 240_000 of releases.
         assert_eq!(
-            e.total_minor, 240_000,
-            "release lines carry the whole evaluation total in this fixture"
+            e.total_minor, 440_000,
+            "release lines plus the Recurring base period carry the total"
         );
     }
 

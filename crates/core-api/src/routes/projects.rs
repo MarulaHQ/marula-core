@@ -869,6 +869,7 @@ pub async fn patch_phase(
         let eff_budget_ccy: Option<String> = req
             .budget_currency
             .clone()
+            .flatten()
             .or_else(|| existing.as_ref().and_then(|b| b.currency.clone()));
         let eff_fee: Option<i64> = req
             .fee_minor
@@ -876,6 +877,7 @@ pub async fn patch_phase(
         let eff_fee_ccy: Option<String> = req
             .fee_currency
             .clone()
+            .flatten()
             .or_else(|| existing.as_ref().and_then(|b| b.fee_currency.clone()));
         validate_money_pair(eff_budget, eff_budget_ccy.as_deref(), "budget")?;
         validate_money_pair(eff_fee, eff_fee_ccy.as_deref(), "fee")?;
@@ -906,7 +908,7 @@ pub async fn patch_phase(
         // Budget/fee record maintenance rides the same transaction:
         // both cleared → drop the row; any value present → upsert.
         if eff_budget.is_none() && eff_fee.is_none() {
-            core_db::projects::delete_phase_budget(&mut ctx.tx, org_id, phase_id).await?;
+            core_db::projects::delete_phase_budget(&mut *ctx.tx, org_id, phase_id).await?;
         } else {
             core_db::projects::upsert_phase_budget(
                 &mut *ctx.tx,
@@ -1055,11 +1057,11 @@ pub async fn complete_phase(
             // a retried completion replays the same mutation without
             // double-staging, guarded by the ledger's unique index).
             if let Some(budget) =
-                core_db::projects::get_phase_budget(&mut ctx.tx, org_id, phase_id).await?
+                core_db::projects::get_phase_budget(&mut *ctx.tx, org_id, phase_id).await?
             {
                 if let (Some(fee_minor), Some(currency)) = (budget.fee_minor, budget.fee_currency) {
                     core_db::projects::insert_release(
-                        &mut ctx.tx,
+                        &mut *ctx.tx,
                         &core_db::projects::NewRelease {
                             org_id,
                             project_id: after.project_id,

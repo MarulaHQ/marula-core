@@ -1449,7 +1449,8 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 entry: TimeEntry {
                     id: su(17),
                     org_id: su(0),
-                    ticket_id: su(1),
+                    ticket_id: Some(su(1)),
+                    phase_id: None,
                     user_id: su(4),
                     started_at: st(4),
                     ended_at: st(6),

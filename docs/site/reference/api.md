@@ -3,7 +3,7 @@
 
 **Meridian Core API 0.1.0** — The single write surface for Project Meridian. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**582 paths · 783 operations · 1196 schemas.**
+**593 paths · 797 operations · 1217 schemas.**
 
 ## agent-proposals
 
@@ -833,7 +833,10 @@
 | `POST` | `/api/v1/projects` <a id="projects_create"></a> | POST /api/projects — creates the project and emits `project.created` in one transaction. Instant-first (IF1/IF2): idempotency-keyed, version-gated, read-your-write response. | [CreateProjectRequest](#schema-createprojectrequest) |
 | `GET` | `/api/v1/projects/{id}` <a id="projects_get_one"></a> | GET /api/projects/{id} | — |
 | `PATCH` | `/api/v1/projects/{id}` <a id="projects_patch"></a> | PATCH /api/projects/{id} — tri-state partial update. Instant-first (IF1/IF2): idempotency-keyed, version-gated, returns prior + new values. | [PatchProjectRequest](#schema-patchprojectrequest) |
+| `GET` | `/api/v1/projects/{id}/billing-releases` <a id="projects_billing_releases"></a> | GET /api/projects/{id}/billing-releases — the release ledger: every staged milestone/fee for this project with its status (`pending` bills on the next run reaching its window; `billed` carries the consuming invoice; `cancelled` terminal). | — |
+| `POST` | `/api/v1/projects/{id}/billing-releases/{release_id}/cancel` <a id="projects_billing_release_cancel"></a> | POST /api/projects/{id}/billing-releases/{release_id}/cancel — cancel a PENDING release (admin correction; terminal). Billed releases are immutable — they ride an invoice, and invoices correct through credit notes. | — |
 | `GET` | `/api/v1/projects/{id}/cost-rollup` <a id="projects_cost_rollup"></a> | GET /api/projects/{id}/cost-rollup — posted PO bills in base currency (ADR 0002 locked) plus the project budget for comparison. | — |
+| `GET` | `/api/v1/projects/{id}/phase-burn` <a id="projects_phase_burn"></a> | GET /api/projects/{id}/phase-burn — the burn read model (report P3): consumed approved billable minutes and card-priced value per phase against the phase's budget, with the typed `none | warn | over` alert state (`warn` at ≥80%, `over` at ≥100%). | — |
 | `GET` | `/api/v1/projects/{id}/phases` <a id="projects_list_phases"></a> | GET /api/projects/{id}/phases — ordered by sort_order. | — |
 | `POST` | `/api/v1/projects/{id}/phases` <a id="projects_create_phase"></a> | POST /api/projects/{id}/phases — adds a phase; emits `project.phase_created`. | [CreatePhaseRequest](#schema-createphaserequest) |
 | `PATCH` | `/api/v1/projects/{id}/phases/{phase_id}` <a id="projects_patch_phase"></a> | PATCH /api/projects/{id}/phases/{phase_id} — tri-state partial update. | [PatchPhaseRequest](#schema-patchphaserequest) |
@@ -1212,6 +1215,20 @@
 | `GET` | `/api/v1/tickets/{id}/undo-stack` <a id="tickets_undo_stack"></a> | GET /api/tickets/{id}/undo-stack — the per-field / per-record applied-state history read model for one record. | — |
 | `GET` | `/api/v1/tickets/my-work` <a id="tickets_my_work"></a> | GET /api/tickets/my-work — everything assigned to me, not closed, across all boards, priority-then-SLA-due ordered (the unified cross-board view from §1; TASKLIST 2.11 adds client/board annotations). | — |
 
+## time-categories
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/time-categories` <a id="time_categories_list"></a> | GET /api/time-categories — the org's taxonomy (admin + pickers). | — |
+| `POST` | `/api/v1/time-categories` <a id="time_categories_create"></a> | POST /api/time-categories — create a category. | [TimeCategoryCreateRequest](#schema-timecategorycreaterequest) |
+| `DELETE` | `/api/v1/time-categories/{id}` <a id="time_categories_delete"></a> | DELETE /api/time-categories/{id} — soft retire (pickers drop it, entries keep the slug reference; nothing is hard-deleted). | — |
+| `PATCH` | `/api/v1/time-categories/{id}` <a id="time_categories_update"></a> | PATCH /api/time-categories/{id} — content update (slug immutable). | [TimeCategoryUpdateRequest](#schema-timecategoryupdaterequest) |
+| `GET` | `/api/v1/time-categories/capture-defaults` <a id="time_categories_capture_defaults"></a> | GET /api/time-categories/capture-defaults — the picker read for the wrap-up sheet + quick-log: ordered non-retired categories + the kept backfill mapping. | — |
+| `POST` | `/api/v1/time-categories/reorder` <a id="time_categories_reorder"></a> | POST /api/time-categories/reorder — rewrite display order from an ordered id list (settings drag-order). | [ReorderCategoriesRequest](#schema-reordercategoriesrequest) |
+| `GET` | `/api/v1/time-categories/work-type-map` <a id="time_categories_work_type_map_list"></a> | GET /api/time-categories/work-type-map — the kept backfill + manual mapping (settings read). | — |
+| `POST` | `/api/v1/time-categories/work-type-map` <a id="time_categories_work_type_map_upsert"></a> | POST /api/time-categories/work-type-map — add a manual alias. | [UpsertWorkTypeMapRequest](#schema-upsertworktypemaprequest) |
+| `POST` | `/api/v1/time-categories/work-type-map/apply` <a id="time_categories_work_type_map_apply"></a> | POST /api/time-categories/work-type-map/apply — recategorize existing entries (explicit alias application). | [ApplyWorkTypeMapRequest](#schema-applyworktypemaprequest) |
+
 ## time-entries
 
 | Method | Path | Operation | Request body |
@@ -1219,10 +1236,12 @@
 | `GET` | `/api/v1/time-entries` <a id="timers_list_entries"></a> | GET /api/time-entries | — |
 | `POST` | `/api/v1/time-entries` <a id="timers_create_entry"></a> | POST /api/time-entries — manual entry (no timer). | [CreateTimeEntryRequest](#schema-createtimeentryrequest) |
 | `GET` | `/api/v1/time-entries/{id}/approvals` <a id="time_entries_approval_history"></a> | GET /api/time-entries/:id/approvals — the append-only decision trail (`seq` ascending). Approvers and owner/admins read any trail; other users only their own entries'. | — |
+| `GET` | `/api/v1/time-entries/{id}/billing-suggestions` <a id="time_entry_billing_suggestions"></a> | GET /api/time-entries/{id}/billing-suggestions — the `decision_billing_audit` shadow answers for one entry, classified into suggestion chips. Read-only: chips never mutate anything. | — |
 | `POST` | `/api/v1/time-entries/{id}/reopen` <a id="time_entries_reopen"></a> | POST /api/time-entries/:id/reopen — move a rejected entry back to draft (owner or admin) so it can be corrected and resubmitted. | — |
 | `POST` | `/api/v1/time-entries/{id}/submit` <a id="time_entries_submit"></a> | POST /api/time-entries/:id/submit — the entry owner (or an admin) pushes a draft/rejected entry into the approver queue. | [SubmitEntryRequest](#schema-submitentryrequest) |
 | `POST` | `/api/v1/time-entries/approvals/decide` <a id="time_entries_decide"></a> | POST /api/time-entries/approvals/decide — bulk approve or bulk reject (`special:approve_time`). Only entries currently in the queue apply; every other id comes back with a per-item outcome. Emits one `time_entry.approval_*` event per applied entry. | [BulkDecisionRequest](#schema-bulkdecisionrequest) |
 | `GET` | `/api/v1/time-entries/approvals/queue` <a id="time_entries_queue"></a> | GET /api/time-entries/approvals/queue — the approver queue (submitted entries by default). Approvers (`special:approve_time`) see the org queue and can filter `decided_by` for their own decision history; everyone else sees only their own submissions. | — |
+| `GET` | `/api/v1/time-entries/billing-suggestions` <a id="time_entries_billing_suggestions_bulk"></a> | GET /api/time-entries/billing-suggestions?ids=a,b,c — the bulk read for approvals rows (≤ 100 ids per call). | — |
 
 ## time-gaps
 
@@ -1369,6 +1388,8 @@
 | <a id="schema-appendversionrequest"></a>`AppendVersionRequest` | object |  |
 | <a id="schema-applycreditnoterequest"></a>`ApplyCreditNoteRequest` | composite | POST /api/credit-notes/{id}/apply body. |
 | <a id="schema-applytagrequest"></a>`ApplyTagRequest` | composite |  |
+| <a id="schema-applyworktypemaprequest"></a>`ApplyWorkTypeMapRequest` | composite |  |
+| <a id="schema-applyworktypemapresponse"></a>`ApplyWorkTypeMapResponse` | object |  |
 | <a id="schema-appointment"></a>`Appointment` | object | A booked slot on one user's calendar, optionally tied to a ticket and client/site. `travel_minutes` is travel time booked immediately BEFORE `starts_at` (Wave 32 lane 7): it ADDS to the appointment an |
 | <a id="schema-appointmentkind"></a>`AppointmentKind` | string | What an appointment is physically for. Drives rendering color-coding on calendars and future travel-time logic (on_site only). |
 | <a id="schema-appointmentrequest"></a>`AppointmentRequest` | object | A client's request for a slot on one staff member's calendar. |
@@ -1428,6 +1449,7 @@
 | <a id="schema-bulkdecisionitem"></a>`BulkDecisionItem` | object | Per-item outcome of a bulk decision: applied entries carry the new snapshot; refused entries name exactly why (not-in-queue, locked, or not visible in scope), so the client flags rows instead of guess |
 | <a id="schema-bulkdecisionrequest"></a>`BulkDecisionRequest` | object |  |
 | <a id="schema-bulkdecisionresponse"></a>`BulkDecisionResponse` | object |  |
+| <a id="schema-bulkentrysuggestionsresponse"></a>`BulkEntrySuggestionsResponse` | object |  |
 | <a id="schema-bulkmoverequest"></a>`BulkMoveRequest` | object |  |
 | <a id="schema-bulkmoveresponse"></a>`BulkMoveResponse` | object |  |
 | <a id="schema-bulkrowoutcome"></a>`BulkRowOutcome` | string |  |
@@ -1459,6 +1481,7 @@
 | <a id="schema-capacityquery"></a>`CapacityQuery` | object | GET /api/dispatch/capacity query: `from` date (defaults to today UTC) and the horizon length in days (1..=31, default 7). |
 | <a id="schema-capreachedbehavior"></a>`CapReachedBehavior` | string | What evaluation does when a T&M contract's cap is reached (B: never a silent cutoff — the behavior is a typed choice on the cap). |
 | <a id="schema-capspec"></a>`CapSpec` | object | NTE cap spec (B): typed not-to-exceed behavior. |
+| <a id="schema-capturedefaultsresponse"></a>`CaptureDefaultsResponse` | object | The capture surface's read: ordered picker + theHELP defaults. |
 | <a id="schema-catalogcolumn"></a>`CatalogColumn` | object | One catalog column: the static identifier plus its value class slug (`uuid \| text \| timestamp \| date \| int \| bigint \| bool`). The slug is what the builder UI keys operand typing on. |
 | <a id="schema-catalogentryview"></a>`CatalogEntryView` | object |  |
 | <a id="schema-catalogitemmutationresponse"></a>`CatalogItemMutationResponse` | composite | Instant-first mutation response (IF2) for catalog mutations. |
@@ -1736,6 +1759,8 @@
 | <a id="schema-entityworkbenchfieldrow"></a>`EntityWorkbenchFieldRow` | object |  |
 | <a id="schema-entityworkbenchside"></a>`EntityWorkbenchSide` | object |  |
 | <a id="schema-entityworkbenchview"></a>`EntityWorkbenchView` | object |  |
+| <a id="schema-entrysuggestion"></a>`EntrySuggestion` | object | Suggestion payload built from one `decision_billing_audit` row. |
+| <a id="schema-entrysuggestionsresponse"></a>`EntrySuggestionsResponse` | object |  |
 | <a id="schema-escalationstep"></a>`EscalationStep` | object | One escalation ladder step as stored (`sla_escalation_steps`). |
 | <a id="schema-escalatorspec"></a>`EscalatorSpec` | object | Scheduled escalator spec (E): uplift bps per billing-annual anniversary. |
 | <a id="schema-eventslistresponse"></a>`EventsListResponse` | object |  |
@@ -1970,6 +1995,8 @@
 | <a id="schema-patchviewrequest"></a>`PatchViewRequest` | object |  |
 | <a id="schema-pausetimerrequest"></a>`PauseTimerRequest` | object |  |
 | <a id="schema-paymentmutationresponse"></a>`PaymentMutationResponse` | object | Payment receipt response. The invoice is nested (not flattened) so the stored replay payload — `{payment, invoice}` plus the merged mutation metadata — deserializes into this shape byte-identically. |
+| <a id="schema-phaseburn"></a>`PhaseBurn` | object | The burn read model for one phase: consumed minutes priced against the project's linked contract versus the contracted budget, with a typed alert state (report P3). Amounts are in the budget's currenc |
+| <a id="schema-phaseburnalert"></a>`PhaseBurnAlert` | string | The phase-burn alert state. `warn` fires at ≥80% consumed; `over` at ≥100%. Never silent: the read model carries the label, the UI renders it. |
 | <a id="schema-phasemutationresponse"></a>`PhaseMutationResponse` | composite |  |
 | <a id="schema-phasestatus"></a>`PhaseStatus` | string | Lifecycle of a phase. |
 | <a id="schema-pickmutationresponse"></a>`PickMutationResponse` | object |  |
@@ -2043,11 +2070,13 @@
 | <a id="schema-pricingfeedoutcomeview"></a>`PricingFeedOutcomeView` | object |  |
 | <a id="schema-priority"></a>`Priority` | string | Industry-standard four-tier priority. |
 | <a id="schema-project"></a>`Project` | object | A project engagement under a client (or internal when `client_id` is `None`). |
+| <a id="schema-projectbillingrelease"></a>`ProjectBillingRelease` | object | One released milestone (report P1/P4): the durable record that a completed milestone or fixed-fee phase released its amount to the invoicing pipeline. `pending` rows bill on the first run that reaches |
 | <a id="schema-projectcostrollupview"></a>`ProjectCostRollupView` | object |  |
 | <a id="schema-projectinstantiateresponse"></a>`ProjectInstantiateResponse` | composite | The instantiation result: the applied project plus the expansion counts (clients render "created N phases, M tasks" without refetching). |
 | <a id="schema-projectlistquery"></a>`ProjectListQuery` | object |  |
 | <a id="schema-projectmutationresponse"></a>`ProjectMutationResponse` | composite | Instant-first mutation response for the project entity (IF2): applied snapshot at the top level plus the additive `mutation` metadata. |
 | <a id="schema-projectphase"></a>`ProjectPhase` | object | A phase groups tasks into a delivery stage. A phase flagged `is_milestone` is itself a billing milestone. |
+| <a id="schema-projectphasebudget"></a>`ProjectPhaseBudget` | object | A phase's billing budget and/or fixed-fee record (Wave 39 lane 4, report P3/P4). One optional row per phase: `budget_minor` is the contracted denominator the burn math consumes (T&M phases), and `fee_ |
 | <a id="schema-projectstatus"></a>`ProjectStatus` | string | Lifecycle of a project. |
 | <a id="schema-projecttask"></a>`ProjectTask` | object | A unit of project work. A task flagged `is_milestone` is a billing milestone: completing it emits `project.milestone_completed`. |
 | <a id="schema-projecttemplate"></a>`ProjectTemplate` | object | A reusable project blueprint. `spec` follows `core-projects::template` (`TemplateSpec`, additive-only evolution); instantiation is a plain transactional insert plan — templates are data, not code (pol |
@@ -2150,11 +2179,13 @@
 | <a id="schema-regeneraterecoveryrequest"></a>`RegenerateRecoveryRequest` | object |  |
 | <a id="schema-registerrequest"></a>`RegisterRequest` | object |  |
 | <a id="schema-registryresponse"></a>`RegistryResponse` | object |  |
+| <a id="schema-releasestatus"></a>`ReleaseStatus` | string | Release lifecycle: `pending` (released, not yet invoiced), `billed` (carried on an invoice line), `cancelled` (terminal — an admin correction; the same milestone may re-release afterwards). |
 | <a id="schema-renderedreplysnippet"></a>`RenderedReplySnippet` | object |  |
 | <a id="schema-renderedtemplate"></a>`RenderedTemplate` | object |  |
 | <a id="schema-renderlabelrequest"></a>`RenderLabelRequest` | object |  |
 | <a id="schema-renderreplysnippetrequest"></a>`RenderReplySnippetRequest` | object |  |
 | <a id="schema-rendertemplaterequest"></a>`RenderTemplateRequest` | object |  |
+| <a id="schema-reordercategoriesrequest"></a>`ReorderCategoriesRequest` | composite |  |
 | <a id="schema-reparentcategoryrequest"></a>`ReparentCategoryRequest` | composite |  |
 | <a id="schema-replacecontactsrequest"></a>`ReplaceContactsRequest` | composite |  |
 | <a id="schema-replaceladderrequest"></a>`ReplaceLadderRequest` | object |  |
@@ -2387,6 +2418,12 @@
 | <a id="schema-ticketwithfields"></a>`TicketWithFields` | composite | A ticket payload enriched with its custom-field values (detail + list). |
 | <a id="schema-tickmutationresponse"></a>`TickMutationResponse` | object |  |
 | <a id="schema-timeapprovalaction"></a>`TimeApprovalAction` | string | The audit-trail action of a [`TimeEntryApprovalRecord`] (append-only decision trail; differs from [`ApprovalAction`] in that it names the recorded past, not the requested transition). |
+| <a id="schema-timecategory"></a>`TimeCategory` | object | An org's semantic time category (Wave 39 V4). Entries key their `work_type` column onto `slug`; the T&M rate card keys `contract_rates.work_type` onto the same slugs. Renames change the label only — s |
+| <a id="schema-timecategorycreaterequest"></a>`TimeCategoryCreateRequest` | composite |  |
+| <a id="schema-timecategorylistresponse"></a>`TimeCategoryListResponse` | object |  |
+| <a id="schema-timecategorymutationresponse"></a>`TimeCategoryMutationResponse` | object |  |
+| <a id="schema-timecategoryupdaterequest"></a>`TimeCategoryUpdateRequest` | composite |  |
+| <a id="schema-timecategoryview"></a>`TimeCategoryView` | composite |  |
 | <a id="schema-timeentry"></a>`TimeEntry` | object | A durable, reviewable record of worked time. Created from a timer session or entered manually; subject to bulk review and approval workflows. |
 | <a id="schema-timeentryapprovalrecord"></a>`TimeEntryApprovalRecord` | object | One append-only approval decision (the audit row behind the queue's history view). `seq` is monotonic per entry — the client's ordering key. |
 | <a id="schema-timeentrymutationresponse"></a>`TimeEntryMutationResponse` | composite | Same additive envelope for the stop flow (time-entry body). |
@@ -2421,6 +2458,7 @@
 | <a id="schema-travelplaceview"></a>`TravelPlaceView` | object |  |
 | <a id="schema-travelsuggestionview"></a>`TravelSuggestionView` | object |  |
 | <a id="schema-travelwarningview"></a>`TravelWarningView` | object |  |
+| <a id="schema-unbillablereason"></a>`UnbillableReason` | string | Why an entry is not billable (report V3). Typed values only — the verification run and scoring reports aggregate on these codes. |
 | <a id="schema-undofieldstep"></a>`UndoFieldStep` | object | One field of one applied write — per-field undo granularity. |
 | <a id="schema-undomode"></a>`UndoMode` | string | The record's undo posture: `open` = near-total undo; `reverts_only` = explicit actioned per-field reverts only (record is closed). |
 | <a id="schema-undostackquery"></a>`UndoStackQuery` | object |  |
@@ -2478,6 +2516,7 @@
 | <a id="schema-upsertmemberrequest"></a>`UpsertMemberRequest` | object |  |
 | <a id="schema-upsertprecedencerequest"></a>`UpsertPrecedenceRequest` | object |  |
 | <a id="schema-upsertproviderrequest"></a>`UpsertProviderRequest` | object |  |
+| <a id="schema-upsertworktypemaprequest"></a>`UpsertWorkTypeMapRequest` | composite |  |
 | <a id="schema-userskillsmutationresponse"></a>`UserSkillsMutationResponse` | composite | The full-replace mutation envelope (IF2). |
 | <a id="schema-userskillsview"></a>`UserSkillsView` | object |  |
 | <a id="schema-valueview"></a>`ValueView` | object | One effective value: registry default overlaid by any stored override. |
@@ -2512,6 +2551,7 @@
 | <a id="schema-workbenchdecision"></a>`WorkbenchDecision` | object | The suggestion-grade `decision_record_dedupe` judgment for this candidate, read from the append-only decision store. `None` (and therefore silent in the UI) whenever the decision model is unconfigured |
 | <a id="schema-workbenchfieldrow"></a>`WorkbenchFieldRow` | object |  |
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
+| <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1196 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1217 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

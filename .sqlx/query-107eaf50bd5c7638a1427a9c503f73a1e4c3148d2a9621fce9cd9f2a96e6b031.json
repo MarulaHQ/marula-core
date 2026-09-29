@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pp.id AS phase_id, pp.name AS phase_name, pp.status AS phase_status,\n                  b.budget_minor, COALESCE(b.currency, p.currency) AS \"currency?\",\n                  COALESCE(burn.minutes, 0)::bigint AS \"consumed_minutes!\",\n                  COALESCE(burn.consumed_minor, 0)::bigint AS \"consumed_minor!\"\n           FROM project_phases pp\n           JOIN projects p ON p.id = pp.project_id\n           LEFT JOIN project_phase_budgets b ON b.phase_id = pp.id\n           LEFT JOIN (\n               SELECT te.phase_id,\n                      SUM(te.minutes)::bigint AS minutes,\n                      SUM(\n                        (te.minutes::bigint *\n                          COALESCE(cr.rate_minor, c.hourly_rate_minor, 0) + 30)\n                        / 60\n                      )::bigint AS consumed_minor\n               FROM time_entries te\n               JOIN project_phases p2 ON p2.id = te.phase_id\n               JOIN projects p3 ON p3.id = p2.project_id\n               LEFT JOIN contracts c\n                 ON c.id = p3.billing_contract_id AND c.org_id = te.org_id\n               LEFT JOIN contract_rates cr\n                 ON cr.contract_id = c.id\n                AND cr.org_id = te.org_id\n                AND cr.work_type IS NOT DISTINCT FROM te.work_type\n               WHERE te.org_id = $1\n                 AND p3.id = $2\n                 AND te.billable\n                 AND te.approval_status = 'approved'\n               GROUP BY te.phase_id\n           ) burn ON burn.phase_id = pp.id\n           WHERE pp.org_id = $1 AND pp.project_id = $2\n           ORDER BY pp.sort_order, pp.created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "phase_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "phase_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "phase_status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "budget_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "currency?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "consumed_minutes!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "consumed_minor!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "107eaf50bd5c7638a1427a9c503f73a1e4c3148d2a9621fce9cd9f2a96e6b031"
+}

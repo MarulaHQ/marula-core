@@ -147,7 +147,7 @@ where
         r#"INSERT INTO time_entries (id, org_id, ticket_id, phase_id, user_id, started_at, ended_at,
                                      minutes, billable, notes, work_type, unbillable_reason,
                                      timer_session_id, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"#,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)"#,
         e.id,
         e.org_id,
         e.ticket_id,
