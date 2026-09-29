@@ -20,11 +20,16 @@ spec:
         app.kubernetes.io/component: worker
     spec:
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- $ctx := deepCopy .Values.podSecurityContext -}}
+        {{- $_ := set $ctx "runAsUser" (index .Values.runAsUserByComponent "worker" | default 65532) -}}
+        {{- $_ := set $ctx "fsGroup" .Values.fsGroup | default 65532 -}}
+        {{- toYaml $ctx | nindent 8 }}
       containers:
         - name: worker
           image: {{ include "meridian.image" (dict "ctx" . "image" .Values.images.worker "key" "worker") }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "meridian.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           env:
             # Owner role on purpose: the relay reads outbox rows across ALL
             # orgs and must not be constrained by RLS (compose parity).

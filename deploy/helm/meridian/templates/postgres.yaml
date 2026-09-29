@@ -50,9 +50,19 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: postgres
     spec:
+      # Postgres exemption (see container comment below): the official
+      # entrypoint must init as root, so no runAsUser/fsGroup here and
+      # runAsNonRoot is intentionally NOT set for this pod.
       containers:
         - name: postgres
-          image: {{ .Values.postgresql.image | quote }}
+          image: {{ include "meridian.pinnedImage" (dict "ctx" . "image" .Values.postgresql.image "digest" .Values.postgresql.imageDigest) | quote }}
+          # EXEMPTION: the official postgres entrypoint runs chown/init as
+          # root before re-execing as postgres, so this container runs as
+          # root deliberately (podSecurityContext's runAsNonRoot: true is
+          # satisfied only when postgresql.runAsUserByComponent.postgres
+          # is overridden to a nonzero uid together with an init'd volume).
+          securityContext:
+            {{- include "meridian.containerSecurityContext" (dict "readOnly" false) | nindent 12 }}
           env:
             - name: POSTGRES_USER
               value: {{ .Values.postgresql.ownerUser | quote }}
@@ -115,7 +125,12 @@ spec:
       restartPolicy: Never
       containers:
         - name: bootstrap
-          image: {{ .Values.postgresql.image | quote }}
+          image: {{ include "meridian.pinnedImage" (dict "ctx" . "image" .Values.postgresql.image "digest" .Values.postgresql.imageDigest) | quote }}
+          securityContext:
+            {{- /* psql bootstrap needs only network + /tmp; runs as root so
+            it can talk to the not-yet-tuned postgres pod — capabilities
+            still dropped, no privilege escalation. */ -}}
+            {{- include "meridian.containerSecurityContext" (dict "readOnly" false) | nindent 12 }}
           env:
             - name: PGPASSWORD
               valueFrom:

@@ -91,13 +91,22 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: garage
     spec:
+      securityContext:
+        {{- $ctx := deepCopy .Values.podSecurityContext -}}
+        {{- $_ := set $ctx "runAsUser" (.Values.runAsUserByComponent.garage | default 10004) -}}
+        {{- $_ := set $ctx "fsGroup" (.Values.runAsUserByComponent.garage | default 10004) -}}
+        {{- toYaml $ctx | nindent 8 }}
       volumes:
         - name: config
           configMap:
             name: {{ $fullname }}-garage-config
       containers:
         - name: garage
-          image: {{ .Values.garage.image | quote }}
+          image: {{ include "meridian.pinnedImage" (dict "ctx" . "image" .Values.garage.image "digest" .Values.garage.imageDigest) | quote }}
+          securityContext:
+            {{- /* Garage runs as explicit uid 10004 (runAsUser); only its
+            data/meta PVCs are written, so the rootfs is read-only. */ -}}
+            {{- include "meridian.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           env:
             - name: GARAGE_RPC_SECRET
               valueFrom:
@@ -177,7 +186,9 @@ spec:
         - name: bootstrap
           # The garage image is distroless (no shell) — drive the admin API
           # with curl instead; parsing is grep/cut, no jq needed.
-          image: curlimages/curl:8.11.1
+          image: {{ include "meridian.pinnedImage" (dict "ctx" . "image" .Values.garage.bootstrapImage "digest" .Values.garage.bootstrapImageDigest) | quote }}
+          securityContext:
+            {{- include "meridian.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           env:
             - name: GARAGE_BASE
               value: {{ printf "http://%s-garage-headless:3903" $fullname | quote }}

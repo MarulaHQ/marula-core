@@ -20,10 +20,17 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: web
     spec:
+      securityContext:
+        {{- $ctx := deepCopy .Values.podSecurityContext -}}
+        {{- $_ := set $ctx "runAsUser" (index .Values.runAsUserByComponent "web" | default 1000) -}}
+        {{- $_ := set $ctx "fsGroup" .Values.fsGroup | default 65532 -}}
+        {{- toYaml $ctx | nindent 8 }}
       containers:
         - name: web
           image: {{ include "meridian.image" (dict "ctx" . "image" .Values.images.web "key" "web") }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "meridian.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           env:
             {{- with .Values.web.extraEnv }}
             {{- toYaml . | nindent 12 }}

@@ -19,6 +19,37 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
+{{- /* Bare-string third-party image slot. When nonMeridianDigestPinningEnforced
+is on, the value must carry an @sha256:... digest itself or have a
+companion imageDigest value — the final reference is tag@digest. */ -}}
+{{- define "meridian.pinnedImage" -}}
+{{- $image := toString .image -}}
+{{- $digest := .digest -}}
+{{- if and .ctx.Values.nonMeridianDigestPinningEnforced (not (contains "@sha256:" $image)) (not $digest) -}}
+{{- fail (printf "image %s has no digest (nonMeridianDigestPinningEnforced=true): set the companion imageDigest value" $image) -}}
+{{- end -}}
+{{- if $digest -}}
+{{- $base := $image | splitList "@" | first -}}
+{{- printf "%s@%s" $base $digest -}}
+{{- else -}}
+{{- $image -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Container-level least privilege (p38-container-hardening): no
+privilege escalation, all capabilities dropped, seccomp RuntimeDefault.
+readOnlyRootFilesystem is opt-in per workload via `readOnly` since only
+some components tolerate it. */ -}}
+{{- define "meridian.containerSecurityContext" -}}
+{{- $readOnly := default false .readOnly -}}
+allowPrivilegeEscalation: false
+capabilities:
+  drop: ["ALL"]
+seccompProfile:
+  type: RuntimeDefault
+readOnlyRootFilesystem: {{ $readOnly }}
+{{- end -}}
+
 {{- /* One image reference per binary. Enforces digest pinning when
 digestPinningEnforced is on — renders an invalid field (fails schema
 validation / admission) rather than silently floating. */ -}}
