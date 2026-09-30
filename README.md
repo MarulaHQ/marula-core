@@ -1,17 +1,22 @@
 # Marula
 
 <p>
-  <img src="design/marula/logo/lockup-navy@2x.png" height="34" alt="Marula logo lockup" title="Marula logo lockup">
+  <img src="design/marula/logo/lockup-ink@2x.png" height="34" alt="Marula logo lockup" title="Marula logo lockup">
+</p>
+
+<p>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/core-AGPL--3.0-5E7F3A" alt="Marula Core is licensed under the AGPL-3.0" height="20"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/sdk%20%2F%20plugins-Apache--2.0-E8B83A" alt="The SDK, plugins and connectors are licensed under the Apache-2.0" height="20"></a>
 </p>
 
 **The open-source PSA that MSPs own.** Tickets, time, clients, dispatch, projects, invoicing, knowledge base — everything an IT service team runs on, self-hosted, in a database you control.
 
 > **Status:** Phase 3 (commercial engine) — alpha gate closed 2026-09-12; Wave 12 (quotes, catalog, pipeline, inventory + configuration identity, vector search, FX, per-client overrides, live collaboration) landed. See [Roadmap](#roadmap).
-> **License:** AGPL-3.0 · SDK, plugins & connectors: Apache-2.0
 
-<!-- TODO(ci): badge row once pipelines exist
-![CI](https://github.com/marula-open/marula-core/actions/workflows/ci.yml/badge.svg)
-![License](https://img.shields.io/badge/license-AGPL--3.0-blue) -->
+<!-- TODO(ci): CI badges once the pipelines are public. Rendered now, a
+     workflow badge on a repository with no runs reads as "no status", which
+     is worse than no badge.
+![CI](https://github.com/marula-open/marula-core/actions/workflows/ci.yml/badge.svg) -->
 
 ---
 
