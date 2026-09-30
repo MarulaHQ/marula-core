@@ -14,7 +14,7 @@
 "use client";
 
 import { Button, Card, EmptyState, Input, Label, Spinner, Textarea } from "@marula-core/ui";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 import { api, useRequireAuth } from "../../../lib/api";
@@ -222,8 +222,30 @@ export default function ReplySnippetsSettingsPage(): React.ReactNode {
           <Spinner aria-label="Loading snippets" />
         </div>
       ) : snippets.length === 0 ? (
-        <div className="text-sm">
-          <EmptyState message="No snippets yet. Write your first canned reply above — the composer picks it up immediately." />
+        <div className="text-sm" data-testid="snippet-empty">
+          <EmptyState
+            message="No canned replies yet. Save the answers you type twice and they show up in the reply box, ready to send."
+            illustration={
+              <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                <Button
+                  variant="primary"
+                  onClick={() => document.getElementById("snippet-name")?.focus()}
+                  data-testid="snippet-empty-new"
+                >
+                  New canned reply
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    setError("Import from CSV lands with the settings import drawer.")
+                  }
+                  data-testid="snippet-empty-import"
+                >
+                  Import from CSV
+                </Button>
+              </div>
+            }
+          />
         </div>
       ) : (
         <div className="grid gap-2" data-testid="snippet-list">
