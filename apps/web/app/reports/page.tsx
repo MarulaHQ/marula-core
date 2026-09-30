@@ -43,7 +43,6 @@ import {
   Td,
   Th,
   Tr,
-  ViewSwitch,
   type FilterClause,
   type FilterField,
 } from "@marula-core/ui";
@@ -66,6 +65,9 @@ import {
   toggleSort,
 } from "../../lib/insight-table";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
+import { SurfaceTabs } from "../../components/insight/surface-tabs";
+import { InsightState } from "../../components/insight/insight-state";
+import "../../components/insight/insight-table.css";
 
 type DeepLinkSeed =
   | { spec: components["schemas"]["ReportSpec"]; from?: string; to?: string; nonce: number }
@@ -467,7 +469,7 @@ function ReportsInner() {
 
   return (
     <div className="grid gap-5 p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
+      <header className="m-rise flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-3">
           <h1
             className="text-[26px] font-semibold tracking-[-0.01em]"
@@ -484,27 +486,20 @@ function ReportsInner() {
         </div>
       </header>
 
-      {/* The one tab row — the view switch of this surface. */}
-      <div className="m-view-switch" role="tablist" aria-label="Report sections">
-        {(
-          [
-            ["builder", "Builder"],
-            ["saved", "Saved reports"],
-            ["schedules", "Schedules"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            className={`m-view-switch-item ${tab === id ? "is-active" : ""}`}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Sub-navigation is the header-row pattern: the sections sit BESIDE the
+          title, and the pack draws the active one as a raised surface card. */}
+      <header className="flex flex-wrap items-center gap-3">
+        <SurfaceTabs
+          tabs={[
+            { id: "builder", label: "Builder" },
+            { id: "saved", label: "Saved reports" },
+            { id: "schedules", label: "Schedules" },
+          ]}
+          activeId={tab}
+          onChange={(id) => setTab(id as Tab)}
+          label="Report sections"
+        />
+      </header>
 
       {tab === "builder" && (
         <div className="grid gap-4">
@@ -537,8 +532,8 @@ function ReportsInner() {
           <DataToolbar
             label="Saved reports controls"
             views={
-              <ViewSwitch
-                views={[
+              <SurfaceTabs
+                tabs={[
                   { id: "all", label: "All reports", hint: String(defRows.length) },
                   { id: "mine", label: "Private to me", hint: String(defRows.filter((r) => r.scope === "self").length) },
                 ]}
@@ -592,17 +587,31 @@ function ReportsInner() {
                 <Spinner />
               </div>
             ) : sortedRows.length === 0 ? (
-              <div className="p-6">
-                <EmptyState
-                  message={
-                    clauses.length > 0
-                      ? "No saved reports match these filters."
-                      : "No saved reports yet. Build one in the Builder tab, then save it here."
-                  }
-                />
-              </div>
+              <InsightState
+                title={
+                  clauses.length > 0
+                    ? "No saved reports match these filters"
+                    : "No saved reports yet"
+                }
+                hint={
+                  clauses.length > 0
+                    ? "Try removing one, or widen the match."
+                    : "Build one in the Builder tab, then save it here."
+                }
+                primary={
+                  clauses.length > 0 ? (
+                    <Button variant="primary" size="sm" onClick={() => setClauses([])}>
+                      Clear filters
+                    </Button>
+                  ) : (
+                    <Button variant="primary" size="sm" onClick={() => setTab("builder")}>
+                      Open the builder
+                    </Button>
+                  )
+                }
+              />
             ) : (
-              <Table>
+              <Table className="m-insight-table">
                 <thead>
                   <tr>
                     {defsTable.keys.map((key) => {
@@ -828,11 +837,17 @@ function ReportsInner() {
                 <Spinner />
               </div>
             ) : schedules === null || schedules.length === 0 ? (
-              <div className="p-6">
-                <EmptyState message="No delivery schedules yet. Save a report first, then schedule it here." />
-              </div>
+              <InsightState
+                title="No delivery schedules yet"
+                hint="Save a report first, then schedule it here."
+                primary={
+                  <Button variant="primary" size="sm" onClick={() => setTab("saved")}>
+                    Go to saved reports
+                  </Button>
+                }
+              />
             ) : (
-              <Table>
+              <Table className="m-insight-table">
                 <thead>
                   <tr>
                     <Th sortable={false} resizable={false}>Name</Th>

@@ -94,7 +94,7 @@ describe("/audit integration", () => {
     cleanup();
   });
 
-  it("surfaces a load failure in the blush family, not red", async () => {
+  it("keeps the chrome and swaps the body on a load failure, in blush not red", async () => {
     const mock = setupApi([]);
     mock.on("GET", "/api/v1/audit-events", () => ({
       status: 503,
@@ -105,11 +105,19 @@ describe("/audit integration", () => {
         <AuditPage />
       </AuthProvider>,
     );
+    // The pack's error state shares the empty shape: the mark, a title, a
+    // sentence, and the way out. It renders INSIDE the surface, so the
+    // toolbar and the density control stay reachable.
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveStyle({
-      background: "var(--m-status-due-bg)",
-      color: "var(--m-status-due-fg)",
-    });
+    expect(alert).toHaveTextContent(/Couldn't load the audit ledger/);
+    expect(alert).toHaveTextContent(/nothing is lost/);
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Columns" })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Density" })).toBeInTheDocument();
+    // A failed read is not a breach: the cross on the mark is the blush
+    // family and nothing in the state wears the danger token.
+    expect(alert.innerHTML).toContain("--m-status-due-fg");
+    expect(alert.innerHTML).not.toContain("--m-status-danger");
     await waitFor(() => {
       expect(mock.callsTo("GET", "/api/v1/audit-events").length).toBeGreaterThan(0);
     });

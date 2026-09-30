@@ -140,7 +140,7 @@ describe("/provenance integration", () => {
       </AuthProvider>,
     );
     await screen.findByText("status");
-    await user.click(screen.getByRole("button", { name: "More writes" }));
+    await user.click(screen.getByRole("button", { name: "Load 50 more" }));
     await waitFor(() => {
       const calls = mock.callsTo("GET", "/api/v1/provenance");
       expect(calls[calls.length - 1]?.query.cursor).toBe("cur-1");

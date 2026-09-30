@@ -124,8 +124,8 @@ describe("/dashboards integration", () => {
     expect(screen.getByText("My open tickets")).toBeInTheDocument();
     expect(screen.getByText("My first response")).toBeInTheDocument();
     expect(screen.getByText("Org-wide scope")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Apply Team load preset" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Apply SLA health preset" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Apply Team load preset" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Apply SLA health preset" })).toBeInTheDocument();
 
     // Widget charts rendered from report fixtures.
     expect(await screen.findByText("Alice", {}, { timeout: 5000 })).toBeInTheDocument();

@@ -23,11 +23,12 @@ import {
   Td,
   Th,
   Tr,
-  ViewSwitch,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
+import { SurfaceTabs } from "../../components/insight/surface-tabs";
+import "../../components/insight/insight-table.css";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { isManagerPermissions } from "../../lib/dashboards";
 
@@ -290,9 +291,10 @@ export default function ScorecardsPage() {
             {isManager ? "Team visible" : "Private to you"}
           </span>
         </div>
-        {/* The window IS this surface's view switch (Dispatch sub-nav pattern). */}
-        <ViewSwitch
-          views={WINDOWS.map((w) => ({ id: String(w.days), label: w.label }))}
+        {/* The window IS this surface's view control (Dispatch sub-nav pattern):
+            the pack draws it as tabs beside the title, not a select. */}
+        <SurfaceTabs
+          tabs={WINDOWS.map((w) => ({ id: String(w.days), label: w.label }))}
           activeId={String(days)}
           onChange={(id) => setDays(Number(id))}
           label="Scorecard window"
@@ -503,7 +505,7 @@ function ClientsCsat({ from, to }: { from: string; to: string }) {
           className="overflow-x-auto rounded-[16px] border"
           style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
         >
-          <Table>
+          <Table className="m-insight-table">
             <thead>
               <tr>
                 <Th sortable={false} resizable={false}>Client</Th>

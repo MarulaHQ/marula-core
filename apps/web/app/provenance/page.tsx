@@ -26,7 +26,6 @@ import {
   Td,
   Th,
   Tr,
-  ViewSwitch,
   type FilterClause,
   type FilterField,
 } from "@marula-core/ui";
@@ -44,6 +43,9 @@ import {
   type InsightColumn,
 } from "../../lib/insight-table";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
+import { SurfaceTabs } from "../../components/insight/surface-tabs";
+import { InsightState } from "../../components/insight/insight-state";
+import "../../components/insight/insight-table.css";
 
 type ProvenanceEvent = components["schemas"]["ProvenanceEvent"];
 
@@ -305,8 +307,8 @@ export default function ProvenancePage() {
       <DataToolbar
         label="Write trail controls"
         views={
-          <ViewSwitch
-            views={[
+          <SurfaceTabs
+            tabs={[
               { id: "all", label: "All writes", hint: String(rows.length) },
               { id: "agent", label: "Agent", hint: String(rows.filter((r) => r.actorKind === "agent").length) },
               { id: "imports", label: "Imports", hint: String(rows.filter((r) => r.actorKind === "import").length) },
@@ -347,10 +349,19 @@ export default function ProvenancePage() {
       {loadError !== null ? (
         <div
           role="alert"
-          className="rounded-[16px] px-4 py-3 text-[13px] font-medium"
-          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          className="rounded-[16px] border"
+          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
         >
-          {loadError}
+          <InsightState
+            tone="error"
+            title="Couldn't load the write trail"
+            hint={`${loadError} Your filters and columns are saved, so nothing is lost.`}
+            primary={
+              <Button variant="primary" size="sm" onClick={() => void load({ cursor: null })}>
+                Retry
+              </Button>
+            }
+          />
         </div>
       ) : events === null ? (
         <div className="flex justify-center py-10">
@@ -358,27 +369,25 @@ export default function ProvenancePage() {
         </div>
       ) : sorted.length === 0 ? (
         <div
-          className="grid place-items-center gap-2 rounded-[16px] border py-12 text-center"
+          className="rounded-[16px] border"
           style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
         >
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-            <circle cx="20" cy="28" r="12" stroke="var(--m-bark, #7c746a)" strokeWidth="2.5" />
-            <path d="M20 20c0-5 5-7 10-6" stroke="var(--m-bark, #7c746a)" strokeWidth="2.5" strokeLinecap="round" />
-            <path d="M30 34l5 5" stroke="var(--m-bark, #7c746a)" strokeWidth="2.5" strokeLinecap="round" />
-          </svg>
-          <p className="text-[15px] font-semibold" style={{ color: "var(--m-text)" }}>
-            No writes match these filters
-          </p>
-          <p className="max-w-sm text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Widen the window, or clear a filter to see the whole trail.
-          </p>
+          <InsightState
+            title="No writes match these filters"
+            hint="Widen the window, or clear a filter to see the whole trail."
+            primary={
+              <Button variant="primary" size="sm" onClick={() => setClauses([])}>
+                Clear filters
+              </Button>
+            }
+          />
         </div>
       ) : (
         <div
           className="overflow-x-auto rounded-[16px] border"
           style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
         >
-          <Table>
+          <Table className="m-insight-table">
             <thead>
               <tr>
                 {table.keys.map((key) => {
@@ -421,31 +430,25 @@ export default function ProvenancePage() {
             </tbody>
           </Table>
           <div className="flex min-h-[52px] flex-wrap items-center gap-3 px-3 pb-2">
-            <span className="flex items-center gap-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              <span className="tabular-nums">
-                <b style={{ color: "var(--m-text)" }}>{sorted.length}</b> of{" "}
-                <b style={{ color: "var(--m-text)" }}>{rows.length}</b> writes
-              </span>
-              {cursor !== null ? (
-                <span style={{ color: "var(--m-text-muted)" }}>continued</span>
-              ) : null}
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={cursor === null}
-                onClick={() => void load({ cursor: null })}
-              >
-                First page
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={nextCursor === null}
+            <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+              <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
+                {sorted.length}
+              </b>{" "}
+              of{" "}
+              <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
+                {rows.length}
+              </b>{" "}
+              writes
+            </span>
+            {nextCursor !== null ? (
+              <button
+                type="button"
+                className="m-insight-pager"
                 onClick={() => void load({ cursor: nextCursor })}
               >
-                More writes
-              </Button>
-            </span>
+                Load 50 more
+              </button>
+            ) : null}
             <span className="flex-1" />
             <span className="flex items-center gap-2">
               <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>

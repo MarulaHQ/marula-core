@@ -25,7 +25,6 @@ import {
   Td,
   Th,
   Tr,
-  ViewSwitch,
   type FilterClause,
   type FilterField,
 } from "@marula-core/ui";
@@ -42,6 +41,9 @@ import {
   type InsightColumn,
 } from "../../lib/insight-table";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
+import { SurfaceTabs } from "../../components/insight/surface-tabs";
+import { InsightState } from "../../components/insight/insight-state";
+import "../../components/insight/insight-table.css";
 type AuditEvent = components["schemas"]["AuditEvent"];
 
 const SURFACE_KEY = "audit.ledger";
@@ -285,8 +287,8 @@ export default function AuditPage() {
       <DataToolbar
         label="Audit ledger controls"
         views={
-          <ViewSwitch
-            views={[
+          <SurfaceTabs
+            tabs={[
               { id: "recent", label: "Recent", hint: String(rows.length) },
               { id: "agents", label: "Agent events", hint: String(rows.filter((r) => r.actorKind === "agent").length) },
             ]}
@@ -331,29 +333,46 @@ export default function AuditPage() {
         }
       />
 
-      {errorMsg !== null ? (
-        <div
-          role="alert"
-          className="rounded-[16px] px-4 py-3 text-[13px] font-medium"
-          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
-        >
-          {errorMsg}
-        </div>
-      ) : (
-        <div
-          className="overflow-x-auto rounded-[16px] border"
-          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
-        >
-          {loading ? (
+      <div
+        className="overflow-x-auto rounded-[16px] border"
+        style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+      >
+          {errorMsg !== null ? (
+            <div role="alert">
+              <InsightState
+                tone="error"
+                title="Couldn't load the audit ledger"
+                hint={`${errorMsg} Your filters and columns are saved, so nothing is lost.`}
+                primary={
+                  <Button variant="primary" size="sm" onClick={() => void loadEvents(cursor)}>
+                    Retry
+                  </Button>
+                }
+              />
+            </div>
+          ) : loading ? (
             <div className="flex justify-center p-6">
               <Spinner />
             </div>
           ) : sorted.length === 0 ? (
-            <div className="p-6">
-              <EmptyStateCopy loading={false} hasFilters={clauses.length > 0} />
-            </div>
+            clauses.length > 0 ? (
+              <InsightState
+                title="No events match these filters"
+                hint="Try removing one, or widen the match."
+                primary={
+                  <Button variant="primary" size="sm" onClick={() => setClauses([])}>
+                    Clear filters
+                  </Button>
+                }
+              />
+            ) : (
+              <InsightState
+                title="Nothing in the ledger yet"
+                hint="Events land here the moment they happen — security changes, settings, domain lifecycle."
+              />
+            )
           ) : (
-            <Table>
+            <Table className="m-insight-table">
               <thead>
                 <tr>
                   {table.keys.map((key) => {
@@ -445,33 +464,32 @@ export default function AuditPage() {
             </Table>
           )}
           <div className="flex min-h-[52px] flex-wrap items-center gap-3 px-3 pb-2">
-            <span className="flex items-center gap-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              <span className="tabular-nums">
-                <b style={{ color: "var(--m-text)" }}>{sorted.length}</b> of{" "}
-                <b style={{ color: "var(--m-text)" }}>{rows.length}</b> events
-              </span>
-              {cursor !== null ? (
-                <span style={{ color: "var(--m-text-muted)" }}>continued</span>
-              ) : null}
-              <span className="flex-1" />
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={cursor === null}
-                onClick={() => void loadEvents(null)}
-              >
-                First page
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={nextCursor === null}
+            <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+              <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
+                {sorted.length}
+              </b>{" "}
+              of{" "}
+              <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
+                {rows.length}
+              </b>{" "}
+              events
+            </span>
+            {nextCursor !== null ? (
+              <button
+                type="button"
+                className="m-insight-pager"
                 onClick={() => void loadEvents(nextCursor)}
               >
-                More events
-              </Button>
-            </span>
+                Load 50 more
+              </button>
+            ) : null}
             <span className="flex-1" />
+            <span
+              className="hidden items-center gap-1.5 lg:flex"
+              style={{ color: "var(--m-text-muted)", fontSize: 12 }}
+            >
+              <kbd className="m-insight-kbd">↵</kbd> inspect
+            </span>
             <span className="flex items-center gap-2">
               <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
                 Density
@@ -479,28 +497,8 @@ export default function AuditPage() {
               <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
             </span>
           </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
 
-function EmptyStateCopy({ loading, hasFilters }: { loading: boolean; hasFilters: boolean }): React.JSX.Element {
-  if (loading) return <Spinner />;
-  return (
-    <div className="grid place-items-center gap-2 py-10 text-center">
-      <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-        <rect x="8" y="6" width="32" height="36" rx="4" stroke="var(--m-bark, #7c746a)" strokeWidth="2.5" />
-        <path d="M15 16h18M15 23h18M15 30h10" stroke="var(--m-bark, #7c746a)" strokeWidth="2.5" strokeLinecap="round" />
-      </svg>
-      <p className="text-[15px] font-semibold" style={{ color: "var(--m-text)" }}>
-        Nothing in the ledger yet
-      </p>
-      <p className="max-w-sm text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-        {hasFilters
-          ? "No events match these filters. Widen the window or remove a filter."
-          : "Events land here the moment they happen — security changes, settings, domain lifecycle."}
-      </p>
-    </div>
-  );
-}

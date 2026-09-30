@@ -22,6 +22,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ReportWidget } from "../../components/dashboards/report-widget";
 import { PluginWidgetsSection } from "../../components/dashboards/plugin-widget";
+import { SurfaceTabs } from "../../components/insight/surface-tabs";
 import {
   WIDGET_CATALOG,
   WIDGET_ROWS_KEY,
@@ -154,29 +155,21 @@ export default function DashboardsPage() {
         </div>
 
         {/* Toolbar row: named arrangement views (the presets) on the left. */}
-        <div
-          className="flex flex-wrap items-center gap-2"
-          role="group"
-          aria-label="Saved arrangements"
-        >
-          {presets.map((preset) => {
-            const active =
-              preset.widgets.length === visible.length &&
-              preset.widgets.every((id, i) => visible[i] === id);
-            return (
-              <Button
-                key={preset.id}
-                variant={active ? "primary" : "secondary"}
-                size="sm"
-                disabled={active}
-                aria-label={`Apply ${preset.title} preset`}
-                onClick={() => persist([...preset.widgets])}
-              >
-                {preset.title}
-              </Button>
-            );
-          })}
-        </div>
+        <SurfaceTabs
+          tabs={presets.map((p) => ({ id: p.id, label: p.title, ariaLabel: `Apply ${p.title} preset` }))}
+          activeId={
+            presets.find(
+              (p) =>
+                p.widgets.length === visible.length &&
+                p.widgets.every((id, i) => visible[i] === id),
+            )?.id ?? ""
+          }
+          onChange={(id) => {
+            const preset = presets.find((p) => p.id === id);
+            if (preset !== undefined) persist([...preset.widgets]);
+          }}
+          label="Saved arrangements"
+        />
 
         {/* The catalogue: a popover-style card under the Add widget button. */}
         {pickerOpen && (
@@ -259,7 +252,7 @@ export default function DashboardsPage() {
           />
         </Card>
       ) : (
-        <div className="grid items-start gap-4 xl:grid-cols-2">
+        <div className="grid items-start gap-4 xl:grid-cols-[1.5fr_1fr]">
           {visible.map((id, i) => {
             const def = widgetDef(id);
             if (def === undefined) return null;

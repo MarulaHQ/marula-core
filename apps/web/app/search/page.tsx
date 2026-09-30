@@ -16,6 +16,7 @@
 "use client";
 
 import { Button, Spinner, Tag } from "@marula-core/ui";
+import { InsightState } from "../../components/insight/insight-state";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -395,10 +396,19 @@ export default function SearchPage() {
         {error !== null && (
           <div
             role="alert"
-            className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
-            style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+            className="rounded-[16px] border"
+            style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
           >
-            {error}
+            <InsightState
+              tone="error"
+              title="The search didn't run"
+              hint={`${error} Your recent searches are still here.`}
+              primary={
+                <Button variant="primary" size="sm" onClick={() => setRawQuery(query)}>
+                  Try again
+                </Button>
+              }
+            />
           </div>
         )}
 
@@ -412,19 +422,13 @@ export default function SearchPage() {
           /* Under two characters this is the resting shape, and it says what
              the field understands. No suggestion of any other way to search. */
           <div
-            className="grid place-items-center gap-2 rounded-[16px] border py-14 text-center"
+            className="rounded-[16px] border"
             style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
           >
-            <svg width="56" height="56" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-              <circle cx="20" cy="20" r="12" stroke="var(--m-bark, #7c746a)" strokeWidth="2.5" />
-              <path d="M29 29l8 8" stroke="var(--m-bark, #7c746a)" strokeWidth="2.5" strokeLinecap="round" />
-            </svg>
-            <p className="text-[15px] font-semibold" style={{ color: "var(--m-text)" }}>
-              Type at least two characters
-            </p>
-            <p className="max-w-sm text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              Use &quot;quotes&quot; for an exact phrase and -word to exclude one.
-            </p>
+            <InsightState
+              title="Type at least two characters"
+              hint="Use “quotes” for an exact phrase and -word to exclude one."
+            />
           </div>
         )}
 
@@ -432,21 +436,19 @@ export default function SearchPage() {
             never at another way to ask the question. */}
         {!loading && error === null && query.length >= 2 && response !== null && response.total === 0 && (
           <div
-            className="grid place-items-center gap-2 rounded-[16px] border py-14 text-center"
+            className="rounded-[16px] border"
             style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
             data-testid="search-empty"
           >
-            <svg width="56" height="56" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-              <circle cx="20" cy="20" r="12" stroke="var(--m-bark, #7c746a)" strokeWidth="2.5" />
-              <path d="M29 29l8 8" stroke="var(--m-bark, #7c746a)" strokeWidth="2.5" strokeLinecap="round" />
-              <path d="M14 14l12 12M26 14L14 26" stroke="var(--m-bark, #7c746a)" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
-            </svg>
-            <p className="text-[15px] font-semibold" style={{ color: "var(--m-text)" }}>
-              Nothing matches “{response.query}”
-            </p>
-            <p className="max-w-sm text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              Check the spelling, or search for fewer words.
-            </p>
+            <InsightState
+              title={`Nothing matches “${response.query}”`}
+              hint="Check the spelling, or search for fewer words."
+              primary={
+                <Button variant="primary" size="sm" onClick={() => setRawQuery("")}>
+                  Clear the search
+                </Button>
+              }
+            />
           </div>
         )}
 
