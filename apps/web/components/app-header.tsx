@@ -18,7 +18,7 @@ import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { API_BASE, useAuth } from "../lib/api";
-import { BrandMark } from "./brand";
+import { BrandLockup, BrandMark, LOCKUP_COMPLIANT_HEIGHT } from "./brand";
 import { NotificationDock } from "./notification-dock";
 import { HelpPanel } from "./help/help-panel";
 import { OutboxDock } from "./instant/outbox-dock";
@@ -228,24 +228,31 @@ export function AppHeader() {
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
     >
       <div className="flex shrink-0 items-center gap-2">
-        {/* The pack's header draws the CANONICAL mark — the fruit with its
-            stem and leaf — not the favicon dot. `BrandMark` drops to the
-            favicon variant below `MARK_MIN_SIZE` (32), so a 24px call here
-            silently rendered the downgraded asset: a plain gold circle with
-            no stem and no leaf. 32 is the kit's own floor, so the mark renders
-            as itself without redefining that floor for anyone else. */}
-        <BrandMark size={32} />
-        {/* Item 11: the wordmark collides with the right dock cluster at
-            ~480px — icon-only below the md breakpoint.
+        {/*
+          The canonical lockup in the brand's COLOUR variant: gold fruit, green
+          leaf, outlined lowercase wordmark — one asset, no font dependency,
+          which is the point of the kit drawing the wordmark as outlines.
 
-            Fraunces, not the interface sans: the pack sets the wordmark in
-            Fraunces 24px at -0.03em, and the typography decision confines
-            Fraunces to exactly this job (wordmark, page greeting, marketing). */}
-        <span
-          className="max-md:hidden text-[24px] leading-none tracking-[-0.03em]"
-          style={{ fontFamily: "var(--font-heading), Georgia, serif", color: "var(--m-text)" }}
-        >
-          Marula
+          This header was the one place that re-drew the identity: it took the
+          mark from the kit and then re-typed the wordmark as live text in
+          Fraunces, which put a capital "Marula" beside a lowercase brand and
+          depended on a webfont being installed. The colour variant matters as
+          much as the asset: the mono lockup is a single-colour silhouette,
+          correct where one colour is required, but it renders the fruit as a
+          dark blob — and the pack draws the header in colour.
+
+          `BrandMark` drops to the favicon dot below the kit's MARK_MIN_SIZE
+          (32), so the narrow call below passes 32 and renders as itself.
+        */}
+        <span className="hidden md:inline-flex items-center">
+          <BrandLockup size={LOCKUP_COMPLIANT_HEIGHT} variant="color" />
+        </span>
+        {/*
+          Below the md breakpoint the wordmark collides with the right dock
+          cluster at ~480px, so the mark alone carries the identity there.
+        */}
+        <span className="inline-flex md:hidden items-center">
+          <BrandMark size={32} variant="color" />
         </span>
       </div>
 

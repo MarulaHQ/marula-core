@@ -14,6 +14,17 @@
 
 import { useTheme } from "@marula-core/ui";
 
+/**
+ * Which of the kit's own lockups to draw.
+ *
+ * `mono` is a single-colour silhouette — right where one colour is required
+ * (favicons, one-colour print, an embossed surface). `color` is the brand's
+ * actual fruit: gold body, green leaf, ink wordmark. The surface pack draws
+ * the header in `color`, so a product surface that reaches for `mono` by
+ * default renders a dark blob where the brand has a fruit.
+ */
+export type BrandVariant = "mono" | "color";
+
 /** Lockup width : height, from the kit lockup viewBox (589 x 200). */
 const LOCKUP_RATIO = 589 / 200;
 
@@ -24,11 +35,17 @@ export const MARK_MIN_SIZE = 32;
 /** Rendered height in px that satisfies LOCKUP_MIN_WIDTH. */
 export const LOCKUP_COMPLIANT_HEIGHT = Math.ceil(LOCKUP_MIN_WIDTH / LOCKUP_RATIO);
 
-function lockupSrc(dark: boolean) {
+function lockupSrc(dark: boolean, variant: BrandVariant) {
+  if (variant === "color") {
+    return dark ? "/lockup-color-on-dark.svg" : "/lockup-color.svg";
+  }
   return dark ? "/lockup-mono-cream.svg" : "/lockup-mono-ink.svg";
 }
 
-function markSrc(dark: boolean) {
+function markSrc(dark: boolean, variant: BrandVariant) {
+  if (variant === "color") {
+    return dark ? "/mark-color-on-dark.svg" : "/mark-color.svg";
+  }
   return dark ? "/mark-mono-cream.svg" : "/mark-mono-ink.svg";
 }
 
@@ -39,7 +56,13 @@ function markSrc(dark: boolean) {
  * which drops the leaf and highlight and stays legible at favicon sizes. The
  * fruit dot has no dark-surface variant — gold reads on both.
  */
-export function BrandMark({ size = 24 }: { size?: number }) {
+export function BrandMark({
+  size = 24,
+  variant = "mono",
+}: {
+  size?: number;
+  variant?: BrandVariant;
+}) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   if (size < MARK_MIN_SIZE) {
@@ -54,7 +77,7 @@ export function BrandMark({ size = 24 }: { size?: number }) {
   }
   return (
     <img
-      src={markSrc(dark)}
+      src={markSrc(dark, variant)}
       alt=""
       aria-hidden="true"
       style={{ height: size, width: "auto" }}
@@ -73,19 +96,21 @@ export function BrandMark({ size = 24 }: { size?: number }) {
 export function BrandLockup({
   size = LOCKUP_COMPLIANT_HEIGHT,
   label = "marula",
+  variant = "mono",
 }: {
   /** Requested rendered height in px; width follows the 589:200 lockup ratio. */
   size?: number;
   label?: string;
+  variant?: BrandVariant;
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   if (size * LOCKUP_RATIO < LOCKUP_MIN_WIDTH) {
-    return <BrandMark size={Math.max(size, MARK_MIN_SIZE)} />;
+    return <BrandMark size={Math.max(size, MARK_MIN_SIZE)} variant={variant} />;
   }
   return (
     <img
-      src={lockupSrc(dark)}
+      src={lockupSrc(dark, variant)}
       alt={label}
       style={{ height: size, width: "auto" }}
     />
