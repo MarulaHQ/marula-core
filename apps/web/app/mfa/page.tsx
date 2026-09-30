@@ -1,234 +1,211 @@
-// /mfa — second-factor challenge completing an mfa_required login.
+// /mfa — the second step. Indigo, because it protects something.
 //
-// Purpose: accepts the pending bridge token from /login, verifies a TOTP or
-// recovery code, or runs the WebAuthn passkey assertion flow; stores tokens
-// and continues to /today.
-// Non-purpose: enrollment and management live in /settings/security.
-
+// Purpose: the 6-digit code from an authenticator app, on the pack's state 03:
+// a shield in a gold circle, the serif headline "One more step, then you're
+// in", six boxes with the active one outlined, a Verify that stays disabled
+// until there are six digits, and a backup code one click away.
 //
-// Wave 17 lane 9 UX pass: Tangerine brand header, mono code field with
-// letter-count affordance, method pills (typed from the server methods
-// list), icon'd error row, back-to-sign-in affordance, staggered entrance
-// motion (≤120ms transform/opacity, prefers-reduced-motion collapses).
-// Security copy and every wired call unchanged.
-
+// ONE DOCUMENTED DIVERGENCE. The pack draws a "Trust this computer for 30
+// days" checkbox on this screen. The pinned `MfaVerifyRequest` carries exactly
+// two fields, `mfa_token` and `code` — there is no `trust_device` — so a
+// checkbox here would record a choice the server never receives. It is not
+// drawn. The remaining parts of the state (shield, serif headline, six boxes
+// with the active one outlined, disabled Verify, backup code one click away)
+// are drawn in full, and trusting a device is recorded as a backend follow-up.
+//
+// Non-purpose: no passkey management, no recovery-code list, no device naming.
+// Those live in Settings, Security.
 "use client";
 
-import { FieldError } from "@marula-core/ui";
-import { friendlyMutationText } from "../../lib/error-copy";
-import { Button, Card, Input, Label, Spinner, Tag } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { AuthBrand } from "../../components/auth/auth-brand";
-import { api, resolveApiBaseUrl, saveTokens } from "../../lib/api";
+import { useCallback, useEffect, useState } from "react";
+import { Spinner } from "@marula-core/ui";
+import { friendlyMutationText } from "../../lib/error-copy";
+import { EntryCard, EntryHeadline, EntryIcon, EntryShell, EntryShield, OtpBoxes } from "../../components/auth/entry";
 
-const API_BASE = resolveApiBaseUrl();
-
-function b64urlToBuffer(value: string): ArrayBuffer {
-  const pad = value.length % 4 === 0 ? "" : "=".repeat(4 - (value.length % 4));
-  const base64 = value.replace(/-/g, "+").replace(/_/g, "/") + pad;
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
+/** What the pending sign-in left in session storage, if anything. */
+interface Pending {
+  mfa_token: string;
+  methods: string[];
 }
 
-function bufferToB64url(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function readPending(): Pending | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.sessionStorage.getItem("marula-mfa-pending");
+  if (raw === null) return null;
+  try {
+    const parsed = JSON.parse(raw) as Pending;
+    return typeof parsed.mfa_token === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
-/** Server method strings → legible pill labels (UI labels only; the
- * verification itself always goes to the server with the raw code). */
 function methodLabel(method: string): string | null {
-  if (method === "totp") return "Authenticator";
-  if (method === "recovery") return "Recovery code";
-  if (method === "webauthn") return "Passkey";
-  return null;
+  if (method === "totp") return null;
+  if (method === "webauthn" || method === "passkey") return "passkey";
+  return method;
 }
 
 export default function MfaChallengePage() {
   const router = useRouter();
-  const [mfaToken, setMfaToken] = useState<string | null>(null);
-  const [methods, setMethods] = useState<string[]>([]);
+  const [pending, setPending] = useState<Pending | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [backupMode, setBackupMode] = useState(false);
 
   useEffect(() => {
-    const pending = window.sessionStorage.getItem("marula-mfa-pending");
-    if (!pending) {
-      router.replace("/login");
-      return;
-    }
-    const parsed = JSON.parse(pending) as { mfa_token: string; methods: string[] };
-    setMfaToken(parsed.mfa_token);
-    setMethods(parsed.methods ?? []);
-  }, [router]);
+    setPending(readPending());
+  }, []);
 
-  async function complete(tokens: {
-    access_token: string;
-    refresh_token: string;
-    session_id: string;
-    expires_in: number;
-  }) {
-    window.sessionStorage.removeItem("marula-mfa-pending");
-    saveTokens(tokens);
-    window.location.assign("/today");
-  }
+  const verify = useCallback(
+    async (value: string) => {
+      if (pending === null || busy) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const { api, saveTokens } = await import("../../lib/api");
+        const result = await api.mfaVerify({ mfa_token: pending.mfa_token, code: value });
+        saveTokens(result);
+        window.sessionStorage.removeItem("marula-mfa-pending");
+        window.location.assign("/today");
+      } catch (err) {
+        setCode("");
+        setError(
+          friendlyMutationText(
+            err,
+            "That code didn't match. Check the six digits and try again.",
+          ),
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, pending],
+  );
 
-  async function submitCode(e: React.FormEvent) {
-    e.preventDefault();
-    if (!mfaToken || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await complete(await api.mfaVerify({ mfa_token: mfaToken, code }));
-    } catch (err) {
-      setError(friendlyMutationText(err, "Verification failed"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function signInWithPasskey() {
-    if (!mfaToken || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const beginResponse = await fetch(`${API_BASE}/api/v1/auth/mfa/webauthn/begin`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mfa_token: mfaToken }),
-      });
-      if (!beginResponse.ok) throw new Error(`passkey begin failed (${beginResponse.status})`);
-      const begin = (await beginResponse.json()) as {
-        public_key: { publicKey?: Record<string, unknown> } & Record<string, unknown>;
-        challenge_token: string;
-      };
-
-      const envelope = begin.public_key as { publicKey: Record<string, unknown> };
-      const raw = (envelope.publicKey ?? begin.public_key) as {
-        challenge: string;
-        allowCredentials?: Array<{ id: string } & Record<string, unknown>>;
-      } & Record<string, unknown>;
-      const requestOptions = {
-        ...raw,
-        challenge: b64urlToBuffer(raw.challenge),
-        allowCredentials: (raw.allowCredentials ?? []).map((descriptor) => ({
-          ...descriptor,
-          id: b64urlToBuffer(descriptor.id),
-        })),
-      } as unknown as PublicKeyCredentialRequestOptions;
-      const credential = (await navigator.credentials.get({
-        publicKey: requestOptions,
-      })) as PublicKeyCredential | null;
-      if (!credential) throw new Error("no credential returned by authenticator");
-
-      const serialized = JSON.parse(JSON.stringify(credential)) as Record<string, unknown>;
-      const response = serialized.response as Record<string, string>;
-      const assertion = credential.response as AuthenticatorAssertionResponse;
-      response.clientDataJSON = bufferToB64url(assertion.clientDataJSON);
-      response.authenticatorData = bufferToB64url(assertion.authenticatorData);
-      response.signature = bufferToB64url(assertion.signature);
-      response.userHandle = bufferToB64url((assertion.userHandle ?? new ArrayBuffer(0)) as ArrayBuffer);
-
-      const finishResponse = await fetch(`${API_BASE}/api/v1/auth/mfa/webauthn/finish`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          challenge_token: begin.challenge_token,
-          credential: serialized,
-        }),
-      });
-      if (!finishResponse.ok) throw new Error(`passkey rejected (${finishResponse.status})`);
-      await complete((await finishResponse.json()) as Parameters<typeof saveTokens>[0]);
-    } catch (err) {
-      setError(friendlyMutationText(err, "Passkey sign-in failed"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!mfaToken) return null;
-
-  const pills = methods.map(methodLabel).filter((m): m is string => m !== null);
+  const alternative = pending?.methods.map(methodLabel).find((m) => m !== null);
 
   return (
-    <main
-      className="flex min-h-screen items-center justify-center p-4 md:p-6"
-      style={{ background: "var(--m-canvas)" }}
-    >
-      <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="mfa-card">
-        <AuthBrand subtitle="Marula account security." />
-        <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
-          Two-factor verification
-        </h1>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Your account is protected with a second factor. Enter a code from
-          your authenticator app, a recovery code, or use a passkey.
-        </p>
-        {pills.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Available second factors">
-            {pills.map((label) => (
-              <Tag key={label} tone="outline" style={{ border: "1px solid var(--m-border)" }}>
-                {label}
-              </Tag>
-            ))}
-          </div>
-        )}
-        <form onSubmit={submitCode} className="m-rise mt-5 grid gap-3" style={{ animationDelay: "40ms" }}>
-          <div className="grid gap-1.5">
-            <Label htmlFor="code">Authenticator or recovery code</Label>
-            <Input
-              id="code"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="123456"
-              className="font-mono tracking-widest"
-              autoFocus
-              autoComplete="one-time-code"
-              inputMode="numeric"
-            />
-            <p className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
-              Six digits from your authenticator, or a recovery code
-              (XXXXX-XXXXX).
+    <EntryShell background="indigo" fruit="none">
+      <EntryCard>
+        <EntryShield />
+        <div>
+          <EntryHeadline>One more step, then you&apos;re in.</EntryHeadline>
+          <p className="entry-sub">
+            {backupMode
+              ? "Type one of the backup codes you saved when you turned this on."
+              : "Open your authenticator app and type the 6-digit code it shows."}
+          </p>
+        </div>
+
+        {pending === null ? (
+          <div style={{ textAlign: "center" }}>
+            <p className="entry-hint" style={{ marginBottom: 12 }}>
+              This page needs a sign-in to finish. Start again and we&apos;ll bring you back here.
             </p>
-          </div>
-          {error && (
-            <FieldError data-testid="mfa-error">{error}</FieldError>
-          )}
-          <Button type="submit" variant="primary" disabled={busy || code.trim().length === 0}>
-            {busy && <Spinner />}
-            {busy ? "Verifying…" : "Verify"}
-          </Button>
-        </form>
-        {methods.includes("webauthn") && (
-          <>
-            <div
-              className="my-4 flex items-center gap-2 text-xs"
-              style={{ color: "var(--m-text-secondary)" }}
+            <button
+              type="button"
+              className="entry-btn entry-btn--full"
+              onClick={() => router.replace("/login")}
             >
-              <span className="h-px flex-1" style={{ background: "var(--m-border)" }} />
-              or
-              <span className="h-px flex-1" style={{ background: "var(--m-border)" }} />
+              Back to sign in
+            </button>
+          </div>
+        ) : (
+          <>
+            {error !== null && (
+              <p className="entry-error" role="alert" data-testid="mfa-error">
+                <EntryIcon name="alert" size={14} />
+                <span>{error}</span>
+              </p>
+            )}
+
+            <div className="entry-field">
+              <span className="entry-label" id="mfa-code-label">
+                {backupMode ? "Backup code" : "6-digit code"}
+              </span>
+              <OtpBoxes
+                id="mfa-code"
+                label={backupMode ? "Backup code" : "6-digit code"}
+                value={code}
+                onChange={setCode}
+                onComplete={(value) => void verify(value)}
+              />
             </div>
-            <Button variant="secondary" onClick={signInWithPasskey} disabled={busy} className="w-full">
-              Use a passkey
-            </Button>
+
+            {!backupMode && (
+              <p className="entry-hint" style={{ margin: 0 }}>
+                The code changes every 30 seconds. It works once, and it signs this browser in.
+              </p>
+            )}
+
+            <button
+              type="button"
+              className="entry-btn"
+              disabled={code.length !== 6 || busy}
+              onClick={() => void verify(code)}
+              data-testid="mfa-verify"
+            >
+              {busy ? (
+                <>
+                  <Spinner /> Checking…
+                </>
+              ) : backupMode ? (
+                "Use this code"
+              ) : (
+                "Verify"
+              )}
+            </button>
+
+            <div style={{ textAlign: "center" }}>
+              {backupMode ? (
+                <button
+                  type="button"
+                  className="entry-link"
+                  style={{ fontWeight: 500, color: "var(--m-text-secondary)" }}
+                  onClick={() => {
+                    setBackupMode(false);
+                    setCode("");
+                    setError(null);
+                  }}
+                >
+                  Use the app instead
+                </button>
+              ) : alternative !== undefined ? (
+                <button
+                  type="button"
+                  className="entry-link"
+                  style={{ fontWeight: 500, color: "var(--m-text-secondary)" }}
+                  onClick={() => {
+                    setBackupMode(true);
+                    setCode("");
+                    setError(null);
+                  }}
+                  data-testid="mfa-alternative"
+                >
+                  {alternative === "passkey" ? "Use your passkey instead" : "Use a backup code instead"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="entry-link"
+                  style={{ fontWeight: 500, color: "var(--m-text-secondary)" }}
+                  onClick={() => {
+                    setBackupMode(true);
+                    setCode("");
+                    setError(null);
+                  }}
+                  data-testid="mfa-alternative"
+                >
+                  Use a backup code instead
+                </button>
+              )}
+            </div>
           </>
         )}
-        <button
-          type="button"
-          onClick={() => window.location.assign("/login")}
-          className="mt-5 w-full text-xs underline underline-offset-2 transition-opacity duration-100 hover:opacity-70"
-          style={{ color: "var(--m-text-muted)" }}
-        >
-          Back to sign-in
-        </button>
-      </Card>
-    </main>
+      </EntryCard>
+    </EntryShell>
   );
 }

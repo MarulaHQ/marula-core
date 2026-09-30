@@ -1,75 +1,102 @@
-// /password-reset — public password recovery surface (Wave 19 lane 5).
+// /password-reset — a fresh start. Indigo, because this screen protects something.
 //
-// Purpose: dual mode. WITHOUT ?token= it is the REQUEST half — takes an
-// email, POSTs /api/v1/auth/password-reset/request, and always shows one
-// uniform answer (the endpoint answers {ok:true} identically for known
-// and unknown mailboxes — no account enumeration). WITH ?token= (the
-// single-use mail link lands here; core-api link builder pages
-// "password-reset") it is the CONFIRM half — new password + confirm →
-// POST /confirm; the confirm revokes ALL of the user's refresh sessions
-// server-side, then the member returns to /login to sign in fresh.
-// Typed failure states only: 429 `auth_rate_limited` on the request
-// surface, 401 envelope on an unknown/used/expired confirm token —
-// never fabricated success.
-// Non-purpose: no backend logic, no admin consent surfaces; the mail
-// itself comes from core-mail outbox.
+// Purpose: two halves. WITHOUT `?token` it asks for the address and sends a
+// single-use link. WITH `?token` it chooses the new password, which is the
+// pack's state 05: the serif headline "A fresh start", the two rules ticking
+// off as they are met, and a mismatch as a BLUSH field with words.
+//
+// THE RULES TICK OFF AS THEY ARE MET, and they only report a failure once the
+// field has been touched. An untouched form showing two red rules teaches
+// nothing and looks like a rejection; a person needs to see which rule they
+// have not met yet, which is what a tick list is for.
+//
+// MINIMUM LENGTH: this screen enforces the server's own floor of 10
+// characters, and says 10, because that is the number the API answers with.
+// The pack draws 12. Saying 12 here and having the server accept 10 would be
+// a promise the product does not keep, so the copy matches the contract and the
+// difference from the pack is recorded rather than papered over.
 "use client";
 
-import { Button, Card, FieldHint, Input, Label, Spinner } from "@marula-core/ui";
-import { applyTheme } from "@marula-core/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-
-import { AuthBrand } from "../../components/auth/auth-brand";
+import { applyTheme } from "@marula-core/ui";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { api } from "../../lib/api";
+import {
+  EntryCard,
+  EntryHeadline,
+  EntryNote,
+  EntryShell,
+  PasswordRules,
+} from "../../components/auth/entry";
 
-/** Show/hide affordance shared by the confirm-mode password fields. */
-function ToggleShowPassword({
-  on,
-  onClick,
+/** The server's floor. See the header note: the copy matches the contract. */
+const MIN_LENGTH = 10;
+
+function PasswordInput({
+  id,
+  value,
+  onChange,
+  shown,
+  onToggle,
+  autoComplete,
+  invalid,
 }: {
-  on: boolean;
-  onClick: () => void;
-}): ReactNode {
+  id: string;
+  value: string;
+  onChange: (next: string) => void;
+  shown: boolean;
+  onToggle: () => void;
+  autoComplete: string;
+  invalid: boolean;
+}) {
   return (
-    <button
-      type="button"
-      aria-label={on ? "Hide password" : "Show password"}
-      aria-pressed={on}
-      onClick={onClick}
-      className="absolute inset-y-0 right-0 flex w-9 items-center justify-center transition-opacity duration-100 hover:opacity-70"
-      style={{ color: "var(--m-text-muted)" }}
-    >
-      <svg
-        width="15"
-        height="15"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        aria-hidden="true"
+    <div style={{ position: "relative" }}>
+      <input
+        id={id}
+        className="entry-input"
+        type={shown ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete={autoComplete}
+        aria-invalid={invalid}
+        style={{ paddingRight: 48 }}
+      />
+      <button
+        type="button"
+        aria-label={shown ? "Hide password" : "Show password"}
+        aria-pressed={shown}
+        onClick={onToggle}
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          display: "flex",
+          width: 44,
+          height: 48,
+          alignItems: "center",
+          justifyContent: "center",
+          border: "none",
+          background: "transparent",
+          color: "var(--m-text-secondary)",
+        }}
       >
-        {on ? (
-          <>
-            <path
-              d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"
-              strokeLinejoin="round"
-            />
-            <circle cx="12" cy="12" r="2.5" />
-            <path d="M4 4l16 16" strokeLinecap="round" />
-          </>
-        ) : (
-          <>
-            <path
-              d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"
-              strokeLinejoin="round"
-            />
-            <circle cx="12" cy="12" r="2.5" />
-          </>
-        )}
-      </svg>
-    </button>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
+          {shown ? (
+            <>
+              <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+              <circle cx="12" cy="12" r="2.5" />
+              <path d="M4 4l16 16" strokeLinecap="round" />
+            </>
+          ) : (
+            <>
+              <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+              <circle cx="12" cy="12" r="2.5" />
+            </>
+          )}
+        </svg>
+      </button>
+    </div>
   );
 }
 
@@ -77,20 +104,20 @@ function PasswordResetInner(): ReactNode {
   const router = useRouter();
   const params = useSearchParams();
   const token = params.get("token") ?? "";
-  const [mode, setMode] = useState<"idle" | "sent" | "done">(
-    token === "" ? "idle" : "idle",
-  );
+  const [mode, setMode] = useState<"idle" | "sent" | "done">("idle");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mismatch, setMismatch] = useState(false);
 
   useEffect(() => {
-    // Public page: always render in the customer theme (light), never
-    // inherit a staff member's persisted preference on a shared device.
+    // Public page: always render in the light theme, never inherit a staff
+    // member's persisted preference on a shared device.
     applyTheme("light");
   }, []);
 
@@ -104,7 +131,7 @@ function PasswordResetInner(): ReactNode {
         { body: { email: email.trim() } },
       );
       if (apiError !== undefined) {
-        // 429 auth_rate_limited + generic envelopes both land here.
+        // 429 auth_rate_limited and generic envelopes both land here.
         setError(friendlyMutationText(apiError));
         return;
       }
@@ -118,15 +145,19 @@ function PasswordResetInner(): ReactNode {
 
   const confirmReset = async (e: React.FormEvent) => {
     e.preventDefault();
+    setTouched(true);
     setError(null);
-    if (password.length < 10) {
-      setError("Password must be at least 10 characters.");
+    if (password.length < MIN_LENGTH) {
+      setMismatch(false);
+      setError(`Your password needs at least ${MIN_LENGTH} characters.`);
       return;
     }
     if (password !== confirm) {
-      setError("The two passwords do not match.");
+      // Blush on the second field, with the words — never red.
+      setMismatch(true);
       return;
     }
+    setMismatch(false);
     setBusy(true);
     try {
       const { error: apiError } = await api.api.POST(
@@ -136,9 +167,7 @@ function PasswordResetInner(): ReactNode {
       if (apiError !== undefined) {
         const body = apiError as { error?: { code?: number } } | undefined;
         if (body?.error?.code === 401) {
-          setError(
-            "This reset link is invalid, used, or expired — request a fresh reset email.",
-          );
+          setError("This reset link is invalid, used, or expired. Ask for a fresh one and try again.");
           return;
         }
         setError(friendlyMutationText(apiError));
@@ -153,38 +182,45 @@ function PasswordResetInner(): ReactNode {
   };
 
   if (token === "") {
-    // --- REQUEST MODE -----------------------------------------------
     return (
-      <main
-        className="flex min-h-full items-center justify-center p-4 md:p-6"
-        style={{ background: "var(--m-canvas)" }}
-      >
-        <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="password-reset-card">
-          <AuthBrand />
-          <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
-            Reset your password
-          </h1>
+      <EntryShell background="indigo">
+        <EntryCard testId="password-reset-card">
           {mode === "sent" ? (
-            <div className="m-rise mt-2 grid gap-4" style={{ animationDelay: "40ms" }}>
-              <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }} role="status">
-                If an account exists for <strong>{email.trim()}</strong>, a
-                single-use reset link is on its way (valid 30 minutes).
-                Every previous link is invalidated when you ask again.
-              </p>
-              <Button variant="secondary" onClick={() => router.replace("/login")} className="w-full">
-                Back to sign-in
-              </Button>
-            </div>
+            <>
+              <div>
+                <EntryHeadline>Check your email.</EntryHeadline>
+                <p className="entry-sub">
+                  If an account matches <b style={{ color: "var(--m-text)" }}>{email.trim()}</b>, a
+                  reset link is on its way. It works once and lasts 30 minutes.
+                </p>
+              </div>
+              <EntryNote>
+                Asking again invalidates every earlier link, so only the newest one works.
+              </EntryNote>
+              <button
+                type="button"
+                className="entry-btn entry-btn--secondary entry-btn--full"
+                onClick={() => router.replace("/login")}
+              >
+                Back to sign in
+              </button>
+            </>
           ) : (
-            <form onSubmit={requestReset} className="mt-2 grid gap-3">
-              <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                Enter the email you sign in with. We&apos;ll send a single-use
-                reset link.
-              </p>
-              <label className="grid gap-1">
-                <Label htmlFor="reset-email">Email</Label>
-                <Input
+            <>
+              <div>
+                <EntryHeadline>A fresh start.</EntryHeadline>
+                <p className="entry-sub">
+                  Enter the address you sign in with and we&apos;ll send a link to choose a new
+                  password.
+                </p>
+              </div>
+              <form onSubmit={requestReset} className="entry-field">
+                <label className="entry-label" htmlFor="reset-email">
+                  Work email
+                </label>
+                <input
                   id="reset-email"
+                  className="entry-input"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -192,137 +228,117 @@ function PasswordResetInner(): ReactNode {
                   autoComplete="email"
                   required
                 />
-              </label>
+              </form>
               {error !== null && (
-                <p
-                  role="alert"
-                  className="text-[13px]"
-                  style={{ color: "var(--m-status-danger-fg)" }}
-                  data-testid="password-reset-error"
-                >
+                <p className="entry-error" role="alert" data-testid="password-reset-error">
                   {error}
                 </p>
               )}
-              <Button type="submit" variant="primary" disabled={busy}>
-                {busy ? <Spinner /> : null} Send reset link
-              </Button>
-              <button
-                type="button"
-                onClick={() => router.replace("/login")}
-                className="text-xs underline underline-offset-2 transition-opacity duration-100 hover:opacity-70"
-                style={{ color: "var(--m-text-muted)" }}
-              >
-                Back to sign-in
+              <button type="submit" className="entry-btn" disabled={busy} data-testid="password-reset-send">
+                {busy ? "Sending…" : "Email me a reset link"}
               </button>
-            </form>
+            </>
           )}
-        </Card>
-      </main>
+        </EntryCard>
+      </EntryShell>
     );
   }
 
   if (mode === "done") {
-    // Confirmation: safety net is the server-side session revocation.
     return (
-      <main
-        className="flex min-h-full items-center justify-center p-4 md:p-6"
-        style={{ background: "var(--m-canvas)" }}
-      >
-        <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7">
-          <AuthBrand />
-          <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
-            Password updated
-          </h1>
-          <p className="mt-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }} role="status">
-            Every existing session was revoked as a safeguard.
-          </p>
-          <Button
-            variant="primary"
-            className="m-rise mt-4 w-full"
+      <EntryShell background="indigo" fruit="none">
+        <EntryCard testId="password-reset-card">
+          <div className="entry-centred">
+            <EntryHeadline>Password changed.</EntryHeadline>
+            <p className="entry-sub">
+              You&apos;re signed out everywhere else, and this browser is signed in. Take the new
+              password to your password manager now.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="entry-btn"
             onClick={() => router.replace("/login")}
+            data-testid="password-reset-continue"
           >
             Sign in
-          </Button>
-        </Card>
-      </main>
+          </button>
+        </EntryCard>
+      </EntryShell>
     );
   }
 
-  // --- CONFIRM MODE -------------------------------------------------
   return (
-    <main
-      className="flex min-h-full items-center justify-center p-4 md:p-6"
-      style={{ background: "var(--m-canvas)" }}
-    >
-      <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="password-reset-confirm-card">
-        <AuthBrand />
-        <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
-          Set a new password
-        </h1>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Pick a new password for your Marula account.
-        </p>
-        <form onSubmit={confirmReset} className="m-rise mt-4 grid gap-3" style={{ animationDelay: "40ms" }}>
-          <label className="grid gap-1">
-            <Label htmlFor="reset-password">New password</Label>
-            <div className="relative">
-              <Input
-                id="reset-password"
-                type={showPassword ? "text" : "password"}
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="pr-12"
-                required
-                minLength={10}
-              />
-              <ToggleShowPassword on={showPassword} onClick={() => setShowPassword((v) => !v)} />
-            </div>
-            <FieldHint>10+ characters</FieldHint>
-          </label>
-          <label className="grid gap-1">
-            <Label htmlFor="reset-password-confirm">Confirm password</Label>
-            <div className="relative">
-              <Input
-                id="reset-password-confirm"
-                type={showConfirm ? "text" : "password"}
-                autoComplete="new-password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                className="pr-12"
-                required
-              />
-              <ToggleShowPassword on={showConfirm} onClick={() => setShowConfirm((v) => !v)} />
-            </div>
-          </label>
+    <EntryShell background="indigo">
+      <EntryCard testId="password-reset-card">
+        <div>
+          <EntryHeadline>A fresh start.</EntryHeadline>
+          <p className="entry-sub">
+            Choose a new password. You&apos;ll be signed out everywhere else once you save it.
+          </p>
+        </div>
+
+        <form onSubmit={confirmReset} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="entry-field">
+            <label className="entry-label" htmlFor="reset-password">
+              New password
+            </label>
+            <PasswordInput
+              id="reset-password"
+              value={password}
+              onChange={(next) => {
+                setPassword(next);
+                setTouched(true);
+              }}
+              shown={showPassword}
+              onToggle={() => setShowPassword((v) => !v)}
+              autoComplete="new-password"
+              invalid={error !== null}
+            />
+            <PasswordRules password={password} touched={touched} />
+          </div>
+
+          <div className={`entry-field${mismatch ? " entry-field--error" : ""}`}>
+            <label className="entry-label" htmlFor="reset-confirm">
+              Type it again
+            </label>
+            <PasswordInput
+              id="reset-confirm"
+              value={confirm}
+              onChange={(next) => {
+                setConfirm(next);
+                if (mismatch) setMismatch(false);
+              }}
+              shown={showConfirm}
+              onToggle={() => setShowConfirm((v) => !v)}
+              autoComplete="new-password"
+              invalid={mismatch}
+            />
+            {mismatch && (
+              <p className="entry-error" role="alert" data-testid="password-mismatch">
+                The two passwords don&apos;t match. Retype the second one.
+              </p>
+            )}
+          </div>
+
           {error !== null && (
-            <p
-              role="alert"
-              className="text-[13px]"
-              style={{ color: "var(--m-status-danger-fg)" }}
-              data-testid="password-reset-confirm-error"
-            >
+            <p className="entry-error" role="alert" data-testid="password-reset-error">
               {error}
             </p>
           )}
-          <Button type="submit" variant="primary" disabled={busy}>
-            {busy ? <Spinner /> : null} Set password
-          </Button>
+
+          <button type="submit" className="entry-btn" disabled={busy} data-testid="password-reset-save">
+            {busy ? "Saving…" : "Save and sign in"}
+          </button>
         </form>
-      </Card>
-    </main>
+      </EntryCard>
+    </EntryShell>
   );
 }
 
 export default function PasswordResetPage(): ReactNode {
   return (
-    <Suspense
-      fallback={
-        <main className="flex min-h-full items-center justify-center p-6" style={{ background: "var(--m-canvas)" }}>
-          <Spinner />
-        </main>
-      }
-    >
+    <Suspense fallback={<EntryShell background="indigo"><EntryCard /></EntryShell>}>
       <PasswordResetInner />
     </Suspense>
   );

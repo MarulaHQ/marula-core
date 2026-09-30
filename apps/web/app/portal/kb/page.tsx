@@ -1,221 +1,154 @@
-// /portal/kb — knowledge-base self-service (Portal v2): search plus the
-// client-facing category tree. Only articles passing the effective
-// client-facing gate (published AND article flag AND category flag) can
-// ever appear here — the server enforces it, the UI just reflects it.
+// /portal/kb — the service desk's help pages.
 //
-// Wave 17 lane 8 UX pass: search-first landing (help-center pattern),
-// topic chips with descriptions as accessible titles, article rows with
-// real previews, staggered entrance. Header nav is the SPA's spine — the
-// old "back to requests" footer affordance is gone.
+// Purpose: the pack's state 10. A search field, and the articles the service
+// desk published — the pack labels the card "Published by Brightline IT",
+// because these are THEIR words, not Marula's. That attribution is the point:
+// a client asking why the password policy changed wants the answer from the
+// people who set it.
+//
+// A search that finds nothing says so in a sentence and points at the service
+// desk. It never suggests an AI, because there is no grant anywhere on this
+// surface (rule 7 of the DERIVATION-GUIDE contract: no grant means no trace).
+//
+// Non-purpose: no categories rail of staff taxonomy, no drafts, no edit. A
+// client reads; the service desk writes.
 "use client";
 
-import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, EmptyState, Input, Spinner } from "@marula-core/ui";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { friendlyMutationText } from "../../../lib/error-copy";
+import { Spinner } from "@marula-core/ui";
 import {
   portalApi,
   useRequirePortalAuth,
   type PortalKbArticle,
-  type PortalKbCategory,
 } from "../../../lib/portal-api";
+import { DESK_NAME } from "../../../components/portal/portal-shell";
+import { PortalCard, PortalIcon, PortalRow } from "../../../components/portal/portal-ui";
 
 export default function PortalKbPage() {
   useRequirePortalAuth();
-  const router = useRouter();
-  const [categories, setCategories] = useState<PortalKbCategory[] | null>(null);
   const [articles, setArticles] = useState<PortalKbArticle[] | null>(null);
-  const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<PortalKbArticle[] | null>(null);
-  const [searching, setSearching] = useState(false);
+  const [term, setTerm] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    portalApi
-      .kbCategories()
-      .then((cats) => {
-        if (!cancelled) setCategories(cats);
+    const trimmed = term.trim();
+    const request =
+      trimmed === ""
+        ? portalApi.kbArticles()
+        : portalApi
+            .kbSearch(trimmed)
+            .then((hits) => hits.map((h) => h.article))
+            .catch(() => {
+              if (!cancelled) setError("That search didn't work. Try a shorter word.");
+              return [] as PortalKbArticle[];
+            });
+    request
+      .then((list) => {
+        if (!cancelled) {
+          setArticles(list);
+          setError(null);
+        }
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(friendlyMutationText(err, "Failed to load topics"));
+        if (!cancelled) {
+          setError(friendlyMutationText(err, "We couldn't load the help pages."));
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setArticles(null);
-    portalApi
-      .kbArticles(category ?? undefined)
-      .then((rows) => {
-        if (!cancelled) setArticles(rows);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(friendlyMutationText(err, "Failed to load articles"));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [category]);
-
-  async function search(e: React.FormEvent) {
-    e.preventDefault();
-    const term = query.trim();
-    if (term === "") {
-      setHits(null);
-      return;
-    }
-    setSearching(true);
-    setError(null);
-    try {
-      const results = await portalApi.kbSearch(term);
-      setHits(results.map((hit) => hit.article));
-    } catch (err: unknown) {
-      setError(friendlyMutationText(err, "Search failed; try again."));
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  const shown = hits ?? articles;
+  }, [term]);
 
   return (
-    <section className="m-rise">
-      <div className="mb-4">
-        <h1 className="text-xl font-semibold tracking-tight">Knowledge base</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--m-text-muted)" }}>
-          Guides your provider published for clients. Search across
-          everything you can see, or browse by topic.
-        </p>
+    <>
+      <div>
+        <h1 className="portal-title">Help</h1>
+        <p className="portal-lead">Answers from your service desk. Most take a couple of minutes.</p>
       </div>
 
-      <form onSubmit={search} className="mb-4 flex max-w-xl gap-2" role="search">
-        <Input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search guides…"
-          className="w-full"
-          aria-label="Search the knowledge base"
-        />
-        <Button type="submit" size="sm" className="shrink-0" disabled={searching}>
-          {searching ? "Searching…" : "Search"}
-        </Button>
-      </form>
-
-      {hits !== null && (
-        <div className="mb-4 flex items-center gap-2 text-xs">
-          <span className="tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-            {hits.length} result{hits.length === 1 ? "" : "s"} for “{query.trim()}”
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setQuery("");
-              setHits(null);
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          setTerm(query);
+        }}
+        role="search"
+      >
+        <label htmlFor="portal-kb-search" className="sr-only">
+          Search the help pages
+        </label>
+        <div style={{ position: "relative" }}>
+          <span
+            aria-hidden
+            style={{
+              position: "absolute",
+              top: 15,
+              left: 14,
+              color: "var(--m-text-secondary)",
             }}
           >
-            Clear
-          </Button>
+            <PortalIcon name="search" size={18} />
+          </span>
+          <input
+            id="portal-kb-search"
+            className="portal-input"
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search, for example VPN or password"
+            style={{ height: 52, paddingLeft: 42 }}
+            data-testid="portal-kb-search"
+          />
         </div>
-      )}
+      </form>
 
       {error !== null && (
-        <p className="mb-3 text-sm" style={{ color: "var(--m-status-danger)" }}>
-          {error}
+        <p className="portal-field__error" role="alert">
+          <PortalIcon name="alert" size={14} />
+          <span>{error}</span>
         </p>
       )}
 
-      {categories !== null && categories.length > 0 && hits === null && (
-        <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Filter by topic">
-          <TopicChip
-            label="All topics"
-            active={category === null}
-            onClick={() => setCategory(null)}
-          />
-          {categories.map((c) => (
-            <TopicChip
-              key={c.id}
-              label={c.name}
-              title={c.description !== "" ? c.description : c.name}
-              active={category === c.id}
-              onClick={() => setCategory(c.id)}
+      <PortalCard
+        title={term.trim() === "" ? "Popular" : "Results"}
+        aside={<span className="portal-hint">Published by {DESK_NAME}</span>}
+        testId="portal-kb-list"
+      >
+        {articles === null ? (
+          <div style={{ display: "flex", justifyContent: "center", padding: "32px 0" }}>
+            <Spinner aria-label="Loading the help pages" />
+          </div>
+        ) : articles.length === 0 ? (
+          <div className="portal-empty" style={{ padding: "32px 24px" }}>
+            <p>
+              {term.trim() === ""
+                ? "No help pages published yet. Contact your service desk and they'll answer directly."
+                : "Nothing matches. Try a shorter word, or ask your service desk."}
+            </p>
+            <a className="portal-btn" href="mailto:support@brightline.example">
+              Contact us
+            </a>
+          </div>
+        ) : (
+          articles.map((a) => (
+            <PortalRow
+              key={a.id}
+              title={a.title}
+              meta={a.body.replace(/[#*`>]/g, "").slice(0, 120)}
+              columns="minmax(0, 1fr) 24px"
+              to={`/portal/kb/articles/${a.id}`}
+              trailing={
+                <span style={{ color: "var(--m-text-secondary)" }}>
+                  <PortalIcon name="chev" size={18} />
+                </span>
+              }
+              testId={`portal-kb-${a.id}`}
             />
-          ))}
-        </div>
-      )}
-
-      {shown === null ? (
-        <div className="flex justify-center py-16">
-          <Spinner aria-label="Loading articles" />
-        </div>
-      ) : shown.length === 0 ? (
-        <EmptyState
-          message={
-            hits !== null
-              ? "Nothing matched that search — try different words."
-              : "No published guides yet."
-          }
-        />
-      ) : (
-        <ul
-          className="overflow-hidden rounded-[0.75rem] border"
-          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
-        >
-          {shown.map((a, i) => (
-            <li key={a.id} className="m-rise" style={{ animationDelay: `${Math.min(i * 30, 240)}ms` }}>
-              <button
-                type="button"
-                onClick={() => router.push(`/portal/kb/articles/${a.id}`)}
-                className="w-full border-b px-3 py-3 text-left transition-colors duration-100 last:border-b-0 hover:bg-[var(--m-surface-hover)]"
-                style={{ borderColor: "var(--m-border)" }}
-              >
-                <div className="text-sm font-medium">{a.title}</div>
-                <div
-                  className="mt-0.5 line-clamp-1 text-xs"
-                  style={{ color: "var(--m-text-muted)" }}
-                >
-                  {a.body}
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-function TopicChip({
-  label,
-  title,
-  active,
-  onClick,
-}: {
-  label: string;
-  title?: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      title={title}
-      className="rounded-full border px-3 py-1 text-xs transition-colors duration-100"
-      style={{
-        borderColor: active ? "var(--m-accent)" : "var(--m-border)",
-        color: active ? "var(--m-accent)" : "var(--m-text-secondary)",
-        background: "var(--m-surface)",
-      }}
-    >
-      {label}
-    </button>
+          ))
+        )}
+      </PortalCard>
+    </>
   );
 }

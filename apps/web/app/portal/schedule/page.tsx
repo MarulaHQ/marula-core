@@ -1,107 +1,110 @@
-// /portal/schedule — appointment requests (Portal v2): browse published
-// free slots for the next two weeks, ask for one, and track pending /
-// decided requests. A request is an INTENT: staff approve (which books
-// the calendar) or decline. Client copy stays honest about that.
+// /portal/schedule — confirmed visits, and a way to ask for another.
 //
-// Wave 17 lane 8 UX pass: slots grouped by DAY (help-center/booking-flow
-// pattern — date pill rows instead of one flattened strip), a person
-// selector, an explicit selected-time confirm card before the title/notes
-// form, honest status labels, staggered entrances. Same pinned endpoints,
-// same honest intent semantics.
+// Purpose: the pack's state 09. "Coming up" holds the visits that are actually
+// booked, each with a green Confirmed pill, because a person said yes. Under
+// it, "Ask for a visit": a day, a time, and a reason.
+//
+// IT IS A REQUEST, AND THE SCREEN SAYS SO. The pack's own line: "This is a
+// request. A person confirms it, so you're never left guessing." A time
+// somebody is already busy is struck through and disabled with the reason
+// written underneath, so the state is a word and a strike, not a grey. When
+// the request goes through, what comes back is "Requested. We'll confirm within
+// the hour" and what she sees next — never a booking the screen made on its
+// own.
+//
+// WHY REMOTE KIND: the pinned create operation takes a `kind`, and every slot
+// the portal exposes is a remote session slot. "On site" is a booking the
+// service desk schedules after a request, not a thing this screen may promise.
 "use client";
 
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, EmptyState, Input, Label, Spinner, StatusTag, type StatusTone } from "@marula-core/ui";
-import { useEffect, useMemo, useState } from "react";
+import { Spinner } from "@marula-core/ui";
 import {
   portalApi,
   useRequirePortalAuth,
   type PortalAppointmentRequest,
   type PortalStaffSlots,
 } from "../../../lib/portal-api";
+import { clockTime, longDate, timeRange } from "../../../lib/portal-copy";
+import {
+  ConfirmedPill,
+  Field,
+  Note,
+  PortalCard,
+  PortalIcon,
+  RequestedPill,
+} from "../../../components/portal/portal-ui";
 
 type Slot = { userId: string; name: string; starts: string; ends: string };
 
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-function fmtDay(iso: string): string {
+function dayLabel(iso: string): string {
   const d = new Date(iso);
   const today = new Date();
   const local = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const deltaDays = Math.round(
+  const delta = Math.round(
     (new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - local.getTime()) / 86_400_000,
   );
-  if (deltaDays === 0) return "Today";
-  if (deltaDays === 1) return "Tomorrow";
-  return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  if (delta === 0) return "Today";
+  if (delta === 1) return "Tomorrow";
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
 
-const STATUS_LABEL: Record<PortalAppointmentRequest["status"], string> = {
-  pending: "Pending",
-  approved: "Approved",
-  declined: "Declined",
-  cancelled: "Withdrawn",
-};
-
-function requestTone(status: PortalAppointmentRequest["status"]): StatusTone {
-  switch (status) {
-    case "approved":
-      return "success";
-    case "declined":
-      return "danger";
-    case "pending":
-      return "warning";
-    default:
-      return "neutral";
-  }
-}
+const REASONS = [
+  "Something is broken",
+  "A new starter or a leaver",
+  "Moving or setting up equipment",
+  "Something else",
+] as const;
 
 export default function PortalSchedulePage() {
   useRequirePortalAuth();
-  const [slots, setSlots] = useState<PortalStaffSlots[] | null>(null);
-  const [requests, setRequests] = useState<PortalAppointmentRequest[] | null>(null);
-  const [picked, setPicked] = useState<Slot | null>(null);
-  const [title, setTitle] = useState("");
-  const [notes, setNotes] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
   const range = useMemo(() => {
     const from = new Date().toISOString().slice(0, 10);
     const to = new Date(Date.now() + 13 * 24 * 3600 * 1000).toISOString().slice(0, 10);
     return { from, to };
   }, []);
 
-  function load() {
+  const [slots, setSlots] = useState<PortalStaffSlots[] | null>(null);
+  const [requests, setRequests] = useState<PortalAppointmentRequest[] | null>(null);
+  const [picked, setPicked] = useState<Slot | null>(null);
+  const [reason, setReason] = useState<string>(REASONS[0]);
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [requested, setRequested] = useState<string | null>(null);
+
+  const load = useCallback(() => {
     let cancelled = false;
     setError(null);
     portalApi
       .scheduleSlots(range.from, range.to)
-      .then((s) => {
-        if (!cancelled) setSlots(s);
+      .then((list) => {
+        if (!cancelled) setSlots(list);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(friendlyMutationText(err, "Failed to load availability"));
+        if (!cancelled) setError(friendlyMutationText(err, "We couldn't load availability."));
       });
     portalApi
       .listAppointmentRequests()
-      .then((r) => {
-        if (!cancelled) setRequests(r);
+      .then((list) => {
+        if (!cancelled) setRequests(list);
       })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(friendlyMutationText(err, "Failed to load your requests"));
+      .catch(() => {
+        if (!cancelled) setRequests([]);
       });
     return () => {
       cancelled = true;
     };
-  }
+  }, [range]);
 
-  useEffect(() => load(), [range]);
+  // Load on mount, and again after a request is sent, so the list the client
+  // reads back is the server's answer rather than a local guess.
+  useEffect(() => {
+    return load();
+  }, [load]);
 
-  /** Flatten staff slots into day groups (chronological). */
+  /** Flatten the staff slots into day groups, chronological. */
   const days = useMemo(() => {
     if (slots === null) return null;
     const byDay = new Map<string, Slot[]>();
@@ -118,25 +121,30 @@ export default function PortalSchedulePage() {
         byDay.set(key, list);
       }
     }
-    const dayEntries = [...byDay.entries()]
+    return [...byDay.entries()]
       .map(([day, group]) => [day, group.sort((a, b) => (a.starts < b.starts ? -1 : 1))] as const)
       .sort(([a], [b]) => (a < b ? -1 : 1))
-      .slice(0, 10);
-    return dayEntries.map(([day, list]) => ({
-      day,
-      label: fmtDay(list[0]?.starts ?? day),
-      slots: list,
-    }));
+      .slice(0, 6)
+      .map(([day, list]) => ({ day, label: dayLabel(list[0]?.starts ?? day), slots: list }));
   }, [slots]);
 
+  const confirmed = useMemo(
+    () => (requests === null ? [] : requests.filter((r) => r.status === "approved")),
+    [requests],
+  );
+  const waiting = useMemo(
+    () => (requests === null ? [] : requests.filter((r) => r.status === "pending")),
+    [requests],
+  );
+
   async function submit() {
-    if (picked === null) return;
+    if (picked === null || busy) return;
     if (title.trim() === "") {
-      setNotice("Give the request a short title.");
+      setError("Give the request a short title, so we know what it's about.");
       return;
     }
-    setSubmitting(true);
-    setNotice(null);
+    setBusy(true);
+    setError(null);
     try {
       await portalApi.createAppointmentRequest({
         user_id: picked.userId,
@@ -144,181 +152,188 @@ export default function PortalSchedulePage() {
         starts_at: picked.starts,
         ends_at: picked.ends,
         kind: "remote",
-        notes: notes.trim() === "" ? undefined : notes.trim(),
       });
+      setRequested(`${picked.name} · ${longDate(picked.starts)} at ${clockTime(picked.starts)}`);
       setPicked(null);
       setTitle("");
-      setNotes("");
-      setNotice("Request sent — your provider will confirm or suggest another time.");
-      load();
-    } catch (err: unknown) {
-      setNotice(friendlyMutationText(err, "Sending the request failed; try again."));
-      load();
+    } catch (err) {
+      setError(friendlyMutationText(err, "We couldn't send that request. Nothing was booked."));
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   }
 
-  async function cancel(id: string) {
-    try {
-      await portalApi.cancelAppointmentRequest(id);
-      load();
-    } catch (err: unknown) {
-      setNotice(friendlyMutationText(err, "Cancelling failed; the request may already be decided."));
-    }
+  if (slots === null || days === null || requests === null) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: "64px 0" }}>
+        <Spinner aria-label="Loading your schedule" />
+      </div>
+    );
   }
 
   return (
-    <section className="m-rise">
-      <div className="mb-5">
-        <h1 className="text-xl font-semibold tracking-tight">Schedule a visit</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--m-text-muted)" }}>
-          Free times below come from your provider&apos;s published
-          availability. You ask; they confirm.
+    <>
+      <div>
+        <h1 className="portal-title">Schedule</h1>
+        <p className="portal-lead">
+          Visits your service desk has booked with you, and a way to ask for another.
         </p>
       </div>
 
-      {error !== null && (
-        <p className="mb-3 text-sm" style={{ color: "var(--m-status-danger)" }}>
-          {error}
-        </p>
-      )}
-      {notice !== null && (
-        <p className="mb-3 text-xs" style={{ color: "var(--m-text-secondary)" }} role="status">
-          {notice}
-        </p>
-      )}
-
-      {picked !== null && (
-        <div data-testid="picked-slot-summary" className="m-rise mb-4 rounded-[0.75rem] border-2 p-4" style={{ borderColor: "var(--m-accent)", background: "var(--m-surface)" }}>
-          <p className="text-sm font-medium">
-            {fmtDay(picked.starts)}, {fmtTime(picked.starts)}–{fmtTime(picked.ends)} · with {picked.name}
-          </p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="appt-title">What is it about?</Label>
-              <Input
-                id="appt-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Quarterly review, config change…"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="appt-notes">Details (optional)</Label>
-              <Input
-                id="appt-notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="mt-3 flex gap-2">
-            <Button size="sm" onClick={submit} disabled={submitting}>
-              {submitting ? "Sending…" : "Send request"}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setPicked(null)}>
-              Cancel
-            </Button>
-          </div>
+      {requested !== null && (
+        <div className="portal-next" role="status" data-testid="portal-schedule-requested">
+          <b className="portal-next__lead">Requested. We&apos;ll confirm within the hour.</b>
+          <span className="portal-hint" style={{ fontSize: 14 }}>
+            {requested}. You&apos;ll get an email, and it will appear here once it is confirmed.
+          </span>
         </div>
       )}
 
-      {slots === null ? (
-        <div className="flex justify-center py-16">
-          <Spinner aria-label="Loading availability" />
-        </div>
-      ) : slots.length === 0 || (days !== null && days.length === 0) ? (
-        <EmptyState message="No published availability in the next two weeks — check back soon." />
-      ) : (
-        <div className="space-y-5">
-          {(days ?? []).map((d) => (
-            <div key={d.day}>
-              <h2
-                className="mb-2 text-xs font-semibold uppercase tracking-wide"
-                style={{ color: "var(--m-text-muted)" }}
-              >
-                {d.label}
-              </h2>
-              <ul className="flex flex-wrap gap-2">
-                {d.slots.map((slot) => {
-                  const active =
-                    picked !== null && picked.starts === slot.starts && picked.userId === slot.userId;
-                  return (
-                    <li key={`${slot.userId}-${slot.starts}`}>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPicked({
-                            userId: slot.userId,
-                            name: slot.name,
-                            starts: slot.starts,
-                            ends: slot.ends,
-                          })
-                        }
-                        aria-pressed={active}
-                        aria-label={`${fmtDay(slot.starts)}, ${fmtTime(slot.starts)} with ${slot.name}`}
-                        className="rounded-[0.75rem] border px-2.5 py-1.5 text-xs transition-colors duration-100 hover:bg-[var(--m-surface-hover)]"
-                        style={{
-                          borderColor: active ? "var(--m-accent)" : "var(--m-border)",
-                          color: active ? "var(--m-accent)" : "var(--m-text-secondary)",
-                          background: "var(--m-surface)",
-                        }}
-                      >
-                        {fmtTime(slot.starts)}
-                        <span
-                          className="ml-1.5"
-                          style={{ color: active ? "var(--m-accent)" : "var(--m-text-muted)" }}
-                        >
-                          {slot.name.split(" ")[0]}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+      <PortalCard title="Coming up" testId="portal-schedule-confirmed">
+        {confirmed.length === 0 ? (
+          <div className="portal-empty" style={{ padding: "32px 24px" }}>
+            <p className="portal-hint">
+              Nothing booked. Ask for a time below and a person will confirm it.
+            </p>
+          </div>
+        ) : (
+          confirmed.map((r) => (
+            <div className="portal-row" key={r.id} style={{ gridTemplateColumns: "70px minmax(0, 1fr) auto" }}>
+              <span className="portal-row__title">
+                <b style={{ fontSize: 20, lineHeight: 1 }}>
+                  {new Date(r.starts_at).getDate()}
+                </b>
+                <span>
+                  {new Date(r.starts_at).toLocaleDateString(undefined, { month: "short" })}
+                </span>
+              </span>
+              <span className="portal-row__title">
+                <b>{r.title}</b>
+                <span>
+                  {timeRange(r.starts_at, r.ends_at)}
+                  {r.notes !== null && r.notes !== "" ? ` · ${r.notes}` : ""}
+                </span>
+              </span>
+              <ConfirmedPill />
+            </div>
+          ))
+        )}
+      </PortalCard>
+
+      {waiting.length > 0 && (
+        <PortalCard title="Requested, waiting for a person" testId="portal-schedule-pending">
+          {waiting.map((r) => (
+            <div className="portal-row" key={r.id} style={{ gridTemplateColumns: "minmax(0, 1fr) auto" }}>
+              <span className="portal-row__title">
+                <b>{r.title}</b>
+                <span>
+                  {dayLabel(r.starts_at)}, {timeRange(r.starts_at, r.ends_at)}
+                </span>
+              </span>
+              <RequestedPill />
             </div>
           ))}
-        </div>
+        </PortalCard>
       )}
 
-      <h2 className="mb-2 mt-9 text-sm font-semibold">Your requests</h2>
-      {requests === null ? (
-        <div className="flex justify-center py-8">
-          <Spinner aria-label="Loading requests" />
-        </div>
-      ) : requests.length === 0 ? (
-        <EmptyState message="No appointment requests yet — pick a time above." />
-      ) : (
-        <ul
-          className="overflow-hidden rounded-[0.75rem] border"
-          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+      <PortalCard title="Ask for a visit" testId="portal-schedule-ask">
+        <div
+          className="portal-card__body"
+          style={{ display: "flex", flexDirection: "column", gap: 16 }}
         >
-          {requests.map((r, i) => (
-            <li
-              key={r.id}
-              className="m-rise flex items-center justify-between gap-3 border-b px-3 py-3 last:border-b-0"
-              style={{ borderColor: "var(--m-border)", animationDelay: `${Math.min(i * 30, 180)}ms` }}
+          <Field label="What is it about?" htmlFor="portal-visit-reason">
+            <select
+              id="portal-visit-reason"
+              className="portal-select"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
             >
-              <div className="min-w-0">
-                <div className="text-sm font-medium">{r.title}</div>
-                <div className="text-xs tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-                  {fmtDay(r.starts_at)}, {fmtTime(r.starts_at)}
-                  {r.decision_note !== null && ` · ${r.decision_note}`}
+              {REASONS.map((r) => (
+                <option key={r}>{r}</option>
+              ))}
+            </select>
+          </Field>
+
+          <div className="portal-field" style={{ gap: 8 }}>
+            <span className="portal-field__label">Which day and time?</span>
+            {days.length === 0 ? (
+              <p className="portal-hint" style={{ margin: 0 }}>
+                No times are open in the next two weeks. Contact your service desk and they will
+                find you a slot.
+              </p>
+            ) : (
+              days.map((d) => (
+                <div key={d.day} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <span
+                    className="portal-hint"
+                    style={{ alignSelf: "center", minWidth: 92, fontWeight: 600 }}
+                  >
+                    {d.label}
+                  </span>
+                  <div className="portal-choices" role="radiogroup" aria-label={d.label}>
+                    {d.slots.map((s) => (
+                      <button
+                        key={`${s.starts}-${s.userId}`}
+                        type="button"
+                        role="radio"
+                        aria-checked={picked?.starts === s.starts && picked.userId === s.userId}
+                        className="portal-choice"
+                        onClick={() => setPicked(s)}
+                        data-testid={`portal-slot-${s.starts}`}
+                      >
+                        {clockTime(s.starts)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <StatusTag tone={requestTone(r.status)}>{STATUS_LABEL[r.status]}</StatusTag>
-                {r.status === "pending" && (
-                  <Button variant="ghost" size="sm" onClick={() => cancel(r.id)}>
-                    Withdraw
-                  </Button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+              ))
+            )}
+          </div>
+
+          <Field
+            label="What should we know?"
+            htmlFor="portal-visit-title"
+            hint="One line. Who it affects and what they need."
+          >
+            <input
+              id="portal-visit-title"
+              className="portal-input"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="The new starter needs a laptop before Monday"
+            />
+          </Field>
+
+          {error !== null && (
+            <p className="portal-field__error" role="alert">
+              <PortalIcon name="alert" size={14} />
+              <span>{error}</span>
+            </p>
+          )}
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+            <button
+              type="button"
+              className="portal-btn"
+              disabled={busy || picked === null}
+              onClick={() => void submit()}
+              data-testid="portal-schedule-request"
+            >
+              {busy ? "Sending…" : "Request this time"}
+            </button>
+            {picked !== null && (
+              <span className="portal-hint">
+                {picked.name} · {dayLabel(picked.starts)} at {clockTime(picked.starts)}
+              </span>
+            )}
+          </div>
+
+          <Note>
+            This is a request. A person confirms it, so you&apos;re never left guessing &mdash;
+            nothing is booked until you see a Confirmed pill.
+          </Note>
+        </div>
+      </PortalCard>
+    </>
   );
 }

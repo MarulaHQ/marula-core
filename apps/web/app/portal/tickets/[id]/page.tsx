@@ -1,109 +1,62 @@
-// /portal/tickets/[id] — ticket detail + reply composer.
+// /portal/tickets/[id] — one request, the thread, and the reply box.
 //
-// Purpose: the client's view of one request — a quiet, exact status bar at
-// the top (color + text, never color alone), then the conversation thread
-// containing ONLY the note kinds their tier may read (server-enforced via
-// core_domain::notes::visible_kinds; this page simply renders what
-// arrives). Replies land as client-visible notes and render optimistically:
-// the reply appears immediately and reconciles when the server answers
-// (docs/instant-first.md — optimistic render, authoritative reconcile);
-// a rejection surfaces a typed banner and keeps the text. Attachments
-// listed under the pinned portal endpoint: metadata rows with real
-// downloads; an empty attachments set renders a note, never a dead button.
-// Non-purpose: no status changes, no assignment, no internal-note
-// composition, no attachment upload (no client-facing upload op in the
-// pins) — portal v1 is strictly view + reply.
+// Purpose: the client's view of a single request. A title in her words, the
+// plain-worded state, and the conversation. The pack's state 03 is the shape:
+// messages with a name and a time, and a reply box underneath that says who
+// sees it.
 //
-// Wave 17 lane 8 UX pass: status bar, priority + due glances, thread
-// bubbles with distinct update-from-the-team treatment, optimistic reply,
-// attachments wiring.
+// THE PACK'S OTHER STATE, THE ONE THAT MATTERS MOST. State 04 is a brand-new
+// ticket with no reply yet — the failure to design against. It carries
+// "We have it, and someone is looking": what has happened, what is happening
+// now, and what comes next, plus the promise of an email the moment there is a
+// reply. That card renders here whenever the desk has not answered yet, so an
+// empty ticket is never an empty screen.
+//
+// TWO HONEST GAPS, BOTH VISIBLE IN THE CODE AND RECORDED AS FOLLOW-UPS.
+// 1. AUTHORSHIP. The pinned `PortalComment` carries a `kind` and a `body`, and
+//    no author field, so the API cannot tell us which side of the conversation
+//    a `client_visible` message came from. A technician's name is therefore
+//    never invented. A desk message is labelled when the server says it is one
+//    (`in_house_update`); the rest of the thread is presented as the
+//    conversation, and a message we recognise as hers because she just sent
+//    it is marked "You" and takes the gold tint.
+// 2. UPLOAD. The pins expose attachment metadata and a download but no upload
+//    operation, so there is no "Attach a file" button — a button that cannot
+//    attach is exactly the dead button this repo forbids. The line under the
+//    composer says where files go instead.
+//
+// WHAT IS NOT SHOWN. No internal note reaches this component (the API
+// withholds them by tier), no priority, no board, no SLA clock, no due date.
+// The API exposes no assignee, so the line says when it was raised and, while
+// nobody has answered, that it is not yet assigned.
+//
+// REPLY. Rides the instant-first envelope: it appears immediately and
+// reconciles when the server answers (docs/instant-first.md). A rejection
+// surfaces in words and keeps the text. Send is disabled until there is
+// something to send.
 "use client";
 
-import { friendlyMutationText } from "../../../../lib/error-copy";
-import { Button, Card, Label, Spinner, StatusTag, Tag, Textarea, type StatusTone } from "@marula-core/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { friendlyMutationText } from "../../../../lib/error-copy";
+import { Spinner } from "@marula-core/ui";
 import {
   portalApi,
   useRequirePortalAuth,
   type PortalAttachmentView,
   type PortalTicketDetail,
 } from "../../../../lib/portal-api";
+import { clientStatusFor, initials, longDate } from "../../../../lib/portal-copy";
+import {
+  Note,
+  PortalCard,
+  PortalIcon,
+  StatusPill,
+  TicketProgress,
+} from "../../../../components/portal/portal-ui";
 
-const CATEGORY_LABEL: Record<string, string> = {
-  open: "Open",
-  in_progress: "In progress",
-  waiting: "Waiting",
-  closed: "Closed",
-};
-
-const PRIORITY_LABEL: Record<string, string> = { p1: "P1", p2: "P2", p3: "P3", p4: "P4" };
-
-function categoryTone(category: string): StatusTone {
-  switch (category) {
-    case "waiting":
-      return "warning";
-    case "closed":
-      return "success";
-    default:
-      return "neutral";
-  }
-}
-
-function formatWhen(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
-
-function sizeLabel(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** Exact status bar: color + text pairing on the token set (docs/theme.md
- * §3.3). Mirrors the staff workbench bar at portal-appropriate density. */
-function TicketStatusBar({ category }: { category: string }) {
-  const tone = category === "closed" ? "success" : category === "waiting" ? "warning" : "neutral";
-  const bgVar = `var(--m-status-${tone === "neutral" ? "neutral" : tone === "success" ? "success" : "warning"}-bg)`;
-  const fgVar = `var(--m-status-${tone === "neutral" ? "neutral" : tone === "success" ? "success" : "warning"}-fg)`;
-  const label = CATEGORY_LABEL[category] ?? category;
-  const line =
-    category === "closed"
-      ? "Resolved — your service desk closed this request."
-      : category === "waiting"
-        ? "Waiting on your organization — a reply from you moves it forward."
-        : category === "in_progress"
-          ? "In progress — your service desk is working on it."
-          : "Open — queued with the service desk.";
-  return (
-    <div
-      className="flex items-center gap-2 rounded-[0.75rem] px-3 py-2 text-xs"
-      style={{ background: bgVar, color: fgVar }}
-      role="status"
-      data-testid="ticket-status-bar"
-    >
-      <span className="font-semibold uppercase tracking-wide">{label}</span>
-      <span aria-hidden>·</span>
-      <span>{line}</span>
-    </div>
-  );
-}
-
-interface PendingReply {
-  id: string;
-  body: string;
-}
-
-/** In-house updates get a distinct quiet treatment; client-visible notes
- * render plainly. Internal notes never reach this component. Locally
- * pending replies (optimistic) render in the composer's side of the
- * thread until the authoritative reload replaces them. */
-function NoteKindMark({ kind }: { kind: string }) {
-  if (kind !== "in_house_update") return null;
-  return <Tag tone="outline">Update from the team</Tag>;
+function when(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 export default function PortalTicketPage() {
@@ -113,27 +66,34 @@ export default function PortalTicketPage() {
   const [detail, setDetail] = useState<PortalTicketDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<PortalAttachmentView[] | null>(null);
-  const [replyBody, setReplyBody] = useState("");
+  const [reply, setReply] = useState("");
   const [replyError, setReplyError] = useState<string | null>(null);
-  const [pendingReply, setPendingReply] = useState<PendingReply | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const threadEndRef = useRef<HTMLDivElement | null>(null);
+  // The last body she sent this session, so a message we can recognise as hers
+  // is attributed to her. See the authorship note in the header.
+  const lastSent = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       setDetail(await portalApi.getTicket(params.id));
     } catch (err) {
-      setLoadError(friendlyMutationText(err, "Failed to load this request"));
+      setLoadError(
+        friendlyMutationText(err, "We couldn't open this ticket. Try again in a moment."),
+      );
     }
   }, [params.id]);
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
     let cancelled = false;
     portalApi
       .listTicketAttachments(params.id)
-      .then((a) => {
-        if (!cancelled) setAttachments(a);
+      .then((list) => {
+        if (!cancelled) setAttachments(list);
       })
       .catch(() => {
         if (!cancelled) setAttachments([]);
@@ -141,24 +101,30 @@ export default function PortalTicketPage() {
     return () => {
       cancelled = true;
     };
-  }, [load, params.id]);
+  }, [params.id]);
 
   async function submitReply(e: React.FormEvent) {
     e.preventDefault();
-    const body = replyBody.trim();
+    const body = reply.trim();
     if (body.length === 0 || detail === null || sending) return;
     setSending(true);
     setReplyError(null);
-    setPendingReply({ id: `pending-${Date.now()}`, body });
-    setReplyBody("");
+    setPending(body);
+    setReply("");
     try {
       await portalApi.reply(detail.ticket.id, body);
-      setPendingReply(null);
+      lastSent.current = body;
+      setPending(null);
       await load();
     } catch (err) {
-      setReplyError(friendlyMutationText(err, "Reply failed"));
-      setPendingReply(null);
-      setReplyBody(body);
+      setReplyError(
+        friendlyMutationText(
+          err,
+          "Your reply didn't go through. It's kept below, so you can send it again.",
+        ),
+      );
+      setPending(null);
+      setReply(body);
     } finally {
       setSending(false);
     }
@@ -166,180 +132,207 @@ export default function PortalTicketPage() {
 
   if (loadError !== null) {
     return (
-      <div className="space-y-3">
-        <p className="text-sm" style={{ color: "var(--m-status-danger)" }}>
-          {loadError}
-        </p>
-        <Button variant="secondary" size="sm" onClick={() => router.push("/portal/tickets")}>
-          Back to requests
-        </Button>
-      </div>
+      <PortalCard>
+        <div className="portal-card__body">
+          <p className="portal-field__error" role="alert">
+            <PortalIcon name="alert" size={14} />
+            <span>{loadError}</span>
+          </p>
+          <p>
+            <button
+              type="button"
+              className="portal-link"
+              onClick={() => router.push("/portal/tickets")}
+            >
+              Back to your tickets
+            </button>
+          </p>
+        </div>
+      </PortalCard>
     );
   }
+
   if (detail === null) {
     return (
-      <div className="flex justify-center py-16">
-        <Spinner aria-label="Loading request" />
+      <div style={{ display: "flex", justifyContent: "center", padding: "64px 0" }}>
+        <Spinner aria-label="Loading this ticket" />
       </div>
     );
   }
 
   const t = detail.ticket;
+  const status = clientStatusFor(t.category);
+  // "Nobody has answered yet" is the case the pack's state 04 is drawn for,
+  // and the only staffing fact the pinned API supports.
+  const nothingYet = status === "received";
+  const deskSaidSomething = detail.comments.some((c) => c.kind === "in_house_update");
+
   return (
-    <section className="m-rise space-y-5">
+    <>
       <div>
         <button
           type="button"
-          className="text-xs transition-colors duration-100 hover:underline"
-          style={{ color: "var(--m-text-muted)" }}
+          className="portal-back"
           onClick={() => router.push("/portal/tickets")}
         >
-          ← All requests
+          <PortalIcon name="back" size={14} />
+          Your tickets
         </button>
-        <div className="mt-2 flex flex-wrap items-baseline gap-2">
-          <h1 className="text-xl font-semibold tracking-tight">{t.title}</h1>
-        </div>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--m-text-muted)" }}>
-          <span className="font-mono tabular-nums">{t.number}</span>
-          <StatusTag tone={categoryTone(t.category)}>
-            {CATEGORY_LABEL[t.category] ?? t.category}
-          </StatusTag>
-          <Tag tone="outline">{PRIORITY_LABEL[t.priority] ?? t.priority}</Tag>
-          {t.due_at !== null && t.due_at !== undefined && t.category !== "closed" && (
-            <span className="tabular-nums">
-              Due {new Date(t.due_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-            </span>
-          )}
-          <span className="tabular-nums">
-            Opened {formatWhen(t.created_at)} · Updated {formatWhen(t.updated_at)}
+      </div>
+
+      <div>
+        <h1 className="portal-title">{t.title}</h1>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 12,
+            marginTop: 8,
+          }}
+        >
+          <StatusPill status={status} />
+          <span className="portal-hint" style={{ fontSize: 14 }}>
+            #{t.number} · Raised {longDate(t.created_at)}
+            {nothingYet ? " · Not yet assigned" : ""}
           </span>
-        </div>
-        <div className="mt-3">
-          <TicketStatusBar category={t.category} />
         </div>
       </div>
 
-      <Card className="divide-y" style={{ borderColor: "var(--m-border)" }}>
-        {detail.comments.length === 0 && pendingReply === null ? (
-          <p className="px-4 py-6 text-sm" style={{ color: "var(--m-text-muted)" }}>
-            No updates yet.
-          </p>
-        ) : (
-          <>
-            {detail.comments.map((c, i) => {
-              const isUpdate = c.kind === "in_house_update";
-              return (
-                <article
-                  key={c.id}
-                  className="m-rise px-4 py-3"
-                  style={{ animationDelay: `${Math.min(i * 30, 180)}ms` }}
-                >
-                  <header
-                    className="mb-1.5 flex items-center gap-2 text-xs"
-                    style={{ color: "var(--m-text-muted)" }}
-                  >
-                    <span className="tabular-nums">{formatWhen(c.created_at)}</span>
-                    <NoteKindMark kind={c.kind} />
-                  </header>
-                  <p
-                    className="whitespace-pre-wrap text-sm leading-6"
-                    style={{ color: isUpdate ? "var(--m-text-secondary)" : "var(--m-text)" }}
-                  >
+      {detail.comments.length === 0 && pending === null ? (
+        <p className="portal-hint" style={{ margin: 0 }}>
+          You haven&apos;t written anything on this yet. Tell us what you need below.
+        </p>
+      ) : (
+        <div
+          style={{ display: "flex", flexDirection: "column", gap: 18 }}
+          data-testid="portal-thread"
+        >
+          {detail.comments.map((c) => {
+            const fromDesk = c.kind === "in_house_update";
+            const mine = !fromDesk && lastSent.current !== null && c.body === lastSent.current;
+            const speaker = fromDesk ? "An update from your service desk" : mine ? "You" : null;
+            return (
+              <article className={`portal-msg${mine ? " portal-msg--mine" : ""}`} key={c.id}>
+                <span className="portal-avatar portal-avatar--sm" aria-hidden>
+                  {initials(speaker === "You" ? "You" : "Service desk")}
+                </span>
+                <div className="portal-msg__body">
+                  <div className="portal-msg__who">
+                    {speaker !== null && <b>{speaker}</b>}
+                    <span>{when(c.created_at)}</span>
+                  </div>
+                  <p className="portal-msg__text" style={{ margin: 0 }}>
                     {c.body}
                   </p>
-                </article>
-              );
-            })}
-            {pendingReply !== null && (
-              <article className="px-4 py-3" data-testid="portal-pending-reply">
-                <header className="mb-1.5 flex items-center gap-2 text-xs" style={{ color: "var(--m-text-muted)" }}>
-                  <span>You</span>
-                  <span className="inline-flex items-center gap-1 opacity-70">
-                    <span className="m-spinner" style={{ width: 10, height: 10 }} aria-hidden />
-                    sending…
-                  </span>
-                </header>
-                <p className="whitespace-pre-wrap text-sm leading-6">{pendingReply.body}</p>
+                </div>
               </article>
-            )}
-          </>
-        )}
-        <div ref={threadEndRef} />
-      </Card>
+            );
+          })}
+          {pending !== null && (
+            <article className="portal-msg portal-msg--mine" data-testid="portal-pending-reply">
+              <span className="portal-avatar portal-avatar--sm" aria-hidden>
+                {initials("You")}
+              </span>
+              <div className="portal-msg__body">
+                <div className="portal-msg__who">
+                  <b>You</b>
+                  <span>Sending…</span>
+                </div>
+                <p className="portal-msg__text" style={{ margin: 0 }}>
+                  {pending}
+                </p>
+              </div>
+            </article>
+          )}
+        </div>
+      )}
 
-      <Card className="p-4">
-        <form className="space-y-3" onSubmit={submitReply}>
-          <Label htmlFor="portal-reply">Reply</Label>
-          <Textarea
+      {nothingYet && <TicketProgress unassigned />}
+
+      {deskSaidSomething && (
+        <Note>
+          You&apos;ll get an email the moment your service desk replies, and the reply will appear
+          here too.
+        </Note>
+      )}
+
+      {/* The reply box: a plain textarea, who sees it, and Send — which stays
+          disabled until there is something to send. */}
+      <form onSubmit={submitReply}>
+        <div className="portal-composer">
+          <label htmlFor="portal-reply" className="sr-only">
+            Your reply
+          </label>
+          <textarea
             id="portal-reply"
-            rows={4}
-            required
-            value={replyBody}
-            onChange={(e) => setReplyBody(e.target.value)}
-            placeholder="Write an update for the service desk…"
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            placeholder={
+              nothingYet
+                ? "Add anything that would help us, such as what you have already tried."
+                : "Reply to your service desk"
+            }
+            aria-describedby="portal-reply-who"
+            aria-invalid={replyError !== null}
           />
           {replyError !== null && (
-            <p className="text-xs" style={{ color: "var(--m-status-danger)" }} role="alert">
-              {replyError} — your reply was not delivered; the text is preserved above.
+            <p className="portal-field__error" role="alert">
+              <PortalIcon name="alert" size={14} />
+              <span>{replyError}</span>
             </p>
           )}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-              Your reply is visible to your organization and the service desk.
+          <div className="portal-composer__row">
+            <span className="portal-hint" id="portal-reply-who">
+              Only you and your service desk see this.
             </span>
-            <Button type="submit" disabled={sending || replyBody.trim().length === 0}>
-              {sending ? "Sending…" : "Send reply"}
-            </Button>
+            <span style={{ flex: 1 }} />
+            <button
+              type="submit"
+              className="portal-btn"
+              disabled={sending || reply.trim().length === 0}
+              data-testid="portal-send-reply"
+            >
+              {sending ? "Sending…" : "Send"}
+            </button>
           </div>
-        </form>
-      </Card>
+          <p className="portal-hint" style={{ margin: 0 }}>
+            Need to send a file? Email your service desk and it arrives on this ticket. Anything
+            they attach shows below.
+          </p>
+        </div>
+      </form>
 
       {attachments !== null && attachments.length > 0 && (
-        <Card>
-          <div className="border-b px-4 py-2.5 text-sm font-semibold" style={{ borderColor: "var(--m-border)" }}>
-            Attachments
-          </div>
-          <ul className="divide-y" style={{ borderColor: "var(--m-border)" }}>
-            {attachments.map((att, i) => (
-              <li
-                key={att.id}
-                className="m-rise flex items-center justify-between gap-3 px-4 py-2.5"
-                style={{ animationDelay: `${Math.min(i * 30, 180)}ms` }}
-                data-testid={`portal-attachment-${i}`}
+        <PortalCard title="Files" testId="portal-attachments">
+          {attachments.map((att) => (
+            <div className="portal-row" key={att.id}>
+              <span className="portal-row__title">
+                <b>{att.filename}</b>
+                <span>{Math.max(1, Math.round(att.size_bytes / 1024))} KB</span>
+              </span>
+              <button
+                type="button"
+                className="portal-btn portal-btn--secondary portal-btn--small"
+                onClick={() => {
+                  void portalApi.ticketAttachmentUrl(t.id, att.id).then((url) => {
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = att.filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                  });
+                }}
               >
-                <div className="min-w-0">
-                  <div className="truncate text-sm">{att.filename}</div>
-                  <div className="text-xs tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-                    {sizeLabel(att.size_bytes)}
-                  </div>
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    void portalApi
-                      .ticketAttachmentUrl(params.id, att.id)
-                      .then((url) => {
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = att.filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        a.remove();
-                        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-                      })
-                      .catch(() => {
-                        /* 404/412: the download simply doesn't start — no fake state */
-                      });
-                  }}
-                >
-                  Download
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </Card>
+                <PortalIcon name="download" size={16} />
+                Download
+              </button>
+            </div>
+          ))}
+        </PortalCard>
       )}
-    </section>
+    </>
   );
 }

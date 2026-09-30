@@ -1,173 +1,187 @@
-// /portal/invoices — the client's invoice list (Portal v2).
+// /portal/invoices — what you owe, first.
 //
-// Purpose: every issued or paid invoice of the signed-in client's
-// organization, newest first. Void and draft documents are staff-internal
-// and never appear. Rows show number, status, due date, and the honest
-// outstanding amount (overdue/due-soon are derived client-side from the
-// real due_on + issued status — no invented dunning data). The detail view
-// owns lines, receipts, and payment.
-// Non-purpose: no dunning internals (staff-only), no dispute flows, no
-// payment-method management (the PaymentProvider seam is none-mode: the
-// detail's copy says exactly that).
+// Purpose: the most important fact on the page is the most important size.
+// The pack's state 05 puts "You owe $3,860.00" at 32px in a card with a BLUSH
+// border, a blush "Overdue 12 days" pill and a sentence saying how to pay. The
+// list of every invoice sits below it.
 //
-// Wave 17 lane 8 UX pass: honest stat strip (total due / overdue off real
-// rows), due-soon signal, staggered row entrance, header-nav replaces the
-// stray "back to requests" affordance.
+// OVERDUE IS BLUSH, WITH THE NUMBER OF DAYS. Never red. Red means a genuine
+// breach (rule 2 of the DERIVATION-GUIDE contract), and an unpaid invoice is
+// not hers to be frightened by — it is a fact with a date on it. The pill
+// carries a clock and the number, so the state never depends on colour alone.
+//
+// Non-purpose: no staff actions on this list (remind, write off, apply
+// credit), and no payment is taken here — the pinned API's pay operation is
+// not something a client invoice page should reach for. How to pay is a
+// sentence, and the money goes where the invoice email says.
 "use client";
 
-import { friendlyMutationText } from "../../../lib/error-copy";
-import { EmptyState, Spinner, StatusTag, type StatusTone } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { friendlyMutationText } from "../../../lib/error-copy";
+import { Spinner } from "@marula-core/ui";
 import { portalApi, useRequirePortalAuth, type PortalInvoice } from "../../../lib/portal-api";
-
-function statusTone(status: PortalInvoice["status"]): StatusTone {
-  return status === "paid" ? "success" : "neutral";
-}
-
-function money(minor: number, currency: string): string {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minor / 100);
-}
-
-function dateOnly(iso: string): string {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function daysUntil(iso: string): number {
-  const today = new Date().setHours(0, 0, 0, 0);
-  const due = new Date(`${iso}T00:00:00`).setHours(0, 0, 0, 0);
-  return Math.round((due - today) / 86_400_000);
-}
+import { longDate, money, overdueDays } from "../../../lib/portal-copy";
+import {
+  OverduePill,
+  PaidPill,
+  PortalCard,
+  PortalIcon,
+  PortalRow,
+} from "../../../components/portal/portal-ui";
 
 export default function PortalInvoicesPage() {
   useRequirePortalAuth();
   const router = useRouter();
-  const [rows, setRows] = useState<PortalInvoice[] | null>(null);
+  const [invoices, setInvoices] = useState<PortalInvoice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     portalApi
       .listInvoices()
-      .then((invoices) => {
-        if (!cancelled) setRows(invoices);
+      .then((list) => {
+        if (!cancelled) setInvoices(list);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(friendlyMutationText(err, "Failed to load invoices"));
+        if (!cancelled) {
+          setError(friendlyMutationText(err, "We couldn't load your invoices. Try again in a moment."));
+        }
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const stats = useMemo(() => {
-    if (rows === null) return null;
-    const issued = rows.filter((r) => r.status === "issued");
-    // The "still due" sum is only honest in one currency; mixed-currency
-    // portfolios drop the sum and keep the plain count.
-    const currencies = new Set(issued.map((r) => r.currency));
-    const dueMinor =
-      currencies.size === 1 ? issued.reduce((acc, r) => acc + r.outstanding_minor, 0) : null;
-    let overdue = 0;
-    for (const r of issued) if (daysUntil(r.due_on) < 0) overdue += 1;
-    return { dueMinor, currency: [...currencies][0] ?? "USD", overdue };
-  }, [rows]);
+  const owing = useMemo(() => {
+    if (invoices === null) return null;
+    return invoices
+      .filter((i) => i.outstanding_minor > 0)
+      .map((i) => ({ invoice: i, days: overdueDays(i.due_on) }))
+      .sort((a, b) => (a.days ?? -1) - (b.days ?? -1));
+  }, [invoices]);
 
   if (error !== null) {
-    return <p className="text-sm" style={{ color: "var(--m-status-danger)" }}>{error}</p>;
-  }
-  if (rows === null || stats === null) {
     return (
-      <div className="flex justify-center py-16">
-        <Spinner aria-label="Loading invoices" />
+      <PortalCard>
+        <p className="portal-field__error" role="alert" style={{ margin: 0 }}>
+          <PortalIcon name="alert" size={14} />
+          <span>{error}</span>
+        </p>
+      </PortalCard>
+    );
+  }
+
+  if (invoices === null || owing === null) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: "64px 0" }}>
+        <Spinner aria-label="Loading your invoices" />
       </div>
     );
   }
 
+  const totalOwed = owing.reduce((sum, row) => sum + row.invoice.outstanding_minor, 0);
+  const currency = owing[0]?.invoice.currency ?? invoices[0]?.currency ?? "USD";
+  // The reference is the LONGEST-OVERDUE invoice's number, because that is the
+  // one a payment will actually be matched against.
+  const oldest = owing.find((r) => r.days !== null) ?? owing[0];
+
   return (
-    <section className="m-rise">
-      <div className="mb-5">
-        <h1 className="text-xl font-semibold tracking-tight">Invoices</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--m-text-muted)" }}>
-          Statements from your service provider. Payments are recorded on
-          your account — no card is charged through this portal.
-        </p>
+    <>
+      <div>
+        <h1 className="portal-title">Invoices</h1>
+        <p className="portal-lead">What you owe, and what you&apos;ve paid.</p>
       </div>
 
-      {rows.length > 0 && (stats.dueMinor !== null || stats.overdue > 0) && (
-        <div className="mb-4 flex flex-wrap gap-2 text-xs" data-testid="invoices-stat-strip">
-          {stats.dueMinor !== null && (
-            <span
-              className="rounded-[0.5rem] px-2.5 py-1"
-              style={{ background: "var(--m-surface)", border: "1px solid var(--m-border)", color: "var(--m-text-secondary)" }}
-            >
-              <span className="font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>
-                {money(stats.dueMinor, stats.currency)}
-              </span>{" "}
-              still due
-            </span>
-          )}
-          {stats.overdue > 0 && (
-            <span
-              className="rounded-[0.5rem] px-2.5 py-1"
-              style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
-            >
-              <span className="font-semibold tabular-nums">{stats.overdue}</span>{" "}
-              past due
-            </span>
-          )}
+      {owing.length > 0 ? (
+        <div
+          className="portal-card"
+          style={{ borderColor: "var(--m-blush)" }}
+          data-testid="portal-owes"
+        >
+          <div className="portal-owes">
+            <div style={{ flex: 1 }}>
+              <div className="portal-hint">You owe</div>
+              <div className="portal-owes__amount">{money(totalOwed, currency)}</div>
+              <div style={{ marginTop: 6 }}>
+                {owing.some((r) => r.days !== null) ? (
+                  <OverduePill days={Math.max(...owing.map((r) => r.days ?? 0))} />
+                ) : (
+                  <span className="portal-pill portal-pill--paid">
+                    <PortalIcon name="check" size={14} />
+                    Not due yet
+                  </span>
+                )}
+              </div>
+            </div>
+            <div style={{ flex: 1.2, fontSize: 14, lineHeight: 1.6 }}>
+              <span className="portal-hint">
+                <b className="portal-link" style={{ cursor: "default" }}>
+                  How to pay.
+                </b>{" "}
+                Pay by EFT and put{" "}
+                <b style={{ color: "var(--m-text)" }}>{oldest?.invoice.number}</b> as the
+                reference. Questions? Reply to the invoice email, or use Contact us in the footer.
+              </span>
+            </div>
+          </div>
         </div>
+      ) : (
+        <PortalCard testId="portal-owes-nothing">
+          <div className="portal-empty" style={{ padding: "32px 24px" }}>
+            <h2>Nothing to pay</h2>
+            <p>Every invoice your service desk has sent is settled. New ones appear here.</p>
+          </div>
+        </PortalCard>
       )}
 
-      {rows.length === 0 ? (
-        <EmptyState message="No invoices yet — statements appear here when your provider bills your account." />
-      ) : (
-        <ul
-          className="m-rise overflow-hidden rounded-[0.75rem] border"
-          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
-        >
-          {rows.map((inv, i) => {
-            const overdue = inv.status === "issued" && daysUntil(inv.due_on) < 0;
-            const soon =
-              inv.status === "issued" && !overdue && daysUntil(inv.due_on) <= 7;
+      <PortalCard title="All invoices" testId="portal-invoice-list">
+        {invoices.length === 0 ? (
+          <div className="portal-empty" style={{ padding: "32px 24px" }}>
+            <p className="portal-hint">
+              No invoices yet. They appear here as soon as your service desk sends one.
+            </p>
+          </div>
+        ) : (
+          invoices.map((inv) => {
+            const days = overdueDays(inv.due_on);
+            const outstanding = inv.outstanding_minor > 0;
             return (
-              <li key={inv.id} className="m-rise" style={{ animationDelay: `${Math.min(i * 30, 240)}ms` }}>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/portal/invoices/${inv.id}`)}
-                  className="flex w-full items-center justify-between gap-3 border-b px-3 py-3 text-left transition-colors duration-100 last:border-b-0 hover:bg-[var(--m-surface-hover)]"
-                  style={{ borderColor: "var(--m-border)" }}
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm tabular-nums">{inv.number}</span>
-                      {overdue && <StatusTag tone="danger">Past due</StatusTag>}
-                      {soon && <StatusTag tone="warning">Due soon</StatusTag>}
-                    </div>
-                    <div className="text-xs tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-                      Issued {dateOnly(inv.issued_at)} · Due {dateOnly(inv.due_on)}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <span className="text-sm tabular-nums">
-                      {inv.status === "paid"
-                        ? money(inv.total_minor, inv.currency)
-                        : `${money(inv.outstanding_minor, inv.currency)} due`}
+              <PortalRow
+                key={inv.id}
+                title={inv.number}
+                meta={
+                  outstanding
+                    ? `Due ${longDate(inv.due_on)}`
+                    : `Issued ${longDate(inv.issued_at)}`
+                }
+                onClick={() => router.push(`/portal/invoices/${inv.id}`)}
+                columns="86px minmax(0, 1fr) 110px 130px 36px"
+                trailing={
+                  <>
+                    <b className="portal-row__amount">{money(inv.total_minor, inv.currency)}</b>
+                    {outstanding ? (
+                      days === null ? (
+                        <span className="portal-pill portal-pill--received">
+                          Due {longDate(inv.due_on)}
+                        </span>
+                      ) : (
+                        <OverduePill days={days} />
+                      )
+                    ) : (
+                      <PaidPill />
+                    )}
+                    <span className="portal-row__download">
+                      <PortalIcon name="download" size={18} />
                     </span>
-                    <StatusTag tone={statusTone(inv.status)}>
-                      {inv.status === "paid" ? "Paid" : "Open"}
-                    </StatusTag>
-                  </div>
-                </button>
-              </li>
+                  </>
+                }
+                testId={`portal-invoice-${inv.number}`}
+              />
             );
-          })}
-        </ul>
-      )}
-    </section>
+          })
+        )}
+      </PortalCard>
+    </>
   );
 }

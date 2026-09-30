@@ -1,0 +1,940 @@
+/*
+ * The entry screens: the one place the product is allowed to play.
+ *
+ * THE SCOPED BRAND EXCEPTION, AND WHERE IT STOPS. DESIGN-NOTES-auth.md §2
+ * grants patterns, terracotta, talavera, kraft and a serif headline to the
+ * ENTRY screens only, because nobody is working yet. The moment someone is
+ * signed in the product palette returns. So: these hexes live in this file, in
+ * the `[data-entry]` scope, and nowhere else. They are deliberately NOT tokens
+ * and must never be promoted to `packages/ui/src/tokens.css` — a token would
+ * make them available product-wide, which is exactly what the exception
+ * forbids. No other file in the app may reference them.
+ *
+ * WHICH SCREEN GETS WHICH PATTERN. Indigo for the doors that protect (sign-in,
+ * the second step, a password, company sign-in) and rust for the moments that
+ * welcome (a link on its way, a verification, an invitation). The pack's
+ * Background selector lets a reviewer overrule that; here the mapping is the
+ * documented default, in one table, so nobody has to guess.
+ *
+ * EVERY WORD SITS ON A SOLID SURFACE. The card, the wordmark pill, the footer
+ * pill. Nothing is ever set directly on a pattern, so legibility never depends
+ * on which background is chosen (rule: colour is never alone — here, surface is
+ * never absent).
+ *
+ * THE WIZARDS STAY CALM. `/welcome` and `/onboarding` keep a plain body and
+ * wear the pattern as a 72px header band only, because a working screen is not
+ * a welcome screen.
+ */
+
+.entry-root {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  background: var(--m-canvas);
+  color: var(--m-text);
+}
+
+/* The pattern fills the screen on the sign-in family. */
+.entry-root--pattern {
+  background-color: #26356b;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Crect width='60' height='60' fill='%2326356B'/%3E%3Ccircle cx='30' cy='30' r='11' fill='none' stroke='%23F3EAD2' stroke-width='2.2'/%3E%3Ccircle cx='30' cy='30' r='3.2' fill='%23F3EAD2'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3EAD2' transform='rotate(0 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3EAD2' transform='rotate(45 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3EAD2' transform='rotate(90 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3EAD2' transform='rotate(135 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3EAD2' transform='rotate(180 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3EAD2' transform='rotate(225 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3EAD2' transform='rotate(270 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3EAD2' transform='rotate(315 30 30)'/%3E%3Cpath d='M-7 0 L0 -7 L7 0 L0 7Z' fill='none' stroke='%23F3EAD2' stroke-width='1.8'/%3E%3Ccircle cx='0' cy='0' r='1.6' fill='%23F3EAD2'/%3E%3Cpath d='M53 0 L60 -7 L67 0 L60 7Z' fill='none' stroke='%23F3EAD2' stroke-width='1.8'/%3E%3Ccircle cx='60' cy='0' r='1.6' fill='%23F3EAD2'/%3E%3Cpath d='M-7 60 L0 53 L7 60 L0 67Z' fill='none' stroke='%23F3EAD2' stroke-width='1.8'/%3E%3Ccircle cx='0' cy='60' r='1.6' fill='%23F3EAD2'/%3E%3Cpath d='M53 60 L60 53 L67 60 L60 67Z' fill='none' stroke='%23F3EAD2' stroke-width='1.8'/%3E%3Ccircle cx='60' cy='60' r='1.6' fill='%23F3EAD2'/%3E%3Ccircle cx='30' cy='0' r='1.4' fill='%23F3EAD2'/%3E%3Ccircle cx='0' cy='30' r='1.4' fill='%23F3EAD2'/%3E%3Ccircle cx='60' cy='30' r='1.4' fill='%23F3EAD2'/%3E%3Ccircle cx='30' cy='60' r='1.4' fill='%23F3EAD2'/%3E%3Cpath d='M12 15 h6 M15 12 v6' stroke='%23F3EAD2' stroke-width='1.4'/%3E%3Cpath d='M42 15 h6 M45 12 v6' stroke='%23F3EAD2' stroke-width='1.4'/%3E%3Cpath d='M12 45 h6 M15 42 v6' stroke='%23F3EAD2' stroke-width='1.4'/%3E%3Cpath d='M42 45 h6 M45 42 v6' stroke='%23F3EAD2' stroke-width='1.4'/%3E%3C/svg%3E");
+}
+
+/* The same print in rust, for the moments that welcome. */
+.entry-root--rust {
+  background-color: #8a4a1e;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Crect width='60' height='60' fill='%238A4A1E'/%3E%3Ccircle cx='30' cy='30' r='11' fill='none' stroke='%23F3D9A8' stroke-width='2.2'/%3E%3Ccircle cx='30' cy='30' r='3.2' fill='%23F3D9A8'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3D9A8' transform='rotate(0 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3D9A8' transform='rotate(45 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3D9A8' transform='rotate(90 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3D9A8' transform='rotate(135 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3D9A8' transform='rotate(180 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3D9A8' transform='rotate(225 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3D9A8' transform='rotate(270 30 30)'/%3E%3Cellipse cx='30' cy='15.5' rx='1.8' ry='3.4' fill='%23F3D9A8' transform='rotate(315 30 30)'/%3E%3Cpath d='M-7 0 L0 -7 L7 0 L0 7Z' fill='none' stroke='%23F3D9A8' stroke-width='1.8'/%3E%3Ccircle cx='0' cy='0' r='1.6' fill='%23F3D9A8'/%3E%3Cpath d='M53 0 L60 -7 L67 0 L60 7Z' fill='none' stroke='%23F3D9A8' stroke-width='1.8'/%3E%3Ccircle cx='60' cy='0' r='1.6' fill='%23F3D9A8'/%3E%3Cpath d='M-7 60 L0 53 L7 60 L0 67Z' fill='none' stroke='%23F3D9A8' stroke-width='1.8'/%3E%3Ccircle cx='0' cy='60' r='1.6' fill='%23F3D9A8'/%3E%3Cpath d='M53 60 L60 53 L67 60 L60 67Z' fill='none' stroke='%23F3D9A8' stroke-width='1.8'/%3E%3Ccircle cx='60' cy='60' r='1.6' fill='%23F3D9A8'/%3E%3Ccircle cx='30' cy='0' r='1.4' fill='%23F3D9A8'/%3E%3Ccircle cx='0' cy='30' r='1.4' fill='%23F3D9A8'/%3E%3Ccircle cx='60' cy='30' r='1.4' fill='%23F3D9A8'/%3E%3Ccircle cx='30' cy='60' r='1.4' fill='%23F3D9A8'/%3E%3Cpath d='M12 15 h6 M15 12 v6' stroke='%23F3D9A8' stroke-width='1.4'/%3E%3Cpath d='M42 15 h6 M45 12 v6' stroke='%23F3D9A8' stroke-width='1.4'/%3E%3Cpath d='M12 45 h6 M15 42 v6' stroke='%23F3D9A8' stroke-width='1.4'/%3E%3Cpath d='M42 45 h6 M45 42 v6' stroke='%23F3D9A8' stroke-width='1.4'/%3E%3C/svg%3E");
+}
+
+/* The header. On a pattern it is a 72px bar; as a wizard band it carries the
+   indigo print and the wordmark pill sits on top of it. */
+.entry-header {
+  display: flex;
+  height: 72px;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 14px;
+  padding: 0 40px;
+}
+
+.entry-header--band {
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.2);
+}
+
+.entry-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--m-surface);
+  border-radius: 999px;
+  padding: 6px 18px 6px 12px;
+  box-shadow: 0 0 0 1px var(--m-border);
+  font-family: var(--m-font-heading);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--m-text);
+}
+
+.entry-header--band .entry-wordmark {
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.2);
+}
+
+.entry-header__spacer {
+  flex: 1;
+}
+
+/* The right-hand action in the header band: the setup-guide menu. */
+.entry-band-action {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-surface);
+  padding: 0 14px;
+  color: var(--m-text);
+  font: inherit;
+  font-weight: 600;
+  transition: background-color 120ms ease;
+}
+
+.entry-band-action:hover {
+  background: var(--m-surface-2);
+}
+
+.entry-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px 24px;
+}
+
+.entry-footer {
+  display: flex;
+  height: 56px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+}
+
+/* The footer links sit on a solid pill, so legibility does not depend on the
+   background behind them. */
+.entry-footer__pill {
+  display: flex;
+  gap: 22px;
+  border-radius: 999px;
+  background: var(--m-surface);
+  padding: 8px 22px;
+  box-shadow: 0 0 0 1px var(--m-border);
+}
+
+.entry-footer__pill a {
+  color: var(--m-text-secondary);
+  text-decoration: none;
+  transition: color 120ms ease;
+}
+
+.entry-footer__pill a:hover {
+  color: var(--m-text);
+}
+
+/* ---- The card ------------------------------------------------------------- */
+
+.entry-card-wrap {
+  position: relative;
+}
+
+.entry-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 440px;
+  max-width: 100%;
+  flex-direction: column;
+  gap: 16px;
+  border: 1px solid var(--m-border);
+  border-radius: 20px;
+  background: var(--m-surface);
+  padding: 32px;
+  box-shadow: var(--m-shadow-overlay);
+}
+
+/* The fruit peeks from behind the card, with a cream sticker outline so it
+   holds up on either pattern. */
+.entry-fruit {
+  position: absolute;
+  z-index: 0;
+  top: -78px;
+  right: -84px;
+  width: 170px;
+  height: 170px;
+}
+
+.entry-fruit--half {
+  top: auto;
+  right: auto;
+  bottom: -52px;
+  left: -72px;
+  width: 110px;
+  height: 110px;
+}
+
+/* The headline is in the brand's serif, in its voice. This is the second half
+   of the scoped exception and it stops here with the first. */
+.entry-headline {
+  margin: 0;
+  font-family: var(--m-font-heading);
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.entry-sub {
+  margin: 4px 0 0;
+  color: var(--m-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ---- Fields, rules, the or divider --------------------------------------- */
+
+.entry-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.entry-input {
+  width: 100%;
+  height: 48px;
+  border: 1px solid var(--m-input);
+  border-radius: 12px;
+  background: var(--m-surface);
+  padding: 0 14px;
+  color: var(--m-text);
+  font: inherit;
+}
+
+.entry-input:disabled {
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+}
+
+/* A validation error is BLUSH, with an icon and words. Never red. */
+.entry-field--error .entry-input {
+  border: 2px solid var(--m-blush);
+  padding: 0 13px;
+}
+
+.entry-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--m-status-due-fg);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.entry-error svg {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.entry-hint {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+}
+
+.entry-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--m-text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.entry-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+}
+
+.entry-or::before,
+.entry-or::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--m-border);
+}
+
+.entry-btn {
+  display: inline-flex;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: none;
+  border-radius: 12px;
+  background: var(--m-primary);
+  color: var(--m-on-primary);
+  padding: 0 20px;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  transition: filter 120ms ease;
+}
+
+.entry-btn:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.entry-btn:disabled {
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+  cursor: not-allowed;
+  filter: none;
+}
+
+.entry-btn--secondary {
+  border: 1px solid var(--m-input);
+  background: transparent;
+  color: var(--m-text);
+}
+
+.entry-btn--secondary:hover:not(:disabled) {
+  background: var(--m-surface-2);
+  filter: none;
+}
+
+.entry-btn--small {
+  height: 40px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+.entry-btn--full {
+  width: 100%;
+}
+
+.entry-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-surface-2);
+  padding: 12px 14px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.entry-note svg {
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+/* The password rules tick off as they are met. */
+.entry-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.entry-rule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--m-text-secondary);
+}
+
+.entry-rule svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.entry-rule--met {
+  color: var(--m-status-success-fg);
+}
+
+.entry-rule--failed {
+  color: var(--m-status-due-fg);
+  font-weight: 600;
+}
+
+/* ---- The second step: six boxes, the active one outlined ----------------- */
+
+.entry-otp {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.entry-otp--left {
+  justify-content: flex-start;
+}
+
+.entry-otp__box {
+  display: flex;
+  width: 52px;
+  height: 64px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--m-input);
+  border-radius: 12px;
+  background: var(--m-surface);
+  font-size: 28px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+/* The active box is outlined in the primary, so "where am I typing" never
+   depends on a caret alone. */
+.entry-otp__box--active {
+  border: 2px solid var(--m-primary);
+}
+
+.entry-otp--small .entry-otp__box {
+  width: 48px;
+  height: 58px;
+  font-size: 24px;
+}
+
+.entry-otp-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.entry-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.entry-check--start {
+  align-items: flex-start;
+  line-height: 1.5;
+}
+
+.entry-check input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  accent-color: var(--m-primary);
+}
+
+/* The shield disc that opens the second step. */
+.entry-shield {
+  display: flex;
+  width: 56px;
+  height: 56px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+}
+
+/* ---- Centred variant: the fruit, the headline, one sentence -------------- */
+
+.entry-centred {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.entry-centred .entry-sub {
+  max-width: 44ch;
+}
+
+/* ---- The two wizards: a calm body under a pattern band ------------------ */
+
+.entry-wizard {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  padding: 0 40px 20px;
+}
+
+.entry-steps {
+  display: flex;
+  width: 260px;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.entry-steps__h {
+  margin-bottom: 8px;
+  color: var(--m-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.entry-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  padding: 8px 10px;
+  color: var(--m-text-secondary);
+  font: inherit;
+  text-align: left;
+  transition: background-color 120ms ease;
+}
+
+.entry-step:hover {
+  background: var(--m-surface-2);
+}
+
+.entry-step[aria-current="step"] {
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+}
+
+.entry-step__n {
+  display: flex;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--m-input);
+  border-radius: 999px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.entry-step--done .entry-step__n {
+  border-color: var(--m-canopy);
+  background: var(--m-canopy);
+  color: var(--m-surface);
+}
+
+.entry-step--done .entry-step__n svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 3;
+}
+
+/* A skipped step keeps its place on the list and is drawn as a dashed circle,
+   so "skipped" is a shape as well as a word. */
+.entry-step--skip .entry-step__n {
+  border-style: dashed;
+  border-color: var(--m-blush);
+  color: var(--m-status-due-fg);
+}
+
+.entry-step__label {
+  font-size: 14px;
+}
+
+.entry-step[aria-current="step"] .entry-step__label {
+  font-weight: 600;
+}
+
+.entry-step__skipped {
+  margin-left: auto;
+  color: var(--m-status-due-fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* The card stack: the card in front is the step, with faint cards behind for
+   what remains. */
+.entry-stack {
+  position: relative;
+  width: 600px;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
+.entry-stack::before,
+.entry-stack::after {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  height: 100%;
+  border: 1px solid var(--m-border);
+  border-radius: 20px;
+  background: var(--m-surface);
+  content: "";
+}
+
+.entry-stack::before {
+  top: 14px;
+  opacity: 0.7;
+}
+
+.entry-stack::after {
+  top: 26px;
+  left: 28px;
+  right: 28px;
+  opacity: 0.4;
+}
+
+.entry-wcard {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  border: 1px solid var(--m-border);
+  border-radius: 20px;
+  background: var(--m-surface);
+  padding: 32px;
+}
+
+.entry-wcard h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.entry-kicker {
+  margin-bottom: 6px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.entry-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--m-border);
+  margin-top: 2px;
+  padding-top: 18px;
+}
+
+.entry-actions__spacer {
+  flex: 1;
+}
+
+/* The sentence that tells the difference between the two "later" buttons. */
+.entry-explain {
+  margin-top: -4px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.entry-explain b {
+  color: var(--m-text);
+}
+
+/* The progress bar, and the line under it. */
+.entry-progress {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--m-surface-2);
+  margin-top: 14px;
+}
+
+.entry-progress > i {
+  display: block;
+  height: 100%;
+  background: var(--m-canopy);
+}
+
+/* ---- Welcome back: the resumed list ------------------------------------- */
+
+.entry-resume {
+  width: 640px;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--m-border);
+  border-radius: 20px;
+  background: var(--m-surface);
+}
+
+.entry-resume__hd {
+  padding: 24px 28px 18px;
+  border-bottom: 1px solid var(--m-border);
+}
+
+.entry-resume__hd h1 {
+  margin: 0;
+  font-family: var(--m-font-heading);
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.entry-resume__hd p {
+  margin: 4px 0 0;
+  color: var(--m-text-secondary);
+}
+
+.entry-rrow {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid var(--m-border);
+  padding: 0 28px;
+}
+
+.entry-rrow__t {
+  flex: 1;
+}
+
+.entry-rrow__t b {
+  display: block;
+}
+
+.entry-rrow__t span {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+}
+
+.entry-rrow--done .entry-rrow__t b {
+  color: var(--m-text-secondary);
+  font-weight: 500;
+}
+
+.entry-resume__ft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid var(--m-border);
+  background: var(--m-canvas);
+  padding: 16px 28px;
+}
+
+/* ---- The guide menu, and the confirm behind Never show again ------------- */
+
+.entry-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: 340px;
+  border: 1px solid var(--m-border);
+  border-radius: 16px;
+  background: var(--m-surface);
+  box-shadow: var(--m-shadow-overlay);
+  padding: 6px;
+}
+
+.entry-menu button {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  padding: 10px 12px;
+  color: var(--m-text);
+  font: inherit;
+  text-align: left;
+  transition: background-color 120ms ease;
+}
+
+.entry-menu button:hover {
+  background: var(--m-surface-2);
+}
+
+.entry-menu button b {
+  display: block;
+  font-weight: 600;
+}
+
+.entry-menu button span {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.entry-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--m-scrim);
+  padding: 16px;
+}
+
+.entry-dialog {
+  width: 520px;
+  max-width: 100%;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border-radius: 20px;
+  background: var(--m-surface);
+  box-shadow: var(--m-shadow-overlay);
+  color: var(--m-text);
+}
+
+.entry-dialog__hd {
+  padding: 20px 26px;
+  border-bottom: 1px solid var(--m-border);
+}
+
+.entry-dialog__hd h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.entry-dialog__hd p {
+  margin: 2px 0 0;
+  color: var(--m-text-secondary);
+}
+
+.entry-dialog__mb {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 26px;
+}
+
+.entry-dialog__mf {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--m-border);
+  background: var(--m-canvas);
+  padding: 16px 26px;
+}
+
+.entry-dialog__mf .entry-hint {
+  margin-right: auto;
+}
+
+/* The three consequences, each with a green check. */
+.entry-consequence {
+  display: flex;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.entry-consequence svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--m-canopy);
+  stroke-width: 3;
+}
+
+/* ---- The contact sheet of a wizard's steps ------------------------------ */
+
+.entry-sheet {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+  padding: 22px 40px 40px;
+}
+
+.entry-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--m-border);
+  border-radius: 16px;
+  background: var(--m-surface);
+  padding: 18px;
+}
+
+.entry-mini__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.entry-mini__top h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.entry-mini p {
+  margin: 0;
+  color: var(--m-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* The dashed preview of a step's main control. */
+.entry-mini__preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed var(--m-input);
+  border-radius: 12px;
+  background: var(--m-canvas);
+  padding: 12px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+}
+
+.entry-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.entry-tag {
+  border: 1px solid var(--m-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--m-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.entry-tag--accent {
+  border-color: transparent;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entry-footer__pill a,
+  .entry-step,
+  .entry-btn,
+  .entry-band-action,
+  .entry-menu button {
+    transition: none;
+  }
+}

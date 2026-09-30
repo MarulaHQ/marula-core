@@ -1,0 +1,145 @@
+/*
+ * The share surfaces: /s/[token] and /share.
+ *
+ * DERIVATED, NOT DRAWN (DERIVATION-GUIDE.md lines 90-91 send both to the KIT
+ * with no screen). What the derivation leaves is the shape: no chrome, no
+ * portal header, no staff nav, one thing on a plain card.
+ *
+ * THE ONE COLOUR RULE (lines 92-93). No inverted surface, no red. On these two
+ * surfaces the expiry is a fact, not a fear: it is written in plain words with
+ * its date, and the ONLY coloured element allowed anywhere is one blush pill
+ * when a link is close to expiring. That pill carries the words "expires in 6
+ * hours" — never a bare countdown, and never a number on its own.
+ */
+
+.share-root {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  background: var(--m-canvas);
+  padding: 24px;
+}
+
+.share-card {
+  display: flex;
+  width: 520px;
+  max-width: 100%;
+  flex-direction: column;
+  gap: 20px;
+  border: 1px solid var(--m-border);
+  border-radius: 20px;
+  background: var(--m-surface);
+  padding: 32px;
+}
+
+.share-card__h {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.share-card__p {
+  margin: 0;
+  color: var(--m-text-secondary);
+  line-height: 1.55;
+}
+
+/* The service desk, not Marula: the person holding this link is dealing with
+   the desk, and Marula is the desk's own paperwork. */
+.share-desk {
+  display: inline-block;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  background: var(--m-surface-2);
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.share-day {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share-day__label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.share-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.share-choice {
+  height: 44px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-surface);
+  padding: 0 16px;
+  color: var(--m-text);
+  font: inherit;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.share-choice[aria-checked="true"] {
+  border: 2px solid var(--m-canopy);
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+  padding: 0 15px;
+}
+
+.share-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.share-note {
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-surface-2);
+  padding: 14px;
+  color: var(--m-text-secondary);
+  line-height: 1.5;
+}
+
+.share-expiry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--m-border);
+  padding-top: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.share-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--m-surface-2);
+  padding: 4px 12px;
+  font-weight: 600;
+}
+
+/* The one permitted colour on these surfaces. */
+.share-pill--blush {
+  background: var(--m-status-due-bg);
+  color: var(--m-status-due-fg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .share-choice {
+    transition: none;
+  }
+}

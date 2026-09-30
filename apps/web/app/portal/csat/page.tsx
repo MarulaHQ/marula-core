@@ -1,193 +1,228 @@
-// /portal/csat?token=… — the in-app CSAT response page (Wave 34 lane 2).
+// /portal/csat — How did we do?
 //
-// Purpose: render the tokenized survey from the resolution email as an
-// in-app form: one rating (1-5) plus an optional comment. The token is
-// single-use and client-scoped — the route verifies the survey belongs to
-// the signed-in portal user's client before anything renders.
+// Purpose: the pack's state 08. Five choices in WORDS, not a star rating and
+// not a number alone: 5 Great, 4 Good, 3 Okay, 2 Not good, 1 Poor. The number
+// is there because the service desk sorts by it; the word is there because
+// she is reading it. The chosen one gets a green border and tint, so the state
+// is never colour alone. An optional comment sits under it, and Send is
+// disabled until she has chosen.
 //
-// Honest states: an invalid, used, or expired link renders one plain
-// explanation, never a form that pretends it might work.
+// The thank-you state thanks her and says what happens next, which is the
+// pack's own line: every one is read, and if something was not right, a person
+// is in touch today.
 //
-// Non-purpose: score history (staff scorecards own that) and anonymous
-// responses (the portal sign-in IS the attribution).
+// Non-purpose: no re-prompting, no nudges, no "rate your service desk again".
+// One answer, once.
 "use client";
 
-import { Button, Card, EmptyState, Spinner } from "@marula-core/ui";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
-import { portalApi, useRequirePortalAuth } from "../../../lib/portal-api";
-import type { PortalCsatView } from "../../../lib/portal-api";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { friendlyMutationText } from "../../../lib/error-copy";
+import { Spinner } from "@marula-core/ui";
+import { portalApi, useRequirePortalAuth, type PortalCsatView } from "../../../lib/portal-api";
+import {
+  Field,
+  PortalCard,
+  PortalEmpty,
+  PortalIcon,
+} from "../../../components/portal/portal-ui";
 
-const SCALE = [1, 2, 3, 4, 5] as const;
-const SCALE_LABEL: Record<number, string> = {
-  1: "Poor",
-  2: "Not great",
-  3: "Okay",
-  4: "Good",
-  5: "Excellent",
-};
+/** The five choices, in words. The number is for the desk; the word is for her. */
+const CHOICES: readonly { value: number; word: string }[] = [
+  { value: 5, word: "Great" },
+  { value: 4, word: "Good" },
+  { value: 3, word: "Okay" },
+  { value: 2, word: "Not good" },
+  { value: 1, word: "Poor" },
+];
 
-export default function PortalCsatPage(): ReactNode {
-  return (
-    <Suspense
-      fallback={
-        <main className="flex min-h-full items-center justify-center p-6" style={{ background: "var(--m-canvas)" }}>
-          <Spinner />
-        </main>
-      }
-    >
-      <PortalCsatInner />
-    </Suspense>
-  );
-}
-
-function PortalCsatInner() {
-  useRequirePortalAuth();
+function CsatInner() {
+  const router = useRouter();
   const params = useSearchParams();
-  const token = params.get("token") ?? "";
+  const ticket = params.get("ticket") ?? "";
   const [view, setView] = useState<PortalCsatView | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [score, setScore] = useState<number | null>(null);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [state, setState] = useState<"loading" | "invalid" | "ready">("loading");
 
   const load = useCallback(async () => {
-    if (token === "") {
-      setState("invalid");
+    if (ticket === "") {
+      setError("This link is missing its ticket. Open it from the ticket you want to rate.");
       return;
     }
     try {
-      const data = await portalApi.csatView(token);
-      setView(data);
-      setState("ready");
-    } catch {
-      setState("invalid");
+      setView(await portalApi.csatView(ticket));
+    } catch (err) {
+      setError(friendlyMutationText(err, "We couldn't open this. It may have expired."));
     }
-  }, [token]);
+  }, [ticket]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   async function submit() {
-    if (score === null) return;
+    if (view === null || score === null || busy) return;
     setBusy(true);
     setError(null);
     try {
-      await portalApi.csatSubmit(token, score, comment);
-      // The view re-read confirms the consume: the same token now reports
-      // `responded`, which flips the page to the thank-you state.
-      setView(await portalApi.csatView(token));
-    } catch {
-      setError("Your response could not be saved. The link may have expired.");
+      setView(
+        await portalApi.csatSubmit(view.ticket_id, score, comment.trim() === "" ? undefined : comment.trim()),
+      );
+    } catch (err) {
+      setError(
+        friendlyMutationText(err, "We couldn't send that. Your answer is kept below, try again."),
+      );
     } finally {
       setBusy(false);
     }
   }
 
-  if (state === "loading") {
+  if (error !== null && view === null) {
     return (
-      <div className="grid place-items-center min-h-[50vh]">
-        <Spinner />
-      </div>
+      <PortalCard>
+        <div className="portal-card__body">
+          <p className="portal-field__error" role="alert">
+            <PortalIcon name="alert" size={14} />
+            <span>{error}</span>
+          </p>
+          <p>
+            <button type="button" className="portal-link" onClick={() => router.push("/portal/tickets")}>
+              Back to your tickets
+            </button>
+          </p>
+        </div>
+      </PortalCard>
     );
   }
 
-  if (state === "invalid" || view === null) {
+  if (view === null) {
     return (
-      <div className="grid place-items-center min-h-[50vh] p-4">
-        <EmptyState
-          message="This survey link is invalid, used, or expired. Each link works once and only within its validity window — open it again from the original email."
-        />
+      <div style={{ display: "flex", justifyContent: "center", padding: "64px 0" }}>
+        <Spinner aria-label="Loading the question" />
       </div>
     );
   }
 
   if (view.status === "responded") {
     return (
-      <div className="grid place-items-center min-h-[60vh] p-4">
-        <Card className="p-6 grid gap-2 max-w-lg w-full" data-testid="csat-thanks">
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Thank you — your rating is recorded.
-          </h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-            Ticket {view.ticket_number} · {view.ticket_subject}
-          </p>
-        </Card>
-      </div>
+      <>
+        <div>
+          <h1 className="portal-title">How did we do?</h1>
+          <p className="portal-lead">{view.ticket_subject}</p>
+        </div>
+        <PortalCard testId="portal-csat-thanks">
+          <PortalEmpty
+            title="Thank you"
+            action={
+              <button
+                type="button"
+                className="portal-btn"
+                onClick={() => router.push("/portal/tickets")}
+                style={{ marginTop: 8 }}
+              >
+                Back to your tickets
+              </button>
+            }
+          >
+            We read every one. If something wasn&apos;t right, someone from your service desk will
+            be in touch today.
+          </PortalEmpty>
+        </PortalCard>
+      </>
     );
   }
 
   return (
-    <div className="grid place-items-center min-h-[60vh] p-4">
-      <Card className="p-6 grid gap-5 max-w-lg w-full">
-        <div className="grid gap-1">
-          <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-            Ticket {view.ticket_number} · {view.ticket_subject}
-          </p>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            How did we do?
-          </h1>
+    <>
+      <div>
+        <button
+          type="button"
+          className="portal-back"
+          onClick={() => router.push("/portal/tickets")}
+        >
+          <PortalIcon name="back" size={14} />
+          Your tickets
+        </button>
+      </div>
+      <div>
+        <h1 className="portal-title">How did we do?</h1>
+        <p className="portal-lead">
+          {view.ticket_subject} · #{view.ticket_number}
+        </p>
+      </div>
+
+      <div className="portal-scale" role="radiogroup" aria-label="How did we do?">
+        {CHOICES.map((c) => (
+          <button
+            key={c.value}
+            type="button"
+            role="radio"
+            aria-checked={score === c.value}
+            onClick={() => setScore(c.value)}
+            data-testid={`portal-csat-${c.value}`}
+          >
+            <b>{c.value}</b>
+            <span>{c.word}</span>
+          </button>
+        ))}
+      </div>
+
+      <Field
+        label="Anything you'd like to tell us?"
+        htmlFor="portal-csat-comment"
+        hint="Optional. What went well, or what didn't."
+      >
+        <input
+          id="portal-csat-comment"
+          className="portal-input"
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="What went well, or what didn't"
+        />
+      </Field>
+
+      {error !== null && (
+        <p className="portal-field__error" role="alert">
+          <PortalIcon name="alert" size={14} />
+          <span>{error}</span>
+        </p>
+      )}
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+        <button
+          type="button"
+          className="portal-btn"
+          disabled={busy || score === null}
+          onClick={() => void submit()}
+          data-testid="portal-csat-send"
+        >
+          {busy ? "Sending…" : "Send feedback"}
+        </button>
+        <button
+          type="button"
+          className="portal-btn portal-btn--secondary"
+          onClick={() => router.push("/portal/tickets")}
+        >
+          Not now
+        </button>
+      </div>
+    </>
+  );
+}
+
+export default function PortalCsatPage() {
+  useRequirePortalAuth();
+  return (
+    <Suspense
+      fallback={
+        <div style={{ display: "flex", justifyContent: "center", padding: "64px 0" }}>
+          <Spinner aria-label="Loading the question" />
         </div>
-
-        <div role="radiogroup" aria-label="Satisfaction rating" className="flex gap-2">
-          {SCALE.map((value) => (
-            <button
-              key={value}
-              type="button"
-              role="radio"
-              aria-checked={score === value}
-              aria-label={`${value} — ${SCALE_LABEL[value]}`}
-              onClick={() => setScore(value)}
-              disabled={busy}
-              data-testid={`csat-score-${value}`}
-              className="h-11 w-11 rounded-[var(--m-radius-control)] border text-sm font-semibold transition-[transform,opacity,border-color] duration-[120ms] hover:-translate-y-px motion-reduce:transform-none motion-reduce:hover:translate-y-0 disabled:opacity-50"
-              style={{
-                borderColor: score === value ? "var(--m-accent)" : "var(--m-border)",
-                color: score === value ? "var(--m-accent)" : "var(--m-text)",
-              }}
-            >
-              {value}
-            </button>
-          ))}
-        </div>
-        <div className="flex justify-between text-xs" style={{ color: "var(--m-text-muted)" }}>
-          <span>Poor</span>
-          <span>Excellent</span>
-        </div>
-        {score !== null && (
-          <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-            {SCALE_LABEL[score]}
-          </p>
-        )}
-
-        <label className="grid gap-1">
-          <span className="text-[13px] font-medium" style={{ color: "var(--m-text)" }}>
-            Anything to add? (optional)
-          </span>
-          <textarea
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            rows={3}
-            maxLength={2000}
-            disabled={busy}
-            data-testid="csat-comment"
-            className="rounded-[var(--m-radius-control)] border p-2 text-[13px]"
-            style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
-          />
-        </label>
-
-        {error && (
-          <p role="alert" className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-            {error}
-          </p>
-        )}
-
-        <Button onClick={submit} disabled={score === null || busy} data-testid="csat-submit">
-          {busy ? "Sending…" : "Send response"}
-        </Button>
-      </Card>
-    </div>
+      }
+    >
+      <CsatInner />
+    </Suspense>
   );
 }

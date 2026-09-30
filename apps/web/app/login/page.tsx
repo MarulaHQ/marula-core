@@ -1,25 +1,34 @@
-// /login — email+password sign-in, MFA hand-off, SSO entry, and first-run
-// org registration.
+// /login — the door. Indigo, because this screen protects something.
 //
-// Purpose: segmented form (Sign in / Create org) against the public auth
-// endpoints via @marula-core/sdk; routes MFA-gated logins to /mfa; renders
-// config-driven SSO buttons from the enabled OIDC providers.
-// Non-purpose: no enrollment/management UI here (see /settings/security).
+// Purpose: email + password, the two other ways in (an emailed link and the
+// company's own sign-in), and first-run org creation — which is why this
+// screen also carries "Create org". The card carries the brand's serif
+// headline and the pattern sits behind it, with the fruit peeking out.
 //
-// Wave 17 lane 9 UX pass: Tangerine brand header (§7 mark), morphing
-// segmented control, show/hide password affordance, icon'd error row,
-// staggered entrance motion (transform/opacity ≤120ms, reduced-motion
-// collapses). Security copy and all wired APIs unchanged.
+// THE WRONG-PASSWORD STATE IS BLUSH AND SAYS WHAT HAPPENS NEXT. State 02 in
+// the pack: a 2px blush border on the password field and a line with an alert
+// icon reading "That email and password don't match. You have 2 tries left
+// before a short wait." That is not red and not a bare "invalid": it names the
+// problem and the consequence, because a person signing in needs to know
+// whether to try again or stop.
+//
+// Non-purpose: no enrollment, no MFA management (see /settings/security), and
+// no "forgot your username" — the address is the identity.
 "use client";
 
-import { FieldError, FieldHint } from "@marula-core/ui";
-import { friendlyMutationText } from "../../lib/error-copy";
-import { Button, Card, Input, Label, Spinner } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AuthBrand } from "../../components/auth/auth-brand";
+import { FieldError, FieldHint } from "@marula-core/ui";
+import { friendlyMutationText } from "../../lib/error-copy";
+import { Button, Input, Label, Spinner } from "@marula-core/ui";
 import { api, resolveApiBaseUrl, saveTokens, useAuth } from "../../lib/api";
 import { broadcastSession } from "../../lib/popout/window-bus";
+import {
+  EntryCard,
+  EntryHeadline,
+  EntryIcon,
+  EntryShell,
+} from "../../components/auth/entry";
 
 const API_BASE = resolveApiBaseUrl();
 
@@ -35,12 +44,25 @@ const MODES: readonly { id: Mode; label: string }[] = [
   { id: "register", label: "Create org" },
 ];
 
+/** The envelope's own "how many tries are left", when the server sends one. */
+function triesLeft(err: unknown): number | null {
+  const body = (err as { body?: unknown } | null)?.body;
+  if (typeof body !== "object" || body === null) return null;
+  const record = body as Record<string, unknown>;
+  for (const key of ["attempts_remaining", "tries_remaining", "remaining_attempts"]) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { status } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tries, setTries] = useState<number | null>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -66,18 +88,14 @@ export default function LoginPage() {
     };
   }, []);
 
-  if (status === "authed") {
-    router.replace("/today");
-  }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    await attempt();
-  }
+  useEffect(() => {
+    if (status === "authed") router.replace("/today");
+  }, [status, router]);
 
   async function attempt(slugOverride?: string) {
     setBusy(true);
     setError(null);
+    setTries(null);
     setSlugSuggestion(null);
     try {
       if (mode === "signin") {
@@ -112,14 +130,21 @@ export default function LoginPage() {
       if (typeof suggestion === "string" && suggestion !== "") {
         setSlugSuggestion(suggestion);
       }
-      setError(friendlyMutationText(err));
+      const left = triesLeft(err);
+      setTries(left);
+      setError(
+        friendlyMutationText(
+          err,
+          left === null
+            ? "That email and password don't match."
+            : `That email and password don't match. You have ${left} ${left === 1 ? "try" : "tries"} left before a short wait.`,
+        ),
+      );
     } finally {
       setBusy(false);
     }
   }
 
-  /** One-click accept of the org_slug_taken suggestion: swap the slug in
-   * and resubmit immediately (Wave 13 lane 1 follow-up). */
   function acceptSuggestion() {
     if (slugSuggestion === null) return;
     setOrgSlug(slugSuggestion);
@@ -132,53 +157,77 @@ export default function LoginPage() {
     return `${API_BASE}/api/v1/auth/oidc/${provider}/login`;
   }
 
+  const signInError = mode === "signin" ? error : null;
+
   return (
-    <main
-      className="flex min-h-screen items-center justify-center p-4 md:p-6"
-      style={{ background: "var(--m-canvas)" }}
-    >
-      <Card
-        className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7"
-        data-testid="login-card"
-      >
-        <AuthBrand subtitle="Sign in to your service desk, or create your organization." />
+    <EntryShell background="indigo">
+      <EntryCard>
+        <div>
+          <EntryHeadline>{mode === "signin" ? "Good to see you." : "Let's set this up."}</EntryHeadline>
+          <p className="entry-sub">
+            {mode === "signin"
+              ? "Sign in to your service desk and pick up where you left off."
+              : "Name your organization and you can invite the rest of your team next."}
+          </p>
+        </div>
+
         <div
-          className="relative mt-5 grid grid-cols-2 gap-1 rounded-xl p-1 transition-colors duration-100"
-          style={{ background: "var(--m-status-neutral-bg)" }}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 4,
+            borderRadius: 12,
+            background: "var(--m-surface-2)",
+            padding: 3,
+          }}
           role="tablist"
+          aria-label="Sign in or create an organization"
         >
           {MODES.map((m) => (
             <button
               key={m.id}
+              type="button"
               role="tab"
               aria-selected={mode === m.id}
-              onClick={() => setMode(m.id)}
-              className="rounded-lg px-3 py-1.5 text-xs font-medium transition-[background-color,opacity] duration-100"
+              onClick={() => {
+                setMode(m.id);
+                setError(null);
+                setTries(null);
+              }}
+              className="entry-btn entry-btn--secondary entry-btn--small"
               style={
                 mode === m.id
                   ? {
                       background: "var(--m-surface)",
                       color: "var(--m-text)",
-                      boxShadow:
-                        "0 1px 2px rgba(0, 0, 0, 0.1), inset 0 0 0 1px var(--m-border)",
+                      fontWeight: 600,
+                      boxShadow: "0 1px 2px rgb(0 0 0 / 0.08)",
                     }
-                  : { color: "var(--m-text-secondary)" }
+                  : { borderColor: "transparent", color: "var(--m-text-secondary)" }
               }
             >
               {m.label}
             </button>
           ))}
         </div>
-        <form key={mode} onSubmit={submit} className="m-rise mt-5 grid gap-3">
+
+        <form key={mode} onSubmit={(e) => { e.preventDefault(); void attempt(); }} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {mode === "register" && (
             <>
-              <label className="grid gap-1">
-                <Label>Organization name</Label>
-                <Input value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Acme IT" required />
-              </label>
-              <label className="grid gap-1">
-                <Label>Org slug</Label>
+              <div className="entry-field">
+                <Label htmlFor="org-name">Organization name</Label>
                 <Input
+                  id="org-name"
+                  value={orgName}
+                  onChange={(e) => setOrgName(e.target.value)}
+                  placeholder="Acme IT"
+                  required
+                />
+              </div>
+              <div className="entry-field">
+                <Label htmlFor="org-slug">Org slug</Label>
+                <Input
+                  id="org-slug"
                   value={orgSlug}
                   onChange={(e) => setOrgSlug(e.target.value)}
                   placeholder="acme-it"
@@ -186,21 +235,24 @@ export default function LoginPage() {
                   required
                 />
                 <FieldHint>lowercase letters, digits, dashes</FieldHint>
-              </label>
-              <label className="grid gap-1">
-                <Label>Your name</Label>
+              </div>
+              <div className="entry-field">
+                <Label htmlFor="org-user">Your name</Label>
                 <Input
+                  id="org-user"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder="Dana Owner"
                   required
                 />
-              </label>
+              </div>
             </>
           )}
-          <label className="grid gap-1">
-            <Label>Email</Label>
+
+          <div className="entry-field">
+            <Label htmlFor="login-email">Work email</Label>
             <Input
+              id="login-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -208,28 +260,52 @@ export default function LoginPage() {
               autoComplete="email"
               required
             />
-          </label>
-          <label className="grid gap-1">
-            <Label>Password</Label>
-            <div className="relative">
+          </div>
+
+          <div className={`entry-field${signInError !== null ? " entry-field--error" : ""}`}>
+            <div className="entry-label">
+              <Label htmlFor="login-password">Password</Label>
+              <button
+                type="button"
+                className="entry-link"
+                style={{ fontWeight: 500 }}
+                onClick={() => router.push("/password-reset")}
+              >
+                Forgot password?
+              </button>
+            </div>
+            <div style={{ position: "relative" }}>
               <Input
+                id="login-password"
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                minLength={10}
                 autoComplete={mode === "signin" ? "current-password" : "new-password"}
-                className="pr-12"
                 required
+                aria-invalid={signInError !== null}
+                aria-describedby={signInError !== null ? "login-password-error" : undefined}
+                style={{ paddingRight: 48 }}
               />
               <button
                 type="button"
                 aria-label={showPassword ? "Hide password" : "Show password"}
                 aria-pressed={showPassword}
                 onClick={() => setShowPassword((v) => !v)}
-                className="absolute inset-y-0 right-0 flex w-9 items-center justify-center transition-opacity duration-100 hover:opacity-70"
-                style={{ color: "var(--m-text-muted)" }}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  right: 0,
+                  display: "flex",
+                  height: 48,
+                  width: 44,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--m-text-secondary)",
+                }}
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
                   {showPassword ? (
                     <>
                       <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
@@ -245,59 +321,87 @@ export default function LoginPage() {
                 </svg>
               </button>
             </div>
-            {mode === "register" && <FieldHint>10+ characters</FieldHint>}
-          </label>
-          {error !== null && (
-            <FieldError data-testid="login-error">{error}</FieldError>
+            {/* Blush, with an icon and words. Never red. */}
+            {signInError !== null && (
+              <p className="entry-error" role="alert" id="login-password-error" data-testid="login-error">
+                <EntryIcon name="alert" size={14} />
+                <span>
+                  {signInError}
+                  {tries !== null && tries > 0
+                    ? ` You have ${tries} ${tries === 1 ? "try" : "tries"} left before a short wait.`
+                    : ""}
+                </span>
+              </p>
+            )}
+            {mode === "register" && signInError === null && <FieldHint>12 or more characters</FieldHint>}
+          </div>
+
+          {error !== null && mode === "register" && (
+            <FieldError data-testid="register-error">{error}</FieldError>
           )}
+
           {slugSuggestion !== null && (
             <div
-              className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                borderRadius: 10,
+                background: "var(--m-accent-soft)",
+                padding: "8px 10px",
+                fontSize: 13,
+              }}
               role="status"
-              style={{ background: "var(--m-accent-soft)" }}
             >
-              <span style={{ color: "var(--m-text-secondary)" }}>
+              <span style={{ color: "var(--m-text-secondary)", flex: 1 }}>
                 Available: <strong>{slugSuggestion}</strong>
               </span>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={acceptSuggestion}
-              >
+              <Button type="button" variant="secondary" size="sm" onClick={acceptSuggestion}>
                 Use {slugSuggestion}
               </Button>
             </div>
           )}
-          <Button type="submit" variant="primary" disabled={busy}>
+
+          <button type="submit" className="entry-btn" disabled={busy} data-testid="login-submit">
             {busy && <Spinner />}
-            {busy ? "Working…" : mode === "signin" ? "Sign in" : "Create organization"}
-          </Button>
+            {busy
+              ? "Working…"
+              : mode === "signin"
+                ? "Sign in"
+                : "Create organization"}
+          </button>
         </form>
-        {mode === "signin" && providers.length > 0 && (
+
+        {mode === "signin" && (
           <>
-            <div
-              className="my-4 flex items-center gap-2 text-xs"
-              style={{ color: "var(--m-text-secondary)" }}
+            <p className="entry-or">or</p>
+            <button
+              type="button"
+              className="entry-btn entry-btn--secondary entry-btn--full"
+              onClick={() => router.push("/magic-link")}
+              data-testid="login-magic-link"
             >
-              <span className="h-px flex-1" style={{ background: "var(--m-border)" }} />
-              or continue with
-              <span className="h-px flex-1" style={{ background: "var(--m-border)" }} />
-            </div>
-            <div className="grid gap-2">
-              {providers.map((p, i) => (
-                <div key={p.name} className="m-rise" style={{ animationDelay: `${Math.min(i, 3) * 40}ms` }}>
-                  <a href={ssoHref(p.name)} className="block">
-                    <Button type="button" variant="secondary" className="w-full">
-                      {p.display_name}
-                    </Button>
-                  </a>
-                </div>
-              ))}
-            </div>
+              <EntryIcon name="mail" />
+              Email me a sign-in link
+            </button>
+            {providers.length > 0 && (
+              <a
+                href={ssoHref(providers[0]?.name ?? "")}
+                style={{ display: "block", textDecoration: "none" }}
+                data-testid="login-sso"
+              >
+                <button type="button" className="entry-btn entry-btn--secondary entry-btn--full">
+                  <EntryIcon name="shield" />
+                  Sign in with your company account
+                </button>
+              </a>
+            )}
+            <p className="entry-hint" style={{ textAlign: "center", margin: 0 }}>
+              Need an account? Ask your admin for an invite.
+            </p>
           </>
         )}
-      </Card>
-    </main>
+      </EntryCard>
+    </EntryShell>
   );
 }
