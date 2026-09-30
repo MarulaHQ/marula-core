@@ -3,7 +3,7 @@
 
 **Marula Core API 0.1.0** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**604 paths · 811 operations · 1248 schemas.**
+**605 paths · 812 operations · 1252 schemas.**
 
 ## agent-proposals
 
@@ -1082,6 +1082,7 @@
 | `GET` | `/api/v1/settings/self-host` <a id="settings_self_host_get"></a> | GET /api/v1/settings/self-host — the self-hoster visibility payload. | — |
 | `GET` | `/api/v1/settings/user` <a id="settings_user_get"></a> | GET /api/settings/user — the caller's effective personal settings. | — |
 | `PUT` | `/api/v1/settings/user` <a id="settings_user_put"></a> | PUT /api/settings/user — upserts one of the CALLER's own user-scope overrides. No role requirement: everyone may tune their own preferences. | [UpdateSettingRequest](#schema-updatesettingrequest) |
+| `GET` | `/api/v1/settings/user/email-envelope` <a id="settings_user_email_envelope"></a> | GET /api/settings/user/email-envelope — the caller's resolved envelope, for the signature editor's live preview and the composer's prefill. | — |
 
 ## sla
 
@@ -1760,7 +1761,11 @@
 | <a id="schema-effectsrequest"></a>`EffectsRequest` | object |  |
 | <a id="schema-emaildeliveryview"></a>`EmailDeliveryView` | object | Delivery projection from the `email_outbound` ledger. Present for outbound rows only — inbound mail has no send lifecycle. |
 | <a id="schema-emaildirection"></a>`EmailDirection` | string | Whether a message entered (inbound) or left (outbound) the system. |
+| <a id="schema-emailenvelopeoverride"></a>`EmailEnvelopeOverride` | object | The greeting and signature a composer wrote for THIS message (Wave 42). Purely additive and purely per-message: it changes what goes out with this one note and is never stored as a preference. The com |
+| <a id="schema-emailenvelopeview"></a>`EmailEnvelopeView` | object | The caller's resolved email envelope: the greeting and signature that would go out, which rung supplied each, the org's own signature for the fallback story, the policy in force, and the insertable to |
 | <a id="schema-emailmessage"></a>`EmailMessage` | object | One persisted email message. `rfc_message_id` is unique per org and is the idempotency key for inbound processing; `email_refs` carries the RFC 5322 References chain (`references` itself is reserved S |
+| <a id="schema-emailsourceview"></a>`EmailSourceView` | object | One rung of the resolution chain, as the ledger reports it. |
+| <a id="schema-emailtokenview"></a>`EmailTokenView` | object | One placeholder the signature editor can insert, with the value it would expand to for the caller RIGHT NOW. |
 | <a id="schema-emailverifiedresponse"></a>`EmailVerifiedResponse` | object |  |
 | <a id="schema-emailverifyrequest"></a>`EmailVerifyRequest` | object |  |
 | <a id="schema-embedmutationresponse"></a>`EmbedMutationResponse` | composite |  |
@@ -2599,4 +2604,4 @@
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1248 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1252 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
