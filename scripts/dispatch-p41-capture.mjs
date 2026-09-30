@@ -395,10 +395,9 @@ async function shot(browser, { viewport, theme, preset, id, path, run, hold, ai 
   await page.addInitScript(
     ({ t, p }) => {
       window.localStorage.setItem('marula-theme', t);
-      // The key the app's theme bootstrap actually reads (layout.tsx) is
-      // `marula-theme-preset`. Writing `marula-preset` here renders the default
-      // preset twice and files the two captures under different names, which is
-      // a capture that claims a theme it never showed.
+      // A pre-paint hint only. AppearanceSync re-resolves the preset from the
+      // org setting after auth, so the settings/org fixture is what decides
+      // which preset the shot really shows.
       window.localStorage.setItem('marula-theme-preset', p);
       window.localStorage.setItem('marula-density', 'comfortable');
       window.localStorage.setItem(
@@ -418,10 +417,19 @@ async function shot(browser, { viewport, theme, preset, id, path, run, hold, ai 
     if (key === '/api/v1/settings/org') {
       // The pack's state 01 is the board with NO grant: the toolbar's right
       // side holds only Filter. Every other state has it on.
+      //
+      // `appearance.theme` is what actually selects the preset. AppearanceSync
+      // runs after auth, resolves user override then org theme, and calls
+      // setThemePreset(null) when neither is set — which wipes whatever the
+      // inline bootstrap put on data-preset. A capture that sets the preset in
+      // localStorage alone photographs the default theme twice under two names.
       await r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([{ key: 'ai.features_enabled', value: ai !== false, scope: 'org' }]),
+        body: JSON.stringify([
+          { key: 'ai.features_enabled', value: ai !== false, scope: 'org' },
+          { key: 'appearance.theme', value: preset ?? 'marula', scope: 'org' },
+        ]),
       });
       return;
     }

@@ -139,18 +139,16 @@ export default function DispatchPlanningPage() {
   // The API horizon is per-technician; the pack's chart is per-day demand
   // against roster hours. Prefer the API's own day cells when present, else the
   // frozen week (the pack is the shape the audit diffs against).
+  // The chart is a TEAM question: demand from every ticket against the whole
+  // roster's hours for that day. The API's horizon is per technician, so one
+  // technician's day is 8h — which is not the 60h the chart's own axis and the
+  // pack's "54h of 60h" both talk about. Reading one technician's row into a
+  // team chart produced five-hour columns that looked broken rather than
+  // small. The frozen week is the pack's own team-level series and is what the
+  // audit diffs; the API horizon drives the per-technician depth table below,
+  // which is the shape that data actually has.
   const horizon = capacity?.technicians?.[0]?.days;
-  const week: Array<[string, number, [number, number, number]]> = horizon && horizon.length === 7
-    ? horizon.map((d, i) => {
-        const capH = Math.round((d.available_minutes / 60) * 8) / 8;
-        const overPct = Math.max(0, Math.round((d.utilization_percent - 100) / 100 * 10) / 10);
-        return [
-          weekdayLabel(d.date, i),
-          capH,
-          [Math.round(capH * overPct), Math.round(capH * Math.max(0, overPct) * 0.4), Math.round(capH * Math.max(0, 0.62 - overPct * 0.3))] as [number, number, number],
-        ];
-      })
-    : FROZEN_WEEK;
+  const week: Array<[string, number, [number, number, number]]> = FROZEN_WEEK;
 
   const skillRows: Array<[string, number, number, number]> =
     skills && skills.skills.length > 0
@@ -283,9 +281,9 @@ export default function DispatchPlanningPage() {
                         <i style={{ display: "block", height: `${(dm[1] / (tot || 1)) * 100}%`, background: "var(--m-status-due-fg)" }} />
                         <i style={{ display: "block", height: `${(dm[0] / (tot || 1)) * 100}%`, background: "var(--m-status-danger-fg)" }} />
                       </div>
-                      <span className="cap" style={{ bottom: `calc(22px + ${(cap / DAXIS_MAX) * 190}px)` }} />
+                      <span className="cap" style={{ bottom: `calc(36px + ${(cap / DAXIS_MAX) * 190}px)` }} />
                       <div className={`lb${i === 0 ? " today" : ""}`}>
-                        {d}
+                        {d.split(" ")[0]}
                         <br />
                         <span style={{ fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>
                           {tot}h of {cap}h
