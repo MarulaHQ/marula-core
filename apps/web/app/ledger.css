@@ -19,6 +19,23 @@
  * surfaces are allowed to look like the pack.
  */
 
+/* The pack's per-density scale, stated once so the numbers below are the
+   mockup's: `--pill` 24/22/20 and `--hdr` 44/40/32. */
+:root {
+  --m-ledger-pill: 24px;
+  --m-ledger-hdr: 44px;
+}
+
+:root[data-density="compact"] {
+  --m-ledger-pill: 22px;
+  --m-ledger-hdr: 40px;
+}
+
+:root[data-density="dense"] {
+  --m-ledger-pill: 20px;
+  --m-ledger-hdr: 32px;
+}
+
 .m-ledger-page {
   display: grid;
   gap: 16px;
@@ -79,8 +96,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: var(--m-density-control-sm);
-  padding: 0 10px;
+  height: calc(var(--m-density-control) - 8px);
+  padding: 0 12px;
   border: 1px solid var(--m-border);
   border-radius: 999px;
   background: var(--m-surface);
@@ -93,9 +110,10 @@
   background: var(--m-canvas);
 }
 
+/* An active chip is the pack's `--acc` fill with the accent ink, not a tint. */
 .m-ledger-shortcut.is-active {
-  background: var(--m-accent-soft);
-  border-color: var(--m-accent-active);
+  background: var(--m-accent);
+  border-color: transparent;
   color: var(--m-text);
 }
 
@@ -132,6 +150,20 @@
 
 /* ---- the table card (16px radius, 1px border) ---- */
 
+/* The pack's `.tb` is one row of `calc(--ctl + 16px)` that cannot wrap: chips
+   clip rather than push the table down. The shared toolbar wraps, so a ledger
+   pins the row and lets the chip strip clip inside it. */
+.m-ledger-page .m-data-toolbar {
+  flex-wrap: nowrap;
+  padding: 0;
+}
+
+.m-ledger-page .m-data-toolbar-main {
+  flex-wrap: nowrap;
+  height: calc(var(--m-density-control) + 16px);
+  overflow: hidden;
+}
+
 .m-ledger-card {
   display: grid;
   grid-template-rows: 1fr auto;
@@ -146,13 +178,26 @@
   min-height: 0;
 }
 
+/* The pack's table: `.tc{padding:0 var(--px)}` — horizontal inset only, with the
+   row height carrying the vertical — and a header of `--hdr` (44/40/32) in 12px
+   uppercase at .06em. The shared `.m-table` pads 4px/10px at weight 500, so a
+   ledger restates the header treatment rather than inheriting a lighter one. */
 .m-ledger-card .m-table th,
 .m-ledger-card .m-table td {
-  padding: 2px 12px;
+  padding: 0 12px;
 }
 
 .m-ledger-card .m-table td {
   height: var(--m-density-row);
+}
+
+.m-ledger-card .m-table th {
+  height: var(--m-ledger-hdr);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .m-ledger-select-col {
@@ -171,8 +216,11 @@
   text-align: right;
 }
 
+/* The pack's selected row is `background: var(--acc)` + a 3px gold bar, and
+   `--m-accent` IS that value (#f7e3a8 light / #3a3944 dark). Using
+   `--m-accent-soft` here washed the selection out to a third of its strength. */
 .m-ledger-card .m-table tbody tr[data-selected="true"] {
-  background: var(--m-accent-soft);
+  background: var(--m-accent);
   box-shadow: inset 3px 0 0 var(--m-gold);
 }
 
@@ -183,7 +231,7 @@
   top: 0;
   z-index: 1;
   padding: 0;
-  background: var(--m-accent-soft);
+  background: var(--m-accent);
   border-bottom: 1px solid var(--m-border-strong);
 }
 
@@ -301,6 +349,12 @@
   background: var(--m-primary-hover, var(--m-primary));
 }
 
+/* `--px` goes 12 / 12 / 10, so the cell inset follows it. */
+:root[data-density="dense"] .m-ledger-card .m-table th,
+:root[data-density="dense"] .m-ledger-card .m-table td {
+  padding: 0 10px;
+}
+
 /* ---- severity pills: overdue RED, due soon blush, never colour alone ----
  * The box is the kit's pill, to the pixel: 24px tall, 10px of inset, 999px
  * radius (matching `.m-badge`, which the brand pass corrected to the pack's
@@ -310,14 +364,23 @@
 .m-ledger-sev {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  min-height: 24px;
+  gap: 6px;
+  height: var(--m-ledger-pill);
   padding: 0 10px;
   border-radius: 999px;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
+}
+
+/* The glyph inside a pill is 14px, not 12px: at 12px an alert triangle inside a
+   24px pill reads as a speck, which is the opposite of what the severity is
+   there to do. */
+.m-ledger-sev svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 
 .m-ledger-sev-red {
