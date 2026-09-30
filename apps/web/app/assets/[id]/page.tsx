@@ -43,6 +43,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { EntityPicker } from "../../../components/entities/entity-picker";
+import { NeutralMark } from "../../../components/assets-stock/ledger-marks";
 import { LabelPrintButton } from "../../../components/labels/label-print-button";
 import type { LinkTarget } from "../../../lib/entity-links";
 
@@ -482,17 +483,23 @@ export default function AssetDetailPage() {
             Internal org asset
           </span>
         )}
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-lg font-semibold">{asset.name}</h1>
-          <span className="font-mono text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            {asset.tag}
-          </span>
-          <Tag>{asset.status}</Tag>
-          {layout !== undefined ? <Tag tone="outline">{layout.name}</Tag> : null}
-          {/* Loan-device label (Wave 32 lane 5): the QR encodes this asset's
-              canonical deep link, so a scan anywhere resolves back here. */}
-          <LabelPrintButton purpose="device_asset" entityId={asset.id} entityLabel={asset.name} />
-        </div>
+        <header className="m-ledger-header">
+          <div className="m-ledger-title-row">
+            <h1 className="m-ledger-title" data-testid="asset-detail-name">
+              {asset.name}
+            </h1>
+            <NeutralMark label={asset.status} testId="asset-detail-status" />
+            {layout !== undefined ? <Tag tone="outline">{layout.name}</Tag> : null}
+            {/* Loan-device label (Wave 32 lane 5): the QR encodes this asset's
+                canonical deep link, so a scan anywhere resolves back here. */}
+            <div className="m-ledger-header-action">
+              <span className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
+                {asset.tag}
+              </span>
+              <LabelPrintButton purpose="device_asset" entityId={asset.id} entityLabel={asset.name} />
+            </div>
+          </div>
+        </header>
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">

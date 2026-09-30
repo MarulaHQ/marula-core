@@ -37,18 +37,105 @@ import {
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { LedgerSurface, type LedgerColumn } from "../../../components/assets-stock/ledger-surface";
+import { LedgerRow } from "../../../components/assets-stock/ledger-row";
+import { csvFileName, downloadCsv } from "../../../components/assets-stock/csv";
+import {
+  DueSoonMark,
+  OverdueMark,
+  ReturnedMark,
+} from "../../../components/assets-stock/ledger-marks";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
-import { duePhrase, dateInputValue, loanStatusTone } from "../../../lib/stock-format";
+import { dateInputValue } from "../../../lib/stock-format";
+import type { FilterClause } from "@marula-core/ui";
 
 type StockItemView = components["schemas"]["StockItemView"];
 type StockLocationView = components["schemas"]["StockLocationView"];
 type StockSerialView = components["schemas"]["StockSerialView"];
 type ClientLoanDetailResponse = components["schemas"]["ClientLoanDetailResponse"];
 type ClientLoanLineView = components["schemas"]["ClientLoanLineView"];
+
+/** Due inside this window is "due soon" (blush); past it is overdue (red). */
+const DUE_SOON_DAYS = 3;
+
+const LOAN_VIEWS = [
+  { id: "loans", label: "Loans" },
+  { id: "ledger", label: "Ledger" },
+  { id: "tools", label: "Tools" },
+];
+
+const LOAN_COLUMNS: LedgerColumn[] = [
+  { key: "client", label: "Client", required: true },
+  { key: "items", label: "Items" },
+  { key: "out", label: "Out" },
+  { key: "expected", label: "Expected return" },
+  { key: "state", label: "State" },
+  { key: "actions", label: "Actions", align: "right" },
+];
+
+const LOAN_FILTERS = [
+  { key: "client", label: "Client" },
+  { key: "status", label: "Status" },
+  { key: "lease", label: "Lease" },
+  { key: "due", label: "Due" },
+  { key: "overdue", label: "Overdue" },
+];
+
+/** Whole days from today to a due date; negative once it has passed. */
+function daysUntilDue(dueAt: string | null | undefined, now: Date): number {
+  if (dueAt == null || dueAt === "") return Number.POSITIVE_INFINITY;
+  const at = new Date(dueAt.length === 10 ? `${dueAt}T23:59:59` : dueAt);
+  if (Number.isNaN(at.getTime())) return Number.POSITIVE_INFINITY;
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDue = new Date(at.getFullYear(), at.getMonth(), at.getDate());
+  return Math.round((startOfDue.getTime() - startOfToday.getTime()) / 86_400_000);
+}
+
+/**
+ * The loans severity test for this lane, in one place: a genuinely overdue
+ * return is RED, a return coming due is BLUSH, a returned loan is GREEN, and
+ * each state carries a word AND an icon, so colour is never the only signal
+ * (the pack states this twice for loans, and once in the brief).
+ */
+function LoanDueState({
+  loan,
+  now,
+}: {
+  loan: components["schemas"]["ClientLoanView"];
+  now: Date;
+}): ReactNode {
+  if (loan.status === "returned" || loan.returned_at != null) {
+    return <ReturnedMark label="Returned" />;
+  }
+  if (loan.overdue) {
+    const days = daysUntilDue(loan.expected_return_at, now);
+    return (
+      <OverdueMark
+        label={days === 0 ? "Overdue today" : `Overdue ${Math.abs(days)}d`}
+        testId={`loans-overdue-${loan.id}`}
+      />
+    );
+  }
+  const days = daysUntilDue(loan.expected_return_at, now);
+  if (days <= DUE_SOON_DAYS) {
+    return (
+      <DueSoonMark
+        label={days === 0 ? "Due today" : days === 1 ? "Due tomorrow" : `Due in ${days}d`}
+        testId={`loans-due-soon-${loan.id}`}
+      />
+    );
+  }
+  return (
+    <span style={{ color: "var(--m-text-secondary)" }}>
+      {Number.isFinite(days) ? `Due in ${days}d` : "No return date"}
+    </span>
+  );
+}
 
 const CONDITIONS = [
   { value: "good", label: "Good" },
@@ -80,6 +167,9 @@ export default function StockLoansPage(): ReactNode {
   const [clientFilter, setClientFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "returned">("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [clauses, setClauses] = useState<FilterClause[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const router = useRouter();
 
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueClientId, setIssueClientId] = useState("");
@@ -320,166 +410,173 @@ export default function StockLoansPage(): ReactNode {
   }
 
   if (loans === null && loadError === null) return <Spinner />;
-  if (loadError !== null) return <EmptyState message={loadError} />;
 
   const list = loans ?? [];
-  const clientLoans = clientFilter === "" ? [] : list.filter((detail) => detail.loan.client_id === clientFilter);
-  const clientOpen = clientLoans.filter((detail) => detail.loan.status === "open");
-  const clientItemsOut = clientOpen.reduce(
-    (sum, detail) => sum + detail.lines.filter((line) => line.returned_at == null).length,
-    0,
-  );
+  const now = new Date();
+  const overdueCount = list.filter((detail) => detail.loan.overdue).length;
+  const dueSoonCount = list.filter(
+    (detail) => !detail.loan.overdue && detail.loan.status === "open" && daysUntilDue(detail.loan.expected_return_at, now) <= DUE_SOON_DAYS,
+  ).length;
+  const filterOverdueOnly = clauses.some((clause) => clause.field === "overdue" && clause.value === "yes");
+  const dueSoonOnly = clauses.some((clause) => clause.field === "due" && clause.value === "soon");
+  const rows = list.filter((detail) => {
+    if (filterOverdueOnly && !detail.loan.overdue) return false;
+    if (dueSoonOnly && (detail.loan.overdue || daysUntilDue(detail.loan.expected_return_at, now) > DUE_SOON_DAYS)) return false;
+    for (const clause of clauses) {
+      if (clause.field === "client" && detail.loan.client_id !== clause.value) return false;
+      if (clause.field === "status" && detail.loan.status !== clause.value) return false;
+      if (clause.field === "lease" && (clause.value === "yes") !== detail.loan.is_lease) return false;
+    }
+    return true;
+  });
 
   return (
-    <div className="mx-auto grid w-full max-w-350 gap-6 p-4 md:p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Client loans
-          </h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--m-text-secondary)" }}>
-            Devices and tools that left stock on a client agreement. Returns land back in a chosen location.
-          </p>
-        </div>
+    <>
+    <LedgerSurface
+      surface="stock-loans"
+      testId="loans-ledger"
+      title="Client loans"
+      subtitle="Devices and tools that left stock on a client agreement. Returns land back in a chosen location."
+      shortcuts={[
+        {
+          key: "overdue",
+          label: "Overdue",
+          count: overdueCount,
+          tone: "red",
+          active: filterOverdueOnly,
+          onClick: () =>
+            setClauses((cur) =>
+              cur.some((clause) => clause.field === "overdue")
+                ? cur.filter((clause) => clause.field !== "overdue")
+                : [...cur, { id: "overdue", field: "overdue", op: "eq", value: "yes" }],
+            ),
+        },
+        {
+          key: "due-soon",
+          label: "Due soon",
+          count: dueSoonCount,
+          tone: "blush",
+          active: dueSoonOnly,
+          onClick: () =>
+            setClauses((cur) =>
+              cur.some((clause) => clause.field === "due")
+                ? cur.filter((clause) => clause.field !== "due")
+                : [...cur, { id: "due", field: "due", op: "eq", value: "soon" }],
+            ),
+        },
+      ]}
+      headerAction={
         <Button onClick={openIssue} data-testid="loans-issue-open">
           Issue loan
         </Button>
-      </header>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Select
-          value={clientFilter === "" ? "__all" : clientFilter}
-          onValueChange={(value) => setClientFilter(value === "__all" ? "" : value)}
-        >
-          <SelectTrigger aria-label="Filter by client" data-testid="loans-client-filter" style={{ width: 220 }}>
-            <SelectValue placeholder="All clients" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all">All clients</SelectItem>
-            {clients.map((client) => (
-              <SelectItem key={client.id} value={client.id}>
-                {client.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-          <SelectTrigger aria-label="Filter by status" data-testid="loans-status-filter" style={{ width: 160 }}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="open">Open</SelectItem>
-            <SelectItem value="returned">Returned</SelectItem>
-          </SelectContent>
-        </Select>
-        <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--m-text-secondary)" }}>
-          <Checkbox
-            checked={overdueOnly}
-            onCheckedChange={(value) => setOverdueOnly(value === true)}
-            data-testid="loans-overdue-only"
-          />
-          Overdue only
-        </label>
-      </div>
-
-      {clientFilter !== "" && (
-        <Card className="m-rise flex flex-wrap items-center gap-4 p-4" data-testid="loans-client-banner">
-          <div>
-            <p className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
-              {clientName(clientFilter)}
-            </p>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--m-text-secondary)" }}>
-              {clientOpen.length} open loan{clientOpen.length === 1 ? "" : "s"} · {clientItemsOut} item
-              {clientItemsOut === 1 ? "" : "s"} out
-            </p>
-          </div>
-          <Link
-            href={`/clients/${clientFilter}`}
-            className="text-xs"
-            style={{ color: "var(--m-status-info-fg)" }}
-          >
-            Open client record
-          </Link>
-        </Card>
-      )}
-
-      {actionError !== null && (
-        <p className="text-xs" role="alert" style={{ color: "var(--m-status-danger-fg)" }} data-testid="loans-error">
-          {actionError}
-        </p>
-      )}
-      {notice !== null && (
-        <p className="text-xs" role="status" style={{ color: "var(--m-status-success-fg)" }} data-testid="loans-notice">
-          {notice}
-        </p>
-      )}
-
-      <Card className="m-rise overflow-x-auto p-0">
-        <Table data-testid="loans-table">
-          <thead>
-            <tr>
-              <Th>Client</Th>
-              <Th>Items</Th>
-              <Th>Out</Th>
-              <Th>Expected return</Th>
-              <Th>State</Th>
-              <Th className="text-right">Actions</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((detail) => (
-              <Tr key={detail.loan.id} className="row-hover" data-testid={`loans-row-${detail.loan.id}`}>
-                <Td>
+      }
+      views={LOAN_VIEWS}
+      activeView="loans"
+      onViewChange={(id) => {
+        if (id === "ledger") router.push("/stock");
+        if (id === "tools") router.push("/stock/tools");
+      }}
+      columns={LOAN_COLUMNS}
+      filterFields={LOAN_FILTERS}
+      filterClauses={clauses}
+      onFilterChange={setClauses}
+      rowCount={rows.length}
+      rowsShown={rows.length}
+      onExport={(request) => {
+        const stamp = new Date().toISOString().slice(0, 10);
+        downloadCsv(
+          csvFileName("client-loans", stamp),
+          request.columns,
+          rows.map((detail) => ({
+            client: clientName(detail.loan.client_id),
+            items: summaryOf(detail),
+            out: detail.loan.out_at.slice(0, 10),
+            expected: detail.loan.expected_return_at,
+            state: detail.loan.overdue ? "overdue" : detail.loan.status,
+            lease: detail.loan.is_lease ? "lease" : "",
+          })),
+        );
+      }}
+      selectedIds={selected}
+      onToggleRow={(id, isSelected) =>
+        setSelected((cur) => (isSelected ? [...cur, id] : cur.filter((row) => row !== id)))
+      }
+      onToggleAll={(isSelected) => setSelected(isSelected ? rows.map((d) => d.loan.id) : [])}
+      allSelected={rows.length > 0 && selected.length === rows.length}
+      someSelected={selected.length > 0 && selected.length < rows.length}
+      bulkActions={[
+        {
+          key: "return",
+          label: "Return",
+          disabled: selected.length !== 1,
+          title: "Record the return of one loan",
+          onClick: () => {
+            const only = rows.find((detail) => detail.loan.id === selected[0]);
+            if (only != null) openReturn(only);
+          },
+        },
+      ]}
+      onClearSelection={() => setSelected([])}
+      emptyMessage={
+        clauses.length > 0
+          ? "No loans match these filters."
+          : "No loans out. Issue a loan to send stock to a client."
+      }
+      errorMessage={actionError}
+      keyboardHints="Overdue is red, due soon is blush"
+    >
+      {(columns) =>
+        rows.map((detail) => (
+          <LedgerRow
+            key={detail.loan.id}
+            id={detail.loan.id}
+            selected={selected.includes(detail.loan.id)}
+            selectable
+            onToggle={(rowId, isSelected) =>
+              setSelected((cur) => (isSelected ? [...cur, rowId] : cur.filter((id) => id !== rowId)))
+            }
+            columns={columns}
+            selectLabel={`Select the loan for ${clientName(detail.loan.client_id)}`}
+            testId={`loans-row-${detail.loan.id}`}
+            cells={{
+              client: (
+                <span className="flex items-center gap-1.5">
                   <Link href={`/clients/${detail.loan.client_id}`} style={{ color: "var(--m-text)" }}>
                     {clientName(detail.loan.client_id)}
                   </Link>
-                  {detail.loan.is_lease && (
-                    <Tag tone="outline" className="ml-1.5 text-xs">
-                      lease
-                    </Tag>
-                  )}
-                </Td>
-                <Td className="text-xs">{summaryOf(detail)}</Td>
-                <Td className="whitespace-nowrap font-mono text-xs">{detail.loan.out_at.slice(0, 10)}</Td>
-                <Td className="text-xs">
-                  <span className="flex items-center gap-1">
-                    {duePhrase(detail.loan.expected_return_at)}
-                    {detail.loan.overdue && <StatusTag tone="danger">overdue</StatusTag>}
-                  </span>
-                </Td>
-                <Td>
-                  <StatusTag tone={loanStatusTone(detail.loan.status, detail.loan.overdue)}>
-                    {detail.loan.status}
-                  </StatusTag>
-                </Td>
-                <Td>
-                  <div className="flex justify-end">
-                    {detail.loan.status === "open" && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => openReturn(detail)}
-                        data-testid={`loans-return-${detail.loan.id}`}
-                      >
-                        Return
-                      </Button>
-                    )}
-                  </div>
-                </Td>
-              </Tr>
-            ))}
-            {list.length === 0 && (
-              <Tr>
-                <Td>
-                  <EmptyState message="No loans match these filters. Issue a loan to send stock to a client." />
-                </Td>
-              </Tr>
-            )}
-          </tbody>
-        </Table>
-      </Card>
-
+                  {detail.loan.is_lease ? <Tag tone="outline">lease</Tag> : null}
+                </span>
+              ),
+              items: summaryOf(detail),
+              out: (
+                <span className="font-mono text-xs tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                  {detail.loan.out_at.slice(0, 10)}
+                </span>
+              ),
+              expected: (
+                <span className="font-mono text-xs tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                  {detail.loan.expected_return_at.slice(0, 10)}
+                </span>
+              ),
+              state: <LoanDueState loan={detail.loan} now={now} />,
+              actions:
+                detail.loan.status === "open" ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => openReturn(detail)}
+                    data-testid={`loans-return-${detail.loan.id}`}
+                  >
+                    Return
+                  </Button>
+                ) : (
+                  <ReturnedMark label="Returned" testId={`loans-returned-${detail.loan.id}`} />
+                ),
+            }}
+          />
+        ))
+      }
+    </LedgerSurface>
       <Dialog open={issueOpen} onOpenChange={setIssueOpen}>
         <DialogContent title="Issue loan" data-testid="loans-issue-dialog">
           <div className="grid gap-3 overflow-auto p-1" style={{ maxHeight: "80vh" }}>
@@ -774,6 +871,6 @@ export default function StockLoansPage(): ReactNode {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

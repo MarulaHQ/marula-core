@@ -500,25 +500,18 @@ export default function WorkbenchPage(): ReactNode {
 
   return (
     <div className="mx-auto grid w-full max-w-[1500px] gap-4 p-4 md:p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Merge workbench
-          </h1>
-          <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            One review surface for every dedupe queue — side-by-side evidence,
-            field-level picks, batch decisions, and a full undo trail.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {dedupeReport !== null && dedupeReport.report !== undefined && (
-            <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }} data-testid="jev-last-report">
-              {`last run: ${dedupeReport.report.scanned} scanned · ${dedupeReport.report.auto_merged} auto-merged`}
-            </span>
-          )}
-          <Button size="sm" variant="secondary" disabled={dedupeBusy} onClick={() => void runJev()} data-testid="jev-run">
-            Run intelligent dedupe
-          </Button>
+      <header className="m-ledger-header">
+        <div className="m-ledger-title-row">
+          <h1 className="m-ledger-title">Merge workbench</h1>
+          <div className="m-ledger-header-action">
+            {dedupeReport !== null && dedupeReport.report !== undefined && (
+              <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }} data-testid="jev-last-report">
+                {`last run: ${dedupeReport.report.scanned} scanned · ${dedupeReport.report.auto_merged} auto-merged`}
+              </span>
+            )}
+            <Button size="sm" variant="secondary" disabled={dedupeBusy} onClick={() => void runJev()} data-testid="jev-run">
+              Run intelligent dedupe
+            </Button>
           <Link
             href="/settings/inventory"
             className="rounded border px-2 py-1 text-[12px]"
@@ -527,7 +520,14 @@ export default function WorkbenchPage(): ReactNode {
           >
             Queue settings
           </Link>
+          </div>
         </div>
+        <p className="m-ledger-subtitle">
+          One review surface for every dedupe queue — side-by-side evidence, field-level
+          picks, batch decisions, and a full undo trail. The merge is a person&apos;s call:
+          this queue carries no AI mark, no suggested answer and no sparkle, because a
+          duplicate is a decision, not a notification.
+        </p>
       </header>
 
       {actionError !== null && (
@@ -876,12 +876,83 @@ function CiDetail({
       {detail.fields.length > 0 && (
         <Card className="grid gap-2 p-4" data-testid="detail-field-picker">
           <span className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
-            Field-by-field picker
+            Field-by-field comparison
           </span>
           <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
             Curated values are sticky — a feed can never overwrite them; a strong
-            observed contradiction shows the one-click "accept the new value".
+            observed contradiction shows the one-click &quot;accept the new value&quot;.
           </p>
+          {/*
+            The side-by-side duplicate comparison the pack asks for. This queue
+            is a HUMAN decision surface, so it carries no AI mark of any kind:
+            no sparkle, no hint, no suggested answer. Every value here is either
+            observed by a feed or curated by a person, and the rows below say
+            which — the decision is made by reading them, not by being told.
+          */}
+          <div className="m-ledger-merge-compare" data-testid="detail-compare">
+            <div className="m-ledger-merge-head m-ledger-merge-cell is-label">Field</div>
+            <div className="m-ledger-merge-head m-ledger-merge-cell">Survivor · {c.primary_tag}</div>
+            <div className="m-ledger-merge-head m-ledger-merge-cell">Candidate · {c.candidate_tag}</div>
+            {detail.fields.map((f) => {
+              const primaryVal = f.primary_curated ?? f.primary_observed;
+              const candVal = f.candidate_curated ?? f.candidate_observed;
+              const conflicts =
+                candVal !== undefined &&
+                primaryVal !== undefined &&
+                JSON.stringify(candVal) !== JSON.stringify(primaryVal);
+              const primarySrc = sourceEntry(f.primary_source);
+              const candSrc = sourceEntry(f.candidate_source);
+              return (
+                <div
+                  key={`cmp-${f.key}`}
+                  className="contents"
+                  data-testid={`detail-compare-${f.key}`}
+                  data-conflicts={conflicts ? "true" : "false"}
+                >
+                  <div className="m-ledger-merge-cell is-label">{f.key}</div>
+                  <div
+                    className="m-ledger-merge-cell"
+                    data-tier={f.primary_curated !== undefined ? "curated" : "observed"}
+                  >
+                    <span style={{ color: "var(--m-text-secondary)" }}>
+                      {fieldPreview(f.primary_curated ?? f.primary_observed)}
+                      {f.primary_curated !== undefined ? (
+                        <span className="ml-1 text-[10px]" style={{ color: "var(--m-text-muted)" }}>
+                          (curated)
+                        </span>
+                      ) : null}
+                      {primarySrc !== null ? (
+                        <span className="ml-1 text-[10px]" style={{ color: "var(--m-text-muted)" }}>
+                          · {primarySrc}
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                  <div
+                    className="m-ledger-merge-cell"
+                    data-tier={f.candidate_curated !== undefined ? "curated" : "observed"}
+                    data-conflicts={conflicts ? "true" : "false"}
+                  >
+                    <span style={{ color: "var(--m-text-secondary)" }}>
+                      {fieldPreview(f.candidate_curated ?? f.candidate_observed)}
+                      {candSrc !== null ? (
+                        <span className="ml-1 text-[10px]" style={{ color: "var(--m-text-muted)" }}>
+                          · {candSrc}
+                        </span>
+                      ) : null}
+                    </span>
+                    {conflicts && isPending ? (
+                      <span className="text-[10px]" style={{ color: "var(--m-status-warning-fg)" }}>
+                        differs — merge, then curate the value you want (sticky)
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* The keyboard-reachable picker stays: the grid above is for
+              reading, this is for choosing, and both are the human's. */}
           <div className="grid gap-1.5">
             {detail.fields.map((f) => {
               const primaryVal = f.primary_curated ?? f.primary_observed;

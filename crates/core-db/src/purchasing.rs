@@ -809,6 +809,33 @@ pub async fn list_po_lines(
     rows.into_iter().map(line_row).collect()
 }
 
+/// Every line of every order in `purchase_order_ids`, in one round trip.
+///
+/// The list endpoint prices a page of orders so each row can carry its own
+/// total, which would otherwise be a query per order. The rows stay org-scoped
+/// on `org_id` exactly like every other read here, so RLS applies unchanged.
+/// Ordered by order then position so each order's lines arrive in the same
+/// order `list_po_lines` would have given.
+pub async fn list_po_lines_for_orders(
+    executor: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    purchase_order_ids: &[Uuid],
+) -> DbResult<Vec<PurchaseOrderLine>> {
+    if purchase_order_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = sqlx::query(&format!(
+        r#"SELECT {LINE_COLS} FROM purchase_order_lines
+           WHERE org_id = $1 AND purchase_order_id = ANY($2)
+           ORDER BY purchase_order_id, position, created_at"#
+    ))
+    .bind(org_id)
+    .bind(purchase_order_ids)
+    .fetch_all(&mut *executor)
+    .await?;
+    rows.into_iter().map(line_row).collect()
+}
+
 /// Draft line edits (full-row write: the route loads, patches, saves).
 pub async fn update_po_line<'e, E>(executor: E, line: &PurchaseOrderLine) -> DbResult<()>
 where

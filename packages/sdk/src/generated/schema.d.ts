@@ -23080,6 +23080,19 @@ export interface components {
         };
         /** @enum {string} */
         PurchaseOrderStatus: "draft" | "ordered" | "partially_received" | "received" | "closed" | "cancelled";
+        /**
+         * @description One row of the order list: the order itself plus its own totals.
+         *
+         *     The order fields are flattened, so this is the order's old wire shape plus
+         *     a `totals` key — a client that ignores the new key keeps working, and one
+         *     that reads it stops needing a request per order to know what an order is
+         *     worth. `totals` is `null` for a caller without `ViewFinancials`, which is
+         *     the same gate the detail endpoint's totals obey: the list never leaks money
+         *     the detail page would hide.
+         */
+        PurchaseOrderSummary: components["schemas"]["PurchaseOrder"] & {
+            totals?: null | components["schemas"]["PurchaseOrderRollup"];
+        };
         /** @description One receipt document: goods that landed at a location against a PO. */
         PurchaseReceipt: {
             carrier?: string | null;
@@ -44363,7 +44376,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PurchaseOrder"][];
+                    "application/json": components["schemas"]["PurchaseOrderSummary"][];
                 };
             };
         };

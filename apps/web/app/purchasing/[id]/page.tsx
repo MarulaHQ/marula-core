@@ -739,20 +739,13 @@ export default function PurchaseOrderPage(): ReactNode {
 
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <header className="m-rise grid gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="font-mono text-lg font-semibold" style={{ color: "var(--m-text)" }} data-testid="purchasing-order-number">
-                {order.number}
-              </h1>
-              <OrderStatusTag status={order.status} />
-            </div>
-            <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              {vendorName ?? "Vendor"} · {links.length} portal link{links.length === 1 ? "" : "s"}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-1">
+      <header className="m-ledger-header">
+        <div className="m-ledger-title-row">
+          <h1 className="m-ledger-title font-mono" data-testid="purchasing-order-number">
+            {order.number}
+          </h1>
+          <OrderStatusTag status={order.status} />
+          <div className="m-ledger-header-action">
             {canSend && (
               <Button disabled={busy !== null} onClick={() => void runOrderAction("send")} data-testid="purchasing-send">
                 Send order
@@ -788,7 +781,12 @@ export default function PurchaseOrderPage(): ReactNode {
             )}
           </div>
         </div>
-
+        <p className="m-ledger-subtitle">
+          {vendorName ?? "Vendor"} · {links.length} portal link{links.length === 1 ? "" : "s"} ·{" "}
+          <Link href="/purchasing" style={{ color: "var(--m-status-info-fg)" }}>
+            Purchase orders
+          </Link>
+        </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {(
             [
@@ -860,7 +858,8 @@ export default function PurchaseOrderPage(): ReactNode {
             </p>
           )}
         </div>
-        <div className="overflow-x-auto">
+        <div className="m-ledger-card" data-testid="purchasing-lines-card">
+          <div className="m-ledger-table-wrap">
           <Table data-testid="purchasing-lines-table">
             <thead>
               <tr>
@@ -933,6 +932,18 @@ export default function PurchaseOrderPage(): ReactNode {
               )}
             </tbody>
           </Table>
+          </div>
+          <footer className="m-ledger-footer">
+            <span className="m-ledger-shown tabular-nums" data-testid="purchasing-lines-count">
+              {lines.length} line{lines.length === 1 ? "" : "s"}
+            </span>
+            {detail.totals != null ? (
+              <span className="m-ledger-hints">
+                ordered {money(detail.totals.ordered_minor, order.currency)} · received{" "}
+                {money(detail.totals.received_minor, order.currency)}
+              </span>
+            ) : null}
+          </footer>
         </div>
         {canEditLines && lines.some((line) => line.unit_cost_minor == null) && (
           <FieldHint>Line costs are hidden without financial access, so those lines stay read-only.</FieldHint>
