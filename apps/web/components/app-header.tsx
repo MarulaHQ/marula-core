@@ -228,12 +228,22 @@ export function AppHeader() {
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
     >
       <div className="flex shrink-0 items-center gap-2">
-        <BrandMark size={24} />
+        {/* The pack's header draws the CANONICAL mark — the fruit with its
+            stem and leaf — not the favicon dot. `BrandMark` drops to the
+            favicon variant below `MARK_MIN_SIZE` (32), so a 24px call here
+            silently rendered the downgraded asset: a plain gold circle with
+            no stem and no leaf. 32 is the kit's own floor, so the mark renders
+            as itself without redefining that floor for anyone else. */}
+        <BrandMark size={32} />
         {/* Item 11: the wordmark collides with the right dock cluster at
-            ~480px — icon-only below the md breakpoint. */}
+            ~480px — icon-only below the md breakpoint.
+
+            Fraunces, not the interface sans: the pack sets the wordmark in
+            Fraunces 24px at -0.03em, and the typography decision confines
+            Fraunces to exactly this job (wordmark, page greeting, marketing). */}
         <span
-          className="text-sm font-semibold tracking-tight max-md:hidden"
-          style={{ color: "var(--m-text)" }}
+          className="max-md:hidden text-[24px] leading-none tracking-[-0.03em]"
+          style={{ fontFamily: "var(--font-heading), Georgia, serif", color: "var(--m-text)" }}
         >
           Marula
         </span>
