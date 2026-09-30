@@ -176,11 +176,16 @@ describe("/kb — publish state", () => {
     await waitFor(() => {
       expect(screen.getByTestId("kb-article-table")).toBeTruthy();
     });
-    // The article whose category is staff-only must not read as portal-visible.
-    expect(screen.getByText("In the portal")).toBeTruthy();
+    // The row mark is compact — one word, the way a ledger states a status —
+    // and the reason lives in the row's own tooltip.
+    const gated = screen.getByText("In portal");
+    expect(gated.getAttribute("title") ?? gated.parentElement?.getAttribute("title") ?? "").toContain(
+      "both client-facing",
+    );
+    const blocked = screen.getByText("Not in portal");
     expect(
-      screen.getByText("Client-facing, not in the portal"),
-    ).toBeTruthy();
+      blocked.getAttribute("title") ?? blocked.parentElement?.getAttribute("title") ?? "",
+    ).toContain("staff-only");
   });
 
   it("shows the publish row inside the article editor, and states the gate in words", async () => {

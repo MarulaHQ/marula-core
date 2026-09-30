@@ -674,13 +674,23 @@ export default function KbPage() {
                               <StatusPill tone={STATUS_TONE[a.status]}>{a.status}</StatusPill>
                             ) : null}
                             {c.key === "visibility" ? (
-                              visibility === "gated" ? (
-                                <StatusPill tone="success">In the portal</StatusPill>
-                              ) : visibility === "ungated" ? (
-                                <StatusPill tone="warning">Client-facing, not in the portal</StatusPill>
-                              ) : (
-                                <StatusPill tone="neutral">Staff only</StatusPill>
-                              )
+                              <span
+                                title={
+                                  visibility === "gated"
+                                    ? "The article and its category are both client-facing, so the portal's gated search can return it."
+                                    : visibility === "ungated"
+                                      ? "Marked client-facing, but its category is staff-only, so the portal cannot show it yet."
+                                      : "Staff only. The portal's gated search never sees it."
+                                }
+                              >
+                                {visibility === "gated" ? (
+                                  <StatusPill tone="success">In portal</StatusPill>
+                                ) : visibility === "ungated" ? (
+                                  <StatusPill tone="warning">Not in portal</StatusPill>
+                                ) : (
+                                  <StatusPill tone="neutral">Staff only</StatusPill>
+                                )}
+                              </span>
                             ) : null}
                             {c.key === "updated" ? (
                               <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
@@ -1158,9 +1168,14 @@ function CategoryRow({
     >
       <span className="truncate">{name}</span>
       {clientVisible ? (
-        <span title="Client-facing category" style={{ color: selected ? "var(--m-on-accent)" : "var(--m-status-success-fg)" }}>
-          <BookIcon size={14} />
-        </span>
+        <span
+          title="Client-facing category"
+          aria-label="client-facing category"
+          className="inline-block h-2 w-2 shrink-0 rounded-full"
+          style={{
+            background: selected ? "var(--m-on-accent)" : "var(--m-status-success-fg)",
+          }}
+        />
       ) : null}
       <span
         className="tabular-nums ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[12px]"

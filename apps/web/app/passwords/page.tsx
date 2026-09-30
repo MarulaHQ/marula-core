@@ -1188,6 +1188,7 @@ function RecordDialog({
   const [reveal, setReveal] = useState<SecretReveal | null>(null);
   const [revealError, setRevealError] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
+  const [confirmingReveal, setConfirmingReveal] = useState(false);
   const [editing, setEditing] = useState(false);
   const [notAvailable, setNotAvailable] = useState(false);
   const [links, setLinks] = useState<ResolvedLink[] | null>(null);
@@ -1250,7 +1251,7 @@ function RecordDialog({
   if (record === null || record.id === "") return null;
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={!confirmingReveal} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
         title={
           isNew ? "New secret record" : current?.title ?? record.title
@@ -1325,8 +1326,13 @@ function RecordDialog({
             ) : null}
             {canReveal ? (
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="secondary" onClick={() => void doReveal()} disabled={revealing}>
-                  {revealing ? <Spinner /> : null} Reveal (audited)
+                <Button
+                  variant="secondary"
+                  onClick={() => setConfirmingReveal(true)}
+                  disabled={revealing}
+                  data-testid="vault-record-reveal-open"
+                >
+                  <LockIcon size={16} /> Reveal (audited)
                 </Button>
                 <Button variant="ghost" onClick={() => setEditing((v) => !v)}>
                   Edit / rotate fields
@@ -1371,6 +1377,42 @@ function RecordDialog({
           </div>
         )}
       </DialogContent>
+
+      {/* The reveal is its own confirmation, never the same click: the record
+          dialog stands down while this asks, so the screen never carries two
+          dimmed modals at once. */}
+      <Dialog open={confirmingReveal} onOpenChange={setConfirmingReveal}>
+        <DialogContent
+          title="Reveal this secret?"
+          description="The plaintext is decrypted for this browser only, shown here, and written to the audit trail with your name. It is never cached and never exported."
+        >
+          <div className="grid gap-3 p-1">
+            <dl className="grid gap-1 text-[13px]">
+              <MetaRow label="Record">{current?.title ?? "—"}</MetaRow>
+              <MetaRow label="Fields">{sealedFieldList(current ?? ({ fields: [], object_key: null } as unknown as SecretRecord))}</MetaRow>
+            </dl>
+            <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+              Close the dialog once you have what you came for. The next reader of this
+              record sees the same masks.
+            </p>
+            <DialogActions>
+              <Button variant="secondary" onClick={() => setConfirmingReveal(false)}>
+                Keep it sealed
+              </Button>
+              <Button
+                onClick={() => {
+                  setConfirmingReveal(false);
+                  void doReveal();
+                }}
+                disabled={revealing}
+                data-testid="vault-record-reveal-confirm"
+              >
+                {revealing ? <Spinner /> : null} Reveal and record it
+              </Button>
+            </DialogActions>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

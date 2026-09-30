@@ -708,7 +708,7 @@ function TreeList({
       rows.push(
         <li
           key={f.id}
-          className="flex items-center justify-between gap-1"
+          className="group flex items-center justify-between gap-1"
           style={{ paddingLeft: depth * 14 }}
         >
           <button
@@ -729,23 +729,25 @@ function TreeList({
             ) : null}
           </button>
           {f.is_default_seed ? (
-            <Button
-              variant="ghost"
-              className="px-2 text-[12px]"
+            <button
+              type="button"
+              className="shrink-0 rounded-[8px] px-2 py-1 text-[12px] opacity-0 transition-opacity duration-100 focus-visible:opacity-100 group-hover:opacity-100"
+              style={{ color: "var(--m-text-secondary)" }}
               aria-label={`Fork ${f.label} into a client scope`}
               onClick={() => onFork(f)}
             >
               Fork
-            </Button>
+            </button>
           ) : (
-            <Button
-              variant="ghost"
-              className="px-2 text-[12px]"
+            <button
+              type="button"
+              className="shrink-0 rounded-[8px] px-2 py-1 text-[12px] opacity-0 transition-opacity duration-100 focus-visible:opacity-100 group-hover:opacity-100"
+              style={{ color: "var(--m-text-secondary)" }}
               aria-label={`Edit ${f.label}`}
               onClick={() => onEdit(f)}
             >
               Edit
-            </Button>
+            </button>
           )}
         </li>,
       );
@@ -858,7 +860,10 @@ function RecordDialog({
   };
 
   return (
-    <Dialog open={record !== null} onOpenChange={(o) => !o && onClose()}>
+    <Dialog
+      open={record !== null && !confirmingReveal}
+      onOpenChange={(o) => !o && onClose()}
+    >
       <DialogContent
         title={current?.title ?? record?.title ?? "Secret record"}
         description="Metadata-only view — plaintext exists only in the audited reveal below."

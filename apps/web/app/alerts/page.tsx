@@ -150,8 +150,6 @@ export default function AlertsPage() {
   const [alerts, setAlerts] = useState<AlertView[] | null>(null);
   const [loadingAlerts, setLoadingAlerts] = useState(false);
   const [alertsError, setAlertsError] = useState<string | null>(null);
-  const [filterSourceId, setFilterSourceId] = useState<string>("");
-  const [filterTicketId, setFilterTicketId] = useState<string>("");
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "open" | "acknowledged" | "resolved">("all");
   // Per-row triage feedback: conflict messages hang on the alert id.
@@ -191,8 +189,6 @@ export default function AlertsPage() {
     const { data, error } = await api.api.GET("/api/v1/alerts", {
       params: {
         query: {
-          source_id: filterSourceId === "" ? null : filterSourceId,
-          ticket_id: filterTicketId.trim() === "" ? null : filterTicketId.trim(),
           status: filterStatus === "all" ? null : filterStatus,
           limit: 100,
         },
@@ -204,7 +200,7 @@ export default function AlertsPage() {
       return;
     }
     setAlerts(data.alerts);
-  }, [filterSourceId, filterTicketId, filterStatus]);
+  }, [filterStatus]);
 
   useEffect(() => {
     if (auth.status === "authed") {
@@ -347,6 +343,11 @@ export default function AlertsPage() {
           (sourceById.get(a.source_id)?.name ?? a.source_id).toLowerCase().includes(value),
         );
       }
+      if (clause.field === "ticket") {
+        rows = rows.filter((a) =>
+          (a.incident_ticket_id ?? "").toLowerCase().includes(value),
+        );
+      }
     }
     return rows;
   }, [alerts, severityFilter, clauses, sourceById]);
@@ -466,6 +467,7 @@ export default function AlertsPage() {
                   { key: "severity", label: "Severity", operators: ["eq"] },
                   { key: "source", label: "Source", operators: ["contains"] },
                   { key: "status", label: "Status", operators: ["eq"] },
+                  { key: "ticket", label: "Incident ticket id", operators: ["contains"] },
                 ]}
                 clauses={clauses}
                 onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
@@ -515,89 +517,6 @@ export default function AlertsPage() {
             }
           />
           <div className="flex min-h-0 flex-1 flex-col gap-0">
-            <div className="flex flex-wrap items-end gap-3 py-3">
-            <div className="w-56">
-              <div className="w-56">
-                <Label htmlFor="filter-source">Source</Label>
-                <Select
-                  value={filterSourceId || "all"}
-                  onValueChange={(v) => setFilterSourceId(v === "all" ? "" : v)}
-                >
-                  <SelectTrigger id="filter-source" className="w-full">
-                    <SelectValue placeholder="All sources" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All sources</SelectItem>
-                    {(sources ?? []).map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="w-56">
-                <Label htmlFor="filter-ticket">Incident ticket id</Label>
-                <Input
-                  id="filter-ticket"
-                  placeholder="UUID or leave blank"
-                  value={filterTicketId}
-                  onChange={(e) => setFilterTicketId(e.target.value)}
-                />
-              </div>
-
-              <div className="w-44">
-                <Label htmlFor="filter-status">Triage status</Label>
-                <Select
-                  value={filterStatus}
-                  onValueChange={(v) => setFilterStatus((v ?? "all") as typeof filterStatus)}
-                >
-                  <SelectTrigger id="filter-status" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All states</SelectItem>
-                    <SelectItem value="open">Open</SelectItem>
-                    <SelectItem value="acknowledged">Acknowledged</SelectItem>
-                    <SelectItem value="resolved">Resolved</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            </div>
-            <div className="flex flex-wrap gap-1 py-2" role="group" aria-label="Severity facets">
-              {SEVERITY_FILTERS.map((f) => {
-                const count =
-                  f === "all"
-                    ? counts.all
-                    : f === "unrouted"
-                      ? counts.unrouted
-                      : f === "escalated"
-                        ? counts.escalated
-                        : (bySeverityKey(counts, f as AlertSeverity));
-                const active = severityFilter === f;
-                return (
-                  <button
-                    key={f}
-                    className="rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-opacity duration-100 hover:opacity-80"
-                    style={{
-                      borderColor: active ? "var(--m-accent)" : "var(--m-border)",
-                      background: active ? "var(--m-accent)" : "transparent",
-                      color: active ? "var(--m-background)" : "var(--m-text-secondary)",
-                    }}
-                    aria-pressed={active}
-                    onClick={() => setSeverityFilter(f)}
-                  >
-                    {f}{" "}
-                    <span className="tabular-nums" style={{ opacity: 0.8 }}>
-                      {count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
           {alertsError !== null ? (
             <div className="mb-2" role="alert">
               <BlushNote title="The alert feed did not load.">{alertsError}</BlushNote>
@@ -609,16 +528,16 @@ export default function AlertsPage() {
               there is something to count. Clicking it narrows to the unrouted
               facet, which is the work an assistant pass would do. */}
           <div className="flex min-h-0 flex-1 gap-3">
-            <TableCard label="Alert feed">
-            {/* AI ladder state 2: the resting stub. The count is the unrouted
-                alerts, and null when there are none, because there is nothing
-                to count. The Unrouted pill in the header is the way to act on
-                it. */}
+            {/* AI ladder state 2: the resting stub, docked beside the feed.
+                The count is the unrouted alerts, and null when there are none,
+                because there is nothing to count. The Unrouted pill in the
+                header is the way to act on it. */}
             <AssistantColumn
               count={counts.unrouted === 0 ? null : counts.unrouted}
               spark={<SparkIcon size={16} />}
               label={`${counts.unrouted} alerts have not been routed to a ticket`}
             />
+            <TableCard label="Alert feed">
             {loadingAlerts ? (
               <SkeletonRows sentence="Loading the alert feed." columns={4} />
             ) : filteredAlerts.length === 0 ? (
