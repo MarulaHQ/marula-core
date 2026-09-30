@@ -17,13 +17,18 @@ import { useTheme } from "@marula-core/ui";
 /**
  * Which of the kit's own lockups to draw.
  *
- * `mono` is a single-colour silhouette — right where one colour is required
- * (favicons, one-colour print, an embossed surface). `color` is the brand's
- * actual fruit: gold body, green leaf, ink wordmark. The surface pack draws
- * the header in `color`, so a product surface that reaches for `mono` by
- * default renders a dark blob where the brand has a fruit.
+ * `color` is the brand's actual identity — gold fruit, green leaf, ink or
+ * cream wordmark — and is the DEFAULT, because a product surface that renders
+ * the silhouette instead is showing a dark blob where the brand has a fruit.
+ * The surface pack draws the header in colour, and so does every surface in
+ * the app.
+ *
+ * `mono` is the single-colour silhouette, and it is the right asset only where
+ * one colour is genuinely required: an embossed surface, a fax, a vinyl
+ * cut, a monochrome ink limit. Ask for it explicitly (`variant="mono"`) and
+ * say why; nothing should reach for it by accident.
  */
-export type BrandVariant = "mono" | "color";
+export type BrandVariant = "color" | "mono";
 
 /** Lockup width : height, from the kit lockup viewBox (589 x 200). */
 const LOCKUP_RATIO = 589 / 200;
@@ -58,7 +63,7 @@ function markSrc(dark: boolean, variant: BrandVariant) {
  */
 export function BrandMark({
   size = 24,
-  variant = "mono",
+  variant = "color",
 }: {
   size?: number;
   variant?: BrandVariant;
@@ -96,7 +101,7 @@ export function BrandMark({
 export function BrandLockup({
   size = LOCKUP_COMPLIANT_HEIGHT,
   label = "marula",
-  variant = "mono",
+  variant = "color",
 }: {
   /** Requested rendered height in px; width follows the 589:200 lockup ratio. */
   size?: number;
