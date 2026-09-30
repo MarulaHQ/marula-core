@@ -21,6 +21,13 @@ pub mod gate_kind {
     pub const PASSWORD_RESET: &str = "password_reset";
     pub const EMAIL_VERIFY: &str = "email_verify";
     pub const MAGIC_LINK: &str = "magic_link";
+    /// The client portal's own emailed sign-in link (migration 0119). A
+    /// SEPARATE kind from `MAGIC_LINK` on purpose: the two throttle and lock
+    /// independently, so hammering the portal never locks a staff member out
+    /// of their own sign-in, and vice versa. The column is free text (the
+    /// `kind` in `auth_lockouts` carries no CHECK), so this needs no schema
+    /// change.
+    pub const PORTAL_MAGIC_LINK: &str = "portal_magic_link";
 }
 
 /// Seconds until the strictest lockout for these keys expires (0 = allow).

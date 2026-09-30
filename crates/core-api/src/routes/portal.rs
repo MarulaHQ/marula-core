@@ -124,8 +124,7 @@ pub struct PortalProfile {
         (status = 200, body = PortalLoginResponse),
         (status = 401, description = "bad credentials")
 ))]
-pub async fn login(
-    State(state): State<AppState>,
+pub async fn login(    State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     Json(req): Json<PortalLoginRequest>,
 ) -> ApiResult<axum::response::Response> {
@@ -294,6 +293,213 @@ pub async fn refresh(
     let cookies_head = portal_cookie_head(&state, response.session_id, &response.refresh_token);
     Ok(portal_json_response(response, cookies_head))
 }
+
+// --- portal magic-link sign-in (Wave 41 lane 13) ------------------------------
+//
+// The client's own way in, and the reason `/portal/login` leads with a link
+// rather than a password: the audience is somebody who was emailed a link and
+// does not think of themselves as using a system.
+//
+// TWO FAMILIES, NEVER CROSSED. Consuming a link resolves a PORTAL identity and
+// mints portal tokens through the same `issue_portal_tokens` the password path
+// uses, so a portal link cannot produce a staff session and a staff magic link
+// cannot produce a portal one. The token lives in its own table with its own
+// foreign key (migration 0119) because the staff one is FK-bound to `users`.
+//
+// ENUMERATION. Both halves answer identically for every input. The request
+// side resolves the address and mints nothing unless it is a portal identity
+// in good standing, and returns `{"ok":true}` either way; the confirm side
+// answers one 401 for unknown, used, expired, and disabled alike. Nothing here
+// tells a prober whether an address belongs to a client of this service desk.
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct PortalMagicLinkRequest {
+    pub email: String,
+}
+
+/// POST /api/portal/magic-link/request — mail a single-use sign-in link.
+///
+/// Throttled per address and per IP on the portal's OWN gate kind, so a run
+/// against portal addresses never locks a staff member out of `/api/login`.
+#[utoipa::path(operation_id = "portal_magic_link_request", post, path = "/api/portal/magic-link/request", tag = "portal",
+    request_body = PortalMagicLinkRequest, responses(
+        (status = 200, description = "always ok — the answer never depends on whether the address matches"),
+        (status = 429, description = "too many requests"),
+        (status = 422, description = "validation error")
+    ))]
+pub async fn magic_link_request(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<PortalMagicLinkRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let email = req.email.trim();
+    crate::auth::hardening::enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::PORTAL_MAGIC_LINK,
+        &headers,
+        crate::auth::hardening::GateSubject::Email(email),
+        false,
+    )
+    .await?;
+
+    // `portal_resolve_login` (0021) is the narrow cross-org bridge and already
+    // restricts itself to `status IN ('active','invited')`, so a disabled
+    // contact is never a candidate for a link.
+    let resolved: Option<(Uuid, Uuid, Uuid)> =
+        sqlx::query_as("SELECT portal_user_id, org_id, client_id FROM portal_resolve_login($1)")
+            .bind(email)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| ApiError::Internal(e.into()))?;
+
+    if let Some((portal_user_id, org_id, _client_id)) = resolved {
+        issue_portal_magic_link(&state, portal_user_id, org_id, email).await?;
+    }
+    // Uniform regardless of what resolved above.
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// Mints the token, stores its hash, audits, and mails the link.
+async fn issue_portal_magic_link(
+    state: &AppState,
+    portal_user_id: Uuid,
+    org_id: Uuid,
+    email: &str,
+) -> ApiResult<()> {
+    let kind = core_db::hardening::gate_kind::PORTAL_MAGIC_LINK;
+    let raw = jwt::new_refresh_token();
+    let token_hash = jwt::hash_refresh_token(&raw);
+    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(PORTAL_MAGIC_TTL_SECS);
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id).await?;
+    // Asking for a fresh link retires the previous one, so a link forwarded out
+    // of an old thread stops working.
+    core_db::portal::invalidate_portal_one_use_tokens(&mut *tx, portal_user_id, kind).await?;
+    core_db::portal::put_portal_one_use_token(
+        &mut *tx,
+        core_db::portal::PutPortalToken {
+            id: Uuid::now_v7(),
+            org_id,
+            portal_user_id,
+            kind,
+            token_hash: &token_hash,
+            expires_at,
+        },
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+
+    // The address rides out of the ledger rather than being re-read from
+    // `users`, because this identity does not exist there.
+    let mut mail_tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut mail_tx, org_id).await?;
+    let link = format!(
+        "{}/portal/login?token={}",
+        state.config.public_base_url.trim_end_matches('/'),
+        raw
+    );
+    crate::email::enqueue_outbound(
+        &mut mail_tx,
+        crate::email::OutboundEnqueue {
+            mail: &state.mail,
+            org_id,
+            to_addresses: vec![email.to_string()],
+            kind: &core_mail::outbound::OutboundKind::Templated {
+                subject: "Your sign-in link".to_string(),
+                body: format!(
+                    "Open this single-use link to sign in (valid {PORTAL_MAGIC_TTL_SECS} \
+                     seconds):\n{link}\n\nIf it wasn't you, ignore this mail."
+                ),
+            },
+            in_reply_to: None,
+            references: vec![],
+            ticket_id: None,
+            // Nobody signs it personally: the recipient may not even have
+            // signed in yet, so the workspace signature closes it.
+            signer: None,
+            overrides: crate::email::EnvelopeOverrides::default(),
+        },
+    )
+    .await?;
+    mail_tx.commit().await.map_err(ApiError::from)?;
+    Ok(())
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct PortalMagicLinkConfirm {
+    pub token: String,
+}
+
+/// POST /api/portal/magic-link/confirm — spend the link, get portal tokens.
+///
+/// One 401 for unknown, already-used, expired, and disabled alike. The claim
+/// itself enforces the standing check (the UPDATE joins `portal_users`), so
+/// there is no window between "may this identity sign in?" and "spend it".
+#[utoipa::path(operation_id = "portal_magic_link_confirm", post, path = "/api/portal/magic-link/confirm", tag = "portal",
+    request_body = PortalMagicLinkConfirm, responses(
+        (status = 200, body = PortalLoginResponse),
+        (status = 401, description = "the link is unknown, used, expired, or the account is disabled"),
+        (status = 429, description = "too many attempts")
+    ))]
+pub async fn magic_link_confirm(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<PortalMagicLinkConfirm>,
+) -> ApiResult<axum::response::Response> {
+    crate::auth::hardening::enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::PORTAL_MAGIC_LINK,
+        &headers,
+        crate::auth::hardening::GateSubject::IpOnly,
+        false,
+    )
+    .await?;
+    let presented = jwt::hash_refresh_token(req.token.trim());
+    let resolution = core_db::portal::consume_portal_one_use_token(
+        &state.pool,
+        core_db::hardening::gate_kind::PORTAL_MAGIC_LINK,
+        &presented,
+    )
+    .await
+    .map_err(ApiError::from)?
+    .ok_or_else(|| ApiError::Unauthorized("invalid or expired sign-in link".into()))?;
+
+    // A first sign-in flips `invited` → `active`, exactly as the password path
+    // does, so a link is a full first login rather than a half-state.
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, resolution.org_id).await?;
+    core_db::portal::activate_on_first_login(
+        &mut *tx,
+        resolution.org_id,
+        resolution.portal_user_id,
+    )
+    .await?;
+    let user = core_db::portal::get_portal_user(
+        &mut *tx,
+        resolution.org_id,
+        resolution.portal_user_id,
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+
+    let identity = PortalIdentity {
+        id: user.id,
+        org_id: user.org_id,
+        client_id: user.client_id,
+        email: user.email.clone(),
+        display_name: user.display_name.clone(),
+        role: user.role,
+    };
+    let response = issue_portal_tokens(&state, &identity, None).await?;
+    let cookies_head = portal_cookie_head(&state, response.session_id, &response.refresh_token);
+    Ok(portal_json_response(response, cookies_head))
+}
+
+/// How long a portal sign-in link stays usable. The staff flow uses 15
+/// minutes; the portal is a slower, less practised audience arriving from an
+/// email, so it gets the same half-hour the password-reset link uses.
+const PORTAL_MAGIC_TTL_SECS: i64 = 1800;
 
 /// Cookie-trio shaper for the portal family (`marula_portal` jar).
 fn portal_cookie_head(

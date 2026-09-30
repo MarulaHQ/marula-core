@@ -458,6 +458,18 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
     let public = public
         .route(&rp("/portal/login"), post(portal::login))
         .route(&rp("/portal/refresh"), post(portal::refresh))
+        // Portal magic-link sign-in (Wave 41 lane 13): the client's own way
+        // in, on its own throttle kind and its own one-use token family. Both
+        // halves answer identically for every input, so neither reveals whether
+        // an address is a client of this service desk.
+        .route(
+            &rp("/portal/magic-link/request"),
+            post(portal::magic_link_request),
+        )
+        .route(
+            &rp("/portal/magic-link/confirm"),
+            post(portal::magic_link_confirm),
+        )
         .merge(portal_protected)
         // Org-data export (TASKLIST D1): the download endpoint authenticates
         // purely by its short-lived HMAC signature — no JWT middleware — so
