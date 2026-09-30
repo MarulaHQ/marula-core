@@ -48,6 +48,8 @@ import { parseQtyToMilli } from "../../lib/stock-format";
 import type { FilterClause } from "@marula-core/ui";
 
 type PurchaseOrder = components["schemas"]["PurchaseOrder"];
+/** A row of the order list: the order plus its own totals, money-gated. */
+type OrderRow = components["schemas"]["PurchaseOrderSummary"];
 type Vendor = components["schemas"]["Vendor"];
 type Project = components["schemas"]["Project"];
 type StockItemView = components["schemas"]["StockItemView"];
@@ -77,13 +79,28 @@ const PURCHASING_FILTERS = [
   { key: "reference", label: "Vendor reference" },
 ];
 
-/** How many orders the list prices out. Past this the Value column reads "—". */
-const VALUE_COLUMN_LIMIT = 25;
-
 /** Receiving is legal while goods can still arrive: sent, not fully received. */
 function canReceive(order: PurchaseOrder | undefined): boolean {
   if (order == null) return false;
   return order.status === "ordered" || order.status === "partially_received";
+}
+
+/**
+ * The Value column, straight from the order's own rollup — the same totals the
+ * order page reports, so the two can never disagree and no request per row is
+ * needed. `totals` is null for a caller without financial access, which is the
+ * API withholding money rather than the order being worthless; that reads as
+ * "Withheld", never as a zero and never as a bare dash.
+ */
+function OrderValue({ order }: { order: OrderRow }): ReactNode {
+  if (order.totals == null) {
+    return (
+      <span style={{ color: "var(--m-text-muted)" }} title="Financial access is needed to see order values">
+        Withheld
+      </span>
+    );
+  }
+  return <span className="font-mono tabular-nums">{money(order.totals.ordered_minor, order.currency)}</span>;
 }
 
 /**
@@ -191,8 +208,7 @@ function toMinor(major: string): number | null {
 export default function PurchasingPage(): ReactNode {
   const auth = useRequireAuth();
   const router = useRouter();
-  const [orders, setOrders] = useState<PurchaseOrder[] | null>(null);
-  const [totals, setTotals] = useState<Map<string, number>>(new Map());
+  const [orders, setOrders] = useState<OrderRow[] | null>(null);
   const [clauses, setClauses] = useState<FilterClause[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [awaitingOnly, setAwaitingOnly] = useState(false);
@@ -219,33 +235,8 @@ export default function PurchasingPage(): ReactNode {
       setLoadError("Could not load purchase orders — try reloading.");
       return;
     }
-    const list = ordersRes.data ?? [];
-    setOrders(list);
+    setOrders(ordersRes.data ?? []);
     setVendors(vendorsRes.data ?? []);
-    // The pack's Value column needs a per-order total, and the list endpoint
-    // carries none — the rollup is computed from an order's lines. So the
-    // first page of orders is priced out in one bounded parallel batch and
-    // the rest read "—" rather than the column inventing a figure.
-    void priceFirstPage(list);
-  }
-
-  async function priceFirstPage(list: PurchaseOrder[]): Promise<void> {
-    const page = list.slice(0, VALUE_COLUMN_LIMIT);
-    const priced = await Promise.all(
-      page.map(async (order) => {
-        const { data } = await api.api.GET("/api/v1/purchase-orders/{id}", {
-          params: { path: { id: order.id } },
-        });
-        return [order.id, data?.totals?.ordered_minor ?? null] as const;
-      }),
-    );
-    setTotals((cur) => {
-      const next = new Map(cur);
-      for (const [id, value] of priced) {
-        if (value != null) next.set(id, value);
-      }
-      return next;
-    });
   }
 
   useEffect(() => {
@@ -498,7 +489,10 @@ export default function PurchasingPage(): ReactNode {
             po: order.number,
             vendor: vendorById.get(order.vendor_id)?.name ?? "",
             status: orderStatusLabel(order.status),
-            value: totals.get(order.id) == null ? "" : money(totals.get(order.id) ?? 0, order.currency),
+            value:
+              order.totals == null
+                ? ""
+                : money(order.totals.ordered_minor, order.currency),
             expected: order.expected_at ?? "",
             currency: order.currency,
             reference: order.vendor_reference ?? "",
@@ -531,7 +525,6 @@ export default function PurchasingPage(): ReactNode {
     >
       {(columns) =>
         rows.map((order) => {
-          const total = totals.get(order.id);
           return (
             <LedgerRow
               key={order.id}
@@ -558,9 +551,7 @@ export default function PurchasingPage(): ReactNode {
                 vendor: vendorById.get(order.vendor_id)?.name ?? "—",
                 status: <OrderStatusTag status={order.status} />,
                 value: (
-                  <span className="font-mono tabular-nums">
-                    {total == null ? "—" : money(total, order.currency)}
-                  </span>
+                  <OrderValue order={order} />
                 ),
                 expected: <OrderExpected order={order} />,
                 currency: <span className="font-mono text-xs">{order.currency}</span>,
