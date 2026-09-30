@@ -182,6 +182,8 @@ async fn phase_and_task_completion_stamp_timestamps() {
             is_milestone: true,
             milestone_amount_minor: Some(250_000),
             milestone_currency: Some("USD"),
+            start_date: None,
+            end_date: None,
         },
     )
     .await
@@ -458,6 +460,8 @@ async fn template_instantiation_expands_transactionally() {
                 is_milestone: phase.is_milestone,
                 milestone_amount_minor: phase.milestone_amount_minor,
                 milestone_currency: phase.milestone_currency.as_deref(),
+                start_date: None,
+                end_date: None,
             },
         )
         .await
@@ -741,4 +745,143 @@ async fn milestone_amounts_round_trip() {
         .fetch_one(&mut *tx)
         .await
         .expect("outbox exists");
+}
+
+/// Wave 34 claims close-out (claim 6): a phase created WITH dates is drawn
+/// on the Gantt; one created without is not. The asymmetry is the feature —
+/// a NOT NULL default would draw a schedule nobody chose.
+#[tokio::test]
+async fn phase_dates_roundtrip_and_absent_dates_stay_absent() {
+    let db = test_db().await;
+    // 311 is already used by `rls_hides_other_orgs_project_rows` in this
+    // same file, and `seed_org` derives a DETERMINISTIC id from `n` — so two
+    // tests sharing a value collide on the orgs primary key. 330 is free.
+    let (org, _user) = seed_org(&db, 330).await;
+    let project = make_project(&db, org, "Dated Gantt").await;
+    let mut tx = org_tx(&db.app, org).await;
+
+    let dated = core_db::projects::insert_phase(
+        &mut *tx,
+        core_db::projects::NewPhase {
+            id: Uuid::now_v7(),
+            org_id: org,
+            project_id: project.id,
+            name: "Site survey",
+            description: None,
+            sort_order: 0,
+            is_milestone: false,
+            milestone_amount_minor: None,
+            milestone_currency: None,
+            start_date: chrono::NaiveDate::from_ymd_opt(2026, 10, 1),
+            end_date: chrono::NaiveDate::from_ymd_opt(2026, 10, 14),
+        },
+    )
+    .await
+    .expect("dated phase");
+    let undated = core_db::projects::insert_phase(
+        &mut *tx,
+        core_db::projects::NewPhase {
+            id: Uuid::now_v7(),
+            org_id: org,
+            project_id: project.id,
+            name: "Handover",
+            description: None,
+            sort_order: 1,
+            is_milestone: false,
+            milestone_amount_minor: None,
+            milestone_currency: None,
+            start_date: None,
+            end_date: None,
+        },
+    )
+    .await
+    .expect("undated phase");
+
+    // The entity's own predicates, not a re-implementation of them.
+    assert!(dated.is_dated());
+    assert!(!undated.is_dated());
+    // Inclusive of both ends: 1st to 14th is 14 days.
+    assert_eq!(dated.planned_days(), Some(14));
+    assert_eq!(undated.planned_days(), None);
+
+    // The Gantt read model partitions on exactly the same rule, and carries
+    // budget columns as NULL for an unbudgeted phase rather than zero.
+    let gantt = core_db::projects::phase_gantt(&mut *tx, org, project.id)
+        .await
+        .expect("gantt");
+    assert_eq!(
+        gantt.len(),
+        2,
+        "both phases are returned; the API splits them"
+    );
+    let g_dated = gantt.iter().find(|g| g.id == dated.id).expect("dated");
+    let g_undated = gantt.iter().find(|g| g.id == undated.id).expect("undated");
+    assert!(g_dated.start_date.is_some() && g_dated.end_date.is_some());
+    assert!(g_undated.start_date.is_none() && g_undated.end_date.is_none());
+    assert_eq!(
+        g_dated.consumed_minor, 0,
+        "no time logged ⇒ nothing consumed"
+    );
+    assert!(g_dated.budget_minor.is_none(), "unbudgeted is None, not 0");
+
+    // Tri-state patch: absent leaves the window alone, Some(None) clears it.
+    let renamed = core_db::projects::update_phase(
+        &mut *tx,
+        org,
+        dated.id,
+        core_db::projects::PhasePatch {
+            name: Some("Site survey (renamed)"),
+            description: None,
+            sort_order: None,
+            status: None,
+            is_milestone: None,
+            milestone_amount_minor: None,
+            milestone_currency: None,
+            start_date: None,
+            end_date: None,
+        },
+    )
+    .await
+    .expect("rename");
+    assert_eq!(renamed.name, "Site survey (renamed)");
+    assert!(renamed.is_dated(), "a rename must not undate a phase");
+
+    let cleared = core_db::projects::update_phase(
+        &mut *tx,
+        org,
+        dated.id,
+        core_db::projects::PhasePatch {
+            name: None,
+            description: None,
+            sort_order: None,
+            status: None,
+            is_milestone: None,
+            milestone_amount_minor: None,
+            milestone_currency: None,
+            start_date: Some(None),
+            end_date: Some(None),
+        },
+    )
+    .await
+    .expect("clear dates");
+    assert!(
+        !cleared.is_dated(),
+        "Some(None) takes the phase off the Gantt"
+    );
+
+    // The database refuses a backwards window whatever the API sends, so a
+    // future caller bypassing the handler still cannot write one.
+    let backwards =
+        sqlx::query("UPDATE project_phases SET start_date = $2, end_date = $1 WHERE id = $3")
+            .bind(chrono::NaiveDate::from_ymd_opt(2026, 10, 1).unwrap())
+            .bind(chrono::NaiveDate::from_ymd_opt(2026, 10, 14).unwrap())
+            .bind(undated.id)
+            .execute(&mut *tx)
+            .await;
+    assert!(
+        backwards.is_err(),
+        "end < start must be a constraint violation"
+    );
+
+    tx.commit().await.expect("commit");
 }

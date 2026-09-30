@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.user_id,\n                  COALESCE(SUM(\n                    a.share_percent::float8\n                    * (\n                      -- Overlap length in days, inclusive, and at least 1:\n                      -- a phase whose window only clips the query edge still\n                      -- commits a real day of work inside it.\n                      GREATEST(\n                        1,\n                        LEAST(COALESCE(a.end_date, $4::date), $4::date)\n                        - GREATEST(COALESCE(a.start_date, $3::date), $3::date) + 1\n                      )\n                    )\n                  ), 0) AS \"percent_days!\",\n                  COUNT(*) AS \"allocation_count!\",\n                  COUNT(DISTINCT a.phase_id) AS \"phase_count!\"\n           FROM project_phase_allocations a\n           JOIN project_phases ph ON ph.id = a.phase_id AND ph.org_id = a.org_id\n           JOIN projects p ON p.id = ph.project_id AND p.org_id = a.org_id\n           WHERE a.org_id = $1\n             AND a.user_id = ANY($2)\n             -- Not-complete phases only: a finished phase is history, and\n             -- counting it would report a technician as loaded on work that\n             -- is already finished.\n             AND ph.status <> 'completed'\n             AND (\n               a.start_date IS NULL OR a.end_date IS NULL\n               OR (a.start_date <= $4::date AND a.end_date >= $3::date)\n             )\n           GROUP BY a.user_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "percent_days!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 2,
+        "name": "allocation_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "phase_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "c5b1f75d43cb57b3e6e18cb5e45a955ee6047f28f82a520307086eefd59fa8c6"
+}

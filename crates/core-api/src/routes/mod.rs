@@ -1567,6 +1567,22 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/calendar-sync/{id}/events"),
             get(calendar_sync::list_events),
         )
+        // Delegated OAuth for the Google + Microsoft calendar providers
+        // (Wave 34 claims close-out, claim 5).
+        //
+        // The callback is deliberately OUTSIDE the authenticated set: it is
+        // the vendor's browser redirect and carries no bearer token. Its
+        // safety comes from the server-generated `state` nonce, which is
+        // matched against the connection row and consumed atomically — see
+        // `oauth_callback`.
+        .route(
+            &rp("/calendar-sync/{connection_id}/authorize"),
+            post(calendar_sync::authorize_start),
+        )
+        .route(
+            &rp("/calendar-sync/{provider}/callback"),
+            get(calendar_sync::oauth_callback),
+        )
         .route(&rp("/calendar/day"), get(calendar::calendar_day))
         // Plugin runtime v2 + marketplace registry (Wave 14 lane 5):
         // catalog reads are plugins:view; every write is an explicit
@@ -1782,6 +1798,12 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/projects/{id}/phases"),
             get(projects::list_phases).post(projects::create_phase),
         )
+        // The dated Gantt + phase budget/burn read model (Wave 34 claims
+        // close-out, claim 6). Separate from the phase list because it
+        // partitions dated from undated, and a client drawing a timeline
+        // must not have to re-derive that distinction to avoid placing a
+        // phase nobody scheduled.
+        .route(&rp("/projects/{id}/gantt"), get(projects::gantt))
         .route(
             &rp("/projects/{id}/phases/{phase_id}"),
             axum::routing::patch(projects::patch_phase),
@@ -1923,6 +1945,34 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // planning (capacity horizon, queue prioritization, skills
         // matching) + travel/mileage entry drafts.
         .route(&rp("/dispatch/capacity"), get(dispatch::capacity))
+        // curated per-technician work-next queues (Wave 34 claims
+        // close-out, claim 2). One path, three verbs: list your own (or, as
+        // a dispatcher, someone's), add-or-move, and remove.
+        .route(
+            &rp("/dispatch/work-next"),
+            get(dispatch::work_next_list)
+                .put(dispatch::work_next_add)
+                .delete(dispatch::work_next_remove),
+        )
+        .route(
+            &rp("/dispatch/work-next/reorder"),
+            post(dispatch::work_next_reorder),
+        )
+        // resource planning across project phases (claim 1): the stated
+        // commitments the appointment-only capacity horizon could not see,
+        // and the forecast that adds them up.
+        .route(
+            &rp("/dispatch/planning/allocations"),
+            get(dispatch::phase_allocations_list).put(dispatch::phase_allocation_upsert),
+        )
+        .route(
+            &rp("/dispatch/planning/allocations/{allocation_id}"),
+            delete(dispatch::phase_allocation_delete),
+        )
+        .route(
+            &rp("/dispatch/planning/forecast"),
+            get(dispatch::capacity_forecast),
+        )
         .route(&rp("/dispatch/queue"), get(dispatch::queue_list))
         .route(
             &rp("/dispatch/queue/{ticket_id}"),

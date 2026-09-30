@@ -128,18 +128,34 @@ if (readFileSync(join(site, "reference/upgrade-matrix.md"), "utf8") !== before2)
           // reader-visible text keeps verbatim; compare on the words that
           // matter, ignoring backticks so both sides match.
           const marker = claim.replace(/[`*]/g, "").split("(")[0].trim();
-          const row = claimsSection[0]
+          const line = claimsSection[0]
             .split("\n")
-            .find(
-              (l) =>
-                l.includes("- [ ]") &&
-                l.replace(/[`*]/g, "").includes(marker),
-            );
-          if (!row) {
+            .find((l) => l.replace(/[`*]/g, "").includes(marker));
+          if (!line) {
             console.error(
-              `TASKLIST claimed follow-up "${marker}" has no unchecked row under 'Wave 34 verdict-sweep claims'`,
+              `TASKLIST claimed follow-up "${marker}" has no row under 'Wave 34 verdict-sweep claims'`,
             );
             failed++;
+            continue;
+          }
+          // A claim may be OPEN (unchecked) or CLOSED (checked). What it may
+          // not be is closed silently: a ticked row with no explanation is
+          // how a claim disappears while still looking accounted for, which
+          // is the exact failure this check exists to prevent. So a checked
+          // row must carry a `→` closure note on a following line.
+          //
+          // This replaced an earlier `- [ ]`-only match, which made closing a
+          // claim impossible: ticking the row was the close-out, and the gate
+          // then failed the lane for having done its job.
+          if (line.includes("- [x]")) {
+            const idx = claimsSection[0].split("\n").indexOf(line);
+            const following = claimsSection[0].split("\n")[idx + 1] ?? "";
+            if (!/^\s*→/.test(following) || following.trim().length < 40) {
+              console.error(
+                `TASKLIST claimed follow-up "${marker}" is ticked but carries no closure note — a checked row must say what landed`,
+              );
+              failed++;
+            }
           }
         }
       }

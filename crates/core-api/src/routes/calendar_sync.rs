@@ -35,7 +35,7 @@ use crate::org_tx;
 use crate::routes::scheduling::{sched, target_user};
 use crate::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header::CONTENT_TYPE, Extensions, StatusCode},
     response::IntoResponse,
     Json,
@@ -94,6 +94,13 @@ pub trait CalendarSyncProvider: Send + Sync {
 fn provider_for(connection: &CalendarSyncConnection) -> ApiResult<Box<dyn CalendarSyncProvider>> {
     match connection.provider.as_str() {
         "ical" => Ok(Box::new(ICalProvider)),
+        // Delegated-OAuth providers. Both read a DATE WINDOW rather than a
+        // delta: the seam's contract is a normalised FULL SNAPSHOT, and an
+        // invalidated delta token makes a vendor return 410 with FEWER
+        // events — which frees busy slots that are still busy. A window has
+        // no such failure mode. See providers.rs.
+        "google" => Ok(Box::new(GoogleCalendarProvider::default())),
+        "microsoft" => Ok(Box::new(MicrosoftGraphProvider::default())),
         other => {
             tracing::error!(provider = other, "unknown calendar-sync provider");
             Err(ApiError::Internal(anyhow::anyhow!(
@@ -102,6 +109,10 @@ fn provider_for(connection: &CalendarSyncConnection) -> ApiResult<Box<dyn Calend
         }
     }
 }
+
+mod providers;
+
+pub use providers::{GoogleCalendarProvider, MicrosoftGraphProvider};
 
 // --- first-party iCal provider ----------------------------------------------------
 
@@ -521,14 +532,54 @@ pub async fn create_connection(
         feed_path: None,
         last_synced_at: None,
         last_error: None,
+        // A delegated provider's token arrives through the OAuth callback,
+        // not through create. Both are NULL here and the connection stays in
+        // a not-connected state until consent completes.
+        access_token: None,
+        token_expires_at: None,
+        external_account: None,
+        scopes: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
     connection.validate().map_err(ApiError::from)?;
-    if req.provider != "ical" {
-        return Err(ApiError::Validation(
-            "unknown provider; 'ical' is the only provider today".into(),
-        ));
+    // Accept the three kinds the DB CHECK now admits, with the per-provider
+    // requirement each one actually has. A delegated provider is created
+    // WITHOUT a token and completes the OAuth flow afterwards, so requiring
+    // one here would make the consent flow impossible to start.
+    match req.provider.as_str() {
+        "ical" => {
+            // Only when we are READING from the external calendar. An
+            // OUTBOUND connection publishes this org's own feed and
+            // legitimately has no external URL to point at — requiring one
+            // there turned a valid outbound create into a 422 and, worse,
+            // shadowed the duplicate-name 409 that the test for it asserts.
+            if direction != CalendarSyncDirection::Outbound
+                && req.feed_url.as_deref().is_none_or(|u| u.trim().is_empty())
+            {
+                return Err(ApiError::Validation(
+                    "feed_url is required for an inbound 'ical' connection".into(),
+                ));
+            }
+        }
+        "google" | "microsoft" => {
+            if !matches!(direction, CalendarSyncDirection::Inbound) {
+                // Mirroring a vendor calendar OUTBOUND would publish this
+                // org's schedule to Google/Microsoft with no consent, and the
+                // delegated grant these providers use is read-only by
+                // construction. Refusing at create is the only place this can
+                // be caught before a customer's bookings are exported.
+                return Err(ApiError::Validation(format!(
+                    "the '{}' provider supports inbound sync only",
+                    req.provider
+                )));
+            }
+        }
+        other => {
+            return Err(ApiError::Validation(format!(
+                "unknown provider '{other}': expected ical, google or microsoft"
+            )))
+        }
     }
     let org_id = connection.org_id;
     let actor = authed.principal.user.id;
@@ -1089,4 +1140,406 @@ mod tests {
         assert!(!feed.contains("Cancelled"));
         assert!(feed.ends_with("END:VCALENDAR\r\n"));
     }
+}
+
+// --- delegated OAuth: connect a Google or Microsoft calendar (claim 5) ------
+//
+// The two provider kinds above are only reachable if an operator can
+// actually complete a consent flow, so this is the rest of the row: a start
+// endpoint that redirects to the vendor, and a callback that exchanges the
+// code, seals the refresh token, and caches the access token.
+//
+// The refresh token is SEALED, never stored on the connection row. It is a
+// long-lived bearer that can read the user's entire calendar, and the
+// connection row is readable by anything that can list connections. The
+// access token IS cached there, because it is short-lived and regenerable
+// and refreshing on every poll would make the poll endpoint a proxy for the
+// vendor's token service.
+
+/// Sealed-slot names for the two delegated providers. Namespaced under
+/// `calendar.` so they cannot collide with the `mail.*` transport slots in
+/// the same table.
+const SEALED_GOOGLE_PROVIDER: &str = "calendar.google";
+const SEALED_MICROSOFT_PROVIDER: &str = "calendar.microsoft";
+
+/// How long an unused authorization state stays valid.
+///
+/// Bounded because an unbounded state row is a standing invitation to finish
+/// someone else's consent flow: the CSRF nonce is what ties the callback
+/// back to the request that started it, and a nonce that never expires never
+/// stops being a target.
+const OAUTH_STATE_TTL_MINUTES: i64 = 10;
+
+fn sealed_slot(provider: &str) -> Option<&'static str> {
+    match provider {
+        "google" => Some(SEALED_GOOGLE_PROVIDER),
+        "microsoft" => Some(SEALED_MICROSOFT_PROVIDER),
+        _ => None,
+    }
+}
+
+/// POST /api/calendar-sync/{connection_id}/authorize — begin consent.
+///
+/// Returns the vendor URL to send the operator to. The `state` is a
+/// server-generated nonce, NOT a client-supplied value: a client that chose
+/// its own state would defeat the CSRF protection entirely.
+#[utoipa::path(operation_id = "calendar_sync_authorize_start", post,
+    path = "/api/calendar-sync/{connection_id}/authorize", tag = "calendar-sync",
+    security(("bearer" = [])), params(("connection_id" = Uuid, Path)),
+    responses((status = 200, body = OAuthStartResponse)))]
+pub async fn authorize_start(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(connection_id): Path<Uuid>,
+) -> ApiResult<Json<OAuthStartResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    let org_id = authed.principal.user.org_id;
+    let me = authed.principal.user.id;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, me)
+        .await
+        .map_err(ApiError::from)?;
+    let connection = core_db::calendar_sync::get_connection(&mut tx, org_id, connection_id)
+        .await
+        .map_err(ApiError::from)?;
+    tx.commit().await.map_err(ApiError::from)?;
+
+    let slot = sealed_slot(&connection.provider).ok_or_else(|| {
+        ApiError::Validation(format!(
+            "the '{}' provider is not a delegated OAuth provider",
+            connection.provider
+        ))
+    })?;
+    let (client_id, auth_url) = oauth_client_config(&connection.provider)?;
+
+    // A fresh nonce per attempt, so retrying consent invalidates the old
+    // callback URL rather than leaving two live ones.
+    let state_nonce = uuid::Uuid::new_v4().to_string();
+    let expires = Utc::now() + chrono::Duration::minutes(OAUTH_STATE_TTL_MINUTES);
+    sqlx::query(
+        "UPDATE calendar_sync_connections
+            SET oauth_state = $2, oauth_state_expires_at = $3, updated_at = now()
+          WHERE org_id = $1 AND id = $4",
+    )
+    .bind(org_id)
+    .bind(&state_nonce)
+    .bind(expires)
+    .bind(connection_id)
+    .execute(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    let redirect_uri = oauth_redirect_uri(&connection.provider);
+    let url = if connection.provider == "google" {
+        format!(
+            "https://accounts.google.com/o/oauth2/v2/auth\
+             ?client_id={client_id}&redirect_uri={redirect_uri}\
+             &response_type=code&scope={}\
+             &access_type=offline&prompt=consent&include_granted_scopes=true&state={state_nonce}",
+            urlencode(GOOGLE_SCOPE),
+        )
+    } else {
+        format!(
+            "{auth_url}?client_id={client_id}&redirect_uri={redirect_uri}\
+             &response_type=code&response_mode=query\
+             &scope={}&offline_access=offline_access&state={state_nonce}",
+            urlencode(GRAPH_SCOPE),
+        )
+    };
+    let _ = slot;
+
+    Ok(Json(OAuthStartResponse {
+        authorize_url: url,
+        expires_in_minutes: OAUTH_STATE_TTL_MINUTES,
+    }))
+}
+
+const GOOGLE_SCOPE: &str = "https://www.googleapis.com/auth/calendar.readonly";
+/// `Calendars.Read` + `offline_access`. The latter is what yields a refresh
+/// token at all; without it the connection works until the access token
+/// expires an hour later and then silently stops.
+const GRAPH_SCOPE: &str = "https://graph.microsoft.com/Calendars.Read offline_access";
+
+/// The consent screen must show a Marula app, and these are per-tenant
+/// Google/Microsoft client credentials an operator registers. Without them
+/// the start endpoint 503s with a legible message rather than redirecting
+/// the operator to a consent screen for a client that does not exist.
+fn oauth_client_config(provider: &str) -> ApiResult<(String, String)> {
+    let (cid_var, secret_var, auth_url) = match provider {
+        "google" => (
+            "GOOGLE_CALENDAR_CLIENT_ID",
+            "GOOGLE_CALENDAR_CLIENT_SECRET",
+            "https://accounts.google.com/o/oauth2/v2/auth",
+        ),
+        _ => (
+            "MICROSOFT_GRAPH_CLIENT_ID",
+            "MICROSOFT_GRAPH_CLIENT_SECRET",
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+        ),
+    };
+    let client_id = std::env::var(cid_var)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| {
+            ApiError::Validation(format!(
+                "{cid_var} is not configured — a delegated calendar provider needs an operator-registered OAuth client"
+            ))
+        })?;
+    if std::env::var(secret_var)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .is_none()
+    {
+        return Err(ApiError::Validation(format!(
+            "{secret_var} is not configured — the code exchange needs the client secret"
+        )));
+    }
+    Ok((client_id, auth_url.to_string()))
+}
+
+fn oauth_redirect_uri(provider: &str) -> String {
+    let base = std::env::var("PUBLIC_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:3000".to_string())
+        .trim_end_matches('/')
+        .to_string();
+    let suffix = if provider == "google" {
+        "/api/calendar-sync/google/callback"
+    } else {
+        "/api/calendar-sync/microsoft/callback"
+    };
+    format!("{base}{suffix}")
+}
+
+/// Minimal percent-encoding for the two places an OAuth URL needs it. A
+/// full URL-encoding crate is not a dependency, and `urlencode` only has to
+/// handle the characters that actually appear in a scope list.
+fn urlencode(raw: &str) -> String {
+    raw.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b':' | b'/' => {
+                (b as char).to_string()
+            }
+            other => format!("%{other:02X}"),
+        })
+        .collect()
+}
+
+/// Where the operator lands after consent.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct OAuthStartResponse {
+    /// The vendor consent URL. The operator is redirected here; the callback
+    /// URL is pre-registered by the operator with their OAuth client.
+    pub authorize_url: String,
+    pub expires_in_minutes: i64,
+}
+
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct OAuthCallbackQuery {
+    pub state: String,
+    pub code: Option<String>,
+    /// The operator may decline; the vendor then redirects with an error
+    /// and no code. That is a user choice, not a failure, so it gets its own
+    /// message instead of "invalid code".
+    pub error: Option<String>,
+}
+
+/// GET /api/calendar-sync/{provider}/callback — the vendor's redirect target.
+///
+/// The `state` is matched against the stored nonce, which is what makes the
+/// flow CSRF-safe: a callback whose state does not match the connection this
+/// browser started is discarded, so an attacker cannot feed a victim's
+/// browser a code obtained under someone else's consent.
+#[utoipa::path(operation_id = "calendar_sync_oauth_callback", get,
+    path = "/api/calendar-sync/{provider}/callback", tag = "calendar-sync",
+    params(("provider" = String, Path), OAuthCallbackQuery),
+    responses((status = 200, body = OAuthCallbackResult)))]
+pub async fn oauth_callback(
+    State(state): State<AppState>,
+    Path(provider): Path<String>,
+    Query(q): Query<OAuthCallbackQuery>,
+) -> ApiResult<Json<OAuthCallbackResult>> {
+    if sealed_slot(&provider).is_none() {
+        return Err(ApiError::Validation(format!(
+            "'{provider}' is not a delegated OAuth provider"
+        )));
+    }
+    if q.error.is_some() {
+        // Declined consent. Not an error state for the product — the
+        // connection simply stays unconnected and Settings says so.
+        return Ok(Json(OAuthCallbackResult {
+            connected: false,
+            message: Some("authorization was declined or cancelled".into()),
+        }));
+    }
+    let code = q
+        .code
+        .as_deref()
+        .filter(|c| !c.trim().is_empty())
+        .ok_or_else(|| {
+            ApiError::Validation("the callback carried neither a code nor an error".into())
+        })?;
+
+    // Find the connection this state belongs to. The lookup is by nonce AND
+    // unexpired, so a stale callback is refused rather than completing a
+    // consent the operator started ten minutes and a decision ago.
+    //
+    // This runs on the vendor's REDIRECT, so there is no bearer token and no
+    // `AuthedUser`. The org and user come from the state row itself: the
+    // nonce is the capability that ties this callback to the request that
+    // started it, and `user_id` rides along so the sealed write is attributed
+    // to the technician whose calendar it is rather than to nobody.
+    //
+    // The UPDATE is also what CONSUMES the nonce, atomically — a replayed
+    // callback finds nothing to consume, and doing it in the consuming
+    // statement rather than a separate delete is what closes the window
+    // where two callbacks race.
+    let mut conn = state.pool.acquire().await.map_err(ApiError::from)?;
+    let row: Option<(Uuid, Uuid, Uuid)> = sqlx::query_as(
+        "UPDATE calendar_sync_connections
+            SET oauth_state = NULL, oauth_state_expires_at = NULL, updated_at = now()
+          WHERE provider = $1 AND oauth_state = $2
+            AND oauth_state_expires_at > now()
+          RETURNING id, org_id, user_id",
+    )
+    .bind(&provider)
+    .bind(&q.state)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(ApiError::from)?;
+
+    let Some((connection_id, org_id, user_id)) = row else {
+        return Err(ApiError::Validation(
+            "this authorization link is unknown or has expired — start the connection again".into(),
+        ));
+    };
+    drop(conn);
+
+    // Exchange the code. The nonce is consumed BEFORE the exchange, so a
+    // replayed callback finds nothing to consume.
+    let token = exchange_code(&provider, code, &oauth_redirect_uri(&provider)).await?;
+
+    let sealed = crate::crypto::seal(
+        &state.config.secret_key,
+        serde_json::to_vec(&token)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?
+            .as_slice(),
+    )
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!(e.to_string())))?;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::byok::upsert_secret(
+        &mut tx,
+        Uuid::now_v7(),
+        org_id,
+        sealed_slot(&provider).expect("checked above"),
+        &sealed,
+        Some(user_id),
+    )
+    .await
+    .map_err(ApiError::from)?;
+    // Cache the short-lived half on the connection so a poll does not need a
+    // vendor round trip for a token.
+    sqlx::query(
+        "UPDATE calendar_sync_connections
+            SET access_token = $3, token_expires_at = $4, scopes = $5, updated_at = now()
+          WHERE org_id = $1 AND id = $2",
+    )
+    .bind(org_id)
+    .bind(connection_id)
+    .bind(&token.access_token)
+    .bind(token.expires_at)
+    .bind(&token.scope)
+    .execute(&mut *tx)
+    .await
+    .map_err(ApiError::from)?;
+    tx.commit().await.map_err(ApiError::from)?;
+
+    Ok(Json(OAuthCallbackResult {
+        connected: true,
+        message: None,
+    }))
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct OAuthCallbackResult {
+    pub connected: bool,
+    /// Set only on a DECLINED consent, so the UI can say "you cancelled"
+    /// rather than showing a generic failure.
+    pub message: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct OAuthToken {
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_at: Option<DateTime<Utc>>,
+    scope: Option<String>,
+}
+
+/// Swap the authorization code for tokens, per vendor.
+async fn exchange_code(provider: &str, code: &str, redirect_uri: &str) -> ApiResult<OAuthToken> {
+    let (client_id_var, secret_var, token_url) = match provider {
+        "google" => (
+            "GOOGLE_CALENDAR_CLIENT_ID",
+            "GOOGLE_CALENDAR_CLIENT_SECRET",
+            "https://oauth2.googleapis.com/token",
+        ),
+        _ => (
+            "MICROSOFT_GRAPH_CLIENT_ID",
+            "MICROSOFT_GRAPH_CLIENT_SECRET",
+            "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        ),
+    };
+    let client_id = std::env::var(client_id_var).unwrap_or_default();
+    let client_secret = std::env::var(secret_var).unwrap_or_default();
+
+    let resp = reqwest::Client::new()
+        .post(token_url)
+        .form(&[
+            ("code", code),
+            ("client_id", client_id.as_str()),
+            ("client_secret", client_secret.as_str()),
+            ("redirect_uri", redirect_uri),
+            ("grant_type", "authorization_code"),
+        ])
+        .send()
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("token exchange: {e}")))?;
+    let status = resp.status();
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("token response: {e}")))?;
+    if !status.is_success() {
+        // The vendor's error text can echo the submitted code, so it is NOT
+        // forwarded. The operator's remedy is the same either way: re-run
+        // the consent flow.
+        tracing::warn!(
+            provider,
+            status = status.as_u16(),
+            code = body.get("error").and_then(|v| v.as_str()).unwrap_or("?"),
+            "oauth code exchange rejected"
+        );
+        return Err(ApiError::Validation(
+            "the provider rejected the authorization code — start the connection again".into(),
+        ));
+    }
+    let access_token = body["access_token"]
+        .as_str()
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            ApiError::Internal(anyhow::anyhow!("token response carried no access_token"))
+        })?
+        .to_string();
+    let expires_in = body["expires_in"].as_i64();
+    Ok(OAuthToken {
+        access_token,
+        refresh_token: body["refresh_token"].as_str().map(str::to_string),
+        expires_at: expires_in.map(|s| Utc::now() + chrono::Duration::seconds(s - 30)),
+        scope: body["scope"].as_str().map(str::to_string),
+    })
 }

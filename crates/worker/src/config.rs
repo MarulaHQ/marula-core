@@ -15,7 +15,7 @@
 //! fails SILENTLY (zero rows, zero errors) — for the relay this means
 //! nothing is ever published.
 
-use core_mail::TransportKind;
+use core_mail::{TransportCredentials, TransportKind};
 
 /// The at-rest secret-encryption key (AES-256, same `MARULA_SECRET_KEY`
 /// env core-api uses). Needed ONLY by the webhook delivery loop to decrypt
@@ -173,13 +173,33 @@ impl WorkerConfig {
                 env("POSTMARK_BASE_URL").unwrap_or_else(|| "https://api.postmarkapp.com".into()),
             )
         });
+        // Both halves of the key pair are required. A lone access key id
+        // cannot sign a request, so it resolves to None and the transport
+        // falls back to none-mode (mail stays queued) instead of failing
+        // every send with a 403 the operator has to decode.
+        let ses = match (
+            env("AWS_SES_ACCESS_KEY_ID").filter(|v| !v.trim().is_empty()),
+            env("AWS_SES_SECRET_ACCESS_KEY").filter(|v| !v.trim().is_empty()),
+        ) {
+            (Some(access_key_id), Some(secret_access_key)) => Some((
+                access_key_id,
+                secret_access_key,
+                // Region is part of the endpoint, so it defaults rather than
+                // being optional — guessing "whichever" sends mail to the
+                // wrong data centre.
+                env("AWS_SES_REGION")
+                    .filter(|v| !v.trim().is_empty())
+                    .unwrap_or_else(|| "eu-west-1".into()),
+                env("AWS_SES_ENDPOINT").filter(|v| !v.trim().is_empty()),
+            )),
+            _ => None,
+        };
         Self {
             // Owner role on purpose: see module note above. A constrained
             // role here fails SILENTLY — RLS filters every row without
             // erroring and nothing is ever published or evaluated.
-            database_url: env("DATABASE_URL").unwrap_or_else(|| {
-                "postgres://marula:marula@localhost:15432/marula".to_string()
-            }),
+            database_url: env("DATABASE_URL")
+                .unwrap_or_else(|| "postgres://marula:marula@localhost:15432/marula".to_string()),
             redis_url: env("REDIS_URL").unwrap_or_else(|| "redis://localhost:16379/0".to_string()),
             bind_addr: env("BIND_ADDR").unwrap_or_else(|| "0.0.0.0:8082".to_string()),
             relay_batch: env("RELAY_BATCH")
@@ -191,8 +211,11 @@ impl WorkerConfig {
                 internal_token: env("EMAIL_INTERNAL_TOKEN"),
                 transport_kind: TransportKind::parse(
                     &env("EMAIL_TRANSPORT").unwrap_or_default(),
-                    smtp,
-                    postmark,
+                    TransportCredentials {
+                        smtp,
+                        postmark,
+                        ses,
+                    },
                 ),
                 claim_batch: env("EMAIL_CLAIM_BATCH")
                     .and_then(|v| v.parse().ok())
@@ -263,6 +286,102 @@ mod tests {
         assert_eq!(cfg.queue_stale_after_secs, 300);
         // Fail-closed none mode: no key ⇒ webhook delivery stays dead.
         assert!(cfg.webhook_secret_key.is_none());
+        // No SES variables ⇒ none mode, not a half-configured adapter.
+        assert_eq!(cfg.email.transport_kind, TransportKind::None);
+    }
+
+    /// SES is the third transport choice, and the failure mode that matters
+    /// is a PARTIAL credential: an access key id with no secret cannot sign
+    /// anything, and resolving that to a live adapter produces a 403 on
+    /// every single send. It has to resolve to none-mode instead, so the mail
+    /// stays queued and the ledger says why.
+    #[test]
+    fn ses_resolves_only_with_both_halves_of_the_key_pair() {
+        let mut vars: HashMap<&str, String> = HashMap::new();
+        vars.insert("EMAIL_TRANSPORT", "ses".into());
+        vars.insert("AWS_SES_ACCESS_KEY_ID", "AKIAEXAMPLE".into());
+        vars.insert("AWS_SES_SECRET_ACCESS_KEY", "shhh".into());
+        vars.insert("AWS_SES_REGION", "us-east-1".into());
+        let cfg = WorkerConfig::from_lookup(move |k| vars.get(k).cloned());
+        assert_eq!(
+            cfg.email.transport_kind,
+            TransportKind::Ses {
+                access_key_id: "AKIAEXAMPLE".into(),
+                secret_access_key: "shhh".into(),
+                region: "us-east-1".into(),
+                endpoint: None,
+            }
+        );
+        assert_eq!(cfg.email.transport_kind.as_str(), "ses");
+
+        // Key id alone ⇒ none mode, not a broken adapter.
+        let mut half: HashMap<&str, String> = HashMap::new();
+        half.insert("EMAIL_TRANSPORT", "ses".into());
+        half.insert("AWS_SES_ACCESS_KEY_ID", "AKIAEXAMPLE".into());
+        let cfg = WorkerConfig::from_lookup(move |k| half.get(k).cloned());
+        assert_eq!(cfg.email.transport_kind, TransportKind::None);
+
+        // Secret alone ⇒ the same.
+        let mut half: HashMap<&str, String> = HashMap::new();
+        half.insert("EMAIL_TRANSPORT", "ses".into());
+        half.insert("AWS_SES_SECRET_ACCESS_KEY", "shhh".into());
+        let cfg = WorkerConfig::from_lookup(move |k| half.get(k).cloned());
+        assert_eq!(cfg.email.transport_kind, TransportKind::None);
+    }
+
+    #[test]
+    fn ses_region_defaults_and_blank_values_are_treated_as_unset() {
+        // Region is part of the endpoint, so it has a default rather than
+        // being optional — a missing region that resolved to "whichever"
+        // would send mail to the wrong data centre.
+        let mut vars: HashMap<&str, String> = HashMap::new();
+        vars.insert("EMAIL_TRANSPORT", "SES".into());
+        vars.insert("AWS_SES_ACCESS_KEY_ID", "AKIAEXAMPLE".into());
+        vars.insert("AWS_SES_SECRET_ACCESS_KEY", "shhh".into());
+        let cfg = WorkerConfig::from_lookup(move |k| vars.get(k).cloned());
+        assert_eq!(
+            cfg.email.transport_kind,
+            TransportKind::Ses {
+                access_key_id: "AKIAEXAMPLE".into(),
+                secret_access_key: "shhh".into(),
+                region: "eu-west-1".into(),
+                endpoint: None,
+            }
+        );
+
+        // A whitespace-only region is not a region. Treating " " as the
+        // region would produce an endpoint like `email. .amazonaws.com`.
+        let mut vars: HashMap<&str, String> = HashMap::new();
+        vars.insert("EMAIL_TRANSPORT", "ses".into());
+        vars.insert("AWS_SES_ACCESS_KEY_ID", "AKIAEXAMPLE".into());
+        vars.insert("AWS_SES_SECRET_ACCESS_KEY", "shhh".into());
+        vars.insert("AWS_SES_REGION", "   ".into());
+        vars.insert("AWS_SES_ENDPOINT", "  ".into());
+        let cfg = WorkerConfig::from_lookup(move |k| vars.get(k).cloned());
+        assert_eq!(
+            cfg.email.transport_kind,
+            TransportKind::Ses {
+                access_key_id: "AKIAEXAMPLE".into(),
+                secret_access_key: "shhh".into(),
+                region: "eu-west-1".into(),
+                endpoint: None,
+            }
+        );
+    }
+
+    /// A typo in `EMAIL_TRANSPORT` must not select some other provider, and
+    /// must not send anywhere at all.
+    #[test]
+    fn an_unknown_transport_name_never_selects_a_provider() {
+        let mut vars: HashMap<&str, String> = HashMap::new();
+        // Every credential present, and the name is misspelled.
+        vars.insert("EMAIL_TRANSPORT", "postmzak".into());
+        vars.insert("POSTMARK_SERVER_TOKEN", "tok".into());
+        vars.insert("AWS_SES_ACCESS_KEY_ID", "AKIAEXAMPLE".into());
+        vars.insert("AWS_SES_SECRET_ACCESS_KEY", "shhh".into());
+        vars.insert("SMTP_HOST", "localhost".into());
+        let cfg = WorkerConfig::from_lookup(move |k| vars.get(k).cloned());
+        assert_eq!(cfg.email.transport_kind, TransportKind::None);
     }
 
     #[test]

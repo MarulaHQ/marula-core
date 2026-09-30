@@ -1,0 +1,258 @@
+name: Preview environment (per PR)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# USER-GATED. This file is a DEFINITION, not a gate.
+#
+# The whole `.github/workflows/*.disabled` set is kept byte-current and
+# re-enabled by the user, never by a lane (committed posture f00cdb3,
+# re-affirmed by Wave 34 lane 6 and the Phase-4 checklist). This one is
+# listed in `docs/BUILD-PROMPT-VERDICTS.md` under the Stage-0
+# "Preview environment per PR" row, which is what this leg closes:
+#
+#   The DEFINITION and the compose sizing are here and are done
+#   (deploy/preview/compose.preview.yml). What cannot be done from a
+#   repository is the part that actually makes a preview env exist:
+#
+#     1. Renaming this file to `preview.yml` — the user's checkbox, the
+#        same one as every other workflow in the disabled set.
+#     2. A host with a domain you control, and TLS for it. No workflow
+#        can provision those, and nothing in this file invents them.
+#     3. Deciding who may see a preview of an unreleased branch. That is
+#        an access-control decision about your product, not a CI default.
+#
+# Without 2 and 3 the job below will correctly fail at the readiness
+# gate rather than deploy a preview nothing can reach.
+#
+# What this file DOES establish, so the enable is a one-line change and
+# not a project: the whole boot sequence, the required secrets, the
+# teardown, the concurrency policy, and the PR-comment hand-off.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    # `closed` is what tears a preview down, and it is the most important
+    # entry in this list. A preview that outlives its PR is a stale branch
+    # on the network with a known URL, so cleanup matters more here than
+    # the deploy does. (There is no separate `pull_request_closed` event —
+    # the close arrives as `pull_request` with action `closed`, which is
+    # what the per-job `if` below branches on.)
+    types: [opened, synchronize, reopened, closed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Existing preview run id to tear down (blank = deploy current branch)'
+        required: false
+        type: string
+
+concurrency:
+  # One preview per PR, newest wins. A PR force-pushed twice should not
+  # leave two half-deployed stacks fighting over the same port range.
+  group: preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Narrowest-permissions posture (the p38 / ga-gates rule): nothing is
+# granted at workflow level, and each job declares only what it uses.
+permissions: {}
+
+jobs:
+  teardown:
+    # Runs on close. Kept as a SEPARATE job from deploy so the two paths
+    # never block each other: a failing deploy must not skip the teardown.
+    name: Teardown — release the runner
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Release the preview host
+        # Replace with your provider's teardown call (SSH to a fleet host,
+        # `fly apps destroy`, a Terraform workspace destroy). The point of
+        # the placeholder is that the teardown is a REQUIRED step in the
+        # definition, not something a future author is expected to
+        # remember — the preview that is never destroyed is the failure
+        # mode this job exists to prevent.
+        run: |
+          echo "::error::Preview teardown is not wired for this repository."
+          echo "Add the host release step here before enabling the workflow."
+          exit 1
+
+  preview:
+    name: Deploy — boot a per-PR stack and comment the URL
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The hand-off comment, and nothing else that touches the PR.
+      pull-requests: write
+    env:
+      # Per-run, non-default ports. Two previews on one host must not
+      # collide, and the overlay reads these instead of hardcoding.
+      PREVIEW_API_PORT: 8080
+      PREVIEW_WS_PORT: 8081
+      PREVIEW_WEB_PORT: 3000
+      # The owner-provided target. Repository variables, not secrets: none
+      # of these four is a credential, and a host name or URL has no
+      # business sitting in the secrets store. The readiness gate below
+      # checks all four are present before anything is provisioned.
+      PREVIEW_HOST: ${{ vars.PREVIEW_HOST }}
+      PREVIEW_PUBLIC_URL: ${{ vars.PREVIEW_PUBLIC_URL }}
+      PREVIEW_API_URL: ${{ vars.PREVIEW_API_URL }}
+      PREVIEW_CORS_ORIGIN: ${{ vars.PREVIEW_CORS_ORIGIN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The preview must show the PR's merge commit, not the head of
+          # the base branch. Without this the URL silently serves main and
+          # every reviewer believes their change broke nothing.
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+
+      - name: Readiness gate — refuse to deploy without an owner-provided target
+        # Everything below needs a host, a domain and TLS. Failing here
+        # with a legible message beats a job that fails 20 minutes later
+        # on a DNS error nobody reads.
+        run: |
+          missing=0
+          for v in PREVIEW_HOST PREVIEW_PUBLIC_URL PREVIEW_API_URL PREVIEW_CORS_ORIGIN; do
+            if [ -z "${!v:-}" ]; then
+              echo "::error::$v is not set. A preview environment needs a host and a domain you control; a workflow cannot provision them."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::See deploy/preview/README.md — the two publishing options and what each one needs from you."
+            exit 1
+          fi
+
+      - name: Generate per-PR secrets (never reused across PRs)
+        # A shared preview key is the same failure as the base file's
+        # development defaults one level up: a token that is in a public
+        # repository, just with extra steps. Generated fresh per run and
+        # written straight to $GITHUB_ENV, which the runner masks for the
+        # rest of the job — they are never printed, and never stored.
+        run: |
+          echo "PREVIEW_JWT_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "PREVIEW_MARULA_SECRET_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      - name: Provision the host
+        # Replace with your provider's create call. The contract the rest of
+        # this job relies on is narrow and worth stating: afterwards,
+        # $PREVIEW_HOST accepts SSH, the repo is checked out on it, and
+        # docker compose is available.
+        run: |
+          echo "::error::Host provisioning is not wired for this repository."
+          echo "See deploy/preview/README.md for what this step has to guarantee."
+          exit 1
+
+      - name: Boot the preview stack
+        # The overlay + the base compose, exactly as the runbook documents.
+        # No explicit migrate step: the base compose's `migrate` service is
+        # a one-shot that core-api depends on with
+        # `condition: service_completed_successfully`, so `up -d` blocks
+        # until the schema is at HEAD. A separate migrate call here would be
+        # a second way to do the same thing, and the two would drift.
+        env:
+          PREVIEW_JWT_SECRET: ${{ env.PREVIEW_JWT_SECRET }}
+          PREVIEW_MARULA_SECRET_KEY: ${{ env.PREVIEW_MARULA_SECRET_KEY }}
+          PREVIEW_API_URL: ${{ env.PREVIEW_API_URL }}
+          PREVIEW_API_PORT: ${{ env.PREVIEW_API_PORT }}
+          PREVIEW_WS_PORT: ${{ env.PREVIEW_WS_PORT }}
+          PREVIEW_WEB_PORT: ${{ env.PREVIEW_WEB_PORT }}
+          PREVIEW_CORS_ORIGIN: ${{ env.PREVIEW_CORS_ORIGIN }}
+          PREVIEW_PUBLIC_URL: ${{ env.PREVIEW_PUBLIC_URL }}
+        run: |
+          # The generated keys live in this runner's environment; `ssh host
+          # bash -s` forwards stdin, NOT the environment. Exporting them
+          # into the remote shell is the step that is easy to forget and
+          # produces a confusing failure — compose then reads the
+          # `?`-guarded variables as empty and dies at the overlay, which
+          # reads like a compose bug rather than a missing export.
+          #
+          # They travel as command arguments, so they appear in the host's
+          # process list for the life of the build. For a disposable
+          # per-PR stack that is the right trade; a long-lived host you
+          # share with anyone else wants these piped over stdin instead.
+          ssh "$PREVIEW_HOST" bash -s -- \
+            "$PREVIEW_JWT_SECRET" "$PREVIEW_MARULA_SECRET_KEY" \
+            "$PREVIEW_API_URL" "$PREVIEW_API_PORT" \
+            "$PREVIEW_WS_PORT" "$PREVIEW_WEB_PORT" \
+            "$PREVIEW_CORS_ORIGIN" "$PREVIEW_PUBLIC_URL" <<'REMOTE'
+          set -euo pipefail
+          PREVIEW_JWT_SECRET="$1"; PREVIEW_MARULA_SECRET_KEY="$2"
+          PREVIEW_API_URL="$3"; PREVIEW_API_PORT="$4"
+          PREVIEW_WS_PORT="$5"; PREVIEW_WEB_PORT="$6"
+          PREVIEW_CORS_ORIGIN="$7"; PREVIEW_PUBLIC_URL="$8"
+          export PREVIEW_JWT_SECRET PREVIEW_MARULA_SECRET_KEY PREVIEW_API_URL \
+                 PREVIEW_API_PORT PREVIEW_WS_PORT PREVIEW_WEB_PORT \
+                 PREVIEW_CORS_ORIGIN PREVIEW_PUBLIC_URL
+          cd "$PREVIEW_CHECKOUT"
+          docker compose -f deploy/docker-compose.yml \
+                         -f deploy/preview/compose.preview.yml \
+                         up --build -d
+          # Same readiness shape the CI conformance job uses: poll, then
+          # assert, so a slow boot fails as a timeout with a reason rather
+          # than as a connection error in whatever ran next.
+          for i in $(seq 1 120); do
+            curl -fsS http://localhost:8080/healthz >/dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS http://localhost:8080/healthz
+          REMOTE
+
+      - name: Seed the demo org
+        # So the reviewer opens a populated app rather than a sign-up form.
+        # `seed-demo --force` is the same mechanical reseed scripts/e2e-stack.sh
+        # runs, so a preview and the E2E suite cannot drift into different
+        # fixtures — a divergence here would make every preview-only bug
+        # look like a real one.
+        #
+        # Two details that are not guessable: the rust image installs every
+        # binary at /usr/local/bin/marula regardless of which crate it came
+        # from, and `seed-demo` is refused unless MARULA_DEV_TOOLS=1. The
+        # migrate service is the right vehicle because it is already built
+        # for the CLI and already points at the right DATABASE_URL.
+        run: |
+          ssh "$PREVIEW_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$PREVIEW_CHECKOUT"
+          docker compose -f deploy/docker-compose.yml \
+                         -f deploy/preview/compose.preview.yml \
+                         run --rm -e MARULA_DEV_TOOLS=1 migrate seed-demo --force
+          REMOTE
+
+      - name: Comment the preview URL on the PR
+        # The hand-off. A preview env nobody can find is the same as no
+        # preview env, and reviewers should not have to read CI logs to
+        # learn where to click.
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          BODY="$(cat <<EOF
+          ### Preview environment
+
+          | | |
+          |---|---|
+          | App | $PREVIEW_PUBLIC_URL |
+          | API | $PREVIEW_API_URL |
+          | Seed | demo org, \`seed-demo --force\` |
+          | Mail | EMAIL_TRANSPORT=none — nothing is sent from a preview |
+
+          Disposable stack, demo data. Do not put real customer data in it,
+          and do not treat anything you create as durable.
+          EOF
+          )"
+          # Update the previous bot comment rather than appending a new one
+          # on every push; a PR with thirty preview comments is its own mess,
+          # and the newest one is the only one anyone should read. The marker
+          # is what makes the search findable — a stable HTML comment the
+          # bot owns, so the delete targets our own comment and never
+          # someone's.
+          PREV="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+                   --jq "[.[] | select(.user.type == \"Bot\") | .id] | .[-1] // empty")"
+          if [ -n "$PREV" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$PREV" \
+              -f body="$BODY" >/dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+              -f body="$BODY" >/dev/null
+          fi

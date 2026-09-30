@@ -18,7 +18,9 @@
 # Ports: 15432 pg · 16379 valkey · 8080 api · 8081 ws · 8082 worker-health
 #        · 3000 web · (stage2 profile) 3900-3903 garage · 1025/8025 mailpit
 #        · (observability profile) 4317/4318 otel-collector · 3200 tempo
-#        · 3100 loki · 3001 grafana · 18899 metrics exposition
+#        · 3100 loki · 3001 grafana · 8010 glitchtip · 3002 uptime-kuma
+#        · 18899 metrics exposition
+#        · (ai profile) ollama — local model runtime, unpublished
 #
 # Security posture (Wave 38 p38-container-hardening): every third-party
 # image is pinned to an exact tag AND a registry digest (the digest is the
@@ -35,6 +37,15 @@
 # default — launch them explicitly with:
 #   docker compose -f deploy/docker-compose.yml --profile stage2 up
 #
+# Local models (Wave 34 claims close-out, claim 9): the `ai` profile adds an
+# Ollama model runtime for transcription + embeddings, so "run these models
+# locally" is a command rather than a paragraph of prose. No model weights
+# ship inside any Marula image; `ollama pull` fetches them into the
+# ollamadata volume. The profile is off by default, and Marula's own images
+# never carry weights — see docs/site/reference/self-host-local-ai.md for the
+# decision and the reasoning.
+#   docker compose -f deploy/docker-compose.yml --profile ai up -d ollama
+#
 # Observability (TASKLIST 2.18): telemetry export is DISABLED BY DEFAULT —
 # `docker compose up` behaves exactly as before. To observe the stack, set
 # OTEL_EXPORTER_OTLP_ENDPOINT for the containers and start the profile:
@@ -44,8 +55,11 @@
 # MarulaMetrics datasources plus the "Marula Starter" dashboard.
 # GlitchTip slot is live; its per-service DSN env is declared on each
 # service block and presence (never the value) is reported by the
-# Settings → Self-host services pane. Uptime-Kuma was deliberately left
-# out of this baseline.
+# Settings → Self-host services pane. The Uptime-Kuma status-page slot
+# joined the profile with Wave 34's claims close-out (verdict-sweep
+# claim 7) on the same footing: profile-gated, digest-pinned, no
+# dependency on the core-api/worker bring-up order, admin setup done
+# once at http://localhost:3002.
 
 name: marula
 
@@ -528,6 +542,112 @@ services:
     ports:
       - "8010:8000"
 
+  # Uptime Kuma — the public status page + synthetic monitor for the
+  # self-host observability profile (Wave 34 verdict-sweep claim 7: the one
+  # §2 observability row that had not shipped). Synthetic probes hit the
+  # same endpoints the operator's customers hit, and the status page it
+  # serves is the artifact an operator hands a client during an incident.
+  #
+  # Remapped off 3001 (Grafana already owns that port in this stack).
+  # Standalone by design: it keeps its own embedded store under /app/data
+  # and has no Marula-side dependency, so it never becomes a hard link in
+  # the core-api/worker bring-up order. First boot is a one-time admin
+  # setup at http://localhost:3002 (see deploy/README.md).
+  uptime-kuma:
+    mem_limit: 512m
+    cpus: 1.0
+    logging: *default-logging
+    image: louislam/uptime-kuma:2.5.5@sha256:c74379ac4509ce2d2c2633f509e67003ee2e45b6e995c5e43fc101f45a0e1fbe
+    profiles: ["observability"]
+    <<: *cap-common
+    # 2.5.5 is the audited pin (2026-09-30, registry digest resolved on the
+    # arm64 + amd64 linux manifests; the index digest is what the reference
+    # pins, so one value serves both platforms). The image ships linux/arm64
+    # natively — the same reason the clamav slot has no Rosetta pin.
+    #
+    # The image sets no `User:`; its documented runtime identity is the
+    # in-image `node` user (uid/gid 1000), which is what `user:` below pins
+    # — the same read-the-image-uid discipline the other slots use.
+    user: "1000:1000"
+    # EXEMPTION (read_only): the image ships its own HEALTHCHECK
+    # (`extra/healthcheck`) and keeps its store under /app/data, but it also
+    # writes engine scratch and TLS material at first boot outside that
+    # volume. Pinning read_only needs a boot-verified tmpfs inventory, and
+    # this lane ran no stack boot (gate pause) — so the exemption is recorded
+    # rather than claimed. Capabilities stay dropped, no-new-privileges stays
+    # on, and the data-at-rest surface is the uptimedata volume. The operator
+    # verification step lives in deploy/README.md.
+    read_only: false
+    volumes:
+      - uptimedata:/app/data
+    ports:
+      - "3002:3001"
+
+  # ---- Local model runtime (--profile ai) ----
+  #
+  # Wave 34 claims close-out, verdict-sweep claim 9: the bundled-models leg
+  # of the §2 AI-hooks row. DECISION: operator-side, and the deployment
+  # layer is shipped here rather than promised in prose. The reasoning is
+  # recorded in docs/site/reference/self-host-local-ai.md — the short
+  # version is that model weights do not belong in the core-api image, and
+  # the honest version of "bundled local whisper" is a one-command local
+  # runtime that Marula already knows how to talk to.
+  #
+  # It is its own profile rather than a member of stage2 or observability:
+  # those two answer "store things" and "watch things", this one is "run
+  # models", and an operator who wants attachments and metrics should not
+  # inherit several gigabytes of model weights by association.
+  #
+  # Marula never ships model weights in any image. `ollama pull` fetches
+  # them into the ollamadata volume, so the operator can see and delete
+  # exactly what is on disk.
+  ollama:
+    mem_limit: 4g
+    cpus: 2.0
+    logging: *default-logging
+    image: ollama/ollama:0.35.0@sha256:2a6e883b917fc543389599dae79918f5cac9e1438890506982f44aa4f5625d01
+    profiles: ["ai"]
+    <<: *cap-common
+    # 0.35.0 is the audited pin (2026-09-30, registry digest resolved against
+    # the linux/amd64 + linux/arm64 manifests, so one value serves both —
+    # this repo's stack is multi-arch by construction, see the digests above).
+    #
+    # The image sets no `User:` and its documented model path is under
+    # /root, which a non-root uid cannot write. So the identity is pinned
+    # explicitly AND the model directory is moved to a mounted volume, which
+    # is the arrangement Ollama documents for a rootless container.
+    user: "1000:1000"
+    # EXEMPTION (read_only): capabilities stay dropped and
+    # no-new-privileges stays on, but the rootfs is writable. Ollama keeps
+    # state outside $OLLAMA_MODELS (its own key material under the
+    # container user's home), and pinning read_only would need a
+    # boot-verified inventory of exactly what and where — which this lane
+    # could not produce, having run no stack boot. Recorded as a known gap
+    # rather than claimed as hardening; the data-at-rest surface is the
+    # ollamadata volume and nothing else is persisted.
+    #
+    # Also worth knowing: this is an INFERENCE SERVER, and inference servers
+    # execute downloaded model weights. It is on its own profile, off by
+    # default, and it is the operator's call — which is exactly the posture
+    # the BYOK design chose.
+    read_only: false
+    environment:
+      # Unpublished on the host, like Postgres and Valkey in the preview
+      # overlay: core-api reaches it by service name inside the compose
+      # network, which is its only client. Publishing an unauthenticated
+      # inference port on a network is a remote-code-execution offer, since
+      # model loading parses a native format.
+      OLLAMA_MODELS: /models
+      # Refuses to pull a model on first use, so a mistyped model name fails
+      # as a typed error instead of a multi-gigabyte surprise download.
+      OLLAMA_NO_CLOUD: "1"
+    volumes:
+      - ollamadata:/models
+    # Deliberately NOT published. To reach it from the host, use the
+    # network the operator already trusts:
+    #   docker compose -f deploy/docker-compose.yml --profile ai up -d ollama
+    #   docker compose -f deploy/docker-compose.yml exec ollama ollama pull nomic-embed-text
+
   # ClamAV daemon (2026-09 decision; --profile stage2): attachment/file
   # scanning boundary (secrets file records, staged imports). Code-side
   # wire-in on core-api's effect/step seams is a follow-up lane; the service
@@ -608,3 +728,5 @@ volumes:
   backupdumps:
   tempodata:
   lokidata:
+  uptimedata:
+  ollamadata:

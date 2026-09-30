@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH bounds AS (\n             SELECT COALESCE(MAX(position), -1) AS hi, COUNT(*) AS n\n             FROM dispatch_work_next_queue\n             WHERE org_id = $1 AND user_id = $2\n           ),\n           target AS (\n             -- Clamp: a negative position lands at the head, one past the\n             -- tail lands at the tail.\n             SELECT LEAST(GREATEST($5, 0), GREATEST((SELECT n FROM bounds), 0)) AS pos\n           )\n           INSERT INTO dispatch_work_next_queue (id, org_id, user_id, ticket_id, position)\n           SELECT $3, $1, $2, $4, (SELECT pos FROM target)\n           ON CONFLICT (user_id, ticket_id) DO UPDATE\n             SET position = (\n                   SELECT GREATEST(LEAD(position) OVER (ORDER BY position), $5)\n                   FROM dispatch_work_next_queue\n                   WHERE org_id = $1 AND user_id = $2 AND ticket_id <> $4\n                 ),\n                 updated_at = now()\n           RETURNING id, org_id, user_id, ticket_id, position, created_at, updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "position",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9617b4bbee2d4e060d11ef074fb121372fd5947398427a1dadc29e253382f076"
+}

@@ -408,6 +408,9 @@ use utoipa::OpenApi;
         crate::routes::calendar_sync::delete_connection,
         crate::routes::calendar_sync::rotate_token,
         crate::routes::calendar_sync::run_sync,
+        // delegated OAuth (Wave 34 claims close-out, claim 5)
+        crate::routes::calendar_sync::authorize_start,
+        crate::routes::calendar_sync::oauth_callback,
         crate::routes::calendar_sync::list_events,
         crate::routes::calendar_sync::public_feed,
         // plugin runtime v2 + marketplace registry (Wave 14 lane 5)
@@ -502,6 +505,17 @@ use utoipa::OpenApi;
         // dispatch v2: resource planning + travel/mileage drafts (Wave 9 lane 9)
         crate::routes::dispatch::capacity,
         crate::routes::dispatch::queue_list,
+        // curated per-technician work-next queues (Wave 34 claims
+        // close-out, claim 2)
+        crate::routes::dispatch::work_next_list,
+        crate::routes::dispatch::work_next_add,
+        crate::routes::dispatch::work_next_reorder,
+        crate::routes::dispatch::work_next_remove,
+        // resource planning across project phases (claim 1)
+        crate::routes::dispatch::phase_allocations_list,
+        crate::routes::dispatch::phase_allocation_upsert,
+        crate::routes::dispatch::phase_allocation_delete,
+        crate::routes::dispatch::capacity_forecast,
         crate::routes::dispatch::queue_set,
         crate::routes::dispatch::queue_clear,
         crate::routes::dispatch::skills_catalog,
@@ -854,6 +868,7 @@ use utoipa::OpenApi;
         crate::routes::projects::get_one,
         crate::routes::projects::patch,
         crate::routes::projects::list_phases,
+        crate::routes::projects::gantt,
         crate::routes::projects::create_phase,
         crate::routes::projects::patch_phase,
         crate::routes::projects::complete_phase,
@@ -1617,6 +1632,9 @@ use utoipa::OpenApi;
         core_domain::entities::CalendarSyncStatus,
         core_domain::entities::CalendarSyncEvent,
         crate::routes::calendar_sync::CreateConnectionRequest,
+        crate::routes::calendar_sync::OAuthStartResponse,
+        crate::routes::calendar_sync::OAuthCallbackQuery,
+        crate::routes::calendar_sync::OAuthCallbackResult,
         crate::routes::calendar_sync::UpdateConnectionRequest,
         crate::routes::calendar_sync::ConnectionView,
         crate::routes::calendar_sync::SyncOutcomeResponse,
@@ -1710,6 +1728,18 @@ use utoipa::OpenApi;
         crate::routes::dispatch::SetQueueRankRequest,
         crate::routes::dispatch::QueueMutationResponse,
         crate::routes::dispatch::SkillsCatalogView,
+        // work-next + resource planning schemas (Wave 34 claims close-out)
+        crate::routes::dispatch::WorkNextQueueQuery,
+        crate::routes::dispatch::WorkNextMutation,
+        crate::routes::dispatch::WorkNextRemovalQuery,
+        crate::routes::dispatch::WorkNextEntryView,
+        crate::routes::dispatch::WorkNextQueueView,
+        crate::routes::dispatch::PhaseAllocationQuery,
+        crate::routes::dispatch::PhaseAllocationMutation,
+        crate::routes::dispatch::PhaseAllocationView,
+        crate::routes::dispatch::PhaseAllocationListView,
+        crate::routes::dispatch::CapacityForecastView,
+        crate::routes::dispatch::CapacityForecastEntryView,
         crate::routes::dispatch::SkillCatalogEntry,
         crate::routes::dispatch::ReplaceUserSkillsRequest,
         crate::routes::dispatch::SkillInput,
@@ -2005,6 +2035,10 @@ use utoipa::OpenApi;
         crate::routes::projects::ProjectListQuery,
         crate::routes::projects::ProjectMutationResponse,
         crate::routes::projects::PhaseMutationResponse,
+        // dated Gantt + phase-budget/burn read model (Wave 34 claims
+        // close-out, claim 6)
+        crate::routes::projects::ProjectGanttView,
+        crate::routes::projects::PhaseGanttView,
         crate::routes::projects::TaskMutationResponse,
         crate::routes::projects::DependencyListResponse,
         crate::routes::projects::CreatePhaseRequest,

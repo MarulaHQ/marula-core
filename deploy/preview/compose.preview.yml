@@ -1,0 +1,139 @@
+# Per-PR preview environment — sizing + exposure override (Wave 34 claims
+# close-out, verdict-sweep claim 4).
+#
+# What this file is: the OVERLAY that turns the shipped local stack into
+# something a reviewer on another machine can open. It is deliberately an
+# override, not a fork — `deploy/docker-compose.yml` stays the single
+# source of truth for image pins, build args, RLS roles, and health, and
+# this file only changes the three things a preview env needs to differ
+# on: resource sizing, published interfaces, and secrets posture.
+#
+#   docker compose -f deploy/docker-compose.yml \
+#                  -f deploy/preview/compose.preview.yml \
+#                  up --build
+#
+# Why an override and not a new file: a forked compose is a fork nobody
+# updates. Every hardening decision the p38 container lane made — digest
+# pins, cap_drop ALL, read_only rootfs, nonroot uids — is inherited here
+# automatically, and a preview env that silently lost them would be a
+# worse preview env than the local one.
+#
+# Non-purpose: this file does NOT create the preview environment's
+# ingress, DNS, or certificates. Those need a host and a domain you own,
+# which no lane can provision. See deploy/preview/README.md for the two
+# ways to publish a preview env and what each one costs you.
+
+services:
+  postgres:
+    # ---- sizing ------------------------------------------------------------
+    # A preview env exists to be clicked through, not benchmarked. Every
+    # ceiling here is lower than the local baseline so several previews fit
+    # on one machine without the first one starving the rest. None of it is
+    # a performance claim — the perf-smoke CI job owns that, against its own
+    # dedicated runner and its own 50k-ticket seed.
+    #
+    # The demo seed is hundreds of rows, not 50k tickets, so 1g has ample
+    # headroom. `shm_size` is raised from Docker's 64m default because PG's
+    # parallel workers take shared memory for parallel query, and 64m shows
+    # up as a confusing "could not resize shared memory segment" under any
+    # plan that wants to go parallel.
+    mem_limit: 1g
+    cpus: 1.0
+    shm_size: 256m
+    # Unpublished. Compose MERGES a `ports:` list from an overlay instead of
+    # replacing it, so merely omitting the key here would leave the base
+    # file's 15432 publish in place — a database reachable from whatever
+    # network the preview sits on. `!override` replaces the list outright.
+    # Inside the compose network Postgres is still reachable by service
+    # name, which is where every client of it lives.
+    ports: !override []
+
+  redis:
+    mem_limit: 384m
+    cpus: 0.5
+    ports: !override []
+
+  core-api:
+    mem_limit: 640m
+    cpus: 1.0
+    # ---- exposure --------------------------------------------------------
+    # Published on 0.0.0.0, not 127.0.0.1. That single word is the whole
+    # difference between "only I can see it" and "anything that can reach
+    # this machine can see it" — the base file's localhost publish is the
+    # right default for a laptop and the wrong one for a preview, where
+    # being unreachable is the same as not existing.
+    #
+    # Exactly three interfaces are published — web, api, ws. Postgres,
+    # Valkey and the worker's health port are pulled back to unpublished
+    # above. Putting a database on a network-visible interface is the
+    # fastest way to turn "review the branch" into "drop the preview
+    # database", and the RLS layer that isolates tenants does not protect
+    # the role itself.
+    ports:
+      - "0.0.0.0:${PREVIEW_API_PORT:-8080}:8080"
+    # ---- secrets posture -------------------------------------------------
+    # The base file ships development defaults inline. On a visible
+    # interface those defaults are not "insecure defaults", they are a
+    # known token: anyone who has read this repository can mint a valid
+    # session against a preview env left on them. So both keys become
+    # REQUIRED and compose refuses to start without them.
+    #
+    # That is the intended failure mode. A preview env that will not boot
+    # until you gave it a real key is one you cannot forget; one that boots
+    # on the repository's published key is one you will.
+    environment:
+      JWT_SECRET: ${PREVIEW_JWT_SECRET:?PREVIEW_JWT_SECRET is required — see deploy/preview/README.md}
+      MARULA_SECRET_KEY: ${PREVIEW_MARULA_SECRET_KEY:?PREVIEW_MARULA_SECRET_KEY is required — see deploy/preview/README.md}
+      # The browser reaches the API cross-origin (the web app and the API
+      # are different published ports), so the browser-reachable web origin
+      # has to be declared. Without it every call fails CORS, which reads
+      # as a broken app rather than a missing variable.
+      CORS_ORIGIN: ${PREVIEW_CORS_ORIGIN:?PREVIEW_CORS_ORIGIN is required — the browser-reachable web URL}
+      # Used in the outbound links the app renders (client portal invites,
+      # ticket links in email). Also has to be the public URL, not the
+      # compose service name.
+      WEB_BASE_URL: ${PREVIEW_PUBLIC_URL:?PREVIEW_PUBLIC_URL is required — the browser-reachable web URL}
+      # Preview data is disposable and demo-seeded, so nothing here should
+      # be able to send mail out of it. `none` keeps every message queued
+      # and unsent — the none-mode note in crates/core-mail.
+      EMAIL_TRANSPORT: none
+
+  realtime:
+    mem_limit: 384m
+    cpus: 0.5
+    ports:
+      - "0.0.0.0:${PREVIEW_WS_PORT:-8081}:8081"
+    environment:
+      # Must match core-api's or the browser's WS handshake is rejected as
+      # an invalid token.
+      JWT_SECRET: ${PREVIEW_JWT_SECRET:?PREVIEW_JWT_SECRET is required}
+      # Empty keeps realtime on the symmetric posture, matching core-api's
+      # default when no EdDSA public key is configured.
+      MARULA_JWT_EDDSA_PUBLIC_KEY: ""
+
+  worker:
+    mem_limit: 384m
+    cpus: 0.5
+    # Unpublished for the same reason as Postgres and Valkey: the health
+    # endpoint is a liveness signal for the compose network, not a service
+    # for the reviewer's browser.
+    ports: !override []
+    # Must match core-api's MARULA_SECRET_KEY or sealed webhook secrets are
+    # undecryptable by the delivery worker — the same rule the base file
+    # states, and the reason both services read the same variable here.
+    environment:
+      MARULA_SECRET_KEY: ${PREVIEW_MARULA_SECRET_KEY:?PREVIEW_MARULA_SECRET_KEY is required}
+      EMAIL_TRANSPORT: none
+
+  web:
+    mem_limit: 640m
+    cpus: 1.0
+    ports:
+      - "0.0.0.0:${PREVIEW_WEB_PORT:-3000}:3000"
+    build:
+      # Baked into the client bundle at build time. Overridden because the
+      # base file's default is a localhost URL, which points the reviewer's
+      # browser at their own machine — the single most common way a preview
+      # env "works" for its author and is broken for everyone else.
+      args:
+        NEXT_PUBLIC_API_URL: ${PREVIEW_API_URL:-http://localhost:8080}

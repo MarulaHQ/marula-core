@@ -171,7 +171,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | Tauri 2 shell (tray, multi-window, notifications, auto-update) | shipped-with-honest-gap | shell GA + updater + web multi-window shipped. Native multi-window + OS-integration polish is Wave 38 lane 2 (claimed in roadmap) |
 | AuthN/Z stack | shipped | Stage 1/2 rows, SAML/SCIM out of scope per §10 |
 | Plugins: Extism + TS SDK + capability consent + audit-logged invocations | shipped | Wave 14 lane 5 + Wave 34 lane 4 |
-| AI hooks: thin `CompletionProvider` + BYOK, bundled faster-whisper + bge-class in container, Ollama documented | shipped-with-honest-gap | provider seam + transcription edge shipped (network provider model, BYOK). The container bundling leg is a deployment-layer choice: self-host docs document Ollama/whisper serving, no model binaries in the build. Claimed below as a packaging follow-up for the bundled-local path |
+| AI hooks: thin `CompletionProvider` + BYOK, bundled faster-whisper + bge-class in container, Ollama documented | shipped-with-honest-gap | provider seam + transcription edge shipped (network provider model, BYOK). The container-bundling leg is a deployment-layer choice: self-host docs document Ollama/whisper serving, no model binaries in the build. **Closed by the Wave 34 claims close-out (claim 9) as a recorded decision** — see `docs/site/reference/self-host-local-ai.md` for the reasoning and the shipped `ai` compose profile |
 | Mail: Postmark/SES/self-host, inbound → ClamAV → threading | shipped-with-honest-gap | Postmark + SMTP shipped, clamd scan wired. SES adapter not built (documented third choice behind the trait, none-mode posture) |
 | Storage: S3-compatible trait, Garage self-host, R2/S3 adapters | shipped | `core-store::ObjectStore`, Garage compose slot |
 | Routing/geocoding: RoutingProvider trait, OSRM/ORS default, Mapbox adapter | shipped | + TravelTime/Geoapify as relays (ADR 0014) |
@@ -188,7 +188,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | Domain coverage ≥80% | definition exists in `ga-gates.yml.disabled`. Measured coverage is not recorded on main and rides the same user-gated re-enable |
 | Perf smoke on every merge | definition exists (`perf-smoke.sh` + job), trigger user-gated |
 | Migration-diff check (`--breaking` lint) | shipped (`scripts/check-migrations.sh` in the gate set) |
-| Preview environment per PR | **missing-with-owner** — see Stage 0 row |
+| Preview environment per PR | **definition landed, activation user-gated** — `preview.yml.disabled` + `deploy/preview/compose.preview.yml` (sizing, three published interfaces, mandatory per-run secrets, teardown on PR close) shipped with the Wave 34 claims close-out. The trigger rename stays USER-GATED with the rest of the disabled set, and two steps remain owner work by nature: provisioning the host, and the wildcard DNS/TLS. Both are `exit 1` with a message rather than a plausible guess. See `deploy/preview/README.md` |
 
 ## Claimed follow-ups (UNCHECKED rows added to TASKLIST.md "Wave 34 verdict-sweep claims")
 
@@ -198,10 +198,29 @@ citation. Where it is code, the citation names the module or endpoint.
    bullet: a persisted per-technician ordering, not today's filterable
    unassigned queue).
 3. **PostHog aggregate analytics on the website** (aggregate-only, cookie-free,
-   config-gated) behind the §7 quality bar.
+   config-gated) behind the §7 quality bar. **CLOSED (2026-09-30).** Off
+   unless `NEXT_PUBLIC_POSTHOG_KEY` is set (or literally `off`), one
+   cookie-free beacon per pageview, no identity of any kind: no cookies, no
+   localStorage/sessionStorage, a fresh random `distinct_id` per event,
+   `$process_person_profile: false`, pathname only (no query string), no
+   referrer, and DNT + GPC honored. No SDK dependency, so `website/` stays
+   frozen per D10 and the shared bundle is unchanged at 102 kB. Proven
+   against a live browser in both modes
+   (`scripts/p34-website-analytics-capture.mjs`): off = zero third-party
+   requests, on = exactly one beacon per page with a 274-byte JSON body.
 4. **Preview-environment CI leg** — cannot be enabled from a lane (triggers
    are user-gated); the scaffold/compose work needed to make a preview env
-   possible is claimed, activation stays with the user.
+   possible is claimed, activation stays with the user. **Scaffold + compose
+   CLOSED (2026-09-30); activation USER-GATED.** `deploy/preview/compose.preview.yml`
+   (an overlay, not a fork, so the digest pins and least-privilege posture
+   are inherited) sizes the stack, publishes exactly three interfaces and
+   pulls Postgres/Valkey/worker back to unpublished, and makes the two keys
+   mandatory with no default. `.github/workflows/preview.yml.disabled` carries
+   the definition: SHA-pinned actions, `permissions: {}` workflow-level,
+   per-PR generated secrets forwarded across the SSH boundary, mechanical
+   `seed-demo --force`, sticky PR comment, and a teardown job on the PR's
+   `closed` action that deliberately does not depend on the deploy.
+   **Owner: user** for the rename, the host, and the wildcard DNS/TLS.
 5. **Calendar-sync Google Workspace + M365 provider kinds** on the shipped
    `CalendarSyncProvider` seam (ical is the only implemented kind today).
 6. **Projects dated-Gantt + phase-budget surfaces** — Wave 39 lane 4
@@ -214,7 +233,20 @@ citation. Where it is code, the citation names the module or endpoint.
    side-by-side evidence artifact, the Stage-3 acceptance form).
 9. **Bundled local whisper/embeddings container leg** — package the
    documented bundled-models path (or record a final operator-side-only
-   decision) for the §2 AI-hooks row.
+   decision) for the §2 AI-hooks row. **CLOSED as a decision (2026-09-30,
+   Wave 34 claims close-out): operator-side, and the deployment layer is
+   shipped rather than promised.** A new `ai` compose profile runs a
+   digest-pinned Ollama (`0.35.0`, native amd64+arm64, unpublished on the
+   host) with models in their own `ollamadata` volume; `whisper` satisfies
+   the transcription seam (which already resolved `ollama` as a
+   first-class provider) and `nomic-embed-text` is the model that meets
+   the 768-dimension `SEARCH_EMBEDDING_DIM` contract natively. The
+   reasoning — a model is data rather than a dependency, weights are
+   per-architecture while this stack is multi-arch by construction, and
+   the seam already exists — is recorded with the trade-offs in
+   `docs/site/reference/self-host-local-ai.md`, with the operator procedure
+   in `docs/site/how-to/admin-local-ai-models.md`. **Owner: operator.**
+   No model weights ship in any Marula image, before or after.
 10. **SES mail adapter** — the third `MailTransport` choice, documented
     but not built (bounded one-adapter job).
 
@@ -240,6 +272,7 @@ What each file would enable:
 | `release.yml.disabled` | digest-pinned GHCR images, SBOM (syft), provenance attestation, changeset notes |
 | `native.yml.disabled` | native typecheck/lint/tests, macOS runner Maestro matrix |
 | `changesets.yml.disabled` | changeset version PR automation |
+| `preview.yml.disabled` | not a gate — the per-PR preview environment (Wave 34 claims close-out, claim 4). Boots a sized stack, seeds the demo org, comments the URL, tears down on PR close |
 
 Re-enabling is a checkbox on the user's side. The definitions are kept
 byte-current by the gates that run them in CI-parity locally.
