@@ -46,7 +46,7 @@ import {
   type PortalAttachmentView,
   type PortalTicketDetail,
 } from "../../../../lib/portal-api";
-import { clientStatusFor, initials, longDate } from "../../../../lib/portal-copy";
+import { clientStatusFor, initials, raisedAt } from "../../../../lib/portal-copy";
 import {
   Note,
   PortalCard,
@@ -193,7 +193,7 @@ export default function PortalTicketPage() {
         >
           <StatusPill status={status} />
           <span className="portal-hint" style={{ fontSize: 14 }}>
-            #{t.number} · Raised {longDate(t.created_at)}
+            #{t.number} · Raised {raisedAt(t.created_at)}
             {nothingYet ? " · Not yet assigned" : ""}
           </span>
         </div>

@@ -226,14 +226,17 @@ export default function PortalQuotePage() {
 
       {waiting && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          <button
-            type="button"
-            className="portal-btn"
-            onClick={() => setAccepting(true)}
-            data-testid="portal-quote-accept"
-          >
-            Accept this quote
-          </button>
+<button
+              type="button"
+              className="portal-btn"
+              onClick={() => setAccepting(true)}
+              data-testid="portal-quote-accept"
+            >
+              {/* The decision carries a check, so the primary says what it does
+                 (portal/sand/states/07-accept-quote.png). */}
+              <PortalIcon name="check" size={16} />
+              Accept this quote
+            </button>
           <button
             type="button"
             className="portal-btn portal-btn--secondary"
@@ -304,12 +307,15 @@ export default function PortalQuotePage() {
                 </p>
               </div>
               <span style={{ flex: 1 }} />
+              {/* A small bordered dismiss button, not a text "Close"
+                 (portal/sand/states/07-accept-quote.png). */}
               <button
                 type="button"
-                className="portal-btn portal-btn--secondary portal-btn--small"
+                className="portal-dialog__close"
                 onClick={() => setAccepting(false)}
+                aria-label="Close"
               >
-                Close
+                <PortalIcon name="x" size={16} />
               </button>
             </div>
             <div className="portal-dialog__mb">

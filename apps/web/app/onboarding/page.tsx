@@ -64,9 +64,10 @@ const USER_LAST_STEP = USER_STEP_ORDER[USER_STEP_ORDER.length - 1] as string;
 
 /** The label for a step, with a total fallback: an unknown key must not
  *  crash the wizard or leave a heading blank. */
-function labelFor(key: string): { title: string; blurb: string } {
-  const found: { title: string; blurb: string } | undefined = USER_STEP_LABELS[key];
-  return found ?? { title: key, blurb: "This step is not set up yet." };
+function labelFor(key: string): { short: string; title: string; blurb: string } {
+  const found: { short: string; title: string; blurb: string } | undefined =
+    USER_STEP_LABELS[key];
+  return found ?? { short: key, title: key, blurb: "This step is not set up yet." };
 }
 
 function railState(view: OnboardingStepView | undefined, skipped: boolean): StepState {
@@ -249,16 +250,14 @@ export default function OnboardingPage() {
           heading={`Step ${stepIndex + 1} of ${USER_STEP_ORDER.length}`}
           steps={USER_STEP_ORDER.map((key) => labelFor(key).title)}
           states={states}
-          current={meta.title}
+          current={meta.short}
           onSelect={(label) => {
-            const key = USER_STEP_ORDER[USER_STEP_ORDER.findIndex((k) => labelFor(k).title === label)];
+            const key = USER_STEP_ORDER[USER_STEP_ORDER.findIndex((k) => labelFor(k).short === label)];
             if (key !== undefined) setFocus(key);
           }}
           doneCount={resolvedCount}
           total={USER_STEP_ORDER.length}
-          footnote={
-            skipCount > 0 ? `${skipCount} skipped. Skipped steps never nag.` : "Every step can be skipped."
-          }
+          skipped={skipCount}
         />
 
         <WizardStack>

@@ -43,53 +43,86 @@ export type OnboardingSummary = {
 export const ORG_STEP_ORDER = ["clients", "board", "tickets", "invites", "feeder", "ai"] as const;
 export const USER_STEP_ORDER = ["profile", "mfa", "orientation", "defaults"] as const;
 
-export const ORG_STEP_LABELS: Record<string, { title: string; blurb: string; cta: string }> = {
+/**
+ * Step metadata for both wizards.
+ *
+ * `short` is the RAIL label and `title` is the CARD headline, and they are
+ * deliberately different strings: the rail is a scannable list ("Add clients",
+ * "Invite people") while the card says what this step is for ("Invite the
+ * people who'll use this with you"). The API supplies no labels at all
+ * (`OnboardingStepView` carries only `step`/`done`/`dismissed`/`satisfied`/
+ * `resolved`), so these strings live here rather than coming from the server.
+ *
+ * The six short labels and the step-4 headline are verbatim from
+ * `auth/neutral/states/09-welcome-invite-people.png`. The remaining card
+ * headlines are this lane's wording and are recorded as unverified in
+ * `design/qa-p41-ui-portal-auth/PARITY-LEDGER.md` until those states are
+ * opened.
+ */
+export const ORG_STEP_LABELS: Record<
+  string,
+  { short: string; title: string; blurb: string; cta: string }
+> = {
   clients: {
+    short: "Add clients",
     title: "Add your first clients",
     blurb: "Create or import the clients you serve. Skipping is safe — you can add clients any time from Clients.",
     cta: "Create a client",
   },
   board: {
+    short: "Set up a board",
     title: "Set up your first board",
     blurb: "A board is your service queue — the four default statuses are ready to use.",
     cta: "Create a board",
   },
   tickets: {
+    short: "Raise tickets",
     title: "Raise first tickets",
     blurb: "Work lives in tickets. Add one against a client, or skip and come back.",
     cta: "Create a ticket",
   },
   invites: {
-    title: "Invite your team",
-    blurb: "Each invite link carries a one-time setup token you send out-of-band.",
+    short: "Invite people",
+    // Headline and blurb verbatim from state 09.
+    title: "Invite the people who'll use this with you",
+    blurb: "They'll get an email with a link to set a password and a second step.",
     cta: "Invite a member",
   },
   feeder: {
+    short: "Connect a feeder",
     title: "Connect a feeder connector (optional)",
     blurb: "NinjaOne, IT Glue or Auvix can feed configurations and devices into Marula automatically.",
     cta: "Go to Imports",
   },
   ai: {
+    short: "Configure AI",
     title: "Enable AI surfaces (optional)",
     blurb: "Booking, drafting and merge-assist surfaces stay OFF until you turn them on.",
     cta: "Enable AI",
   },
 };
 
-export const USER_STEP_LABELS: Record<string, { title: string; blurb: string }> = {
+export const USER_STEP_LABELS: Record<
+  string,
+  { short: string; title: string; blurb: string }
+> = {
   profile: {
+    short: "Your profile",
     title: "Check your profile",
     blurb: "Your name and timezone are what teammates and SLA calendars use.",
   },
   mfa: {
+    short: "Add a second step",
     title: "Set a second factor",
     blurb: "An authenticator or passkey keeps this account yours even if the password leaks.",
   },
   orientation: {
+    short: "Orientation",
     title: "60-second orientation",
     blurb: "What this product is and where the work lives.",
   },
   defaults: {
+    short: "Defaults",
     title: "Personal defaults",
     blurb: "Pick your theme and how you want to be notified.",
   },

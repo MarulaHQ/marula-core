@@ -979,6 +979,26 @@ button.portal-row:hover {
   font-weight: 600;
 }
 
+/* The dismiss affordance in a dialog header: a small bordered box holding an
+   ×, not a text button (portal/sand/states/07-accept-quote.png). */
+.portal-dialog__close {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--m-input);
+  border-radius: 10px;
+  background: var(--m-surface);
+  color: var(--m-text);
+  transition: background-color 120ms ease;
+}
+
+.portal-dialog__close:hover {
+  background: var(--m-surface-2);
+}
+
 .portal-dialog__hd p {
   margin: 2px 0 0;
   color: var(--m-text-secondary);

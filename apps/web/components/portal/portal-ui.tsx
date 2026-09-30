@@ -73,6 +73,12 @@ export function PortalIcon({ name, size = 18 }: { name: string; size?: number })
           <path d="m9 18 6-6-6-6" />
         </svg>
       );
+    case "x":
+      return (
+        <svg {...common}>
+          <path d="M18 6 6 18M6 6l12 12" />
+        </svg>
+      );
     case "download":
       return (
         <svg {...common}>

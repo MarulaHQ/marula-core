@@ -365,7 +365,7 @@ export function WizardRail({
   onSelect,
   doneCount,
   total,
-  footnote,
+  skipped,
 }: {
   heading: string;
   steps: readonly string[];
@@ -374,7 +374,7 @@ export function WizardRail({
   onSelect: (key: string) => void;
   doneCount: number;
   total: number;
-  footnote: string;
+  skipped: number;
 }) {
   return (
     <div className="entry-steps">
@@ -401,8 +401,16 @@ export function WizardRail({
       <div className="entry-progress" aria-hidden>
         <i style={{ width: `${Math.round((doneCount / total) * 100)}%` }} />
       </div>
+      {/* The pack's exact line: the count, then what a skipped step means. It
+         answers the question the rail raises ("I skipped one — did that count?").
+         (auth/neutral/states/09-welcome-invite-people.png) */}
       <p className="entry-explain" style={{ marginTop: 8 }}>
-        {doneCount} of {total} done. {footnote}
+        <b>
+          {doneCount} of {total} done.
+        </b>{" "}
+        {skipped > 0
+          ? "A skipped step stays on the list until you do it."
+          : "Every step can be skipped."}
       </p>
     </div>
   );
@@ -420,7 +428,35 @@ export function WizardStack({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * THE TWO "LATER" BUTTONS, AND WHY THEY ARE NOT THE SAME BUTTON.
+ * The left-hand end of a wizard step's action row: Back.
+ *
+ * The rail is the overview, but a person who has gone two steps forward and
+ * realises they missed one needs to go back from where they are. Back is
+ * therefore on the action row, quiet and outlined, and it never records
+ * anything — stepping back is navigation, not a decision.
+ * (auth/neutral/states/09-welcome-invite-people.png)
+ */
+export function BackButton({
+  onClick,
+  disabled,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="entry-btn entry-btn--secondary entry-btn--small"
+      onClick={onClick}
+      disabled={disabled}
+      data-testid="wizard-back"
+    >
+      Back
+    </button>
+  );
+}
+
+/** The two "later" buttons, and why they are not the same button.
  *
  *   Skip for now        Moves on. Records nothing. The step stays here.
  *   Never show again    Removes the guide. Records the choice, and it sticks.

@@ -145,6 +145,31 @@ export function stamp(iso: string, now: Date = new Date()): string {
   })}, ${time}`;
 }
 
+/** "today at 11:38" · "yesterday at 16:20" · "Mon 28 Sep at 09:14".
+ *
+ *  The same idea as `stamp`, in the form a sentence wants: lowercased and
+ *  joined with "at", because it is read inside a line that already starts
+ *  "Raised". `stamp` keeps the capitalised comma form for list rows, where it
+ *  stands on its own. (portal/sand/states/04-ticket-nothing-yet.png) */
+export function raisedAt(iso: string, now: Date = new Date()): string {
+  const when = new Date(iso);
+  const time = when.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = new Date(when.getFullYear(), when.getMonth(), when.getDate()).getTime();
+  const days = Math.round((day - midnight) / 86_400_000);
+  if (days === 0) return `today at ${time}`;
+  if (days === -1) return `yesterday at ${time}`;
+  return `${when.toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  })} at ${time}`;
+}
+
 /** Whole days between today and a date, negative once it has passed. */
 export function daysUntil(iso: string, now: Date = new Date()): number {
   const target = new Date(iso);

@@ -49,6 +49,7 @@ import {
   type OnboardingStepView,
 } from "../../lib/onboarding";
 import {
+  BackButton,
   EntryFooter,
   EntryHeader,
   EntryNote,
@@ -78,11 +79,17 @@ const ROLES = [
 /** The rail's own reading of a step, from what the server knows. */
 /** The label for a step, with a total fallback: an unknown key must not
  *  crash the wizard or leave a heading blank. */
-function labelFor(key: string): { title: string; blurb: string; cta: string } {
-  const found: { title: string; blurb: string; cta: string } | undefined =
+function labelFor(key: string): {
+  short: string;
+  title: string;
+  blurb: string;
+  cta: string;
+} {
+  const found: { short: string; title: string; blurb: string; cta: string } | undefined =
     ORG_STEP_LABELS[key];
   return (
     found ?? {
+      short: key,
       title: key,
       blurb: "This step is not set up for this organization.",
       cta: "Mark done",
@@ -147,6 +154,15 @@ export default function WelcomeWizardPage() {
     const idx = ORG_STEP_ORDER.indexOf(step as (typeof ORG_STEP_ORDER)[number]);
     const next = ORG_STEP_ORDER[Math.min(idx + 1, ORG_STEP_ORDER.length - 1)];
     return typeof next === "string" ? next : ORG_STEP_ORDER[0];
+  };
+
+  /** The previous step in the rail. Navigation only: nothing is recorded, so
+   *  walking back and forth leaves the same state as never moving. */
+  const stepBack = (step: string): void => {
+    const idx = ORG_STEP_ORDER.indexOf(step as (typeof ORG_STEP_ORDER)[number]);
+    if (idx <= 0) return;
+    const previous = ORG_STEP_ORDER[idx - 1];
+    if (typeof previous === "string") setFocus(previous);
   };
 
   const refresh = async (next?: string) => {
@@ -435,18 +451,14 @@ export default function WelcomeWizardPage() {
           heading={`Step ${stepIndex + 1} of ${ORG_STEP_ORDER.length}`}
           steps={ORG_STEP_ORDER.map((key) => labelFor(key).title)}
           states={states}
-          current={meta.title}
+          current={meta.short}
           onSelect={(label) => {
-            const key = ORG_STEP_ORDER[ORG_STEP_ORDER.findIndex((k) => labelFor(k).title === label)];
+            const key = ORG_STEP_ORDER[ORG_STEP_ORDER.findIndex((k) => labelFor(k).short === label)];
             if (key !== undefined) setFocus(key);
           }}
           doneCount={resolvedCount}
           total={ORG_STEP_ORDER.length}
-          footnote={
-            skipCount > 0
-              ? `${skipCount} skipped. Skipped steps never nag.`
-              : "Every step can be skipped."
-          }
+          skipped={skipCount}
         />
 
         <WizardStack>
@@ -490,6 +502,7 @@ export default function WelcomeWizardPage() {
                 </EntryNote>
               )}
               <div className="entry-actions">
+                <BackButton onClick={() => stepBack(focus)} disabled={stepIndex === 0} />
                 <span className="entry-actions__spacer" />
                 <SkipButton onClick={() => void recordSkip("clients", false)} busy={busy} />
                 {stepView("clients")?.satisfied ? (
@@ -532,6 +545,7 @@ export default function WelcomeWizardPage() {
                 </EntryNote>
               )}
               <div className="entry-actions">
+                <BackButton onClick={() => stepBack(focus)} disabled={stepIndex === 0} />
                 <span className="entry-actions__spacer" />
                 <SkipButton onClick={() => void recordSkip("board", false)} busy={busy} />
                 {stepView("board")?.satisfied ? (
@@ -572,6 +586,7 @@ export default function WelcomeWizardPage() {
                 <EntryNote>Tickets already exist, so you can mark the step done.</EntryNote>
               )}
               <div className="entry-actions">
+                <BackButton onClick={() => stepBack(focus)} disabled={stepIndex === 0} />
                 <span className="entry-actions__spacer" />
                 <SkipButton onClick={() => void recordSkip("tickets", false)} busy={busy} />
                 {stepView("tickets")?.satisfied ? (
@@ -648,6 +663,7 @@ export default function WelcomeWizardPage() {
                 <EntryNote>Invites are already out, so you can mark the step done.</EntryNote>
               )}
               <div className="entry-actions">
+                <BackButton onClick={() => stepBack(focus)} disabled={stepIndex === 0} />
                 <span className="entry-actions__spacer" />
                 <SkipButton onClick={() => void recordSkip("invites", false)} busy={busy} />
                 {stepView("invites")?.satisfied ? (
@@ -682,6 +698,7 @@ export default function WelcomeWizardPage() {
                 itself once a feed has actually written records.
               </p>
               <div className="entry-actions">
+                <BackButton onClick={() => stepBack(focus)} disabled={stepIndex === 0} />
                 <span className="entry-actions__spacer" />
                 <SkipButton onClick={() => void recordSkip("feeder", false)} busy={busy} />
                 <button
@@ -713,6 +730,7 @@ export default function WelcomeWizardPage() {
                 for an answer here.
               </p>
               <div className="entry-actions">
+                <BackButton onClick={() => stepBack(focus)} disabled={stepIndex === 0} />
                 <span className="entry-actions__spacer" />
                 <SkipButton onClick={() => void recordSkip("ai", false)} busy={busy} />
                 <button
