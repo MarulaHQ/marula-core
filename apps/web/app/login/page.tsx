@@ -23,6 +23,7 @@ import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, Input, Label, Spinner } from "@marula-core/ui";
 import { api, resolveApiBaseUrl, saveTokens, useAuth } from "../../lib/api";
 import { broadcastSession } from "../../lib/popout/window-bus";
+import { portalOrgName } from "../../lib/portal-branding";
 import {
   EntryCard,
   EntryHeadline,
@@ -38,11 +39,6 @@ interface PublicProvider {
 }
 
 type Mode = "signin" | "register";
-
-const MODES: readonly { id: Mode; label: string }[] = [
-  { id: "signin", label: "Sign in" },
-  { id: "register", label: "Create org" },
-];
 
 /** The envelope's own "how many tries are left", when the server sends one. */
 function triesLeft(err: unknown): number | null {
@@ -166,49 +162,9 @@ export default function LoginPage() {
           <EntryHeadline>{mode === "signin" ? "Good to see you." : "Let's set this up."}</EntryHeadline>
           <p className="entry-sub">
             {mode === "signin"
-              ? "Sign in to your service desk and pick up where you left off."
+              ? `Sign in to ${portalOrgName() ?? "your service desk"} and pick up where you left off.`
               : "Name your organization and you can invite the rest of your team next."}
           </p>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 4,
-            borderRadius: 12,
-            background: "var(--m-surface-2)",
-            padding: 3,
-          }}
-          role="tablist"
-          aria-label="Sign in or create an organization"
-        >
-          {MODES.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              role="tab"
-              aria-selected={mode === m.id}
-              onClick={() => {
-                setMode(m.id);
-                setError(null);
-                setTries(null);
-              }}
-              className="entry-btn entry-btn--secondary entry-btn--small"
-              style={
-                mode === m.id
-                  ? {
-                      background: "var(--m-surface)",
-                      color: "var(--m-text)",
-                      fontWeight: 600,
-                      boxShadow: "0 1px 2px rgb(0 0 0 / 0.08)",
-                    }
-                  : { borderColor: "transparent", color: "var(--m-text-secondary)" }
-              }
-            >
-              {m.label}
-            </button>
-          ))}
         </div>
 
         <form key={mode} onSubmit={(e) => { e.preventDefault(); void attempt(); }} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -396,9 +352,48 @@ export default function LoginPage() {
                 </button>
               </a>
             )}
+            {/* The pack closes the card with "Need an account? Ask your admin
+                for an invite." This product also has to let a FIRST
+                organization exist, and `POST /api/v1/auth/register` is the only
+                way in — so the invite route stays the sentence it is, and
+                organization creation sits one quiet link below it rather than
+                as a peer tab on the sign-in card. */}
             <p className="entry-hint" style={{ textAlign: "center", margin: 0 }}>
               Need an account? Ask your admin for an invite.
             </p>
+            {mode === "signin" ? (
+              <p className="entry-hint" style={{ textAlign: "center", margin: 0 }}>
+                <button
+                  type="button"
+                  className="entry-link"
+                  style={{ fontWeight: 500, color: "var(--m-text-secondary)" }}
+                  onClick={() => {
+                    setMode("register");
+                    setError(null);
+                    setTries(null);
+                  }}
+                  data-testid="login-create-org"
+                >
+                  Setting up the first organization?
+                </button>
+              </p>
+            ) : (
+              <p className="entry-hint" style={{ textAlign: "center", margin: 0 }}>
+                <button
+                  type="button"
+                  className="entry-link"
+                  style={{ fontWeight: 500, color: "var(--m-text-secondary)" }}
+                  onClick={() => {
+                    setMode("signin");
+                    setError(null);
+                    setTries(null);
+                  }}
+                  data-testid="login-back-to-signin"
+                >
+                  Back to sign in
+                </button>
+              </p>
+            )}
           </>
         )}
       </EntryCard>

@@ -171,14 +171,16 @@
   text-decoration: none;
 }
 
-/* The service desk's mark is theirs, not Marula's: a plain ink tile with a
-   gold core, sized to the wordmark lockup. */
+/* The service desk's mark is theirs, not Marula's: a plain ink disc with a
+   gold core, sized to the wordmark lockup. The pack draws it as a CIRCLE, not
+   a rounded square — checked against portal/sand/states/01-login.png. */
 .portal-desk__mark {
   position: relative;
   display: inline-block;
   width: 24px;
   height: 24px;
-  border-radius: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
   background: var(--m-primary);
 }
 
@@ -188,7 +190,7 @@
   left: 7px;
   width: 10px;
   height: 10px;
-  border-radius: 999px;
+  border-radius: 50%;
   background: var(--m-on-primary);
   content: "";
 }
@@ -218,8 +220,11 @@
   background: var(--m-surface-2);
 }
 
+/* The section the client is standing in, in the gold that means "here". The
+   pack's nav pill is the accent tint, not a grey fill — checked against
+   portal/sand/states/02-tickets.png. */
 .portal-nav__link[aria-current="page"] {
-  background: var(--m-surface-2);
+  background: var(--m-accent);
   color: var(--m-text);
   font-weight: 600;
 }
@@ -514,6 +519,18 @@ button.portal-row:hover {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
+}
+
+/* Every pill carries a mark, and the KIND of mark carries the meaning: a plain
+   dot for the three informational words, a clock for the two that need her, a
+   check for done. The pack draws a dot on Received / We're on it / Scheduled —
+   checked against portal/sand/states/02-tickets.png. */
+.portal-pill__dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 /* The five words the client sees instead of our statuses. */
@@ -903,6 +920,25 @@ button.portal-row:hover {
   flex-shrink: 0;
   color: var(--m-canopy);
   stroke-width: 3;
+}
+
+/* Sign out: quiet centred text under the menu's content, not a bordered
+   button (portal/sand/states/12-appearance.png). */
+.portal-menu__signout {
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--m-border);
+  background: none;
+  padding: 12px 0 2px;
+  color: var(--m-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  text-align: center;
+  transition: color 120ms ease;
+}
+
+.portal-menu__signout:hover {
+  color: var(--m-text);
 }
 
 /* ---- The one decision the client makes: accepting a quote ---------------- */

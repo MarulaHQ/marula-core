@@ -130,11 +130,28 @@ export function StatusPill({
   note?: string;
 }) {
   const word = CLIENT_STATUS[status];
-  // The two that need HER carry a clock, so the state reads without colour.
-  const withIcon = status === "waiting" || status === "scheduled";
+  // Colour is never alone, so every pill carries a mark whose KIND carries the
+  // meaning: a dot for the informational words, a clock for the two that need
+  // her, a check for done. See portal/sand/states/02-tickets.png.
+  if (status === "waiting" || status === "scheduled") {
+    return (
+      <span className={`portal-pill portal-pill--${status}`}>
+        {status === "waiting" ? <PortalIcon name="clock" size={14} /> : <i className="portal-pill__dot" />}
+        {note ?? word.label}
+      </span>
+    );
+  }
+  if (status === "resolved") {
+    return (
+      <span className="portal-pill portal-pill--resolved">
+        <PortalIcon name="check" size={14} />
+        {note ?? word.label}
+      </span>
+    );
+  }
   return (
     <span className={`portal-pill portal-pill--${status}`}>
-      {withIcon && <PortalIcon name="clock" size={14} />}
+      <i className="portal-pill__dot" />
       {note ?? word.label}
     </span>
   );

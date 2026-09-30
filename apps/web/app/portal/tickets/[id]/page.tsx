@@ -283,6 +283,13 @@ export default function PortalTicketPage() {
             </p>
           )}
           <div className="portal-composer__row">
+            {/* The pack puts "Attach a file" at the LEFT of this row with the
+                reassurance and Send pushed right. There is no upload operation
+                in the pinned API, so the control is NOT drawn: a file input with
+                nowhere to post is a control that appears to work and silently
+                does not, which is worse than its absence. The sentence below
+                says where files actually go. Closing this is a backend feature,
+                not a screen change — see the parity ledger. */}
             <span className="portal-hint" id="portal-reply-who">
               Only you and your service desk see this.
             </span>

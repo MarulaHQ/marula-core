@@ -213,6 +213,39 @@ export const portalApi = {
     return result;
   },
 
+  /**
+   * Passwordless sign-in: ask for a link.
+   *
+   * Deny-by-default on the server, so the answer is identical for every
+   * address. The UI must therefore never claim a message was sent to a
+   * particular person — it says "if an account matches".
+   */
+  async requestMagicLink(email: string): Promise<void> {
+    await portalFetch<{ ok: boolean }>("/api/v1/portal/magic-link/request", {
+      method: "POST",
+      tokens: null,
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  /**
+   * Spend a sign-in link. Stores the portal session, so a confirmed link lands
+   * the client exactly where the password path would have.
+   */
+  async confirmMagicLink(
+    token: string,
+  ): Promise<PortalTokens & { portal_user: PortalProfile }> {
+    const result = await portalFetch<
+      PortalTokens & { portal_user: PortalProfile }
+    >("/api/v1/portal/magic-link/confirm", {
+      method: "POST",
+      tokens: null,
+      body: JSON.stringify({ token }),
+    });
+    saveTokens(result);
+    return result;
+  },
+
   me(): Promise<PortalProfile> {
     return portalFetch<PortalProfile>("/api/v1/portal/me", {});
   },

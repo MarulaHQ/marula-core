@@ -136,9 +136,12 @@ function AccountMenu() {
             are.
           </small>
           {me !== null && (
+            /* A plain centred button, not a bordered one — the pack draws
+               "Sign out" as quiet text under a divider
+               (portal/sand/states/12-appearance.png). */
             <button
               type="button"
-              className="portal-btn portal-btn--secondary portal-btn--small"
+              className="portal-menu__signout"
               onClick={() => {
                 signOut();
                 router.replace("/portal/login");

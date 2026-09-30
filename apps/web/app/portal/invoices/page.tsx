@@ -115,14 +115,11 @@ export default function PortalInvoicesPage() {
               </div>
             </div>
             <div style={{ flex: 1.2, fontSize: 14, lineHeight: 1.6 }}>
-              <span className="portal-hint">
-                <b className="portal-link" style={{ cursor: "default" }}>
-                  How to pay.
-                </b>{" "}
-                Pay by EFT and put{" "}
-                <b style={{ color: "var(--m-text)" }}>{oldest?.invoice.number}</b> as the
-                reference. Questions? Reply to the invoice email, or use Contact us in the footer.
-              </span>
+              {/* "How to pay." is BOLD and not underlined — the pack sets it as a
+                  label, not a link (portal/sand/states/05-invoices.png). */}
+              <b style={{ color: "var(--m-text)" }}>How to pay.</b> Pay by EFT and put{" "}
+              <b style={{ color: "var(--m-text)" }}>{oldest?.invoice.number}</b> as the
+              reference. Questions? Just reply to the invoice email, or use Contact us below.
             </div>
           </div>
         </div>
@@ -162,11 +159,15 @@ export default function PortalInvoicesPage() {
                     <b className="portal-row__amount">{money(inv.total_minor, inv.currency)}</b>
                     {outstanding ? (
                       days === null ? (
-                        <span className="portal-pill portal-pill--received">
-                          Due {longDate(inv.due_on)}
-                        </span>
+                        <span className="portal-pill portal-pill--received">Due {longDate(inv.due_on)}</span>
                       ) : (
-                        <OverduePill days={days} />
+                        /* The row pill says "Overdue"; the day count lives ONCE in
+                           the hero above, so it is not repeated down the list
+                           (portal/sand/states/05-invoices.png). */
+                        <span className="portal-pill portal-pill--overdue">
+                          <PortalIcon name="clock" size={14} />
+                          Overdue
+                        </span>
                       )
                     ) : (
                       <PaidPill />

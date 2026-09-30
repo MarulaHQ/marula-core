@@ -119,6 +119,32 @@ export function clockTime(iso: string): string {
   });
 }
 
+/** "Today, 09:14" · "Yesterday, 16:20" · "Thu 1 Oct, 09:00".
+ *
+ *  The stamp every list row carries. Relative for today and yesterday, because
+ *  that is how a person reads "when did this happen", and a date beyond that.
+ *  24-hour clock, matching the schedule slots the portal publishes.
+ *  (portal/sand/states/02-tickets.png) */
+export function stamp(iso: string, now: Date = new Date()): string {
+  const when = new Date(iso);
+  const time = when.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = new Date(when.getFullYear(), when.getMonth(), when.getDate()).getTime();
+  const days = Math.round((day - midnight) / 86_400_000);
+  if (days === 0) return `Today, ${time}`;
+  if (days === -1) return `Yesterday, ${time}`;
+  if (days === 1) return `Tomorrow, ${time}`;
+  return `${when.toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  })}, ${time}`;
+}
+
 /** Whole days between today and a date, negative once it has passed. */
 export function daysUntil(iso: string, now: Date = new Date()): number {
   const target = new Date(iso);

@@ -5,13 +5,13 @@
 // in", six boxes with the active one outlined, a Verify that stays disabled
 // until there are six digits, and a backup code one click away.
 //
-// ONE DOCUMENTED DIVERGENCE. The pack draws a "Trust this computer for 30
-// days" checkbox on this screen. The pinned `MfaVerifyRequest` carries exactly
-// two fields, `mfa_token` and `code` — there is no `trust_device` — so a
-// checkbox here would record a choice the server never receives. It is not
-// drawn. The remaining parts of the state (shield, serif headline, six boxes
-// with the active one outlined, disabled Verify, backup code one click away)
-// are drawn in full, and trusting a device is recorded as a backend follow-up.
+// THE TRUST CHECKBOX IS REAL. The pack draws "Trust this computer for 30 days"
+// checked by default, and `MfaVerifyRequest` now carries `trust_device` (it did
+// not when this screen was first built, which is why the box was omitted rather
+// than faked). The server honours it by lengthening the session's REFRESH window
+// to 30 days — the access token keeps its short TTL and the session row stays
+// revocable, so trusting a browser buys convenience and never an irrevocable
+// grant.
 //
 // Non-purpose: no passkey management, no recovery-code list, no device naming.
 // Those live in Settings, Security.
@@ -51,6 +51,7 @@ export default function MfaChallengePage() {
   const router = useRouter();
   const [pending, setPending] = useState<Pending | null>(null);
   const [code, setCode] = useState("");
+  const [trustDevice, setTrustDevice] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [backupMode, setBackupMode] = useState(false);
@@ -66,7 +67,21 @@ export default function MfaChallengePage() {
       setError(null);
       try {
         const { api, saveTokens } = await import("../../lib/api");
-        const result = await api.mfaVerify({ mfa_token: pending.mfa_token, code: value });
+        const result = await api.mfaVerify({
+          mfa_token: pending.mfa_token,
+          code: value,
+          trust_device: trustDevice,
+          // TEMPORARY, AND THE ONLY CAST IN THIS LANE.
+          //
+          // `trust_device` is live in the API (MfaVerifyRequest gained the
+          // field in this lane) but NOT yet in the generated SDK type, because
+          // the OpenAPI pins are stale — the first `regen-openapi-pins.sh` run
+          // fetched a stray core-api that did not have these routes and
+          // produced a pair byte-identical to HEAD, so the regen has to be
+          // re-run on a clean stack. Delete this cast in the same commit that
+          // regenerates the pins; it exists so the checkbox sends a field the
+          // server honours instead of shipping a control that does nothing.
+        } as Parameters<typeof api.mfaVerify>[0]);
         saveTokens(result);
         window.sessionStorage.removeItem("marula-mfa-pending");
         window.location.assign("/today");
@@ -82,7 +97,7 @@ export default function MfaChallengePage() {
         setBusy(false);
       }
     },
-    [busy, pending],
+    [busy, pending, trustDevice],
   );
 
   const alternative = pending?.methods.map(methodLabel).find((m) => m !== null);
@@ -136,9 +151,20 @@ export default function MfaChallengePage() {
             </div>
 
             {!backupMode && (
-              <p className="entry-hint" style={{ margin: 0 }}>
-                The code changes every 30 seconds. It works once, and it signs this browser in.
-              </p>
+              /* The pack draws this checked by default
+                 (auth/neutral/states/03-mfa.png), and `trust_device` is now a
+                 real field on MfaVerifyRequest — so the choice is recorded
+                 rather than displayed. It lengthens the REFRESH window to 30
+                 days and nothing else: the access token keeps its short TTL and
+                 the session stays revocable. */
+              <label className="entry-check">
+                <input
+                  type="checkbox"
+                  checked={trustDevice}
+                  onChange={(e) => setTrustDevice(e.target.checked)}
+                />
+                <span>Trust this computer for 30 days</span>
+              </label>
             )}
 
             <button

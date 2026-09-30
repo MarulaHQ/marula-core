@@ -27,7 +27,7 @@ import { useEffect, useMemo, useState } from "react";
 import { friendlyMutationText } from "../../../lib/error-copy";
 import { Spinner } from "@marula-core/ui";
 import { portalApi, useRequirePortalAuth } from "../../../lib/portal-api";
-import { CLIENT_STATUS, clientStatusFor, longDate } from "../../../lib/portal-copy";
+import { CLIENT_STATUS, clientStatusFor, longDate, stamp } from "../../../lib/portal-copy";
 import {
   PortalCard,
   PortalEmpty,
@@ -156,7 +156,7 @@ export default function PortalTicketsPage() {
               <PortalRow
                 key={t.id}
                 title={t.title}
-                meta={`#${t.number} · ${ticketNote(t.category)}`}
+                meta={`#${t.number} · ${ticketNote(t.category)} · ${stamp(t.updated_at)}`}
                 highlight={status === "waiting"}
                 onClick={() => router.push(`/portal/tickets/${t.id}`)}
                 trailing={<StatusPill status={status} />}
@@ -173,7 +173,7 @@ export default function PortalTicketsPage() {
             <PortalRow
               key={t.id}
               title={t.title}
-              meta={`#${t.number} · ${CLIENT_STATUS.resolved.note}`}
+              meta={`#${t.number} · ${CLIENT_STATUS.resolved.note} · ${stamp(t.updated_at)}`}
               onClick={() => router.push(`/portal/tickets/${t.id}`)}
               trailing={
                 <>
