@@ -6,6 +6,7 @@
 //! decode errors.
 
 use crate::{DbError, DbResult};
+use chrono::{DateTime, Utc};
 use core_domain::entities::{
     BillingMethod, PhaseBurn, PhaseBurnAlert, PhaseStatus, Project, ProjectBillingRelease,
     ProjectPhase, ProjectPhaseBudget, ProjectStatus, ProjectTask, ProjectTemplate, ProjectView,
@@ -17,7 +18,8 @@ use uuid::Uuid;
 const PROJECT_COLS: &str = "id, org_id, client_id, name, description, status, billing_method, \
      budget_minor, currency, start_date, due_date, billing_contract_id, created_at, updated_at";
 const PHASE_COLS: &str = "id, org_id, project_id, name, description, sort_order, status, \
-     is_milestone, milestone_amount_minor, milestone_currency, completed_at, created_at, updated_at";
+     is_milestone, milestone_amount_minor, milestone_currency, start_date, end_date, \
+     completed_at, created_at, updated_at";
 const TASK_COLS: &str = "id, org_id, project_id, phase_id, title, description, status, \
      assignee_id, sort_order, is_milestone, milestone_amount_minor, milestone_currency, \
      due_at, completed_at, created_at, updated_at";
@@ -71,6 +73,8 @@ fn row_to_phase(row: sqlx::postgres::PgRow) -> Result<ProjectPhase, sqlx::Error>
         is_milestone: row.get("is_milestone"),
         milestone_amount_minor: row.get("milestone_amount_minor"),
         milestone_currency: row.get("milestone_currency"),
+        start_date: row.get("start_date"),
+        end_date: row.get("end_date"),
         completed_at: row.get("completed_at"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
@@ -322,6 +326,9 @@ pub struct NewPhase<'a> {
     pub is_milestone: bool,
     pub milestone_amount_minor: Option<i64>,
     pub milestone_currency: Option<&'a str>,
+    /// The planned window; `None` on both ends keeps the phase off the Gantt.
+    pub start_date: Option<chrono::NaiveDate>,
+    pub end_date: Option<chrono::NaiveDate>,
 }
 
 /// The phase's billing record (Wave 39 lane 4): budget denominator
@@ -340,8 +347,9 @@ where
 {
     let sql = format!(
         r#"INSERT INTO project_phases (id, org_id, project_id, name, description, sort_order,
-                                       is_milestone, milestone_amount_minor, milestone_currency)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                                       is_milestone, milestone_amount_minor, milestone_currency,
+                                       start_date, end_date)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
            RETURNING {PHASE_COLS}"#
     );
     let row = sqlx::query(&sql)
@@ -354,6 +362,8 @@ where
         .bind(p.is_milestone)
         .bind(p.milestone_amount_minor)
         .bind(p.milestone_currency)
+        .bind(p.start_date)
+        .bind(p.end_date)
         .fetch_one(executor)
         .await?;
     Ok(row_to_phase(row)?)
@@ -405,6 +415,11 @@ pub struct PhasePatch<'a> {
     pub is_milestone: Option<bool>,
     pub milestone_amount_minor: Option<Option<i64>>,
     pub milestone_currency: Option<Option<&'a str>>,
+    /// `Some(None)` CLEARS a date, which is how a planner takes a phase
+    /// off the Gantt. `None` (the field absent) leaves it untouched, so a
+    /// rename cannot silently undate a phase.
+    pub start_date: Option<Option<chrono::NaiveDate>>,
+    pub end_date: Option<Option<chrono::NaiveDate>>,
 }
 
 pub async fn update_phase<'e, E>(
@@ -437,6 +452,15 @@ where
     }
     if let Some(v) = p.milestone_currency {
         q.push(", milestone_currency = ").push_bind(v);
+    }
+    // `Some(None)` clears a date, `None` leaves it alone. The distinction is
+    // what lets a rename preserve the Gantt window while a deliberate
+    // "undate this phase" removes it.
+    if let Some(v) = p.start_date {
+        q.push(", start_date = ").push_bind(v);
+    }
+    if let Some(v) = p.end_date {
+        q.push(", end_date = ").push_bind(v);
     }
     q.push(" WHERE org_id = ")
         .push_bind(org_id)
@@ -1428,4 +1452,112 @@ pub async fn mark_release_billed(
     .execute(&mut *conn)
     .await?;
     Ok(())
+}
+
+// --- dated Gantt + phase budget rollup (Wave 34 claims close-out, claim 6) --
+
+/// One phase as the Gantt renders it: the planned window joined to its
+/// budget burn, so a bar can carry its own overspend label and the planner
+/// does not need a second request to see that a phase is over budget.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PhaseGanttRow {
+    pub id: Uuid,
+    pub name: String,
+    pub sort_order: i32,
+    /// `PhaseStatus` cast to text in SQL: the column is a Postgres enum, and
+    /// the API layer renders the label, so the engine hands back a String
+    /// rather than making every caller decode the enum.
+    pub status: String,
+    pub is_milestone: bool,
+    pub start_date: Option<chrono::NaiveDate>,
+    pub end_date: Option<chrono::NaiveDate>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub budget_minor: Option<i64>,
+    pub currency: Option<String>,
+    pub consumed_minor: i64,
+    pub consumed_minutes: i64,
+}
+
+/// The Gantt read model for one project.
+///
+/// DATED and UNDATED phases are returned separately by the caller rather
+/// than interleaved, because they mean different things: a dated phase is a
+/// plan, an undated one is a list item. A Gantt that drew an undated phase
+/// at "today" would be asserting a date nobody chose, which is the specific
+/// dishonesty the nullable columns exist to avoid.
+pub async fn phase_gantt<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<Vec<PhaseGanttRow>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    // This file's convention: a formatted SQL string bound with
+    // `sqlx::query`, then an explicit `Row` mapper. The Gantt query needs a
+    // subquery and a five-way join, and mapping by hand is what every other
+    // multi-join read in here does — `query_as!` would have made this the
+    // one query in the file whose columns are invisible at the call site.
+    let sql = r#"SELECT pp.id, pp.name, pp.sort_order, pp.status, pp.is_milestone,
+                  pp.start_date, pp.end_date, pp.completed_at,
+                  b.budget_minor, b.currency,
+                  COALESCE(burn.consumed_minor, 0)::bigint AS consumed_minor,
+                  COALESCE(burn.minutes, 0)::bigint AS consumed_minutes
+           FROM project_phases pp
+           LEFT JOIN project_phase_budgets b ON b.phase_id = pp.id
+           LEFT JOIN (
+               -- Mirrors `phase_burn`'s pricing exactly (contract rate
+               -- first, then the contract's hourly rate, +30 for the
+               -- write-up allowance, over 60) so a Gantt bar and the budget
+               -- pane can never disagree about what a phase has consumed.
+               -- Two copies of this arithmetic would drift, and a bar
+               -- labelled with one number beside a pane showing another is
+               -- worse than no bar.
+               SELECT te.phase_id,
+                      SUM(te.minutes)::bigint AS minutes,
+                      SUM(
+                        (te.minutes::bigint *
+                          COALESCE(cr.rate_minor, c.hourly_rate_minor, 0) + 30)
+                        / 60
+                      )::bigint AS consumed_minor
+               FROM time_entries te
+               JOIN project_phases p2 ON p2.id = te.phase_id
+               JOIN projects p3 ON p3.id = p2.project_id
+               LEFT JOIN contracts c
+                 ON c.id = p3.billing_contract_id AND c.org_id = te.org_id
+               LEFT JOIN contract_rates cr
+                 ON cr.contract_id = c.id
+                AND cr.org_id = te.org_id
+                AND cr.work_type IS NOT DISTINCT FROM te.work_type
+               WHERE te.org_id = $1
+                 AND p3.id = $2
+                 AND te.billable
+                 AND te.approval_status = 'approved'
+               GROUP BY te.phase_id
+           ) burn ON burn.phase_id = pp.id
+           WHERE pp.org_id = $1 AND pp.project_id = $2
+           ORDER BY pp.sort_order, pp.created_at"#;
+    let rows = sqlx::query(sql)
+        .bind(org_id)
+        .bind(project_id)
+        .fetch_all(executor)
+        .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(PhaseGanttRow {
+                id: row.get("id"),
+                name: row.get("name"),
+                sort_order: row.get("sort_order"),
+                status: row.get("status"),
+                is_milestone: row.get("is_milestone"),
+                start_date: row.get("start_date"),
+                end_date: row.get("end_date"),
+                completed_at: row.get("completed_at"),
+                budget_minor: row.get("budget_minor"),
+                currency: row.get("currency"),
+                consumed_minor: row.get("consumed_minor"),
+                consumed_minutes: row.get("consumed_minutes"),
+            })
+        })
+        .collect()
 }

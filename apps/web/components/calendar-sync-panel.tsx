@@ -17,9 +17,15 @@
 // two-step confirm).
 //
 // Non-purpose: no worker scheduling UI (the worker polls on its own
-// cadence), no OAuth provider flows (the ical provider is the only one),
-// no conflict resolution writes — external busy time is kept, never
-// dropped, so there is nothing to resolve server-side.
+// cadence), and no conflict resolution writes — external busy time is
+// kept, never dropped, so there is nothing to resolve server-side.
+//
+// The Google + Microsoft providers (Wave 34 claims close-out, claim 5) are
+// DELEGATED: connecting one is a consent round trip, not a URL paste, so
+// the form below creates the connection first and then sends the operator
+// to the vendor. A cancelled consent leaves a connection in place with no
+// token, which the panel shows as "not connected" rather than pretending
+// the row failed.
 "use client";
 
 import { Button, Card, EmptyState, FieldHint, Input, Label, Spinner, Tag } from "@marula-core/ui";
@@ -31,6 +37,35 @@ import { overlapsInterval, type CalendarEntry } from "../lib/calendar-view";
 
 type Connection = components["schemas"]["CalendarSyncConnection"];
 type Direction = components["schemas"]["CalendarSyncDirection"];
+/** The three kinds the API's `provider` CHECK admits. */
+type CalendarProvider = "ical" | "google" | "microsoft";
+
+/** What a picker row shows, and whether it needs a URL or a consent trip. */
+const PROVIDERS: {
+  value: CalendarProvider;
+  label: string;
+  needsUrl: boolean;
+  note: string;
+}[] = [
+  {
+    value: "ical",
+    label: "iCal feed",
+    needsUrl: true,
+    note: "Any provider that publishes a read-only .ics URL. Paste it below.",
+  },
+  {
+    value: "google",
+    label: "Google Calendar",
+    needsUrl: false,
+    note: "Read-only access to your primary calendar. You will be sent to Google's consent screen; Marula cannot read your calendar until you approve it.",
+  },
+  {
+    value: "microsoft",
+    label: "Microsoft 365",
+    needsUrl: false,
+    note: "Read-only access to your Outlook calendar, same consent step. Needs Calendars.Read, never write.",
+  },
+];
 type SyncEvent = components["schemas"]["CalendarSyncEvent"];
 
 const DIRECTION_COPY: Readonly<Record<Direction, string>> = {
@@ -82,10 +117,18 @@ export default function CalendarSyncPanel({ entries }: { entries?: CalendarEntry
   const [copied, setCopied] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [form, setForm] = useState<{ name: string; direction: Direction; feedUrl: string }>({
+  const [form, setForm] = useState<{
+    name: string;
+    direction: Direction;
+    feedUrl: string;
+    provider: CalendarProvider;
+  }>({
     name: "",
     direction: "inbound",
     feedUrl: "",
+    // ical first: it is the only provider that needs no OAuth client
+    // configured, so it is the one that works on a fresh install.
+    provider: "ical",
   });
 
   const load = useCallback(async () => {
@@ -194,14 +237,42 @@ export default function CalendarSyncPanel({ entries }: { entries?: CalendarEntry
     }
   }
 
+  /**
+   * Resume a consent flow that was started and abandoned, or that failed
+   * because the OAuth client is not configured yet.
+   *
+   * Same flow as create, from a different starting point: ask the API for a
+   * fresh authorize URL and navigate. A stale `state` is not a problem
+   * because starting consent overwrites it.
+   */
+  async function reconnect(connectionId: string) {
+    setBusyId(connectionId);
+    try {
+      const res = await api.api.POST(
+        "/api/v1/calendar-sync/{connection_id}/authorize",
+        { params: { path: { connection_id: connectionId } } },
+      );
+      const start = res.data;
+      if (start === undefined) {
+        setError(resultErrorText(res));
+      } else {
+        window.location.assign(start.authorize_url);
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function connect() {
     if (!form.name.trim()) return;
     setBusyId("new");
     try {
+      const delegated = form.provider !== "ical";
       const res = await api.api.POST("/api/v1/calendar-sync", {
         body: {
           name: form.name.trim(),
           direction: form.direction,
+          provider: form.provider,
           ...(form.direction !== "outbound" && form.feedUrl.trim()
             ? { feed_url: form.feedUrl.trim() }
             : {}),
@@ -210,6 +281,32 @@ export default function CalendarSyncPanel({ entries }: { entries?: CalendarEntry
       const data = res.data;
       if (data === undefined) {
         setError(resultErrorText(res));
+      } else if (delegated) {
+        // The connection exists but has no token until consent completes, so
+        // the next step is the consent redirect rather than a feed token.
+        // A failure here leaves an unconnected row the operator can retry
+        // from, which is recoverable; nothing is lost.
+        try {
+          const auth = await api.api.POST(
+            "/api/v1/calendar-sync/{connection_id}/authorize",
+            { params: { path: { connection_id: data.connection } } },
+          );
+          const start = auth.data;
+          if (start === undefined) {
+            setError(resultErrorText(auth));
+            await load();
+          } else {
+            await load();
+            // A full navigation, not a router push: the vendor's consent
+            // screen must not be able to reach back into this app's history.
+            window.location.assign(start.authorize_url);
+          }
+        } catch {
+          await load();
+          setError(
+            "the connection was created but the consent link could not be built — open it again to finish connecting",
+          );
+        }
       } else {
         if (data.feed_token) {
           setOneTime({
@@ -219,7 +316,7 @@ export default function CalendarSyncPanel({ entries }: { entries?: CalendarEntry
           setCopied(false);
         }
         setConnectOpen(false);
-        setForm({ name: "", direction: "inbound", feedUrl: "" });
+        setForm({ name: "", direction: "inbound", feedUrl: "", provider: "ical" });
         await load();
       }
     } catch (e) {
@@ -285,6 +382,37 @@ export default function CalendarSyncPanel({ entries }: { entries?: CalendarEntry
           </select>
           {form.direction !== "outbound" && (
             <>
+              <Label>Calendar source</Label>
+              <select
+                value={form.provider}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    provider: e.target.value as CalendarProvider,
+                  }))
+                }
+                style={{ width: "100%" }}
+              >
+                {PROVIDERS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <FieldHint>
+                {PROVIDERS.find((p) => p.value === form.provider)?.note}
+              </FieldHint>
+            </>
+          )}
+
+          {/*
+            The URL box is iCal-only, and it is HIDDEN rather than disabled
+            for a delegated provider: a disabled field with a placeholder
+            about .ics next to a Google consent flow reads as "this is
+            broken" rather than "this is not how Google works".
+          */}
+          {form.direction !== "outbound" && form.provider === "ical" && (
+            <>
               <Label>External iCal URL</Label>
               <Input
                 value={form.feedUrl}
@@ -344,6 +472,7 @@ export default function CalendarSyncPanel({ entries }: { entries?: CalendarEntry
               confirmDelete={confirmDeleteId === conn.id}
               entries={entries}
               onSync={() => void run(conn)}
+              onReconnect={() => void reconnect(conn.id)}
               onRotate={() => void rotate(conn)}
               onToggle={(status) => void setStatus(conn, status)}
               onDelete={() => void remove(conn)}
@@ -363,6 +492,7 @@ function ConnectionRow({
   confirmDelete,
   entries,
   onSync,
+  onReconnect,
   onRotate,
   onToggle,
   onDelete,
@@ -374,6 +504,8 @@ function ConnectionRow({
   confirmDelete: boolean;
   entries?: CalendarEntry[];
   onSync: () => void;
+  /** Resume a delegated consent flow that was started and abandoned. */
+  onReconnect: () => void;
   onRotate: () => void;
   onToggle: (status: "active" | "disabled") => void;
   onDelete: () => void;
@@ -399,6 +531,22 @@ function ConnectionRow({
               {conn.name}
             </span>
             <Tag tone="neutral">{conn.provider}</Tag>
+            {/* A delegated connection with no token is NOT connected. Saying
+                so plainly is the difference between an operator who
+                retries and one who assumes the sync is running. */}
+            {conn.provider !== "ical" && !conn.access_token ? (
+              <>
+                <Tag tone="warning">not connected</Tag>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={onReconnect}
+                  data-testid={`reconnect-${conn.id}`}
+                >
+                  Finish connecting
+                </Button>
+              </>
+            ) : null}
             <Tag tone={statusTone(conn.status)}>{statusLabel(conn.status)}</Tag>
           </div>
           <div className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>

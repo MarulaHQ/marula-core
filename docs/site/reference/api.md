@@ -3,7 +3,7 @@
 
 **Marula Core API 0.1.0** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**596 paths · 800 operations · 1232 schemas.**
+**604 paths · 811 operations · 1248 schemas.**
 
 ## agent-proposals
 
@@ -242,11 +242,13 @@
 |---|---|---|---|
 | `GET` | `/api/v1/calendar-sync` <a id="calendar_sync_list"></a> | GET /api/calendar-sync — the caller's (or target user's) connections. | — |
 | `POST` | `/api/v1/calendar-sync` <a id="calendar_sync_create"></a> | POST /api/calendar-sync — create a connection. Outbound-capable directions get a feed token generated immediately (returned once). | [CreateConnectionRequest](#schema-createconnectionrequest) |
+| `POST` | `/api/v1/calendar-sync/{connection_id}/authorize` <a id="calendar_sync_authorize_start"></a> | POST /api/calendar-sync/{connection_id}/authorize — begin consent. | — |
 | `DELETE` | `/api/v1/calendar-sync/{id}` <a id="calendar_sync_delete"></a> | DELETE /api/calendar-sync/{id} — the connection, its mirror rows, and the exclusion rows the sync owns all go away (external busy time frees the calendar). | — |
 | `PATCH` | `/api/v1/calendar-sync/{id}` <a id="calendar_sync_update"></a> | PATCH /api/calendar-sync/{id} — edit name/direction/feed_url/status. | [UpdateConnectionRequest](#schema-updateconnectionrequest) |
 | `GET` | `/api/v1/calendar-sync/{id}/events` <a id="calendar_sync_events"></a> | GET /api/calendar-sync/{id}/events — the inbound mirror (the conflict/duplicate surface Wave 14 lane 7 renders). | — |
 | `POST` | `/api/v1/calendar-sync/{id}/rotate-token` <a id="calendar_sync_rotate_token"></a> | POST /api/calendar-sync/{id}/rotate-token — invalidates the old outbound feed URL and returns the new raw token once. | — |
 | `POST` | `/api/v1/calendar-sync/{id}/sync` <a id="calendar_sync_run"></a> | POST /api/calendar-sync/{id}/sync — poll now (manual trigger; the worker lane calls the same seam on its schedule). Network fetch happens OUTSIDE the transaction; the apply + poll-state record + event emission run inside ONE org transaction. | — |
+| `GET` | `/api/v1/calendar-sync/{provider}/callback` <a id="calendar_sync_oauth_callback"></a> | GET /api/calendar-sync/{provider}/callback — the vendor's redirect target. | — |
 | `GET` | `/api/v1/calendar-sync/feed/{token}` <a id="public_calendar_sync_feed"></a> | GET /api/calendar-sync/feed/{token} — the OUTBOUND direction: the user's live appointments as a subscribable iCalendar document. Unauthenticated but token-scoped and rate-limited (the scheduling-links pattern); the token resolves org + user, then the read is org-scoped. | — |
 
 ## catalog
@@ -401,6 +403,10 @@
 | `GET` | `/api/v1/dispatch/journey-start` <a id="dispatch_journey_start_get"></a> | GET /api/dispatch/journey-start — the resolved start point plus the explicit override, if any. | — |
 | `PUT` | `/api/v1/dispatch/journey-start` <a id="dispatch_journey_start_set"></a> | PUT /api/dispatch/journey-start — set (or replace) the technician's start point for one day. | [SetJourneyStartRequest](#schema-setjourneystartrequest) |
 | `GET` | `/api/v1/dispatch/match` <a id="dispatch_match"></a> | GET /api/dispatch/match — for every unassigned open ticket carrying required skills, the active technicians sorted best-first by how many required skills they are missing (0 = fully qualified). Expired certifications never count as held. | — |
+| `GET` | `/api/v1/dispatch/planning/allocations` <a id="dispatch_phase_allocations_list"></a> | GET /api/dispatch/planning/allocations — who is committed to which phase. | — |
+| `PUT` | `/api/v1/dispatch/planning/allocations` <a id="dispatch_phase_allocation_upsert"></a> | PUT /api/dispatch/planning/allocations — state (or restate) a technician's commitment to a phase. | [PhaseAllocationMutation](#schema-phaseallocationmutation) |
+| `DELETE` | `/api/v1/dispatch/planning/allocations/{allocation_id}` <a id="dispatch_phase_allocation_delete"></a> | DELETE /api/dispatch/planning/allocations/{id} — release a commitment. | — |
+| `GET` | `/api/v1/dispatch/planning/forecast` <a id="dispatch_capacity_forecast"></a> | GET /api/dispatch/planning/forecast — committed project load per technician over a window. | — |
 | `GET` | `/api/v1/dispatch/queue` <a id="dispatch_queue_list"></a> | GET /api/dispatch/queue — the full unassigned queue with dispatcher overrides applied: overridden tickets sort by explicit rank first (ties fall back to the computed order), then everything else in the computed order (priority rank, then effective SLA/due deadline). | — |
 | `DELETE` | `/api/v1/dispatch/queue/{ticket_id}` <a id="dispatch_queue_clear"></a> | DELETE /api/dispatch/queue/{ticket_id} — clear a rank override. Idempotent: clearing an unset override still returns 200 with `cleared: false` (the dispatcher's intent is already satisfied). | — |
 | `PUT` | `/api/v1/dispatch/queue/{ticket_id}` <a id="dispatch_queue_set"></a> | PUT /api/dispatch/queue/{ticket_id} — pin a ticket's queue position. The ticket must exist and still be open+unassigned (an override for a placed ticket is meaningless); idempotent via the instant envelope. | [SetQueueRankRequest](#schema-setqueuerankrequest) |
@@ -415,6 +421,10 @@
 | `POST` | `/api/v1/dispatch/travel-drafts/{id}/expense` <a id="dispatch_travel_draft_expense"></a> | POST /api/dispatch/travel-drafts/{id}/expense — book the draft's mileage as a ticket expense at the org rate (the reimbursement the business owes the technician or bills the client). One expense per draft, idempotent through the standard envelope. | [CreateTravelExpenseRequest](#schema-createtravelexpenserequest) |
 | `POST` | `/api/v1/dispatch/travel-drafts/{id}/submit` <a id="dispatch_travel_draft_submit"></a> | POST /api/dispatch/travel-drafts/{id}/submit — convert a draft into a real time entry through the EXISTING time-entry path (`insert_time_entry` + the `time_entry.created` event), then freeze the draft with the entry backlink. The entry's notes carry the machine-readable provenance marker (`travel_draft:<id>`); the write trail records the full before/after so "who did this" and undo stay queryable. Idempotent: the same submit replays the SAME entry. | [SubmitTravelDraftRequest](#schema-submittraveldraftrequest) |
 | `PUT` | `/api/v1/dispatch/users/{user_id}/skills` <a id="dispatch_user_skills_replace"></a> | PUT /api/dispatch/users/{user_id}/skills — full-replace the technician's skill set. The technician must be an active member of this org. | [ReplaceUserSkillsRequest](#schema-replaceuserskillsrequest) |
+| `DELETE` | `/api/v1/dispatch/work-next` <a id="dispatch_work_next_remove"></a> | DELETE /api/dispatch/work-next?ticket_id=… — drop a ticket from one technician's queue, or from every queue when `user_id` is absent. | — |
+| `GET` | `/api/v1/dispatch/work-next` <a id="dispatch_work_next_list"></a> | GET /api/dispatch/work-next — the caller's curated queue, or another technician's when the caller may see theirs. | — |
+| `PUT` | `/api/v1/dispatch/work-next` <a id="dispatch_work_next_add"></a> | PUT /api/dispatch/work-next — add a ticket to a technician's queue at a position, or move it there if the pair already exists. | [WorkNextMutation](#schema-worknextmutation) |
+| `POST` | `/api/v1/dispatch/work-next/reorder` <a id="dispatch_work_next_reorder"></a> | POST /api/dispatch/work-next/reorder — move an entry and return the densified queue. | [WorkNextMutation](#schema-worknextmutation) |
 
 ## dispatch-connector
 
@@ -839,6 +849,7 @@
 | `GET` | `/api/v1/projects/{id}/billing-releases` <a id="projects_billing_releases"></a> | GET /api/projects/{id}/billing-releases — the release ledger: every staged milestone/fee for this project with its status (`pending` bills on the next run reaching its window; `billed` carries the consuming invoice; `cancelled` terminal). | — |
 | `POST` | `/api/v1/projects/{id}/billing-releases/{release_id}/cancel` <a id="projects_billing_release_cancel"></a> | POST /api/projects/{id}/billing-releases/{release_id}/cancel — cancel a PENDING release (admin correction; terminal). Billed releases are immutable — they ride an invoice, and invoices correct through credit notes. | — |
 | `GET` | `/api/v1/projects/{id}/cost-rollup` <a id="projects_cost_rollup"></a> | GET /api/projects/{id}/cost-rollup — posted PO bills in base currency (ADR 0002 locked) plus the project budget for comparison. | — |
+| `GET` | `/api/v1/projects/{id}/gantt` <a id="projects_gantt"></a> | GET /api/projects/{id}/gantt — the dated timeline plus its undated remainder, each phase carrying its budget burn. | — |
 | `GET` | `/api/v1/projects/{id}/phase-burn` <a id="projects_phase_burn"></a> | GET /api/projects/{id}/phase-burn — the burn read model (report P3): consumed approved billable minutes and card-priced value per phase against the phase's budget, with the typed `none | warn | over` alert state (`warn` at ≥80%, `over` at ≥100%). | — |
 | `GET` | `/api/v1/projects/{id}/phases` <a id="projects_list_phases"></a> | GET /api/projects/{id}/phases — ordered by sort_order. | — |
 | `POST` | `/api/v1/projects/{id}/phases` <a id="projects_create_phase"></a> | POST /api/projects/{id}/phases — adds a phase; emits `project.phase_created`. | [CreatePhaseRequest](#schema-createphaserequest) |
@@ -1482,6 +1493,8 @@
 | <a id="schema-capabilitygrantlist"></a>`CapabilityGrantList` | object |  |
 | <a id="schema-capabilitygrantview"></a>`CapabilityGrantView` | object | One granted capability with its dial position. |
 | <a id="schema-capabilitymode"></a>`CapabilityMode` | string | Wire involvement-dial position of a capability grant. |
+| <a id="schema-capacityforecastentryview"></a>`CapacityForecastEntryView` | object | One technician's line in the forecast: committed project load beside booked appointments. |
+| <a id="schema-capacityforecastview"></a>`CapacityForecastView` | object | The forecast-shaped read model: committed project load per technician across a window, which is what `/dispatch/capacity` could never show because it only knew about appointments. |
 | <a id="schema-capacityhorizonview"></a>`CapacityHorizonView` | object | The assembled horizon payload. `unassigned_count` is the current open unassigned queue depth so planners see demand next to capacity. |
 | <a id="schema-capacityquery"></a>`CapacityQuery` | object | GET /api/dispatch/capacity query: `from` date (defaults to today UTC) and the horizon length in days (1..=31, default 7). |
 | <a id="schema-capreachedbehavior"></a>`CapReachedBehavior` | string | What evaluation does when a T&M contract's cap is reached (B: never a silent cutoff — the behavior is a typed choice on the cap). |
@@ -1949,6 +1962,9 @@
 | <a id="schema-notification"></a>`Notification` | object |  |
 | <a id="schema-notificationkind"></a>`NotificationKind` | string |  |
 | <a id="schema-notificationpage"></a>`NotificationPage` | object | One page of the inbox plus the cursor to continue with. |
+| <a id="schema-oauthcallbackquery"></a>`OAuthCallbackQuery` | object |  |
+| <a id="schema-oauthcallbackresult"></a>`OAuthCallbackResult` | object |  |
+| <a id="schema-oauthstartresponse"></a>`OAuthStartResponse` | object | Where the operator lands after consent. |
 | <a id="schema-oidcpresetinfo"></a>`OidcPresetInfo` | object | One entry of the declarative first-party preset catalog. |
 | <a id="schema-oidcproviderinfo"></a>`OidcProviderInfo` | object |  |
 | <a id="schema-onboardingdisablerequest"></a>`OnboardingDisableRequest` | object |  |
@@ -2004,8 +2020,13 @@
 | <a id="schema-patchviewrequest"></a>`PatchViewRequest` | object |  |
 | <a id="schema-pausetimerrequest"></a>`PauseTimerRequest` | object |  |
 | <a id="schema-paymentmutationresponse"></a>`PaymentMutationResponse` | object | Payment receipt response. The invoice is nested (not flattened) so the stored replay payload — `{payment, invoice}` plus the merged mutation metadata — deserializes into this shape byte-identically. |
+| <a id="schema-phaseallocationlistview"></a>`PhaseAllocationListView` | object | Every allocation in the org, or in one project. |
+| <a id="schema-phaseallocationmutation"></a>`PhaseAllocationMutation` | object |  |
+| <a id="schema-phaseallocationquery"></a>`PhaseAllocationQuery` | object |  |
+| <a id="schema-phaseallocationview"></a>`PhaseAllocationView` | object | One stated allocation of a technician to a project phase. |
 | <a id="schema-phaseburn"></a>`PhaseBurn` | object | The burn read model for one phase: consumed minutes priced against the project's linked contract versus the contracted budget, with a typed alert state (report P3). Amounts are in the budget's currenc |
 | <a id="schema-phaseburnalert"></a>`PhaseBurnAlert` | string | The phase-burn alert state. `warn` fires at ≥80% consumed; `over` at ≥100%. Never silent: the read model carries the label, the UI renders it. |
+| <a id="schema-phaseganttview"></a>`PhaseGanttView` | object | One phase as the Gantt draws it, with its budget burn attached. |
 | <a id="schema-phasemutationresponse"></a>`PhaseMutationResponse` | composite |  |
 | <a id="schema-phasestatus"></a>`PhaseStatus` | string | Lifecycle of a phase. |
 | <a id="schema-pickmutationresponse"></a>`PickMutationResponse` | object |  |
@@ -2081,6 +2102,7 @@
 | <a id="schema-project"></a>`Project` | object | A project engagement under a client (or internal when `client_id` is `None`). |
 | <a id="schema-projectbillingrelease"></a>`ProjectBillingRelease` | object | One released milestone (report P1/P4): the durable record that a completed milestone or fixed-fee phase released its amount to the invoicing pipeline. `pending` rows bill on the first run that reaches |
 | <a id="schema-projectcostrollupview"></a>`ProjectCostRollupView` | object |  |
+| <a id="schema-projectganttview"></a>`ProjectGanttView` | object | The project's Gantt: dated phases as bars, undated ones as list items. |
 | <a id="schema-projectinstantiateresponse"></a>`ProjectInstantiateResponse` | composite | The instantiation result: the applied project plus the expansion counts (clients render "created N phases, M tasks" without refetching). |
 | <a id="schema-projectlistquery"></a>`ProjectListQuery` | object |  |
 | <a id="schema-projectmutationresponse"></a>`ProjectMutationResponse` | composite | Instant-first mutation response for the project entity (IF2): applied snapshot at the top level plus the additive `mutation` metadata. |
@@ -2569,7 +2591,12 @@
 | <a id="schema-workbenchdecision"></a>`WorkbenchDecision` | object | The suggestion-grade `decision_record_dedupe` judgment for this candidate, read from the append-only decision store. `None` (and therefore silent in the UI) whenever the decision model is unconfigured |
 | <a id="schema-workbenchfieldrow"></a>`WorkbenchFieldRow` | object |  |
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
+| <a id="schema-worknextentryview"></a>`WorkNextEntryView` | object | One row of a technician's curated queue, as the board renders it. |
+| <a id="schema-worknextmutation"></a>`WorkNextMutation` | object |  |
+| <a id="schema-worknextqueuequery"></a>`WorkNextQueueQuery` | object |  |
+| <a id="schema-worknextqueueview"></a>`WorkNextQueueView` | object | The whole queue for one technician, in curated order. |
+| <a id="schema-worknextremovalquery"></a>`WorkNextRemovalQuery` | object |  |
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1232 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1248 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

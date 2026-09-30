@@ -2449,3 +2449,606 @@ fn validate_travel_notes(raw: Option<&str>) -> ApiResult<Option<String>> {
         Some(n) => Ok(Some(n.to_string())),
     }
 }
+
+// --- curated per-technician work-next queue (Wave 34 claims close-out) -----
+
+/// One row of a technician's curated queue, as the board renders it.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct WorkNextEntryView {
+    pub id: Uuid,
+    pub ticket_id: Uuid,
+    pub position: i32,
+    pub ticket_number: String,
+    pub title: String,
+    pub priority: String,
+    pub status: String,
+    pub client_id: Option<Uuid>,
+    pub client_name: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// The whole queue for one technician, in curated order.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct WorkNextQueueView {
+    pub user_id: Uuid,
+    /// The technician whose queue this is, resolved server-side from the
+    /// authenticated principal unless an admin asks for someone else's.
+    pub display_name: String,
+    pub entries: Vec<WorkNextEntryView>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct WorkNextQueueQuery {
+    /// Whose queue to read. Admins may read another technician's (a
+    /// dispatcher setting up a shift); anyone may read their own, and a
+    /// non-admin asking for someone else is refused rather than silently
+    /// served their own.
+    pub user_id: Option<Uuid>,
+}
+
+/// GET /api/dispatch/work-next — the caller's curated queue, or another
+/// technician's when the caller may see theirs.
+#[utoipa::path(operation_id = "dispatch_work_next_list", get,
+    path = "/api/dispatch/work-next", tag = "scheduling", security(("bearer" = [])),
+    params(WorkNextQueueQuery),
+    responses((status = 200, body = WorkNextQueueView)))]
+pub async fn work_next_list(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<WorkNextQueueQuery>,
+) -> ApiResult<Json<WorkNextQueueView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let me = authed.principal.user.id;
+
+    // Reading ANOTHER technician's curated queue is a dispatch action, not a
+    // personal one: the order is a dispatcher's instruction to someone
+    // else's day. So it needs the dispatch permission, while reading your
+    // own only needs the scheduling view you already have.
+    let target = match q.user_id {
+        Some(id) if id != me => {
+            require_permission(&authed.principal, sched(Action::Edit))?;
+            id
+        }
+        _ => me,
+    };
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, me)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::dispatch::list_work_next_queue(&mut *tx, org_id, target).await?;
+    let display_name = core_db::users::list_users(&mut *tx, org_id)
+        .await?
+        .into_iter()
+        .find(|u| u.id == target)
+        .map(|u| u.display_name)
+        .unwrap_or_default();
+    tx.commit().await.map_err(ApiError::from)?;
+
+    Ok(Json(WorkNextQueueView {
+        user_id: target,
+        display_name,
+        entries: rows
+            .into_iter()
+            .map(|r| WorkNextEntryView {
+                id: r.id,
+                ticket_id: r.ticket_id,
+                position: r.position,
+                ticket_number: r.ticket_number,
+                title: r.ticket_title,
+                priority: r.ticket_priority,
+                status: r.ticket_status,
+                client_id: r.client_id,
+                client_name: r.client_name,
+                created_at: r.created_at.to_rfc3339(),
+                updated_at: r.updated_at.to_rfc3339(),
+            })
+            .collect(),
+    }))
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct WorkNextMutation {
+    pub user_id: Uuid,
+    pub ticket_id: Uuid,
+    /// Target rank. Clamped server-side to the queue's bounds: dragging past
+    /// the end is a gesture, not a client bug.
+    pub position: i32,
+}
+
+/// PUT /api/dispatch/work-next — add a ticket to a technician's queue at a
+/// position, or move it there if the pair already exists.
+#[utoipa::path(operation_id = "dispatch_work_next_add", put,
+    path = "/api/dispatch/work-next", tag = "scheduling", security(("bearer" = [])),
+    request_body = WorkNextMutation,
+    responses((status = 200, body = WorkNextEntryView)))]
+pub async fn work_next_add(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<WorkNextMutation>,
+) -> ApiResult<Json<WorkNextEntryView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let me = authed.principal.user.id;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, me)
+        .await
+        .map_err(ApiError::from)?;
+    let row = core_db::dispatch::add_work_next_entry(
+        &mut tx,
+        Uuid::now_v7(),
+        org_id,
+        req.user_id,
+        req.ticket_id,
+        req.position,
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(WorkNextEntryView {
+        id: row.id,
+        ticket_id: row.ticket_id,
+        position: row.position,
+        ticket_number: String::new(),
+        title: String::new(),
+        priority: String::new(),
+        status: String::new(),
+        client_id: None,
+        client_name: None,
+        created_at: row.created_at.to_rfc3339(),
+        updated_at: row.updated_at.to_rfc3339(),
+    }))
+}
+
+/// POST /api/dispatch/work-next/reorder — move an entry and return the
+/// densified queue.
+///
+/// Returns the WHOLE queue rather than just the moved row because the move
+/// shifts everything between the old and new rank. A response with only the
+/// moved entry would leave the client guessing the positions of everything
+/// it did not drag, which is exactly the state a drag-and-drop list must not
+/// be in.
+#[utoipa::path(operation_id = "dispatch_work_next_reorder", post,
+    path = "/api/dispatch/work-next/reorder", tag = "scheduling",
+    security(("bearer" = [])), request_body = WorkNextMutation,
+    responses((status = 200, body = Vec<WorkNextEntryView>)))]
+pub async fn work_next_reorder(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<WorkNextMutation>,
+) -> ApiResult<Json<Vec<WorkNextEntryView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let me = authed.principal.user.id;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, me)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::dispatch::reorder_work_next_entry(
+        &mut tx,
+        org_id,
+        req.user_id,
+        req.ticket_id,
+        req.position,
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| WorkNextEntryView {
+                id: r.id,
+                ticket_id: r.ticket_id,
+                position: r.position,
+                ticket_number: String::new(),
+                title: String::new(),
+                priority: String::new(),
+                status: String::new(),
+                client_id: None,
+                client_name: None,
+                created_at: r.created_at.to_rfc3339(),
+                updated_at: r.updated_at.to_rfc3339(),
+            })
+            .collect(),
+    ))
+}
+
+/// DELETE /api/dispatch/work-next?ticket_id=… — drop a ticket from one
+/// technician's queue, or from every queue when `user_id` is absent.
+#[utoipa::path(operation_id = "dispatch_work_next_remove", delete,
+    path = "/api/dispatch/work-next", tag = "scheduling", security(("bearer" = [])),
+    params(("ticket_id" = Uuid, Query), ("user_id" = Option<Uuid>, Query)),
+    responses((status = 200, body = serde_json::Value)))]
+pub async fn work_next_remove(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<WorkNextRemovalQuery>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let me = authed.principal.user.id;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, me)
+        .await
+        .map_err(ApiError::from)?;
+    let removed =
+        core_db::dispatch::remove_work_next_entry(&mut tx, org_id, q.user_id, q.ticket_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({ "removed": removed })))
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct WorkNextRemovalQuery {
+    pub ticket_id: Uuid,
+    /// Absent means "every technician's queue", which is what a placed or
+    /// closed ticket needs: its queue entries are stale everywhere at once.
+    pub user_id: Option<Uuid>,
+}
+
+// --- resource planning: phase allocations + capacity forecast -------------
+
+/// One stated allocation of a technician to a project phase.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PhaseAllocationView {
+    pub id: Uuid,
+    pub phase_id: Uuid,
+    pub user_id: Uuid,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub share_percent: i32,
+    pub note: Option<String>,
+    pub phase_name: String,
+    pub phase_status: String,
+    pub project_id: Uuid,
+    pub project_name: String,
+    pub user_display_name: String,
+}
+
+/// Every allocation in the org, or in one project.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PhaseAllocationListView {
+    pub allocations: Vec<PhaseAllocationView>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct PhaseAllocationQuery {
+    pub project_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct PhaseAllocationMutation {
+    pub phase_id: Uuid,
+    pub user_id: Uuid,
+    pub start_date: Option<chrono::NaiveDate>,
+    pub end_date: Option<chrono::NaiveDate>,
+    /// 1..=100, CHECK-enforced in the database. A 0 or a 150 entering the
+    /// forecast would corrupt every capacity number on the page, so the
+    /// bound is enforced in the schema rather than only in this handler.
+    pub share_percent: i32,
+    pub note: Option<String>,
+}
+
+/// GET /api/dispatch/planning/allocations — who is committed to which phase.
+#[utoipa::path(operation_id = "dispatch_phase_allocations_list", get,
+    path = "/api/dispatch/planning/allocations", tag = "scheduling",
+    security(("bearer" = [])), params(PhaseAllocationQuery),
+    responses((status = 200, body = PhaseAllocationListView)))]
+pub async fn phase_allocations_list(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<PhaseAllocationQuery>,
+) -> ApiResult<Json<PhaseAllocationListView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::dispatch::list_phase_allocations(&mut *tx, org_id, q.project_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(PhaseAllocationListView {
+        allocations: rows
+            .into_iter()
+            .map(|r| PhaseAllocationView {
+                id: r.id,
+                phase_id: r.phase_id,
+                user_id: r.user_id,
+                start_date: r.start_date.map(|d| d.to_string()),
+                end_date: r.end_date.map(|d| d.to_string()),
+                share_percent: r.share_percent,
+                note: r.note,
+                phase_name: r.phase_name,
+                phase_status: r.phase_status,
+                project_id: r.project_id,
+                project_name: r.project_name,
+                user_display_name: r.user_display_name,
+            })
+            .collect(),
+    }))
+}
+
+/// PUT /api/dispatch/planning/allocations — state (or restate) a
+/// technician's commitment to a phase.
+///
+/// Upsert on `(phase_id, user_id)`, so restating a share updates the row.
+/// Appending instead would leave two contradictory shares that SUM in the
+/// forecast and report a technician as over-committed by construction.
+#[utoipa::path(operation_id = "dispatch_phase_allocation_upsert", put,
+    path = "/api/dispatch/planning/allocations", tag = "scheduling",
+    security(("bearer" = [])), request_body = PhaseAllocationMutation,
+    responses((status = 200, body = PhaseAllocationView)))]
+pub async fn phase_allocation_upsert(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<PhaseAllocationMutation>,
+) -> ApiResult<Json<PhaseAllocationView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let me = authed.principal.user.id;
+
+    // Validate before the write so the operator gets a 422 naming the bound
+    // rather than a constraint-violation 500 from the database.
+    if !(1..=100).contains(&req.share_percent) {
+        return Err(ApiError::Validation(format!(
+            "share_percent must be 1..=100, got {}",
+            req.share_percent
+        )));
+    }
+    if let (Some(s), Some(e)) = (req.start_date, req.end_date) {
+        if e < s {
+            return Err(ApiError::Validation(
+                "end_date must not precede start_date".into(),
+            ));
+        }
+    }
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, me)
+        .await
+        .map_err(ApiError::from)?;
+    let row = core_db::dispatch::upsert_phase_allocation(
+        &mut tx,
+        core_db::dispatch::NewPhaseAllocation {
+            id: Uuid::now_v7(),
+            org_id,
+            phase_id: req.phase_id,
+            user_id: req.user_id,
+            start_date: req.start_date,
+            end_date: req.end_date,
+            share_percent: req.share_percent,
+            note: req.note.as_deref(),
+        },
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    // Read the joined view back so the response carries phase/project/user
+    // names rather than making the client re-fetch to render one row.
+    let mut t2 = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut t2, org_id, me)
+        .await
+        .map_err(ApiError::from)?;
+    let joined = core_db::dispatch::list_phase_allocations(&mut *t2, org_id, None).await?;
+    t2.commit().await.map_err(ApiError::from)?;
+    let view = joined
+        .into_iter()
+        .find(|a| a.id == row.id)
+        .map(|a| PhaseAllocationView {
+            id: a.id,
+            phase_id: a.phase_id,
+            user_id: a.user_id,
+            start_date: a.start_date.map(|d| d.to_string()),
+            end_date: a.end_date.map(|d| d.to_string()),
+            share_percent: a.share_percent,
+            note: a.note,
+            phase_name: a.phase_name,
+            phase_status: a.phase_status,
+            project_id: a.project_id,
+            project_name: a.project_name,
+            user_display_name: a.user_display_name,
+        })
+        .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("allocation vanished after write")))?;
+    Ok(Json(view))
+}
+
+/// DELETE /api/dispatch/planning/allocations/{id} — release a commitment.
+#[utoipa::path(operation_id = "dispatch_phase_allocation_delete", delete,
+    path = "/api/dispatch/planning/allocations/{allocation_id}", tag = "scheduling",
+    security(("bearer" = [])),
+    responses((status = 200, body = serde_json::Value),
+              (status = 404, description = "no such allocation")))]
+pub async fn phase_allocation_delete(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(allocation_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let me = authed.principal.user.id;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, me)
+        .await
+        .map_err(ApiError::from)?;
+    let removed =
+        core_db::dispatch::delete_phase_allocation(&mut tx, org_id, allocation_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    if !removed {
+        return Err(ApiError::NotFound);
+    }
+    Ok(Json(serde_json::json!({ "removed": true })))
+}
+
+/// One technician's line in the forecast: committed project load beside
+/// booked appointments.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct CapacityForecastEntryView {
+    pub user_id: Uuid,
+    pub display_name: String,
+    /// Committed project load in PERCENT-DAYS. 200.0 = "100% of one
+    /// technician's time for two days", or two phases at 100% for one day.
+    /// A plain percentage would flatten a month-long 20% plan and a
+    /// week-long 80% plan into the same number, and they are not the same
+    /// commitment.
+    pub committed_percent_days: f64,
+    pub allocation_count: i64,
+    pub phase_count: i64,
+    /// The window's total available percent-days for this technician, from
+    /// their availability windows minus calendar exclusions. Zero means the
+    /// technician has no declared availability in the window, which is a
+    /// different state from being fully booked and must not render as 100%.
+    pub available_percent_days: f64,
+    /// `committed / available`, or `None` when availability is zero. A
+    /// ratio with a zero denominator is the classic way a forecast reports
+    /// "infinite overload" for a technician nobody scheduled.
+    pub utilization: Option<f64>,
+    pub over_allocated: bool,
+}
+
+/// The forecast-shaped read model: committed project load per technician
+/// across a window, which is what `/dispatch/capacity` could never show
+/// because it only knew about appointments.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct CapacityForecastView {
+    pub from: String,
+    pub to: String,
+    pub days: i64,
+    pub entries: Vec<CapacityForecastEntryView>,
+}
+
+/// GET /api/dispatch/planning/forecast — committed project load per
+/// technician over a window.
+#[utoipa::path(operation_id = "dispatch_capacity_forecast", get,
+    path = "/api/dispatch/planning/forecast", tag = "scheduling",
+    security(("bearer" = [])), params(CapacityQuery),
+    responses((status = 200, body = CapacityForecastView)))]
+pub async fn capacity_forecast(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<CapacityQuery>,
+) -> ApiResult<Json<CapacityForecastView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, sched(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let me = authed.principal.user.id;
+
+    let days = q.days.unwrap_or(14).clamp(1, CAPACITY_MAX_DAYS);
+    let first = q.from.unwrap_or_else(|| Utc::now().date_naive());
+    let window_from = first;
+    let window_to = first + Duration::days(i64::from(days) - 1);
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, me)
+        .await
+        .map_err(ApiError::from)?;
+    let members = core_db::users::list_users(&mut *tx, org_id).await?;
+    let technicians: Vec<Uuid> = members
+        .iter()
+        .filter(|u| u.is_active)
+        .map(|u| u.id)
+        .collect();
+    let loads = core_db::dispatch::capacity_forecast(
+        &mut *tx,
+        org_id,
+        &technicians,
+        window_from,
+        window_to,
+    )
+    .await?;
+
+    // Declared availability, so the forecast can say "40% committed" rather
+    // than a bare percent-day number that only means something relative to
+    // a capacity this endpoint would otherwise have to invent.
+    let win_from_utc = window_from
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight is valid")
+        .and_utc();
+    let win_to_utc = (window_to + Duration::days(1))
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight is valid")
+        .and_utc();
+    let windows = core_db::scheduling::list_all_availability_windows(&mut *tx, org_id).await?;
+    let exclusions = core_db::scheduling::list_calendar_exclusions_for_users_between(
+        &mut *tx,
+        org_id,
+        &technicians,
+        win_from_utc,
+        win_to_utc,
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+
+    let mut entries = Vec::with_capacity(technicians.len());
+    for user in members.iter().filter(|u| u.is_active) {
+        let load = loads.iter().find(|l| l.user_id == user.id);
+        let committed = load.map_or(0.0, |l| l.percent_days);
+        let user_windows: Vec<_> = windows
+            .iter()
+            .filter(|w| w.user_id == user.id)
+            .cloned()
+            .collect();
+        let user_exclusions: Vec<_> = exclusions
+            .iter()
+            .filter(|x| x.user_id == user.id)
+            .cloned()
+            .collect();
+        // `covered_minutes` is the SAME helper the capacity horizon uses, and
+        // it is the only thing that correctly expands a recurring weekly
+        // window across a date span and subtracts exclusions. Hand-rolling
+        // that arithmetic here (an earlier attempt treated a window as a
+        // date RANGE, which it is not) is how a forecast ends up reporting
+        // a technician as available for 0 minutes while the board shows
+        // them bookable all week.
+        //
+        // The denominator is a full-time standard day, not the technician's
+        // own hours: a 60%-committed technician on 4-hour days is not 100%
+        // committed. 100% = one standard day per calendar day in the window,
+        // so the ratio means "share of a normal full-time load" and is
+        // comparable across technicians with different part-time patterns.
+        const STANDARD_DAY_MINUTES: f64 = 480.0;
+        let available_minutes = core_domain::scheduling::covered_minutes(
+            &user_windows,
+            &user_exclusions,
+            win_from_utc,
+            win_to_utc,
+        ) as f64;
+        let available_percent_days = available_minutes / STANDARD_DAY_MINUTES * 100.0;
+        let utilization =
+            (available_percent_days > 0.0).then(|| committed / available_percent_days);
+        entries.push(CapacityForecastEntryView {
+            user_id: user.id,
+            display_name: user.display_name.clone(),
+            committed_percent_days: committed,
+            allocation_count: load.map_or(0, |l| l.allocation_count),
+            phase_count: load.map_or(0, |l| l.phase_count),
+            available_percent_days,
+            utilization,
+            over_allocated: utilization.is_some_and(|u| u > 1.0),
+        });
+    }
+    // Most-loaded first: a forecast read top-down is a triage list, and the
+    // technician who is over-committed is the one a planner opens this to
+    // find.
+    entries.sort_by(|a, b| {
+        b.committed_percent_days
+            .partial_cmp(&a.committed_percent_days)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    Ok(Json(CapacityForecastView {
+        from: window_from.to_string(),
+        to: window_to.to_string(),
+        days: i64::from(days),
+        entries,
+    }))
+}

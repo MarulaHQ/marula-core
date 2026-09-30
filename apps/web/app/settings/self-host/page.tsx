@@ -76,6 +76,7 @@ interface LinksView {
   tempo: string | null;
   loki: string | null;
   otel_metrics: string | null;
+  uptime_kuma: string | null;
 }
 
 interface GarageView {
@@ -520,6 +521,13 @@ export default function SelfHostSettingsPage() {
                 url={view.links.loki}
                 envVar="MARULA_LOKI_URL"
                 openLabel="Open Loki"
+              />
+              <LinkCard
+                title="Uptime Kuma"
+                description="Synthetic monitors and the public status page. Probes the endpoints your customers load, so you find out before they tell you."
+                url={view.links.uptime_kuma}
+                envVar="MARULA_UPTIME_KUMA_URL"
+                openLabel="Open Uptime Kuma"
               />
             </div>
           </section>

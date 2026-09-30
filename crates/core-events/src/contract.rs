@@ -379,6 +379,12 @@ fn sample_phase() -> ProjectPhase {
         is_milestone: true,
         milestone_amount_minor: Some(150_000),
         milestone_currency: Some("USD".into()),
+        // The sample phase is a COMPLETED milestone, so it carries no
+        // planned window: the event contract's sample must not look like a
+        // dated Gantt bar, or a consumer building a timeline from the
+        // sample would draw a schedule nobody planned.
+        start_date: None,
+        end_date: None,
         completed_at: Some(st(2)),
         created_at: st(1),
         updated_at: st(2),
@@ -502,10 +508,9 @@ use core_domain::events::{
     TicketExpenseRemoved, TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged,
     TicketTagsChanged, TimeCategoryCreated, TimeCategoryUpdated, TimeEntryApprovalApproved,
     TimeEntryApprovalRejected, TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused,
-    TimerStarted, TimerStopped,
-    ToolCheckinCompleted, ToolCheckoutCompleted, ToolKitCreated, ToolKitUpdated,
-    TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
-    VendorCreated, VendorUpdated,
+    TimerStarted, TimerStopped, ToolCheckinCompleted, ToolCheckoutCompleted, ToolKitCreated,
+    ToolKitUpdated, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
+    UserRoleChanged, VendorCreated, VendorUpdated,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;

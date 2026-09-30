@@ -25,6 +25,7 @@ use uuid::Uuid;
 /// Sealed provider ids (must match core-api's reserved ids).
 const SEALED_POSTMARK_PROVIDER: &str = "mail.postmark";
 const SEALED_SMTP_PROVIDER: &str = "mail.smtp";
+const SEALED_SES_PROVIDER: &str = "mail.ses";
 
 /// Resolves the transport adapter for one org at send time.
 #[async_trait::async_trait]
@@ -151,6 +152,48 @@ impl DbOrgMailResolver {
                     port: u16::try_from(port).unwrap_or(587),
                     username,
                     password,
+                }
+            }
+            Some("ses") => {
+                // BOTH halves of the key pair, or the org is not configured.
+                // A lone access key id cannot sign a SigV4 request, and
+                // building the adapter anyway would 403 on every send — so
+                // this is a typed error the ledger retries, not a silent
+                // no-op.
+                let secret = self
+                    .sealed_json(&mut tx, org_id, SEALED_SES_PROVIDER)
+                    .await?
+                    .ok_or_else(|| {
+                        "org transport is ses but no access key pair is sealed".to_string()
+                    })?;
+                let access_key_id = secret
+                    .get("access_key_id")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .ok_or_else(|| "the sealed SES credential has no access_key_id".to_string())?;
+                let secret_access_key = secret
+                    .get("secret_access_key")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .ok_or_else(|| {
+                        "the sealed SES credential has no secret_access_key".to_string()
+                    })?;
+                // The endpoint is region-scoped, so a missing region falls
+                // back to the same default core-api's setting declaration
+                // carries — a real region, never an empty string that would
+                // build `email..amazonaws.com`.
+                let region = match org_text(&mut tx, org_id, registry::EMAIL_SES_REGION).await? {
+                    Some(r) => r,
+                    None => "eu-west-1".to_string(),
+                };
+                let endpoint = org_text(&mut tx, org_id, registry::EMAIL_SES_ENDPOINT).await?;
+                TransportKind::Ses {
+                    access_key_id: access_key_id.to_string(),
+                    secret_access_key: secret_access_key.to_string(),
+                    region,
+                    endpoint,
                 }
             }
             // Explicit none keeps mail queued; an absent selection falls

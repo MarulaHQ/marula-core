@@ -2125,6 +2125,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/calendar-sync/{connection_id}/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/calendar-sync/{connection_id}/authorize — begin consent.
+         * @description Returns the vendor URL to send the operator to. The `state` is a
+         *     server-generated nonce, NOT a client-supplied value: a client that chose
+         *     its own state would defeat the CSRF protection entirely.
+         */
+        post: operations["calendar_sync_authorize_start"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/calendar-sync/{id}": {
         parameters: {
             query?: never;
@@ -2203,6 +2225,29 @@ export interface paths {
          *     emission run inside ONE org transaction.
          */
         post: operations["calendar_sync_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calendar-sync/{provider}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/calendar-sync/{provider}/callback — the vendor's redirect target.
+         * @description The `state` is matched against the stored nonce, which is what makes the
+         *     flow CSRF-safe: a callback whose state does not match the connection this
+         *     browser started is discarded, so an attacker cannot feed a victim's
+         *     browser a code obtained under someone else's consent.
+         */
+        get: operations["calendar_sync_oauth_callback"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3723,6 +3768,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dispatch/planning/allocations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/dispatch/planning/allocations — who is committed to which phase. */
+        get: operations["dispatch_phase_allocations_list"];
+        /**
+         * PUT /api/dispatch/planning/allocations — state (or restate) a
+         *     technician's commitment to a phase.
+         * @description Upsert on `(phase_id, user_id)`, so restating a share updates the row.
+         *     Appending instead would leave two contradictory shares that SUM in the
+         *     forecast and report a technician as over-committed by construction.
+         */
+        put: operations["dispatch_phase_allocation_upsert"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/planning/allocations/{allocation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/dispatch/planning/allocations/{id} — release a commitment. */
+        delete: operations["dispatch_phase_allocation_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/planning/forecast": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/dispatch/planning/forecast — committed project load per
+         *     technician over a window.
+         */
+        get: operations["dispatch_capacity_forecast"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dispatch/queue": {
         parameters: {
             query?: never;
@@ -3962,6 +4068,59 @@ export interface paths {
          */
         put: operations["dispatch_user_skills_replace"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/work-next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/dispatch/work-next — the caller's curated queue, or another
+         *     technician's when the caller may see theirs.
+         */
+        get: operations["dispatch_work_next_list"];
+        /**
+         * PUT /api/dispatch/work-next — add a ticket to a technician's queue at a
+         *     position, or move it there if the pair already exists.
+         */
+        put: operations["dispatch_work_next_add"];
+        post?: never;
+        /**
+         * DELETE /api/dispatch/work-next?ticket_id=… — drop a ticket from one
+         *     technician's queue, or from every queue when `user_id` is absent.
+         */
+        delete: operations["dispatch_work_next_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dispatch/work-next/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/dispatch/work-next/reorder — move an entry and return the
+         *     densified queue.
+         * @description Returns the WHOLE queue rather than just the moved row because the move
+         *     shifts everything between the old and new rank. A response with only the
+         *     moved entry would leave the client guessing the positions of everything
+         *     it did not drag, which is exactly the state a drag-and-drop list must not
+         *     be in.
+         */
+        post: operations["dispatch_work_next_reorder"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7875,6 +8034,26 @@ export interface paths {
          *     (ADR 0002 locked) plus the project budget for comparison.
          */
         get: operations["projects_cost_rollup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/gantt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects/{id}/gantt — the dated timeline plus its undated
+         *     remainder, each phase carrying its budget burn.
+         */
+        get: operations["projects_gantt"];
         put?: never;
         post?: never;
         delete?: never;
@@ -13880,9 +14059,17 @@ export interface components {
         };
         /** @description One external-calendar connection for one user's calendar. */
         CalendarSyncConnection: {
+            /** @description Cached access token, valid until `token_expires_at`. */
+            access_token?: string | null;
             /** Format: date-time */
             created_at: string;
             direction: components["schemas"]["CalendarSyncDirection"];
+            /**
+             * @description The provider's own account id (Google `sub`, Microsoft `oid`).
+             *     Recorded so an operator auditing a sync can tell WHICH account the
+             *     connection is bound to. Not an identity Marula authenticates with.
+             */
+            external_account?: string | null;
             /**
              * @description Outbound: relative feed path clients render against the API
              *     origin; the raw token itself is never readable again.
@@ -13904,7 +14091,18 @@ export interface components {
             org_id: string;
             /** @description The provider seam discriminator ('ical' is the first-party provider). */
             provider: string;
+            /**
+             * @description Scopes actually granted, recorded so the consent screen and the
+             *     stored grant can be compared. Never widened after consent.
+             */
+            scopes?: string | null;
             status: components["schemas"]["CalendarSyncStatus"];
+            /**
+             * Format: date-time
+             * @description Expiry of `access_token`. CHECK-paired with the token so a token row
+             *     can never be read as valid-forever.
+             */
+            token_expires_at?: string | null;
             /** Format: date-time */
             updated_at: string;
             /** Format: uuid */
@@ -14016,6 +14214,56 @@ export interface components {
          * @enum {string}
          */
         CapabilityMode: "proposed" | "autonomous";
+        /**
+         * @description One technician's line in the forecast: committed project load beside
+         *     booked appointments.
+         */
+        CapacityForecastEntryView: {
+            /** Format: int64 */
+            allocation_count: number;
+            /**
+             * Format: double
+             * @description The window's total available percent-days for this technician, from
+             *     their availability windows minus calendar exclusions. Zero means the
+             *     technician has no declared availability in the window, which is a
+             *     different state from being fully booked and must not render as 100%.
+             */
+            available_percent_days: number;
+            /**
+             * Format: double
+             * @description Committed project load in PERCENT-DAYS. 200.0 = "100% of one
+             *     technician's time for two days", or two phases at 100% for one day.
+             *     A plain percentage would flatten a month-long 20% plan and a
+             *     week-long 80% plan into the same number, and they are not the same
+             *     commitment.
+             */
+            committed_percent_days: number;
+            display_name: string;
+            over_allocated: boolean;
+            /** Format: int64 */
+            phase_count: number;
+            /** Format: uuid */
+            user_id: string;
+            /**
+             * Format: double
+             * @description `committed / available`, or `None` when availability is zero. A
+             *     ratio with a zero denominator is the classic way a forecast reports
+             *     "infinite overload" for a technician nobody scheduled.
+             */
+            utilization?: number | null;
+        };
+        /**
+         * @description The forecast-shaped read model: committed project load per technician
+         *     across a window, which is what `/dispatch/capacity` could never show
+         *     because it only knew about appointments.
+         */
+        CapacityForecastView: {
+            /** Format: int64 */
+            days: number;
+            entries: components["schemas"]["CapacityForecastEntryView"][];
+            from: string;
+            to: string;
+        };
         /**
          * @description The assembled horizon payload. `unassigned_count` is the current open
          *     unassigned queue depth so planners see demand next to capacity.
@@ -15908,6 +16156,8 @@ export interface components {
              */
             budget_minor?: number | null;
             description?: string | null;
+            /** Format: date */
+            end_date?: string | null;
             fee_currency?: string | null;
             /** Format: int64 */
             fee_minor?: number | null;
@@ -15918,6 +16168,15 @@ export interface components {
             name: string;
             /** Format: int32 */
             sort_order?: number;
+            /**
+             * Format: date
+             * @description The planned window (Wave 34 claims close-out, claim 6). Both ends
+             *     optional: a phase created without dates lands in the ordered list,
+             *     NOT on the Gantt, and the UI says which it is. Supplying only one
+             *     end is rejected at the database CHECK, because a phase with a start
+             *     and no length has no bar to draw.
+             */
+            start_date?: string | null;
         };
         CreatePickRequest: components["schemas"]["MutationParams"] & {
             note?: string | null;
@@ -16478,6 +16737,7 @@ export interface components {
         };
         CredentialsView: {
             postmark: components["schemas"]["CredentialView"];
+            ses: components["schemas"]["CredentialView"];
             smtp: components["schemas"]["CredentialView"];
         };
         /**
@@ -20324,6 +20584,34 @@ export interface components {
             /** @description Pass as `cursor` on the next request; `None` means exhausted. */
             next_cursor?: string | null;
         };
+        OAuthCallbackQuery: {
+            code?: string | null;
+            /**
+             * @description The operator may decline; the vendor then redirects with an error
+             *     and no code. That is a user choice, not a failure, so it gets its own
+             *     message instead of "invalid code".
+             */
+            error?: string | null;
+            state: string;
+        };
+        OAuthCallbackResult: {
+            connected: boolean;
+            /**
+             * @description Set only on a DECLINED consent, so the UI can say "you cancelled"
+             *     rather than showing a generic failure.
+             */
+            message?: string | null;
+        };
+        /** @description Where the operator lands after consent. */
+        OAuthStartResponse: {
+            /**
+             * @description The vendor consent URL. The operator is redirected here; the callback
+             *     URL is pre-registered by the operator with their OAuth client.
+             */
+            authorize_url: string;
+            /** Format: int64 */
+            expires_in_minutes: number;
+        };
         /** @description One entry of the declarative first-party preset catalog. */
         OidcPresetInfo: {
             discovery_template: string;
@@ -20566,6 +20854,12 @@ export interface components {
              */
             ready: boolean;
             reply_to: string;
+            /**
+             * @description The SES region this org sends through, when one is set. Plain config,
+             *     never a secret — the admin UI shows it so an operator can see which
+             *     data centre is in play.
+             */
+            ses_region: string;
             signature: string;
             smtp_host: string;
             /** Format: int64 */
@@ -20837,6 +21131,8 @@ export interface components {
              */
             budget_minor?: number | null;
             description?: string | null;
+            /** Format: date */
+            end_date?: string | null;
             fee_currency?: string | null;
             /** Format: int64 */
             fee_minor?: number | null;
@@ -20847,6 +21143,14 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             sort_order?: number | null;
+            /**
+             * Format: date
+             * @description Tri-state, matching the budget fields below: `Some(Some(d))` sets a
+             *     date, `Some(None)` takes the phase off the Gantt, and an absent field
+             *     leaves it alone. Without the distinction, renaming a phase would
+             *     quietly erase its planned window.
+             */
+            start_date?: string | null;
             status?: null | components["schemas"]["PhaseStatus"];
         };
         PatchPortalUserRequest: {
@@ -20980,6 +21284,52 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
             payment: components["schemas"]["InvoicePayment"];
         };
+        /** @description Every allocation in the org, or in one project. */
+        PhaseAllocationListView: {
+            allocations: components["schemas"]["PhaseAllocationView"][];
+        };
+        PhaseAllocationMutation: {
+            /** Format: date */
+            end_date?: string | null;
+            note?: string | null;
+            /** Format: uuid */
+            phase_id: string;
+            /**
+             * Format: int32
+             * @description 1..=100, CHECK-enforced in the database. A 0 or a 150 entering the
+             *     forecast would corrupt every capacity number on the page, so the
+             *     bound is enforced in the schema rather than only in this handler.
+             */
+            share_percent: number;
+            /** Format: date */
+            start_date?: string | null;
+            /** Format: uuid */
+            user_id: string;
+        };
+        PhaseAllocationQuery: {
+            /** Format: uuid */
+            project_id?: string | null;
+        };
+        /** @description One stated allocation of a technician to a project phase. */
+        PhaseAllocationView: {
+            end_date?: string | null;
+            /** Format: uuid */
+            id: string;
+            note?: string | null;
+            /** Format: uuid */
+            phase_id: string;
+            phase_name: string;
+            phase_status: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: int32 */
+            share_percent: number;
+            start_date?: string | null;
+            user_display_name: string;
+            /** Format: uuid */
+            user_id: string;
+        };
         /**
          * @description The burn read model for one phase: consumed minutes priced against the
          *     project's linked contract versus the contracted budget, with a typed
@@ -21017,6 +21367,37 @@ export interface components {
          * @enum {string}
          */
         PhaseBurnAlert: "none" | "warn" | "over";
+        /** @description One phase as the Gantt draws it, with its budget burn attached. */
+        PhaseGanttView: {
+            /** Format: int64 */
+            budget_minor?: number | null;
+            /**
+             * @description `none` under budget, `warn` at/over 80%, `over` at/over 100%.
+             *     `None` for an unbudgeted phase, because "no budget" is not "under
+             *     budget" and rendering it green would be a false reassurance.
+             */
+            burn_alert?: string | null;
+            completed_at?: string | null;
+            /** Format: int64 */
+            consumed_minor: number;
+            /** Format: int64 */
+            consumed_minutes: number;
+            currency?: string | null;
+            end_date?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_milestone: boolean;
+            name: string;
+            /**
+             * Format: int64
+             * @description Planned days, inclusive of both ends. `None` when undated.
+             */
+            planned_days?: number | null;
+            /** Format: int32 */
+            sort_order: number;
+            start_date?: string | null;
+            status: string;
+        };
         PhaseMutationResponse: components["schemas"]["ProjectPhase"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
@@ -22046,6 +22427,25 @@ export interface components {
             /** Format: uuid */
             project_id: string;
         };
+        /** @description The project's Gantt: dated phases as bars, undated ones as list items. */
+        ProjectGanttView: {
+            /** @description Phases with BOTH dates set, ordered by start then sort_order. */
+            dated: components["schemas"]["PhaseGanttView"][];
+            /** Format: uuid */
+            project_id: string;
+            /**
+             * @description Phases with a missing end, in sort_order. The UI shows these in the
+             *     ordered list and says they are not on the timeline, rather than
+             *     placing them at an invented date.
+             */
+            undated: components["schemas"]["PhaseGanttView"][];
+            /**
+             * @description The union of dated windows, so the chart can scale to the plan
+             *     instead of to "today".
+             */
+            window_from?: string | null;
+            window_to?: string | null;
+        };
         /**
          * @description The instantiation result: the applied project plus the expansion
          *     counts (clients render "created N phases, M tasks" without refetching).
@@ -22083,6 +22483,13 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description?: string | null;
+            /**
+             * Format: date
+             * @description Inclusive end date. CHECK-enforced `>= start_date` in the database,
+             *     because a bar drawn backwards reads as a rendering bug and is
+             *     actually a data problem the operator needs told about.
+             */
+            end_date?: string | null;
             /** Format: uuid */
             id: string;
             is_milestone: boolean;
@@ -22101,6 +22508,18 @@ export interface components {
             project_id: string;
             /** Format: int32 */
             sort_order: number;
+            /**
+             * Format: date
+             * @description The phase's PLANNED window (Wave 34 claims close-out, claim 6).
+             *
+             *     Both ends are nullable and that is the honest state rather than a
+             *     compromise: most real projects have phases nobody has dated yet, and
+             *     a NOT NULL pair with a "today" default would draw a Gantt that lies
+             *     about the plan. A phase is drawn on the bar chart only when BOTH
+             *     ends are set; a half-dated phase stays in the ordered list and the
+             *     UI says which it is.
+             */
+            start_date?: string | null;
             status: components["schemas"]["PhaseStatus"];
             /** Format: date-time */
             updated_at: string;
@@ -22929,6 +23348,10 @@ export interface components {
             logo_url?: string | null;
             postmark_base_url?: string | null;
             reply_to?: string | null;
+            /** @description Optional SES endpoint override, for a VPC interface endpoint. */
+            ses_endpoint?: string | null;
+            /** @description AWS region whose SES endpoint this org sends through (transport=ses). */
+            ses_region?: string | null;
             signature?: string | null;
             smtp_host?: string | null;
             /** Format: int64 */
@@ -22975,9 +23398,17 @@ export interface components {
         PutTransportCredentialsRequest: {
             /** @description Postmark server token (required when transport = postmark). */
             postmark_server_token?: string | null;
+            /** @description SES IAM access key id (required when transport = ses). */
+            ses_access_key_id?: string | null;
+            /**
+             * @description SES IAM secret access key (required when transport = ses). The
+             *     secret half of the pair — required alongside the id, never instead
+             *     of it, because a lone key id cannot sign a request.
+             */
+            ses_secret_access_key?: string | null;
             /** @description SMTP password (required when transport = smtp). */
             smtp_password?: string | null;
-            /** @description `postmark` or `smtp` — which credential this request rotates. */
+            /** @description `postmark`, `smtp` or `ses` — which credential this request rotates. */
             transport: string;
         };
         /**
@@ -24682,6 +25113,14 @@ export interface components {
             loki?: string | null;
             otel_metrics?: string | null;
             tempo?: string | null;
+            /**
+             * @description Uptime Kuma's status-page UI (Wave 34 claims close-out: the section
+             *     2 observability row that had not shipped). Same link-out shape as
+             *     Grafana — a standalone operator UI in the observability profile
+             *     that Marula never reads from, so the pane can only offer the link
+             *     and never report on it.
+             */
+            uptime_kuma?: string | null;
         };
         SelfHostView: {
             detections: components["schemas"]["DetectionView"][];
@@ -27945,6 +28384,67 @@ export interface components {
         WipLimitUpdate: "Unchanged" | "Clear" | {
             /** Format: int32 */
             Set: number;
+        };
+        /** @description One row of a technician's curated queue, as the board renders it. */
+        WorkNextEntryView: {
+            /** Format: uuid */
+            client_id?: string | null;
+            client_name?: string | null;
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            position: number;
+            priority: string;
+            status: string;
+            /** Format: uuid */
+            ticket_id: string;
+            ticket_number: string;
+            title: string;
+            updated_at: string;
+        };
+        WorkNextMutation: {
+            /**
+             * Format: int32
+             * @description Target rank. Clamped server-side to the queue's bounds: dragging past
+             *     the end is a gesture, not a client bug.
+             */
+            position: number;
+            /** Format: uuid */
+            ticket_id: string;
+            /** Format: uuid */
+            user_id: string;
+        };
+        WorkNextQueueQuery: {
+            /**
+             * Format: uuid
+             * @description Whose queue to read. Admins may read another technician's (a
+             *     dispatcher setting up a shift); anyone may read their own, and a
+             *     non-admin asking for someone else is refused rather than silently
+             *     served their own.
+             */
+            user_id?: string | null;
+        };
+        /** @description The whole queue for one technician, in curated order. */
+        WorkNextQueueView: {
+            /**
+             * @description The technician whose queue this is, resolved server-side from the
+             *     authenticated principal unless an admin asks for someone else's.
+             */
+            display_name: string;
+            entries: components["schemas"]["WorkNextEntryView"][];
+            /** Format: uuid */
+            user_id: string;
+        };
+        WorkNextRemovalQuery: {
+            /** Format: uuid */
+            ticket_id: string;
+            /**
+             * Format: uuid
+             * @description Absent means "every technician's queue", which is what a placed or
+             *     closed ticket needs: its queue entries are stale everywhere at once.
+             */
+            user_id?: string | null;
         };
         WorkTypeMapRowWire: {
             category_slug: string;
@@ -31856,6 +32356,27 @@ export interface operations {
             };
         };
     };
+    calendar_sync_authorize_start: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthStartResponse"];
+                };
+            };
+        };
+    };
     calendar_sync_delete: {
         parameters: {
             query?: never;
@@ -31999,6 +32520,36 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    calendar_sync_oauth_callback: {
+        parameters: {
+            query: {
+                state: string;
+                code?: string | null;
+                /**
+                 * @description The operator may decline; the vendor then redirects with an error
+                 *     and no code. That is a user choice, not a failure, so it gets its own
+                 *     message instead of "invalid code".
+                 */
+                error?: string | null;
+            };
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthCallbackResult"];
+                };
             };
         };
     };
@@ -35071,6 +35622,101 @@ export interface operations {
             };
         };
     };
+    dispatch_phase_allocations_list: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhaseAllocationListView"];
+                };
+            };
+        };
+    };
+    dispatch_phase_allocation_upsert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhaseAllocationMutation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhaseAllocationView"];
+                };
+            };
+        };
+    };
+    dispatch_phase_allocation_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                allocation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description no such allocation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatch_capacity_forecast: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                /** @description Horizon length in days (1..=31). */
+                days?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapacityForecastView"];
+                };
+            };
+        };
+    };
     dispatch_queue_list: {
         parameters: {
             query?: {
@@ -35543,6 +36189,101 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    dispatch_work_next_list: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Whose queue to read. Admins may read another technician's (a
+                 *     dispatcher setting up a shift); anyone may read their own, and a
+                 *     non-admin asking for someone else is refused rather than silently
+                 *     served their own.
+                 */
+                user_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkNextQueueView"];
+                };
+            };
+        };
+    };
+    dispatch_work_next_add: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkNextMutation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkNextEntryView"];
+                };
+            };
+        };
+    };
+    dispatch_work_next_remove: {
+        parameters: {
+            query: {
+                ticket_id: string;
+                user_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    dispatch_work_next_reorder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkNextMutation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkNextEntryView"][];
+                };
             };
         };
     };
@@ -36295,7 +37036,7 @@ export interface operations {
     email_transport_credentials_delete: {
         parameters: {
             query: {
-                /** @description postmark | smtp */
+                /** @description postmark | smtp | ses */
                 transport: string;
             };
             header?: never;
@@ -42916,6 +43657,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    projects_gantt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectGanttView"];
+                };
             };
         };
     };

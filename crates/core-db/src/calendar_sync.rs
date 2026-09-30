@@ -25,7 +25,8 @@ use uuid::Uuid;
 
 const CONNECTION_COLS: &str = "id, org_id, user_id, name, provider, direction::text AS direction, \
      status::text AS status, feed_url, feed_token_hash, sync_token, last_synced_at, \
-     last_error, created_at, updated_at";
+     last_error, access_token, token_expires_at, external_account, scopes, \
+     created_at, updated_at";
 
 fn row_to_connection(row: &sqlx::postgres::PgRow) -> DbResult<CalendarSyncConnection> {
     let direction: String = row.get("direction");
@@ -48,6 +49,10 @@ fn row_to_connection(row: &sqlx::postgres::PgRow) -> DbResult<CalendarSyncConnec
         feed_path: feed_token_hash
             .as_ref()
             .map(|hash| format!("/api/calendar-sync/feed/{}", &hash[..hash.len().min(12)])),
+        access_token: row.get("access_token"),
+        token_expires_at: row.get("token_expires_at"),
+        external_account: row.get("external_account"),
+        scopes: row.get("scopes"),
         last_synced_at: row.get("last_synced_at"),
         last_error: row.get("last_error"),
         created_at: row.get("created_at"),

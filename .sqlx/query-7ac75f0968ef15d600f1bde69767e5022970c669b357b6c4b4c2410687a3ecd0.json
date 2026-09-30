@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT q.id, q.ticket_id, q.position, q.created_at, q.updated_at,\n                  t.number AS ticket_number, t.title AS ticket_title,\n                  t.priority AS ticket_priority,\n                  COALESCE(st.name, '') AS \"ticket_status!\",\n                  t.client_id, c.name AS \"client_name?\"\n           FROM dispatch_work_next_queue q\n           JOIN tickets t ON t.id = q.ticket_id AND t.org_id = q.org_id\n           LEFT JOIN clients c ON c.id = t.client_id\n           LEFT JOIN board_statuses st ON st.id = t.status_id\n           WHERE q.org_id = $1 AND q.user_id = $2 AND t.category <> 'closed'\n           ORDER BY q.position, q.created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "position",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "ticket_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "ticket_title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "ticket_priority",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "ticket_status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 10,
+        "name": "client_name?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      true,
+      false
+    ]
+  },
+  "hash": "7ac75f0968ef15d600f1bde69767e5022970c669b357b6c4b4c2410687a3ecd0"
+}

@@ -1,0 +1,51 @@
+# Trivy ignore rules, scoped to the per-PR preview compose OVERLAY.
+#
+# Why this file exists: `deploy/preview/compose.preview.yml` is an OVERLAY,
+# not a standalone stack. Compose merges it over `deploy/docker-compose.yml`,
+# and the merged result inherits every hardening decision the base makes —
+# digest pins, `cap_drop: ALL`, `security_opt: no-new-privileges`, nonroot
+# uids, read-only root filesystems.
+#
+# `trivy config` parses a file in ISOLATION, so scanning the overlay alone
+# sees services with no `cap_drop` and no `read_only` and reports them as
+# under-hardened. That is a true statement about the file and a false one
+# about the deployment.
+#
+# The alternative — copying the base's hardening values into the overlay —
+# is the thing to avoid. Duplicated posture is how an overlay silently
+# diverges from the file it overlays: someone relaxes the base, the overlay
+# keeps the strict copy (or the reverse), and neither file is wrong on its
+# own. A preview environment that quietly lost the base's posture would be a
+# worse preview environment than a laptop.
+#
+# HOW THIS IS ACTUALLY VERIFIED
+# `scripts/check-preview-compose.sh` renders the MERGED config (base +
+# overlay) and asserts the posture on the merged result, so the guarantee
+# this file declines to make statically is still made mechanically. Run it
+# before enabling the preview workflow.
+#
+# Scope note: every entry below is path-qualified to this ONE file. If a
+# real finding ever appears here, it is fixed in the overlay, not ignored
+# more broadly.
+
+misconfigurations:
+  # AVD-DS-0002 — "run as root". Not applicable to an overlay: the `user:`
+  # pins in the base file apply after merge, and the overlay adds no user of
+  # its own.
+  - ID: AVD-DS-0002
+    Paths:
+      - deploy/preview/compose.preview.yml
+
+  # AVD-DS-0004 — "no read-only root filesystem". The overlay narrows what
+  # is published and tightens secrets posture; rootfs posture is the base's
+  # to set, and merge preserves it.
+  - ID: AVD-DS-0004
+    Paths:
+      - deploy/preview/compose.preview.yml
+
+  # AVD-DS-0015 — "privileged container". Never true here; the overlay adds
+  # no `privileged: true`. Listed because a static compose parse cannot
+  # resolve the merge and would otherwise flag the absence of the key.
+  - ID: AVD-DS-0015
+    Paths:
+      - deploy/preview/compose.preview.yml
