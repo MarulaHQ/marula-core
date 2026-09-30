@@ -13,7 +13,7 @@
 //! consumes it); no billing internals are imported here.
 
 use crate::ids::{ClientId, ContractId, OrgId, PhaseId, ProjectId, TaskId, UserId};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 /// Lifecycle of a project.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -252,9 +252,46 @@ pub struct ProjectPhase {
     pub milestone_amount_minor: Option<i64>,
     /// ISO 4217 code for `milestone_amount_minor`.
     pub milestone_currency: Option<String>,
+    /// The phase's PLANNED window (Wave 34 claims close-out, claim 6).
+    ///
+    /// Both ends are nullable and that is the honest state rather than a
+    /// compromise: most real projects have phases nobody has dated yet, and
+    /// a NOT NULL pair with a "today" default would draw a Gantt that lies
+    /// about the plan. A phase is drawn on the bar chart only when BOTH
+    /// ends are set; a half-dated phase stays in the ordered list and the
+    /// UI says which it is.
+    pub start_date: Option<NaiveDate>,
+    /// Inclusive end date. CHECK-enforced `>= start_date` in the database,
+    /// because a bar drawn backwards reads as a rendering bug and is
+    /// actually a data problem the operator needs told about.
+    pub end_date: Option<NaiveDate>,
     pub completed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl ProjectPhase {
+    /// Can this phase be drawn on the dated Gantt?
+    ///
+    /// Both ends or neither: a phase with only a start has no length, and
+    /// inventing one (a zero-width bar, or "start + 1 day") would put a
+    /// duration on the timeline that nobody planned.
+    pub fn is_dated(&self) -> bool {
+        self.start_date.is_some() && self.end_date.is_some()
+    }
+
+    /// Planned working days in the window, inclusive of both ends.
+    ///
+    /// `None` when the phase is undated. Weekends are counted as days: this
+    /// is a PLANNING span for laying a bar on a chart, not a commitment
+    /// about working days, and a planner who needs working days excludes
+    /// them in the calendar they schedule against.
+    pub fn planned_days(&self) -> Option<i64> {
+        match (self.start_date, self.end_date) {
+            (Some(s), Some(e)) => Some((e - s).num_days() + 1),
+            _ => None,
+        }
+    }
 }
 
 /// A unit of project work. A task flagged `is_milestone` is a billing

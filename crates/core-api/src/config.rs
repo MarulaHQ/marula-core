@@ -35,7 +35,7 @@ impl std::fmt::Debug for JwtSigningKey {
     }
 }
 
-use core_mail::TransportKind;
+use core_mail::{TransportCredentials, TransportKind};
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -162,7 +162,9 @@ pub struct Config {
 pub enum RoutingChoice {
     None,
     /// Self-hosted OSRM table/route server.
-    Osrm { base_url: String },
+    Osrm {
+        base_url: String,
+    },
     /// Self-hosted or hosted OpenRouteService.
     Ors {
         base_url: String,
@@ -209,7 +211,9 @@ fn routing_from_env() -> RoutingChoice {
         Ok("osrm") => {
             let base_url = std::env::var("ROUTING_OSRM_URL").unwrap_or_default();
             if base_url.trim().is_empty() {
-                tracing::warn!("ROUTING_PROVIDER=osrm without ROUTING_OSRM_URL — staying in NONE mode");
+                tracing::warn!(
+                    "ROUTING_PROVIDER=osrm without ROUTING_OSRM_URL — staying in NONE mode"
+                );
                 return RoutingChoice::None;
             }
             RoutingChoice::Osrm { base_url }
@@ -217,7 +221,9 @@ fn routing_from_env() -> RoutingChoice {
         Ok("ors") => {
             let base_url = std::env::var("ROUTING_ORS_URL").unwrap_or_default();
             if base_url.trim().is_empty() {
-                tracing::warn!("ROUTING_PROVIDER=ors without ROUTING_ORS_URL — staying in NONE mode");
+                tracing::warn!(
+                    "ROUTING_PROVIDER=ors without ROUTING_ORS_URL — staying in NONE mode"
+                );
                 return RoutingChoice::None;
             }
             RoutingChoice::Ors {
@@ -264,7 +270,10 @@ fn routing_from_env() -> RoutingChoice {
         }
         Ok("none") | Ok("") | Err(_) => RoutingChoice::None,
         Ok(other) => {
-            tracing::warn!(provider = other, "unknown ROUTING_PROVIDER — staying in NONE mode");
+            tracing::warn!(
+                provider = other,
+                "unknown ROUTING_PROVIDER — staying in NONE mode"
+            );
             RoutingChoice::None
         }
     }
@@ -458,8 +467,11 @@ impl Config {
             email_internal_token: std::env::var("EMAIL_INTERNAL_TOKEN").ok(),
             email_transport: TransportKind::parse(
                 &std::env::var("EMAIL_TRANSPORT").unwrap_or_default(),
-                smtp_from_env(),
-                postmark_from_env(),
+                TransportCredentials {
+                    smtp: smtp_from_env(),
+                    postmark: postmark_from_env(),
+                    ses: ses_from_env(),
+                },
             ),
             email_scan_clamd_addr: match std::env::var("EMAIL_SCAN").as_deref() {
                 Ok("clamd") => {
@@ -617,7 +629,9 @@ fn jwt_signing_from_env() -> Result<Option<JwtSigningKey>, String> {
         let inline = std::env::var(inline_var)
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let file = std::env::var(file_var).ok().filter(|v| !v.trim().is_empty());
+        let file = std::env::var(file_var)
+            .ok()
+            .filter(|v| !v.trim().is_empty());
         match (inline, file) {
             (Some(_), Some(_)) => Err(format!(
                 "set EITHER {inline_var} (inline PEM) OR {file_var} (path), not both"
@@ -707,8 +721,11 @@ impl Config {
             email_internal_token: std::env::var("EMAIL_INTERNAL_TOKEN").ok(),
             email_transport: TransportKind::parse(
                 &std::env::var("EMAIL_TRANSPORT").unwrap_or_default(),
-                smtp_from_env(),
-                postmark_from_env(),
+                TransportCredentials {
+                    smtp: smtp_from_env(),
+                    postmark: postmark_from_env(),
+                    ses: ses_from_env(),
+                },
             ),
             email_scan_clamd_addr: match std::env::var("EMAIL_SCAN").as_deref() {
                 Ok("clamd") => {
@@ -759,6 +776,33 @@ fn postmark_from_env() -> Option<(String, String)> {
         token,
         std::env::var("POSTMARK_BASE_URL").unwrap_or_else(|_| "https://api.postmarkapp.com".into()),
     ))
+}
+
+/// SES v2 credentials, or `None` when the pair is incomplete.
+///
+/// BOTH the key id and the secret are required, and a half-configured SES
+/// resolves to `None` (which `TransportKind::parse` turns into none-mode)
+/// rather than to a partially-signed adapter. An access key id with no
+/// secret cannot sign anything, and an adapter that 403s on every send is a
+/// worse outcome than one that keeps the mail queued and says why.
+fn ses_from_env() -> Option<(String, String, String, Option<String>)> {
+    let access_key_id = std::env::var("AWS_SES_ACCESS_KEY_ID").ok()?;
+    let secret_access_key = std::env::var("AWS_SES_SECRET_ACCESS_KEY").ok()?;
+    if access_key_id.trim().is_empty() || secret_access_key.trim().is_empty() {
+        return None;
+    }
+    // Region is part of the endpoint, not a preference, so it has a default
+    // rather than being optional: a missing region that defaulted to
+    // "whatever" would send to the wrong data centre.
+    let region = std::env::var("AWS_SES_REGION")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "eu-west-1".into());
+    // Optional override for a VPC endpoint or a local capture server.
+    let endpoint = std::env::var("AWS_SES_ENDPOINT")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    Some((access_key_id, secret_access_key, region, endpoint))
 }
 #[cfg(test)]
 mod hardening_tests {

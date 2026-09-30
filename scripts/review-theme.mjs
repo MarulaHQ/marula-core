@@ -74,10 +74,14 @@ const tokensCssPath = resolve(root, "packages/ui/src/tokens.css");
 const globalsPath = resolve(root, "apps/web/app/globals.css");
 const componentsPath = resolve(root, "packages/ui/src/components.css");
 const tokensTsPath = resolve(root, "packages/ui/src/tokens.ts");
-// Filename still carries the pre-rebrand prefix: lane 1 renamed identifiers,
-// not this artifact. Retiring the file is lane 4's call (it draws the new
-// mockups), so the review points at what exists and checks only geometry.
-const mockupPath = resolve(root, "design/mockups/meridian-ticket-workbench-html-mockup-v2.html");
+// The reference pack vendored under design/mockups/ is the live
+// aesthetic source. The pre-rebrand workbench v2 file stays on disk as history;
+// retiring it is lane 4's call, so the review reads the new pack and checks the
+// old geometry only.
+const mockupPath = resolve(
+  root,
+  "design/mockups/marula-app-mockup-images/source/marula-app-mockups.html",
+);
 
 check(existsSync(presetPath), "vendored preset exists (design/marula/marula.json)");
 check(existsSync(tokensCssPath), "packages/ui/src/tokens.css exists");
@@ -321,15 +325,38 @@ check(cssHexes.size === tsHexes.size && [...cssHexes].every((h) => tsHexes.has(h
   `tokens.ts PALETTE ↔ tokens.css hex sets identical (${cssHexes.size})`);
 
 // ---------- 8. mockup ----------
-// The v2 mockup is the WORKBENCH aesthetic reference and still describes the
-// retired identity. It is checked for the geometry that carried over (pill tags,
-// the 0.75rem scale root, both modes) and NOT for its colours: Tangerine is
-// retired, so a colour assertion against it would be an assertion that the
-// mockup is wrong. The Marula values are pinned in packages/ui/tests/tokens.test.ts
-// against tokens.css instead, which is the source of truth.
+// The vendored reference pack is the Marula aesthetic source: it renders the
+// three shipped themes, so it is now asserted against the token layer rather
+// than exempt from colour checks. The old v2 mockup could not be — it drew
+// the retired Workbench palette, so a colour assertion against it would have
+// been an assertion that it was wrong.
+//
+// What carried over from the old geometry checks: pill tags stay pills, the
+// 12px radius scale root stays (the pack writes it in px, not rem), and both
+// modes stay. The theme mechanism differs — the pack selects on a
+// `data-theme` attribute rather than a body class, and names the light
+// columns "neutral" and "warm" rather than "light".
 check(mockup.includes("999px"), "mockup pill tags (999px)");
-check(/--radius:\s*0\.75rem/i.test(mockup), "mockup radius 0.75rem (scale root carried over)");
-check(/body\.dark\s*\{/.test(mockup), "mockup v2 dark-mode support (body.dark block)");
+check(
+  /border-radius:\s*12px/.test(mockup) && /border-radius:\s*10px/.test(mockup),
+  "mockup radius scale carried over (12px root, 10px controls)",
+);
+check(
+  /:root\[data-theme="dark"\]\s*\{/.test(mockup),
+  "mockup dark-mode support (data-theme=dark block)",
+);
+check(
+  /:root\[data-theme="neutral"\]\s*\{[^}]*--bg:\s*#F8F7F4/i.test(mockup),
+  "mockup neutral-light canvas matches the shipped canvas token (#F8F7F4)",
+);
+check(
+  /:root\[data-theme="dark"\]\s*\{[^}]*--bg:\s*#2B2A33/i.test(mockup),
+  "mockup dark canvas matches the shipped ink token (#2B2A33)",
+);
+check(
+  /:root\[data-theme="dark"\]\s*\{[^}]*--pr:\s*#E8B83A/i.test(mockup),
+  "mockup dark primary is the shipped gold (#E8B83A)",
+);
 check(!/#e05d38/i.test(tokensCss), "tokens.css carries no Tangerine primary");
 check(!/#e8ebed/i.test(tokensCss), "tokens.css carries no Tangerine canvas");
 check(!/Tangerine/i.test(globalsCss), "globals.css names no retired identity");

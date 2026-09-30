@@ -2,7 +2,7 @@
 
 > **Status:** Active · **Applied:** 2026-09-30 (Wave 41 lane 2, `p41-marula-theme`)
 > **Identity:** **Marula** — ink and gold on a warm neutral canvas
-> **Canonical machine source:** `design/marula/marula.json` (vendored tweakcn export) plus the rendered pack in `brand/marula-mockups/marula-app-mockup-images/DESIGN-NOTES.md`
+> **Canonical machine source:** `design/marula/marula.json` (vendored tweakcn export) plus the rendered pack in `design/mockups/marula-app-mockup-images/DESIGN-NOTES.md`
 > **Binding on:** all Marula UI code, the docs site, and marketplace surfaces
 
 ## 0. Retired identities
@@ -78,7 +78,7 @@ something is live. Colour carries meaning. It never decorates.
   `PALETTE` by position, because its order is the hex-scan contract.
 - Vendored canonical export: `design/marula/marula.json`.
 - Rendered ground truth: the pack in
-  `brand/marula-mockups/marula-app-mockup-images/DESIGN-NOTES.md` §7, forty
+  `design/mockups/marula-app-mockup-images/DESIGN-NOTES.md` §7, forty
   tokens across three theme columns.
 
 ### 3.1 Brand primitives (mode-independent)
@@ -335,10 +335,10 @@ Dry, precise, documentation-grade — unchanged by the visual overhaul.
 ## 9. Enforcement
 
 - Tokens live in `packages/ui/src/tokens.css` (+ the `tokens.ts` PALETTE mirror). CI hex-scan (`.github/workflows/ci.yml`) fails on raw hex outside the token files. The blacklist covers three dead families: Workbench, Tangerine, and Ember. It is append-only, because the point of a retired colour is that it can never come back.
-- **`@shadcn/lint` (Wave 25 lane 1) mechanizes the token layer for `apps/web`:** `pnpm turbo run lint` runs ESLint 9 + `@shadcn/lint` over 277 files with `settings.shadcn.componentImports` on `@marula-core/ui`. At `error`: `no-raw-colors` (raw palette colors — succeeds the hex-scan posture) and `no-restyle` (permissive-correct `layout+typography` base with per-component contracts. Component styling stays owned by `packages/ui/src/**`, Tiptap editor internals, and the recharts tooltip style props via explicit carve-outs). At `warn` pending post-Wave-25 sweeps: `no-inline-styles` (96 token-driven findings), `no-arbitrary-values` (1476, mostly the `text-[13px]` off-scale font size), `no-unknown-classes` (51 `m-wb-*` classes needing `@utility` declarations), `require-static-classes`. Every finding's error text appends this file + mockup v2 as the fix reference.
+- **`@shadcn/lint` (Wave 25 lane 1) mechanizes the token layer for `apps/web`:** `pnpm turbo run lint` runs ESLint 9 + `@shadcn/lint` over 277 files with `settings.shadcn.componentImports` on `@marula-core/ui`. At `error`: `no-raw-colors` (raw palette colors — succeeds the hex-scan posture) and `no-restyle` (permissive-correct `layout+typography` base with per-component contracts. Component styling stays owned by `packages/ui/src/**`, Tiptap editor internals, and the recharts tooltip style props via explicit carve-outs). At `warn` pending post-Wave-25 sweeps: `no-inline-styles` (96 token-driven findings), `no-arbitrary-values` (1476, mostly the `text-[13px]` off-scale font size), `no-unknown-classes` (51 `m-wb-*` classes needing `@utility` declarations), `require-static-classes`. Every finding's error text appends this file + the reference mockup pack as the fix reference.
 - `packages/ui/tests/tokens.test.ts` proves hex-source uniqueness, PALETTE sync, dark-mode completeness, and WCAG floors.
 - `scripts/review-theme.mjs` asserts the generated layers against the vendored `design/marula/marula.json` (value-level comparison, the primary's mode flip, the non-flipping bar, the chart ramp, the vendored font files). Its blacklist scan strips comments first, so a hex named in a tombstone reads as documentation rather than a defect. Wave 24 note: the per-theme hex-scan cross-checks the `no-raw-colors` settings (`apps/web/eslint.config.mjs`).
 - **`scripts/check-theme-packs.mjs` (Wave 24 leg C) — the per-preset gate:** runs the retired-hex blacklist, the AA/3:1 floors and the D8 fixed-axis diff over EVERY shipped built-in preset, in both modes. It also scores any installed pack manifests passed as CLI args or via `THEME_PACK_MANIFESTS` (CI loops per installed theme). It enforces the closed role vocabulary, so an off-schema token in any theme is mechanically rejected rather than applied.
-- Reference mockups: `design/mockups/meridian-ticket-workbench-html-mockup-v2.html` (+ its `-light.png` and `-dark.png`) is the **aesthetic** reference for layout, hierarchy and density, and it still describes the retired identity, so it is checked for geometry only. The brand pack in `brand/marula-mockups/` is the authority for colour and type. Wave 41 lane 4 draws the new mockups against these tokens. QA evidence under `design/qa-p41-marula-theme/`.
+- Reference mockups: `design/mockups/marula-app-mockup-images/` is the **aesthetic** reference for layout, hierarchy, density and both modes — `source/marula-app-mockups.html` is the interactive mockup, `DESIGN-NOTES.md` carries the rules behind each state, and `manifest.json` indexes all 70 captured states. The pre-rebrand Workbench v2 mockup stays in `design/mockups/` as history; it describes the retired identity, so it is checked for geometry only. The brand kit in `brand/marula-ci-docs/design.md` is the authority for colour and type. Wave 41 lane 4 draws the full surface pack against these tokens. QA evidence under `design/qa-p41-marula-theme/`.
 
 <!-- END -->

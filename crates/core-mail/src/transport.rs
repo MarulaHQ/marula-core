@@ -6,6 +6,7 @@
 
 pub mod postmark;
 pub mod recording;
+pub mod ses;
 pub mod smtp;
 
 use async_trait::async_trait;
@@ -32,7 +33,8 @@ pub struct OutboundEmail {
 /// Provider acknowledgement for one accepted message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SendReceipt {
-    /// Provider-assigned id when it returns one (Postmark); None otherwise.
+    /// Provider-assigned id when it returns one (Postmark, SES). None
+    /// otherwise — SMTP has no server-assigned id to record.
     pub provider_message_id: Option<String>,
 }
 
@@ -48,7 +50,8 @@ pub enum TransportError {
 }
 
 /// The single seam for sending email. Implementations: Postmark API,
-/// SMTP (dev/mailpit + self-host relays), recording/noop test doubles.
+/// Amazon SES v2, SMTP (dev/mailpit + self-host relays), recording/noop
+/// test doubles.
 #[async_trait]
 pub trait MailTransport: Send + Sync {
     /// Adapter name recorded on the message ledger (`postmark`, `smtp`, …).

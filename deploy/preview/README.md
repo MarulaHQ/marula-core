@@ -1,0 +1,170 @@
+# Preview environments (per PR)
+
+A preview environment is a running copy of the branch, seeded with demo
+data, that a reviewer can open in a browser. It is the cheapest possible
+answer to "did my change actually work?" — the alternative is a reviewer
+reading a diff and guessing.
+
+This directory holds the parts that belong in the repository: the compose
+overlay that sizes and exposes a preview stack, and the CI definition that
+boots one. It does **not** hold the part that needs your account — the
+host, the domain, and the decision about who may see an unreleased
+branch. Those are yours to provide, and the definition is written to fail
+loudly until you do rather than to improvise them.
+
+## What is here
+
+| File | What it is |
+| --- | --- |
+| `compose.preview.yml` | Compose overlay: sizing, published interfaces, secrets posture |
+| `../.github/workflows/preview.yml.disabled` | The CI definition (user-gated, like every other disabled workflow) |
+
+## Why an overlay and not a second compose file
+
+`deploy/docker-compose.yml` stays the only description of how Marula
+runs. The overlay changes resource ceilings, published interfaces, and
+the mandatory secret set, and inherits everything else. A preview
+environment that silently lost the digest pins, the dropped capabilities,
+or the read-only root filesystems would be a worse environment than a
+laptop, and the most likely way for that to happen is a forked compose
+file nobody remembers to update.
+
+## The two ways to publish one
+
+Both need a host you control. Which one to pick is a question about your
+network, not about Marula.
+
+### 1. SSH tunnel (no infrastructure)
+
+The overlay binds the web, API and WS ports on `0.0.0.0`, so a tunnel on
+your laptop reaches them:
+
+```sh
+ssh -N -L 3000:localhost:3000 -L 8080:localhost:8080 preview-host
+```
+
+Then the preview is at `http://localhost:3000`. Nothing is published to
+the internet, no DNS, no certificates, no wildcard domain, and the
+reviewer is whoever holds the tunnel.
+
+What it costs: one reviewer at a time, unless each of them opens their
+own tunnel. That is fine for a design review and awkward for "here, look
+at this" in a channel with six people.
+
+### 2. Wildcard DNS + TLS (real per-PR URLs)
+
+A domain like `*.preview.example.com` pointing at the preview host, with
+a wildcard certificate, gives every PR a stable URL:
+`https://pr-482.preview.example.com`. This is what the workflow
+definition assumes, and what the `PREVIEW_PUBLIC_URL` /
+`PREVIEW_API_URL` / `PREVIEW_CORS_ORIGIN` variables are for.
+
+What it costs: the wildcard DNS record, a certificate that renews
+itself, and a decision about access. A wildcard certificate on a
+per-PR subdomain means every branch a developer opens is potentially
+reachable by anyone who guesses the URL — so put authentication in front
+of it, or accept that preview data is public. Preview data is demo data,
+so that trade is often fine; it stops being fine the moment someone
+connects a real customer's data, which is the rule to write on the wall.
+
+## Booting one by hand
+
+Useful before wiring CI — you want to know the overlay works before you
+trust it to a workflow.
+
+```sh
+export PREVIEW_JWT_SECRET=$(openssl rand -hex 32)
+export PREVIEW_MARULA_SECRET_KEY=$(openssl rand -hex 32)
+export PREVIEW_PUBLIC_URL=http://localhost:3000
+export PREVIEW_API_URL=http://localhost:8080
+export PREVIEW_CORS_ORIGIN=http://localhost:3000
+
+docker compose -f deploy/docker-compose.yml \
+               -f deploy/preview/compose.preview.yml \
+               up --build -d
+
+# Demo data, so you open a populated app rather than a sign-up form.
+docker compose -f deploy/docker-compose.yml \
+               -f deploy/preview/compose.preview.yml \
+               run --rm -e MARULA_DEV_TOOLS=1 migrate seed-demo --force
+```
+
+The three URLs have to agree with each other and with what the browser
+uses. `NEXT_PUBLIC_API_URL` is baked into the client bundle at build
+time, so changing `PREVIEW_API_URL` after `up --build` changes nothing
+until you rebuild — the most common reason a preview "points at the
+wrong place".
+
+## What the overlay deliberately changes
+
+**Published interfaces.** Exactly three: web, API, WebSocket. Postgres,
+Valkey and the worker's health port are pulled *back* to unpublished.
+Compose merges a `ports:` list from an overlay rather than replacing it,
+so the overlay uses `!override` to clear them — omitting the key would
+have quietly left the local stack's database port open to the network.
+The database is still reachable by service name inside the compose
+network, which is where every client of it lives.
+
+**Secrets.** `JWT_SECRET` and `MARULA_SECRET_KEY` are required, with no
+default. The local stack ships development keys inline; on a
+network-visible interface those are not a development convenience, they
+are a published token that anyone who has read this repository can use to
+mint a session. Compose refuses to start without them, which is the
+behaviour you want: a preview that will not boot until you gave it a real
+key cannot be forgotten, and one that boots on a known key will be.
+
+**Mail.** `EMAIL_TRANSPORT=none` on core-api and the worker. A preview
+stack holds demo data and is reachable by more people than production is,
+so it has no business sending mail to anyone. Messages stay queued and
+unsent, which is what `none` means.
+
+**Sizing.** Every ceiling is below the local baseline so several previews
+fit on one host without starving each other (~3.7 GiB total). This is
+deliberately not a performance claim — the `perf-smoke` CI job owns
+performance, against its own runner and its own 50k-ticket seed. The one
+non-obvious setting is Postgres `shm_size: 256m`: parallel query takes
+shared memory, and Docker's 64m default surfaces as a
+"could not resize shared memory segment" error under any plan that goes
+parallel.
+
+**Timestamps.** It runs the branch's merge commit
+(`refs/pull/N/merge`), not the head of the base branch. A preview
+serving `main` makes every reviewer believe their change broke nothing.
+
+## Enabling the CI leg
+
+User-gated, like every workflow in `.github/workflows/*.disabled`:
+
+1. Rename `preview.yml.disabled` to `preview.yml`.
+2. Add four repository **variables** (not secrets — none is a
+   credential): `PREVIEW_HOST`, `PREVIEW_PUBLIC_URL`, `PREVIEW_API_URL`,
+   `PREVIEW_CORS_ORIGIN`.
+3. Fill in the two placeholder steps: host provisioning and teardown.
+   They are deliberately `exit 1` with a message rather than a plausible
+   guess, because a teardown that is not wired is how previews outlive
+   their PRs.
+4. Give the job `pull-requests: write` (already in the definition) and
+   make sure your `GITHUB_TOKEN` can reach your host.
+
+The teardown is a separate job gated on the PR's `closed` action, and it
+deliberately does not depend on the deploy job succeeding — a failed
+deploy must never be the reason a preview stays up.
+
+## Teardown, when you do it by hand
+
+```sh
+docker compose -f deploy/docker-compose.yml \
+               -f deploy/preview/compose.preview.yml down -v
+```
+
+`-v` takes the volumes with it, which is what you want for a preview
+whose whole value is being disposable. A preview that survives its PR is
+a stale branch on the network at a URL people remember, so tear it down
+even when nothing is wrong with the branch.
+
+## Related
+
+- `deploy/docker-compose.yml` is the base stack; its header explains the
+  hardening posture this overlay inherits.
+- `docs/site/reference/self-host-local-stack.md` is the operator's view of
+  the same file.

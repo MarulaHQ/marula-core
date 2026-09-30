@@ -8,6 +8,13 @@
 // (technicians + upcoming schedule pushes) so external planner
 // integrations can be inspected without any write affordance here.
 //
+// Also the home of the Wave 34 claims close-out panels: committed project
+// load per technician (claim 1), the editable phase allocations that feed
+// it, and the curated per-technician work-next queue (claim 2). They live
+// here rather than on separate pages because the question they answer —
+// "who is free, and what should they do first" — is one question, and a
+// planner switching tabs to answer it would be solving it twice.
+//
 // Non-purpose: no drag-and-drop scheduling (the day board owns that); the
 // connector view is read-only by design — pushes arrive from the
 // connector API, not this screen.
@@ -28,6 +35,9 @@ import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { CapacityForecastPanel } from "./capacity-forecast-panel";
+import { PhaseAllocationsPanel } from "./phase-allocations-panel";
+import { WorkNextPanel } from "./work-next-panel";
 
 type CapacityHorizonView = components["schemas"]["CapacityHorizonView"];
 type SkillsCatalogView = components["schemas"]["SkillsCatalogView"];
@@ -105,6 +115,16 @@ export default function DispatchPlanningPage() {
           </Button>
         </div>
       </div>
+
+      {/*
+        The Wave 34 panels sit ABOVE the horizon, not after it. The horizon
+        answers "who is free in the next week"; the forecast answers "and how
+        much of that week is already committed to a project", which is the
+        question that changes what you do with the answer.
+      */}
+      <CapacityForecastPanel onError={setLoadError} />
+      <PhaseAllocationsPanel onError={setLoadError} />
+      <WorkNextPanel onError={setLoadError} />
 
       {loadError !== null ? (
         <p role="alert" className="text-[13px]">{loadError}</p>

@@ -125,6 +125,30 @@ async fn validate_billing_link(
 /// An amount column requires its currency (the project's currency is a
 /// valid fallback), and a lone currency with no amount is a typo — both
 /// 422 before any write.
+/// A phase window is valid when it is absent, or when BOTH ends are present
+/// and the end does not precede the start.
+///
+/// One end on its own is rejected rather than defaulted. A phase with a
+/// start and no end has no length, and every Gantt rendering has to invent
+/// one — "start + 1 day", a zero-width bar, or a bar running to infinity.
+/// All three assert a duration nobody planned, which is the exact dishonesty
+/// the nullable columns exist to prevent.
+fn validate_phase_dates(
+    start: Option<chrono::NaiveDate>,
+    end: Option<chrono::NaiveDate>,
+) -> ApiResult<()> {
+    match (start, end) {
+        (None, None) => Ok(()),
+        (Some(s), Some(e)) if e >= s => Ok(()),
+        (Some(s), Some(e)) => Err(ApiError::Validation(format!(
+            "end_date {e} must not precede start_date {s}"
+        ))),
+        (s, e) => Err(ApiError::Validation(format!(
+            "a phase needs both start_date and end_date to be dated (got start={s:?}, end={e:?})"
+        ))),
+    }
+}
+
 fn validate_money_pair(minor: Option<i64>, currency: Option<&str>, label: &str) -> ApiResult<()> {
     match (minor, currency) {
         (Some(_), Some(code)) => {
@@ -599,6 +623,13 @@ pub async fn patch(
 pub struct CreatePhaseRequest {
     pub name: String,
     pub description: Option<String>,
+    /// The planned window (Wave 34 claims close-out, claim 6). Both ends
+    /// optional: a phase created without dates lands in the ordered list,
+    /// NOT on the Gantt, and the UI says which it is. Supplying only one
+    /// end is rejected at the database CHECK, because a phase with a start
+    /// and no length has no bar to draw.
+    pub start_date: Option<chrono::NaiveDate>,
+    pub end_date: Option<chrono::NaiveDate>,
     #[serde(default)]
     pub sort_order: i32,
     #[serde(default)]
@@ -626,6 +657,12 @@ pub struct CreatePhaseRequest {
 pub struct PatchPhaseRequest {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
+    /// Tri-state, matching the budget fields below: `Some(Some(d))` sets a
+    /// date, `Some(None)` takes the phase off the Gantt, and an absent field
+    /// leaves it alone. Without the distinction, renaming a phase would
+    /// quietly erase its planned window.
+    pub start_date: Option<Option<chrono::NaiveDate>>,
+    pub end_date: Option<Option<chrono::NaiveDate>>,
     pub sort_order: Option<i32>,
     pub status: Option<PhaseStatus>,
     pub is_milestone: Option<bool>,
@@ -720,6 +757,7 @@ pub async fn create_phase(
         )?;
         validate_money_pair(req.budget_minor, req.budget_currency.as_deref(), "budget")?;
         validate_money_pair(req.fee_minor, req.fee_currency.as_deref(), "fee")?;
+        validate_phase_dates(req.start_date, req.end_date)?;
         let phase = core_db::projects::insert_phase(
             &mut *ctx.tx,
             core_db::projects::NewPhase {
@@ -732,6 +770,8 @@ pub async fn create_phase(
                 is_milestone: req.is_milestone,
                 milestone_amount_minor: amount.as_ref().map(|(m, _)| *m),
                 milestone_currency: amount.as_ref().map(|(_, c)| c.as_str()),
+                start_date: req.start_date,
+                end_date: req.end_date,
             },
         )
         .await?;
@@ -902,6 +942,8 @@ pub async fn patch_phase(
                 is_milestone: req.is_milestone,
                 milestone_amount_minor: req.milestone_amount_minor,
                 milestone_currency: req.milestone_currency.as_ref().map(|o| o.as_deref()),
+                start_date: req.start_date,
+                end_date: req.end_date,
             },
         )
         .await?;
@@ -2388,6 +2430,12 @@ pub async fn instantiate(
                     is_milestone: phase.is_milestone,
                     milestone_amount_minor: phase.milestone_amount_minor,
                     milestone_currency: phase.milestone_currency.as_deref(),
+                    // A template seeds no dates: the dates a real project
+                    // gets depend on when it is scheduled, and baking
+                    // template dates in would put a plan on a Gantt that
+                    // nobody chose for this engagement.
+                    start_date: None,
+                    end_date: None,
                 },
             )
             .await?;
@@ -2520,4 +2568,133 @@ pub async fn instantiate(
     .await?;
 
     Ok(Json(outcome.into_response()?))
+}
+
+// --- dated Gantt (Wave 34 claims close-out, claim 6) -----------------------
+
+/// One phase as the Gantt draws it, with its budget burn attached.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PhaseGanttView {
+    pub id: Uuid,
+    pub name: String,
+    pub sort_order: i32,
+    pub status: String,
+    pub is_milestone: bool,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    /// Planned days, inclusive of both ends. `None` when undated.
+    pub planned_days: Option<i64>,
+    pub completed_at: Option<String>,
+    pub budget_minor: Option<i64>,
+    pub currency: Option<String>,
+    pub consumed_minor: i64,
+    pub consumed_minutes: i64,
+    /// `none` under budget, `warn` at/over 80%, `over` at/over 100%.
+    /// `None` for an unbudgeted phase, because "no budget" is not "under
+    /// budget" and rendering it green would be a false reassurance.
+    pub burn_alert: Option<String>,
+}
+
+/// The project's Gantt: dated phases as bars, undated ones as list items.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ProjectGanttView {
+    pub project_id: Uuid,
+    /// Phases with BOTH dates set, ordered by start then sort_order.
+    pub dated: Vec<PhaseGanttView>,
+    /// Phases with a missing end, in sort_order. The UI shows these in the
+    /// ordered list and says they are not on the timeline, rather than
+    /// placing them at an invented date.
+    pub undated: Vec<PhaseGanttView>,
+    /// The union of dated windows, so the chart can scale to the plan
+    /// instead of to "today".
+    pub window_from: Option<String>,
+    pub window_to: Option<String>,
+}
+
+/// GET /api/projects/{id}/gantt — the dated timeline plus its undated
+/// remainder, each phase carrying its budget burn.
+#[utoipa::path(operation_id = "projects_gantt", get, path = "/api/projects/{id}/gantt",
+    tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = ProjectGanttView)))]
+pub async fn gantt(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<ProjectGanttView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::projects::phase_gantt(&mut *tx, org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+
+    let to_view = |r: core_db::projects::PhaseGanttRow| PhaseGanttView {
+        id: r.id,
+        name: r.name,
+        sort_order: r.sort_order,
+        status: r.status,
+        is_milestone: r.is_milestone,
+        planned_days: match (r.start_date, r.end_date) {
+            (Some(s), Some(e)) => Some((e - s).num_days() + 1),
+            _ => None,
+        },
+        start_date: r.start_date.map(|d| d.to_string()),
+        end_date: r.end_date.map(|d| d.to_string()),
+        completed_at: r.completed_at.map(|t| t.to_rfc3339()),
+        // The alert is computed here rather than in SQL so the thresholds
+        // live in one place next to the rendering that depends on them.
+        burn_alert: r.budget_minor.map(|budget| {
+            if budget <= 0 {
+                // A zero or negative budget has no meaningful percentage, and
+                // dividing by it would be the classic "infinite overspend".
+                "none"
+            } else if r.consumed_minor >= budget {
+                "over"
+            } else if r.consumed_minor.saturating_mul(100) >= budget.saturating_mul(80) {
+                "warn"
+            } else {
+                "none"
+            }
+            .to_string()
+        }),
+        budget_minor: r.budget_minor,
+        currency: r.currency,
+        consumed_minor: r.consumed_minor,
+        consumed_minutes: r.consumed_minutes,
+    };
+
+    // The split is the point: a bar is a plan, a list row is not a plan.
+    // Everything the chart draws is dated, and everything undated is
+    // reported as undated rather than being quietly placed.
+    let mut dated = Vec::new();
+    let mut undated = Vec::new();
+    for r in rows {
+        let view = to_view(r);
+        if view.start_date.is_some() && view.end_date.is_some() {
+            dated.push(view);
+        } else {
+            undated.push(view);
+        }
+    }
+    dated.sort_by(|a, b| {
+        a.start_date
+            .cmp(&b.start_date)
+            .then(a.sort_order.cmp(&b.sort_order))
+    });
+
+    let window_from = dated.iter().filter_map(|v| v.start_date.clone()).min();
+    let window_to = dated.iter().filter_map(|v| v.end_date.clone()).max();
+
+    Ok(Json(ProjectGanttView {
+        project_id: id,
+        dated,
+        undated,
+        window_from,
+        window_to,
+    }))
 }

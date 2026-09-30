@@ -90,6 +90,32 @@ pub struct CalendarSyncConnection {
     pub last_synced_at: Option<DateTime<Utc>>,
     /// Last poll failure message (fixed provider-side copy, no internals).
     pub last_error: Option<String>,
+    // --- delegated OAuth (Wave 34 claims close-out, claim 5) --------------
+    //
+    // `ical` needs none of these and leaves them NULL. `google` and
+    // `microsoft` are DELEGATED: they read one person's calendar, which no
+    // app-only grant can do (see providers.rs for why the m365 connector's
+    // client-credentials flow is the wrong one here).
+    //
+    // The CACHED short-lived access token lives here, not in the sealed
+    // store: it is regenerated hourly from the sealed refresh token, and
+    // refreshing on every poll would make the poll endpoint a proxy for the
+    // vendor's token service. The REFRESH TOKEN — a long-lived bearer that
+    // can read the user's whole calendar — is sealed in `byok_secrets` under
+    // `calendar.google` / `calendar.microsoft` and is never on this row.
+    /// Cached access token, valid until `token_expires_at`.
+    pub access_token: Option<String>,
+    /// Expiry of `access_token`. CHECK-paired with the token so a token row
+    /// can never be read as valid-forever.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "date-time"))]
+    pub token_expires_at: Option<DateTime<Utc>>,
+    /// The provider's own account id (Google `sub`, Microsoft `oid`).
+    /// Recorded so an operator auditing a sync can tell WHICH account the
+    /// connection is bound to. Not an identity Marula authenticates with.
+    pub external_account: Option<String>,
+    /// Scopes actually granted, recorded so the consent screen and the
+    /// stored grant can be compared. Never widened after consent.
+    pub scopes: Option<String>,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
     pub created_at: DateTime<Utc>,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]

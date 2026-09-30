@@ -126,6 +126,34 @@ The reference page [Observability: distributed traces, logs, metrics](../referen
 covers the profile, the datasources, and the anonymous-admin caveat on
 the demo Grafana.
 
+## 4b. Uptime Kuma and the public status page
+
+Uptime Kuma is the slot that answers "is it broken for a customer right
+now", which traces and logs only answer in arrears. It arrives with the
+same profile, on its own port:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
+  docker compose -f deploy/docker-compose.yml --profile observability up
+```
+
+Then open `http://localhost:3002` and create the admin account — that
+step is once per deployment, and nothing in Marula can do it for you.
+
+The pane lists it as a link-out card, same as Grafana:
+
+```bash
+MARULA_UPTIME_KUMA_URL=http://localhost:3002   # compose's Uptime Kuma port
+```
+
+What the card cannot do is report anything. Kuma is not a Marula service
+and Marula never reads from it, so the pane offers the link and stays
+silent on whether your monitors are green — the URL proves the variable
+is set, nothing more. Monitors, notification channels, and the public
+status page are configured inside Kuma; the reference page has a
+sensible starting set of monitors and the one rule that matters, which
+is to keep the status page on a different hostname than Marula.
+
 ## 5. Garage object storage
 
 Garage's admin API is CLI-first, so the card gives you the facts and the
@@ -163,6 +191,6 @@ usage reporting lives with the attachment surfaces, not here.
   the links to every operator UI.
 - Scanning is opt-in (`EMAIL_SCAN=clamd` plus `CLAMD_ADDR`). Without it,
   mail is stored with scan status `skipped`.
-- GlitchTip, Grafana, Tempo, Loki, and the collector are link-out cards
-  driven by `MARULA_*_URL` variables. Garage is CLI-first and stays
-  that way.
+- GlitchTip, Grafana, Tempo, Loki, Uptime Kuma, and the collector are
+  link-out cards driven by `MARULA_*_URL` variables. Garage is CLI-first
+  and stays that way.

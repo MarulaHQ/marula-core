@@ -405,7 +405,6 @@ pub const EMAIL_SMTP_HOST: &str = "email.smtp_host";
 pub const EMAIL_SMTP_PORT: &str = "email.smtp_port";
 pub const EMAIL_SMTP_USERNAME: &str = "email.smtp_username";
 pub const EMAIL_POSTMARK_BASE_URL: &str = "email.postmark_base_url";
-/// Org admin policy over the per-user daily digest: `allowed` (users may
 /// opt in) or `disabled` (no digest sends org-wide). Deny wins.
 pub const EMAIL_DIGEST_POLICY: &str = "email.digest_policy";
 /// Per-user daily digest opt-in: `off` | `daily`. The digest is ONE email
@@ -419,9 +418,22 @@ pub const EMAIL_DIGEST_HOUR: &str = "email.digest_hour";
 /// Hidden idempotency marker: the local date (`YYYY-MM-DD`) of the last
 /// digest send, so at-least-once loop ticks cannot double-send a day.
 pub const EMAIL_DIGEST_LAST_SENT: &str = "email.digest_last_sent";
+/// The AWS region whose SES endpoint this org sends through (e.g.
+/// `eu-west-1`). Not a preference: SES endpoints are region-scoped, so a
+/// wrong region sends to the wrong data centre or fails to resolve. Only
+/// the key pair is sealed, because that is the secret. The region is plain
+/// config and stays readable so the admin UI can display it.
+pub const EMAIL_SES_REGION: &str = "email.ses_region";
+/// Optional SES endpoint override, for a VPC interface endpoint or a
+/// private-link deployment. Empty means the public regional endpoint.
+pub const EMAIL_SES_ENDPOINT: &str = "email.ses_endpoint";
+
 
 /// Transport selections the settings UI and worker resolver accept.
-pub const EMAIL_TRANSPORT_OPTIONS: &[&str] = &["none", "postmark", "smtp"];
+/// `ses` is the third hosted option (Wave 34 claims close-out, claim 10);
+/// the ordering is the order the settings UI renders them in, so the two
+/// token-based providers lead and SES follows the relay-style option.
+pub const EMAIL_TRANSPORT_OPTIONS: &[&str] = &["none", "postmark", "smtp", "ses"];
 
 /// CSAT surveys on resolution: master toggle. Off (or transport `none`)
 /// means no surveys are ever queued — the honest not-configured state.
@@ -1170,6 +1182,32 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                              server token is sealed separately.",
             },
             SettingDeclaration {
+                key: EMAIL_SES_REGION,
+                kind: SettingKind::Text { max_len: 64 },
+                default: SettingValue::Text("eu-west-1".into()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "AWS SES region",
+                description: "The AWS region whose SES endpoint this organization \
+                             sends through, e.g. eu-west-1. Not a preference: SES \
+                             endpoints are region-scoped, so a wrong region sends to \
+                             the wrong data centre. The access key pair is sealed \
+                             separately and never readable.",
+            },
+            SettingDeclaration {
+                key: EMAIL_SES_ENDPOINT,
+                kind: SettingKind::Text { max_len: 255 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "SES endpoint override",
+                description: "Leave empty to use the public regional SES endpoint. \
+                             Set it only for a VPC interface endpoint or a \
+                             private-link deployment.",
+            },
+            SettingDeclaration {
                 key: EMAIL_DIGEST_POLICY,
                 kind: SettingKind::Enumeration,
                 default: SettingValue::Text("allowed".into()),
@@ -1725,8 +1763,12 @@ mod tests {
         // signature, brand, logo, smtp ×3, postmark base, digest policy):
         // 36 → 48. Wave 34 lane 2 added the five CSAT survey keys
         // (send-on-resolve, min interval, link TTL, quiet from/until):
-        // 48 → 53.
-        assert_eq!(declarations_for(SettingScope::Org).len(), 53);
+        // 48 → 53. The Wave 34 claims close-out added the two SES
+        // deployment keys (region, endpoint override) for the third
+        // `MailTransport` choice: 53 → 55. Neither is a secret — the key
+        // pair is sealed in the byok store — which is why they are ordinary
+        // org settings rather than sealed credentials.
+        assert_eq!(declarations_for(SettingScope::Org).len(), 55);
     }
 
     #[test]

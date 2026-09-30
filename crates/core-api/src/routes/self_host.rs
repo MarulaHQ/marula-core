@@ -180,6 +180,7 @@ pub async fn get(
             tempo: env_text("MARULA_TEMPO_URL"),
             loki: env_text("MARULA_LOKI_URL"),
             otel_metrics: env_text("MARULA_OTEL_METRICS_URL"),
+            uptime_kuma: env_text("MARULA_UPTIME_KUMA_URL"),
         },
         garage: GarageView {
             volumes: vec!["garagedata".into(), "garagemeta".into()],
@@ -443,6 +444,12 @@ pub struct SelfHostLinksView {
     pub tempo: Option<String>,
     pub loki: Option<String>,
     pub otel_metrics: Option<String>,
+    /// Uptime Kuma's status-page UI (Wave 34 claims close-out: the section
+    /// 2 observability row that had not shipped). Same link-out shape as
+    /// Grafana — a standalone operator UI in the observability profile
+    /// that Marula never reads from, so the pane can only offer the link
+    /// and never report on it.
+    pub uptime_kuma: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

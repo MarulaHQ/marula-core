@@ -4,9 +4,15 @@
 //! Purpose: one place that shapes the human-facing chrome around a
 //! notification or digest — header wordmark (or logo), greeting line,
 //! body block, sign-off, footer — rendered as BOTH plain text and simple
-//! inline-styled HTML (email clients do not read the app's CSS variables,
-//! so the HTML uses literal, neutral values: dark text on white with a
-//! single thin rule; no invented brand colors).
+//! inline-styled HTML.
+//!
+//! Colours: email clients do not read the app's CSS variables, so the HTML
+//! has to carry literals. They are the Marula token values, not a new
+//! palette — `--m-ink` `#2B2A33` for the wordmark and headings, the
+//! secondary and muted text neutrals `#5F584F` / `#6F685D`, the border
+//! `#E2E0DA` for the footer rule, the light canvas `#F8F7F4` behind the
+//! message, and `--m-gold` `#E8B83A` for the single accent rule under the
+//! header. Gold is decoration here, never text.
 //!
 //! Non-purpose: no ticket mail (the outbound ledger renders those kinds in
 //! `outbound.rs`), no transport, no persistence, no scheduling — callers
@@ -15,8 +21,9 @@
 /// Brand values resolved by the caller from settings (org/board identity).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Brand<'a> {
-    /// Header wordmark; callers fall back to the organization name.
-    pub brand_name: &'a str,
+/// Header wordmark; callers fall back to the organization name, and this
+/// module falls back to the Marula wordmark when both are empty.
+pub brand_name: &'a str,
     /// Optional https logo URL. Callers validate the scheme; this module
     /// only escapes it into the HTML attribute.
     pub logo_url: Option<&'a str>,
@@ -70,17 +77,17 @@ pub fn render_notification(brand: &Brand<'_>, title: &str, body: Option<&str>) -
     html.push_str(&open_document(brand));
     if let Some(greeting) = non_empty(brand.greeting) {
         html.push_str(&format!(
-            "<p style=\"margin:0 0 16px;font-size:15px;color:#111827\">{}</p>",
+            "<p style=\"margin:0 0 16px;font-size:15px;color:#2B2A33\">{}</p>",
             escape_html(greeting.trim())
         ));
     }
     html.push_str(&format!(
-        "<p style=\"margin:0 0 8px;font-size:15px;font-weight:600;color:#111827\">{}</p>",
+        "<p style=\"margin:0 0 8px;font-size:15px;font-weight:600;color:#2B2A33\">{}</p>",
         escape_html(title.trim())
     ));
     if let Some(body) = non_empty(body) {
         html.push_str(&format!(
-            "<p style=\"margin:0 0 16px;font-size:14px;line-height:1.5;color:#374151\">{}</p>",
+            "<p style=\"margin:0 0 16px;font-size:14px;line-height:1.5;color:#5F584F\">{}</p>",
             escape_html(body.trim())
         ));
     }
@@ -133,23 +140,23 @@ pub fn render_digest(brand: &Brand<'_>, day: &str, items: &[DigestItem]) -> Bran
     html.push_str(&open_document(brand));
     if let Some(greeting) = non_empty(brand.greeting) {
         html.push_str(&format!(
-            "<p style=\"margin:0 0 16px;font-size:15px;color:#111827\">{}</p>",
+            "<p style=\"margin:0 0 16px;font-size:15px;color:#2B2A33\">{}</p>",
             escape_html(greeting.trim())
         ));
     }
     html.push_str(&format!(
-        "<p style=\"margin:0 0 12px;font-size:15px;color:#111827\">You have <strong>{count}</strong> unread notification{} on {}.</p>",
+        "<p style=\"margin:0 0 12px;font-size:15px;color:#2B2A33\">You have <strong>{count}</strong> unread notification{} on {}.</p>",
         if count == 1 { "" } else { "s" },
         escape_html(day)
     ));
     html.push_str("<ul style=\"margin:0 0 16px;padding-left:20px\">");
     for item in items {
         html.push_str(&format!(
-            "<li style=\"margin:0 0 6px;font-size:14px;line-height:1.5;color:#374151\">{}{}</li>",
+            "<li style=\"margin:0 0 6px;font-size:14px;line-height:1.5;color:#5F584F\">{}{}</li>",
             escape_html(item.title.trim()),
             non_empty(item.detail.as_deref())
                 .map(|d| format!(
-                    "<span style=\"color:#6b7280\"> — {}</span>",
+                    "<span style=\"color:#6F685D\"> — {}</span>",
                     escape_html(d.trim())
                 ))
                 .unwrap_or_default()
@@ -189,23 +196,39 @@ fn footer_text(brand: &Brand<'_>) -> String {
     }
 }
 
+/// The wordmark shown in the header when the caller supplied neither a brand
+/// name nor an organization name. The brand sets it lowercase, so this is
+/// lowercase too — a self-hoster that sets their own name is left alone.
+const DEFAULT_WORDMARK: &str = "marula";
+
+/// Header wordmark: the caller's brand name, else the org name, else the
+/// Marula wordmark.
+fn wordmark<'a>(brand: &Brand<'a>) -> &'a str {
+    let name = brand.brand_name.trim();
+    if name.is_empty() {
+        DEFAULT_WORDMARK
+    } else {
+        name
+    }
+}
+
 fn open_document(brand: &Brand<'_>) -> String {
+    let mark = escape_html(wordmark(brand));
     let header = match non_empty(brand.logo_url) {
         Some(url) => format!(
-            "<img src=\"{}\" alt=\"{}\" height=\"28\" style=\"display:block;border:0\" />",
+            "<img src=\"{}\" alt=\"{}\" height=\"32\" style=\"display:block;border:0\" />",
             escape_html(url),
-            escape_html(brand.brand_name.trim())
+            mark
         ),
         None => format!(
-            "<div style=\"font-size:16px;font-weight:600;letter-spacing:-0.01em;color:#111827\">{}</div>",
-            escape_html(brand.brand_name.trim())
+            "<div style=\"font-size:18px;font-weight:600;letter-spacing:-0.03em;color:#2B2A33\">{mark}</div>",
         ),
     };
     format!(
-        "<!doctype html><html><body style=\"margin:0;padding:0;background:#ffffff\">\
-         <div style=\"max-width:560px;margin:0 auto;padding:32px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif\">\
+        "<!doctype html><html><body style=\"margin:0;padding:0;background:#F8F7F4\">\
+         <div style=\"max-width:560px;margin:0 auto;padding:32px 24px;background:#FFFFFF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif\">\
          {header}\
-         <div style=\"border-top:1px solid #e5e7eb;margin:16px 0 24px\"></div>"
+         <div style=\"border-top:2px solid #E8B83A;margin:16px 0 24px\"></div>"
     )
 }
 
@@ -213,15 +236,15 @@ fn close_document(brand: &Brand<'_>) -> String {
     let signoff = non_empty(brand.signoff)
         .map(|s| {
             format!(
-                "<p style=\"margin:0 0 24px;font-size:14px;line-height:1.5;color:#374151;white-space:pre-line\">{}</p>",
+                "<p style=\"margin:0 0 24px;font-size:14px;line-height:1.5;color:#5F584F;white-space:pre-line\">{}</p>",
                 escape_html(s.trim())
             )
         })
         .unwrap_or_default();
     format!(
         "{signoff}\
-         <div style=\"border-top:1px solid #e5e7eb;margin:0 0 12px\"></div>\
-         <p style=\"margin:0;font-size:12px;color:#6b7280\">{}</p>\
+         <div style=\"border-top:1px solid #E2E0DA;margin:0 0 12px\"></div>\
+         <p style=\"margin:0;font-size:12px;color:#6F685D\">{}</p>\
          </div></body></html>",
         escape_html(&footer_text(brand))
     )
@@ -341,6 +364,42 @@ mod tests {
         let mail = render_notification(&anon, "x", None);
         assert!(mail.text_body.contains("Sent by Marula."));
         assert!(mail.html_body.contains("Sent by Marula."));
+    }
+
+    #[test]
+    fn empty_brand_name_renders_the_lowercase_wordmark_in_the_header() {
+        let anon = Brand {
+            brand_name: "   ",
+            logo_url: None,
+            greeting: None,
+            signoff: None,
+        };
+        let mail = render_notification(&anon, "x", None);
+        // The brand sets the wordmark lowercase, and it must not be escaped
+        // into anything else.
+        assert!(mail.html_body.contains(">marula</div>"));
+    }
+
+    #[test]
+    fn a_configured_brand_name_is_never_lowercased() {
+        // A self-hoster sets their own org name; the brand rules govern the
+        // Marula wordmark, not someone else's name.
+        let org = Brand {
+            brand_name: "Acme MSP",
+            logo_url: None,
+            greeting: None,
+            signoff: None,
+        };
+        let mail = render_notification(&org, "x", None);
+        assert!(mail.html_body.contains(">Acme MSP</div>"));
+    }
+
+    #[test]
+    fn header_chrome_uses_the_brand_neutrals() {
+        let mail = render_notification(&brand(), "x", None);
+        assert!(mail.html_body.contains("color:#2B2A33"));
+        assert!(mail.html_body.contains("border-top:2px solid #E8B83A"));
+        assert!(mail.html_body.contains("background:#F8F7F4"));
     }
 
     #[test]

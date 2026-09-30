@@ -1,12 +1,17 @@
 // /projects/[id] — one engagement's delivery surface (Wave 17 lane 4 UX
 // pass). Identity header, glanceable roll-up strip (phases / tasks /
 // milestones + schedule-risk counts), a sequence rail over the phases
-// (gantt-lite: phases are ordered stages, not dated bars — the schema has
+// (gantt: the dated timeline is <ProjectGantt/>, mounted below — phases
+// carry nullable start/end dates since Wave 34, and the timeline draws
+// only the ones that HAVE both. The sequence rail stays, because an
+// undated phase is still an ordered stage.
+//
+// gantt-lite: phases are ordered stages, not dated bars — the schema has
 // sort_order + status, no dates), phase/task groups with per-phase
 // progress, a needs-attention triage filter (overdue / due-soon /
 // blocked), and the finish-to-start dependency editor (PUT full set).
 // Mutations keep the IF1–IF3 envelope with optimistic status reconcile.
-// Non-purpose: no dated Gantt (phases carry no dates), no budget burn
+// Non-purpose: no budget burn EDITING here
 // view, no ticket conversion.
 "use client";
 
@@ -45,6 +50,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
+import { ProjectGantt } from "../../../components/project-gantt";
 import { dueLabel, money } from "../../../lib/format";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
@@ -822,6 +828,14 @@ export default function ProjectDetailPage() {
               onCreate={() => void createPhase()}
             />
           </div>
+        </div>
+
+        {/* The dated timeline sits above the ordered rail: a bar tells you
+            WHEN, the rail tells you WHAT ORDER, and a planner reads the bar
+            first. Undated phases appear in the rail below and are named as
+            not being on the timeline. */}
+        <div className="p-4">
+          <ProjectGantt projectId={projectId} />
         </div>
 
         {phases.length === 0 ? (

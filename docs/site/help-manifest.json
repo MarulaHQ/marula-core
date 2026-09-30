@@ -368,6 +368,12 @@
     "ai": {
       "docs": [
         {
+          "path": "how-to/admin-local-ai-models",
+          "audience": "admin",
+          "updated": "2026-09-30",
+          "title": "How to run transcription and embeddings on your own hardware"
+        },
+        {
           "path": "tutorials/first-agent-run",
           "audience": "admin",
           "updated": "2026-09-22",

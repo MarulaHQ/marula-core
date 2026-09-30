@@ -99,9 +99,9 @@ image) before accepting connections.
 **Which images.** Third-party slots use Docker Hardened Images
 (`dhi.io/...`, Apache-2.0, free for everyone) wherever the hardened
 catalog covers them: Postgres+pgvector, Valkey, Grafana, Tempo, Loki,
-ClamAV, and the bootstrap curl image. Garage, Mailpit, GlitchTip, and the
+ClamAV, and the bootstrap curl image. Garage, Mailpit, GlitchTip, Uptime Kuma, and the
 OpenTelemetry collector have no hardened equivalent yet (checked
-2026-09-29), so they run upstream images under the same pinning and
+2026-09-30), so they run upstream images under the same pinning and
 least-privilege rules. Note that hardened registry pulls want a `docker
 login` with a free Docker account.
 

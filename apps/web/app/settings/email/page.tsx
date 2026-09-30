@@ -80,9 +80,15 @@ interface OutboundView {
   smtp_port: number;
   smtp_username: string;
   postmark_base_url: string;
+  ses_region: string;
   ready: boolean;
   not_ready_reason: string | null;
-  credentials: { postmark: CredentialView; smtp: CredentialView };
+  // Each key is optional on purpose: see the `credential()` reader below.
+  credentials: {
+    postmark?: CredentialView;
+    smtp?: CredentialView;
+    ses?: CredentialView;
+  };
 }
 
 interface MailSettings {
@@ -138,6 +144,9 @@ interface OrgDefaultsView {
   defaults: OrgDefaultRow[];
 }
 
+/** What to render for a credential the server did not report at all. */
+const UNCONFIGURED_CREDENTIAL: CredentialView = { configured: false, updated_at: null };
+
 /**
  * The org signature's insertable fields (Wave 42). The keys are the
  * signature vocabulary the send path expands; `{{user.name}}` is worth
@@ -155,6 +164,7 @@ const TRANSPORT_LABELS: Record<string, string> = {
   none: "None (keep messages queued)",
   postmark: "Postmark",
   smtp: "SMTP relay",
+  ses: "Amazon SES",
 };
 
 function statusTone(status: string): "success" | "warning" | "danger" | "neutral" {
@@ -642,6 +652,11 @@ function SendingCard({
   const [smtpPort, setSmtpPort] = useState(String(out.smtp_port));
   const [smtpUsername, setSmtpUsername] = useState(out.smtp_username);
   const [postmarkBase, setPostmarkBase] = useState(out.postmark_base_url);
+  const [sesRegion, setSesRegion] = useState(out.ses_region || "eu-west-1");
+  // The SES key pair. Both halves are held in state only long enough to
+  // POST them into the sealed slot, exactly like the Postmark token.
+  const [sesKeyId, setSesKeyId] = useState("");
+  const [sesSecret, setSesSecret] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -669,6 +684,7 @@ function SendingCard({
     setSmtpPort(String(out.smtp_port));
     setSmtpUsername(out.smtp_username);
     setPostmarkBase(out.postmark_base_url);
+    setSesRegion(out.ses_region || "eu-west-1");
   }, [out]);
 
   const dirty =
@@ -682,7 +698,7 @@ function SendingCard({
     smtpHost !== out.smtp_host ||
     smtpPort !== String(out.smtp_port) ||
     smtpUsername !== out.smtp_username ||
-    postmarkBase !== out.postmark_base_url;
+    postmarkBase !== out.postmark_base_url || sesRegion !== (out.ses_region || "eu-west-1");
 
   const saveSettings = async () => {
     setSaving(true);
@@ -702,6 +718,7 @@ function SendingCard({
           smtp_port: Number.isFinite(port) ? port : out.smtp_port,
           smtp_username: smtpUsername,
           postmark_base_url: postmarkBase,
+          ses_region: sesRegion,
         },
       });
       if (res.error) {
@@ -723,11 +740,18 @@ function SendingCard({
     setCredSaving(true);
     setCredError(null);
     try {
+      // The body is built per transport rather than merged, so a request
+      // for one provider can never carry another provider's field. The
+      // backend rejects a half-filled SES pair outright, which is the
+      // behaviour that makes an accidental half-save visible instead of
+      // leaving the org believing SES is configured.
       const res = await api.api.PUT("/api/v1/email/transport-credentials", {
         body:
           transport === "postmark"
             ? { transport, postmark_server_token: postmarkToken }
-            : { transport, smtp_password: smtpPassword },
+            : transport === "ses"
+              ? { transport, ses_access_key_id: sesKeyId, ses_secret_access_key: sesSecret }
+              : { transport, smtp_password: smtpPassword },
       });
       if (res.error) {
         throw new Error(
@@ -736,8 +760,13 @@ function SendingCard({
         );
       }
       setCredSaved(true);
+      // Clear the plaintext out of component state the moment it is sealed.
+      // The value is never readable again, so leaving it in a controlled
+      // input would be the only copy of a credential anywhere in the app.
       setPostmarkToken("");
       setSmtpPassword("");
+      setSesKeyId("");
+      setSesSecret("");
       onSaved();
     } catch (e) {
       setCredError(friendlyMutationText(e));
@@ -771,19 +800,38 @@ function SendingCard({
     }
   };
 
+  // A transport this build does not know about, or one an older server has
+  // not heard of, must render as "not configured" rather than crash the
+  // page. Reading `credentials.ses.configured` directly took the whole
+  // settings card down against a server that predates the SES kind, which is
+  // a real deployment window during a rolling upgrade and not a hypothetical
+  // one. `UNCONFIGURED` is the honest rendering of "this server has no such
+  // credential to report".
+  const credential = (kind: "postmark" | "smtp" | "ses"): CredentialView =>
+    out.credentials[kind] ?? UNCONFIGURED_CREDENTIAL;
+
   const secrets = useMemo(
     () => [
       {
         label: "Postmark server token",
-        configured: out.credentials.postmark.configured,
-        updatedAt: out.credentials.postmark.updated_at,
+        configured: credential("postmark").configured,
+        updatedAt: credential("postmark").updated_at,
       },
       {
         label: "SMTP password",
-        configured: out.credentials.smtp.configured,
-        updatedAt: out.credentials.smtp.updated_at,
+        configured: credential("smtp").configured,
+        updatedAt: credential("smtp").updated_at,
+      },
+      {
+        // One row for the PAIR, not two: the access key id is not a secret
+        // but it is useless alone, so showing it as a separately-sealed
+        // credential would imply you can configure half of it.
+        label: "SES access key pair",
+        configured: credential("ses").configured,
+        updatedAt: credential("ses").updated_at,
       },
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [out.credentials],
   );
 
@@ -857,10 +905,50 @@ function SendingCard({
                 type="password"
                 value={postmarkToken}
                 onChange={(e) => setPostmarkToken(e.target.value)}
-                placeholder={out.credentials.postmark.configured ? "Replace sealed token" : "Paste server token"}
+                placeholder={credential("postmark").configured ? "Replace sealed token" : "Paste server token"}
                 autoComplete="off"
               />
             </label>
+          </div>
+        ) : null}
+
+        {transport === "ses" ? (
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="grid gap-1">
+              <span className="text-[12px]">AWS region</span>
+              <Input
+                value={sesRegion}
+                onChange={(e) => {
+                  setSesRegion(e.target.value);
+                  setSaved(false);
+                }}
+                placeholder="eu-west-1"
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-[12px]">Access key ID</span>
+              <Input
+                value={sesKeyId}
+                onChange={(e) => setSesKeyId(e.target.value)}
+                placeholder={credential("ses").configured ? "Replace sealed key id" : "AKIA\u2026"}
+                autoComplete="off"
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-[12px]">Secret access key</span>
+              <Input
+                type="password"
+                value={sesSecret}
+                onChange={(e) => setSesSecret(e.target.value)}
+                placeholder={credential("ses").configured ? "Replace sealed secret" : "Paste secret"}
+                autoComplete="off"
+              />
+            </label>
+            <p className="text-[12px] md:col-span-3" style={{ color: "var(--m-text-secondary)" }}>
+              Both halves of the key pair are sealed together and neither is
+              readable again. The region is part of the SES endpoint, not a
+              preference, so it decides which data centre your mail leaves from.
+            </p>
           </div>
         ) : null}
 
@@ -905,7 +993,7 @@ function SendingCard({
                 type="password"
                 value={smtpPassword}
                 onChange={(e) => setSmtpPassword(e.target.value)}
-                placeholder={out.credentials.smtp.configured ? "Replace sealed password" : "Paste password"}
+                placeholder={credential("smtp").configured ? "Replace sealed password" : "Paste password"}
                 autoComplete="off"
               />
             </label>

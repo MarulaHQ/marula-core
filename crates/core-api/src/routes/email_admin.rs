@@ -44,6 +44,11 @@ use uuid::Uuid;
 /// Reserved sealed-slot provider ids for mail transport credentials.
 pub const SEALED_POSTMARK_PROVIDER: &str = "mail.postmark";
 pub const SEALED_SMTP_PROVIDER: &str = "mail.smtp";
+/// SES's credential is a KEY PAIR, not one token, so both halves are sealed
+/// together as one JSON blob — the access key id identifies the credential
+/// and the secret is what must never be readable, so splitting them across
+/// two sealed rows would let the UI show one and not the other.
+pub const SEALED_SES_PROVIDER: &str = "mail.ses";
 
 fn admin(action: Action) -> Permission {
     Permission::Matrix {
@@ -603,11 +608,12 @@ pub struct CredentialView {
 pub struct CredentialsView {
     pub postmark: CredentialView,
     pub smtp: CredentialView,
+    pub ses: CredentialView,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct PutTransportCredentialsRequest {
-    /// `postmark` or `smtp` — which credential this request rotates.
+    /// `postmark`, `smtp` or `ses` — which credential this request rotates.
     pub transport: String,
     /// Postmark server token (required when transport = postmark).
     #[serde(default)]
@@ -615,6 +621,14 @@ pub struct PutTransportCredentialsRequest {
     /// SMTP password (required when transport = smtp).
     #[serde(default)]
     pub smtp_password: Option<String>,
+    /// SES IAM access key id (required when transport = ses).
+    #[serde(default)]
+    pub ses_access_key_id: Option<String>,
+    /// SES IAM secret access key (required when transport = ses). The
+    /// secret half of the pair — required alongside the id, never instead
+    /// of it, because a lone key id cannot sign a request.
+    #[serde(default)]
+    pub ses_secret_access_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -647,9 +661,7 @@ pub async fn put_transport_credentials(
                 .as_deref()
                 .map(str::trim)
                 .filter(|t| !t.is_empty())
-                .ok_or_else(|| {
-                    ApiError::Validation("postmark_server_token is required".into())
-                })?;
+                .ok_or_else(|| ApiError::Validation("postmark_server_token is required".into()))?;
             (
                 SEALED_POSTMARK_PROVIDER,
                 json!({ "server_token": token }),
@@ -669,9 +681,41 @@ pub async fn put_transport_credentials(
                 "smtp_password",
             )
         }
+        "ses" => {
+            // BOTH halves required. A lone access key id cannot sign a SigV4
+            // request, and sealing half a credential means the org believes
+            // SES is configured while every send fails with a 403.
+            let access_key_id = req
+                .ses_access_key_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| {
+                    ApiError::Validation("ses_access_key_id is required for transport=ses".into())
+                })?;
+            let secret_access_key = req
+                .ses_secret_access_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| {
+                    ApiError::Validation(
+                        "ses_secret_access_key is required for transport=ses".into(),
+                    )
+                })?;
+            (
+                SEALED_SES_PROVIDER,
+                json!({
+                    "access_key_id": access_key_id,
+                    "secret_access_key": secret_access_key,
+                }),
+                // Presence-only audit: names the field, never the value.
+                "ses_access_key_pair",
+            )
+        }
         other => {
             return Err(ApiError::Validation(format!(
-                "unknown transport '{other}': expected postmark or smtp"
+                "unknown transport '{other}': expected postmark, smtp or ses"
             )))
         }
     };
@@ -707,12 +751,15 @@ pub async fn put_transport_credentials(
         Ok((ctx, ()))
     })
     .await?;
-    get_mail_settings(State(state), extensions).await.map(|Json(s)| {
-        Json(CredentialsView {
-            postmark: s.outbound.credentials.postmark,
-            smtp: s.outbound.credentials.smtp,
+    get_mail_settings(State(state), extensions)
+        .await
+        .map(|Json(s)| {
+            Json(CredentialsView {
+                postmark: s.outbound.credentials.postmark,
+                smtp: s.outbound.credentials.smtp,
+                ses: s.outbound.credentials.ses,
+            })
         })
-    })
 }
 
 /// DELETE /api/email/transport-credentials?transport=… — removes the sealed
@@ -720,7 +767,7 @@ pub async fn put_transport_credentials(
 #[utoipa::path(operation_id = "email_transport_credentials_delete", delete,
     path = "/api/email/transport-credentials", tag = "email",
     security(("bearer" = [])),
-    params(("transport" = String, Query, description = "postmark | smtp")),
+    params(("transport" = String, Query, description = "postmark | smtp | ses")),
     responses((status = 200, body = CredentialsView),
               (status = 422, description = "unknown transport")))]
 pub async fn delete_transport_credentials(
@@ -735,9 +782,10 @@ pub async fn delete_transport_credentials(
     let provider = match req.transport.trim() {
         "postmark" => SEALED_POSTMARK_PROVIDER,
         "smtp" => SEALED_SMTP_PROVIDER,
+        "ses" => SEALED_SES_PROVIDER,
         other => {
             return Err(ApiError::Validation(format!(
-                "unknown transport '{other}': expected postmark or smtp"
+                "unknown transport '{other}': expected postmark, smtp or ses"
             )))
         }
     };
@@ -756,12 +804,15 @@ pub async fn delete_transport_credentials(
         Ok((ctx, ()))
     })
     .await?;
-    get_mail_settings(State(state), extensions).await.map(|Json(s)| {
-        Json(CredentialsView {
-            postmark: s.outbound.credentials.postmark,
-            smtp: s.outbound.credentials.smtp,
+    get_mail_settings(State(state), extensions)
+        .await
+        .map(|Json(s)| {
+            Json(CredentialsView {
+                postmark: s.outbound.credentials.postmark,
+                smtp: s.outbound.credentials.smtp,
+                ses: s.outbound.credentials.ses,
+            })
         })
-    })
 }
 
 // --- combined settings view --------------------------------------------------
@@ -786,6 +837,10 @@ pub struct OutboundSettingsView {
     pub smtp_port: i64,
     pub smtp_username: String,
     pub postmark_base_url: String,
+    /// The SES region this org sends through, when one is set. Plain config,
+    /// never a secret — the admin UI shows it so an operator can see which
+    /// data centre is in play.
+    pub ses_region: String,
     /// Whether the SELECTED transport has a usable credential/endpoint
     /// combination (the honest not-configured bit the UI renders).
     pub ready: bool,
@@ -855,22 +910,22 @@ pub async fn get_mail_settings(
         });
     }
 
-    let transport = as_text(&org_value_or_default(
-        &mut tx,
-        org,
-        registry::EMAIL_TRANSPORT,
-    )
-    .await?)
-    .unwrap_or_else(|| "none".into());
+    let transport = as_text(&org_value_or_default(&mut tx, org, registry::EMAIL_TRANSPORT).await?)
+        .unwrap_or_else(|| "none".into());
     let smtp_port = as_i64(
         &org_value_or_default(&mut tx, org, registry::EMAIL_SMTP_PORT).await?,
         587,
     );
     let smtp_host = as_text(&org_value_or_default(&mut tx, org, registry::EMAIL_SMTP_HOST).await?);
-    let postmark_meta = core_db::byok::get_secret_meta(&mut tx, org, SEALED_POSTMARK_PROVIDER)
-        .await?;
-    let smtp_meta =
-        core_db::byok::get_secret_meta(&mut tx, org, SEALED_SMTP_PROVIDER).await?;
+    let postmark_meta =
+        core_db::byok::get_secret_meta(&mut tx, org, SEALED_POSTMARK_PROVIDER).await?;
+    let smtp_meta = core_db::byok::get_secret_meta(&mut tx, org, SEALED_SMTP_PROVIDER).await?;
+    let ses_meta = core_db::byok::get_secret_meta(&mut tx, org, SEALED_SES_PROVIDER).await?;
+    // The region is plain config, not a secret — it is readable so the admin
+    // UI can show which data centre this org sends through, which is the
+    // first question when an SES send is rejected for policy reasons.
+    let ses_region =
+        as_text(&org_value_or_default(&mut tx, org, registry::EMAIL_SES_REGION).await?);
 
     let (ready, not_ready_reason) = match transport.as_str() {
         "postmark" => match &postmark_meta {
@@ -894,6 +949,19 @@ pub async fn get_mail_settings(
             ),
             (Some(_), Some(_)) => (true, None),
         },
+        "ses" => match &ses_meta {
+            // A sealed key pair is the whole requirement; the region falls
+            // back to the deployment default, which is a real region rather
+            // than an empty string.
+            Some(_) => (true, None),
+            None => (
+                false,
+                Some(
+                    "the SES access key pair is not sealed yet — paste both halves and save"
+                        .to_string(),
+                ),
+            ),
+        },
         _ => (
             false,
             Some("no outbound transport is selected — mail stays queued until one is".into()),
@@ -916,10 +984,8 @@ pub async fn get_mail_settings(
                 &org_value_or_default(&mut tx, org, registry::EMAIL_FROM_NAME).await?,
             )
             .unwrap_or_default(),
-            reply_to: as_text(
-                &org_value_or_default(&mut tx, org, registry::EMAIL_REPLY_TO).await?,
-            )
-            .unwrap_or_default(),
+            reply_to: as_text(&org_value_or_default(&mut tx, org, registry::EMAIL_REPLY_TO).await?)
+                .unwrap_or_default(),
             signature: as_text(
                 &org_value_or_default(&mut tx, org, registry::EMAIL_SIGNATURE).await?,
             )
@@ -948,6 +1014,7 @@ pub async fn get_mail_settings(
                 &org_value_or_default(&mut tx, org, registry::EMAIL_POSTMARK_BASE_URL).await?,
             )
             .unwrap_or_default(),
+            ses_region: ses_region.unwrap_or_default(),
             ready,
             not_ready_reason,
             credentials: CredentialsView {
@@ -958,6 +1025,10 @@ pub async fn get_mail_settings(
                 smtp: CredentialView {
                     configured: smtp_meta.is_some(),
                     updated_at: smtp_meta.map(|(_, at)| at.to_rfc3339()),
+                },
+                ses: CredentialView {
+                    configured: ses_meta.is_some(),
+                    updated_at: ses_meta.map(|(_, at)| at.to_rfc3339()),
                 },
             },
         },
@@ -1007,6 +1078,12 @@ pub struct PutOutboundSettingsRequest {
     pub smtp_username: Option<String>,
     #[serde(default)]
     pub postmark_base_url: Option<String>,
+    /// AWS region whose SES endpoint this org sends through (transport=ses).
+    #[serde(default)]
+    pub ses_region: Option<String>,
+    /// Optional SES endpoint override, for a VPC interface endpoint.
+    #[serde(default)]
+    pub ses_endpoint: Option<String>,
     #[serde(default)]
     pub digest_policy: Option<String>,
 }
@@ -1052,6 +1129,8 @@ pub async fn put_outbound_settings(
     push_text(registry::EMAIL_SMTP_HOST, &req.smtp_host)?;
     push_text(registry::EMAIL_SMTP_USERNAME, &req.smtp_username)?;
     push_text(registry::EMAIL_POSTMARK_BASE_URL, &req.postmark_base_url)?;
+    push_text(registry::EMAIL_SES_REGION, &req.ses_region)?;
+    push_text(registry::EMAIL_SES_ENDPOINT, &req.ses_endpoint)?;
     if let Some(port) = req.smtp_port {
         validate_setting(
             registry::EMAIL_SMTP_PORT,
@@ -1098,7 +1177,9 @@ pub async fn put_outbound_settings(
         ) {
             if let Some(text) = value.as_str() {
                 if !text.is_empty() && !is_mailbox(text) {
-                    return Err(ApiError::Validation(format!("{key}: not a mailbox address")));
+                    return Err(ApiError::Validation(format!(
+                        "{key}: not a mailbox address"
+                    )));
                 }
             }
         }
@@ -1227,11 +1308,9 @@ fn encode_ledger_cursor(created_at: chrono::DateTime<chrono::Utc>, id: Uuid) -> 
     hex::encode(format!("{}|{}", created_at.to_rfc3339(), id))
 }
 
-fn decode_ledger_cursor(
-    raw: &str,
-) -> ApiResult<(chrono::DateTime<chrono::Utc>, Uuid)> {
-    let bytes = hex::decode(raw)
-        .map_err(|_| ApiError::Validation("cursor is not valid hex".into()))?;
+fn decode_ledger_cursor(raw: &str) -> ApiResult<(chrono::DateTime<chrono::Utc>, Uuid)> {
+    let bytes =
+        hex::decode(raw).map_err(|_| ApiError::Validation("cursor is not valid hex".into()))?;
     let text = String::from_utf8(bytes)
         .map_err(|_| ApiError::Validation("cursor is not valid UTF-8".into()))?;
     let (ts, id) = text
@@ -1240,8 +1319,8 @@ fn decode_ledger_cursor(
     let created_at = chrono::DateTime::parse_from_rfc3339(ts)
         .map_err(|_| ApiError::Validation("cursor timestamp is malformed".into()))?
         .with_timezone(&chrono::Utc);
-    let id = Uuid::parse_str(id)
-        .map_err(|_| ApiError::Validation("cursor id is malformed".into()))?;
+    let id =
+        Uuid::parse_str(id).map_err(|_| ApiError::Validation("cursor id is malformed".into()))?;
     Ok((created_at, id))
 }
 
@@ -1294,13 +1373,8 @@ pub async fn get_delivery_ledger(
     )
     .await?;
     let counts = core_db::emails::outbound_status_counts(&mut tx, org).await?;
-    let transport = as_text(&org_value_or_default(
-        &mut tx,
-        org,
-        registry::EMAIL_TRANSPORT,
-    )
-    .await?)
-    .unwrap_or_else(|| "none".into());
+    let transport = as_text(&org_value_or_default(&mut tx, org, registry::EMAIL_TRANSPORT).await?)
+        .unwrap_or_else(|| "none".into());
     tx.commit().await.map_err(ApiError::from)?;
 
     let has_more = rows.len() as i64 > limit;
@@ -1309,7 +1383,10 @@ pub async fn get_delivery_ledger(
         rows.truncate(limit as usize);
     }
     let next_cursor = has_more
-        .then(|| rows.last().map(|r| encode_ledger_cursor(r.created_at, r.message_id)))
+        .then(|| {
+            rows.last()
+                .map(|r| encode_ledger_cursor(r.created_at, r.message_id))
+        })
         .flatten();
     let count_of = |status: &str| {
         counts
@@ -1396,8 +1473,9 @@ pub async fn test_send(
         core_db::set_org_and_user(&mut tx, org, user)
             .await
             .map_err(ApiError::from)?;
-        let transport = as_text(&org_value_or_default(&mut tx, org, registry::EMAIL_TRANSPORT).await?)
-            .unwrap_or_else(|| "none".into());
+        let transport =
+            as_text(&org_value_or_default(&mut tx, org, registry::EMAIL_TRANSPORT).await?)
+                .unwrap_or_else(|| "none".into());
         let postmark = core_db::byok::get_secret_meta(&mut tx, org, SEALED_POSTMARK_PROVIDER)
             .await?
             .is_some();
