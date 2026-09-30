@@ -23,7 +23,7 @@
       "package": "org.marula.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#E05D38"
+        "backgroundColor": "#2B2A33"
       },
       "edgeToEdgeEnabled": true,
       "permissions": [

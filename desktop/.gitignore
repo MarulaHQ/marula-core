@@ -1,3 +1,8 @@
 /icons/*.png
 !/icons/icon.png
+# Tauri's cross-platform icon set is committed, not build output: the tray
+# template and the 32/128 pair are brand assets, dropped by Wave 41 lane 3.
+!/icons/32x32.png
+!/icons/128x128.png
+!/icons/128x128@2x.png
 /resources
