@@ -50,7 +50,21 @@ export function RoutingStrip({ dayIso }: { dayIso: string }) {
         { params: { query: { date: dayIso } } } as never,
       );
       if (cancelled || error !== undefined || data === undefined) return;
-      setView(data as unknown as RoutingDayView);
+      // A payload that is not a routing day is not a routing day. The strip is
+      // the first thing to render on this page, so a short or unexpected body
+      // (an empty array from a proxy, a field added by a newer core) must
+      // leave the board standing rather than take the page down with it.
+      const next = data as unknown as Partial<RoutingDayView> | null;
+      if (next === null || typeof next !== "object" || !Array.isArray(next.technicians)) return;
+      setView({
+        date: typeof next.date === "string" ? next.date : dayIso,
+        status: next.status ?? { provider_id: "unknown", quality: "unknown", measured: false },
+        technicians: next.technicians.filter((t) => t !== null && typeof t === "object" && Array.isArray(t.warnings)),
+        suggestions:
+          next.suggestions !== null && typeof next.suggestions === "object"
+            ? { available: next.suggestions.available === true, items: Array.isArray(next.suggestions.items) ? next.suggestions.items : [] }
+            : { available: false, items: [] },
+      });
     })();
     return () => {
       cancelled = true;
@@ -59,8 +73,8 @@ export function RoutingStrip({ dayIso }: { dayIso: string }) {
 
   if (view === null) return null;
   const blocking = view.technicians.flatMap((tech) =>
-    tech.warnings
-      .filter((warning) => BLOCKING.has(warning.kind))
+    (tech.warnings ?? [])
+      .filter((warning) => warning !== null && BLOCKING.has(warning.kind))
       .map((warning) => ({ ...warning, tech: tech.display_name })),
   );
   const travel = view.technicians.filter((tech) => tech.total_travel_minutes > 0);

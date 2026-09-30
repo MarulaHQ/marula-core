@@ -43,6 +43,16 @@ const rows: Record<string, unknown>[] = [];
 function setupApi(): MockApi {
   const mock = new MockApi();
   mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+  // The Technician column reads names from the staff directory, which is a
+  // page (`{ total, users }`), not a bare array.
+  mock.on("GET", "/api/v1/org/users", () => ({
+    json: {
+      total: 1,
+      users: [
+        { id: "u1", org_id: ME_FIXTURE.org_id, email: "sam@marula.test", display_name: "Sam K.", role: "technician", is_active: true, created_at: "2026-01-01T00:00:00Z" },
+      ],
+    },
+  }));
   mock.on("GET", "/api/v1/dispatch/travel-drafts", () => ({ json: rows }));
   mock.on("GET", "/api/v1/dispatch/reconciliation", () => ({
     json: {
@@ -120,16 +130,17 @@ beforeEach(() => {
 });
 
 describe("/dispatch/travel integration", () => {
-  it("lists drafts with distance, vehicle, and status", async () => {
+  it("lists drafts with the technician, the route and the minutes", async () => {
     setupApi();
     render(
       <AuthProvider>
         <TravelDraftsPage />
       </AuthProvider>,
     );
-    await screen.findByText("Van 2");
-    expect(screen.getByText("32.5 km")).toBeInTheDocument();
-    expect(screen.getByText("draft")).toBeInTheDocument();
+    await screen.findByText("Sam K.");
+    expect(screen.getByText(/Van 2/)).toBeInTheDocument();
+    expect(screen.getAllByText("45m").length).toBeGreaterThan(0);
+    expect(screen.getByText("Draft")).toBeInTheDocument();
     cleanup();
   });
 
@@ -141,9 +152,9 @@ describe("/dispatch/travel integration", () => {
         <TravelDraftsPage />
       </AuthProvider>,
     );
-    await screen.findByText("Van 2");
-    await user.click(screen.getByRole("button", { name: "Add draft" }));
-    await user.type(screen.getByLabelText("Ticket id"), TICKET_ID);
+    await screen.findByText("Sam K.");
+    await user.click(screen.getByRole("button", { name: "New travel draft" }));
+    await user.type(screen.getByLabelText("Ticket"), TICKET_ID);
     fireEvent.change(screen.getByLabelText("Started"), { target: { value: "2026-09-02T09:00" } });
     fireEvent.change(screen.getByLabelText("Ended"), { target: { value: "2026-09-02T09:45" } });
     await user.type(screen.getByLabelText("Distance"), "18");
@@ -158,7 +169,7 @@ describe("/dispatch/travel integration", () => {
     expect(body.idempotency_key).toBeTruthy();
     expect(body.distance).toBe(18);
     expect(body.vehicle).toBe("Car 1");
-    await screen.findByText("Car 1");
+    await screen.findByText(/Car 1/);
     cleanup();
   });
 
@@ -170,10 +181,10 @@ describe("/dispatch/travel integration", () => {
         <TravelDraftsPage />
       </AuthProvider>,
     );
-    await screen.findByText("Van 2");
-    await user.click(screen.getByRole("button", { name: /Submit/ }));
+    await screen.findByText("Sam K.");
+    await user.click(screen.getByRole("button", { name: "Submit trip" }));
     await waitFor(() =>
-      expect(screen.getAllByText("submitted").length).toBeGreaterThan(0),
+      expect(screen.getAllByText("Submitted").length).toBeGreaterThan(0),
     );
     cleanup();
   });

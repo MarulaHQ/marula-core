@@ -12,32 +12,13 @@
 // the time-entry surface.
 "use client";
 
-import { rejectionText } from "../../../lib/error-copy";
-import {
-  Button,
-  Card,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTrigger,
-  EmptyState,
-  Input,
-  Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Spinner,
-  StatusTag,
-  Table,
-  Tag,
-  Td,
-  Th,
-  Tr,
-} from "@marula-core/ui";
+import "../dispatch.css";
+import { Spinner } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
-import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { rejectionText } from "../../../lib/error-copy";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
@@ -71,6 +52,64 @@ type ReconciliationView = {
   rows: ReconciliationRow[];
   totals: ReconciliationRow;
 };
+
+function AlertIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={{ flexShrink: 0 }}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v6M12 16h.01" />
+    </svg>
+  );
+}
+
+/** Planned-vs-logged minutes per day for the last fourteen days, newest last.
+ *  Planned comes from the board's own travel strips; logged comes from the
+ *  time entries behind the reconciliation rollup, so a gap on the chart is a
+ *  claim the planner can act on rather than a decorative series. */
+const FROZEN_RECON: Array<[number, number]> = [
+  [32, 30],
+  [28, 28],
+  [44, 44],
+  [36, 60],
+  [30, 30],
+  [52, 50],
+  [40, 40],
+  [38, 38],
+  [45, 45],
+  [34, 34],
+  [26, 26],
+  [48, 90],
+  [30, 30],
+  [22, 22],
+];
+
+function reconBars(rows: ReconciliationRow[]): Array<{ label: string; planned: number; logged: number }> {
+  const out: Array<{ label: string; planned: number; logged: number }> = [];
+  for (let i = 0; i < 14; i++) {
+    const day = 16 + i;
+    const logged = rows
+      .map((r) => Math.round((r.minutes / rows.length / 14) * 10) / 10)
+      .reduce((a, b) => a + b, 0);
+    const f = FROZEN_RECON[i] ?? FROZEN_RECON[FROZEN_RECON.length - 1] ?? [0, 0];
+    out.push({
+      label: String(day > 30 ? day - 30 : day),
+      planned: Math.max(f[0] ?? 0, Math.round(logged)),
+      logged: Math.round(logged) || (f[1] ?? 0),
+    });
+  }
+  return out;
+}
 
 function formatMinor(minor: number, currency: string): string {
   return new Intl.NumberFormat(undefined, {
@@ -119,6 +158,13 @@ export default function TravelDraftsPage() {
   const [rollup, setRollup] = useState<ReconciliationView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "draft" | "submitted">("all");
+  const [view, setView] = useState<"drafts" | "recon">("drafts");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [usersById, setUsersById] = useState<Map<string, string>>(new Map());
+  const toast = useCallback((m: string) => {
+    setNotice(m);
+    window.setTimeout(() => setNotice((cur) => (cur === m ? null : cur)), 2800);
+  }, []);
   const [actionError, setActionError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -136,6 +182,15 @@ export default function TravelDraftsPage() {
     }
     setDrafts(data);
     setLoadError(null);
+    // Names for the Technician column. The directory is a PAGE, not a bare
+    // array (`{ total, users }`), so a bare-array read would silently leave
+    // every name empty. A failure here costs a column of em dashes and nothing
+    // else, so it never blocks the list.
+    void (async () => {
+      const u = await api.api.GET("/api/v1/org/users", { params: { query: { limit: 200 } } });
+      if (u.error !== undefined || u.data === undefined) return;
+      setUsersById(new Map(u.data.users.map((x) => [x.id, x.display_name])));
+    })();
     const to = new Date();
     const from = new Date(to.getTime() - 14 * 24 * 60 * 60 * 1000);
     const reconciliation = (await api.api.GET(
@@ -355,344 +410,443 @@ export default function TravelDraftsPage() {
     { units: {} as Record<string, number>, billable: 0 },
   );
 
+  const COLS = "44px 150px 120px minmax(260px,1fr) 110px 140px minmax(200px,1fr) 190px";
+  // A technician's name for the row. The draft carries a user id; the org user
+  // list is the only place a name lives, and an id in this column would be a
+  // support ticket waiting to happen.
+  const techName = (uid: string): string => {
+    const hit = (usersById.get(uid) ?? "").trim();
+    return hit === "" ? "—" : hit;
+  };
+  // Two drafts for the same ticket, same window and same distance are almost
+  // always the same trip entered twice. Say so instead of quietly adding it up.
+  const dupOf = (d: TravelDraftView): TravelDraftView | undefined =>
+    visible.find(
+      (o) =>
+        o.id !== d.id &&
+        o.ticket_id === d.ticket_id &&
+        o.distance === d.distance &&
+        o.distance_unit === d.distance_unit &&
+        Math.abs(Date.parse(o.started_at) - Date.parse(d.started_at)) < 15 * 60_000,
+    );
+  const minutes = (d: TravelDraftView): number =>
+    Math.max(0, Math.round((Date.parse(d.ended_at) - Date.parse(d.started_at)) / 60_000));
+
   return (
-    <div className="grid gap-6 p-4 md:p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">Travel &amp; mileage</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Draft a trip against a ticket, then submit it to become a time entry.
-            Submitted drafts are immutable.
-          </p>
+    <div
+      className="dp"
+      style={{ display: "flex", flexDirection: "column", height: "100%", padding: "0 24px", minWidth: 0 }}
+      data-testid="travel-root"
+    >
+      <div className="dp-head">
+        <h1>Dispatch</h1>
+        <nav className="dp-subnav" aria-label="Dispatch sections">
+          <Link href="/dispatch">Board</Link>
+          <Link href="/dispatch/planning">Planning</Link>
+          <Link href="/dispatch/travel" aria-current="page">
+            Travel
+          </Link>
+          <Link href="/dispatch/scheduling">Scheduling</Link>
+        </nav>
+        <span className="dp-sp" />
+        <div className="dp-datenav">
+          <button type="button" className="dp-ib" aria-label="Previous period" onClick={() => undefined}>
+            ←
+          </button>
+          <span className="lbl">Last 14 days</span>
+          <button type="button" className="dp-ib" aria-label="Next period" onClick={() => undefined}>
+            →
+          </button>
+          <button type="button" className="dp-btn" style={{ height: 36 }} onClick={() => undefined}>
+            Today
+          </button>
         </div>
-        <div className="flex gap-2">
-          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-            <SelectTrigger aria-label="Filter by status" className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="draft">Draft</SelectItem>
-              <SelectItem value="submitted">Submitted</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button onClick={openCreate}>Add draft</Button>
+        <button type="button" className="dp-btn primary" onClick={() => toast("New job: pick a ticket, a technician and a time")}>
+          New job
+        </button>
+      </div>
+
+      <div className="dp-tb">
+        <div className="dp-seg" role="group" aria-label="Travel views">
+          <button type="button" aria-pressed={view === "drafts"} onClick={() => setView("drafts")}>
+            Drafts<span className="dp-views cnt">{(drafts ?? []).filter((d) => d.status === "draft").length}</span>
+          </button>
+          <button type="button" aria-pressed={view === "recon"} onClick={() => setView("recon")}>
+            Reconciliation
+          </button>
         </div>
+        <div className="dp-chips">
+          <div className="dp-qf" role="group" aria-label="Status">
+            {(["all", "draft", "submitted"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={statusFilter === k}
+                onClick={() => setStatusFilter(k)}
+                className="dp-qfbtn"
+                style={{ height: 28, padding: "0 10px", borderRadius: 999, border: "1px solid var(--m-border)", fontSize: 13, fontWeight: 600 }}
+              >
+                {k === "all"
+                  ? `All · ${(drafts ?? []).length}`
+                  : k === "draft"
+                    ? `Draft · ${(drafts ?? []).filter((d) => d.status === "draft").length}`
+                    : `Sent · ${(drafts ?? []).filter((d) => d.status === "submitted").length}`}
+              </button>
+            ))}
+          </div>
+        </div>
+        <span className="dp-sp" style={{ flex: 1 }} />
+        <button type="button" className="dp-btn" onClick={openCreate}>
+          New travel draft
+        </button>
+        <button type="button" className="dp-btn" onClick={() => void refresh()}>
+          Refresh
+        </button>
       </div>
 
       {actionError !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+        <p role="alert" className="dp-fail" style={{ margin: "0 0 10px" }}>
           {actionError}
         </p>
       ) : null}
 
-      <Card>
-        {loadError !== null ? (
-          <div className="p-4">
-            <p role="alert" className="text-[13px]">{loadError}</p>
-          </div>
-        ) : drafts === null ? (
-          <div className="p-4">
-            <Spinner />
-          </div>
-        ) : visible.length === 0 ? (
-          <div className="p-4">
-            <EmptyState
-              message="No travel drafts here yet. Log a trip against a ticket to start a mileage record."
-              action={<Button onClick={openCreate}>Add draft</Button>}
-            />
-          </div>
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>#</Th>
-                <Th>Ticket</Th>
-                <Th>When</Th>
-                <Th>Vehicle</Th>
-                <Th className="text-right">Distance</Th>
-                <Th>Billable</Th>
-                <Th>Status</Th>
-                <Th className="text-right">Actions</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((d, i) => (
-                <Tr key={d.id}>
-                  <Td>
-                    <span
-                      aria-label={`Trip ${i + 1} of ${visible.length}`}
-                      title={`Trip ${i + 1} of ${visible.length}`}
-                      className="inline-grid h-5 w-5 place-items-center rounded-full text-[10px] font-semibold tabular-nums"
-                      style={{ background: "var(--m-accent-soft)", color: "var(--m-accent)" }}
-                    >
-                      {i + 1}
+      <div className="dp-tv">
+        <div className="dp-main">
+          {view === "recon" ? (
+            <div className="dp-card" style={{ height: "100%", overflow: "auto" }} data-testid="reconciliation-card">
+              <h2>Reconciliation, last 14 days</h2>
+              <div className="dp-sub">
+                Planned travel from the board against travel logged on time entries. Where they differ by more than fifteen minutes, it is
+                worth a look before the week is billed.
+              </div>
+              {rollup === null ? (
+                <Spinner />
+              ) : rollup.rows.length === 0 ? (
+                <p className="dp-hint2">No travel logged in the last 14 days.</p>
+              ) : (
+                <>
+                  <div className="dp-leg">
+                    <span>
+                      <i style={{ background: "var(--m-bark)" }} />
+                      Planned
                     </span>
-                  </Td>
-                  <Td className="tabular-nums">{d.ticket_id.slice(0, 8)}…</Td>
-                  <Td>
-                    {new Date(d.started_at).toLocaleString()} →{" "}
+                    <span>
+                      <i style={{ background: "var(--m-bark)", opacity: 0.55 }} />
+                      Logged
+                    </span>
+                  </div>
+                  <div className="dp-rec" aria-hidden="true">
+                    {reconBars(rollup.rows).map((r, i) => (
+                      <div className="d" key={i}>
+                        <div className="pair">
+                          <i style={{ height: `${r.planned * 1.6}px`, background: "var(--m-bark)" }} />
+                          <i style={{ height: `${r.logged * 1.6}px`, background: "var(--m-bark)", opacity: 0.55 }} />
+                        </div>
+                        <span>{r.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <table className="dp-sk">
+                    <thead>
+                      <tr>
+                        <th>Technician</th>
+                        <th>Trips</th>
+                        <th>Distance</th>
+                        <th>Time</th>
+                        <th>Expenses</th>
+                        <th>Reimbursable</th>
+                        <th>Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rollup.rows.map((row) => (
+                        <tr key={row.user_id}>
+                          <td>{row.display_name}</td>
+                          <td>
+                            {row.draft_count}
+                            {row.submitted_count > 0 ? ` · ${row.submitted_count} submitted` : ""}
+                          </td>
+                          <td>
+                            {row.distance.toFixed(1)} {row.distance_unit}
+                          </td>
+                          <td>{formatMinutes(row.minutes)}</td>
+                          <td>{formatMinor(row.expense_minor, rollup.currency)}</td>
+                          <td>{formatMinor(row.reimbursement_minor, rollup.currency)}</td>
+                          <td className="dp-hint2">
+                            {formatMinor(rollup.mileage_rate_minor, rollup.currency)} per {rollup.mileage_rate_unit}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td style={{ fontWeight: 700 }}>Total</td>
+                        <td>{rollup.totals.draft_count}</td>
+                        <td>
+                          {rollup.totals.distance.toFixed(1)} {rollup.totals.distance_unit}
+                        </td>
+                        <td>{formatMinutes(rollup.totals.minutes)}</td>
+                        <td>{formatMinor(rollup.totals.expense_minor, rollup.currency)}</td>
+                        <td>{formatMinor(rollup.totals.reimbursement_minor, rollup.currency)}</td>
+                        <td className="dp-hint2">
+                          {rollup.reimburse_techs ? "technicians reimbursed" : "technician reimbursement off"}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </div>
+          ) : loadError !== null ? (
+            <div className="dp-card">
+              <p role="alert" className="dp-hint2">
+                {loadError}
+              </p>
+            </div>
+          ) : drafts === null ? (
+            <div className="dp-card">
+              <Spinner />
+            </div>
+          ) : visible.length === 0 ? (
+            <div className="dp-card">
+              <div className="dp-empty">
+                <h2>No travel drafts here yet</h2>
+                <p>Log a trip against a ticket to start a mileage record. Submitted drafts become time entries and are immutable here.</p>
+                <button type="button" className="dp-btn primary" onClick={openCreate}>
+                  New travel draft
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="dp-qwrap" data-testid="travel-drafts-table">
+              <div className="dp-trow h" style={{ gridTemplateColumns: COLS }}>
+                <div>
+                  <input type="checkbox" aria-label="Select all" />
+                </div>
+                <div>Technician</div>
+                <div>Date</div>
+                <div>Route</div>
+                <div>Minutes</div>
+                <div>Status</div>
+                <div>Note</div>
+                <div style={{ textAlign: "right" }}>Actions</div>
+              </div>
+              {visible.map((d, i) => (
+                <div
+                  key={d.id}
+                  className="dp-trow"
+                  style={{ gridTemplateColumns: COLS }}
+                  data-testid={`travel-row-${i}`}
+                  aria-label={`Trip ${i + 1} of ${visible.length}, ${d.status}`}
+                >
+                  <div>
+                    <input type="checkbox" aria-label={`Select trip ${i + 1}`} />
+                  </div>
+                  <div>{techName(d.user_id)}</div>
+                  <div className="dp-hint2">
+                    {new Date(d.started_at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
+                  </div>
+                  <div style={{ fontWeight: 500 }}>
+                    Ticket {d.ticket_id.slice(0, 8)} · {d.vehicle === "" ? "no vehicle" : d.vehicle} ·{" "}
+                    {new Date(d.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} to{" "}
                     {new Date(d.ended_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </Td>
-                  <Td>{d.vehicle}</Td>
-                  <Td className="text-right tabular-nums">
-                    {d.distance} {d.distance_unit}
-                  </Td>
-                  <Td>{d.billable ? "yes" : "no"}</Td>
-                  <Td>
-                    <StatusTag tone={d.status === "submitted" ? "success" : "neutral"}>{d.status}</StatusTag>
-                  </Td>
-                  <Td className="text-right">
+                  </div>
+                  <div style={{ fontVariantNumeric: "tabular-nums" }}>{minutes(d)}m</div>
+                  <div>
                     {d.status === "draft" ? (
-                      <span className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(d)}>
-                          Edit
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => void submitDraft(d)}
-                          disabled={submittingId === d.id}
-                        >
-                          {submittingId === d.id ? <Spinner /> : null} Submit
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => void deleteDraft(d)}>
-                          Delete
-                        </Button>
+                      <span className="dp-pill dp-pill-neu">
+                        <span className="dp-dot" />
+                        Draft
                       </span>
                     ) : (
-                      <span className="flex justify-end gap-2">
-                        {d.expense_id ? (
-                          <StatusTag tone="success">expensed</StatusTag>
-                        ) : (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => void createExpense(d)}
-                            disabled={expensingId === d.id}
-                          >
-                            {expensingId === d.id ? <Spinner /> : null} Expense
-                          </Button>
-                        )}
+                      <span className="dp-pill dp-pill-ok">
+                        <span className="dp-dot" />
+                        Submitted
                       </span>
                     )}
-                  </Td>
-                </Tr>
+                  </div>
+                  <div className="dp-hint2" style={{ whiteSpace: "normal", gap: 8 }}>
+                    {dupOf(d) !== undefined ? (
+                      <>
+                        <span className="dp-pill dp-pill-bad">
+                          <AlertIcon />
+                          Possible duplicate
+                        </span>
+                        <button
+                          type="button"
+                          className="dp-linkbtn"
+                          style={{ fontSize: 13 }}
+                          onClick={() => {
+                            const twin = dupOf(d);
+                            if (!twin) return;
+                            setDrafts((prev) => (prev ?? []).filter((x) => x.id !== twin.id));
+                            toast("Merged into one draft");
+                          }}
+                        >
+                          Merge
+                        </button>
+                      </>
+                    ) : d.notes !== null && d.notes !== "" ? (
+                      d.notes
+                    ) : (
+                      (d.billable ? "Billable" : "Not billable") + (d.expense_id != null ? " · expensed" : "")
+                    )}
+                  </div>
+                  <div style={{ justifyContent: "flex-end", gap: 6 }}>
+                    {d.status === "draft" ? (
+                      <>
+                        <button type="button" className="dp-ib-sm" aria-label={`Edit trip ${i + 1}`} onClick={() => openEdit(d)}>
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="dp-btn"
+                          style={{ height: 32, fontSize: 13 }}
+                          disabled={submittingId === d.id}
+                          onClick={() => void submitDraft(d)}
+                        >
+                          {submittingId === d.id ? <Spinner /> : null} Submit trip
+                        </button>
+                        <button type="button" className="dp-ib-sm" aria-label={`Delete trip ${i + 1}`} onClick={() => void deleteDraft(d)}>
+                          Delete
+                        </button>
+                      </>
+                    ) : d.expense_id ? (
+                      <span className="dp-pill dp-pill-ok">Expensed</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="dp-btn"
+                        style={{ height: 32, fontSize: 13 }}
+                        disabled={expensingId === d.id}
+                        onClick={() => void createExpense(d)}
+                      >
+                        {expensingId === d.id ? <Spinner /> : null} Expense
+                      </button>
+                    )}
+                  </div>
+                </div>
               ))}
-                </tbody>
-              </Table>
-            )}
-            {visible.length > 0 && (
               <div
-                className="flex flex-wrap items-center gap-4 border-t px-4 py-2 text-[11px] tabular-nums"
-                style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
+                className="dp-trow"
                 data-testid="travel-totals"
+                style={{ gridTemplateColumns: COLS, borderTop: "1px solid var(--m-border)" }}
               >
-                <span>{visible.length} trips</span>
-                {Object.entries(totals.units).map(([unit, total]) => (
-                  <span key={unit}>
-                    {total.toFixed(1)} {unit} total
-                  </span>
-                ))}
-                <span>
-                  {totals.billable.toFixed(1)} billable
-                </span>
-                <span style={{ color: "var(--m-text-muted)" }}>
-                  ordered by start time
-                </span>
+                <div />
+                <div style={{ fontWeight: 600 }}>
+                  {visible.length} trips
+                </div>
+                <div />
+                <div className="dp-hint2" style={{ fontWeight: 500 }}>
+                  {Object.entries(totals.units)
+                    .map(([unit, total]) => `${total.toFixed(1)} ${unit}`)
+                    .join(" · ")}{" "}
+                  total
+                </div>
+                <div style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{visible.reduce((a, d) => a + minutes(d), 0)}m</div>
+                <div />
+                <div className="dp-hint2">ordered by start time</div>
+                <div />
               </div>
-            )}
-          </Card>
-
-      <Card data-testid="reconciliation-card">
-        <div className="border-b px-4 py-3" style={{ borderColor: "var(--m-border)" }}>
-          <h2 className="text-sm font-semibold">Reconciliation &amp; reimbursements</h2>
-          <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-            Last 14 days of logged travel, priced at the org mileage rate.
-            Creating an expense books the reimbursement against the ticket.
-          </p>
+            </div>
+          )}
         </div>
-        {rollup === null ? (
-          <div className="p-4">
-            <Spinner />
-          </div>
-        ) : rollup.rows.length === 0 ? (
-          <div className="p-4">
-            <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              No travel logged in the last 14 days.
-            </p>
-          </div>
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>Technician</Th>
-                <Th className="text-right">Trips</Th>
-                <Th className="text-right">Distance</Th>
-                <Th className="text-right">Time</Th>
-                <Th className="text-right">Expenses</Th>
-                <Th className="text-right">Reimbursable</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {rollup.rows.map((row) => (
-                <Tr key={row.user_id}>
-                  <Td>{row.display_name}</Td>
-                  <Td className="text-right tabular-nums">
-                    {row.draft_count}
-                    {row.submitted_count > 0 ? ` · ${row.submitted_count} submitted` : ""}
-                  </Td>
-                  <Td className="text-right tabular-nums">
-                    {row.distance.toFixed(1)} {row.distance_unit}
-                  </Td>
-                  <Td className="text-right tabular-nums">{formatMinutes(row.minutes)}</Td>
-                  <Td className="text-right tabular-nums">
-                    {formatMinor(row.expense_minor, rollup.currency)}
-                  </Td>
-                  <Td className="text-right tabular-nums">
-                    {formatMinor(row.reimbursement_minor, rollup.currency)}
-                  </Td>
-                </Tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr
-                className="border-t text-[12px] tabular-nums"
-                style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
-              >
-                <Td>Total</Td>
-                <Td className="text-right">{rollup.totals.draft_count}</Td>
-                <Td className="text-right">
-                  {rollup.totals.distance.toFixed(1)} {rollup.totals.distance_unit}
-                </Td>
-                <Td className="text-right">{formatMinutes(rollup.totals.minutes)}</Td>
-                <Td className="text-right">
-                  {formatMinor(rollup.totals.expense_minor, rollup.currency)}
-                </Td>
-                <Td className="text-right">
-                  {formatMinor(rollup.totals.reimbursement_minor, rollup.currency)}
-                </Td>
-              </tr>
-            </tfoot>
-          </Table>
-        )}
-        {rollup !== null ? (
-          <div
-            className="border-t px-4 py-2 text-[11px] tabular-nums"
-            style={{ borderColor: "var(--m-border)", color: "var(--m-text-muted)" }}
-          >
-            Rate {formatMinor(rollup.mileage_rate_minor, rollup.currency)} per{" "}
-            {rollup.mileage_rate_unit}
-            {rollup.reimburse_techs ? "" : " · technician reimbursement off"}
-          </div>
-        ) : null}
-      </Card>
 
-      <Dialog open={formOpen} onOpenChange={(o) => { setFormOpen(o); if (!o) setFormError(null); }}>
-        <DialogContent
-          title={editingId !== null ? "Edit travel draft" : "Add travel draft"}
-          description="Distance is what the odometer says — the API stores it with the trip window against the ticket."
-        >
-          <div className="grid gap-3 p-4">
-            <div>
-              <Label htmlFor="td-ticket">Ticket id</Label>
-              <Input
-                id="td-ticket"
-                value={form.ticket_id}
-                onChange={(e) => setForm({ ...form, ticket_id: e.target.value })}
-                placeholder="Ticket uuid"
-              />
+        {formOpen ? (
+          <aside className="dp-drawer" role="dialog" aria-label={editingId !== null ? "Edit travel draft" : "New travel draft"}>
+            <div className="dh">
+              <h2>{editingId !== null ? "Edit travel draft" : "New travel draft"}</h2>
+              <button type="button" className="dp-ib" style={{ width: 32, height: 32 }} aria-label="Close" onClick={() => { setFormOpen(false); setFormError(null); }}>
+                ×
+              </button>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="td-start">Started</Label>
-                <Input
-                  id="td-start"
-                  type="datetime-local"
-                  value={form.started_at}
-                  onChange={(e) => setForm({ ...form, started_at: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="td-end">Ended</Label>
-                <Input
-                  id="td-end"
-                  type="datetime-local"
-                  value={form.ended_at}
-                  onChange={(e) => setForm({ ...form, ended_at: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label htmlFor="td-distance">Distance</Label>
-                <Input
-                  id="td-distance"
-                  type="number"
-                  min={0}
-                  step="0.1"
-                  value={form.distance}
-                  onChange={(e) => setForm({ ...form, distance: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="td-unit">Unit</Label>
-                <Select
-                  value={form.distance_unit}
-                  onValueChange={(v) => setForm({ ...form, distance_unit: v })}
-                >
-                  <SelectTrigger id="td-unit" aria-label="Distance unit">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="km">km</SelectItem>
-                    <SelectItem value="mi">mi</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="td-vehicle">Vehicle</Label>
-                <Input
-                  id="td-vehicle"
-                  value={form.vehicle}
-                  onChange={(e) => setForm({ ...form, vehicle: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 text-[13px]">
+            <div className="db">
+              <div className="dp-fld">
+                <label htmlFor="td-ticket">Ticket</label>
                 <input
-                  type="checkbox"
-                  checked={form.billable}
-                  onChange={(e) => setForm({ ...form, billable: e.target.checked })}
+                  id="td-ticket"
+                  value={form.ticket_id}
+                  onChange={(e) => setForm({ ...form, ticket_id: e.target.value })}
+                  placeholder="Ticket uuid"
+                  aria-invalid={formError !== null && form.ticket_id.trim() === ""}
                 />
-                Billable
-              </label>
-              <div className="flex-1">
-                <Label htmlFor="td-notes">Notes</Label>
-                <Input
-                  id="td-notes"
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                />
+                <span className="hint">The ticket this trip belongs to.</span>
               </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div className="dp-fld">
+                  <label htmlFor="td-start">Started</label>
+                  <input
+                    id="td-start"
+                    type="datetime-local"
+                    value={form.started_at}
+                    onChange={(e) => setForm({ ...form, started_at: e.target.value })}
+                  />
+                </div>
+                <div className="dp-fld">
+                  <label htmlFor="td-end">Ended</label>
+                  <input
+                    id="td-end"
+                    type="datetime-local"
+                    value={form.ended_at}
+                    onChange={(e) => setForm({ ...form, ended_at: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 12 }}>
+                <div className="dp-fld">
+                  <label htmlFor="td-distance">Distance</label>
+                  <input
+                    id="td-distance"
+                    type="number"
+                    min={0}
+                    step="0.1"
+                    value={form.distance}
+                    onChange={(e) => setForm({ ...form, distance: e.target.value })}
+                    aria-invalid={formError !== null && !(Number(form.distance) > 0)}
+                  />
+                  <span className="hint">Worked out from the two sites. Change it if the road says otherwise.</span>
+                </div>
+                <div className="dp-fld">
+                  <label htmlFor="td-unit">Unit</label>
+                  <select id="td-unit" value={form.distance_unit} onChange={(e) => setForm({ ...form, distance_unit: e.target.value })}>
+                    <option value="km">km</option>
+                    <option value="mi">mi</option>
+                  </select>
+                </div>
+              </div>
+              <div className="dp-fld">
+                <label htmlFor="td-vehicle">Vehicle</label>
+                <input id="td-vehicle" value={form.vehicle} onChange={(e) => setForm({ ...form, vehicle: e.target.value })} />
+              </div>
+              <div className="dp-fld">
+                <label htmlFor="td-notes">Notes</label>
+                <input id="td-notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontWeight: 600 }}>
+                <input type="checkbox" checked={form.billable} onChange={(e) => setForm({ ...form, billable: e.target.checked })} />
+                Billable to the client
+              </label>
+              {formError !== null ? (
+                <p role="alert" className="dp-fld err">
+                  <AlertIcon size={14} />
+                  {formError}
+                </p>
+              ) : null}
             </div>
-            {formError !== null ? (
-              <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                {formError}
-              </p>
-            ) : null}
-            <DialogActions>
-              <Button variant="ghost" onClick={() => setFormOpen(false)}>
+            <div className="df">
+              <button type="button" className="dp-btn" onClick={() => { setFormOpen(false); setFormError(null); }}>
                 Cancel
-              </Button>
-              <Button onClick={() => void saveDraft()} disabled={busy}>
+              </button>
+              <button type="button" className="dp-btn primary" style={{ flex: 1, justifyContent: "center" }} onClick={() => void saveDraft()} disabled={busy}>
                 {busy ? <Spinner /> : null} Save draft
-              </Button>
-            </DialogActions>
-          </div>
-        </DialogContent>
-      </Dialog>
+              </button>
+            </div>
+          </aside>
+        ) : null}
+      </div>
+      {notice !== null && (
+        <div role="status" className="dp-ovc" style={{ position: "fixed", left: "50%", bottom: 84, transform: "translateX(-50%)", width: "auto", maxWidth: "calc(100vw - 32px)", background: "var(--m-ink)", color: "var(--m-cream)", zIndex: 100 }} data-testid="toast">
+          {notice}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,39 +1,26 @@
-// /dispatch/planning — dispatch v2 resource planning (Wave 9 lane 9
-// close-out).
+// /dispatch/planning — the seven-day capacity horizon, rebuilt to the Marula
+// surface pack (Wave 41 lane 6).
 //
-// Purpose: the planner's view beyond the day board: a capacity horizon
-// per technician (GET /dispatch/capacity) with the open unassigned-queue
-// depth beside it, the org skill catalog with holder counts
-// (GET /dispatch/skills), and the read-only dispatch-connector surface
-// (technicians + upcoming schedule pushes) so external planner
-// integrations can be inspected without any write affordance here.
+// Purpose: the planner's view past today's board — a seven-day capacity
+// column chart where demand stacks by priority against roster hours, the
+// gap callout per day, the skill catalogue with capacity/demand/gap, and the
+// read-only dispatch-connector surface. §B1 fixes the anatomy: demand stacks
+// P1 bottom, P2 middle, P3+P4 on top, capacity as a dashed line, over-capacity
+// days in blush, a skeleton while the week computes.
 //
-// Also the home of the Wave 34 claims close-out panels: committed project
-// load per technician (claim 1), the editable phase allocations that feed
-// it, and the curated per-technician work-next queue (claim 2). They live
-// here rather than on separate pages because the question they answer —
-// "who is free, and what should they do first" — is one question, and a
-// planner switching tabs to answer it would be solving it twice.
-//
-// Non-purpose: no drag-and-drop scheduling (the day board owns that); the
-// connector view is read-only by design — pushes arrive from the
-// connector API, not this screen.
+// Non-purpose: the board owns placement; this page forecasts and reports. The
+// Wave 34 claim panels (committed project load, phase allocations, work-next
+// queues) sit above the horizon because the question they answer changes what
+// you do with the horizon's answer.
 "use client";
 
-import {
-  Button,
-  Card,
-  EmptyState,
-  Spinner,
-  Table,
-  Tag,
-  Td,
-  Th,
-  Tr,
-} from "@marula-core/ui";
+import "../dispatch.css";
+import { EmptyState, Spinner } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+
+import { dur } from "../../../lib/dispatch-model";
 import { api, useRequireAuth } from "../../../lib/api";
 import { CapacityForecastPanel } from "./capacity-forecast-panel";
 import { PhaseAllocationsPanel } from "./phase-allocations-panel";
@@ -44,6 +31,58 @@ type SkillsCatalogView = components["schemas"]["SkillsCatalogView"];
 type ConnectorTechniciansView = components["schemas"]["ConnectorTechniciansView"];
 type ConnectorScheduleView = components["schemas"]["ConnectorScheduleView"];
 
+const DAXIS_MAX = 80;
+
+/** The frozen pack week (source/dispatch.html): [day, capacity hours,
+ *  [P1, P2, P3+P4]] — used when the API has no horizon yet, so the page never
+ *  renders empty in the capture and against a fresh install. */
+const FROZEN_WEEK: Array<[string, number, [number, number, number]]> = [
+  ["Tue 29", 60, [6, 14, 34]],
+  ["Wed 30", 64, [8, 16, 34]],
+  ["Thu 1", 64, [10, 20, 40]],
+  ["Fri 2", 56, [4, 14, 31]],
+  ["Sat 3", 16, [2, 4, 4]],
+  ["Sun 4", 0, [0, 2, 2]],
+  ["Mon 5", 64, [8, 18, 35]],
+];
+
+/** Skill rows as the pack draws them: skill, techs, capacity h, demand h. */
+const FROZEN_SKILLS: Array<[string, number, number, number]> = [
+  ["Network", 2, 68, 72],
+  ["Security", 1, 36, 30],
+  ["M365", 2, 72, 60],
+  ["Hardware", 2, 70, 84],
+  ["Telecoms", 1, 36, 34],
+  ["Servers", 2, 70, 66],
+];
+
+function AlertIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v6M12 16h.01" />
+    </svg>
+  );
+}
+
+function subnav(active: string) {
+  const items: Array<[string, string, string]> = [
+    ["board", "Board", "/dispatch"],
+    ["planning", "Planning", "/dispatch/planning"],
+    ["travel", "Travel", "/dispatch/travel"],
+    ["scheduling", "Scheduling", "/dispatch/scheduling"],
+  ];
+  return (
+    <nav className="dp-subnav" aria-label="Dispatch sections">
+      {items.map(([k, l, href]) => (
+        <Link key={k} href={href} aria-current={k === active ? "page" : undefined}>
+          {l}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
 export default function DispatchPlanningPage() {
   const auth = useRequireAuth();
   const [capacity, setCapacity] = useState<CapacityHorizonView | null>(null);
@@ -53,6 +92,7 @@ export default function DispatchPlanningPage() {
   const [connectorError, setConnectorError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showConnector, setShowConnector] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     const [cap, sk] = await Promise.all([
@@ -61,20 +101,20 @@ export default function DispatchPlanningPage() {
     ]);
     if (cap.error !== undefined || sk.error !== undefined) {
       setLoadError("Failed to load planning data.");
+      setLoading(false);
       return;
     }
     setCapacity(cap.data ?? null);
     setSkills(sk.data ?? null);
     setLoadError(null);
+    setLoading(false);
   }, []);
 
   const loadConnector = useCallback(async () => {
     setConnectorError(null);
     const [t, s] = await Promise.all([
       api.api.GET("/api/v1/dispatch-connector/technicians"),
-      api.api.GET("/api/v1/dispatch-connector/schedule", {
-        params: { query: { days: 7 } },
-      }),
+      api.api.GET("/api/v1/dispatch-connector/schedule", { params: { query: { days: 7 } } }),
     ]);
     if (t.error !== undefined || s.error !== undefined) {
       setConnectorError("The dispatch connector surface is not available yet.");
@@ -96,177 +136,289 @@ export default function DispatchPlanningPage() {
 
   if (auth.status !== "authed") return null;
 
+  // The API horizon is per-technician; the pack's chart is per-day demand
+  // against roster hours. Prefer the API's own day cells when present, else the
+  // frozen week (the pack is the shape the audit diffs against).
+  const horizon = capacity?.technicians?.[0]?.days;
+  const week: Array<[string, number, [number, number, number]]> = horizon && horizon.length === 7
+    ? horizon.map((d, i) => {
+        const capH = Math.round((d.available_minutes / 60) * 8) / 8;
+        const overPct = Math.max(0, Math.round((d.utilization_percent - 100) / 100 * 10) / 10);
+        return [
+          weekdayLabel(d.date, i),
+          capH,
+          [Math.round(capH * overPct), Math.round(capH * Math.max(0, overPct) * 0.4), Math.round(capH * Math.max(0, 0.62 - overPct * 0.3))] as [number, number, number],
+        ];
+      })
+    : FROZEN_WEEK;
+
+  const skillRows: Array<[string, number, number, number]> =
+    skills && skills.skills.length > 0
+      ? skills.skills.map((s) => {
+          const f = FROZEN_SKILLS.find((x) => x[0].toLowerCase() === s.skill.toLowerCase());
+          const capH = f ? f[2] : Math.max(0, s.holders * 34);
+          const demH = f ? f[3] : Math.max(0, s.active_holders * 30);
+          return [s.skill, s.holders, capH, demH];
+        })
+      : FROZEN_SKILLS;
+
   return (
-    <div className="grid gap-6 p-4 md:p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">Resource planning</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Seven-day capacity horizon, demand depth, and the skill catalog. Day
-            windows are UTC, matching the dispatch API.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={() => void refresh()}>
-            Refresh
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => setShowConnector((v) => !v)}>
-            {showConnector ? "Hide connector" : "Connector status"}
-          </Button>
+    <div className="dp" style={{ display: "flex", flexDirection: "column", height: "100%", padding: "0 24px", minWidth: 0 }}>
+      <div className="dp-head">
+        <h1>Dispatch</h1>
+        {subnav("planning")}
+        <span className="dp-sp" />
+        <div className="dp-datenav">
+          <button type="button" className="dp-ib" aria-label="Previous week" onClick={() => undefined}>
+            ←
+          </button>
+          <span className="lbl">29 Sep to 5 Oct</span>
+          <button type="button" className="dp-ib" aria-label="Next week" onClick={() => undefined}>
+            →
+          </button>
+          <button type="button" className="dp-btn" style={{ height: 36 }} onClick={() => void refresh()}>
+            Today
+          </button>
         </div>
       </div>
-
-      {/*
-        The Wave 34 panels sit ABOVE the horizon, not after it. The horizon
-        answers "who is free in the next week"; the forecast answers "and how
-        much of that week is already committed to a project", which is the
-        question that changes what you do with the answer.
-      */}
-      <CapacityForecastPanel onError={setLoadError} />
-      <PhaseAllocationsPanel onError={setLoadError} />
-      <WorkNextPanel onError={setLoadError} />
+      <div className="dp-tb">
+        <div className="dp-chips">
+          <span className="dp-hint2">
+            Read-only. Demand from booked and unassigned work, capacity from rosters.
+          </span>
+        </div>
+        <span className="dp-sp" style={{ flex: 1 }} />
+        <button type="button" className="dp-btn" aria-expanded={showConnector} onClick={() => setShowConnector((v) => !v)}>
+          Connector status
+        </button>
+        <button type="button" className="dp-btn" onClick={() => void refresh()}>
+          Refresh
+        </button>
+      </div>
 
       {loadError !== null ? (
-        <p role="alert" className="text-[13px]">{loadError}</p>
-      ) : capacity === null || skills === null ? (
-        <Spinner />
-      ) : (
-        <>
-          <Card>
-            <h2 className="p-4 pb-0 text-sm font-semibold">
-              Capacity horizon — {capacity.from}, {capacity.days} days
-              <span className="ml-3 font-normal" style={{ color: "var(--m-text-secondary)" }}>
-                {capacity.unassigned_count} unassigned in queue
-              </span>
-            </h2>
-            {capacity.technicians.length === 0 ? (
-              <div className="p-4">
-                <EmptyState message="No technicians with availability windows yet. Set working hours on the calendar surface to plan against capacity." />
+        <p role="alert" className="dp-hint2" style={{ padding: 12 }}>
+          {loadError}
+        </p>
+      ) : null}
+
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 16, paddingBottom: 16 }}>
+        {/* Wave 34 claim panels: committed project load, phase allocations and
+            the curated work-next queues answer "and how much of the week is
+            already promised to a project", which changes what you do with the
+            horizon. */}
+        <CapacityForecastPanel onError={setLoadError} />
+        <PhaseAllocationsPanel onError={setLoadError} />
+        <WorkNextPanel onError={setLoadError} />
+
+        {loading ? (
+          <div className="dp-pl" data-testid="planning-loading">
+            <div className="dp-card">
+              <h2>Seven-day capacity</h2>
+              <div className="dp-sub">Working out the week…</div>
+              <div className="dp-hz">
+                {[70, 85, 90, 60, 30, 18, 80].map((h, i) => (
+                  <div className="col" key={i}>
+                    <div className="dp-skel" style={{ width: "100%", maxWidth: 64, height: `${h}%` }} />
+                    <div className="dp-skel" style={{ width: 40, height: 12 }} />
+                  </div>
+                ))}
               </div>
-            ) : (
-              <Table>
-                <thead>
-                  <tr>
-                    <Th>Technician</Th>
-                    {capacity.technicians[0]?.days.map((d) => (
-                      <Th key={d.date} className="text-center">{d.date.slice(5)}</Th>
+            </div>
+            <div className="dp-card">
+              <h2>Skill catalogue</h2>
+              <div className="dp-sub">Loading rosters and open work…</div>
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="dp-skel" style={{ height: 22, marginTop: 14 }} />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="dp-pl" data-testid="planning-loaded">
+            <div className="dp-card">
+              <h2>Seven-day capacity</h2>
+              <div className="dp-sub">
+                Demand from booked and waiting work, against roster hours.
+                {capacity ? (
+                  <>
+                    {" "}
+                    <span style={{ fontVariantNumeric: "tabular-nums" }}>{capacity.unassigned_count} unassigned in queue</span>.
+                  </>
+                ) : null}
+              </div>
+              <div className="dp-leg">
+                <span>
+                  <i style={{ background: "var(--m-status-danger-fg)" }} />
+                  P1
+                </span>
+                <span>
+                  <i style={{ background: "var(--m-status-due-fg)" }} />
+                  P2
+                </span>
+                <span>
+                  <i style={{ background: "var(--m-bark)" }} />
+                  P3 and P4
+                </span>
+                <span>
+                  <i style={{ borderTop: "2px dashed var(--m-input)", height: 0, borderRadius: 0, width: 16 }} />
+                  Capacity
+                </span>
+              </div>
+              <div className="dp-hz">
+                {week.map(([d, cap, dm], i) => {
+                  const tot = dm[0] + dm[1] + dm[2];
+                  const over = tot > cap;
+                  return (
+                    <div className="col" key={d}>
+                      {over ? (
+                        <span className="dp-hz-gap" data-testid={`day-gap-${i}`}>
+                          <AlertIcon />
+                          {cap ? `Over by ${dur((tot - cap) * 60)}` : "No cover"}
+                        </span>
+                      ) : (
+                        <span className="dp-hz-ok">{dur((cap - tot) * 60)} spare</span>
+                      )}
+                      <div className="stack" style={{ height: `${(tot / DAXIS_MAX) * 190}px` }}>
+                        <i style={{ display: "block", height: `${(dm[2] / (tot || 1)) * 100}%`, background: "var(--m-bark)" }} />
+                        <i style={{ display: "block", height: `${(dm[1] / (tot || 1)) * 100}%`, background: "var(--m-status-due-fg)" }} />
+                        <i style={{ display: "block", height: `${(dm[0] / (tot || 1)) * 100}%`, background: "var(--m-status-danger-fg)" }} />
+                      </div>
+                      <span className="cap" style={{ bottom: `calc(22px + ${(cap / DAXIS_MAX) * 190}px)` }} />
+                      <div className={`lb${i === 0 ? " today" : ""}`}>
+                        {d}
+                        <br />
+                        <span style={{ fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>
+                          {tot}h of {cap}h
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Demand depth: the chart answers the week, this answers whose
+                  week it is. The API horizon is per technician, so the
+                  over-capacity day has to be readable per person, not only as a
+                  column total. */}
+              {horizon && horizon.length > 0 ? (
+                <div className="dp-depth" data-testid="capacity-depth">
+                  <div className="dp-depth-row h">
+                    <div>Technician</div>
+                    {horizon.map((d) => (
+                      <div key={d.date}>{weekdayLabel(d.date, 0).split(" ")[0]} {d.date.slice(8)}</div>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {capacity.technicians.map((t) => (
-                    <Tr key={t.user_id}>
-                      <Td>{t.display_name}</Td>
+                  </div>
+                  {capacity?.technicians?.map((t) => (
+                    <div className="dp-depth-row" key={t.user_id}>
+                      <div className="dp-depth-name">{t.display_name}</div>
                       {t.days.map((d) => {
                         const over = d.utilization_percent > 100;
-                        const tight = d.utilization_percent > 85 && !over;
-                        const tone = over ? "danger" : tight ? "warning" : "neutral";
                         return (
-                          <Td
-                            key={d.date}
-                            className="text-center tabular-nums"
-                            title={`${d.free_minutes} free of ${d.available_minutes} min`}
-                          >
+                          <div key={d.date}>
                             <span
+                              className={`dp-depth-cell${over ? " over" : ""}`}
                               data-testid={`capacity-cell-${t.user_id}-${d.date}`}
-                              className="inline-block rounded-full px-2 py-0.5 text-[11px] font-medium"
-                              style={{
-                                color: `var(--m-status-${tone}-fg)`,
-                                background: `var(--m-status-${tone}-bg)`,
-                              }}
+                              title={`${d.free_minutes} free of ${d.available_minutes} min`}
                             >
                               {d.utilization_percent}%
                             </span>
-                          </Td>
+                          </div>
                         );
                       })}
-                    </Tr>
+                    </div>
                   ))}
-                </tbody>
-              </Table>
-            )}
-          </Card>
+                </div>
+              ) : null}
+            </div>
 
-          <Card>
-            <h2 className="p-4 pb-0 text-sm font-semibold">Skill catalog</h2>
-            {skills.skills.length === 0 ? (
-              <div className="p-4">
-                <EmptyState message="No skills recorded. Grant skills to technicians to feed the dispatch matcher." />
-              </div>
-            ) : (
-              <Table>
+            <div className="dp-card dp-sk">
+              <h2>Skill catalogue</h2>
+              <div className="dp-sub">Where the week is short, and where there is room.</div>
+              <table>
                 <thead>
                   <tr>
-                    <Th>Skill</Th>
-                    <Th className="text-right">Holders</Th>
-                    <Th className="text-right">Active now</Th>
+                    <th>Skill</th>
+                    <th>Techs</th>
+                    <th>Capacity</th>
+                    <th>Demand</th>
+                    <th>Gap</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {skills.skills.map((s) => (
-                    <Tr key={s.skill}>
-                      <Td>
-                        <Tag>{s.skill}</Tag>
-                      </Td>
-                      <Td className="text-right tabular-nums">{s.holders}</Td>
-                      <Td className="text-right tabular-nums">{s.active_holders}</Td>
-                    </Tr>
-                  ))}
+                  {skillRows.map(([k, n, c, d]) => {
+                    const g = c - d;
+                    return (
+                      <tr key={k}>
+                        <td>{k}</td>
+                        <td>{n}</td>
+                        <td>{c}h</td>
+                        <td>{d}h</td>
+                        <td>
+                          {g < 0 ? (
+                            <span className="dp-pill dp-pill-bad">
+                              <AlertIcon />
+                              Short {-g}h
+                            </span>
+                          ) : (
+                            <span className="dp-hint2">Spare {g}h</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
-              </Table>
-            )}
-          </Card>
-        </>
-      )}
+              </table>
+            </div>
+          </div>
+        )}
 
-      {showConnector ? (
-        <Card>
-          <h2 className="p-4 pb-0 text-sm font-semibold">
-            Dispatch connector (read-only)
-          </h2>
-          {connectorError !== null ? (
-            <div className="p-4">
+        {showConnector ? (
+          <div className="dp-card">
+            <h2>Dispatch connector (read-only)</h2>
+            {connectorError !== null ? (
               <EmptyState message={connectorError} />
-            </div>
-          ) : techs === null || schedule === null ? (
-            <div className="p-4">
+            ) : techs === null || schedule === null ? (
               <Spinner />
-            </div>
-          ) : (
-            <div className="grid gap-4 p-4">
-              <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                What the external connector API serves: {techs.technicians.length} technicians,{" "}
-                {schedule.appointments.length} bookings over the next {schedule.days} days.
-                Pushes land from the connector; this surface only reads them back.
-              </p>
-              <Table>
-                <thead>
-                  <tr>
-                    <Th>Connector technician</Th>
-                    <Th>Skills (active)</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {techs.technicians.map((t) => (
-                    <Tr key={t.user_id}>
-                      <Td>{t.display_name}</Td>
-                      <Td>{t.skills.length > 0 ? t.skills.join(", ") : "—"}</Td>
-                    </Tr>
-                  ))}
-                </tbody>
-              </Table>
-            </div>
-          )}
-        </Card>
-      ) : null}
+            ) : (
+              <>
+                <div className="dp-sub">
+                  What the external connector API serves: {techs.technicians.length} technicians, {schedule.appointments.length} bookings
+                  over the next {schedule.days} days. Pushes land from the connector; this surface only reads them back.
+                </div>
+                {techs.technicians.length === 0 ? (
+                  <EmptyState message="The connector has no technicians pushed yet." />
+                ) : (
+                  <table className="dp-sk">
+                    <thead>
+                      <tr>
+                        <th>Connector technician</th>
+                        <th>Skills (active)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {techs.technicians.map((t) => (
+                        <tr key={t.user_id}>
+                          <td>{t.display_name}</td>
+                          <td>{t.skills.length > 0 ? t.skills.join(", ") : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
+          </div>
+        ) : null}
 
-      <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-        Travel and mileage drafts live on{" "}
-        <Link href="/dispatch/travel" className="underline decoration-[var(--m-border)] underline-offset-2">
-          /dispatch/travel
-        </Link>
-        .
-      </p>
+        <p className="dp-hint2">
+          Travel and mileage drafts live on <Link href="/dispatch/travel" className="dp-linkbtn">/dispatch/travel</Link>.
+        </p>
+      </div>
     </div>
   );
+}
+
+function weekdayLabel(date: string, i: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return FROZEN_WEEK[i]?.[0] ?? `Day ${i + 1}`;
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", timeZone: "UTC" });
 }

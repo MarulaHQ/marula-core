@@ -32,8 +32,10 @@ import {
   StatusTag,
   Tag,
 } from "@marula-core/ui";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
+import "../dispatch.css";
 import { useRequireAuth } from "../../../lib/api";
 import { api } from "../../../lib/api";
 
@@ -449,58 +451,64 @@ export default function DispatchSchedulingPage() {
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="grid gap-6 p-4 md:p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">Scheduling templates</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Meeting types and availability pools behind the ticket scheduling links.
-          </p>
+    <div
+      className="dp"
+      style={{ display: "flex", flexDirection: "column", height: "100%", padding: "0 24px", minWidth: 0 }}
+    >
+      <div className="dp-head">
+        <h1>Scheduling</h1>
+        <nav className="dp-subnav" aria-label="Dispatch sections">
+          <Link href="/dispatch">Board</Link>
+          <Link href="/dispatch/planning">Planning</Link>
+          <Link href="/dispatch/travel">Travel</Link>
+          <Link href="/dispatch/scheduling" aria-current="page">
+            Scheduling
+          </Link>
+        </nav>
+        <span className="dp-sp" />
+        <Button
+          onClick={() => {
+            setEditing(null);
+            setDialogOpen(true);
+          }}
+          data-testid="new-template"
+        >
+          New meeting type
+        </Button>
+      </div>
+
+      <div className="dp-tb">
+        <div className="dp-chips">
+          <p className="dp-hint2">Meeting types and availability pools behind the ticket scheduling links.</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={() => void refresh()}>
-            Refresh
-          </Button>
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setDialogOpen(true);
-            }}
-            data-testid="new-template"
-          >
-            New meeting type
-          </Button>
-        </div>
+        <span className="dp-sp" style={{ flex: 1 }} />
+        <Button variant="ghost" size="sm" onClick={() => void refresh()}>
+          Refresh
+        </Button>
       </div>
 
       {loadError !== null ? (
-        <p role="alert" className="text-[13px]">{loadError}</p>
+        <p role="alert" className="dp-hint2" style={{ paddingBottom: 8 }}>
+          {loadError}
+        </p>
       ) : templates === null || groups === null || users === null ? (
         <Spinner />
       ) : (
         <>
-          <Card>
-            <h2 className="p-4 pb-0 text-sm font-semibold">Meeting types</h2>
+          <div className="dp-card" style={{ marginBottom: 16 }}>
+            <h2>Meeting types</h2>
+            <div className="dp-sub">Duration, buffer, booking window, who it assigns to, and the email that fires.</div>
             {templates.length === 0 ? (
               <div className="p-4">
                 <EmptyState message="No meeting types yet. Create one to start sending scheduling links from tickets." />
               </div>
             ) : (
-              <ul className="grid gap-2 p-4" aria-label="Meeting types" data-testid="template-list">
+              <ul className="dp-mt-list" aria-label="Meeting types" data-testid="template-list">
                 {templates.map((t) => (
-                  <li
-                    key={t.id}
-                    data-testid={`template-${t.name}`}
-                    className="flex flex-wrap items-center gap-2 rounded-[var(--m-radius-container)] border px-3 py-2"
-                    style={{ borderColor: "var(--m-border)", background: "var(--m-canvas)" }}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-[13px] font-medium">{t.name}</span>
-                      {t.description !== null && t.description !== "" && (
-                        <span className="block truncate text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                          {t.description}
-                        </span>
-                      )}
+                  <li key={t.id} data-testid={`template-${t.name}`} className="dp-mt-row">
+                    <span className="dp-mt-name">
+                      <span className="dp-mt-title">{t.name}</span>
+                      {t.description !== null && t.description !== "" && <span className="dp-mt-desc">{t.description}</span>}
                     </span>
                     <Tag>{t.duration_minutes}m</Tag>
                     <Tag>buffer {t.buffer_minutes}m</Tag>
@@ -532,10 +540,11 @@ export default function DispatchSchedulingPage() {
                 ))}
               </ul>
             )}
-          </Card>
+          </div>
 
-          <Card>
-            <h2 className="p-4 pb-0 text-sm font-semibold">Scheduling groups</h2>
+          <div className="dp-card">
+            <h2>Scheduling groups</h2>
+            <div className="dp-sub">Availability pools a group-scoped template can draw from.</div>
             {groups.length === 0 ? (
               <div className="p-4">
                 <EmptyState message="No groups yet. Groups pool availability across technicians for group-scoped templates." />
@@ -610,7 +619,7 @@ export default function DispatchSchedulingPage() {
                 )}
               </div>
             )}
-          </Card>
+          </div>
         </>
       )}
 
