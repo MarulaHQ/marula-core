@@ -17,7 +17,7 @@
 // Prerequisite for the screenshots (regenerate after a token change):
 //   cd apps/web && node .harness/compile.cjs
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import React from "react";
@@ -192,10 +192,19 @@ function shell(theme: string, css: string, body: string): string {
 <style>
   body { margin: 0; background: var(--m-background); }
   .harness-pad { padding: 24px; }
+  /* The pack's own .lab label, and the same 12px section gap the pack uses
+     between a label and what it labels (its .chips row is padding-top 12px).
+     The earlier 10px left the label sitting on the card, which read as a
+     product defect when it was a defect in the harness. */
   .harness-label {
-    font: 600 11px/1 var(--m-font-ui); letter-spacing: .06em; text-transform: uppercase;
-    color: var(--m-text-muted); margin: 0 0 10px;
+    font: 600 12px/1 var(--m-font-ui); letter-spacing: .08em; text-transform: uppercase;
+    color: var(--m-text-secondary); margin: 24px 0 12px;
   }
+  .harness-label:first-child { margin-top: 0; }
+  /* The pack's own .card padding is 16px. The surface under test is what is
+     being reviewed, so the frame around it must not be tighter than the real
+     thing. */
+  .harness-card { padding: 16px; }
 </style></head>
 <body class="harness-pad">
   <p class="harness-label">/tickets ledger</p>
@@ -240,6 +249,26 @@ describe("ledger brand render", () => {
         `compiled CSS missing at ${CSS} — run: cd apps/web && node .harness/compile.cjs`,
       );
     }
+    // A STALE compile is worse than a missing one: it renders the surfaces in
+    // CSS that no longer matches the repo, and every screenshot taken from it
+    // is a lie. This bit once already — a new `@import` in globals.css made the
+    // compile fail, the script exited, and the previous app.css sat there
+    // looking fine until the capture was reviewed.
+    const newestSource = [
+      resolve(WEB, "app/globals.css"),
+      resolve(REPO, "packages/ui/src/components.css"),
+      resolve(REPO, "packages/ui/src/tokens.css"),
+    ]
+      .filter(existsSync)
+      .map((f) => statSync(f).mtimeMs)
+      .reduce((a, b) => Math.max(a, b), 0);
+    const compiledAt = statSync(CSS).mtimeMs;
+    if (compiledAt < newestSource) {
+      throw new Error(
+        `compiled CSS at ${CSS} is older than its sources — recompile: ` +
+          `cd apps/web && node .harness/compile.cjs`,
+      );
+    }
     const css = readFileSync(CSS, "utf8");
     const { table, banner, fields } = renderFragments();
     mkdirSync(OUT, { recursive: true });
@@ -249,7 +278,7 @@ describe("ledger brand render", () => {
     for (const theme of ["light", "dark"]) {
       const page = await browser.newPage({ viewport: { width: 1180, height: 720 } });
       await page.setContent(
-        shell(theme, css, `${table}<p class="harness-label" style="margin:18px 0 8px">merged-row banner</p><div class="m-card">${banner}</div><p class="harness-label" style="margin:18px 0 8px">workbench details · custom fields</p><div class="m-card"><div style="padding:14px">${fields}</div></div>`),
+        shell(theme, css, `${table}<p class="harness-label">merged-row banner</p><div class="m-card">${banner}</div><p class="harness-label">workbench details · custom fields</p><div class="m-card"><div class="harness-card">${fields}</div></div>`),
         { waitUntil: "load" },
       );
       await page.waitForTimeout(250);

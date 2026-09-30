@@ -1982,14 +1982,16 @@
  * merge has to say so at a glance, in the same column as everything else. */
 .m-merged-flag {
   flex-shrink: 0;
-  padding: 1px 6px;
+  /* The pack's `.tag`: 12px, .06em, 1px 8px. It was 11px and 6px wide, which
+     made the word sit inside its pill rather than fill it. */
+  padding: 1px 8px;
   border-radius: 999px;
   background: var(--m-status-neutral-bg);
   color: var(--m-status-neutral-fg);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 .m-table-foot {
@@ -2014,12 +2016,13 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  /* The pack's `.lab`. */
   margin: 0;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--m-text-muted);
+  letter-spacing: 0.08em;
+  color: var(--m-text-secondary);
 }
 
 .m-day-context-count {
@@ -2148,12 +2151,14 @@
  * status pair, because nothing here is a status.
  */
 .m-panel-subhead {
-  margin: 0 0 6px;
-  font-size: 11px;
-  font-weight: 700;
+  /* The pack's `.lab`: 12px / .08em / 600. It was 11px / .06em / 700 here,
+     which read undersized and jammed against the container above it. */
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--m-text-muted);
+  letter-spacing: 0.08em;
+  color: var(--m-text-secondary);
 }
 
 /* Custom fields are a definition list, so the screen reader gets name/value
@@ -2162,16 +2167,21 @@
 .m-field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 10px 16px;
+  /* The row gap has to clear a value that WRAPS. At 10px a two-line value ran
+     straight into the next field's label and the panel read as one run of
+     text. 16px is the pack's card gap and is the smallest that separates
+     them once a value takes two lines. */
+  gap: 16px;
   margin: 0;
 }
 
 .m-field-label {
-  font-size: 11px;
-  font-weight: 700;
+  /* The pack's `.lab`. */
+  font-size: 12px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--m-text-muted);
+  letter-spacing: 0.08em;
+  color: var(--m-text-secondary);
 }
 
 .m-field-required {
@@ -2180,7 +2190,7 @@
 }
 
 .m-field-value {
-  margin: 2px 0 0;
+  margin: 4px 0 0;
   font-size: 13px;
   color: var(--m-text);
   overflow-wrap: anywhere;
@@ -2268,8 +2278,8 @@
 
 /* --- resolved: p41-ui-operations blocks follow the p41-ui-chrome ones --- */
 .m-rollup-label {
-  font-size: 11px;
-  color: var(--m-text-muted);
+  font-size: 12px;
+  color: var(--m-text-secondary);
 }
 
 .m-edge-list {
