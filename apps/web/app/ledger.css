@@ -265,7 +265,9 @@
 
 .m-ledger-hints kbd {
   font-family: var(--m-font-mono);
-  font-size: 11px;
+  /* The pack's floor is 12px; a keycap is still a legible 12px with the inset
+     doing the work of the extra point. */
+  font-size: 12px;
   padding: 1px 4px;
   border: 1px solid var(--m-border);
   border-radius: 4px;
@@ -299,16 +301,20 @@
   background: var(--m-primary-hover, var(--m-primary));
 }
 
-/* ---- severity pills: overdue RED, due soon blush, never colour alone ---- */
+/* ---- severity pills: overdue RED, due soon blush, never colour alone ----
+ * The box is the kit's pill, to the pixel: 24px tall, 10px of inset, 999px
+ * radius (matching `.m-badge`, which the brand pass corrected to the pack's
+ * `--pill`). A severity pill and a status pill are the same object in two
+ * colours — if one is shorter than the other, a column of them looks ragged. */
 
 .m-ledger-sev {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 8px;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 10px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;

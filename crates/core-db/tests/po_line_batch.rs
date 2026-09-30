@@ -84,7 +84,7 @@ async fn seed_line(
         "INSERT INTO purchase_order_lines
            (id, org_id, purchase_order_id, description, position, qty_ordered_milli,
             qty_received_milli, unit_cost_minor, receipt_state)
-         VALUES ($1, $2, $3, $4, $5, $6, 0, $7, 'none')",
+         VALUES ($1, $2, $3, $4, $5, $6, 0, $7, 'pending')",
     )
     .bind(Uuid::now_v7())
     .bind(org_id)
