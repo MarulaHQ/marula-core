@@ -287,7 +287,7 @@ export default function ContractsPage() {
 
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
-      <header className="flex flex-wrap items-center gap-3">
+      <header className="flex flex-wrap items-center gap-4">
         <h1 className="text-[26px] font-semibold leading-none tracking-[-0.01em]">Contracts</h1>
         <div className="flex flex-wrap items-center gap-2">
           <StatPill label="active" count={posture.active} active={view === "active"} dot="var(--m-canopy)" onToggle={() => setView(view === "active" ? "all" : "active")} />
@@ -415,43 +415,57 @@ export default function ContractsPage() {
         </Dialog>
       </header>
 
+      {/* The toolbar's vertical padding is `var(--m-card-padding)`, and the
+          pack's toolbar sits flush under the page head. The primitive takes no
+          `style`, so the override rides a wrapper that owns the custom
+          property — that keeps the fix on this surface instead of
+          restyling a component every data surface in the app shares. */}
+      <div style={{ "--m-card-padding": "0px" } as React.CSSProperties}>
       <DataToolbar
         views={<ViewSwitch views={VIEWS} activeId={view} onChange={setView} label="Contract views" />}
         filters={
           <>
-            <Input
-              aria-label="Search contracts"
-              placeholder="Search number, name or client…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-52"
-            />
-            <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as ContractType | "all")}>
-              <SelectTrigger aria-label="Filter by type" className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All types</SelectItem>
-                {TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {TYPE_LABEL[t]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={clientFilter} onValueChange={setClientFilter}>
-              <SelectTrigger aria-label="Filter by client" className="w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All clients</SelectItem>
-                {clients.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="w-52">
+              {/* Widths ride wrapper divs, not the controls: `.m-input` and
+                  `.m-select-trigger` are unlayered `width: 100%` rules that
+                  outrank a Tailwind utility on the element itself. */}
+              <Input
+                aria-label="Search contracts"
+                placeholder="Search number, name or client…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+            <div className="w-40">
+              <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as ContractType | "all")}>
+                <SelectTrigger aria-label="Filter by type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  {TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {TYPE_LABEL[t]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-44">
+              <Select value={clientFilter} onValueChange={setClientFilter}>
+                <SelectTrigger aria-label="Filter by client">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All clients</SelectItem>
+                  {clients.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </>
         }
         columns={
@@ -472,9 +486,10 @@ export default function ContractsPage() {
           />
         }
       />
+      </div>
 
       <div
-        className="overflow-hidden rounded-[var(--m-radius-card)] border"
+        className="overflow-hidden rounded-2xl border"
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       >
         {filtered === null ? (

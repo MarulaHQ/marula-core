@@ -167,6 +167,9 @@ export default function ClientsPage() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   const isAdmin = (me?.permissions ?? []).includes("special:manage_users") ?? false;
+  // The Account owner column carries initials beside the name, so the person
+  // is recognisable at a glance rather than being a bare word in a column.
+  const ownerName = me?.display_name ?? me?.email ?? "";
   // The record-dedupe grant (P3). Absent means the surface is an ordinary
   // list: no strip, no row mark, no Merge, and no hint that one exists.
   const dedupeGranted = (me?.permissions ?? []).includes("decision_client_dedupe");
@@ -281,21 +284,39 @@ export default function ClientsPage() {
   // A client's main contact is its primary contact; without one the cell
   // says so in words rather than showing an empty column.
   const [contactsByClient, setContactsByClient] = useState<Record<string, string>>({});
+  // The real open-ticket count per client. The ledger's own column, read from
+  // the endpoint that scopes tickets to a client. Bounded to one call per
+  // visible client, the same bound the contacts fetch already works under.
+  const [openTicketsByClient, setOpenTicketsByClient] = useState<Record<string, number>>({});
   useEffect(() => {
     if (clients === null || clients.length === 0) return;
     let cancelled = false;
     void (async () => {
       const entries = await Promise.all(
         clients.map(async (c) => {
-          const res = await api.api.GET("/api/v1/clients/{id}/contacts", {
-            params: { path: { id: c.id } },
-          });
-          const list = res.data ?? [];
+          const [contacts, tickets] = await Promise.all([
+            api.api.GET("/api/v1/clients/{id}/contacts", {
+              params: { path: { id: c.id } },
+            }),
+            api.api.GET("/api/v1/tickets", {
+              params: { query: { client_id: c.id, limit: 100 } },
+            }),
+          ]);
+          const list = contacts.data ?? [];
           const primary = list.find((x) => x.is_primary) ?? list[0];
-          return [c.id, primary?.name ?? ""] as const;
+          const openCount = (tickets.data ?? []).filter(
+            (t) => t.category !== "closed",
+          ).length;
+          return [c.id, { name: primary?.name ?? "", open: openCount }] as const;
         }),
       );
-      if (!cancelled) setContactsByClient(Object.fromEntries(entries));
+      if (cancelled) return;
+      setContactsByClient(
+        Object.fromEntries(entries.map(([id, v]) => [id, v.name])),
+      );
+      setOpenTicketsByClient(
+        Object.fromEntries(entries.map(([id, v]) => [id, v.open])),
+      );
     })();
     return () => {
       cancelled = true;
@@ -304,6 +325,13 @@ export default function ClientsPage() {
 
   function primaryContactLabel(clientId: string): string {
     return contactsByClient[clientId] ?? "";
+  }
+
+  /** The client's open ticket count, or null while the count is still
+   * loading. `null` prints nothing rather than a zero, because "no tickets"
+   * and "we have not checked yet" are different answers. */
+  function openTicketCount(clientId: string): number | null {
+    return openTicketsByClient[clientId] ?? null;
   }
 
   /** The name of whichever client is named, from the list already loaded —
@@ -404,7 +432,7 @@ export default function ClientsPage() {
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
       {/* ---- page header: title, the two shortcut pills, one primary ---- */}
-      <header className="flex flex-wrap items-center gap-3">
+      <header className="flex flex-wrap items-center gap-4">
         <h1 className="text-[26px] font-semibold leading-none tracking-[-0.01em]">Clients</h1>
         <div className="flex flex-wrap items-center gap-2">
           <ShortcutPill
@@ -485,6 +513,12 @@ export default function ClientsPage() {
       </header>
 
       {/* ---- the one toolbar row: views left, columns/filter/export right ---- */}
+      {/* The toolbar's vertical padding is `var(--m-card-padding)`, and the
+          pack's toolbar sits flush under the page head. The primitive takes no
+          `style`, so the override rides a wrapper that owns the custom
+          property — that keeps the fix on this surface instead of
+          restyling a component every data surface in the app shares. */}
+      <div style={{ "--m-card-padding": "0px" } as React.CSSProperties}>
       <DataToolbar
         views={
           <ViewSwitch
@@ -498,13 +532,18 @@ export default function ClientsPage() {
           />
         }
         filters={
-          <Input
-            aria-label="Search clients"
-            placeholder="Search clients…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-56"
-          />
+          <div className="w-56">
+            {/* The wrapper carries the width, not the control: `.m-input`
+                sets `width: 100%` in an unlayered rule that outranks a
+                Tailwind utility, so `w-56` on the input is silently ignored
+                and the field stretches the toolbar onto its own row. */}
+            <Input
+              aria-label="Search clients"
+              placeholder="Search clients…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
         }
         columns={
           <ColumnChooser
@@ -527,6 +566,7 @@ export default function ClientsPage() {
           />
         }
       />
+      </div>
 
       {/* ---- the record-dedupe strip (P3, granted only, real queue) ---- */}
       {dedupeGranted && duplicates !== null && duplicates.length > 0 ? (
@@ -563,7 +603,7 @@ export default function ClientsPage() {
 
       {/* ---- the table ---- */}
       <div
-        className="overflow-hidden rounded-[var(--m-radius-card)] border"
+        className="overflow-hidden rounded-2xl border"
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       >
         {filtered === null ? (
@@ -666,7 +706,20 @@ export default function ClientsPage() {
                     ) : null}
                     {cell("openTickets") ? (
                       <Td className="text-right text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                        —
+                        {/* The real count, with a zero spelled as "None"
+                            rather than a bare 0 — a ledger column that shows
+                            0 next to 1 and 2 has to say which is which. */}
+                        {(() => {
+                          const n = openTicketCount(client.id);
+                          if (n === null) return "";
+                          return n === 0 ? (
+                            <span style={{ color: "var(--m-text-muted)" }}>None</span>
+                          ) : (
+                            <span className="font-semibold" style={{ color: "var(--m-text)" }}>
+                              {n}
+                            </span>
+                          );
+                        })()}
                       </Td>
                     ) : null}
                     {cell("contract") ? (
@@ -698,8 +751,11 @@ export default function ClientsPage() {
                     ) : null}
                     {cell("owner") ? (
                       <Td>
-                        <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                          {isAdmin ? "You" : "Unassigned"}
+                        <span className="flex items-center gap-2">
+                          {ownerName === "" ? null : <Monogram name={ownerName} />}
+                          <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                            {ownerName === "" ? "Unassigned" : ownerName}
+                          </span>
                         </span>
                       </Td>
                     ) : null}

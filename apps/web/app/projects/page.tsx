@@ -336,7 +336,7 @@ export default function ProjectsPage() {
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
       {/* ---- header: title, four stat pills, one primary ---- */}
-      <header className="flex flex-wrap items-center gap-3">
+      <header className="flex flex-wrap items-center gap-4">
         <h1 className="text-[26px] font-semibold leading-none tracking-[-0.01em]">Projects</h1>
         <div className="flex flex-wrap items-center gap-2">
           <StatPill
@@ -433,30 +433,42 @@ export default function ProjectsPage() {
         </Dialog>
       </header>
 
+      {/* The toolbar's vertical padding is `var(--m-card-padding)`, and the
+          pack's toolbar sits flush under the page head. The primitive takes no
+          `style`, so the override rides a wrapper that owns the custom
+          property — that keeps the fix on this surface instead of
+          restyling a component every data surface in the app shares. */}
+      <div style={{ "--m-card-padding": "0px" } as React.CSSProperties}>
       <DataToolbar
         views={<ViewSwitch views={VIEWS} activeId={view} onChange={setView} label="Project views" />}
         filters={
           <>
-            <Input
-              aria-label="Search projects"
-              placeholder="Search name or client…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-52"
-            />
-            <Select value={clientFilter} onValueChange={setClientFilter}>
-              <SelectTrigger aria-label="Filter by client" className="w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All clients</SelectItem>
-                {clients.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="w-52">
+              {/* Widths ride wrapper divs, not the controls: `.m-input` and
+                  `.m-select-trigger` are unlayered `width: 100%` rules that
+                  outrank a Tailwind utility on the element itself. */}
+              <Input
+                aria-label="Search projects"
+                placeholder="Search name or client…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+            <div className="w-44">
+              <Select value={clientFilter} onValueChange={setClientFilter}>
+                <SelectTrigger aria-label="Filter by client">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All clients</SelectItem>
+                  {clients.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </>
         }
         columns={
@@ -477,9 +489,10 @@ export default function ProjectsPage() {
           />
         }
       />
+      </div>
 
       <div
-        className="overflow-hidden rounded-[var(--m-radius-card)] border"
+        className="overflow-hidden rounded-2xl border"
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       >
         {filtered === null ? (
@@ -591,14 +604,19 @@ export default function ProjectsPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+        {/* The count leads, then the "of" clause only when a filter has
+            actually narrowed the list. Printing "1 project · Showing 1 of 1
+            projects" unconditionally said the same number twice and got the
+            plural wrong on one of them. */}
         <span className="tabular-nums">
           {filtered === null ? "" : `${filtered.length} project${filtered.length === 1 ? "" : "s"}`}
         </span>
-        <span aria-hidden="true">·</span>
-        <span className="tabular-nums">
-          Showing <strong className="font-semibold">{filtered?.length ?? 0}</strong> of{" "}
-          <strong className="font-semibold">{projects?.length ?? 0}</strong> projects
-        </span>
+        {filtered !== null && projects !== null && filtered.length !== projects.length ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="tabular-nums">of {projects.length} in total</span>
+          </>
+        ) : null}
         <span className="flex-1" />
         <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
           At risk is a date coming up. Overdue is a date that has passed.

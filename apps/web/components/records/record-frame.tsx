@@ -26,6 +26,19 @@
  * each column still reads as the same page shape.
  */
 
+/** The pack's exact record metrics, lifted from the surface source so the
+ * numbers here are the pack's and not approximations:
+ *
+ * - the grid is `290px minmax(0,1fr) 340px`, full-bleed (it cancels the
+ *   page's own 24px gutter, which is why the columns reach the content edges);
+ * - the customer column sits on the **canvas**, not on a card, carries a
+ *   single hairline on its right, and pads `8px 18px`;
+ * - its sections are `14px 0` with a `6px` gap and a hairline between them;
+ * - the summary column sits on the **surface**, carries a single hairline on
+ *   its left, pads `18px`, and gaps its cards by `14px`;
+ * - a card header is `14px 18px`, a card body `14px 18px` with an `8px` gap,
+ *   and a table row is `52px` tall with `18px` of side padding.
+ */
 export interface RecordFrameProps {
   /** The left column's contents: who this record is about. */
   context: React.ReactNode;
@@ -44,34 +57,48 @@ export function RecordFrame({
 }: RecordFrameProps): React.JSX.Element {
   return (
     <div
-      className={
-        className === undefined
-          ? "grid grid-cols-1 gap-4 xl:grid-cols-[290px_minmax(0,1fr)_340px] xl:gap-0"
-          : `grid grid-cols-1 gap-4 xl:grid-cols-[290px_minmax(0,1fr)_340px] xl:gap-0 ${className}`
-      }
+      className={[
+        // Stacked below xl with a real gap; from xl up the columns sit flush
+        // and are divided by their hairlines, so the gap goes to zero.
+        "grid grid-cols-1 gap-4",
+        "xl:grid-cols-[290px_minmax(0,1fr)_340px] xl:gap-0",
+        // Full bleed: the columns own the page gutter from xl up, exactly as
+        // the pack does, which is what makes the hairline read as a division
+        // rather than as the edge of a floating box.
+        "xl:-mx-6",
+        className ?? "",
+      ].join(" ")}
       data-testid="record-frame"
     >
+      {/* The customer column is a COLUMN, not a card: canvas ground, one
+          hairline on the right, no rounded box. Wrapping it in a bordered
+          panel is what made the first pass look like a set of empty boxes. */}
       <aside
         aria-label="Customer"
         data-testid="record-context"
-        className="min-w-0 rounded-[var(--m-radius-card)] border p-4 xl:max-h-[calc(100vh-13rem)] xl:overflow-y-auto"
-        style={{ borderColor: "var(--m-border)", background: "var(--m-sidebar)" }}
+        className="min-w-0 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto xl:border-r xl:px-[18px] xl:pt-2"
+        style={{ borderColor: "var(--m-border)" }}
       >
         {context}
       </aside>
 
+      {/* The middle column keeps its own 24px inset: the pack's card sits 24px
+          clear of the customer column's hairline, not against it. */}
       <section
         aria-label="Record"
         data-testid="record-content"
-        className="min-w-0"
+        className="min-w-0 xl:px-6"
       >
         {content}
       </section>
 
+      {/* The summary column is surface ground with a single hairline on its
+          left. Its cards provide the framing, so an outer border would frame
+          the frames. */}
       <aside
         aria-label="Right now"
         data-testid="record-summary"
-        className="min-w-0 rounded-[var(--m-radius-card)] border p-4 xl:max-h-[calc(100vh-13rem)] xl:overflow-y-auto"
+        className="flex min-w-0 flex-col gap-3.5 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto xl:border-l xl:bg-[var(--m-surface-2)] xl:px-[18px]"
         style={{ borderColor: "var(--m-border)" }}
       >
         {summary}
@@ -94,12 +121,12 @@ export function RecordSection({
 }): React.JSX.Element {
   return (
     <section
-      className={`flex flex-col gap-1.5 border-b py-3 last:border-b-0 ${className ?? ""}`}
+      className={`flex flex-col gap-1.5 border-b py-3.5 first:pt-2 last:border-b-0 last:pb-0 ${className ?? ""}`}
       style={{ borderColor: "var(--m-border)" }}
       data-testid={`record-section-${label.toLowerCase().replaceAll(/\s+/g, "-")}`}
     >
       <p
-        className="text-[11px] font-semibold uppercase tracking-[0.08em]"
+        className="text-[12px] font-semibold uppercase tracking-[0.08em]"
         style={{ color: "var(--m-text-muted)" }}
       >
         {label}
@@ -140,23 +167,32 @@ export function SummaryCard({
 }): React.JSX.Element {
   return (
     <div
-      className="overflow-hidden rounded-[0.75rem] border"
-      style={{ borderColor: "var(--m-border)", background: "var(--m-surface-2)" }}
+      className="overflow-hidden rounded-2xl border"
+      style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       data-testid={`summary-card-${title.toLowerCase().replaceAll(/\s+/g, "-")}`}
     >
-      <div className="flex items-center gap-2 border-b px-3 py-2" style={{ borderColor: "var(--m-border)" }}>
+      <div
+        className="flex items-center gap-2.5 border-b px-[18px] py-3.5"
+        style={{ borderColor: "var(--m-border)" }}
+      >
         <h3 className="text-[13px] font-semibold">{title}</h3>
         <span className="flex-1" />
         {trailing}
       </div>
-      <div className="flex flex-col gap-1.5 px-3 py-2.5">{children}</div>
+      <div className="flex flex-col gap-2 px-[18px] py-3.5">{children}</div>
     </div>
   );
 }
 
 /** The tab bar under a record's title. The page header does not change
  * between tabs, so the record never feels like it moved: the tabs sit
- * inside the content column, under a header that stays put. */
+ * inside the content column, under a header that stays put.
+ *
+ * The tabs wrap rather than scroll. A six-tab record inside a fluid middle
+ * column overflows at 1440px, and a clipped tab label ("Docum…") reads as a
+ * broken surface rather than as "there is more, scroll". Wrapping keeps every
+ * tab name whole and visible at any width, which is the whole point of naming
+ * them. */
 export function RecordTabs({
   tabs,
   active,
@@ -170,7 +206,7 @@ export function RecordTabs({
     <nav
       aria-label="Record sections"
       data-testid="record-tabs"
-      className="flex gap-5 overflow-x-auto border-b"
+      className="flex flex-wrap gap-x-4 gap-y-1 border-b"
       style={{ borderColor: "var(--m-border)" }}
     >
       {tabs.map((tab) => {

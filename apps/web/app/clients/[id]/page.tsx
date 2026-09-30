@@ -91,6 +91,12 @@ type PortalRole = components["schemas"]["PortalRole"];
 type DeviceAsset = components["schemas"]["DeviceAsset"];
 type Document = components["schemas"]["Document"];
 type DocumentLayout = components["schemas"]["DocumentLayout"];
+type Ticket = components["schemas"]["TicketWithFields"];
+
+/** One line of the client's real activity, assembled from the records this
+ * page already loads. Nothing here is invented: a ticket update is a real
+ * ticket's real `updated_at`. */
+type ActivityEntry = { at: string; text: string; href: string };
 type ClientCompletenessView = components["schemas"]["ClientCompletenessView"];
 type Contract = components["schemas"]["Contract"];
 
@@ -162,6 +168,12 @@ export default function ClientDetailPage() {
   const [portalUsers, setPortalUsers] = useState<PortalUser[] | null>(null);
   const [portalDenied, setPortalDenied] = useState(false);
   const [assets, setAssets] = useState<DeviceAsset[] | null>(null);
+  // The client's REAL open work and its REAL latest activity. Both come from
+  // live endpoints — there is no illustrative data on this page, because a
+  // customer record showing invented ticket numbers is a lie the customer
+  // reads.
+  const [tickets, setTickets] = useState<Ticket[] | null>(null);
+  const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
   const [documents, setDocuments] = useState<Document[] | null>(null);
   const [layouts, setLayouts] = useState<DocumentLayout[] | null>(null);
   const [completeness, setCompleteness] = useState<ClientCompletenessView | null>(null);
@@ -193,6 +205,9 @@ export default function ClientDetailPage() {
   const [puRole, setPuRole] = useState<PortalRole>("contact");
 
   const isAdmin = (me?.permissions ?? []).includes("special:manage_users") ?? false;
+  // The signed-in user's own initials for the owner monogram. "You" collapsed
+  // to a bare "Y", which reads as a rendering fault rather than a person.
+  const ownerName = me?.display_name ?? me?.email ?? "";
 
   const refreshClient = useCallback(async () => {
     const { data, error } = await api.api.GET("/api/v1/clients/{id}", {
@@ -213,6 +228,12 @@ export default function ClientDetailPage() {
     void api.api.GET("/api/v1/clients/{id}/assets", { params: { path: { id: clientId } } }).then(({ data }) => setAssets(data ?? []));
     void api.api.GET("/api/v1/documents", { params: { query: { client_id: clientId } } }).then(({ data }) => setDocuments(data ?? []));
     void api.api.GET("/api/v1/documents/layouts").then(({ data }) => setLayouts(data ?? []));
+    // The client's real tickets, scoped by the endpoint's own client_id
+    // filter. This is what the Open work card and Recent activity read, so
+    // both show what is actually open rather than an illustration of it.
+    void api.api
+      .GET("/api/v1/tickets", { params: { query: { client_id: clientId, limit: 25 } } })
+      .then(({ data }) => setTickets(data ?? []));
     const pu = await api.api.GET("/api/v1/clients/{id}/portal-users", {
       params: { path: { id: clientId } },
     });
@@ -268,6 +289,49 @@ export default function ClientDetailPage() {
     const usable = contracts.filter((c) => c.status === "active" || c.status === "draft");
     return usable[0] ?? null;
   }, [contracts]);
+
+  /** The client's real open work, split the way the card shows it: what a
+   * technician is on now, and what is still waiting. Both numbers come from
+   * the tickets this client actually has.
+   *
+   * There is deliberately no "at risk, 55m left" row. A ticket carries no SLA
+   * clock on this schema, so any such figure would be invented — and the pack's
+   * blush clock belongs to signals that are actually computed. What is real
+   * here is the oldest open ticket's age, which is the honest version of the
+   * same question: how long has the longest-running thing been waiting. */
+  const openWork = useMemo(() => {
+    const list = tickets ?? [];
+    const live = list.filter((t) => t.category !== "closed");
+    const inProgress = live.filter((t) => t.category === "in_progress");
+    const waiting = live.filter((t) => t.category === "open" || t.category === "waiting");
+    const oldest = live.reduce<string | null>((acc, t) => {
+      if (acc === null) return t.created_at;
+      return new Date(t.created_at).getTime() < new Date(acc).getTime() ? t.created_at : acc;
+    }, null);
+    return {
+      total: live.length,
+      inProgress,
+      waiting,
+      oldestOpenSince: oldest === null ? null : daysSince(oldest),
+      rows: [...inProgress, ...waiting].slice(0, 6),
+    };
+  }, [tickets]);
+
+  /** Recent activity, assembled from the records already on this page: each
+   * line is a real ticket's real last update. Ordered newest first, capped
+   * at five so the card stays a summary rather than a log. */
+  const recentActivity = useMemo<ActivityEntry[] | null>(() => {
+    if (tickets === null) return null;
+    return [...tickets]
+      .filter((t) => typeof t.updated_at === "string" && t.updated_at !== "")
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+      .slice(0, 5)
+      .map((t) => ({
+        at: relativeWhen(t.updated_at),
+        text: `${t.number} updated — ${t.title}`,
+        href: `/tickets/${t.id}`,
+      }));
+  }, [tickets]);
 
   const resetCreateForm = () => {
     setSiteName("");
@@ -416,12 +480,17 @@ export default function ClientDetailPage() {
                 ) : (
                   <Badge tone="success">Active</Badge>
                 )}
-                {client.notes === null || client.notes === "" ? (
+                {/* The plan line reflects the CONTRACT, not the client's free-text notes.
+                    Keying it off `notes` printed "No plan yet" directly above a
+                    CONTRACT section naming the live plan, which is a
+                    contradiction on the surface meant to be trusted. The
+                    contract is the thing that carries a plan. */}
+                {hasContract ? (
+                  <Badge tone="neutral">{liveContract?.name}</Badge>
+                ) : (
                   <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
                     No plan yet
                   </span>
-                ) : (
-                  <Badge tone="neutral">{client.notes}</Badge>
                 )}
               </div>
               {restricted ? (
@@ -513,9 +582,9 @@ export default function ClientDetailPage() {
 
             <RecordSection label="Account owner">
               <div className="flex items-center gap-2.5">
-                <Monogram name="You" />
+                <Monogram name={ownerName} />
                 <span className="text-[13px] font-semibold">
-                  {isAdmin ? "You" : "Unassigned"}
+                  {ownerName === "" ? "Unassigned" : ownerName}
                 </span>
               </div>
             </RecordSection>
@@ -623,8 +692,8 @@ export default function ClientDetailPage() {
                     />
                   ) : null}
 
-                  <OpenWorkCard />
-                  <RecentActivityCard />
+                  <OpenWorkCard work={openWork} />
+                  <RecentActivityCard entries={recentActivity} />
                 </>
               ) : null}
 
@@ -681,31 +750,47 @@ export default function ClientDetailPage() {
               Right now
             </p>
             <SummaryCard title="Open work">
-              <RecordRow label="In progress">{(assets ?? []).length > 0 ? "—" : "Nothing open"}</RecordRow>
-              <RecordRow label="Scheduled">—</RecordRow>
-              <RecordRow label="At risk">
-                <Badge tone="due">
-                  <span className="inline-flex items-center gap-1">
-                    <ClockIcon />
-                    55m left
-                  </span>
-                </Badge>
-              </RecordRow>
+              {openWork.total === 0 ? (
+                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  Nothing open for this client.
+                </span>
+              ) : (
+                <>
+                  <RecordRow label="In progress">{openWork.inProgress.length}</RecordRow>
+                  <RecordRow label="Waiting">{openWork.waiting.length}</RecordRow>
+                  {/* The oldest open ticket's real age. There is no SLA clock
+                      on a ticket, so this is the honest question: how long
+                      has the longest-running thing been waiting. */}
+                  {openWork.oldestOpenSince !== null && openWork.oldestOpenSince > 0 ? (
+                    <RecordRow label="Oldest open">
+                      <Badge tone={openWork.oldestOpenSince > 14 ? "due" : "neutral"}>
+                        <span className="inline-flex items-center gap-1">
+                          <ClockIcon />
+                          {openWork.oldestOpenSince}d
+                        </span>
+                      </Badge>
+                    </RecordRow>
+                  ) : null}
+                </>
+              )}
             </SummaryCard>
 
             <SummaryCard title="Billing">
               {liveContract === null ? (
                 <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                  Nothing invoiced yet.
+                  No contract to invoice against yet.
                 </span>
               ) : (
                 <>
-                  <RecordRow label="Balance due">
+                  <RecordRow label="Per period">
                     {liveContract.amount_minor != null
                       ? money(liveContract.amount_minor, liveContract.currency)
-                      : "—"}
+                      : "Not priced"}
                   </RecordRow>
                   <RecordRow label="Contract">{liveContract.number}</RecordRow>
+                  <RecordRow label="Renews">
+                    {formatPackDate(liveContract.effective_until) ?? "Open-ended"}
+                  </RecordRow>
                 </>
               )}
             </SummaryCard>
@@ -726,7 +811,12 @@ export default function ClientDetailPage() {
                     {portalUsers?.filter((u) => u.status !== "disabled").length ?? 0} of{" "}
                     {portalUsers?.length ?? 0}
                   </RecordRow>
-                  <RecordRow label="Last sign-in">Today, 08:12</RecordRow>
+                  {/* Sign-in recency is the portal user's own record, which
+                      this schema does not expose. Rather than print a
+                      plausible time we invented, the card says what is true. */}
+                  <RecordRow label="Last sign-in">
+                    <span style={{ color: "var(--m-text-muted)" }}>Not tracked</span>
+                  </RecordRow>
                 </>
               ) : (
                 <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
@@ -736,8 +826,16 @@ export default function ClientDetailPage() {
             </SummaryCard>
 
             <SummaryCard title="Relationship">
-              <RecordRow label="Last contact">2 days ago</RecordRow>
-              <RecordRow label="Last satisfaction score">4.6 of 5</RecordRow>
+              {recentActivity === null || recentActivity.length === 0 ? (
+                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  No recorded activity yet.
+                </span>
+              ) : (
+                <>
+                  <RecordRow label="Last update">{recentActivity[0]?.at ?? "—"}</RecordRow>
+                  <RecordRow label="Tickets on record">{(tickets ?? []).length}</RecordRow>
+                </>
+              )}
             </SummaryCard>
 
             <CompletenessCard
@@ -884,11 +982,11 @@ function SetupCard({
   const pct = Math.round((doneCount / steps.length) * 100);
   return (
     <div
-      className="overflow-hidden rounded-[var(--m-radius-card)] border"
+      className="overflow-hidden rounded-2xl border"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       data-testid="client-setup-card"
     >
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3" style={{ borderColor: "var(--m-border)" }}>
+      <div className="flex flex-wrap items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
         <h2 className="text-[15px] font-semibold">Finish setting up</h2>
         <span className="flex-1" />
         <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -967,23 +1065,30 @@ function SetupCard({
 
       {/* One sentence that keeps the two buttons apart: skipping is
           resumable, hiding is not. They are different consequences, so the
-          copy never blurs them. */}
+          copy never blurs them.
+
+          The buttons live in their own non-wrapping cluster. Left to the
+          parent's `flex-wrap`, the second button dropped onto a line of its
+          own and read as a stray control rather than the pair it belongs
+          to; the sentence is what wraps, not the pair. */}
       <div
         className="flex flex-wrap items-center gap-3 border-t px-4 py-3"
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface-2)" }}
       >
-        <p className="min-w-[16rem] flex-1 text-[13px] leading-relaxed" style={{ color: "var(--m-text-secondary)" }}>
+        <p className="min-w-[14rem] flex-1 text-[13px] leading-relaxed" style={{ color: "var(--m-text-secondary)" }}>
           <strong className="font-semibold" style={{ color: "var(--m-text)" }}>Skip for now</strong>{" "}
           keeps this card here for next time.{" "}
           <strong className="font-semibold" style={{ color: "var(--m-text)" }}>Don't show this again</strong>{" "}
           removes it, and you can bring it back from the client's menu.
         </p>
-        <Button size="sm" variant="secondary" onClick={onSkip} data-testid="setup-skip">
-          Skip for now
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onHide} data-testid="setup-hide">
-          Don't show this again
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button size="sm" variant="secondary" onClick={onSkip} data-testid="setup-skip">
+            Skip for now
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onHide} data-testid="setup-hide">
+            Don't show this again
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -992,92 +1097,149 @@ function SetupCard({
 /** Open work as a card: the client's live tickets with their priority chips.
  * A P1 is the only red chip; the rest sit quiet, and the SLA figure is blush
  * with its own clock because colour is never alone. */
-function OpenWorkCard() {
+/** Open work, read from the client's real tickets. The card is a card of the
+ * work that exists, so a client with nothing open says so in words instead of
+ * showing an illustration of somebody else's week. */
+function OpenWorkCard({ work }: { work: {
+  total: number;
+  inProgress: Ticket[];
+  waiting: Ticket[];
+  oldestOpenSince: number | null;
+  rows: Ticket[];
+} }): React.JSX.Element {
   return (
     <div
-      className="overflow-hidden rounded-[var(--m-radius-card)] border"
+      className="overflow-hidden rounded-2xl border"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       data-testid="client-open-work"
     >
-      <div className="flex items-center gap-2 border-b px-4 py-3" style={{ borderColor: "var(--m-border)" }}>
+      <div className="flex items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
         <h2 className="text-[15px] font-semibold">Open work</h2>
         <span className="flex-1" />
-        <span className="text-[13px] font-semibold underline underline-offset-2" style={{ color: "var(--m-text-secondary)" }}>
+        <Link
+          href="/tickets"
+          className="text-[13px] font-semibold underline underline-offset-2"
+          style={{ color: "var(--m-text-secondary)" }}
+        >
           All open tickets
-        </span>
+        </Link>
       </div>
-      <ul>
-        {[
-          { p: "p1" as const, id: "#18432", title: "VPN disconnects every 20–30 minutes", status: "In progress", sla: "1h 12m" },
-          { p: "p2" as const, id: "#18374", title: "Slow file server since Monday", status: "In progress", sla: "3h 10m" },
-          { p: "p3" as const, id: "#18421", title: "Outlook keeps asking for a password", status: "In progress", sla: "5h 10m" },
-          { p: "p3" as const, id: "#18409", title: "New starter: laptop and Microsoft 365", status: "Scheduled", sla: "25h" },
-        ].map((row) => (
-          <li
-            key={row.id}
-            className="flex flex-wrap items-center gap-3 border-b px-4 py-2.5 last:border-b-0"
-            style={{ borderColor: "var(--m-border)", minHeight: "52px" }}
-          >
-            <Badge priority={row.p} className="shrink-0">
-              {row.p.toUpperCase()}
-            </Badge>
-            <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-              {row.id}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{row.title}</span>
-            {row.status === "Scheduled" ? (
-              <Badge tone="neutral">Scheduled</Badge>
-            ) : (
-              <Badge tone="neutral">In progress</Badge>
-            )}
-            <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-              {row.sla}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {work.total === 0 ? (
+        <div className="p-4">
+          <EmptyState message="Nothing open for this client. New tickets raised against it will appear here." />
+        </div>
+      ) : (
+        <ul>
+          {work.rows.map((t) => (
+            <li
+              key={t.id}
+              className="flex flex-wrap items-center gap-3 border-b px-[18px] py-2.5 last:border-b-0"
+              style={{ borderColor: "var(--m-border)", minHeight: "52px" }}
+            >
+              <Badge priority={t.priority} className="shrink-0">
+                {t.priority.toUpperCase()}
+              </Badge>
+              <span className="font-mono text-[13px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                {t.number}
+              </span>
+              <Link
+                href={`/tickets/${t.id}`}
+                className="min-w-0 flex-1 truncate text-[13px] font-medium underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
+              >
+                {t.title}
+              </Link>
+              {/* The status word carries the state; the tint only supports it,
+                  so a ticket is never identified by colour alone. */}
+              <Badge tone={t.category === "in_progress" ? "neutral" : "due"}>
+                {t.category === "in_progress"
+                  ? "In progress"
+                  : t.category === "waiting"
+                    ? "Waiting"
+                    : "Open"}
+              </Badge>
+              {t.due_at != null && t.due_at !== "" ? (
+                <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                  due {formatPackDate(t.due_at)}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
-/** Recent activity, so the relationship reads as a story rather than a set of
- * current numbers. */
-function RecentActivityCard() {
-  const items = [
-    { at: "11:32", text: "Tumi L. updated #18432, VPN disconnects every 20–30 minutes" },
-    { at: "Yesterday", text: "Priya Naidoo replied on #18421" },
-    { at: "Mon 28", text: "Grace Mwangi accepted Q-2214, Wi-Fi upgrade phase two" },
-    { at: "3 Sep", text: "INV-4052 sent to Priya Naidoo" },
-    { at: "1 Sep", text: "INV-4058 paid, $9,400.00" },
-  ];
+/** Recent activity, built from the client's real tickets so the relationship
+ * reads as a story rather than a set of current numbers. */
+function RecentActivityCard({ entries }: { entries: ActivityEntry[] | null }): React.JSX.Element {
   return (
     <div
-      className="overflow-hidden rounded-[var(--m-radius-card)] border"
+      className="overflow-hidden rounded-2xl border"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       data-testid="client-recent-activity"
     >
-      <div className="border-b px-4 py-3" style={{ borderColor: "var(--m-border)" }}>
+      <div className="border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
         <h2 className="text-[15px] font-semibold">Recent activity</h2>
       </div>
-      <ul>
-        {items.map((i) => (
-          <li
-            key={i.at + i.text}
-            className="flex gap-3 border-b px-4 py-2.5 text-[13px] last:border-b-0"
-            style={{ borderColor: "var(--m-border)" }}
-          >
-            <span className="w-16 shrink-0 tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-              {i.at}
-            </span>
-            <span className="min-w-0 flex-1">{i.text}</span>
-          </li>
-        ))}
-      </ul>
+      {entries === null ? (
+        <div className="p-4">
+          <Spinner />
+        </div>
+      ) : entries.length === 0 ? (
+        <div className="p-4">
+          <EmptyState message="No activity recorded yet. Ticket updates appear here as they happen." />
+        </div>
+      ) : (
+        <ul>
+          {entries.map((i) => (
+            <li
+              key={i.href + i.at}
+              className="flex gap-3 border-b px-[18px] py-2.5 text-[13px] last:border-b-0"
+              style={{ borderColor: "var(--m-border)" }}
+            >
+              <span className="w-20 shrink-0 tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                {i.at}
+              </span>
+              <Link
+                href={i.href}
+                className="min-w-0 flex-1 underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
+              >
+                {i.text}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
-/** Contacts as a people table: each person's role in the account and portal
+/** Whole days since an ISO timestamp, for "oldest open ticket" style ages.
+ * Calendar days rather than 24-hour spans, so the number does not flip at an
+ * awkward hour. */
+function daysSince(iso: string): number {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((today.getTime() - then) / 86_400_000));
+}
+
+/** A short, honest relative time for the activity list: Today, Yesterday,
+ * then a date. Deliberately not "2 hours ago" — an activity feed that claims
+ * minute precision on a coarse timestamp is stating more than it knows. */
+function relativeWhen(iso: string): string {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return "";
+  const days = daysSince(iso);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days}d ago`;
+  return formatPackDate(iso.slice(0, 10)) ?? "";
+}
+
+/** Contacts as a people table: each person's role in the account, and portal
  * access as a switch that applies at once. */
 function ContactsCard({
   contacts,
@@ -1103,11 +1265,11 @@ function ContactsCard({
   }
   return (
     <div
-      className="overflow-hidden rounded-[var(--m-radius-card)] border"
+      className="overflow-hidden rounded-2xl border"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       data-testid="client-contacts-card"
     >
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3" style={{ borderColor: "var(--m-border)" }}>
+      <div className="flex flex-wrap items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
         <h2 className="text-[15px] font-semibold">Contacts</h2>
         <span className="flex-1" />
         {portalDenied ? null : (
@@ -1278,11 +1440,11 @@ function SitesCard({
       </div>
 
       <div
-        className="overflow-hidden rounded-[var(--m-radius-card)] border"
+        className="overflow-hidden rounded-2xl border"
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
         data-testid="client-devices-card"
       >
-        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3" style={{ borderColor: "var(--m-border)" }}>
+        <div className="flex flex-wrap items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
           <h2 className="text-[15px] font-semibold">{selected?.name ?? "Devices"}</h2>
           <span className="flex-1" />
           <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -1352,7 +1514,7 @@ function ContractsBillingCard({
       {renewal !== null ? (
         <div
           role="status"
-          className="flex flex-wrap items-center gap-3 rounded-[0.75rem] px-3 py-2.5"
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl px-4 py-2.5"
           style={{ background: "var(--m-status-due-bg, var(--m-time))", color: "var(--m-status-due-fg, var(--m-time-fg)" }}
           data-testid="client-renewal-strip"
         >
@@ -1363,13 +1525,13 @@ function ContractsBillingCard({
               ? `The renewal quote should go out by ${formatPackDate(quoteDue)}, ${60} days before the end.`
               : "The renewal quote should go out before the end."}
           </span>
-          <span className="flex-1" />
+          <span className="flex-1 basis-24" />
           {/* A renewal is set up ON the contract — the term moves there, and
               the quote is authored against it. So the action goes to the
               contract's own editor rather than pretending this page can
               renew anything. */}
           {contract !== null ? (
-            <Link href={`/contracts/${contract.id}`}>
+            <Link href={`/contracts/${contract.id}`} className="ml-auto">
               <Button size="sm" data-testid="client-start-renewal">
                 Start renewal
               </Button>
@@ -1379,10 +1541,10 @@ function ContractsBillingCard({
       ) : null}
 
       <div
-        className="overflow-hidden rounded-[var(--m-radius-card)] border"
+        className="overflow-hidden rounded-2xl border"
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       >
-        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3" style={{ borderColor: "var(--m-border)" }}>
+        <div className="flex flex-wrap items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
           <h2 className="text-[15px] font-semibold">{contract?.name ?? "No contract yet"}</h2>
           <span className="flex-1" />
           {contract !== null ? (
@@ -1428,10 +1590,10 @@ function ContractsBillingCard({
 
       {contracts.length > 1 ? (
         <div
-          className="overflow-hidden rounded-[var(--m-radius-card)] border"
+          className="overflow-hidden rounded-2xl border"
           style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
         >
-          <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3" style={{ borderColor: "var(--m-border)" }}>
+          <div className="flex flex-wrap items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
             <h2 className="text-[15px] font-semibold">Billing history</h2>
             <span className="flex-1" />
             <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -1561,10 +1723,10 @@ function DocumentsCard({
   }
   return (
     <div
-      className="overflow-hidden rounded-[var(--m-radius-card)] border"
+      className="overflow-hidden rounded-2xl border"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
     >
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3" style={{ borderColor: "var(--m-border)" }}>
+      <div className="flex flex-wrap items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
         <h2 className="text-[15px] font-semibold">Documents</h2>
         <span className="flex-1" />
         <Link href="/documents" className="text-[13px] underline underline-offset-2" style={{ color: "var(--m-text-secondary)" }}>

@@ -545,7 +545,7 @@ export default function ContractDetailPage(): ReactNode {
         <div
           role="status"
           data-testid="contract-renewal-strip"
-          className="mt-3 flex flex-wrap items-center gap-3 rounded-[0.75rem] px-3 py-2"
+          className="mt-3 flex flex-wrap items-center gap-3 rounded-xl px-4 py-2.5"
           style={{ background: "var(--m-status-due-bg, var(--m-time))", color: "var(--m-status-due-fg, var(--m-time-fg)" }}
         >
           <ClockGlyph />
@@ -579,7 +579,7 @@ export default function ContractDetailPage(): ReactNode {
       {/* The contract's terms as four figures — the card the pack makes the
           page. */}
       <div
-        className="mt-3 grid grid-cols-2 gap-4 rounded-[var(--m-radius-card)] border p-4 lg:grid-cols-4"
+        className="mt-3 grid grid-cols-2 gap-4 rounded-2xl border p-4 lg:grid-cols-4"
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
         data-testid="contract-terms-card"
       >
