@@ -1,4 +1,4 @@
-// Move stock — the on-site movement flow (Wave 33 lane 2).
+// Move stock — the pack's `17-move` on the Wave 33 field flow.
 //
 // Purpose: one screen runs the three field movements the tech actually
 // performs, all on the same public endpoints the web dialog uses:
@@ -42,6 +42,7 @@ import {
   SectionHeader,
   SuccessNote,
 } from "@/ui/primitives";
+import { PackHeader, PackLabel } from "@/ui/pack";
 import { infoPair, shape, type, useTheme } from "@/ui/tokens";
 
 type MoveMode = "consume" | "transfer" | "receive";
@@ -273,15 +274,12 @@ export function MovementScreen() {
 
   return (
     <Screen testID="move-screen">
-      <Pressable onPress={() => router.back()} hitSlop={8} testID="move-back">
-        <Text style={[styles.back, { color: tokens.primary }]}>‹ Back</Text>
-      </Pressable>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: tokens.text }]}>Move stock</Text>
-        <Text style={[styles.subtitle, { color: tokens.textMuted }]}>
-          Scan or search, stage, then confirm.
-        </Text>
-      </View>
+      <PackHeader
+        onBack={() => router.back()}
+        backTestID="move-back"
+        title="Move stock"
+        detail="Scan or search, stage, then confirm."
+      />
 
       <View style={styles.modeRow}>
         {MODES.map((option) => {
@@ -327,7 +325,7 @@ export function MovementScreen() {
       />
 
       <Card>
-        <SectionHeader title="Or search the catalog" />
+        <PackLabel style={{ marginBottom: 6 }}>Or search the catalog</PackLabel>
         <Field
           testID="move-search"
           value={search}

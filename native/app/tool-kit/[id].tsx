@@ -1,4 +1,4 @@
-// Toolbox (kit) detail — the scan-the-box-tag destination.
+// Toolbox (kit) detail — the pack's `18-tool-kit`: one scan of the stencil.
 //
 // Purpose: one scan of a toolbox stencil resolves the kit, and this screen
 // runs the whole-kit transaction (Wave 32 lane 3: kits are checked out as
@@ -24,6 +24,7 @@ import {
   type ToolCheckoutDetail,
 } from "@/core/models";
 import { checkinTools, checkoutTools } from "@/core/writes";
+import { ToolCheckoutSheet, dueBackDate } from "@/ui/tool-sheets";
 import { useModel, useMutation } from "@/data/sync-context";
 import { commitConfirmed } from "@/ui/haptics";
 import {
@@ -38,6 +39,7 @@ import {
   SectionHeader,
   SuccessNote,
 } from "@/ui/primitives";
+import { PackHeader, PackLabel } from "@/ui/pack";
 import { infoPair, shape, type, useTheme } from "@/ui/tokens";
 
 export default function ToolKitScreen() {
@@ -47,6 +49,7 @@ export default function ToolKitScreen() {
   const { mutate } = useMutation();
   const [locationId, setLocationId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [dueSheet, setDueSheet] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   const [bannerOk, setBannerOk] = useState(false);
 
@@ -129,7 +132,7 @@ export default function ToolKitScreen() {
     );
   }
 
-  const act = async (action: "checkout" | "checkin") => {
+  const act = async (action: "checkout" | "checkin", dueChoice?: string) => {
     if (me === null || kit.data === undefined) return;
     setBusy(true);
     setBanner(null);
@@ -138,7 +141,7 @@ export default function ToolKitScreen() {
         ? await mutate(checkoutTools, {
             holderUserId: me.user_id,
             fromLocationId: selectedLocation ?? openCheckout?.checkout.from_location_id ?? "",
-            dueAt: dueTomorrow(),
+            dueAt: dueChoice ?? dueTomorrow(),
             items: [],
             kitId: kit.data.kit.id,
             label: `Check out ${kit.data.kit.name}`,
@@ -162,11 +165,13 @@ export default function ToolKitScreen() {
 
   return (
     <Screen testID="tool-kit-screen">
-      <Pressable onPress={() => router.back()} hitSlop={8} testID="tool-kit-back">
-        <Text style={[styles.back, { color: tokens.primary }]}>‹ Back</Text>
-      </Pressable>
+      <PackHeader
+        onBack={() => router.back()}
+        backTestID="tool-kit-back"
+        title={kit.data?.kit.name ?? "Toolbox"}
+        detail="Everything in the box rides one transaction."
+      />
       <View style={styles.header}>
-        <Text style={[styles.title, { color: tokens.text }]}>{kit.data?.kit.name}</Text>
         <View style={styles.pills}>
           {kit.data?.kit.code != null ? (
             <Pill pair={tokens.neutral} label={String(kit.data.kit.code)} />
@@ -186,7 +191,7 @@ export default function ToolKitScreen() {
         bannerOk ? <SuccessNote text={banner} /> : <ErrorNote text={banner} />
       ) : null}
 
-      <SectionHeader title="Availability" />
+      <PackLabel style={{ marginBottom: 6, marginTop: 4 }}>Availability</PackLabel>
       <Card>
         <View style={styles.chipWrap}>
           {(locations.data ?? []).map((location: StockLocationRow) => {
@@ -247,7 +252,7 @@ export default function ToolKitScreen() {
         )}
       </Card>
 
-      <SectionHeader title="Whole-kit transaction" />
+      <PackLabel style={{ marginBottom: 6, marginTop: 4 }}>Whole-kit transaction</PackLabel>
       <Card>
         {openCheckout === undefined ? (
           <>
@@ -261,7 +266,23 @@ export default function ToolKitScreen() {
               fullWidth
               loading={busy}
               disabled={me === null || selectedLocation === null}
-              onPress={() => void act("checkout")}
+              onPress={() => setDueSheet(true)}
+            />
+            <ToolCheckoutSheet
+              visible={dueSheet && kit.data?.kit != null}
+              onClose={() => setDueSheet(false)}
+              toolName={kit.data?.kit.name ?? "Toolbox"}
+              toolCode={kit.data?.kit.code != null ? String(kit.data.kit.code) : ""}
+              from={
+                (locations.data ?? []).find((row: StockLocationRow) => row.id === selectedLocation)
+                  ?.name ?? "the crib"
+              }
+              holderName={me?.display_name ?? "You"}
+              visitLabel={null}
+              onCheckout={(choice) => {
+                setDueSheet(false);
+                void act("checkout", dueBackDate(choice));
+              }}
             />
             {selectedLocation === null ? (
               <Text style={[styles.hint, { color: tokens.warning.text }]}>

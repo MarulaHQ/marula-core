@@ -1,30 +1,32 @@
-// Serialized unit — where-is-it-now, check out, return.
+// Serialized unit — the pack's `13-stock-serial` on the server read model.
 //
-// Purpose: the tool checkout/checkin proof surface. The whereabouts read
-// model is derived server-side (item, holder, location, due, loan); checkout
-// and return are queued writes with idempotency keys, so a queued checkout
-// replays exactly once when the link returns.
+// Purpose: where-is-it-now as a facts list (Location, Holder, Due back),
+// status pills (in stock green / out blush, TOOL, red only for OVERDUE),
+// and the single honest verb pinned at the bottom: Check out to me, or
+// Return when you hold it. The loan case never pretends a return button —
+// it says the loan flow owns the return.
 
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import { useAuth } from "@/auth/auth-context";
 import { REASON_COPY } from "@/core/errors";
 import { MODELS, fetchStockSerials } from "@/core/models";
 import { checkinTools, checkoutTools } from "@/core/writes";
 import { useModel, useMutation } from "@/data/sync-context";
+import { commitConfirmed } from "@/ui/haptics";
+import { EmptyState, ErrorNote, Loading } from "@/ui/primitives";
 import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorNote,
-  Loading,
-  Mono,
-  Pill,
-  Screen,
-  SectionHeader,
-} from "@/ui/primitives";
+  FactRow,
+  Facts,
+  PackHeader,
+  PackLabel,
+  PACK_ICONS,
+  PackPill,
+  PinnedBar,
+  PrimaryButton,
+} from "@/ui/pack";
 import { infoPair, type, useTheme } from "@/ui/tokens";
 
 export default function StockSerialScreen() {
@@ -41,17 +43,16 @@ export default function StockSerialScreen() {
   if (id === undefined) return null;
   if (serials.status === "loading" && serials.data === undefined) {
     return (
-      <Screen testID="stock-serial-screen" scroll={false}>
+      <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: 16 }]}>
         <Loading label="Loading unit" />
-      </Screen>
+      </View>
     );
   }
   if (row === undefined) {
     return (
-      <Screen testID="stock-serial-screen">
+      <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: 16 }]}>
         <EmptyState message={REASON_COPY.not_found ?? "That unit no longer exists."} />
-        <Button label="Back" variant="secondary" fullWidth onPress={() => router.back()} />
-      </Screen>
+      </View>
     );
   }
 
@@ -59,6 +60,7 @@ export default function StockSerialScreen() {
   const canCheckout = row.status === "in_stock" && row.location_id !== null;
   const canReturn = row.status !== "in_stock" && mine && row.checkout_id !== null;
   const isLoan = row.loan_id !== null;
+  const statusPair = row.status === "in_stock" ? tokens.success : tokens.warning;
 
   const act = async (action: "checkout" | "return") => {
     if (me === null) return;
@@ -74,98 +76,120 @@ export default function StockSerialScreen() {
           })
         : await mutate(checkinTools, { checkoutId: row.checkout_id ?? "" });
     setBusy(false);
-    if (result.ok && result.queued) {
-      setBanner("Queued on this device — it syncs when you're back online.");
-      return;
-    }
-    if (!result.ok) {
+    if (result.ok) {
+      commitConfirmed();
+      setBanner(
+        result.queued
+          ? "Saved on this device — it syncs when you're back online."
+          : action === "checkout"
+            ? "Checked out — it's on you until tomorrow."
+            : "Returned — the unit is back in stock.",
+      );
+    } else {
       setBanner(result.failure?.text ?? "The change couldn't be saved.");
     }
   };
 
   return (
-    <Screen testID="stock-serial-screen">
-      <Pressable onPress={() => router.back()} hitSlop={8}>
-        <Text style={[styles.back, { color: tokens.primary }]}>‹ Back</Text>
-      </Pressable>
+    <View style={[styles.screen, { backgroundColor: tokens.background }]}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: tokens.text }]}>{row.item_name}</Text>
-        <Mono muted>{row.serial_number}</Mono>
-        <View style={styles.pills}>
-          <Pill
-            pair={row.status === "in_stock" ? tokens.success : tokens.warning}
-            label={String(row.status).replace(/_/g, " ").toUpperCase()}
-          />
-          {row.is_tool ? <Pill pair={infoPair(tokens)} label="TOOL" /> : null}
-          {row.overdue ? <Pill pair={tokens.danger} label="OVERDUE" /> : null}
-        </View>
-      </View>
-
-      {banner !== null ? <ErrorNote text={banner} /> : null}
-
-      <SectionHeader title="Where it is now" />
-      <Card>
-        <Detail label="Location" value={row.location_name ?? "—"} />
-        <Detail label="Holder" value={mine ? "You" : (row.holder_user_id ?? "—")} />
-        <Detail
-          label="Due back"
-          value={row.due_at != null ? new Date(row.due_at).toLocaleString() : "—"}
+        <PackHeader
+          onBack={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace("/(tabs)/board");
+          }}
+          backTestID="stock-serial-back"
+          title={row.item_name}
+          detail={row.serial_number}
         />
-        {isLoan ? (
-          <Detail label="Loan" value="On a client loan — returns ship with the tools lane." />
-        ) : null}
-      </Card>
+      </View>
+      <View testID="stock-serial-screen" style={styles.scroll}>
+        <View style={styles.pills}>
+          <PackPill pair={statusPair} label={statusLabel(row.status)} />
+          {row.is_tool ? <PackPill pair={infoPair(tokens)} label="TOOL" /> : null}
+          {row.overdue ? <PackPill pair={tokens.danger} label="OVERDUE" /> : null}
+        </View>
 
-      <SectionHeader title="Actions" />
-      <Card>
-        {canCheckout ? (
-          <Button
-            label="Check out to me"
-            testID="serial-checkout"
-            fullWidth
-            loading={busy}
-            onPress={() => void act("checkout")}
-          />
-        ) : null}
-        {canReturn ? (
-          <Button
-            label="Return"
-            testID="serial-return"
-            fullWidth
-            loading={busy}
-            onPress={() => void act("return")}
-          />
-        ) : null}
-        {!canCheckout && !canReturn ? (
-          <Text style={[styles.hint, { color: tokens.textMuted }]}>
+        {banner !== null ? <ErrorNote text={banner} /> : null}
+
+        <View>
+          <PackLabel style={{ marginBottom: 8 }}>Where it is now</PackLabel>
+          <Facts>
+            <FactRow first label="Location">
+              {row.location_name ?? "—"}
+            </FactRow>
+            <FactRow label="Holder">{mine ? "You" : (row.holder_user_id ?? "—")}</FactRow>
+            <FactRow label="Due back">
+              {row.due_at != null ? new Date(row.due_at).toLocaleString() : "—"}
+            </FactRow>
+          </Facts>
+          {isLoan ? (
+            <Text style={[styles.hint, { color: tokens.textSecondary }]}>
+              On a client loan — the return ships with the loan record, not the tool ledger.
+            </Text>
+          ) : null}
+        </View>
+
+        {!canCheckout && !canReturn && !isLoan ? (
+          <Text style={[styles.hint, { color: tokens.textSecondary }]}>
             {row.status === "in_stock"
               ? "This unit needs a home location before it can go out."
-              : mine
-                ? "This unit is out through a client loan — the loan return flow ships with the tools lane."
-                : "This unit is held by someone else."}
+              : "This unit is held by someone else."}
           </Text>
         ) : null}
-        <Button
-          label="Open the parent item"
-          variant="secondary"
-          fullWidth
-          onPress={() => router.push(`/stock-item/${row.stock_item_id}`)}
-        />
-      </Card>
-    </Screen>
+      </View>
+
+      {canCheckout ? (
+        <PinnedBar>
+          <PrimaryButton
+            label="Check out to me"
+            testID="serial-checkout"
+            style={{ flex: 1 }}
+            busy={busy}
+            onPress={() => {
+              void act("checkout");
+            }}
+          />
+        </PinnedBar>
+      ) : canReturn ? (
+        <PinnedBar>
+          <PrimaryButton
+            label="Return"
+            testID="serial-return"
+            icon={PACK_ICONS.box}
+            style={{ flex: 1 }}
+            busy={busy}
+            onPress={() => {
+              void act("return");
+            }}
+          />
+        </PinnedBar>
+      ) : (
+        <PinnedBar>
+          <PrimaryButton
+            label="Open the parent item"
+            style={{ flex: 1 }}
+            onPress={() => router.push(`/stock-item/${row.stock_item_id}` as never)}
+          />
+        </PinnedBar>
+      )}
+    </View>
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
-  const { tokens } = useTheme();
-  return (
-    <View style={styles.detailRow}>
-      <Text style={[styles.detailLabel, { color: tokens.textMuted }]}>{label.toUpperCase()}</Text>
-      <Text style={[styles.detailValue, { color: tokens.text }]} numberOfLines={2}>
-        {value}
-      </Text>
-    </View>
-  );
+function statusLabel(status: string): string {
+  switch (status) {
+    case "in_stock":
+      return "In stock";
+    case "checked_out":
+      return "Checked out";
+    case "out":
+      return "Out";
+    case "loaned":
+      return "Loaned";
+    default:
+      return status.replace(/_/g, " ");
+  }
 }
 
 function dueTomorrow(): string {
@@ -173,39 +197,27 @@ function dueTomorrow(): string {
 }
 
 const styles = StyleSheet.create({
-  back: {
-    fontFamily: type.sansSemiBold,
-    fontSize: 15,
+  screen: {
+    flex: 1,
   },
   header: {
-    paddingTop: 4,
-    gap: 6,
+    paddingHorizontal: 12,
+    paddingTop: 8,
   },
-  title: {
-    fontFamily: type.sansBold,
-    fontSize: 24,
+  scroll: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    gap: 16,
   },
   pills: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 6,
   },
-  detailRow: {
-    gap: 2,
-    paddingVertical: 4,
-  },
-  detailLabel: {
-    fontFamily: type.sansMedium,
-    fontSize: 11,
-    letterSpacing: 0.8,
-  },
-  detailValue: {
-    fontFamily: type.sans,
-    fontSize: 15,
-  },
   hint: {
     fontFamily: type.sans,
     fontSize: 13,
-    lineHeight: 19,
+    lineHeight: 20,
   },
 });

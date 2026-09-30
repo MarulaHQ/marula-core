@@ -118,6 +118,39 @@ export const type = {
   sansBold: "Figtree_700Bold",
   mono: "JetBrainsMono_400Regular",
   monoMedium: "JetBrainsMono_500Medium",
+  serif: "Fraunces_500Medium",
+} as const;
+
+/**
+ * The pack's NON-FLIPPING chrome inks (docs/theme.md §5, the mobile pack):
+ * the timer pill / tab-bar raised button are ink in every theme, the gold
+ * tick and clock ride on them, and the dark tab surface is one step below
+ * the background. These are chrome constants, not theme-restylable tokens —
+ * named here once so screens never re-declare a hex.
+ */
+export const chrome = {
+  /** Ink surface (light-mode primary); non-flipping on the timer pill. */
+  ink: "#2B2A33",
+  /** Gold accent (the pack's tabact / clock / leaf mark). */
+  gold: "#E8B83A",
+  /** Gold readable as TEXT on light surfaces (--m-gold-text). */
+  goldText: "#9A5B0F",
+  /** The pack's gold TINT ground (--acc): the running card, chosen segments. */
+  goldTintLight: "#F7E3A8",
+  /** ...and its dark-mode ground (--acc in dark is the raised surface). */
+  goldTintDark: "#3A3944",
+  /** Cream on ink. */
+  cream: "#F6EFD9",
+  /** Dark tab-bar surface (--nav in dark). */
+  navDark: "#222129",
+  /** Dark raised-disc surface (--surf2 in dark; the pill's stop disc). */
+  surfaceHoverDark: "#3A3944",
+  /** Camera disc still (the scan screen is dark in both themes). */
+  camInk: "#1B1A21",
+  /** The outlined control border on the camera screen. */
+  camLine: "#6B6660",
+  /** Avatar leaf green (the pack's profile avatar). */
+  leaf: "#4A6A2A",
 } as const;
 
 

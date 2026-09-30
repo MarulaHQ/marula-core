@@ -31,6 +31,7 @@ playwright-report/
 # Per-run stack env + PID registry (p37-env-orchestration)
 e2e/.e2e-stack.env
 .kilo/dev-registry/
+.kilo/capture-totp.json
 
 # Shared cargo target dir (agent worktree build cache)
 .kilo/target-shared/
