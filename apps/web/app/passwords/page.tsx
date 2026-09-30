@@ -821,7 +821,14 @@ export default function VaultPage() {
                                   </button>
                                 ) : null}
                                 {c.key === "kind" ? (
-                                  <StatusPill tone="neutral">{KIND_LABELS[r.kind] ?? r.kind}</StatusPill>
+                                  // The flat credential ledger has no kind, so
+                                  // the column says so rather than rendering an
+                                  // empty cell down the screen.
+                                  KIND_LABELS[r.kind] === undefined ? (
+                                    <span style={{ color: "var(--m-text-muted)" }}>—</span>
+                                  ) : (
+                                    <StatusPill tone="neutral">{KIND_LABELS[r.kind] ?? r.kind}</StatusPill>
+                                  )
                                 ) : null}
                                 {c.key === "fields" ? (
                                   <span className="font-mono text-[12px]" style={{ color: "var(--m-text-secondary)" }}>

@@ -676,7 +676,12 @@ export default function AutomationsPage() {
                       {c.label}
                     </Th>
                   ))}
-                  <Th className={`${HEAD_CELL_CLASS} text-right`}>Actions</Th>
+                  {/* The buttons are the row's affordance, not another column
+                      of the record, so this header stays empty rather than
+                      saying "Actions" a second time. */}
+                  <Th className={`${HEAD_CELL_CLASS} text-right`}>
+                    <span className="sr-only">Row actions</span>
+                  </Th>
                 </tr>
               </thead>
               <tbody>

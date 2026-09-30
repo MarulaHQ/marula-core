@@ -601,6 +601,7 @@ export default function ImportsPage() {
           <FieldHint>
             A dry-run writes nothing. It is the only safe way to see what the batch would do.
           </FieldHint>
+          <StepNav onBack={() => setStep(1)} onNext={() => setStep(4)} nextLabel="Next · mapping" nextDisabled={parsed === null} />
         </div>
 
         {/* ---- 3 · Dry-run report ---- */}
@@ -923,8 +924,10 @@ function StepNav({
   nextLabel?: string;
   nextDisabled?: boolean;
 }): React.ReactNode {
+  // A row of its own, hugging the right edge: the step's actions belong to the
+  // step, not spread across the card's full width.
   return (
-    <>
+    <div className="flex w-full items-center justify-end gap-2 border-t pt-3" style={{ borderColor: "var(--m-border)" }}>
       {onBack !== undefined ? (
         <Button variant="ghost" onClick={onBack}>
           Back
@@ -935,7 +938,7 @@ function StepNav({
           {nextLabel ?? "Next"}
         </Button>
       ) : null}
-    </>
+    </div>
   );
 }
 
