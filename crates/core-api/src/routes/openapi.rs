@@ -1028,6 +1028,14 @@ use utoipa::OpenApi;
         crate::routes::approvals::BulkDecisionRequest,
         crate::routes::approvals::BulkDecisionItem,
         crate::routes::approvals::BulkDecisionResponse,
+        // Wave 41 lane 8: the one-click verdict fix + the verdict vocabulary
+        // its buttons carry.
+        crate::routes::approvals::FixEntryRequest,
+        crate::routes::approvals::FixEntryResponse,
+        core_domain::entities::TimeVerdict,
+        core_domain::entities::TimeVerdictKind,
+        core_domain::entities::TimeVerdictFix,
+        core_domain::entities::TimeVerdictFixKind,
         crate::routes::approvals::QueueQuery,
         crate::routes::time::TimeSettingsResponse,
         crate::routes::time::UpdateTimeSettingsRequest,

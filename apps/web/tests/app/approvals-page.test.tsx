@@ -24,13 +24,16 @@ const E2 = "40000000-0000-4000-8000-000000000002";
 const E3 = "40000000-0000-4000-8000-000000000003";
 const NOW = "2026-09-14T09:00:00Z";
 const DECIDE = "/api/v1/time-entries/approvals/decide";
+/** A second tech: an approver's queue is other people's time, and nobody signs
+ *  off their own. */
+const OTHER = "50000000-0000-4000-8000-000000000002";
 
 function entry(over: Record<string, unknown>) {
   return {
     id: E1,
     org_id: ORG,
     ticket_id: T1,
-    user_id: ME,
+    user_id: OTHER,
     minutes: 90,
     notes: "Fixed the printer",
     started_at: NOW,
@@ -47,7 +50,7 @@ function entry(over: Record<string, unknown>) {
 
 function queueItem(over: Record<string, unknown>) {
   return {
-    submitted_by: ME,
+    submitted_by: OTHER,
     submitted_at: NOW,
     decided_by: null,
     decided_at: null,
@@ -63,9 +66,12 @@ function setupApi(permissions: string[] = ["special:approve_time"]): MockApi {
     json:
       ctx.query.status === "rejected"
         ? [
+            // The viewer's own rejected submission: only they may reopen it.
             queueItem({
+              submitted_by: ME,
               entry: entry({
                 id: E3,
+                user_id: ME,
                 minutes: 60,
                 approval_status: "rejected",
                 approval_reason_code: "missing_notes",
@@ -94,10 +100,10 @@ describe("/approvals", () => {
   it("renders the approver queue with duration, ticket link, and bulk bar", async () => {
     setupApi();
     mount(<ApprovalsPage />);
-    expect(await screen.findByText("1h 30m")).toBeInTheDocument();
-    expect(screen.getByText("30m")).toBeInTheDocument();
+    expect((await screen.findAllByText("1:30")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("0:30").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/ticket 30000000/).length).toBe(2);
-    expect(screen.getByTestId("bulk-bar")).toBeInTheDocument();
+    expect(screen.getByTestId("queue-bar")).toBeInTheDocument();
     cleanup();
   });
 
@@ -116,9 +122,9 @@ describe("/approvals", () => {
       };
     });
     mount(<ApprovalsPage />);
-    await screen.findByText("1h 30m");
+    await screen.findAllByText("1:30");
     fireEvent.click(screen.getByLabelText(`Select entry on ticket ${T1}`));
-    fireEvent.click(screen.getByText("Approve selected"));
+    fireEvent.click(screen.getByTestId("bulk-approve"));
 
     await waitFor(() => {
       expect(mock.callsTo("POST", DECIDE)).toHaveLength(1);
@@ -129,7 +135,7 @@ describe("/approvals", () => {
     await waitFor(() => {
       expect(screen.queryByText("1h 30m")).not.toBeInTheDocument();
     });
-    expect(screen.getByText("30m")).toBeInTheDocument();
+    expect(screen.getAllByText("0:30").length).toBeGreaterThan(0);
     cleanup();
   });
 
@@ -148,7 +154,7 @@ describe("/approvals", () => {
       };
     });
     mount(<ApprovalsPage />);
-    await screen.findByText("1h 30m");
+    await screen.findAllByText("1:30");
     fireEvent.click(screen.getByLabelText(`Select entry on ticket ${T1}`));
     fireEvent.click(within(screen.getByTestId("bulk-bar")).getByText("Reject…"));
     fireEvent.click(screen.getByTestId("reject-send"));
@@ -178,15 +184,15 @@ describe("/approvals", () => {
       },
     }));
     mount(<ApprovalsPage />);
-    await screen.findByText("1h 30m");
+    await screen.findAllByText("1:30");
     fireEvent.click(screen.getByLabelText("Select all"));
-    fireEvent.click(screen.getByText("Approve selected"));
+    fireEvent.click(screen.getByTestId("bulk-approve"));
 
     await waitFor(() => {
       expect(screen.queryByText("1h 30m")).not.toBeInTheDocument();
     });
     expect(screen.getByText("Already invoiced — locked, nothing to decide")).toBeInTheDocument();
-    expect(screen.getByText("30m")).toBeInTheDocument();
+    expect(screen.getAllByText("0:30").length).toBeGreaterThan(0);
     cleanup();
   });
 
@@ -219,7 +225,7 @@ describe("/approvals", () => {
       ],
     }));
     mount(<ApprovalsPage />);
-    await screen.findByText("1h 30m");
+    await screen.findAllByText("1:30");
     fireEvent.click(screen.getByTestId(`history-${E1}`));
     // waitFor, not findByTestId: the trail element mounts immediately with its
     // empty state, and only fills once the approvals fetch resolves. Waiting for
@@ -239,12 +245,12 @@ describe("/approvals", () => {
       json: entry({ id: E3, approval_status: "draft" }),
     }));
     mount(<ApprovalsPage />);
-    await screen.findByText("1h 30m");
-    expect(screen.queryByTestId("bulk-bar")).not.toBeInTheDocument();
+    await screen.findAllByText("1:30");
+    expect(screen.queryByTestId("queue-bar")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Rejected"));
+    fireEvent.click(screen.getByRole("tab", { name: /Rejected/ }));
     const reopenBtn = await screen.findByTestId(`reopen-${E3}`);
-    expect(screen.getByText("Rejected — Missing notes")).toBeInTheDocument();
+    expect(screen.getByText("Rejected — Description is too vague")).toBeInTheDocument();
     fireEvent.click(reopenBtn);
 
     await waitFor(() => {
@@ -256,6 +262,38 @@ describe("/approvals", () => {
     cleanup();
   });
 
+  it("keeps the viewer's own time out of the pass, and says why in the pane", async () => {
+    const mock = setupApi();
+    mock.on("GET", "/api/v1/time-entries/approvals/queue", () => ({
+      json: [
+        queueItem({
+          entry: entry({
+            id: E1,
+            user_id: ME,
+            notes: "Replaced the failed drive and confirmed the array rebuilt.",
+          }),
+        }),
+        queueItem({
+          entry: entry({
+            id: E2,
+            minutes: 30,
+            ticket_id: T2,
+            notes: "Reset the switch and confirmed the link came back up.",
+          }),
+        }),
+      ],
+    }));
+    mount(<ApprovalsPage />);
+    await screen.findAllByText("1:30");
+    // The viewer's own row cannot be selected, and the pass skips it.
+    expect(screen.getByLabelText(`Select entry on ticket ${T1}`)).toBeDisabled();
+    fireEvent.click(screen.getByTestId("approvals-select-easy"));
+    const bar = screen.getByTestId("bulk-bar");
+    expect(screen.getByTestId("bulk-count")).toHaveTextContent("1 selected");
+    expect(screen.getByText(/Another approver signs it off/)).toBeInTheDocument();
+    cleanup();
+  });
+
   it("surfaces typed 403 copy, never raw JSON", async () => {
     const mock = setupApi();
     mock.on("POST", DECIDE, () => ({
@@ -263,9 +301,9 @@ describe("/approvals", () => {
       json: { error: { reason: "forbidden", message: "missing special:approve_time" } },
     }));
     mount(<ApprovalsPage />);
-    await screen.findByText("1h 30m");
+    await screen.findAllByText("1:30");
     fireEvent.click(screen.getByLabelText(`Select entry on ticket ${T1}`));
-    fireEvent.click(screen.getByText("Approve selected"));
+    fireEvent.click(screen.getByTestId("bulk-approve"));
     expect(
       await screen.findByText("You don't have permission for this action — ask an owner or admin."),
     ).toBeInTheDocument();

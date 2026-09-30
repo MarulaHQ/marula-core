@@ -18,10 +18,15 @@ import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
+  ColumnChooser,
+  DataToolbar,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
   EmptyState,
+  ExportControl,
+  FilterBar,
   Input,
   Label,
   Select,
@@ -29,6 +34,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Kbd,
   Spinner,
   StatusTag,
   Table,
@@ -36,6 +42,9 @@ import {
   Td,
   Th,
   Tr,
+  ViewSwitch,
+  applyDensity,
+  type FilterClause,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -46,6 +55,14 @@ import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
 import { perCurrencySum } from "../../../lib/money-summary";
+import { downloadRowsCsv } from "../../../lib/csv-download";
+import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
+import {
+  MoneyCard,
+  MoneyHeader,
+  MoneyPillTag,
+  MoneyStatPill,
+} from "../../../components/money";
 
 type CreditNote = components["schemas"]["CreditNote"];
 type CreditNoteDetail = components["schemas"]["CreditNoteDetail"];
@@ -62,6 +79,30 @@ function lifecycleOf(note: CreditNote): { label: string; tone: "success" | "warn
   if (note.applied_minor > 0 || note.refunded_minor > 0) return { label: "partially used", tone: "warning" };
   return { label: "open credit", tone: "success" };
 }
+
+interface CreditColumnDef {
+  key: string;
+  label: string;
+  required?: boolean;
+}
+
+/** The credit ledger's columns, in the pack's order (pack §9: a credit note is
+ *  "a ledger, and a detail that links back to the invoice it credits"). */
+const CREDIT_COLUMNS: readonly CreditColumnDef[] = [
+  { key: "number", label: "Number", required: true },
+  { key: "client", label: "Client" },
+  { key: "lifecycle", label: "Lifecycle" },
+  { key: "invoice", label: "Against invoice" },
+  { key: "total", label: "Total" },
+  { key: "usage", label: "Usage" },
+  { key: "remaining", label: "Remaining" },
+];
+
+const CREDIT_FILTER_FIELDS = [
+  { key: "number", label: "Number" },
+  { key: "client", label: "Client" },
+  { key: "invoice", label: "Against invoice" },
+];
 
 export default function CreditNotesPage() {
   return (
@@ -84,6 +125,36 @@ function CreditNotesInner() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [clientFilter, setClientFilter] = useState<string>("all");
+  const [lifecycle, setLifecycle] = useState<"all" | "open" | "used" | "void">("all");
+  const [clauses, setClauses] = useState<FilterClause[]>([]);
+  const prefs = useDataSurfacePrefs();
+  const savedColumns = useMemo(() => prefs.view("credit-notes").columns, [prefs]);
+  const [columns, setColumns] = useState(() =>
+    CREDIT_COLUMNS.map((c) => {
+      const stored = savedColumns.find((x) => x.key === c.key);
+      return {
+        key: c.key,
+        label: c.label,
+        visible: stored?.visible ?? true,
+        required: c.required,
+      };
+    }),
+  );
+  useEffect(() => {
+    if (!prefs.ready) return;
+    setColumns(
+      CREDIT_COLUMNS.map((c) => {
+        const stored = savedColumns.find((x) => x.key === c.key);
+        return {
+          key: c.key,
+          label: c.label,
+          visible: stored?.visible ?? true,
+          required: c.required,
+        };
+      }),
+    );
+  }, [prefs.ready, savedColumns]);
+  const shownColumns = columns.filter((c) => c.visible);
 
   // Issue dialog
   const [issueOpen, setIssueOpen] = useState(false);
@@ -327,18 +398,101 @@ function CreditNotesInner() {
     );
   }
 
-  const filteredNotes = (notes ?? []).filter((n) => clientFilter === "all" || n.client_id === clientFilter);
+  const openCredits = (notes ?? []).filter((n) => n.status === "issued");
+  const remainingTotal = perCurrencySum(
+    openCredits.map((n) => ({
+      currency: n.currency as string,
+      amount: n.total_minor - n.applied_minor - n.refunded_minor,
+    })),
+  );
+  const usedUp = (notes ?? []).filter(
+    (n) => n.status === "issued" && remainingOf(n) <= 0,
+  );
+
+  const filteredNotes = (notes ?? []).filter((n) => {
+    if (clientFilter !== "all" && n.client_id !== clientFilter) return false;
+    if (lifecycle === "open" && !(n.status === "issued" && remainingOf(n) > 0)) return false;
+    if (lifecycle === "used" && !(n.status === "issued" && remainingOf(n) <= 0)) return false;
+    if (lifecycle === "void" && n.status !== "void") return false;
+    for (const clause of clauses) {
+      const raw =
+        clause.field === "number"
+          ? n.number
+          : clause.field === "client"
+            ? clientName(n.client_id)
+            : (n.issued_against_invoice_id ?? "free-standing");
+      const has = raw.toLowerCase().includes((clause.value ?? "").toLowerCase());
+      if (clause.op === "eq" && !has) return false;
+      if (clause.op === "is_set" && raw.trim() === "") return false;
+      if (clause.op === "is_not_set" && raw.trim() !== "") return false;
+    }
+    return true;
+  });
+
+  const exportCredits = (): void => {
+    downloadRowsCsv(
+      "credit-notes.csv",
+      shownColumns.map((c) => c.label),
+      filteredNotes.map((n) =>
+        shownColumns.map((c) => {
+          switch (c.key) {
+            case "number":
+              return n.number;
+            case "client":
+              return clientName(n.client_id);
+            case "lifecycle":
+              return lifecycleOf(n).label;
+            case "invoice":
+              return n.issued_against_invoice_id ?? "free-standing";
+            case "total":
+              return money(n.total_minor, n.currency);
+            case "usage":
+              return `${money(n.applied_minor, n.currency)} applied · ${money(n.refunded_minor, n.currency)} refunded`;
+            case "remaining":
+              return money(remainingOf(n), n.currency);
+            default:
+              return "";
+          }
+        }),
+      ),
+    );
+  };
 
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <header className="m-rise flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Credit notes</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Issue credit against invoices, apply it to open invoices, or refund it back out. Lifecycle is derived from usage.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <MoneyHeader
+        title="Credit notes"
+        stats={
+          <div
+            style={{ display: "flex", gap: 8, alignItems: "center" }}
+            data-testid="credit-stat-strip"
+          >
+            <MoneyStatPill
+              label="Open credits"
+              count={openCredits.length}
+              tone="gold"
+              pressed={lifecycle === "open"}
+              onClick={() => setLifecycle(lifecycle === "open" ? "all" : "open")}
+              testId="credit-stat-open"
+            />
+            <MoneyStatPill
+              label="Used up"
+              count={usedUp.length}
+              tone="bark"
+              pressed={lifecycle === "used"}
+              onClick={() => setLifecycle(lifecycle === "used" ? "all" : "used")}
+              testId="credit-stat-used"
+            />
+            <span style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>
+              Remaining credit <b style={{ fontVariantNumeric: "tabular-nums" }}>{remainingTotal.value}</b>{" "}
+              <span style={{ color: "var(--m-text-muted)" }}>
+                {remainingTotal.currency ?? "single-currency roll-up only"}
+              </span>
+            </span>
+          </div>
+        }
+        actions={
+          <div className="flex items-center gap-2">
           <Select value={clientFilter} onValueChange={setClientFilter}>
             <SelectTrigger style={{ width: 192 }} aria-label="Filter by client">
               <SelectValue />
@@ -361,52 +515,75 @@ function CreditNotesInner() {
           >
             Issue credit note
           </Button>
-        </div>
-      </header>
+          </div>
+        }
+      />
+
+      <DataToolbar
+        label="Credit note ledger controls"
+        views={
+          <ViewSwitch
+            label="Views"
+            activeId={lifecycle}
+            onChange={(id) => setLifecycle(id as "all" | "open" | "used" | "void")}
+            views={[
+              { id: "all", label: "All", hint: String((notes ?? []).length) },
+              { id: "open", label: "Open", hint: String(openCredits.length) },
+              { id: "used", label: "Used up", hint: String(usedUp.length) },
+              { id: "void", label: "Void", hint: String((notes ?? []).filter((n) => n.status === "void").length) },
+            ]}
+          />
+        }
+        filters={
+          <FilterBar
+            fields={CREDIT_FILTER_FIELDS}
+            clauses={clauses}
+            onChange={(next) => {
+              setClauses(next);
+              void prefs.save("credit-notes", {
+                columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
+                filters: next,
+              });
+            }}
+          />
+        }
+        columns={
+          <ColumnChooser
+            columns={columns.map((c) => ({
+              key: c.key,
+              label: c.label,
+              visible: c.visible,
+              required: c.required,
+            }))}
+            onChange={(next) => {
+              const merged = next.map((n) => {
+                const def = CREDIT_COLUMNS.find((d) => d.key === n.key);
+                return { key: n.key, label: def?.label ?? n.key, visible: n.visible, required: def?.required };
+              });
+              setColumns(merged);
+              void prefs.save("credit-notes", {
+                columns: merged.map((c) => ({ key: c.key, visible: c.visible })),
+                filters: clauses,
+              });
+            }}
+          />
+        }
+        export={
+          <ExportControl
+            columns={shownColumns.map((c) => c.label)}
+            rowCount={filteredNotes.length}
+            filters={clauses}
+            onExport={exportCredits}
+            formats={["csv"]}
+          />
+        }
+      />
 
       {rowNote !== null ? (
         <p role="status" className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           {rowNote}
         </p>
       ) : null}
-
-      {/* Open-credit posture — counts + a remaining sum only for one currency. */}
-      {notes !== null && (
-        <div data-testid="credit-stat-strip" className="grid gap-3 sm:grid-cols-3">
-          {(() => {
-            const openCredits = notes.filter((n) => n.status === "issued");
-            const remaining = perCurrencySum(
-              openCredits.map((n) => ({ currency: n.currency as string, amount: n.total_minor - n.applied_minor - n.refunded_minor })),
-            );
-            const tiles: { label: string; value: ReactNode; hint: string }[] = [
-              { label: "Open credits", value: openCredits.length, hint: "issued, not fully used" },
-              {
-                label: "Remaining credit",
-                value: remaining.value,
-                hint: remaining.currency ?? "single-currency roll-up only",
-              },
-              { label: "All notes", value: notes.length, hint: "issued + void" },
-            ];
-            return tiles.map((t, i) => (
-              <Card
-                key={t.label}
-                className="m-rise p-4"
-                style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
-              >
-                <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
-                  {t.label}
-                </p>
-                <p className="mt-1 font-mono text-xl font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>
-                  {t.value}
-                </p>
-                <p className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
-                  {t.hint}
-                </p>
-              </Card>
-            ));
-          })()}
-        </div>
-      )}
 
       {loadError !== null ? (
         <p role="alert" className="text-[13px]">
@@ -423,17 +600,27 @@ function CreditNotesInner() {
           <EmptyState message="No credit notes yet. Issue one against an invoice or as free-standing credit for a client." />
         </Card>
       ) : (
-        <Card className="m-rise overflow-x-auto">
+        <MoneyCard testId="credit-ledger">
+          <div className="m-money-bar">
+            <span>
+              <b>{filteredNotes.length}</b> notes · <b>{remainingTotal.value}</b> remaining
+            </span>
+          </div>
+          <div style={{ overflowX: "auto" }}>
           <Table>
             <thead>
               <tr>
-                <Th>Number</Th>
-                <Th>Client</Th>
-                <Th>Lifecycle</Th>
-                <Th>Against invoice</Th>
-                <Th className="text-right">Total</Th>
-                <Th>Usage</Th>
-                <Th className="text-right">Remaining</Th>
+                {shownColumns.map((column) => (
+                  <Th
+                    key={column.key}
+                    columnKey={column.key}
+                    className={
+                      column.key === "total" || column.key === "remaining" ? "text-right" : undefined
+                    }
+                  >
+                    {column.label}
+                  </Th>
+                ))}
                 <Th className="text-right">Actions</Th>
               </tr>
             </thead>
@@ -446,43 +633,110 @@ function CreditNotesInner() {
                 const refundedPct = total > 0 ? Math.min(100 - appliedPct, Math.round((note.refunded_minor / total) * 100)) : 0;
                 return (
                   <Tr key={note.id} className="row-hover">
-                    <Td className="text-[13px] font-mono font-medium tabular-nums">
-                      <button
-                        type="button"
-                        className="cursor-pointer border-none bg-transparent p-0 underline decoration-[var(--m-border)] underline-offset-2"
-                        onClick={() => void openDetail(note)}
-                      >
-                        {note.number}
-                      </button>
-                    </Td>
-                    <Td className="text-[13px]">{clientName(note.client_id)}</Td>
-                    <Td>
-                      <StatusTag tone={life.tone}>{life.label}</StatusTag>
-                    </Td>
-                    <Td className="text-[12px]">
-                      {note.issued_against_invoice_id != null ? (
-                        <Link href={`/billing/${note.issued_against_invoice_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
-                          invoice
-                        </Link>
-                      ) : (
-                        <span style={{ color: "var(--m-text-muted)" }}>free-standing</span>
-                      )}
-                    </Td>
-                    <Td className="text-right font-mono text-[12px] tabular-nums">{money(note.total_minor, note.currency)}</Td>
-                    <Td>
-                      <div
-                        aria-hidden="true"
-                        className="flex h-1.5 w-24 overflow-hidden rounded-full"
-                        style={{ background: "var(--m-border)" }}
-                      >
-                        <span style={{ width: `${appliedPct}%`, background: "var(--m-status-success-fg)" }} />
-                        <span style={{ width: `${refundedPct}%`, background: "var(--m-status-danger-fg)" }} />
-                      </div>
-                      <span className="font-mono text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-                        applied {money(note.applied_minor, note.currency)} · refunded {money(note.refunded_minor, note.currency)}
-                      </span>
-                    </Td>
-                    <Td className="text-right font-mono text-[12px] font-medium tabular-nums">{money(remaining, note.currency)}</Td>
+                    {shownColumns.map((column) => {
+                      switch (column.key) {
+                        case "number":
+                          return (
+                            <Td key={column.key} className="text-[13px] font-mono font-medium tabular-nums">
+                              <button
+                                type="button"
+                                style={{
+                                  cursor: "pointer",
+                                  border: "none",
+                                  background: "transparent",
+                                  padding: 0,
+                                  textDecoration: "underline",
+                                  textUnderlineOffset: 2,
+                                }}
+                                onClick={() => void openDetail(note)}
+                              >
+                                {note.number}
+                              </button>
+                            </Td>
+                          );
+                        case "client":
+                          return (
+                            <Td key={column.key} className="text-[13px]">
+                              {clientName(note.client_id)}
+                            </Td>
+                          );
+                        case "lifecycle":
+                          return (
+                            <Td key={column.key}>
+                              <MoneyPillTag
+                                pill={{
+                                  label: life.label,
+                                  family:
+                                    life.tone === "success"
+                                      ? "green"
+                                      : life.tone === "warning"
+                                        ? "gold"
+                                        : "neutral",
+                                }}
+                                testId={`credit-status-${note.number}`}
+                              />
+                            </Td>
+                          );
+                        case "invoice":
+                          return (
+                            <Td key={column.key} className="text-[12px]">
+                              {note.issued_against_invoice_id != null ? (
+                                <Link
+                                  href={`/billing/${note.issued_against_invoice_id}`}
+                                  style={{ color: "var(--m-accent-text)" }}
+                                >
+                                  invoice →
+                                </Link>
+                              ) : (
+                                <span style={{ color: "var(--m-text-muted)" }}>free-standing</span>
+                              )}
+                            </Td>
+                          );
+                        case "total":
+                          return (
+                            <Td key={column.key} className="text-right font-mono text-[12px] tabular-nums">
+                              {money(note.total_minor, note.currency)}
+                            </Td>
+                          );
+                        case "usage":
+                          return (
+                            <Td key={column.key}>
+                              {/* Applied is canopy, refunded is a hairline of
+                                  neutral: both spend credit, neither is an alarm. */}
+                              <div
+                                aria-hidden="true"
+                                className="flex h-1.5 w-24 overflow-hidden rounded-full"
+                                style={{ background: "var(--m-border)" }}
+                              >
+                                <span
+                                  style={{ width: `${appliedPct}%`, background: "var(--m-status-success-fg)" }}
+                                />
+                                <span
+                                  style={{ width: `${refundedPct}%`, background: "var(--m-bark)" }}
+                                />
+                              </div>
+                              <span
+                                className="font-mono text-[11px] tabular-nums"
+                                style={{ color: "var(--m-text-muted)" }}
+                              >
+                                applied {money(note.applied_minor, note.currency)} · refunded{" "}
+                                {money(note.refunded_minor, note.currency)}
+                              </span>
+                            </Td>
+                          );
+                        case "remaining":
+                          return (
+                            <Td
+                              key={column.key}
+                              className="text-right font-mono text-[12px] font-medium tabular-nums"
+                            >
+                              {money(remaining, note.currency)}
+                            </Td>
+                          );
+                        default:
+                          return <Td key={column.key} />;
+                      }
+                    })}
                     <Td className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button size="sm" variant="ghost" disabled={remaining <= 0} onClick={() => openAction("apply", note)}>
@@ -503,8 +757,22 @@ function CreditNotesInner() {
               })}
             </tbody>
           </Table>
-        </Card>
+          </div>
+        </MoneyCard>
       )}
+
+      <footer className="m-money-foot">
+        <span className="m-money-foot-sp" />
+        <DensitySwitch
+          value={prefs.density}
+          onChange={(step) => {
+            applyDensity(step);
+            void prefs.setDensity(step);
+          }}
+        />
+        <Kbd>C</Kbd>
+        <span>issue a credit note</span>
+      </footer>
 
       {/* Issue dialog */}
       <Dialog open={issueOpen} onOpenChange={(o) => { setIssueOpen(o); if (!o) setIssueError(null); }}>

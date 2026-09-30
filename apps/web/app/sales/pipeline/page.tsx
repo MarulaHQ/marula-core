@@ -44,7 +44,18 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
-import { DEAL_STATUS_TONE } from "../../../lib/money-summary";
+import { DEAL_STATUS_TONE, perCurrencySum } from "../../../lib/money-summary";
+import { dealPill } from "../../../lib/money-ui";
+import {
+  DensitySwitch,
+  applyDensity,
+} from "@marula-core/ui";
+import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
+import {
+  MoneyHeader,
+  MoneyPillTag,
+  MoneyStatPill,
+} from "../../../components/money";
 
 type PipelineDeal = components["schemas"]["PipelineDeal"];
 type PipelineStage = components["schemas"]["PipelineStage"];
@@ -95,6 +106,19 @@ export default function PipelinePage(): ReactNode {
       setNewStageId(firstOpen?.id ?? "");
     })();
   }, [auth.status]);
+
+  const prefs = useDataSurfacePrefs();
+  const boardTotal = useMemo(
+    () =>
+      perCurrencySum(
+        (deals ?? [])
+          .filter((d) => d.status === "open")
+          .map((d) => ({ currency: d.currency as string, amount: d.amount_minor })),
+      ),
+    [deals],
+  );
+  const wonCount = (deals ?? []).filter((d) => d.status === "won").length;
+  const lostCount = (deals ?? []).filter((d) => d.status === "lost").length;
 
   const orderedStages = useMemo(() => {
     const list = stages ?? [];
@@ -217,15 +241,27 @@ export default function PipelinePage(): ReactNode {
 
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Sales pipeline
-          </h1>
-          <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Deals move through pipeline stages; won and lost are terminal.
-          </p>
-        </div>
+      <MoneyHeader
+        title="Pipeline"
+        stats={
+          <>
+            <MoneyStatPill
+              label="Open"
+              count={(deals ?? []).filter((d) => d.status === "open").length}
+              tone="gold"
+              testId="pipeline-stat-open"
+            />
+            <MoneyStatPill label="Won" count={wonCount} tone="bark" testId="pipeline-stat-won" />
+            <MoneyStatPill label="Lost" count={lostCount} tone="bark" testId="pipeline-stat-lost" />
+            <span style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>
+              Open value <b style={{ fontVariantNumeric: "tabular-nums" }}>{boardTotal.value}</b>{" "}
+              <span style={{ color: "var(--m-text-muted)" }}>
+                {boardTotal.currency ?? "single-currency roll-up only"}
+              </span>
+            </span>
+          </>
+        }
+        actions={
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button data-testid="pipeline-new-deal">New deal</Button>
@@ -300,7 +336,8 @@ export default function PipelinePage(): ReactNode {
             </Card>
           </DialogContent>
         </Dialog>
-      </header>
+        }
+      />
 
       {moveError !== null && (
         <p
@@ -431,9 +468,9 @@ export default function PipelinePage(): ReactNode {
                         close {deal.expected_close_on}
                       </p>
                     ) : null}
-                    {deal.status !== "open" && (
-                      <StatusTag tone={DEAL_STATUS_TONE[deal.status]}>{deal.status}</StatusTag>
-                    )}
+                    {deal.status !== "open" ? (
+                      <MoneyPillTag pill={dealPill(deal.status)} />
+                    ) : null}
                     <div className="flex items-center gap-1">
                       <Select
                         value={deal.stage_id}
@@ -475,9 +512,21 @@ export default function PipelinePage(): ReactNode {
           );
         })}
       </div>
-      <Tag tone="outline" className="mx-auto" style={{ opacity: 0.7 }}>
-        {dropStageId !== null && draggingId !== null ? "release to move" : "drag a card or use its Move menu"}
-      </Tag>
+      <footer className="m-money-foot">
+        <span style={{ opacity: 0.85 }}>
+          {dropStageId !== null && draggingId !== null
+            ? "release to move"
+            : "drag a card, or use its Move menu — both are one audited transition"}
+        </span>
+        <span className="m-money-foot-sp" />
+        <DensitySwitch
+          value={prefs.density}
+          onChange={(step) => {
+            applyDensity(step);
+            void prefs.setDensity(step);
+          }}
+        />
+      </footer>
     </div>
   );
 }

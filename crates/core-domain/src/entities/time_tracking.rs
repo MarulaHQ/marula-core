@@ -155,6 +155,10 @@ pub enum TimeApprovalAction {
     Approved,
     Rejected,
     Reopened,
+    /// An approver applied a verdict's fix (description or a trim) while the
+    /// entry waited in the queue. The entry stays `submitted`: fixing the
+    /// objection is not approving it.
+    Fixed,
 }
 
 impl TimeApprovalAction {
@@ -164,6 +168,7 @@ impl TimeApprovalAction {
             TimeApprovalAction::Approved => "approved",
             TimeApprovalAction::Rejected => "rejected",
             TimeApprovalAction::Reopened => "reopened",
+            TimeApprovalAction::Fixed => "fixed",
         }
     }
 
@@ -173,6 +178,7 @@ impl TimeApprovalAction {
             "approved" => TimeApprovalAction::Approved,
             "rejected" => TimeApprovalAction::Rejected,
             "reopened" => TimeApprovalAction::Reopened,
+            "fixed" => TimeApprovalAction::Fixed,
             _ => return None,
         })
     }

@@ -98,10 +98,17 @@ export interface BillingSuggestion {
   recordedAt: string;
 }
 
+/** The audit endpoint takes at most this many ids per request. */
+const SUGGESTION_BATCH = 100;
+
 /**
  * The decision_billing_audit shadow answers for one entry, as cohesive
  * chip data. Empty when the audit surface is unconfigured — the honest
  * visibly-absent state (chips never auto-apply anything).
+ *
+ * Ids go out in batches of {@link SUGGESTION_BATCH} and the answers merge, so a
+ * surface that wants a verdict for every row it is showing (the approvals
+ * queue's flagged strip) pays one request per hundred rows, not one per row.
  */
 export function useBillingSuggestions(entryIds: string[]) {
   const [suggestions, setSuggestions] = useState<Record<string, BillingSuggestion[]>>({});
@@ -115,23 +122,26 @@ export function useBillingSuggestions(entryIds: string[]) {
     const ids = key.split(",");
     let cancelled = false;
     void (async () => {
+      const merged: Record<string, BillingSuggestion[]> = {};
       try {
-        const { data } = await api.api.GET("/api/v1/time-entries/billing-suggestions", {
-          params: { query: { ids: ids.join(",") } },
-        });
-        if (cancelled) return;
-        const next: Record<string, BillingSuggestion[]> = {};
-        for (const item of data?.items ?? []) {
-          next[item.entry_id] = (item.suggestions ?? []).map((sg) => ({
-            chip: sg.chip,
-            label: sg.label,
-            billableProbability: sg.billable_probability ?? undefined,
-            state: sg.state ?? null,
-            mode: sg.mode,
-            recordedAt: sg.recorded_at,
-          }));
+        for (let i = 0; i < ids.length; i += SUGGESTION_BATCH) {
+          const batch = ids.slice(i, i + SUGGESTION_BATCH);
+          const { data } = await api.api.GET("/api/v1/time-entries/billing-suggestions", {
+            params: { query: { ids: batch.join(",") } },
+          });
+          if (cancelled) return;
+          for (const item of data?.items ?? []) {
+            merged[item.entry_id] = (item.suggestions ?? []).map((sg) => ({
+              chip: sg.chip,
+              label: sg.label,
+              billableProbability: sg.billable_probability ?? undefined,
+              state: sg.state ?? null,
+              mode: sg.mode,
+              recordedAt: sg.recorded_at,
+            }));
+          }
         }
-        setSuggestions(next);
+        setSuggestions(merged);
       } catch {
         if (!cancelled) setSuggestions({});
       }

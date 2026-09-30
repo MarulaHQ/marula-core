@@ -71,6 +71,35 @@ pub struct BulkDecisionResponse {
     pub results: Vec<BulkDecisionItem>,
 }
 
+/// POST /api/time-entries/:id/fix — an approver applies one verdict's fix
+/// to an entry that is still in the queue. At least one of `description` /
+/// `minutes` is required; the entry stays `submitted` afterwards, because
+/// clearing the objection is not approving it.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct FixEntryRequest {
+    #[serde(flatten)]
+    pub instant: instant::MutationParams,
+    /// The description to write. The server will only take text the approver
+    /// saw: the factual suggestion it offered for this entry.
+    pub description: Option<String>,
+    /// The entry's NEW total minutes, not a delta. Only ever lower than what
+    /// the entry holds — an approver tidies a double-claim, and raising a
+    /// billable value is not theirs to do from a queue.
+    pub minutes: Option<i32>,
+    /// Free-text context recorded on the decision trail.
+    pub note: Option<String>,
+}
+
+/// Instant-first mutation response (IF2): the entry as it now reads, plus the
+/// undo substrate. The client reconciles from the snapshot and never has to
+/// guess what the server did to the minutes.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct FixEntryResponse {
+    #[serde(flatten)]
+    pub entry: TimeEntry,
+    pub mutation: instant::MutationMeta,
+}
+
 #[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
 pub struct QueueQuery {
     /// Filter by approval state; defaults to `submitted` (the queue).
@@ -473,4 +502,140 @@ pub async fn reopen_entry(
     })
     .await?;
     Ok(Json(SubmitResponse { entry }))
+}
+
+/// POST /api/time-entries/:id/fix — apply one verdict's fix to a queued
+/// entry (`special:approve_time`).
+///
+/// This is the server side of the queue's one-click fix: adopt the factual
+/// description the server assembled from the ticket, or cut the minutes that
+/// another entry of the same person already claimed. The entry stays in the
+/// queue afterwards — the approver still presses Approve, because a fix clears
+/// an objection and it does not sign anybody's time off.
+#[utoipa::path(operation_id = "time_entry_fix", post, path = "/api/time-entries/{id}/fix", tag = "timers", security(("bearer" = [])),
+    request_body = FixEntryRequest,
+    responses((status = 200, body = FixEntryResponse),
+              (status = 404, description = "entry not visible in scope (rls_sparse)"),
+              (status = 409, description = "entry locked by invoicing (time_entry_locked)"),
+              (status = 422, description = "entry not in the queue, or the fix is not allowed")))]
+pub async fn fix_entry(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(entry_id): Path<Uuid>,
+    Json(req): Json<FixEntryRequest>,
+) -> ApiResult<Json<FixEntryResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        core_domain::policy::Permission::ApproveTime,
+    )?;
+    let user_id = authed.principal.user.id;
+    let org_id = authed.principal.user.org_id;
+    let now = chrono::Utc::now();
+
+    let description = req.description.as_deref().map(str::trim).filter(|d| !d.is_empty());
+    let minutes = req.minutes;
+    if description.is_none() && minutes.is_none() {
+        return Err(ApiError::Validation(
+            "a fix changes the description, the minutes, or both".into(),
+        ));
+    }
+    if let Some(minutes) = minutes {
+        if minutes <= 0 {
+            return Err(ApiError::Validation(
+                "an entry's minutes cannot be trimmed to zero — reject it with a reason instead".into(),
+            ));
+        }
+        if description.is_none() && minutes as i64 > 0 && minutes as i64 > 24 * 60 * 7 {
+            return Err(ApiError::Validation(
+                "that is not a trim; an approver lowers an entry's minutes, never rewrites them"
+                    .into(),
+            ));
+        }
+    }
+
+    let note = req.note.clone();
+    let before = req.instant.clone();
+    let response = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let existing = core_db::timers::get_time_entry(&mut ctx.tx, org_id, entry_id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        if let Some(minutes) = minutes {
+            if minutes as i64 >= existing.minutes {
+                return Err(ApiError::Validation(format!(
+                    "{} already holds {} minutes; a fix only ever lowers them",
+                    existing.minutes, minutes
+                )));
+            }
+        }
+        // The trail note says exactly what changed, so the decision history
+        // answers "what did they change, and why" without a second read.
+        let mut change: Vec<String> = Vec::new();
+        if let Some(next) = description {
+            change.push(format!("description: \"{}\"", next));
+        }
+        if let Some(next) = minutes {
+            change.push(format!("minutes: {} → {}", existing.minutes, next));
+        }
+        let trail_note = match note {
+            Some(n) if !n.trim().is_empty() => format!("{} — {}", change.join(", "), n.trim()),
+            _ => change.join(", "),
+        };
+        let entry = match core_db::approvals::fix(
+            &mut ctx.tx,
+            org_id,
+            entry_id,
+            user_id,
+            description,
+            minutes,
+            Some(&trail_note),
+            now,
+        )
+        .await
+        {
+            Ok(e) => e,
+            Err(core_db::DbError::NotFound) => {
+                let (_id, status, locked) =
+                    core_db::approvals::classify(&mut *ctx.tx, org_id, &[entry_id])
+                        .await?
+                        .into_iter()
+                        .next()
+                        .ok_or(ApiError::RlsSparse)?;
+                if locked {
+                    return Err(ApiError::TimeEntryLocked { entry_id });
+                }
+                return Err(ApiError::Validation(format!(
+                    "a fix applies to an entry in the queue; this one is {}",
+                    status.map(|s| s.as_str()).unwrap_or("draft")
+                )));
+            }
+            Err(e) => return Err(e.into()),
+        };
+        ctx.emit(
+            types::TIME_ENTRY_FIXED,
+            "time_entry",
+            Some(entry_id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::TimeEntryFixed {
+                entry_id,
+                fixed_by: user_id,
+                description_changed: description.is_some(),
+                minutes: entry.minutes,
+                fixed_at: now,
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        let mutation = instant::MutationMeta {
+            seq: 0,
+            version: 0,
+            updated_at: now,
+            before: Some(serde_json::to_value(&existing).unwrap_or_default()),
+            after: serde_json::to_value(&entry).unwrap_or_default(),
+            idempotency_key: before.idempotency_key.clone(),
+        };
+        Ok((ctx, FixEntryResponse { entry, mutation }))
+    })
+    .await?;
+
+    Ok(Json(response))
 }

@@ -40,6 +40,7 @@ pub mod stock;
 pub mod templates;
 pub mod ticket;
 pub mod time_tracking;
+pub mod time_verdict;
 pub mod tools;
 pub mod workflow_constructs;
 
@@ -79,5 +80,6 @@ pub use sla::*;
 pub use stock::*;
 pub use ticket::*;
 pub use time_tracking::*;
+pub use time_verdict::*;
 pub use tools::*;
 pub use workflow_constructs::*;

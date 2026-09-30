@@ -42,7 +42,7 @@ use axum::{
     Json, Router,
 };
 use core_db::time_categories::{NewTimeCategory, WorkTypeMapRow};
-use core_domain::entities::{Actor, AuditEvent, TimeCategory};
+use core_domain::entities::{Actor, AuditEvent, TimeCategory, TimeVerdict};
 use core_domain::events::types;
 use core_domain::policy::{Module, Permission};
 use serde::{Deserialize, Serialize};
@@ -159,6 +159,12 @@ pub struct EntrySuggestion {
     pub mode: String,
     #[cfg_attr(feature = "openapi", schema(value_type = String))]
     pub recorded_at: chrono::DateTime<chrono::Utc>,
+    /// The server's mechanical verdicts for this entry (Wave 41 lane 8), each
+    /// with the one action that clears it. Empty means clean — and empty for
+    /// an entry that is not visible in scope either, because RLS proves
+    /// visibility by absence, never by an error.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verdicts: Vec<TimeVerdict>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -824,10 +830,29 @@ pub async fn entry_suggestions(
     let row =
         core_db::decision::latest_answers_for_entity(&mut *tx, org_id, "decision_billing_audit", "time_entry", id)
             .await?;
+    let inputs = core_db::approvals::verdict_inputs(&mut *tx, org_id, &[id]).await?;
+    let verdicts = inputs.first().map(build_verdicts).unwrap_or_default();
     tx.commit().await.map_err(ApiError::from)?;
+    let mut suggestions = build_chips(row.as_ref());
+    if let Some(first) = suggestions.first_mut() {
+        first.verdicts = verdicts;
+    } else if !verdicts.is_empty() {
+        // A mechanical verdict stands on its own: an org with no audit
+        // surface configured still gets the overlap and the description
+        // check, because those are arithmetic, not opinions.
+        suggestions.push(EntrySuggestion {
+            chip: "verdict".to_string(),
+            label: "Needs a look".to_string(),
+            billable_probability: None,
+            state: Some("pending".to_string()),
+            mode: "local".to_string(),
+            recorded_at: chrono::Utc::now(),
+            verdicts,
+        });
+    }
     Ok(Json(EntrySuggestionsResponse {
         entry_id: id,
-        suggestions: build_chips(row.as_ref()),
+        suggestions,
     }))
 }
 
@@ -857,6 +882,9 @@ pub async fn bulk_entry_suggestions(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
+    // One read for every entry's verdicts, so a hundred queue rows cost one
+    // extra round trip rather than a hundred.
+    let inputs = core_db::approvals::verdict_inputs(&mut *tx, org_id, &ids).await?;
     let mut items = Vec::with_capacity(ids.len());
     for id in ids {
         let row = core_db::decision::latest_answers_for_entity(
@@ -867,9 +895,28 @@ pub async fn bulk_entry_suggestions(
             id,
         )
         .await?;
+        let verdicts = inputs
+            .iter()
+            .find(|input| input.entry.id == id)
+            .map(build_verdicts)
+            .unwrap_or_default();
+        let mut suggestions = build_chips(row.as_ref());
+        match suggestions.first_mut() {
+            Some(first) => first.verdicts = verdicts,
+            None if !verdicts.is_empty() => suggestions.push(EntrySuggestion {
+                chip: "verdict".to_string(),
+                label: "Needs a look".to_string(),
+                billable_probability: None,
+                state: Some("pending".to_string()),
+                mode: "local".to_string(),
+                recorded_at: chrono::Utc::now(),
+                verdicts,
+            }),
+            None => {}
+        }
         items.push(EntrySuggestionsResponse {
             entry_id: id,
-            suggestions: build_chips(row.as_ref()),
+            suggestions,
         });
     }
     tx.commit().await.map_err(ApiError::from)?;
@@ -877,6 +924,41 @@ pub async fn bulk_entry_suggestions(
 }
 
 // ---- helpers ----
+
+/// The server's verdicts for one entry, from the facts the read already has.
+///
+/// The overlap wins when an entry has more than one thing wrong: it is the one
+/// that is certainly wrong, and trimming it is the one fix that needs no
+/// judgement from the person pressing it.
+pub fn build_verdicts(input: &core_db::approvals::VerdictEntry) -> Vec<TimeVerdict> {
+    use core_domain::entities::{VerdictInput, verdicts_for};
+    let overlap = input
+        .overlaps
+        .iter()
+        .max_by_key(|(_, _, minutes)| *minutes);
+    let (overlap_number, overlap_minutes) = match overlap {
+        Some((_, number, minutes)) => (
+            number.as_deref().map(|n| format!("#{n}")),
+            *minutes,
+        ),
+        None => (None, 0),
+    };
+    let mut verdicts = verdicts_for(&VerdictInput {
+        notes: input.entry.notes.as_deref(),
+        minutes: input.entry.minutes,
+        ticket_number: input.ticket_number.as_deref().map(|n| format!("#{n}")),
+        work_type_label: input.entry.work_type.as_deref(),
+        peer_minutes: &input.peer_minutes,
+        overlap_with_ticket_number: overlap_number.as_deref(),
+        overlap_minutes,
+    });
+    if verdicts.len() > 1 {
+        // One mark per row is the pack's rule: the strongest, and the fix
+        // beside it. The rest are for the detail pane.
+        verdicts.truncate(1);
+    }
+    verdicts
+}
 
 fn build_chips(
     row: Option<&core_db::decision::DecisionAnswersRow>,
@@ -918,6 +1000,7 @@ fn build_chips(
             state: state.map(str::to_string),
             mode: row.mode.clone(),
             recorded_at: row.created_at,
+            verdicts: Vec::new(),
         });
     }
     chips

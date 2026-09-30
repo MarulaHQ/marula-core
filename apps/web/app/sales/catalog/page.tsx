@@ -37,6 +37,9 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
+import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
+import { DensitySwitch, applyDensity } from "@marula-core/ui";
+import { MoneyCard, MoneyHeader, MoneyPillTag, MoneyStatPill } from "../../../components/money";
 
 type CatalogItem = components["schemas"]["CatalogItemView"];
 
@@ -293,48 +296,42 @@ export default function CatalogPage(): ReactNode {
     return <EmptyState message={loadError} />;
   }
 
-  return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Catalog
-          </h1>
-          <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Products and services with their pricing; quote lines pick from here.
-          </p>
-        </div>
-        <Button onClick={openCreate} data-testid="catalog-new">
-          New catalog item
-        </Button>
-      </header>
+  const prefs = useDataSurfacePrefs();
 
-      <div data-testid="catalog-stat-strip" className="grid gap-3 sm:grid-cols-3">
-        {(() => {
-          const list = items ?? [];
-          const active = list.filter((i) => i.active);
-          const cats = [...new Set(list.map((i) => i.category).filter((c): c is string => c != null))];
-          return (
-            [
-              { label: "Items", value: list.length, hint: `${active.length} active`, testId: "catalog-stat-items" },
-              { label: "Categories", value: cats.length, hint: "free-form groups", testId: "catalog-stat-cats" },
-              { label: "Taxable", value: list.filter((i) => i.taxable).length, hint: "tax-defaulted items", testId: "catalog-stat-taxable" },
-            ] as const
-          ).map((t, i) => (
-            <Card key={t.label} className="m-rise p-4" style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>
-              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
-                {t.label}
-              </p>
-              <p className="mt-1 font-mono text-xl font-semibold tabular-nums" style={{ color: "var(--m-text)" }} data-testid={t.testId}>
-                {t.value}
-              </p>
-              <p className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
-                {t.hint}
-              </p>
-            </Card>
-          ));
-        })()}
-      </div>
+  return (
+    <div className="m-money-page mx-auto w-full max-w-[1400px] p-4 md:p-6">
+      {/* The price book: a card per line, the amount the first thing the eye
+          lands on, because a catalogue is read by price (pack §9). */}
+      <MoneyHeader
+        title="Catalogue"
+        stats={
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }} data-testid="catalog-stat-strip">
+            <MoneyStatPill
+              label="Items"
+              count={(items ?? []).length}
+              tone="gold"
+              testId="catalog-stat-items"
+            />
+            <MoneyStatPill
+              label="Active"
+              count={(items ?? []).filter((i) => i.active).length}
+              tone="bark"
+              testId="catalog-stat-cats"
+            />
+            <MoneyStatPill
+              label="Taxable"
+              count={(items ?? []).filter((i) => i.taxable).length}
+              tone="bark"
+              testId="catalog-stat-taxable"
+            />
+          </div>
+        }
+        actions={
+          <Button onClick={openCreate} data-testid="catalog-new">
+            New catalog item
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap items-center gap-2">
         <Input
@@ -353,84 +350,106 @@ export default function CatalogPage(): ReactNode {
         </p>
       )}
 
-      <Card className="m-rise overflow-x-auto p-0">
-        <Table data-testid="catalog-table">
-          <thead>
-            <tr>
-              <Th>Name</Th>
-              <Th>SKU</Th>
-              <Th>Unit</Th>
-              <Th className="text-right">Price</Th>
-              <Th className="text-right">Cost</Th>
-              <Th>Tax</Th>
-              <Th>State</Th>
-              <Th className="text-right">Actions</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((item, i) => (
-              <Tr key={item.id} className="row-hover" data-testid={`catalog-row-${item.id}`}>
-                <Td>
-                  <span className="font-medium">{item.name}</span>
-                  {item.category !== null && item.category !== undefined && (
-                    <Tag tone="outline" className="ml-1.5 text-[10px]">
-                      {item.category}
-                    </Tag>
-                  )}
-                  {item.group_name != null && item.group_name !== "" ? (
-                    <span className="ml-1.5 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                      {item.group_name}
-                    </span>
+      <MoneyCard testId="catalog-grid">
+        <div className="m-money-bar">
+          <span>
+            <b>{filtered.length}</b> items · <b>{(items ?? []).filter((i) => i.active).length}</b>{" "}
+            active
+          </span>
+        </div>
+        {filtered.length === 0 ? (
+          <div style={{ padding: 16 }}>
+            <EmptyState message="No catalog items match yet." />
+          </div>
+        ) : (
+        <div className="m-money-grid-cards" data-testid="catalog-table" style={{ padding: 16 }}>
+            {filtered.map((item) => (
+              <article
+                key={item.id}
+                className="m-money-price row-hover"
+                data-testid={`catalog-row-${item.id}`}
+              >
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 600 }}>{item.name}</span>
+                  {item.category != null && item.category !== "" ? (
+                    <span style={{ fontSize: 11, color: "var(--m-text-muted)" }}>{item.category}</span>
                   ) : null}
-                </Td>
-                <Td className="font-mono text-[12px]">{item.sku ?? "—"}</Td>
-                <Td>{item.unit}</Td>
-                <Td className="text-right font-mono text-[13px] tabular-nums">{money(item.unit_price_minor, item.currency)}</Td>
-                <Td className="text-right font-mono text-[12px] tabular-nums">
-                  {item.cost_minor === null || item.cost_minor === undefined ? (
-                    <span style={{ color: "var(--m-text-muted)" }}>—</span>
-                  ) : (
-                    money(item.cost_minor, item.currency)
-                  )}
-                </Td>
-                <Td>
-                  {item.taxable ? (
-                    <Tag tone="outline">taxable</Tag>
-                  ) : (
-                    <Tag tone="outline" style={{ color: "var(--m-text-muted)" }}>
-                      exempt
-                    </Tag>
-                  )}
-                </Td>
-                <Td>
-                  <StatusTag tone={item.active ? "success" : "neutral"}>
-                    {item.active ? "active" : "archived"}
-                  </StatusTag>
-                </Td>
-                <Td>
-                  <div className="flex justify-end gap-1">
+                </div>
+                <span className="m-money-price-amount">
+                  {money(item.unit_price_minor, item.currency)}{" "}
+                  <span style={{ fontSize: 12, fontWeight: 400, color: "var(--m-text-muted)" }}>
+                    / {item.unit}
+                  </span>
+                </span>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    fontSize: 12,
+                    color: "var(--m-text-secondary)",
+                  }}
+                >
+                  <MoneyPillTag
+                    pill={item.active ? { label: "active", family: "green" } : { label: "archived", family: "neutral" }}
+                  />
+                  <span className="font-mono">{item.sku ?? "—"}</span>
+                  <span>{item.taxable ? "taxable" : "exempt"}</span>
+                  {item.group_name != null && item.group_name !== "" ? (
+                    <span style={{ color: "var(--m-text-muted)" }}>{item.group_name}</span>
+                  ) : null}
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                    marginTop: "auto",
+                    paddingTop: 6,
+                  }}
+                >
+                  <span
+                    className="font-mono"
+                    style={{ fontSize: 12, color: "var(--m-text-muted)" }}
+                  >
+                    {item.cost_minor == null
+                      ? "cost —"
+                      : `cost ${money(item.cost_minor, item.currency)}`}
+                  </span>
+                  <span style={{ display: "flex", gap: 6 }}>
                     <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>
                       Edit
                     </Button>
-                    {item.active && (
-                      <Button size="sm" variant="ghost" disabled={busyId === item.id} onClick={() => void archive(item)}>
+                    {item.active ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busyId === item.id}
+                        onClick={() => void archive(item)}
+                      >
                         Archive
                       </Button>
-                    )}
-                  </div>
-                </Td>
-              </Tr>
+                    ) : null}
+                  </span>
+                </div>
+              </article>
             ))}
-            {filtered.length === 0 && (
-              <Tr>
-                <Td>
-                  <EmptyState message="No catalog items match yet." />
-                </Td>
-              </Tr>
-            )}
-          </tbody>
-        </Table>
-      </Card>
+        </div>
+        )}
+      </MoneyCard>
+
+      <footer className="m-money-foot">
+        <span className="m-money-foot-sp" />
+        <DensitySwitch
+          value={prefs.density}
+          onChange={(step) => {
+            applyDensity(step);
+            void prefs.setDensity(step);
+          }}
+        />
+      </footer>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent title={editing === null ? "New catalog item" : `Edit ${editing.name}`}>

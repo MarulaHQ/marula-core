@@ -302,6 +302,252 @@ pub async fn reopen(
     Ok(entry)
 }
 
+/// Applies an approver's one-click verdict fix to a queued entry: a better
+/// description, a trim of the double-claimed minutes, or both.
+///
+/// The entry stays `submitted` — clearing the objection is not approving it,
+/// and the human still presses Approve. Two guards live in the statement
+/// itself so a racing request cannot slip past them: the entry must still be
+/// in the queue, and it must not be locked by invoicing.
+///
+/// The caller has already validated the *direction* of a trim (an approver
+/// may lower an entry's minutes, never raise them — raising is a billing
+/// decision, not a tidy-up); this function refuses anything it is not handed.
+pub async fn fix(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    entry_id: Uuid,
+    actor_id: Uuid,
+    description: Option<&str>,
+    trim_to_minutes: Option<i32>,
+    note: Option<&str>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> DbResult<TimeEntry> {
+    let row = sqlx::query!(
+        r#"UPDATE time_entries
+              SET notes = COALESCE($3, notes),
+                  minutes = COALESCE($4, minutes)
+            WHERE org_id = $1 AND id = $2 AND approval_status = 'submitted'
+              AND ($4::integer IS NULL OR $4 <= minutes)
+              AND ($4::integer IS NULL OR $4 > 0)
+              AND NOT EXISTS (
+                  SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)
+           RETURNING id, org_id, ticket_id, phase_id, user_id, started_at, ended_at, minutes, billable,
+                     notes, work_type, unbillable_reason, timer_session_id, approval_status,
+                     approval_reason_code, created_at"#,
+        org_id,
+        entry_id,
+        description,
+        trim_to_minutes,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    let entry = entry_from_parts(
+        row.id,
+        row.org_id,
+        row.ticket_id,
+        row.phase_id,
+        row.user_id,
+        row.started_at,
+        row.ended_at,
+        row.minutes,
+        row.billable,
+        row.notes,
+        row.work_type,
+        row.timer_session_id,
+        row.approval_status,
+        row.approval_reason_code,
+        row.unbillable_reason,
+        row.created_at,
+    );
+    append_audit(
+        &mut *tx,
+        org_id,
+        entry_id,
+        TimeApprovalAction::Fixed,
+        actor_id,
+        None,
+        note,
+        now,
+    )
+    .await?;
+    Ok(entry)
+}
+
+/// Everything the billing verdicts need about a set of entries, read in one
+/// pass so a hundred queue rows do not cost a hundred queries.
+///
+/// For each requested entry: itself, the same person's other entries in the
+/// same week (the `usual` comparison and the overlap check), and the
+/// ticket's human number and title (the factual suggested description).
+#[derive(Debug, Clone)]
+pub struct VerdictEntry {
+    pub entry: TimeEntry,
+    /// The entry's ticket's human number, when ticket-scoped.
+    pub ticket_number: Option<String>,
+    /// The entry's ticket's title, when ticket-scoped.
+    pub ticket_title: Option<String>,
+    /// The same person's other entries' minutes within ±7 days, ascending.
+    pub peer_minutes: Vec<i64>,
+    /// Entries of the same person that overlap this one, with their ticket
+    /// number and the overlap in whole minutes.
+    pub overlaps: Vec<(Uuid, Option<String>, i64)>,
+}
+
+/// The overlap scan: for every entry in `ids`, the other entries of the same
+/// person that share any of its window, in one query.
+pub async fn verdict_inputs(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    ids: &[Uuid],
+) -> DbResult<Vec<VerdictEntry>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let rows = sqlx::query!(
+        r#"SELECT e.id, e.org_id, e.ticket_id, e.phase_id, e.user_id, e.started_at, e.ended_at,
+                  e.minutes, e.billable, e.notes, e.work_type, e.unbillable_reason,
+                  e.timer_session_id, e.approval_status, e.approval_reason_code, e.created_at
+             FROM time_entries e
+            WHERE e.org_id = $1 AND e.id = ANY($2)"#,
+        org_id,
+        ids,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let mut out: Vec<VerdictEntry> = rows
+        .into_iter()
+        .map(|row| VerdictEntry {
+            entry: entry_from_parts(
+                row.id,
+                row.org_id,
+                row.ticket_id,
+                row.phase_id,
+                row.user_id,
+                row.started_at,
+                row.ended_at,
+                row.minutes,
+                row.billable,
+                row.notes,
+                row.work_type,
+                row.timer_session_id,
+                row.approval_status,
+                row.approval_reason_code,
+                row.unbillable_reason,
+                row.created_at,
+            ),
+            ticket_number: None,
+            ticket_title: None,
+            peer_minutes: vec![],
+            overlaps: vec![],
+        })
+        .collect();
+
+    // The tickets in play, in their own read. Joined inline this would be one
+    // query, but a left-joined `t.number` is inferred from the column's own
+    // NOT NULL and would hand the macro a non-nullable String for a
+    // project-scoped entry that has no ticket at all — so the lookup is
+    // explicit here and the absence is represented honestly.
+    let ticket_ids: Vec<Uuid> = {
+        let mut tids: Vec<Uuid> = out.iter().filter_map(|v| v.entry.ticket_id).collect();
+        tids.sort_unstable();
+        tids.dedup();
+        tids
+    };
+    let mut tickets: std::collections::HashMap<Uuid, (String, String)> =
+        std::collections::HashMap::new();
+    if !ticket_ids.is_empty() {
+        let trows = sqlx::query!(
+            r#"SELECT id, number, title FROM tickets WHERE org_id = $1 AND id = ANY($2)"#,
+            org_id,
+            &ticket_ids,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for row in trows {
+            tickets.insert(row.id, (row.number, row.title));
+        }
+    }
+    for target in &mut out {
+        if let Some((number, title)) = target
+            .entry
+            .ticket_id
+            .and_then(|tid| tickets.get(&tid).cloned())
+        {
+            target.ticket_number = Some(number);
+            target.ticket_title = Some(title);
+        }
+    }
+
+    // One window query for the whole set: every entry of the same people,
+    // inside the bounding box that covers all the target windows (±7 days).
+    // A bounding box over-fetches and the per-entry comparison below narrows
+    // it, which is honest and one round trip — an OR over per-entry windows
+    // would need a row per pair.
+    let lo = out
+        .iter()
+        .map(|v| v.entry.started_at)
+        .min()
+        .map(|t| t - chrono::Duration::days(7))
+        .unwrap_or_else(chrono::Utc::now);
+    let hi = out
+        .iter()
+        .map(|v| v.entry.ended_at)
+        .max()
+        .map(|t| t + chrono::Duration::days(7))
+        .unwrap_or_else(chrono::Utc::now);
+    let user_ids: Vec<Uuid> = {
+        let mut ids: Vec<Uuid> = out.iter().map(|v| v.entry.user_id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    };
+    if user_ids.is_empty() {
+        return Ok(out);
+    }
+    let peers = sqlx::query!(
+        r#"SELECT e.id, e.ticket_id, e.user_id, e.started_at, e.ended_at, e.minutes
+             FROM time_entries e
+            WHERE e.org_id = $1
+              AND e.user_id = ANY($2)
+              AND e.started_at < $3
+              AND e.ended_at > $4"#,
+        org_id,
+        &user_ids,
+        hi,
+        lo,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for target in &mut out {
+        for peer in &peers {
+            if peer.id == target.entry.id || peer.user_id != target.entry.user_id {
+                continue;
+            }
+            let overlap = core_domain::entities::overlap_minutes(
+                target.entry.started_at,
+                target.entry.ended_at,
+                peer.started_at,
+                peer.ended_at,
+            );
+            if overlap > 0 {
+                let number = peer
+                    .ticket_id
+                    .and_then(|tid| tickets.get(&tid).cloned())
+                    .map(|(number, _)| number);
+                target.overlaps.push((peer.id, number, overlap));
+            } else if (peer.started_at - target.entry.started_at).num_days().abs() <= 7 {
+                target.peer_minutes.push(peer.minutes as i64);
+            }
+        }
+        target.peer_minutes.sort_unstable();
+    }
+    Ok(out)
+}
+
 /// The approver queue: entries in the given states (default: submitted),
 /// oldest submission first. `user_id` narrows to one submitter;
 /// `decided_by` narrows to entries that approver decided (the per-approver

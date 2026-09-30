@@ -878,6 +878,9 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // time-entry approval workflows (Wave 14 lane 1)
         .route(&rp("/time-entries/{id}/submit"), post(approvals::submit))
         .route(&rp("/time-entries/{id}/approvals"), get(approvals::history))
+        // Wave 41 lane 8: the one-click verdict fix, on the same permission
+        // as the decision it sits beside.
+        .route(&rp("/time-entries/{id}/fix"), post(approvals::fix_entry))
         .route(
             &rp("/time-entries/{id}/reopen"),
             post(approvals::reopen_entry),

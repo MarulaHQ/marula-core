@@ -117,6 +117,8 @@ pub mod types {
     /// emitted from the same transaction as the state change.
     pub const TIME_ENTRY_APPROVAL_SUBMITTED: &str = "time_entry.approval_submitted";
     pub const TIME_ENTRY_APPROVAL_APPROVED: &str = "time_entry.approval_approved";
+/// An approver applied a verdict fix to a queued entry (Wave 41 lane 8).
+pub const TIME_ENTRY_FIXED: &str = "time_entry.fixed";
     pub const TIME_ENTRY_APPROVAL_REJECTED: &str = "time_entry.approval_rejected";
     pub const NOTIFICATION_CREATED: &str = "notification.created";
     /// Emitted when a user marks notifications read (single, bulk, or all).
@@ -1071,6 +1073,25 @@ pub struct TimeEntryApprovalApproved {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub approved_by: UserId,
     pub decided_at: DateTime<Utc>,
+}
+
+/// An approver applied one billing verdict's fix to a queued entry (Wave 41
+/// lane 8): the description the server assembled from the ticket, or a trim of
+/// the minutes another entry already claimed. The entry stays in the queue —
+/// `minutes` is the entry's total AFTER the trim, and the full before/after
+/// snapshots live on the `mutation` envelope, not on this event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TimeEntryFixed {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub entry_id: TimeEntryId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub fixed_by: UserId,
+    /// Whether the description was replaced (the trim does not touch it).
+    pub description_changed: bool,
+    /// The entry's minutes after the fix.
+    pub minutes: i64,
+    pub fixed_at: DateTime<Utc>,
 }
 
 /// An approver rejected the entry with a typed reason code from the

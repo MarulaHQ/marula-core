@@ -36,6 +36,7 @@ import {
   Td,
   Th,
   Tr,
+  ViewSwitch,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -45,7 +46,9 @@ import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
 import { formatQtyMilli } from "../../../lib/stock-format";
-import { daysUntil, QUOTE_STATUS_TONE } from "../../../lib/money-summary";
+import { daysUntil, perCurrencySum } from "../../../lib/money-summary";
+import { quotePill } from "../../../lib/money-ui";
+import { MoneyCard, MoneyHeader, MoneyPillTag } from "../../../components/money";
 
 type Quote = components["schemas"]["Quote"];
 type QuoteStatus = components["schemas"]["QuoteStatus"];
@@ -354,18 +357,15 @@ export default function QuotesPage(): ReactNode {
   }
 
   const totals = quoteTotals();
+  const ledgerTotal = perCurrencySum(
+    filtered.map((q) => ({ currency: q.currency as string, amount: q.total_minor })),
+  );
 
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Quotes
-          </h1>
-          <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Build quotes, walk them through send → decision, convert accepted ones to invoices.
-          </p>
-        </div>
+      <MoneyHeader
+        title="Quotes"
+        actions={
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button data-testid="quotes-new">New quote</Button>
@@ -606,27 +606,25 @@ export default function QuotesPage(): ReactNode {
             </Card>
           </DialogContent>
         </Dialog>
-      </header>
+        }
+      />
 
-      <div className="m-rise flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
-        {STATUSES.map((s) => (
-          <button
-            key={s}
-            type="button"
-            className="rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-opacity duration-100 hover:opacity-100"
-            style={{
-              borderColor: statusFilter === s ? "var(--m-accent)" : "var(--m-border)",
-              color: statusFilter === s ? "var(--m-accent)" : "var(--m-text-muted)",
-              background: statusFilter === s ? "var(--m-accent-soft, var(--m-bg-subtle))" : "transparent",
-              opacity: statusFilter === s ? 1 : 0.85,
-            }}
-            data-testid={`quotes-filter-${s}`}
-            aria-pressed={statusFilter === s}
-            onClick={() => setStatusFilter(s)}
-          >
-            {s}
-          </button>
-        ))}
+      {/* The lifecycle is the view: draft, sent, then accepted or declined, on
+          the same pill rules as the invoice (pack §9). */}
+      <div className="m-rise">
+        <ViewSwitch
+          label="Quote lifecycle"
+          activeId={statusFilter}
+          onChange={(id) => setStatusFilter(id as QuoteStatus | "all")}
+          views={STATUSES.map((st) => ({
+            id: st,
+            label: st === "all" ? "All quotes" : st,
+            hint:
+              st === "all"
+                ? String((quotes ?? []).length)
+                : String((quotes ?? []).filter((q) => q.status === st).length),
+          }))}
+        />
       </div>
 
       {actionError !== null && (
@@ -635,7 +633,16 @@ export default function QuotesPage(): ReactNode {
         </p>
       )}
 
-      <Card className="m-rise overflow-x-auto p-0">
+      <MoneyCard testId="quotes-ledger">
+        <div className="m-money-bar">
+          <span>
+            <b>{filtered.length}</b> {statusFilter === "all" ? "quotes" : statusFilter} ·{" "}
+            {/* Only ever a single-currency roll-up: a mixed set says so
+                rather than inventing an FX total. */}
+            <b>{ledgerTotal.value}</b> in total
+          </span>
+        </div>
+        <div style={{ overflowX: "auto" }}>
         <Table data-testid="quotes-table">
           <thead>
             <tr>
@@ -665,7 +672,7 @@ export default function QuotesPage(): ReactNode {
                     </Link>
                   </Td>
                   <Td>
-                    <StatusTag tone={QUOTE_STATUS_TONE[q.status]}>{q.status}</StatusTag>
+                    <MoneyPillTag pill={quotePill(q.status)} testId={`quote-status-${q.id}`} />
                     {q.converted_invoice_id != null ? (
                       <Link
                         href={`/billing/${q.converted_invoice_id}`}
@@ -679,10 +686,16 @@ export default function QuotesPage(): ReactNode {
                   <Td className="text-right font-mono text-[13px] tabular-nums">{money(q.total_minor, q.currency)}</Td>
                   <Td>
                     <span className="tabular-nums">{q.valid_until}</span>
+                    {/* A quote past its date is a fact about money, not a
+                        breach: blush, and with the days in words. */}
                     {validDays !== null && validDays < 0 && q.status === "sent" ? (
-                      <Tag tone="danger" className="ml-1">past valid-until</Tag>
+                      <span className="m-money-pill m-money-pill-blush" style={{ marginLeft: 6 }}>
+                        past valid-until
+                      </span>
                     ) : validDays !== null && validDays <= 7 && q.status === "sent" ? (
-                      <Tag tone="warning" className="ml-1">expires soon</Tag>
+                      <span className="m-money-pill m-money-pill-blush" style={{ marginLeft: 6 }}>
+                        expires in {validDays}d
+                      </span>
                     ) : null}
                   </Td>
                   <Td>
@@ -727,7 +740,8 @@ export default function QuotesPage(): ReactNode {
             )}
           </tbody>
         </Table>
-      </Card>
+        </div>
+      </MoneyCard>
     </div>
   );
 }
