@@ -1,31 +1,21 @@
-// Board ticket route — renders inside the board stack (two-pane detail).
+// Board ticket route — the same pack read model the deep-link route shows.
+//
+// Purpose: one ticket detail in the app. The pack draws the board's detail
+// (it adds the card's fields above the conversation) and the deep-linked
+// open; both are the same read model, so both render `PackTicketDetail`.
+// The board stack keeps the route (deep links and the Maestro flows use it)
+// but the screen is no longer a second, older layout.
 
 import { useLocalSearchParams } from "expo-router";
-import { ScrollView, StyleSheet } from "react-native";
 
-import { useTopInset } from "@/ui/primitives";
-
-import { TicketDetail } from "@/tickets/ticket-detail";
-import { useTheme } from "@/ui/tokens";
+import { PackTicketDetail } from "@/tickets/pack-detail";
+import { RequireAuth } from "@/ui/require-auth";
 
 export default function BoardTicket() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { tokens } = useTheme();
-  const topInset = useTopInset();
-  if (id === undefined) return null;
   return (
-    <ScrollView
-      style={{ backgroundColor: tokens.background }}
-      contentContainerStyle={[styles.content, { paddingTop: topInset }]}
-      keyboardShouldPersistTaps="handled"
-    >
-      <TicketDetail id={id} />
-    </ScrollView>
+    <RequireAuth>
+      {id !== undefined ? <PackTicketDetail id={id} /> : null}
+    </RequireAuth>
   );
 }
-
-const styles = StyleSheet.create({
-  content: {
-    flexGrow: 1,
-  },
-});

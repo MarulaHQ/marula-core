@@ -1,25 +1,46 @@
-// Scan tab — the camera, the deterministic injector, and the resolver.
+// Scan tab — the pack's camera screen with its sheets.
 //
-// Purpose: the field's scan surface. On a device the camera decodes a
-// QR/Code128 straight into the shared typed resolver; the injector stays for
-// the simulator and for Maestro, where no lens exists. The resolver owns all
-// meaning (POST /api/v1/scan/resolve) — this screen never parses locally and
-// never treats unknown as "create new".
+// Purpose: drawn as `12-scan-camera` and the scan pack's result sheets. The
+// lens view is dark IN BOTH THEMES (camInk), with a hairline reticle, a
+// context chip (the ticket a scan is anchored to), the torch disc, the
+// keyboard disc (fallback = type a code), Recent chips, and a bottom "Type
+// a code" strip. A resolved code becomes a bottom sheet, never a page:
+// found (name + facts + Choose an action), ambiguous (radio pick), unknown
+// (what happened + Type a code), and the camera-off screen (honestly why +
+// big type-a-code field).
 //
-// Non-purpose: no side effects. A scan opens or stages; it never moves stock.
+// Non-purpose: no side effects. A scan opens or stages; it never moves
+// stock — the destinations own their forms.
 
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Device from "expo-device";
-import { useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Button, Card, ErrorNote, Field, Screen, SectionHeader } from "@/ui/primitives";
+import { useModel } from "@/data/sync-context";
+import { MODELS, fetchActiveTimer } from "@/core/models";
 import { CameraScanner } from "@/scan/camera-scanner";
-import { ScanResolutionCard, useScanResolver } from "@/scan/scan-flow";
-import { type, useTheme } from "@/ui/tokens";
+import { useScanResolver } from "@/scan/scan-flow";
+import type { ScanResolution } from "@/core/models";
+import {
+  ChoiceCard,
+  FactRow,
+  Facts,
+  PACK_ICONS,
+  PackPill,
+  PrimaryButton,
+  SecondaryButton,
+  Sheet,
+} from "@/ui/pack";
+import { chrome, type, useTheme } from "@/ui/tokens";
 
-/** Quick payloads for the injector — one per frozen input class. */
+// The canonical marula fruit (cut from the shipped app icon) — the pack's
+// "not recognized" sheet draws the mark; we use the real one, not a redraw.
+const FRUIT = require("../../assets/marula-fruit.png") as number;
+
+/** Quick payloads — one per frozen input class (simulator + Maestro). */
 const SAMPLES: { label: string; value: string }[] = [
   { label: "Deep link", value: "marula://stock-item/00000000-0000-0000-0000-000000000000" },
   { label: "SKU", value: "RSV-SRV-004" },
@@ -28,136 +49,368 @@ const SAMPLES: { label: string; value: string }[] = [
 ];
 
 export default function ScanScreen() {
-  const { tokens } = useTheme();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { text: injectedText } = useLocalSearchParams<{ text?: string }>();
-  const [text, setText] = useState("");
+  const [typed, setTyped] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
   const { resolution, error, busy, resolve, clear } = useScanResolver();
+  const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
 
-  // Deep-link handoff: marula://scan-result?text=… resolves immediately.
-  // The injector field stays untouched so a paste in progress is never lost.
+  const contextLabel = timer.data !== null && timer.data !== undefined ? "Timing a ticket" : null;
+
   useEffect(() => {
     if (injectedText !== undefined && injectedText !== "") {
       void resolve(injectedText);
     }
   }, [injectedText, resolve]);
 
+  const samples = useMemo(() => SAMPLES, []);
+  const dark = chrome.camInk;
+
   return (
-    <Screen testID="scan-screen">
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: tokens.text }]}>Scan</Text>
-        <Text style={[styles.subtitle, { color: tokens.textMuted }]}>
-          Resolve a label, SKU, serial, location code, or asset tag.
-        </Text>
+    <View
+      testID="scan-screen"
+      style={[styles.screen, { backgroundColor: dark, paddingTop: insets.top + 12 }]}
+    >
+      <View style={styles.topRow}>
+        <Pressable
+          testID="scan-close"
+          accessibilityRole="button"
+          accessibilityLabel="Close the scanner"
+          onPress={() => router.replace("/(tabs)/board" as never)}
+          style={styles.disc}
+        >
+          <Ionicons name={PACK_ICONS.close} size={20} color={chrome.cream} />
+        </Pressable>
+        <Text style={[styles.title, { color: chrome.cream }]}>Scan</Text>
+        <View style={[styles.ctxChip, { backgroundColor: chrome.navDark }]}>
+          <Text style={[styles.ctxText, { color: chrome.cream }]} numberOfLines={1}>
+            {contextLabel ?? "Scan any label"}
+          </Text>
+        </View>
+        <Pressable
+          testID="scan-torch"
+          accessibilityRole="button"
+          accessibilityLabel="Torch"
+          style={styles.disc}
+        >
+          <Ionicons name={PACK_ICONS.bolt} size={20} color={chrome.cream} />
+        </Pressable>
+        <Pressable
+          testID="scan-keyboard"
+          accessibilityRole="button"
+          accessibilityLabel="Type a code"
+          onPress={() => setCameraOpen(false)}
+          style={styles.disc}
+        >
+          <Ionicons name={PACK_ICONS.keyboard} size={20} color={chrome.cream} />
+        </Pressable>
       </View>
 
-      <Card>
-        <Field
-          label="Paste a scan"
-          testID="scan-input"
-          value={text}
-          onChangeText={setText}
-          placeholder="marula://stock-item/… or RSV-1234"
-          autoCapitalize="none"
-          autoCorrect={false}
-          onSubmitEditing={() => {
-            void resolve(text);
-          }}
-          returnKeyType="go"
-        />
-        <Button
-          label="Resolve"
-          testID="scan-resolve"
-          fullWidth
-          loading={busy}
-          disabled={text.trim().length === 0 || busy}
-          onPress={() => {
-            void resolve(text);
-          }}
-        />
-        <SectionHeader title="Samples" />
-        <View style={styles.samples}>
-          {SAMPLES.map((sample) => (
+      <View style={styles.lens}>
+        {!Device.isDevice ? (
+          <View style={[styles.reticle, { borderColor: chrome.cream }]}>
+            <Corner style={styles.tl} />
+            <Corner style={styles.tr} />
+            <Corner style={styles.bl} />
+            <Corner style={styles.br} />
+            <Text style={[styles.lensNote, { color: chrome.cream }]}>
+              Point at the label — the scan fills the form, you confirm.
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.simulatorPanel}>
+        <Text style={[styles.panelLabel, { color: chrome.cream }]}>{typedLabel(busy, error)}</Text>
+        <View style={styles.simRow}>
+          {samples.map((sample) => (
             <Pressable
               key={sample.label}
               testID={`scan-sample-${sample.label.toLowerCase().replace(" ", "-")}`}
               onPress={() => {
-                setText(sample.value);
+                setTyped(sample.value);
                 void resolve(sample.value);
               }}
-              style={[styles.sample, { borderColor: tokens.border }]}
+              style={[styles.sampleChip, { borderColor: chrome.navDark }]}
             >
-              <Text style={[styles.sampleText, { color: tokens.textSecondary }]}>
-                {sample.label}
-              </Text>
+              <Text style={[styles.sampleText, { color: chrome.cream }]}>{sample.label}</Text>
             </Pressable>
           ))}
         </View>
-      </Card>
-
-      {error !== null ? (
-        <ErrorNote
-          text={error}
-          onRetry={() => {
-            void resolve(text);
-          }}
-        />
-      ) : null}
-      {resolution !== null ? (
-        <ScanResolutionCard resolution={resolution} onClear={clear} />
-      ) : null}
-
-      <SectionHeader title="Camera" />
-      <Card>
-        <Button
-          label="Open the camera"
-          variant="secondary"
-          testID="scan-camera"
-          fullWidth
-          onPress={() => setCameraOpen(true)}
-        />
-        <View style={styles.cameraRow}>
-          <Ionicons name="camera-outline" size={22} color={tokens.textMuted} />
-          <Text style={[styles.cameraText, { color: tokens.textMuted }]}>
-            {Device.isDevice
-              ? "The camera decodes the label and resolves it here."
-              : "The simulator has no lens — type or paste the code above instead. Every scan path behaves the same."}
-          </Text>
+        <View style={[styles.typeField, { backgroundColor: chrome.navDark }]}>
+          <TextInput
+            testID="scan-input"
+            value={typed}
+            onChangeText={setTyped}
+            placeholder="Type or paste a code — SKU, serial, location"
+            placeholderTextColor={chrome.cream}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={[styles.typeInput, { color: chrome.cream }]}
+            onSubmitEditing={() => {
+              void resolve(typed);
+            }}
+            returnKeyType="go"
+          />
+          <Pressable
+            testID="scan-resolve"
+            accessibilityRole="button"
+            accessibilityLabel="Resolve"
+            onPress={() => {
+              void resolve(typed);
+            }}
+            style={styles.typeGo}
+          >
+            <Ionicons name={PACK_ICONS.search} size={22} color={chrome.gold} />
+          </Pressable>
         </View>
-      </Card>
+        <Pressable
+          testID="scan-camera"
+          accessibilityRole="button"
+          accessibilityLabel="Open the camera"
+          onPress={() => setCameraOpen(true)}
+          style={styles.typeButton}
+        >
+          <Ionicons name={PACK_ICONS.keyboard} size={18} color={chrome.cream} />
+          <Text style={[styles.typeButtonText, { color: chrome.cream }]}>Type a code</Text>
+        </Pressable>
+      </View>
+
       <CameraScanner
         visible={cameraOpen}
         onClose={() => setCameraOpen(false)}
         onScan={(scanned) => {
           setCameraOpen(false);
-          setText(scanned);
+          setTyped(scanned);
           void resolve(scanned);
         }}
       />
-    </Screen>
+
+      <ResultSheets
+        resolution={resolution}
+        error={error}
+        onClear={clear}
+        onRetry={() => {
+          void resolve(typed);
+        }}
+      />
+    </View>
   );
 }
 
+function typedLabel(busy: boolean, error: string | null): string {
+  if (busy) return "Resolving…";
+  if (error !== null) return error;
+  void tokens_unused;
+  return "Recent";
+}
+
+const tokens_unused = 0;
+
+/** The pack's result sheets, one per resolution fate. */
+function ResultSheets({
+  resolution,
+  error,
+  onClear,
+  onRetry,
+}: {
+  resolution: ScanResolution | null;
+  error: string | null;
+  onClear: () => void;
+  onRetry: () => void;
+}) {
+  const { tokens } = useTheme();
+  const router = useRouter();
+  if (error !== null) {
+    return (
+      <Sheet visible onClose={onRetry} title="The scan didn't resolve" testID="scan-error-sheet">
+        <Text style={[styles.sheetBody, { color: tokens.textSecondary }]}>{error}</Text>
+        <PrimaryButton label="Try again" onPress={onRetry} />
+        <SecondaryButton label="Close" onPress={onClear} />
+      </Sheet>
+    );
+  }
+  if (resolution === null) return null;
+  const candidates = resolution.candidates ?? [];
+  const unknown = resolution.kind === "unknown" && candidates.length === 0;
+  if (unknown) {
+    return (
+      <Sheet visible onClose={onClear} title="Not recognized" testID="scan-unknown-sheet">
+        <Image
+          source={FRUIT}
+          style={styles.unknownMark}
+          resizeMode="contain"
+          accessibilityIgnoresInvertColors
+        />
+        <PackPill pair={tokens.warning} label="NO MATCH" />
+        <Text style={[styles.sheetBody, { color: tokens.textSecondary }]}>
+          Nothing matches “{resolution.input}”. Check the label, or enter the code by hand.
+        </Text>
+        <PrimaryButton label="Type a code" icon={PACK_ICONS.keyboard} onPress={onClear} />
+        <SecondaryButton label="Close" onPress={onClear} />
+      </Sheet>
+    );
+  }
+  if (candidates.length > 1) {
+    return (
+      <Sheet
+        visible
+        onClose={onClear}
+        title="Pick the exact one"
+        subtitle={`${candidates.length} records match this code — a scan never guesses.`}
+        testID="scan-pick-sheet"
+      >
+        {candidates.map((candidate: { entity_id: string; display_name: string; secondary?: string | null }) => (
+          <ChoiceCard
+            key={candidate.entity_id}
+            title={candidate.display_name}
+            detail={candidate.secondary ?? undefined}
+            chosen={false}
+            onPress={() => {
+              onClear();
+              router.push(candidateRoute(resolution, candidate.entity_id) as never);
+            }}
+            testID={`scan-candidate-${candidate.entity_id}`}
+          />
+        ))}
+      </Sheet>
+    );
+  }
+  return (
+    <Sheet
+      visible
+      onClose={onClear}
+      title={resolution.display_name !== "" ? resolution.display_name : "Found"}
+      subtitle={scanKinds(resolution.kind)}
+      testID="scan-found-sheet"
+    >
+      <Facts>
+        <FactRow first label="Code">
+          {resolution.input}
+        </FactRow>
+        <FactRow label="Kind">{scanKinds(resolution.kind)}</FactRow>
+        {resolution.serial_status !== null && resolution.serial_status !== undefined ? (
+          <FactRow label="Status">
+            {String(resolution.serial_status).replace(/_/g, " ")}
+          </FactRow>
+        ) : null}
+      </Facts>
+      <PrimaryButton
+        label="Open"
+        onPress={() => {
+          const route = singleRoute(resolution);
+          onClear();
+          if (route !== null) router.push(route as never);
+        }}
+      />
+      <SecondaryButton label="Scan something else" onPress={onClear} />
+    </Sheet>
+  );
+}
+
+function scanKinds(kind: string): string {
+  switch (kind) {
+    case "stock_item":
+      return "Stock item";
+    case "serialized_unit":
+      return "Serialized unit";
+    case "stock_location":
+      return "Location";
+    case "device_asset":
+      return "Device asset";
+    default:
+      return "Result";
+  }
+}
+
+function singleRoute(resolution: { kind: string; entity_id?: string | null }): string | null {
+  if (resolution.entity_id === null || resolution.entity_id === undefined) return null;
+  return candidateRoute(resolution, resolution.entity_id);
+}
+
+function candidateRoute(resolution: { kind: string }, id: string): string {
+  const prefix =
+    resolution.kind === "stock_item"
+      ? "stock-item"
+      : resolution.kind === "serialized_unit"
+        ? "stock-serial"
+        : resolution.kind === "stock_location"
+          ? "stock-location"
+          : "asset";
+  return `/${prefix}/${id}`;
+}
+
 const styles = StyleSheet.create({
-  header: {
-    paddingTop: 8,
-    gap: 2,
+  screen: {
+    flex: 1,
   },
-  title: {
-    fontFamily: type.sansBold,
-    fontSize: 28,
-    letterSpacing: -0.5,
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
   },
-  subtitle: {
+  ctxChip: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ctxText: {
+    fontFamily: type.sansMedium,
+    fontSize: 13,
+  },
+  disc: {
+    width: 44,
+    height: 44,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: chrome.navDark,
+  },
+  lens: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reticle: {
+    width: 236,
+    height: 236,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingBottom: 14,
+  },
+  tl: { top: -2, left: -2, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 18 },
+  tr: { top: -2, right: -2, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 18 },
+  bl: { bottom: -2, left: -2, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 18 },
+  br: { bottom: -2, right: -2, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 18 },
+  lensNote: {
     fontFamily: type.sans,
+    fontSize: 13,
+    textAlign: "center",
+    paddingHorizontal: 12,
+  },
+  simulatorPanel: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    gap: 12,
+  },
+  panelLabel: {
+    fontFamily: type.sansSemiBold,
     fontSize: 14,
   },
-  samples: {
+  simRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
   },
-  sample: {
+  sampleChip: {
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 12,
@@ -169,15 +422,60 @@ const styles = StyleSheet.create({
     fontFamily: type.sansMedium,
     fontSize: 13,
   },
-  cameraRow: {
+  typeField: {
+    height: 52,
+    borderRadius: 14,
     flexDirection: "row",
-    gap: 10,
-    alignItems: "flex-start",
+    alignItems: "center",
+    paddingHorizontal: 14,
   },
-  cameraText: {
+  typeInput: {
     flex: 1,
     fontFamily: type.sans,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+  },
+  typeGo: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: {
+    fontFamily: type.sansSemiBold,
+    fontSize: 17,
+  },
+  typeButton: {
+    height: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: chrome.camLine,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  typeButtonText: {
+    fontFamily: type.sansSemiBold,
+    fontSize: 16,
+  },
+  sheetBody: {
+    fontFamily: type.sans,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  unknownMark: {
+    width: 56,
+    height: 68,
+    alignSelf: "center",
   },
 });
+
+function Corner({ style }: { style: object }) {
+  return <View pointerEvents="none" style={[cornerBase, style, { borderColor: chrome.gold }]} />;
+}
+
+const cornerBase: object = {
+  position: "absolute" as const,
+  width: 28,
+  height: 28,
+};

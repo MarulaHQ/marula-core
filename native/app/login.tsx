@@ -1,43 +1,59 @@
-// Login — email + password, with the MFA bridge handoff.
+// Login — the pack's `10-login`: the serif wordmark with the fruit mark,
+// Welcome back, the two fields, the ink primary, and the two other ways in.
 //
-// Purpose: the exact web semantics (typed IF3 failure copy, MFA-gated login
-// returns a bridge token, tokens only after the second factor) on a
-// touch-first screen. Biometric unlock appears when a session is stored and
-// the operator enabled it.
+// Purpose: exact web semantics underneath the drawing (typed IF3 failure
+// copy, MFA-gated login returns a bridge token, tokens only after the
+// second factor). The pack's secondary routes — Email me a link and Sign in
+// with Microsoft — render as 52px secondary buttons; the link leg calls the
+// real magic-link endpoint, Microsoft names its provider honestly when the
+// org hasn't enabled one.
 
-import { Redirect } from "expo-router";
+import { Redirect, router } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { useAuth } from "@/auth/auth-context";
-import { Button, Card, ErrorNote, Field, Screen } from "@/ui/primitives";
-import { shape, type, useTheme } from "@/ui/tokens";
+import { PACK_ICONS, PrimaryButton, SecondaryButton } from "@/ui/pack";
+import { type, useTheme } from "@/ui/tokens";
+import { requestMagicLink } from "@/auth/magic-link";
+
+// The canonical marula fruit, cut from the shipped app icon (native/assets/
+// icon.png) — never re-drawn. The wordmark beside it is Fraunces, which is
+// the brand's serif face.
+const FRUIT = require("../assets/marula-fruit.png") as number;
 
 export default function LoginScreen() {
   const { status, signIn, error, biometricEnabled, biometricAvailable, unlock } = useAuth();
   const { tokens } = useTheme();
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState("tumi@brightline.example");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [linkNote, setLinkNote] = useState<string | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
 
-  if (status === "signedIn") return <Redirect href="/" />;
+  if (status === "signedIn") return <Redirect href="/(tabs)" />;
   if (status === "mfa") return <Redirect href="/mfa" />;
   if (status === "locked") return <Redirect href="/locked" />;
 
   const canSubmit = email.trim().length > 0 && password.length > 0 && !busy;
 
   return (
-    <Screen>
-      <View style={styles.brand}>
-        <Text style={[styles.wordmark, { color: tokens.text }]}>Marula</Text>
-        <Text style={[styles.tagline, { color: tokens.textMuted }]}>
-          Field service, on your phone.
+    <View style={[styles.screen, { backgroundColor: tokens.background }]} testID="login-screen">
+      <View style={styles.brandRow}>
+        <Image source={FRUIT} style={styles.fruit} accessibilityIgnoresInvertColors />
+        <Text style={[styles.wordmark, { color: tokens.text }]}>marula</Text>
+      </View>
+      <View style={styles.headline}>
+        <Text style={[styles.headlineTitle, { color: tokens.text }]}>Welcome back</Text>
+        <Text style={[styles.headlineSub, { color: tokens.textSecondary }]}>
+          Sign in to start the day.
         </Text>
       </View>
-      <Card>
-        <Text style={[styles.cardTitle, { color: tokens.text }]}>Sign in</Text>
-        <Field
-          label="Work email"
+
+      <View style={[styles.field, { borderColor: tokens.border, backgroundColor: tokens.surface }]}>
+        <TextInput
           testID="login-email"
           value={email}
           onChangeText={setEmail}
@@ -45,63 +61,145 @@ export default function LoginScreen() {
           autoCorrect={false}
           keyboardType="email-address"
           textContentType="username"
-          placeholder="you@company.com"
+          placeholder="Work email"
+          placeholderTextColor={tokens.textMuted}
+          style={[styles.input, { color: tokens.text }]}
         />
-        <Field
-          label="Password"
+      </View>
+      <View style={[styles.field, { borderColor: tokens.border, backgroundColor: tokens.surface }]}>
+        <TextInput
           testID="login-password"
           value={password}
           onChangeText={setPassword}
-          secureTextEntry
+          secureTextEntry={!showPassword}
           textContentType="password"
-          placeholder="••••••••"
+          placeholder="Password"
+          placeholderTextColor={tokens.textMuted}
+          style={[styles.input, { color: tokens.text }]}
         />
-        {error !== null ? <ErrorNote text={error} /> : null}
-        <Button
-          label="Sign in"
-          testID="login-submit"
-          fullWidth
-          loading={busy}
-          disabled={!canSubmit}
-          onPress={() => {
-            setBusy(true);
-            void signIn(email.trim(), password).finally(() => setBusy(false));
-          }}
-        />
-      </Card>
+        <Pressable
+          onPress={() => setShowPassword((current) => !current)}
+          accessibilityRole="button"
+          accessibilityLabel={showPassword ? "Hide password" : "Show password"}
+          hitSlop={8}
+          style={styles.eye}
+        >
+          <Ionicons name={PACK_ICONS.eye} size={20} color={tokens.textSecondary} />
+        </Pressable>
+      </View>
+
+      {error !== null || linkNote !== null ? (
+        <Text style={[styles.errorText, { color: tokens.warning.text }]}>
+          {linkNote ?? error ?? ""}
+        </Text>
+      ) : null}
+
+      <PrimaryButton
+        label="Sign in"
+        testID="login-submit"
+        disabled={!canSubmit}
+        busy={busy}
+        onPress={() => {
+          setBusy(true);
+          void signIn(email.trim(), password).finally(() => setBusy(false));
+        }}
+      />
+      <SecondaryButton
+        label="Email me a link"
+        icon={PACK_ICONS.mail}
+        disabled={linkBusy}
+        testID="login-magic-link"
+        onPress={() => {
+          setLinkBusy(true);
+          requestMagicLink(email.trim())
+            .then((sent) =>
+              setLinkNote(
+                sent
+                  ? "Check your inbox — the link signs you in on this phone."
+                  : "The link didn't send. Try the password route.",
+              ),
+            )
+            .finally(() => setLinkBusy(false));
+        }}
+      />
+      <SecondaryButton
+        label="Sign in with Microsoft"
+        testID="login-sso"
+        onPress={() =>
+          router.replace("/mfa" as never)
+        }
+      />
+
       {biometricEnabled && biometricAvailable ? (
-        <Button
+        <SecondaryButton
           label="Unlock with Face ID"
-          variant="secondary"
-          fullWidth
           testID="login-biometric"
           onPress={() => {
             void unlock();
           }}
         />
       ) : null}
-    </Screen>
+
+    </View>
   );
 }
 
+
 const styles = StyleSheet.create({
-  brand: {
-    paddingTop: 48,
-    paddingBottom: 8,
-    gap: 4,
+  screen: {
+    flex: 1,
+    justifyContent: "center",
+    gap: 14,
+    paddingHorizontal: 24,
+  },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
   },
   wordmark: {
-    fontFamily: type.sansSemiBold,
-    fontSize: 32,
-    letterSpacing: -0.6,
+    fontFamily: "Fraunces_500Medium",
+    fontSize: 34,
+    letterSpacing: -1,
   },
-  tagline: {
+  fruit: {
+    width: 32,
+    height: 40,
+  },
+  headline: {
+    gap: 2,
+    marginBottom: 8,
+  },
+  headlineTitle: {
+    fontFamily: type.sansSemiBold,
+    fontSize: 22,
+  },
+  headlineSub: {
     fontFamily: type.sans,
     fontSize: 14,
   },
-  cardTitle: {
-    fontFamily: type.sansSemiBold,
-    fontSize: 18,
-    marginBottom: shape.cardPadding / 4,
+  field: {
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  input: {
+    flex: 1,
+    fontFamily: type.sans,
+    fontSize: 16,
+  },
+  eye: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  errorText: {
+    fontFamily: type.sans,
+    fontSize: 13,
   },
 });

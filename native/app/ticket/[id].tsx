@@ -1,66 +1,25 @@
-// Root ticket route — the deep-link and push-notification destination.
+// Ticket route — the pack's read model on a live ticket.
+//
+// Purpose: a thin route shell. The screen itself lives in
+// `src/tickets/pack-detail.tsx` so the Board tab's detail route and this
+// deep-link route render ONE read model (the pack draws both: the board's
+// detail adds the card's fields above the conversation).
 
-import { router, useLocalSearchParams } from "expo-router";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 
-import { TicketDetail } from "@/tickets/ticket-detail";
-import { useTopInset } from "@/ui/primitives";
+import { PackTicketDetail } from "@/tickets/pack-detail";
 import { RequireAuth } from "@/ui/require-auth";
-import { type, useTheme } from "@/ui/tokens";
 
 export default function TicketRoute() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const { tokens } = useTheme();
-  const topInset = useTopInset();
+  const { id, from } = useLocalSearchParams<{ id: string; from?: string }>();
   return (
     <RequireAuth>
-      <View style={[styles.shell, { backgroundColor: tokens.background, paddingTop: topInset }]}>
-        <View style={[styles.navBar, { borderBottomColor: tokens.border }]}>
-          <Text
-            testID="ticket-back"
-            onPress={() => {
-              if (router.canGoBack()) router.back();
-              else router.replace("/board");
-            }}
-            style={[styles.back, { color: tokens.primary }]}
-          >
-            ‹ Back
-          </Text>
-          <Text style={[styles.navTitle, { color: tokens.textSecondary }]}>Ticket</Text>
-          <View style={styles.spacer} />
-        </View>
-        <ScrollView keyboardShouldPersistTaps="handled">
-          {id !== undefined ? <TicketDetail id={id} /> : null}
-        </ScrollView>
-      </View>
+      {id !== undefined ? (
+        // `?from=notification` is the deep link a notification row pushes:
+        // the screen shows the green "From a notification" banner and its
+        // Back returns to the list rather than the Board.
+        <PackTicketDetail id={id} fromNotification={from === "notification"} />
+      ) : null}
     </RequireAuth>
   );
 }
-
-const styles = StyleSheet.create({
-  shell: {
-    flex: 1,
-  },
-  navBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  back: {
-    fontFamily: type.sansSemiBold,
-    fontSize: 15,
-    minWidth: 64,
-  },
-  navTitle: {
-    fontFamily: type.sansMedium,
-    fontSize: 13,
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-  },
-  spacer: {
-    minWidth: 64,
-  },
-});

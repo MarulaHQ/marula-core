@@ -1,63 +1,126 @@
-// Notification center — the fan-out read model with live badge sync.
+// Notification center — the pack's `07-notifications` and `08-deep-linked-open`.
 //
-// Purpose: the caller's notifications hydrate from the REST read model and
-// live through `notification.created` / `notification.read` events on the
-// user channel, so the badge and the list move together across devices.
-// Marking read goes through the offline queue (it is a mutation like any
-// other) and routes to the ticket when one is attached.
+// Purpose: grouped by day (Today, Yesterday, Earlier this week), a gold
+// unread dot per unseen row, and the single red icon on the SLA breach row —
+// red only because a breach is red, always with words. Mark all read rides
+// the offline queue. A ticket-bearing row opens the ticket with the green
+// "From a notification" banner and a Back that returns to this list, not to
+// the Board.
+//
+// Non-purpose: no per-kind preferences (More owns registration).
 
+import { useEffect, useMemo, useState } from "react";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { MODELS, fetchNotifications, type Notification } from "@/core/models";
 import { markAllNotificationsRead, markNotificationRead } from "@/core/writes";
 import { useModel, useMutation } from "@/data/sync-context";
 import { RequireAuth } from "@/ui/require-auth";
-import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorNote,
-  Loading,
-  Mono,
-  Pill,
-  Screen,
-} from "@/ui/primitives";
-import { infoPair, type, useTheme } from "@/ui/tokens";
+import { ErrorNote, Loading } from "@/ui/primitives";
+import { PACK_ICONS, PackHeader, pack, statusPairFor } from "@/ui/pack";
+import { type, useTheme, type ThemeTokens , chrome } from "@/ui/tokens";
+
+const GOLD = chrome.gold;
+
+function dayBucket(iso: string, now: number): "today" | "yesterday" | "earlier" {
+  const then = new Date(iso);
+  const today = new Date(now);
+  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const startYesterday = startToday - 24 * 60 * 60 * 1000;
+  const t = then.getTime();
+  if (t >= startToday) return "today";
+  if (t >= startYesterday) return "yesterday";
+  return "earlier";
+}
+
+const BUCKETS: { key: "today" | "yesterday" | "earlier"; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "earlier", label: "Earlier this week" },
+];
+
+/** Per-kind icon; the breach pair is the only red on the screen. */
+function kindVisual(kind: string, tokens: ThemeTokens): { icon: string; pair: { text: string; background: string } } {
+  if (kind === "sla_breach") {
+    return { icon: PACK_ICONS.alert, pair: tokens.danger };
+  }
+  if (kind === "sla_risk" || kind === "escalation" || kind === "missing_time") {
+    return { icon: PACK_ICONS.alert, pair: tokens.warning };
+  }
+  if (kind === "mention" || kind === "assignment") {
+    return { icon: PACK_ICONS.users, pair: tokens.neutral };
+  }
+  if (kind === "ticket_update") {
+    return { icon: PACK_ICONS.kanban, pair: tokens.neutral };
+  }
+  return { icon: PACK_ICONS.bell, pair: tokens.neutral };
+}
 
 export default function NotificationsRoute() {
   const { tokens } = useTheme();
   const { mutate } = useMutation();
   const notifications = useModel(MODELS.notifications, fetchNotifications, { maxAgeMs: 30_000 });
-  const rows = notifications.data?.items ?? [];
-  const unread = rows.filter((row) => row.read_at == null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+  const rows = useMemo(() => notifications.data?.items ?? [], [notifications.data]);
+  const unreadCount = rows.filter((row) => row.read_at == null).length;
+
+  const grouped = useMemo(() => {
+    const groups = new Map<"today" | "yesterday" | "earlier", Notification[]>();
+    for (const row of rows) {
+      const bucket = dayBucket(row.created_at, now);
+      const list = groups.get(bucket) ?? [];
+      list.push(row);
+      groups.set(bucket, list);
+    }
+    return groups;
+  }, [rows, now]);
+
+  const open = (row: Notification) => {
+    if (row.read_at == null) {
+      void mutate(markNotificationRead, { notificationId: row.id });
+    }
+    if (row.ticket_id !== undefined && row.ticket_id !== null) {
+      router.push(`/ticket/${row.ticket_id}?from=notification` as never);
+    }
+  };
 
   return (
     <RequireAuth>
-      <Screen testID="notifications-screen">
-        <Pressable
-          testID="notifications-back"
-          onPress={() => {
-            if (router.canGoBack()) router.back();
-            else router.replace("/");
-          }}
-          hitSlop={8}
-        >
-          <Text style={[styles.back, { color: tokens.primary }]}>‹ Back</Text>
-        </Pressable>
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: tokens.text }]}>Notifications</Text>
-          <Text style={[styles.subtitle, { color: tokens.textMuted }]}>
-            {unread.length === 0 ? "You're caught up." : `${unread.length} unread`}
-          </Text>
-        </View>
-        <View style={styles.actions}>
-          <Button
-            label="Mark all read"
-            variant="secondary"
-            testID="notifications-read-all"
-            disabled={unread.length === 0}
-            onPress={() => void mutate(markAllNotificationsRead, {})}
+      <View style={[styles.screen, { backgroundColor: tokens.background }]} testID="notifications-screen">
+        <View style={styles.headerWrap}>
+          <PackHeader
+            center
+            onBack={() => {
+              if (router.canGoBack()) router.back();
+              else router.replace("/(tabs)/more");
+            }}
+            backTestID="notifications-back"
+            title={<Text style={[styles.title, { color: tokens.text }]}>Notifications</Text>}
+            trailing={
+              <Pressable
+                testID="notifications-read-all"
+                disabled={unreadCount === 0}
+                onPress={() => void mutate(markAllNotificationsRead, {})}
+                accessibilityRole="button"
+                accessibilityLabel="Mark all read"
+                style={styles.markAll}
+              >
+                <Text
+                  style={[
+                    styles.markAllText,
+                    { color: unreadCount === 0 ? tokens.textMuted : tokens.text },
+                  ]}
+                >
+                  Mark all read
+                </Text>
+              </Pressable>
+            }
           />
         </View>
         {notifications.status === "error" && notifications.data === undefined ? (
@@ -69,130 +132,137 @@ export default function NotificationsRoute() {
         {notifications.status === "loading" && notifications.data === undefined ? (
           <Loading label="Loading notifications" />
         ) : null}
-        {notifications.data !== undefined && rows.length === 0 ? (
-          <EmptyState message="Nothing here yet — mentions, assignments, and alerts land here." />
-        ) : null}
-        {rows.map((row: Notification) => (
-          <NotificationRow
-            key={row.id}
-            notification={row}
-            onPress={() => {
-              if (row.read_at == null) {
-                void mutate(markNotificationRead, { notificationId: row.id });
-              }
-              if (row.ticket_id !== undefined && row.ticket_id !== null) {
-                router.push(`/ticket/${row.ticket_id}`);
-              }
-            }}
-          />
-        ))}
-      </Screen>
+        <View style={styles.list}>
+          {BUCKETS.map((bucket) => {
+            const group = grouped.get(bucket.key) ?? [];
+            if (group.length === 0) return null;
+            return (
+              <View key={bucket.key}>
+                <Text style={[styles.bucketLabel, { color: tokens.textSecondary }]}>
+                  {bucket.label}
+                </Text>
+                {group.map((row) => {
+                  const visual = kindVisual(row.kind, tokens);
+                  const unread = row.read_at == null;
+                  return (
+                    <Pressable
+                      key={row.id}
+                      testID={`notification-${row.id}`}
+                      onPress={() => open(row)}
+                      style={({ pressed }) => [styles.row, { borderBottomColor: tokens.border, opacity: pressed ? 0.85 : 1 }]}
+                    >
+                      <View style={[styles.iconDisc, { backgroundColor: visual.pair.background }]}>
+                        <Ionicons name={visual.icon as never} size={19} color={visual.pair.text} />
+                      </View>
+                      <View style={styles.rowBody}>
+                        <Text style={[styles.rowTitle, { color: tokens.text }]} numberOfLines={2}>
+                          {row.title}
+                        </Text>
+                        <Text style={[styles.rowMeta, { color: tokens.textSecondary }]} numberOfLines={1}>
+                          {[row.body, clockStamp(row.created_at)].filter(Boolean).join(" · ")}
+                        </Text>
+                      </View>
+                      {unread ? <View style={[styles.unreadDot, { backgroundColor: GOLD }]} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            );
+          })}
+          {notifications.data !== undefined && rows.length === 0 ? (
+            <Text style={[styles.empty, { color: tokens.textMuted }]}>
+              Nothing here yet — mentions, assignments, and alerts land here.
+            </Text>
+          ) : null}
+        </View>
+      </View>
     </RequireAuth>
   );
 }
 
-function NotificationRow({
-  notification,
-  onPress,
-}: {
-  notification: Notification;
-  onPress: () => void;
-}) {
-  const { tokens } = useTheme();
-  const unread = notification.read_at == null;
-  const hasTicket = notification.ticket_id !== undefined && notification.ticket_id !== null;
-  return (
-    <Card testID={`notification-${notification.id}`} onPress={onPress} style={styles.card}>
-      <View style={styles.rowHeader}>
-        <Text
-          style={[styles.rowTitle, unread ? styles.rowTitleUnread : null, { color: tokens.text }]}
-          numberOfLines={2}
-        >
-          {notification.title}
-        </Text>
-        {unread ? <Pill pair={infoPair(tokens)} label="NEW" /> : null}
-      </View>
-      {notification.body !== null && notification.body !== "" ? (
-        <Text style={[styles.rowBody, { color: tokens.textSecondary }]} numberOfLines={3}>
-          {notification.body}
-        </Text>
-      ) : null}
-      <View style={styles.rowFooter}>
-        <Pill pair={tokens.neutral} label={kindLabel(notification.kind)} />
-        {hasTicket ? (
-          <Text style={[styles.affordance, { color: tokens.primary }]}>Open ticket →</Text>
-        ) : unread ? (
-          <Text style={[styles.affordance, { color: tokens.textMuted }]}>Tap to mark read</Text>
-        ) : null}
-        <View style={styles.footerSpacer} />
-        <Mono muted>
-          {new Date(notification.created_at).toLocaleString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </Mono>
-      </View>
-    </Card>
-  );
+function clockStamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
-function kindLabel(kind: string): string {
-  return kind.replace(/_/g, " ").toUpperCase();
-}
+void statusPairFor;
+void pack;
 
 const styles = StyleSheet.create({
-  back: {
-    fontFamily: type.sansSemiBold,
-    fontSize: 15,
+  screen: {
+    flex: 1,
   },
-  header: {
-    paddingTop: 4,
-    gap: 2,
+  headerWrap: {
+    paddingHorizontal: 8,
+    paddingTop: 8,
   },
   title: {
-    fontFamily: type.sansBold,
-    fontSize: 26,
+    fontFamily: type.sansSemiBold,
+    fontSize: 22,
   },
-  subtitle: {
-    fontFamily: type.sans,
+  markAll: {
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+  markAllText: {
+    fontFamily: type.sansSemiBold,
     fontSize: 14,
+    textDecorationLine: "underline",
   },
-  actions: {
-    flexDirection: "row",
+  list: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 4,
   },
-  card: {
-    gap: 6,
+  bucketLabel: {
+    fontFamily: type.sansMedium,
+    fontSize: 12,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginTop: 18,
+    marginBottom: 4,
   },
-  rowHeader: {
+  row: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 8,
+    gap: 12,
+    minHeight: 72,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
   },
-  rowTitle: {
-    flex: 1,
-    fontFamily: type.sansMedium,
-    fontSize: 15,
-  },
-  rowTitleUnread: {
-    fontFamily: type.sansSemiBold,
+  iconDisc: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
   },
   rowBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  rowTitle: {
+    fontFamily: type.sansMedium,
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  rowMeta: {
+    fontFamily: type.sans,
+    fontSize: 12,
+  },
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 6,
+  },
+  empty: {
     fontFamily: type.sans,
     fontSize: 14,
-    lineHeight: 20,
-  },
-  rowFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  affordance: {
-    fontFamily: type.sansSemiBold,
-    fontSize: 13,
-  },
-  footerSpacer: {
-    flex: 1,
+    textAlign: "center",
+    paddingTop: 40,
   },
 });

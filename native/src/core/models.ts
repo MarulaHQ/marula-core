@@ -87,6 +87,8 @@ export const MODELS = {
   unreadCount: "notifications.unread",
   dispatchDay: (date: string) => `dispatch.day:${date}`,
   timeEntries: (ticketId: string) => `ticket:${ticketId}:time`,
+  ticketChecklist: (ticketId: string) => `ticket:${ticketId}:checklist`,
+  myDayEntries: (userId: string) => `time:day:${userId}`,
   ticketAttachments: (ticketId: string) => `ticket:${ticketId}:attachments`,
   travelDrafts: "dispatch.travel-drafts",
   onCall: (fromDate: string) => `oncall:${fromDate}`,
@@ -214,6 +216,40 @@ export async function fetchTimeEntries(
     await client.api.GET("/api/v1/time-entries", {
       params: { query: { ticket_id: ticketId, limit: QUERY_DEFAULT_LIMIT } },
     }),
+  );
+}
+
+/**
+ * One person's day of time (the Time tab's read model): their entries since
+ * midnight, newest first. `user_id` + `since` is the server contract — the
+ * per-ticket read stays for a ticket's own history.
+ */
+export async function fetchMyDayEntries(
+  client: MarulaClient,
+  userId: string,
+  sinceIso: string,
+): Promise<TimeEntry[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/time-entries", {
+      params: { query: { user_id: userId, since: sinceIso, limit: QUERY_DEFAULT_LIMIT } },
+    }),
+  );
+}
+
+/** Local midnight as an ISO instant — the day window the Time tab asks for. */
+export function startOfLocalDay(now = new Date()): string {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
+}
+
+/** The ticket's checklist (read view: items + progress + close-gate state). */
+export type TicketChecklistView = Ok<paths["/api/v1/tickets/{id}/checklist"]["get"]>;
+
+export async function fetchTicketChecklist(
+  client: MarulaClient,
+  ticketId: string,
+): Promise<TicketChecklistView> {
+  return unwrap(
+    await client.api.GET("/api/v1/tickets/{id}/checklist", { params: { path: { id: ticketId } } }),
   );
 }
 
