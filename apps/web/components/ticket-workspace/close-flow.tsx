@@ -62,7 +62,12 @@ interface EmailEnvelope {
 const ENVELOPE_PATH = "/api/v1/settings/user/email-envelope";
 
 async function loadEnvelope(): Promise<EmailEnvelope | null> {
-  const response = await fetch(`${apiBaseUrl()}${ENVELOPE_PATH}`, {
+  // The API base may carry a trailing slash (it comes from
+  // NEXT_PUBLIC_API_URL), so a rooted path has to join with exactly one
+  // separator — `base + "/api/..."` on a base ending in `/` is `//api/...`,
+  // and the router answers that with a 404 that looks like a missing
+  // endpoint rather than a malformed URL.
+  const response = await fetch(`${apiBaseUrl().replace(/\/$/, "")}${ENVELOPE_PATH}`, {
     headers: authHeaders(),
   });
   if (!response.ok) return null;

@@ -29,6 +29,9 @@ use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+/// The real router over a real Postgres, assembled the same way the
+/// sibling email suites do it (so a harness change upstream shows up here
+/// as a compile error rather than as a silently different AppState).
 async fn test_state() -> (AppState, Router) {
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::WARN)
@@ -43,21 +46,21 @@ async fn test_state() -> (AppState, Router) {
         .await
         .expect("RLS coverage holds with the wave-42 settings + ledger columns");
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    config.database_url = admin_url.clone();
+    let reporting_url = config.database_url.clone();
+    config.database_url = admin_url;
     let mail = core_api::email::MailStack::from_config(&config);
     let state = AppState {
-        pool: pool.clone(),
-        config,
-        mail,
-        oidc: OidcHttpClient::new(
-            std::time::Duration::from_secs(2),
-            1,
-            std::sync::Arc::new(reqwest::Client::new()),
-        ),
-        jobs: Arc::new(core_jobs::Jobs::new(pool.clone())),
-        plugins: Arc::new(core_api::plugins::PluginHost::new(pool.clone())),
+        pool,
+        config: Arc::new(config.clone()),
+        oidc: OidcHttpClient::new(),
+        mail: Arc::new(mail),
+        store: Arc::new(core_store::memory::MemoryStore::new()),
+        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
+        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
+            .expect("lazy reporting pool"),
     };
-    (state, core_api::routes::router(state.clone()))
+    let app = core_api::routes::build_router(state.clone());
+    (state, app)
 }
 
 async fn connect_admin(url: &str) -> Result<PgPool, sqlx::Error> {
@@ -207,6 +210,50 @@ async fn envelope(app: &Router, org: &Org) -> Value {
     body_json(response).await
 }
 
+
+/// A second, roleless user in the org, returned as (id, email). The
+/// client-visible notification only goes to a ticket's REQUESTER and never
+/// back to its author, so the chain tests need one to exist.
+async fn add_requester(state: &AppState, org: &Org, label: &str) -> (Uuid, String) {
+    let email = format!("{label}@requester.test");
+    let id = Uuid::now_v7();
+    core_db::users::create_user(
+        &state.pool,
+        id,
+        org.org_id,
+        &email,
+        label,
+        &core_api::auth::password::hash("correct-horse-battery").unwrap(),
+        "UTC",
+    )
+    .await
+    .expect("seed requester");
+    (id, email)
+}
+
+/// Creates a ticket whose requester is a CLIENT account, so a client-visible
+/// note has someone to notify — which is the only path that enqueues the
+/// message the chain is supposed to resolve.
+async fn create_ticket_for_client(
+    state: &AppState,
+    app: &Router,
+    org: &Org,
+    board: Uuid,
+    title: &str,
+) -> (Uuid, Uuid) {
+    let ticket = create_ticket(app, org, board, title).await;
+    let (requester_id, _) = add_requester(state, org, &format!("client-{}", &title[..4])).await;
+    let mut tx = state.pool.begin().await.unwrap();
+    sqlx::query("UPDATE tickets SET requester_id = $1 WHERE id = $2")
+        .bind(requester_id)
+        .bind(ticket)
+        .execute(&mut *tx)
+        .await
+        .expect("attach requester");
+    tx.commit().await.unwrap();
+    (ticket, requester_id)
+}
+
 /// Posts a client-visible note, optionally carrying the per-message
 /// envelope, and returns the response status.
 async fn post_client_note(
@@ -330,7 +377,8 @@ async fn the_chain_runs_message_override_then_user_then_board_then_org() {
     let (state, app) = test_state().await;
     let org = register_org(&app, format!("p42-chain-{}", Uuid::now_v7())).await;
     let board = first_board(&app, &org).await;
-    let ticket = create_ticket(&app, &org, board, "Signature chain").await;
+    let (ticket, _requester) =
+        create_ticket_for_client(&state, &app, &org, board, "Signature chain").await;
 
     // The org rung, and the org greeting.
     put_outbound(
@@ -418,7 +466,8 @@ async fn a_locked_org_refuses_personal_signatures_instead_of_ignoring_them() {
     let (state, app) = test_state().await;
     let org = register_org(&app, format!("p42-lock-{}", Uuid::now_v7())).await;
     let board = first_board(&app, &org).await;
-    let ticket = create_ticket(&app, &org, board, "Locked signatures").await;
+    let (ticket, _requester) =
+        create_ticket_for_client(&state, &app, &org, board, "Locked signatures").await;
     put_outbound(&app, &org, json!({ "signature": "{{org.name}} Support" })).await;
 
     // A personal default is accepted while the policy is permissive.
@@ -496,7 +545,8 @@ async fn a_signature_expands_against_the_senders_row_at_send_time() {
     let (state, app) = test_state().await;
     let org = register_org(&app, format!("p42-sendtime-{}", Uuid::now_v7())).await;
     let board = first_board(&app, &org).await;
-    let ticket = create_ticket(&app, &org, board, "Send time").await;
+    let (ticket, _requester) =
+        create_ticket_for_client(&state, &app, &org, board, "Send time").await;
 
     // Saved with a placeholder, not with today's values.
     assert_eq!(

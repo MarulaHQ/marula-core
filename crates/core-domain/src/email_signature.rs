@@ -554,11 +554,16 @@ mod tests {
         let rendered_ctx = ctx.render_context();
         for key in templates::SIGNATURE_VARIABLES {
             assert!(
-                rendered_ctx.contains(*key),
+                rendered_ctx.contains_key(*key),
                 "{key} is offered but the context cannot fill it"
             );
+            // `{{{{ … }}}}` is the escaped form of a `{{token}}` placeholder;
+            // `{{{key}}}` would produce a SINGLE-brace `{key}`, which the
+            // engine correctly leaves alone, and the assertion would then be
+            // testing nothing.
+            let placeholder = format!("{{{{{key}}}}}");
             assert!(
-                render_signature(&format!("{{{key}}}"), &ctx) != format!("{{{key}}}"),
+                render_signature(&placeholder, &ctx) != placeholder,
                 "{key} must expand"
             );
         }
@@ -580,12 +585,12 @@ mod tests {
         // no matching vocabulary key would insert a placeholder the write
         // gate refuses. The two lists are kept in step by this.
         assert_eq!(
-            SIGNATURE_VARIABLE_LABELS.len(),
-            SIGNATURE_VARIABLES.len()
+            templates::SIGNATURE_VARIABLE_LABELS.len(),
+            templates::SIGNATURE_VARIABLES.len()
         );
-        for (key, label) in SIGNATURE_VARIABLE_LABELS {
+        for (key, label) in templates::SIGNATURE_VARIABLE_LABELS {
             assert!(
-                SIGNATURE_VARIABLES.contains(key),
+                templates::SIGNATURE_VARIABLES.contains(key),
                 "{key} has a label but no vocabulary entry"
             );
             assert!(!label.trim().is_empty());

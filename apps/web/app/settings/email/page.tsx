@@ -1034,8 +1034,16 @@ function SendingCard({
               placeholder="support@yourdomain.com"
             />
           </label>
-          <label className="grid gap-1">
-            <span className="text-xs">Org greeting</span>
+        </div>
+
+        {/* Greeting, signature and the personal-signature policy are one
+            decision — what this workspace calls itself on the way out, and who
+            may add to it — so they sit together in one full-width block with
+            the token picker, rather than the greeting dropping into the
+            two-column identity grid above where its hint broke the row. */}
+        <div className="grid gap-2" data-testid="mail-signature-block">
+          <div className="grid gap-1">
+            <span className="text-[12px]">Org greeting</span>
             <Input
               value={orgGreeting}
               onChange={(e) => {
@@ -1046,13 +1054,11 @@ function SendingCard({
               data-testid="mail-org-greeting"
             />
             <FieldHint>
-              Opens mail the workspace sends to its own staff, and stands in when a member
-              has no greeting of their own. Empty opens the message with their name.
+              Opens mail the workspace sends to its own staff, and stands in for a member
+              with no greeting. Empty opens the message with their name.
             </FieldHint>
-          </label>
-        </div>
+          </div>
 
-        <div className="grid gap-2" data-testid="mail-signature-block">
           <div className="grid gap-1">
             <span className="text-[12px]">Org signature</span>
             <textarea

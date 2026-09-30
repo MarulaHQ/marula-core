@@ -146,7 +146,7 @@ pub struct AddCommentRequest {
 /// prefills both fields from the sender's own default, so this carries the
 /// EDIT, and the composer is the only thing that should set it — the
 /// server never merges it into a preference behind the sender's back.
-#[derive(Debug, Clone, Default, Serialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, ToSchema, PartialEq, Eq)]
 pub struct EmailEnvelopeOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub greeting: Option<String>,

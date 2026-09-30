@@ -66,7 +66,12 @@ interface EmailEnvelope {
 const ENVELOPE_PATH = "/api/v1/settings/user/email-envelope";
 
 async function fetchEnvelope(): Promise<EmailEnvelope | null> {
-  const response = await fetch(`${apiBaseUrl()}${ENVELOPE_PATH}`, {
+  // The API base may carry a trailing slash (it comes from
+  // NEXT_PUBLIC_API_URL), so a rooted path has to join with exactly one
+  // separator — `base + "/api/..."` on a base ending in `/` is `//api/...`,
+  // and the router answers that with a 404 that looks like a missing
+  // endpoint rather than a malformed URL.
+  const response = await fetch(`${apiBaseUrl().replace(/\/$/, "")}${ENVELOPE_PATH}`, {
     headers: authHeaders(),
   });
   if (!response.ok) return null;
@@ -266,12 +271,13 @@ function SignatureCard({ authed }: { authed: boolean }) {
           <Label htmlFor="email.signoff">Signature</Label>
           {!locked && (fields["email.signoff"] ?? "").length > 0 && (
             <Button
-              variant="secondary"
+              size="sm"
+              variant="ghost"
               onClick={resetToDefault}
               disabled={resetting}
               data-testid="pref-signature-reset"
             >
-              {resetting ? "Clearing…" : "Clear and use the workspace signature"}
+              {resetting ? "Clearing…" : "Use the workspace signature"}
             </Button>
           )}
         </div>
@@ -312,9 +318,12 @@ function SignatureCard({ authed }: { authed: boolean }) {
               >
                 {token.label}
                 {token.value !== null && (
-                  <span className="ml-1" style={{ color: "var(--m-text-muted)" }}>
-                    {token.value}
-                  </span>
+                  <>
+                    <span aria-hidden="true" style={{ color: "var(--m-text-muted)" }}>
+                      {" · "}
+                    </span>
+                    <span style={{ color: "var(--m-text-muted)" }}>{token.value}</span>
+                  </>
                 )}
               </Button>
             ))}

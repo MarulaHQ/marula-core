@@ -589,7 +589,11 @@ async fn greeting_and_signoff_persist_as_user_settings() {
     )
     .await;
     assert_eq!(response.status(), 422);
-    let long = "x".repeat(501);
+    // Wave 42 raised the personal-signature cap from 500 to 1000 to match the
+    // org signature's, because it now carries a multi-line block with
+    // placeholders rather than a one-line sign-off. The assertion is unchanged
+    // in kind: one character over the declared cap is still a 422.
+    let long = "x".repeat(1001);
     let response = send(
         &app,
         axum::http::Method::PUT,
@@ -598,7 +602,19 @@ async fn greeting_and_signoff_persist_as_user_settings() {
         Some(json!({ "key": "email.signoff", "value": long })),
     )
     .await;
-    assert_eq!(response.status(), 422, "over the 500-char cap");
+    assert_eq!(response.status(), 422, "over the 1000-char cap");
+    // And the value at the cap is accepted, so the cap is a real boundary and
+    // not a number that drifted with the declaration.
+    let at_cap = "x".repeat(1000);
+    let response = send(
+        &app,
+        axum::http::Method::PUT,
+        "/api/settings/user",
+        Some(&org.token),
+        Some(json!({ "key": "email.signoff", "value": at_cap })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "exactly at the cap");
 }
 
 // ===========================================================================

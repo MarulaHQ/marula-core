@@ -994,7 +994,7 @@ pub async fn get_mail_settings(
                 &org_value_or_default(&mut tx, org, registry::EMAIL_ORG_GREETING).await?,
             )
             .unwrap_or_default(),
-            signature_policy: crate::email::signature_policy(&mut *tx, org)
+            signature_policy: crate::email::signature_policy(&mut tx, org)
                 .await?
                 .as_str()
                 .to_string(),
@@ -1468,7 +1468,7 @@ pub async fn test_send(
 
     // Readiness is decided before anything is enqueued so the operator gets
     // the reason immediately instead of a queued row that can never send.
-    let (transport, identity, brand, reason) = {
+    let (transport, identity, brand, envelope, reason) = {
         let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
         core_db::set_org_and_user(&mut tx, org, user)
             .await

@@ -10171,6 +10171,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/user/email-envelope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/settings/user/email-envelope — the caller's resolved envelope,
+         *     for the signature editor's live preview and the composer's prefill.
+         */
+        get: operations["settings_user_email_envelope"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sla/calendars": {
         parameters: {
             query?: never;
@@ -12492,6 +12512,7 @@ export interface components {
              *     legacy clients — purely additive.
              */
             draft_key?: string | null;
+            email_envelope?: null | components["schemas"]["EmailEnvelopeOverride"];
             kind: components["schemas"]["NoteKind"];
         };
         /** @description POST /api/tool-kits/{id}/members. */
@@ -17424,12 +17445,14 @@ export interface components {
             attempts: number;
             created_at: string;
             from_address: string;
+            greeting_source?: null | components["schemas"]["EmailSourceView"];
             last_error?: string | null;
             /** Format: int32 */
             max_attempts: number;
             /** Format: uuid */
             message_id: string;
             rfc_message_id: string;
+            signature_source?: null | components["schemas"]["EmailSourceView"];
             status: string;
             subject?: string | null;
             /** Format: uuid */
@@ -17936,6 +17959,49 @@ export interface components {
          */
         EmailDirection: "inbound" | "outbound";
         /**
+         * @description The greeting and signature a composer wrote for THIS message (Wave 42).
+         *
+         *     Purely additive and purely per-message: it changes what goes out with
+         *     this one note and is never stored as a preference. The composer
+         *     prefills both fields from the sender's own default, so this carries the
+         *     EDIT, and the composer is the only thing that should set it — the
+         *     server never merges it into a preference behind the sender's back.
+         */
+        EmailEnvelopeOverride: {
+            greeting?: string | null;
+            signature?: string | null;
+        };
+        /**
+         * @description The caller's resolved email envelope: the greeting and signature that
+         *     would go out, which rung supplied each, the org's own signature for the
+         *     fallback story, the policy in force, and the insertable tokens.
+         *
+         *     This is the preview AND the composer's prefill in one call, resolved
+         *     through the same chain and the same dialect the send path uses. A UI
+         *     that previewed with its own regex would be a second implementation of
+         *     the rules, and the one thing a preview must never be is more generous
+         *     than the send.
+         */
+        EmailEnvelopeView: {
+            greeting?: string | null;
+            greeting_source: string;
+            /**
+             * @description The org's own signature (rendered), so a member can see what their
+             *     messages fall back to without an admin.
+             */
+            org_signature?: string | null;
+            policy: string;
+            signature?: string | null;
+            signature_source: string;
+            tokens: components["schemas"]["EmailTokenView"][];
+            /**
+             * @description The caller's own stored defaults, unrendered — the token form the
+             *     editor edits.
+             */
+            user_greeting: string;
+            user_signature: string;
+        };
+        /**
          * @description One persisted email message. `rfc_message_id` is unique per org and is
          *     the idempotency key for inbound processing; `email_refs` carries the
          *     RFC 5322 References chain (`references` itself is reserved SQL).
@@ -17964,6 +18030,29 @@ export interface components {
             to_addresses: string[];
             /** @description Which transport adapter handled the message (postmark/smtp/…). */
             transport: string;
+        };
+        /** @description One rung of the resolution chain, as the ledger reports it. */
+        EmailSourceView: {
+            /** @description Ledger wording: "the sender", "the board", "the organization". */
+            label: string;
+            /** @description The stable wire name (`user_default`, `board_identity`, …). */
+            source: string;
+        };
+        /**
+         * @description One placeholder the signature editor can insert, with the value it would
+         *     expand to for the caller RIGHT NOW.
+         */
+        EmailTokenView: {
+            /** @description The placeholder key, e.g. `user.name`. */
+            key: string;
+            /** @description Human label for the picker row. */
+            label: string;
+            /**
+             * @description What it expands to for this caller, or `None` when their record has
+             *     no value for it — a token that would render empty says so here
+             *     instead of looking like a field the editor forgot.
+             */
+            value?: string | null;
         };
         EmailVerifiedResponse: {
             email_verified: boolean;
@@ -20847,6 +20936,11 @@ export interface components {
             logo_url: string;
             /** @description Human reason when `ready` is false. */
             not_ready_reason?: string | null;
+            /**
+             * @description The org's own greeting — what opens mail the workspace sends to its
+             *     staff, and the fallback for a member with none (Wave 42).
+             */
+            org_greeting: string;
             postmark_base_url: string;
             /**
              * @description Whether the SELECTED transport has a usable credential/endpoint
@@ -20861,6 +20955,12 @@ export interface components {
              */
             ses_region: string;
             signature: string;
+            /**
+             * @description `allowed` | `org_locked`: whether members may sign with their own
+             *     details. The UI renders a locked org's state rather than a disabled
+             *     field with no reason.
+             */
+            signature_policy: string;
             smtp_host: string;
             /** Format: int64 */
             smtp_port: number;
@@ -23346,6 +23446,8 @@ export interface components {
             from_address?: string | null;
             from_name?: string | null;
             logo_url?: string | null;
+            /** @description The org's own greeting (Wave 42). */
+            org_greeting?: string | null;
             postmark_base_url?: string | null;
             reply_to?: string | null;
             /** @description Optional SES endpoint override, for a VPC interface endpoint. */
@@ -23353,6 +23455,11 @@ export interface components {
             /** @description AWS region whose SES endpoint this org sends through (transport=ses). */
             ses_region?: string | null;
             signature?: string | null;
+            /**
+             * @description `allowed` | `org_locked` (Wave 42). Absent leaves the policy alone,
+             *     so an older client that does not know the key cannot reset it.
+             */
+            signature_policy?: string | null;
             smtp_host?: string | null;
             /** Format: int64 */
             smtp_port?: number | null;
@@ -48588,6 +48695,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    settings_user_email_envelope: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailEnvelopeView"];
+                };
             };
         };
     };

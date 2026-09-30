@@ -235,6 +235,7 @@ impl SettingDeclaration {
                 TRAVEL_MILEAGE_RATE_UNIT => MILEAGE_RATE_UNIT_OPTIONS,
                 EMAIL_TRANSPORT => EMAIL_TRANSPORT_OPTIONS,
                 EMAIL_DIGEST_POLICY => EMAIL_DIGEST_POLICY_OPTIONS,
+                EMAIL_SIGNATURE_POLICY => EMAIL_SIGNATURE_POLICY_OPTIONS,
                 EMAIL_DIGEST => EMAIL_DIGEST_OPTIONS,
                 _ => EMPTY_OPTIONS,
             }),
@@ -1768,7 +1769,10 @@ mod tests {
         // `MailTransport` choice: 53 → 55. Neither is a secret — the key
         // pair is sealed in the byok store — which is why they are ordinary
         // org settings rather than sealed credentials.
-        assert_eq!(declarations_for(SettingScope::Org).len(), 55);
+        // 55 → 57. Wave 42 added the org greeting and the org policy over
+        // personal signatures, the two settings that make the resolution
+        // chain governable (the personal signature itself is user scope).
+        assert_eq!(declarations_for(SettingScope::Org).len(), 57);
     }
 
     #[test]
@@ -1877,8 +1881,12 @@ mod tests {
             assert_eq!(d.section, SettingSection::Email);
             assert!(d.validate(&SettingValue::Text("Hi {name},".into())).is_ok());
             assert!(d.validate(&SettingValue::Integer(1)).is_err());
-            let too_long = "x".repeat(501);
-            assert!(d.validate(&SettingValue::Text(too_long)).is_err());
+            let max_len = match &d.kind {
+                SettingKind::Text { max_len } => *max_len,
+                other => panic!("{key} is not text: {other:?}"),
+            };
+            assert!(d.validate(&SettingValue::Text("x".repeat(max_len))).is_ok());
+            assert!(d.validate(&SettingValue::Text("x".repeat(max_len + 1))).is_err());
         }
         // Defaults are empty: untouched users keep the composer defaults.
         assert_eq!(

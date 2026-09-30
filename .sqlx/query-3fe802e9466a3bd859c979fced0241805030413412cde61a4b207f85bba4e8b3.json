@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT m.id, m.rfc_message_id, m.subject, m.to_addresses, m.from_address,\n                  m.ticket_id, m.created_at, q.status, q.attempts, q.max_attempts,\n                  q.last_error, q.updated_at\n           FROM email_messages m\n           JOIN email_outbound q ON q.email_message_id = m.id\n           WHERE m.org_id = $1 AND m.direction = 'outbound'\n             AND ($2::text IS NULL OR q.status = $2)\n             AND ($3::timestamptz IS NULL OR (m.created_at, m.id) < ($3, $4))\n           ORDER BY m.created_at DESC, m.id DESC\n           LIMIT $5",
+  "query": "SELECT m.id, m.rfc_message_id, m.subject, m.to_addresses, m.from_address,\n                  m.ticket_id, m.created_at, m.greeting_source, m.signature_source,\n                  q.status, q.attempts, q.max_attempts,\n                  q.last_error, q.updated_at\n           FROM email_messages m\n           JOIN email_outbound q ON q.email_message_id = m.id\n           WHERE m.org_id = $1 AND m.direction = 'outbound'\n             AND ($2::text IS NULL OR q.status = $2)\n             AND ($3::timestamptz IS NULL OR (m.created_at, m.id) < ($3, $4))\n           ORDER BY m.created_at DESC, m.id DESC\n           LIMIT $5",
   "describe": {
     "columns": [
       {
@@ -40,26 +40,36 @@
       },
       {
         "ordinal": 7,
-        "name": "status",
+        "name": "greeting_source",
         "type_info": "Text"
       },
       {
         "ordinal": 8,
+        "name": "signature_source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
         "name": "attempts",
         "type_info": "Int4"
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "max_attempts",
         "type_info": "Int4"
       },
       {
-        "ordinal": 10,
+        "ordinal": 12,
         "name": "last_error",
         "type_info": "Text"
       },
       {
-        "ordinal": 11,
+        "ordinal": 13,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -81,6 +91,8 @@
       false,
       true,
       false,
+      true,
+      true,
       false,
       false,
       false,
@@ -88,5 +100,5 @@
       false
     ]
   },
-  "hash": "9224ce0c743cb17f2c59a67bcef7223beafe90c6ef7e2312d312dfae0eb8f850"
+  "hash": "3fe802e9466a3bd859c979fced0241805030413412cde61a4b207f85bba4e8b3"
 }

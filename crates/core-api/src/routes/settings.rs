@@ -427,7 +427,7 @@ pub async fn user_value_put(
         core_db::set_org_and_user(&mut probe, org_id, user_id)
             .await
             .map_err(ApiError::from)?;
-        let policy = crate::email::signature_policy(&mut *probe, org_id).await?;
+        let policy = crate::email::signature_policy(&mut probe, org_id).await?;
         probe.commit().await.map_err(ApiError::from)?;
         if !policy.allows_personal() {
             return Err(ApiError::Validation(format!(

@@ -278,7 +278,7 @@ pub async fn resolve_envelope(
     let signature_input = signature::SignatureInput {
         override_text: overrides.signature.clone(),
         user_default,
-        board_signature,
+        board_identity: board_signature,
         org_default: stored_text(conn, org_id, registry::EMAIL_SIGNATURE).await?,
     };
     let greeting_input = signature::SignatureInput {
@@ -298,7 +298,7 @@ pub async fn resolve_envelope(
             .map(str::to_string),
             None => None,
         },
-        board_signature: None,
+        board_identity: None,
         org_default: stored_text(conn, org_id, registry::EMAIL_ORG_GREETING).await?,
     };
 
@@ -950,6 +950,12 @@ async fn create_ticket_from_email(
             in_reply_to: Some(msg.rfc_message_id.clone()),
             references: vec![msg.rfc_message_id.clone()],
             ticket_id: Some(ticket.id),
+            // The autoresponder is the product writing back to the sender
+            // of an inbound message: nobody in this org composed it, so no
+            // personal signature applies and the workspace's own block
+            // closes it.
+            signer: None,
+            overrides: EnvelopeOverrides::default(),
         },
     )
     .await?;
@@ -977,14 +983,13 @@ pub struct OutboundEnqueue<'a> {
     pub overrides: EnvelopeOverrides,
 }
 
-impl OutboundEnqueue<'_> {
-    /// A system-sent message: no personal signer, no per-message override.
+impl<'a> OutboundEnqueue<'a> {
     /// A system-sent message: no personal signer, no per-message override.
     pub fn system(
-        mail: &MailStack,
+        mail: &'a MailStack,
         org_id: Uuid,
         to_addresses: Vec<String>,
-        kind: &core_mail::outbound::OutboundKind,
+        kind: &'a core_mail::outbound::OutboundKind,
         ticket_id: Option<Uuid>,
     ) -> Self {
         Self {
