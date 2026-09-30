@@ -61,10 +61,13 @@ import {
   KeyHint,
   LedgerFooter,
   LockIcon,
+  NoMatches,
   PageFrame,
   PageHeader,
   PlusIcon,
+  SkeletonRows,
   StatPill,
+  StatusPill,
   TableCard,
   downloadCsv,
 } from "../../../components/knowledge/ledger";
@@ -352,7 +355,7 @@ export default function SecretsVaultPage() {
     <PageFrame>
       <PageHeader
         title="Secret vault"
-        subtitle="Org-level or per client. Plaintext exists only inside an audited reveal, and the reveal is a decision you confirm."
+        subtitle="Org-level or per client · audited reveals"
         attention={
           <>
             <StatPill
@@ -547,30 +550,21 @@ export default function SecretsVaultPage() {
             {selectedFolder === null ? (
               <EmptyState message="Pick a category in the tree to browse its records. Nothing is listed until you do — a vault has no flat 'everything' view on purpose." />
             ) : records === null ? (
-              <div className="p-4">
-                <Spinner />
-              </div>
+              <SkeletonRows sentence="Loading the secret records." columns={4} />
             ) : visibleRecords.length === 0 ? (
-              <EmptyState
-                message={
-                  records.length === 0
-                    ? "No records in this category yet."
-                    : "No records match this view."
-                }
-                action={
-                  records.length > 0 ? (
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setClauses([]);
-                        setView("all");
-                      }}
-                    >
-                      Clear filters
-                    </Button>
-                  ) : undefined
-                }
-              />
+              records.length === 0 ? (
+                <EmptyState message="No records in this category yet." />
+              ) : (
+                <NoMatches
+                  title="No records match these filters."
+                  hint="Try removing one, or switch back to All. Every record in this category is still here."
+                  noun="records"
+                  onClear={() => {
+                    setClauses([]);
+                    setView("all");
+                  }}
+                />
+              )
             ) : (
               <Table data-testid="kb-secrets-table">
                 <thead>
@@ -608,7 +602,7 @@ export default function SecretsVaultPage() {
                               </button>
                             ) : null}
                             {c.key === "kind" ? (
-                              <Tag tone="neutral">{KIND_LABELS[r.kind] ?? r.kind}</Tag>
+                              <StatusPill tone="neutral">{KIND_LABELS[r.kind] ?? r.kind}</StatusPill>
                             ) : null}
                             {c.key === "fields" ? (
                               <span
@@ -620,9 +614,7 @@ export default function SecretsVaultPage() {
                             ) : null}
                             {c.key === "expires" ? (
                               expired ? (
-                                <Tag tone="danger">
-                                  <AlertIcon size={12} /> expired
-                                </Tag>
+                                <StatusPill tone="danger">expired</StatusPill>
                               ) : r.expires_at == null ? (
                                 <span style={{ color: "var(--m-text-muted)" }}>never</span>
                               ) : (

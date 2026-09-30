@@ -61,11 +61,15 @@ import {
   HEAD_CELL_CLASS,
   KeyHint,
   LedgerFooter,
+  NoMatches,
   PageFrame,
   PageHeader,
   PlusIcon,
+  SELECTED_ROW_STYLE,
   SelectionBar,
+  SkeletonRows,
   StatPill,
+  StatusPill,
   TableCard,
   downloadCsv,
 } from "../../components/knowledge/ledger";
@@ -358,7 +362,7 @@ export default function KbPage() {
     <PageFrame>
       <PageHeader
         title="Knowledge base"
-        subtitle="Runbooks and how-tos. A client reads an article only once it and its category are both client-facing."
+        subtitle="Runbooks, published deliberately"
         attention={
           <>
             <StatPill tone="gold" label="Changed today" count={changedToday} />
@@ -533,9 +537,7 @@ export default function KbPage() {
 
           <TableCard label="Knowledge base articles">
             {articles === null ? (
-              <div className="p-4">
-                <Spinner />
-              </div>
+              <SkeletonRows sentence="Loading the knowledge base." columns={4} />
             ) : (
               <Table data-testid="kb-article-table">
                 <thead>
@@ -601,7 +603,10 @@ export default function KbPage() {
                       <Tr
                         key={a.id}
                         selected={selected.has(a.id)}
-                        style={{ height: "var(--m-density-row)" }}
+                        style={{
+                          height: "var(--m-density-row)",
+                          ...(selected.has(a.id) ? SELECTED_ROW_STYLE : {}),
+                        }}
                       >
                         <Td>
                           <Checkbox
@@ -630,7 +635,12 @@ export default function KbPage() {
               <span>{bulkNote.text}</span>
               <button
                 type="button"
-                className="ml-auto underline underline-offset-2"
+                className="ml-auto inline-flex h-8 items-center rounded-[8px] border px-2.5 text-[13px] font-semibold"
+                style={{
+                  borderColor: "var(--m-border)",
+                  background: "var(--m-surface)",
+                  color: "var(--m-text)",
+                }}
                 onClick={() => setBulkNote(null)}
               >
                 Dismiss
@@ -667,14 +677,16 @@ export default function KbPage() {
                                   : "Unfiled"}
                               </span>
                             ) : null}
-                            {c.key === "status" ? <Tag tone={STATUS_TONE[a.status]}>{a.status}</Tag> : null}
+                            {c.key === "status" ? (
+                              <StatusPill tone={STATUS_TONE[a.status]}>{a.status}</StatusPill>
+                            ) : null}
                             {c.key === "visibility" ? (
                               visibility === "gated" ? (
-                                <Tag tone="success">In the portal</Tag>
+                                <StatusPill tone="success">In the portal</StatusPill>
                               ) : visibility === "ungated" ? (
-                                <Tag tone="warning">Client-facing, not in the portal</Tag>
+                                <StatusPill tone="warning">Client-facing, not in the portal</StatusPill>
                               ) : (
-                                <Tag tone="neutral">Staff only</Tag>
+                                <StatusPill tone="neutral">Staff only</StatusPill>
                               )
                             ) : null}
                             {c.key === "updated" ? (
@@ -695,24 +707,23 @@ export default function KbPage() {
                   {visible.length === 0 ? (
                     <tr>
                       <td colSpan={shown.length + 1}>
-                        <EmptyState
-                          message={
-                            articles.length === 0
-                              ? "No articles yet. Write the runbook you keep explaining on the phone."
-                              : "No articles match this view. Clear the filters, or switch back to All."
-                          }
-                          action={
-                            articles.length === 0 ? (
+                        {articles.length === 0 ? (
+                          <EmptyState
+                            message="No articles yet. Write the runbook you keep explaining on the phone."
+                            action={
                               <Button onClick={() => { setEditing(null); setEditorOpen(true); }}>
                                 New article
                               </Button>
-                            ) : (
-                              <Button variant="secondary" onClick={() => { setClauses([]); setView("all"); }}>
-                                Clear filters
-                              </Button>
-                            )
-                          }
-                        />
+                            }
+                          />
+                        ) : (
+                          <NoMatches
+                            title="No articles match these filters."
+                            hint={`Try removing one, or switch back to a view that holds something. Nothing was deleted.`}
+                            noun="articles"
+                            onClear={() => { setClauses([]); setView("all"); }}
+                          />
+                        )}
                       </td>
                     </tr>
                   ) : null}

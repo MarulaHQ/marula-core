@@ -65,10 +65,13 @@ import {
   KeyHint,
   LedgerFooter,
   LockIcon,
+  NoMatches,
   PageFrame,
   PageHeader,
   PlusIcon,
+  SkeletonRows,
   StatPill,
+  StatusPill,
   TableCard,
   downloadCsv,
 } from "../../components/knowledge/ledger";
@@ -478,7 +481,7 @@ export default function VaultPage() {
     <PageFrame>
       <PageHeader
         title="Vault"
-        subtitle="Secret categories, org-level or per client, with restricted chains grant-gated behind the scenes. Plaintext exists only inside a confirmed reveal."
+        subtitle="Categories and credentials · audited reveals"
         attention={
           <>
             <StatPill
@@ -656,11 +659,21 @@ export default function VaultPage() {
           <TableCard label={view === "credentials" ? "Credentials" : "Secret records"}>
             {view === "credentials" ? (
               legacyFiltered === null ? (
-                <div className="p-4">
-                  <Spinner />
-                </div>
+                <SkeletonRows sentence="Loading credentials." columns={4} />
               ) : legacyFiltered.length === 0 ? (
-                <EmptyState message="No credentials match. Vault entries can be org-level or scoped to a client; secrets are encrypted at rest and revealed only through the audited path." />
+                (entries?.length ?? 0) === 0 ? (
+                  <EmptyState message="No credentials in this vault yet. Entries can be org-level or scoped to a client." />
+                ) : (
+                  <NoMatches
+                    title="No credentials match these filters."
+                    hint="Try removing one. Secrets stay encrypted at rest either way."
+                    noun="credentials"
+                    onClear={() => {
+                      setClauses([]);
+                      setVaultQuery("");
+                    }}
+                  />
+                )
               ) : (
                 <Table data-testid="vault-credentials-table">
                   <thead>
@@ -722,11 +735,9 @@ export default function VaultPage() {
                               e.expires_at == null ? (
                                 <span style={{ color: "var(--m-text-muted)" }}>—</span>
                               ) : legacyExpired(e) ? (
-                                <Tag tone="danger">
-                                  <AlertIcon size={12} /> expired
-                                </Tag>
+                                <StatusPill tone="danger">expired</StatusPill>
                               ) : legacyRotationDue(e) ? (
-                                <Tag tone="warning">rotation due</Tag>
+                                <StatusPill tone="warning">rotation due</StatusPill>
                               ) : (
                                 <span className="tabular-nums">
                                   {new Date(e.expires_at).toLocaleDateString()}
@@ -773,9 +784,7 @@ export default function VaultPage() {
                 {selectedFolder === null ? (
                   <EmptyState message="Pick a category in the tree to browse its records. Restricted categories you cannot access are hidden entirely — never dead entries." />
                 ) : records === null ? (
-                  <div className="p-4">
-                    <Spinner />
-                  </div>
+                  <SkeletonRows sentence="Loading the category records." columns={4} />
                 ) : sortedRecords.length === 0 ? (
                   <EmptyState
                     message="No records in this category yet."
@@ -820,7 +829,7 @@ export default function VaultPage() {
                                   </button>
                                 ) : null}
                                 {c.key === "kind" ? (
-                                  <Tag tone="neutral">{KIND_LABELS[r.kind] ?? r.kind}</Tag>
+                                  <StatusPill tone="neutral">{KIND_LABELS[r.kind] ?? r.kind}</StatusPill>
                                 ) : null}
                                 {c.key === "fields" ? (
                                   <span className="font-mono text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -841,9 +850,7 @@ export default function VaultPage() {
                                 ) : null}
                                 {c.key === "expires" ? (
                                   expired ? (
-                                    <Tag tone="danger">
-                                      <AlertIcon size={12} /> expired
-                                    </Tag>
+                                    <StatusPill tone="danger">expired</StatusPill>
                                   ) : r.expires_at == null ? (
                                     <span style={{ color: "var(--m-text-muted)" }}>never</span>
                                   ) : (

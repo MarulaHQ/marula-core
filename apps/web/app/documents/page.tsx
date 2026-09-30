@@ -54,7 +54,9 @@ import {
   PageFrame,
   PageHeader,
   PlusIcon,
+  SkeletonRows,
   StatPill,
+  StatusPill,
   TableCard,
   downloadCsv,
 } from "../../components/knowledge/ledger";
@@ -184,7 +186,7 @@ export default function DocumentsPage() {
     <PageFrame>
       <PageHeader
         title="Documents"
-        subtitle="Typed records, runbooks and references — org-global or per client, each with its own version history."
+        subtitle="Org-global or per client · versioned"
         attention={
           <>
             <StatPill tone="neutral" label="Org-global" count={stats?.global ?? 0} onClick={() => setScope((s) => (s.kind === "global" ? { kind: "all" } : { kind: "global" }))} pressed={scope.kind === "global"} />
@@ -307,13 +309,13 @@ export default function DocumentsPage() {
 
         <TableCard label="Documents">
           {filtered === null ? (
-            <div className="p-4">
-              {loadError !== null ? (
+            loadError !== null ? (
+              <div className="p-4">
                 <BlushNote title="The list did not load.">{loadError}</BlushNote>
-              ) : (
-                <Spinner />
-              )}
-            </div>
+              </div>
+            ) : (
+              <SkeletonRows sentence="Loading documents." columns={4} />
+            )
           ) : filtered.length === 0 ? (
             <EmptyState
               message="No documents match. Documents can be org-global or client-scoped; pick a type to give them structured fields."
@@ -348,7 +350,7 @@ export default function DocumentsPage() {
                         ) : null}
                         {c.key === "type" ? (
                           d.layout_id != null && layoutById.get(d.layout_id) ? (
-                            <Tag tone="outline">{layoutById.get(d.layout_id)!.name}</Tag>
+                            <StatusPill tone="outline">{layoutById.get(d.layout_id)!.name}</StatusPill>
                           ) : (
                             <span style={{ color: "var(--m-text-muted)" }}>—</span>
                           )

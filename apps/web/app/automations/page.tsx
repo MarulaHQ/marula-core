@@ -52,11 +52,14 @@ import {
   InlineVerdict,
   KeyHint,
   LedgerFooter,
+  NoMatches,
   PageFrame,
   PageHeader,
   PlusIcon,
   RuleStep,
+  SkeletonRows,
   StatPill,
+  StatusPill,
   TableCard,
   downloadCsv,
 } from "../../components/knowledge/ledger";
@@ -519,7 +522,7 @@ export default function AutomationsPage() {
     <PageFrame>
       <PageHeader
         title="Automation rules"
-        subtitle="WHEN an event fires, IF the conditions hold, THEN the actions run in order. A test run tells you what a rule would do before it does it."
+        subtitle="WHEN · IF · THEN, in that order"
         attention={
           <>
             <StatPill
@@ -644,14 +647,26 @@ export default function AutomationsPage() {
 
         <TableCard label="Automation rules">
           {loading && rules === null ? (
-            <div className="flex justify-center p-6"><Spinner /></div>
+            <SkeletonRows sentence="Loading the rules." columns={5} />
           ) : visibleRules.length === 0 ? (
-            <EmptyState
-              message="No automation rules here. A rule answers: WHEN an event fires, IF these conditions hold, THEN apply these effects."
-              action={
-                <Button onClick={openNewRule}>New rule</Button>
-              }
-            />
+            rulesSorted.length === 0 ? (
+              <EmptyState
+                message="No automation rules yet. A rule answers: WHEN an event fires, IF these conditions hold, THEN apply these effects."
+                action={
+                  <Button onClick={openNewRule}>New rule</Button>
+                }
+              />
+            ) : (
+              <NoMatches
+                title="No rules match these filters."
+                hint="Try removing one. Every rule you have is still here."
+                noun="rules"
+                onClear={() => {
+                  setClauses([]);
+                  setView("all");
+                }}
+              />
+            )
           ) : (
             <Table data-testid="automation-rules-table">
               <thead>
@@ -682,9 +697,9 @@ export default function AutomationsPage() {
                           </div>
                         ) : null}
                         {c.key === "status" ? (
-                          <Tag tone={r.enabled ? "success" : "neutral"}>
+                          <StatusPill tone={r.enabled ? "success" : "neutral"}>
                             {r.enabled ? "enabled" : "paused"}
-                          </Tag>
+                          </StatusPill>
                         ) : null}
                         {c.key === "trigger" ? (
                           <code className="font-mono text-[12px]" style={{ color: "var(--m-text-secondary)" }}>

@@ -15,6 +15,7 @@
 // DensitySwitch, Table, Tag, Badge, Button) stay independent, and a surface
 // uses only the ones it needs.
 import type { ReactNode } from "react";
+import { EmptyState, Tag } from "@marula-core/ui";
 
 /* ---------- icons (the pack's own geometry, 18px, 1.75 stroke) ---------- */
 
@@ -395,8 +396,10 @@ export function KeyHint({ keys, label }: { keys: string; label: string }): React
 
 /**
  * Selection replaces the column header, in place, so the layout never jumps
- * (DESIGN-NOTES-tickets.md §7). A gold tint, deliberately NOT an inverted
- * surface — the gold bar on a selected row is the only mark.
+ * (DESIGN-NOTES-tickets.md §7). It is a gold WASH, not an inverted surface:
+ * the pack's bulk bar is a pale gold field with ordinary surface chips inside
+ * it and a gold edge down the left, so the row tint below still reads as the
+ * stronger mark. Selected rows carry that same tint plus the gold edge.
  */
 export function SelectionBar({
   count,
@@ -414,9 +417,10 @@ export function SelectionBar({
       className="sticky top-0 z-[5] flex flex-wrap items-center gap-2 border-b px-3"
       style={{
         height: "var(--m-density-control)",
-        background: "var(--m-accent)",
-        color: "var(--m-on-accent)",
+        background: "var(--m-accent-soft)",
+        color: "var(--m-text)",
         borderColor: "var(--m-border)",
+        borderLeft: "3px solid var(--m-accent)",
       }}
       role="region"
       aria-label={`${count} ${noun} selected`}
@@ -427,7 +431,8 @@ export function SelectionBar({
       <button
         type="button"
         onClick={onClear}
-        className="ml-auto underline underline-offset-2"
+        className="ml-auto inline-flex h-8 items-center rounded-[8px] border px-2.5 text-[13px] font-semibold underline underline-offset-2"
+        style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       >
         Clear selection
       </button>
@@ -435,19 +440,126 @@ export function SelectionBar({
   );
 }
 
+/** The row style a selected row wears: the gold wash plus the gold edge. */
+export const SELECTED_ROW_STYLE = {
+  boxShadow: "inset 3px 0 0 var(--m-accent)",
+};
+
 /**
- * The collapsed assistant stub — AI ladder state 2, 40px, a spark and a count
- * (DESIGN-NOTES.md A3). A feed that permanently spends a third of its width on
- * an assistant column is the wrong trade, so this is how the affordance stays
- * visible without spending the screen's one inverted surface. The label says
- * what is waiting, because colour and a glyph are never alone.
+ * A status pill the way the pack draws one: a tinted pill, a dot in the same
+ * family, and the word. Colour never travels alone — the dot says "this is a
+ * status", the label says which.
+ */
+export function StatusPill({
+  tone,
+  children,
+}: {
+  tone: "success" | "warning" | "neutral" | "danger" | "outline";
+  children: ReactNode;
+}): ReactNode {
+  return (
+    <Tag tone={tone}>
+      <span
+        aria-hidden="true"
+        className="inline-block h-2 w-2 rounded-full"
+        style={{ background: "currentColor" }}
+      />
+      {children}
+    </Tag>
+  );
+}
+
+/**
+ * Loading, as the pack draws it: flat blocks, no shimmer, and a sentence that
+ * says what is loading (DESIGN-NOTES shared kit). A spinner alone leaves the
+ * reader guessing whether anything is happening.
+ */
+export function SkeletonRows({
+  rows = 8,
+  sentence,
+  columns = 4,
+}: {
+  rows?: number;
+  sentence: string;
+  columns?: number;
+}): ReactNode {
+  return (
+    <div role="status" aria-busy="true" aria-label={sentence}>
+      <p className="px-3 py-3 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+        {sentence}
+      </p>
+      <div className="grid gap-3 px-3 pb-4">
+        {Array.from({ length: rows }, (_, i) => (
+          <div key={i} className="flex items-center gap-3">
+            {Array.from({ length: columns }, (_, c) => (
+              <span
+                key={c}
+                className="h-3 rounded-full"
+                style={{
+                  background: "var(--m-surface-2)",
+                  width: c === 0 ? "26%" : c === 1 ? "34%" : "12%",
+                }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "No rows because of what you asked for" — a different sentence from "there is
+ * nothing here yet", and the pack draws them differently: a bold title, a line
+ * that names the way out, and one primary action.
+ *
+ * One deviation, on purpose: the pack also shows a secondary "Edit filters".
+ * `FilterBar` has no imperative open, so that button could not do anything —
+ * and a dead button is worse than a missing one. The Filter control sits in the
+ * toolbar directly above, one click away.
+ */
+export function NoMatches({
+  title,
+  hint,
+  noun,
+  onClear,
+}: {
+  title: string;
+  hint: string;
+  noun: string;
+  onClear: () => void;
+}): ReactNode {
+  return (
+    <EmptyState
+      message={`${title} ${hint}`}
+      action={
+        <button
+          type="button"
+          onClick={onClear}
+          className="inline-flex h-11 items-center rounded-[12px] px-4 text-[13px] font-semibold"
+          style={{ background: "var(--m-ink)", color: "var(--m-gold)" }}
+        >
+          Clear filters
+        </button>
+      }
+    />
+  );
+}
+
+/**
+ * The collapsed assistant stub — AI ladder state 2. In the pack this is a 40px
+ * strip down the RIGHT edge of the surface, not a row above it: the spark sits
+ * at the top of a narrow column that runs the height of the ledger, so the
+ * affordance stays visible without a panel and without taking a row of its
+ * own. There is no count when there is nothing to count.
  */
 export function AssistantStub({
-  count,
+  count = 0,
   label,
   onOpen,
 }: {
-  count: number;
+  count?: number;
+  /** The sentence the spark stands for; it becomes the strip's accessible name. */
   label: string;
   onOpen: () => void;
 }): ReactNode {
@@ -456,27 +568,22 @@ export function AssistantStub({
       type="button"
       data-testid="assistant-stub"
       onClick={onOpen}
-      className="flex w-full items-center gap-2 border-b px-3 text-left transition-colors duration-100"
-      style={{
-        height: 40,
-        background: "var(--m-surface)",
-        color: "var(--m-text-secondary)",
-        borderColor: "var(--m-border)",
-      }}
+      aria-label={label}
+      title={label}
+      className="absolute right-0 top-0 flex h-full w-10 flex-col items-center gap-2 border-l pt-3 transition-colors duration-100"
+      style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
     >
       <span style={{ color: "var(--m-gold)" }}>
         <SparkIcon size={16} />
       </span>
-      <span className="text-[13px]">{label}</span>
-      <span
-        className="tabular-nums inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[12px] font-bold"
-        style={{ background: "var(--m-accent)", color: "var(--m-on-accent)" }}
-      >
-        {count}
-      </span>
-      <span className="ml-auto">
-        <ChevronIcon size={16} />
-      </span>
+      {count > 0 ? (
+        <span
+          className="tabular-nums inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[12px] font-bold"
+          style={{ background: "var(--m-accent)", color: "var(--m-on-accent)" }}
+        >
+          {count}
+        </span>
+      ) : null}
     </button>
   );
 }

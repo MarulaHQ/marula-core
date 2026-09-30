@@ -43,9 +43,12 @@ import {
   HEAD_CELL_CLASS,
   InlineVerdict,
   LedgerFooter,
+  NoMatches,
   PageFrame,
   PageHeader,
+  SkeletonRows,
   StatPill,
+  StatusPill,
   TableCard,
   UploadIcon,
   WizardStepRail,
@@ -404,7 +407,7 @@ export default function ImportsPage() {
     <PageFrame>
       <PageHeader
         title="Imports"
-        subtitle="Bring CSV or JSON data in: probe it first, then commit it as a batch. Field mappings save per source system, so the next import maps itself."
+        subtitle="Probe first, then commit"
         attention={
           <>
             <StatPill tone="neutral" label="Runs" count={batches?.length ?? 0} />
@@ -611,12 +614,12 @@ export default function ImportsPage() {
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-2">
-                <Tag tone="success">{report.summary.ok.toLocaleString()} would be created</Tag>
-                <Tag tone="neutral">{report.summary.would_update.toLocaleString()} updated</Tag>
-                <Tag tone="neutral">{report.summary.would_skip.toLocaleString()} skipped</Tag>
-                <Tag tone={report.summary.failed > 0 ? "warning" : "success"}>
+                <StatusPill tone="success">{report.summary.ok.toLocaleString()} would be created</StatusPill>
+                <StatusPill tone="neutral">{report.summary.would_update.toLocaleString()} updated</StatusPill>
+                <StatusPill tone="neutral">{report.summary.would_skip.toLocaleString()} skipped</StatusPill>
+                <StatusPill tone={report.summary.failed > 0 ? "warning" : "success"}>
                   {report.summary.failed.toLocaleString()} failed
-                </Tag>
+                </StatusPill>
               </div>
               {report.rows.length > 0 ? (
                 <Table data-testid="imports-report-table">
@@ -790,9 +793,21 @@ export default function ImportsPage() {
 
         <TableCard label="Run history">
           {batches === null ? (
-            <div className="p-4"><Spinner /></div>
+            <SkeletonRows sentence="Loading import runs." columns={5} />
           ) : historyRows.length === 0 ? (
-            <EmptyState message="No import runs yet. Dry-run probes are recorded here too, marked as probes." />
+            (batches?.length ?? 0) === 0 ? (
+              <EmptyState message="No import runs yet. Dry-run probes are recorded here too, marked as probes." />
+            ) : (
+              <NoMatches
+                title="No runs match these filters."
+                hint="Try removing one, or switch back to All runs."
+                noun="runs"
+                onClear={() => {
+                  setHistoryClauses([]);
+                  setHistoryView("all");
+                }}
+              />
+            )
           ) : (
             <Table data-testid="imports-history-table">
               <thead>
@@ -823,13 +838,13 @@ export default function ImportsPage() {
                                   {b.label}
                                 </span>
                                 {b.dry_run ? (
-                                  <Tag tone="neutral">probe</Tag>
+                                  <StatusPill tone="neutral">probe</StatusPill>
                                 ) : b.queued_at != null && b.finished_at == null ? (
-                                  <Tag tone="warning">queued</Tag>
+                                  <StatusPill tone="warning">queued</StatusPill>
                                 ) : (
-                                  <Tag tone={b.rows_failed > 0 ? "danger" : "success"}>
+                                  <StatusPill tone={b.rows_failed > 0 ? "danger" : "success"}>
                                     {b.rows_failed > 0 ? `${b.rows_failed} failed` : "done"}
-                                  </Tag>
+                                  </StatusPill>
                                 )}
                               </div>
                               {pct !== null ? (

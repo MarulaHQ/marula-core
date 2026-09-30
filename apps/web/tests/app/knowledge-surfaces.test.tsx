@@ -245,8 +245,17 @@ describe("/alerts — the collapsed assistant stub", () => {
     await waitFor(() => {
       expect(screen.getByTestId("assistant-stub")).toBeTruthy();
     });
+    // Wait for the fixture's own alert so the count is the fixture's, not a
+    // race between the stub and the feed it counts.
+    await screen.findByText("Disk pressure on db-02");
     const stub = screen.getByTestId("assistant-stub");
-    expect(stub.textContent ?? "").toContain("not been routed to a ticket");
+    // The pack draws the stub as a spark and a count; the sentence that
+    // explains it is its accessible name, so a screen reader gets the words
+    // and the eye gets the glyph.
+    expect(stub.getAttribute("aria-label") ?? "").toContain("not been routed to a ticket");
+    // 40px wide, docked to the right edge, not a row of its own.
+    expect(stub.className).toContain("w-10");
+    expect(stub.className).toContain("absolute");
     // A count is rendered, not just a glyph (its exact value belongs to the
     // fixture, not to this assertion).
     expect(stub.textContent ?? "").toMatch(/\d/);
@@ -267,7 +276,7 @@ describe("/alerts — the collapsed assistant stub", () => {
           correlation_key: "c1",
           incident_ticket_id: null,
           received_at: "2026-09-02T10:00:00Z",
-          acked_by: ME_FIXTURE.id,
+          acked_by: ME_FIXTURE.user_id,
           acked_at: "2026-09-02T11:00:00Z",
         },
       },

@@ -55,7 +55,9 @@ import {
   LedgerFooter,
   PageFrame,
   PageHeader,
+  SkeletonRows,
   StatPill,
+  StatusPill,
   TableCard,
   downloadCsv,
 } from "../../components/knowledge/ledger";
@@ -366,7 +368,7 @@ export default function AlertsPage() {
     <PageFrame>
       <PageHeader
         title="Alerts"
-        subtitle="HMAC-signed machine-to-machine ingest, storm correlation into incident tickets, and source administration."
+        subtitle="Signed ingest, correlated into tickets"
         attention={
           <>
             <StatPill
@@ -512,19 +514,6 @@ export default function AlertsPage() {
             }
           />
           <div className="flex min-h-0 flex-1 flex-col gap-0">
-            {/* AI ladder state 2: the collapsed stub, 40px, with the count of
-                what is waiting. It opens onto the unrouted facet — which is
-                the work the assistant would do — instead of spending a third
-                of the feed's width on a column nobody reads. */}
-            <AssistantStub
-              count={counts.unrouted}
-              label={
-                counts.unrouted === 1
-                  ? "alert has not been routed to a ticket"
-                  : "alerts have not been routed to a ticket"
-              }
-              onOpen={() => setSeverityFilter("unrouted")}
-            />
             <div className="flex flex-wrap items-end gap-3 py-3">
             <div className="w-56">
               <div className="w-56">
@@ -614,11 +603,23 @@ export default function AlertsPage() {
             </div>
           ) : null}
 
-          <TableCard label="Alert feed">
+          {/* The stub is the pack's AI-ladder state 2: a 40px strip down the
+              right edge of the feed, spark at the top, a count only while
+              there is something to count. Clicking it narrows to the unrouted
+              facet, which is the work an assistant pass would do. */}
+          <div className="relative flex min-h-0 flex-1">
+            <TableCard label="Alert feed" className="pr-10">
+            <AssistantStub
+              count={counts.unrouted}
+              label={
+                counts.unrouted === 1
+                  ? "1 alert has not been routed to a ticket"
+                  : `${counts.unrouted} alerts have not been routed to a ticket`
+              }
+              onOpen={() => setSeverityFilter("unrouted")}
+            />
             {loadingAlerts ? (
-              <div className="flex justify-center p-6">
-                <Spinner />
-              </div>
+              <SkeletonRows sentence="Loading the alert feed." columns={4} />
             ) : filteredAlerts.length === 0 ? (
               <div className="p-6">
                 <EmptyState
@@ -646,7 +647,7 @@ export default function AlertsPage() {
                       {shownColumns.map((c) => (
                         <Td key={c.key}>
                           {c.key === "severity" ? (
-                            <Tag tone={SEVERITY_TONE[a.severity] ?? "neutral"}>{a.severity}</Tag>
+                            <StatusPill tone={SEVERITY_TONE[a.severity] ?? "neutral"}>{a.severity}</StatusPill>
                           ) : null}
                           {c.key === "alert" ? (
                             <div className="min-w-0">
@@ -665,7 +666,7 @@ export default function AlertsPage() {
                           ) : null}
                           {c.key === "status" ? (
                             <div className="flex items-center gap-2">
-                              <Tag tone={STATUS_TONE[a.status] ?? "neutral"}>{a.status}</Tag>
+                              <StatusPill tone={STATUS_TONE[a.status] ?? "neutral"}>{a.status}</StatusPill>
                               {rowErrors[a.id] !== undefined ? (
                                 <span className="text-[11px]" style={{ color: "var(--m-status-danger-fg)" }}>
                                   {rowErrors[a.id]}
@@ -727,7 +728,8 @@ export default function AlertsPage() {
                 </tbody>
               </Table>
             )}
-          </TableCard>
+            </TableCard>
+          </div>
 
           <LedgerFooter
             shown={filteredAlerts.length}
