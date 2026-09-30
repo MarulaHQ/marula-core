@@ -96,3 +96,5 @@ plugins/wasm/*/target-wasm/
 # Brand-review render (apps/web/tests/brand-render.test.tsx): compile.cjs is
 # tracked and documented, the CSS it produces is generated.
 apps/web/.harness/*.css
+apps/web/.harness/measure.html
+apps/web/.harness/measure.mjs
