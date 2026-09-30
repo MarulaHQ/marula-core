@@ -27,7 +27,7 @@
 //! `MARULA_DEV_TOOLS=1` (CLI refuses without it; the API router is never
 //! mounted).
 
-use crate::{set_org, DbError, DbResult};
+use crate::{set_dev_reset_bypass, set_org, DbError, DbResult};
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Utc};
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -164,6 +164,10 @@ pub async fn seed(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSeedR
 pub async fn reset(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSeedReport> {
     let mut tx = pool.begin().await?;
     set_org(&mut tx, DEMO_ORG_ID).await?;
+    // The ledger tables are append-only by design, so the cascade that wipes
+    // the demo org needs the dev-reset escape (migration 0119). Without it a
+    // single stock movement makes this tool a one-way door.
+    set_dev_reset_bypass(&mut tx).await?;
     sqlx::query("DELETE FROM orgs WHERE id = $1")
         .bind(DEMO_ORG_ID)
         .execute(&mut *tx)
@@ -1071,6 +1075,294 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         )
         .execute(&mut *tx)
         .await?;
+    }
+
+    // --- SLA state for the BULK queue ------------------------------------
+    // The generated tickets carry no SLA row, so every board row rendered
+    // "no countdown". Walk the bulk queue and give the first OPEN tickets a
+    // real spread: two already past due, two inside the hour, the rest
+    // comfortable. Open-only because time_travel (and history) preserve
+    // closed tickets, and `breached` stays false — it is the server's own
+    // breach flag, and the app derives its red pill from the due date.
+    /// breached, due inside the hour, comfortable, roomy.
+    const SLA_PATTERN: [i64; 4] = [-1, 45, 96, 300];
+    // Once per FIELD seat (the two people who open the app on site): whichever
+    // one signs in sees a breached row, a due-soon row, and calm ones.
+    for seat in [dispatcher, tech] {
+    let mut sla_seeded = 0usize;
+    for i in 0..24u64 {
+        if sla_seeded == SLA_PATTERN.len() {
+            break;
+        }
+        let due_minutes = SLA_PATTERN[sla_seeded];
+        let inserted = sqlx::query(
+            "INSERT INTO ticket_sla_state (ticket_id, org_id, policy_id,
+                                           first_response_due, resolution_due,
+                                           first_responded_at, breached)
+             SELECT t.id, $1, $2,
+                    $4 + make_interval(mins => $5::int - 60),
+                    $4 + make_interval(mins => $5::int),
+                    $4 + make_interval(mins => $5::int - 90),
+                    false
+             FROM tickets t
+             JOIN board_statuses st ON st.id = t.status_id
+             WHERE t.id = $3 AND st.category <> 'closed' AND t.assignee_id = $6
+             ON CONFLICT (ticket_id) DO NOTHING",
+        )
+        .bind(DEMO_ORG_ID)
+        .bind(sla_policy_id)
+        .bind(demo_uuid(200 + i))
+        .bind(now)
+        .bind(due_minutes)
+        .bind(seat)
+        .execute(&mut *tx)
+        .await?;
+        if inserted.rows_affected() == 1 {
+            sla_seeded += 1;
+        }
+    }
+    }
+
+    // --- stock: locations, items, serials, on-hand -------------------------
+    // The field app's stock legs (lookup, item, location, serial) had nothing
+    // to show. Seed a small, believable van: a warehouse, a van, a shelf,
+    // two serialized tools, three consumables, and one LOW line so the blush
+    // state is earned rather than described.
+    const LOC_WAREHOUSE: u64 = 900;
+    const LOC_VAN: u64 = 901;
+    const LOC_SHELF: u64 = 902;
+    // "Shelf B (returns)" deliberately repeats the SHELF-B code: a scan of
+    // that code is genuinely ambiguous, and the picker exists for exactly it.
+    const LOC_RETURNS: u64 = 903;
+    for (id, name, kind, code, parent, assignee) in [
+        (LOC_WAREHOUSE, "Warehouse", "warehouse", "WH-A", None, None),
+        (LOC_VAN, "Van 2", "van", "VAN-2", None, Some(tech)),
+        (LOC_SHELF, "Shelf B", "shelf", "SHELF-B", Some(LOC_WAREHOUSE), None),
+        (LOC_RETURNS, "Shelf B (returns)", "shelf", "SHELF-B", Some(LOC_WAREHOUSE), None),
+    ] {
+        sqlx::query(
+            "INSERT INTO stock_locations (id, org_id, name, kind, code, parent_id, assigned_user_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (org_id, name) DO NOTHING",
+        )
+        .bind(demo_uuid(id))
+        .bind(DEMO_ORG_ID)
+        .bind(name)
+        .bind(kind)
+        .bind(code)
+        .bind(parent.map(demo_uuid))
+        .bind(assignee)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // (offset, name, sku, part, kind, unit, currency) — DOCK-01 and DOCK-02
+    // carry the SAME part number on purpose: scanning the part resolves to two
+    // candidates, which is the ambiguity picker's whole reason to exist.
+    let stock_specs: [(u64, &str, &str, &str, &str, &str, &str); 6] = [
+        (910, "Torque wrench set", "TL-0142", "TL-0142", "serialized", "each", "USD"),
+        (911, "Cable tester", "TL-0088", "TL-0088", "serialized", "each", "USD"),
+        (912, "Thermal paste", "TP-220", "TP-220", "consumable", "each", "USD"),
+        (913, "Cat6 patch lead 2m", "NET-2M", "NET-2M", "consumable", "each", "USD"),
+        (914, "USB-C dock", "DOCK-01", "DOCK-01", "consumable", "each", "USD"),
+        (915, "USB-C dock (spare)", "DOCK-02", "DOCK-01", "consumable", "each", "USD"),
+    ];
+    for (id, name, sku, part, kind, unit, currency) in stock_specs {
+        sqlx::query(
+            "INSERT INTO stock_items (id, org_id, name, sku, part_number, kind, unit, currency)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(demo_uuid(id))
+        .bind(DEMO_ORG_ID)
+        .bind(name)
+        .bind(sku)
+        .bind(part)
+        .bind(kind)
+        .bind(unit)
+        .bind(currency)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    for (id, item, number, location, status) in [
+        (920u64, 910u64, "TL-0142", LOC_VAN, "out"),
+        (921, 911, "TL-0088", LOC_SHELF, "in_stock"),
+        (922, 912, "SN-10004", LOC_WAREHOUSE, "in_stock"),
+        (923, 913, "SN-10005", LOC_SHELF, "out"),
+    ] {
+        sqlx::query(
+            "INSERT INTO stock_serials (id, org_id, stock_item_id, serial_number,
+                                        location_id, status)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(demo_uuid(id))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(item))
+        .bind(number)
+        .bind(demo_uuid(location))
+        .bind(status)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // TP-220 in the van sits under its reorder point: the LOW pill is real.
+    for (id, item, location, qty, min, reorder) in [
+        (940u64, 912u64, LOC_WAREHOUSE, 24_000i64, 10_000i64, 10_000i64),
+        (941, 912, LOC_VAN, 1_500, 2_000, 2_000),
+        (942, 913, LOC_SHELF, 40_000, 10_000, 12_000),
+        (943, 914, LOC_WAREHOUSE, 6_000, 2_000, 2_000),
+        (944, 915, LOC_WAREHOUSE, 2_000, 2_000, 2_000),
+        (945, 911, LOC_SHELF, 3_000, 1_000, 1_000),
+    ] {
+        sqlx::query(
+            "INSERT INTO stock_levels (id, org_id, stock_item_id, stock_location_id,
+                                      qty_milli, min_qty_milli, reorder_point_milli)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (org_id, stock_item_id, stock_location_id) DO NOTHING",
+        )
+        .bind(demo_uuid(id))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(item))
+        .bind(demo_uuid(location))
+        .bind(qty)
+        .bind(min)
+        .bind(reorder)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // A short movement history so the item screen's ledger is not empty.
+    // Safe to reseed: migration 0119 gives the dev reset an explicit bypass
+    // for the append-only guard, which the app itself never sets.
+    for (id, item, kind, to, qty, ticket, note) in [
+        (960u64, 912u64, "receive", LOC_WAREHOUSE, 24_000i64, None, "Opening stock"),
+        (961, 912, "consume", LOC_WAREHOUSE, -1_500, Some(demo_uuid(202)), "Reseated two ports"),
+        (962, 913, "receive", LOC_SHELF, 40_000, None, "Van restock"),
+    ] {
+        sqlx::query(
+            "INSERT INTO stock_movements (id, org_id, stock_item_id, kind, to_location_id,
+                                          qty_milli, currency, cost_minor, ticket_id, note, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, 'USD', 1250, $7, $8, $9)
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(demo_uuid(id))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(item))
+        .bind(kind)
+        .bind(demo_uuid(to))
+        .bind(qty)
+        .bind(ticket)
+        .bind(note)
+        .bind(tech)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- tools: a kit and two open checkouts (one overdue) -----------------
+    sqlx::query(
+        "INSERT INTO tool_kits (id, org_id, name, code, note)
+         VALUES ($1, $2, 'Van toolbox', 'KIT-VAN-2', 'Everything in the box rides one transaction.')
+         ON CONFLICT (org_id, name) DO NOTHING",
+    )
+    .bind(demo_uuid(970))
+    .bind(DEMO_ORG_ID)
+    .execute(&mut *tx)
+    .await?;
+
+    for (id, serial, item, location, due_hours, note) in [
+        (971u64, 920u64, 910u64, LOC_VAN, 26i64, "VPN troubleshooting"),
+        (972, 923, 913, LOC_SHELF, -20, "Switch firmware — still out, due back yesterday"),
+    ] {
+        sqlx::query(
+            "INSERT INTO tool_checkouts (id, org_id, holder_user_id, kit_id,
+                                         from_location_id, due_at, notes, status, checked_out_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', $3)
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(demo_uuid(id))
+        .bind(DEMO_ORG_ID)
+        .bind(tech)
+        .bind(demo_uuid(970))
+        .bind(demo_uuid(location))
+        .bind(now + Duration::hours(due_hours))
+        .bind(note)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO tool_checkout_lines (id, org_id, checkout_id, stock_item_id,
+                                             serial_id, movement_out_id)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(demo_uuid(id + 20))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(id))
+        .bind(demo_uuid(item))
+        .bind(demo_uuid(serial))
+        .bind(demo_uuid(if serial == 920 { 960 } else { 962 }))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- notifications that point at tickets -------------------------------
+    // The deep-linked open and the grouped list both need rows naming a
+    // ticket; the desk's inbox is what the phone opens.
+    for (id, ticket, kind, title, body) in [
+        (
+            980u64,
+            202u64,
+            "ticket_update",
+            "Breach notice",
+            "#18402 breached its SLA — the queue needs a new owner.",
+        ),
+        (
+            981,
+            207,
+            "ticket_update",
+            "Harbour Dental replied",
+            "Printer offline on the second floor: we will swap the unit on Friday.",
+        ),
+        (
+            982,
+            201,
+            "mention",
+            "Marcus Bell on the backup job",
+            "Restore finished at 02:10. Nothing has run since Friday.",
+        ),
+        (
+            983,
+            202,
+            "missing_time",
+            "Time not logged",
+            "Yesterday's call with Kestrel Logistics has no time against it.",
+        ),
+        (
+            984,
+            204,
+            "assignment",
+            "Assigned to you",
+            "Teams phone number port moved to your queue.",
+        ),
+    ] {
+        for user in [dispatcher, tech] {
+            sqlx::query(
+                "INSERT INTO notifications (id, org_id, user_id, kind, ticket_id, title, body, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (id) DO NOTHING",
+            )
+            .bind(demo_uuid(id + 100))
+            .bind(DEMO_ORG_ID)
+            .bind(user)
+            .bind(kind)
+            .bind(demo_uuid(200 + ticket - 200))
+            .bind(title)
+            .bind(body)
+            .bind(now - Duration::minutes((id - 979) as i64 * 37))
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
     // --- timers (one running for tech, one paused, one stopped) ----------

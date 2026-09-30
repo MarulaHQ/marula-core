@@ -16,7 +16,7 @@ import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/auth/auth-context";
-import { MODELS, fetchActiveTimer, fetchMyWork } from "@/core/models";
+import { MODELS, fetchMyWork } from "@/core/models";
 
 import { useConnectivity } from "@/data/connectivity";
 import { useModel } from "@/data/sync-context";
@@ -35,7 +35,6 @@ export default function TabsLayout() {
   const { tokens, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const { online } = useConnectivity();
-  const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
   const work = useModel(MODELS.myWork, fetchMyWork, { maxAgeMs: 60_000 });
   // A pushed screen (a ticket) can take the pill and the tab bar away: the
   // pack replaces both with the ticket's own bottom action bar.
@@ -45,9 +44,13 @@ export default function TabsLayout() {
     [chromeVisible],
   );
   const chromeOn = chromeVisible;
-  // The notice band (offline banner, timer pill) clears the status bar
-  // area; the screens below skip their own top inset when it is visible.
-  const noticeBand = !online || (timer.data !== undefined && timer.data !== null);
+  // The TOP band is the offline banner only. The timer pill used to live up
+  // here and ride this inset; it is docked above the rail now, so a running
+  // timer must NOT claim the top inset — the band would render nothing (a
+  // gap) while the screens below still skipped their own inset, pushing
+  // content under the Dynamic Island.
+  const noticeBand = !online;
+
 
   if (status === "loading") return <BootScreen />;
   if (status === "locked") return <Redirect href="/locked" />;

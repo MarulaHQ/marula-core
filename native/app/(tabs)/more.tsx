@@ -35,10 +35,12 @@ void PACK_ICONS;
 export default function MoreScreen() {
   const { tokens, mode, setMode } = useTheme();
   const { me, signOut, biometricAvailable, biometricEnabled, setBiometricEnabled } = useAuth();
-  const { online } = useConnectivity();
   const { pendingCount } = useQueue();
   const unread = useModel(MODELS.unreadCount, fetchUnreadCount, { maxAgeMs: 60_000 });
   const [now, setNow] = useState(() => new Date());
+  // The dev-only forced-offline switch lives in the connectivity context:
+  // the offline-queue flow drives it to prove a queued write replays.
+  const { online, forcedOffline, setForcedOffline } = useConnectivity();
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60_000);
@@ -95,6 +97,22 @@ export default function MoreScreen() {
       </Card>
 
       <Card style={styles.listCard}>
+        {DEV_TOOLS_ENABLED ? (
+          <View style={styles.rowBetween}>
+            <View style={styles.rowText}>
+              <Text style={[styles.rowLabel, { color: tokens.text }]}>Simulate offline (dev)</Text>
+              <Text style={[styles.rowHint, { color: tokens.textMuted }]}>
+                Forces the offline path so queued writes replay on toggle back.
+              </Text>
+            </View>
+            <Toggle
+              testID="more-airplane-toggle"
+              value={forcedOffline}
+              onValueChange={setForcedOffline}
+              label="Simulate offline"
+            />
+          </View>
+        ) : null}
         <View style={styles.appearanceRow}>
           <Text style={[styles.rowLabel, { color: tokens.text }]}>Appearance</Text>
           <View style={styles.appearanceSeg}>
