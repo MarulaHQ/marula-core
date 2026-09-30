@@ -1,26 +1,38 @@
 "use client";
 /**
- * ThemePresetSync — Wave 24: applies the effective theme preset.
+ * AppearanceSync — Wave 24, extended by Wave 41 lane 2b: applies the
+ * account's saved appearance.
  *
- * Resolution (user→org precedence, mirroring the sticky ai_model_picks
- * shape): the account's appearance.theme_override (a preset id, or the
- * org_default sentinel) wins over the org's appearance.theme setting;
- * the org value may name an installed theme pack (`pack:<slug>`), in
- * which case the pack's coerced manifest is applied as inline styles.
- * Unknown values stay on the Tangerine baseline — the theme-token schema
- * can restyle surfaces and nothing else, so a failed sync is always safe.
+ * Three settings ride one request, because they live in one row set and a
+ * second fetch would be a second round trip for nothing:
  *
- * Non-purpose: light/dark MODE (the pre-paint bootstrap + ThemeToggle own
- * it; this only re-applies the ACCOUNT-saved mode at session start) and
- * pack distribution (theme packs over ADR 0009).
+ * 1. `appearance.mode` — the account-saved light/dark mode.
+ * 2. `appearance.theme_override` / `appearance.theme` — the effective preset,
+ *    user→org precedence, mirroring the sticky ai_model_picks shape. The org
+ *    value may name an installed theme pack (`pack:<slug>`), in which case the
+ *    pack's coerced manifest is applied as inline styles.
+ * 3. `appearance.density` — the D7 step, written to `data-density` so
+ *    tokens.css moves every control that reads the density tokens.
+ *
+ * Non-purpose: light/dark MODE's instant toggle (the pre-paint bootstrap
+ * applies the stored value before first paint; this re-applies the ACCOUNT
+ * value at session start, after the device toggle has had its say), theme-pack
+ * distribution (ADR 0009), and any component styling — tokens.css reacts to
+ * the attributes on its own.
+ *
+ * Every path here is fallible and none of them is allowed to break
+ * rendering. An unknown mode, preset or step leaves the Marula baseline in
+ * place: the theme-token schema can restyle surfaces and nothing else, and a
+ * density step the ladder does not define has no token block to fall back
+ * from beyond `comfortable`.
  */
 import { useEffect } from "react";
 import { applyPackStyles, setThemePreset } from "@marula-core/ui";
 import type { Theme } from "@marula-core/ui";
-import { applyTheme } from "@marula-core/ui";
+import { applyTheme, applyDensity, isDensity, DEFAULT_DENSITY } from "@marula-core/ui";
 import { api, useAuth } from "../lib/api";
 
-export function ThemePresetSync(): null {
+export function AppearanceSync(): null {
   const auth = useAuth();
   useEffect(() => {
     if (auth.status !== "authed") return;
@@ -42,6 +54,12 @@ export function ThemePresetSync(): null {
         if (savedMode === "light" || savedMode === "dark") {
           applyTheme(savedMode as Theme);
         }
+        // D7: the account's density step. An unknown value falls back to the
+        // Marula default rather than being written through — a step the
+        // ladder does not define would leave every control on whatever
+        // tokens.css last resolved.
+        const savedDensity = read(userValues, "appearance.density");
+        applyDensity(isDensity(savedDensity) ? savedDensity : DEFAULT_DENSITY);
         // user → org precedence for the preset.
         const override = read(userValues, "appearance.theme_override");
         const orgTheme = read(orgValues, "appearance.theme");
@@ -65,7 +83,7 @@ export function ThemePresetSync(): null {
           setThemePreset(preset);
         }
       } catch {
-        // Sync failure never breaks rendering — Tangerine baseline stands.
+        // Sync failure never breaks rendering — the Marula baseline stands.
       }
     })();
   }, [auth.status]);

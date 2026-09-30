@@ -1160,7 +1160,7 @@ function NewAppointmentDialog({
           <select
             value={kind}
             onChange={(e) => setKind(e.target.value)}
-            className="h-[var(--m-control-height)] rounded-[var(--m-radius-control)] border px-2 text-[13px]"
+            className="h-[var(--m-density-control)] rounded-[var(--m-radius-control)] border px-2 text-[13px]"
             style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
           >
             <option value="on_site">On site</option>

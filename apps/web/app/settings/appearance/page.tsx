@@ -1,22 +1,28 @@
 "use client";
 /**
- * /settings/appearance — Wave 24 theming system (leg A + leg B UI).
+ * /settings/appearance — Wave 24 theming system, extended by Wave 41 lane 2b.
  *
- * Purpose: the theme-preset picker — org-wide default (admins) with a
- * per-user override riding the typed settings model, plus the installed
- * custom theme packs (ADR 0009 V1 distribution: approval of a staged
- * `theme` import mints the pack; this surface lists it, activates it,
- * and uninstalls it). Rendering follows the typeweight-typography token
- * contract; the preview swatches are pure token reads.
+ * Purpose: the three appearance preferences, all of them per-user except the
+ * org default. The theme-preset picker — org-wide default (admins) with a
+ * per-user override riding the typed settings model — plus the installed
+ * custom theme packs (ADR 0009 V1 distribution: approval of a staged `theme`
+ * import mints the pack; this surface lists it, activates it, and uninstalls
+ * it). The D7 density step lives here too, because density is how much room
+ * the product takes and that is an appearance decision; its three
+ * measurements are on the control, since "Compact" means nothing to a user
+ * until they know it is 40px rows.
  *
- * Non-purpose: light/dark mode (Preferences page, appearance.mode) and
- * pack distribution itself (plugins staging + approval).
+ * Non-purpose: light/dark mode (Preferences page, appearance.mode) and pack
+ * distribution itself (plugins staging + approval). The per-surface views,
+ * columns, filters and export (D12) are not here either: they belong to the
+ * table they describe, and they write their own key.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, FieldHint, Label, Tag } from "@marula-core/ui";
-import { BUILTIN_PRESETS, isBuiltinPreset, type ThemePreset } from "@marula-core/ui";
+import { Button, Card, DensitySwitch, FieldHint, Label, Tag } from "@marula-core/ui";
+import { BUILTIN_PRESETS, DEFAULT_DENSITY, isBuiltinPreset, type ThemePreset } from "@marula-core/ui";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
+import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
 
 /** Swatch trio for one mode of a preset: canvas / surface / accent. */
 function Swatch({ value, accent }: { value: string; accent: string }): React.ReactNode {
@@ -81,7 +87,8 @@ export default function AppearanceSettingsPage() {
   const auth = useRequireAuth();
   const authed = auth.status === "authed";
   const isAdmin = (auth.me?.permissions ?? []).includes("special:manage_plugins");
-  const [orgTheme, setOrgTheme] = useState<string>("tangerine");
+  const prefs = useDataSurfacePrefs();
+  const [orgTheme, setOrgTheme] = useState<string>("marula");
   const [override, setOverride] = useState<string>("org_default");
   const [packs, setPacks] = useState<PackRow[]>([]);
   const [saving, setSaving] = useState<string | null>(null);
@@ -100,7 +107,7 @@ export default function AppearanceSettingsPage() {
       setOrgTheme(
         typeof orgRow?.value === "string" && orgRow.value !== ""
           ? orgRow.value
-          : "tangerine",
+          : "marula",
       );
       setOverride(
         typeof userRow?.value === "string" && userRow.value !== ""
@@ -193,8 +200,32 @@ export default function AppearanceSettingsPage() {
     <div className="grid gap-6 max-w-2xl">
       <SettingsHeader
         title="Appearance"
-        description="Themes are restyle-only token sets — Tangerine by default, org-wide with per-user override. Light / dark lives on your Preferences page."
+        description="Themes are restyle-only token sets — Marula by default, org-wide with a per-user override. Density is yours alone. Light / dark lives on your Preferences page."
       />
+
+      <Card className="grid gap-4 p-5" data-testid="appearance-density">
+        <div>
+          <h2 className="text-sm font-semibold">Density</h2>
+          <FieldHint>
+            How much room the interface takes. Yours alone — nobody else&apos;s
+            view changes, and it follows you to every device.
+          </FieldHint>
+        </div>
+        <DensitySwitch
+          value={prefs.density}
+          onChange={(step) => void prefs.setDensity(step)}
+          disabled={!prefs.ready}
+        />
+        <FieldHint>
+          Tap targets stay at 44px on every step, including Dense, so the same
+          control is no harder to hit on a touchscreen at any density.
+        </FieldHint>
+        {prefs.error ? (
+          <p className="text-[12px]" style={{ color: "var(--m-destructive)" }} role="alert">
+            {prefs.error}
+          </p>
+        ) : null}
+      </Card>
 
       <Card className="p-5 grid gap-4">
         <div>

@@ -198,14 +198,6 @@
   --m-density-control-sm: 40px;
   --m-density-row: 48px;
   --m-card-padding: 24px;
-  /* Legacy density names, kept as aliases so the ~200 existing `h-8` / `py-1.5`
-     call sites and components.css keep resolving. They track the active
-     `data-density` step automatically, because they read the token rather than
-     carrying a value. The 2b sweep moves call sites onto the `--m-density-*`
-     names and these aliases retire with it. */
-  --m-control-height: var(--m-density-control);
-  --m-control-height-sm: var(--m-density-control-sm);
-  --m-row-height: var(--m-density-row);
   --m-duration: 120ms;           /* the motion law: <=120ms, transform/opacity */
 
   /* ---- Type scale (design.md §5) ---- */
@@ -352,8 +344,15 @@
  * values (32/32/12) so the fleet, stock and billing tables do not regress
  * when a self-hoster reaches for it. 44px stays the floor for TAP targets
  * on every step; only pointer targets sit at 32px under `dense`.
- * The typed settings key and the selector that writes this attribute land
- * with lane 2b.
+ * The typed settings key (`appearance.density`) lives in
+ * `crates/core-domain/src/settings.rs`; the module that applies this
+ * attribute is `packages/ui/src/density.ts`, with the pre-paint bootstrap in
+ * `apps/web/app/layout.tsx`. The legacy `--m-control-height` /
+ * `--m-row-height` aliases that 2a kept so the call sites would keep
+ * resolving have retired with the sweep: every reference is on a
+ * `--m-density-*` name now. A `var()` with no definition renders nothing at
+ * all, so leaving the aliases behind would be dead weight that still reads as
+ * load-bearing.
  */
 :root,
 [data-density="comfortable"] {

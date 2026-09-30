@@ -23,7 +23,7 @@ import { NavRail } from "./nav-rail";
 import { PopoutShell } from "./popout-shell";
 import { currentPopoutKey, currentShownEntity } from "../../lib/popout/window-key";
 import { announceWindow, updateShownEntities } from "../../lib/popout/window-bus";
-import { ThemePresetSync } from "../theme-preset-sync";
+import { AppearanceSync } from "../appearance-sync";
 import { TourScheduler } from "../help/tour-scheduler";
 import { ShortcutLayer } from "../shortcuts/shortcut-layer";
 import { LiveRegion } from "../a11y/live-region";
@@ -134,14 +134,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (headerless) return (
     <>
-      <ThemePresetSync />
+      <AppearanceSync />
       {children}
     </>
   );
 
   return (
     <div className="flex h-dvh min-h-0">
-      <ThemePresetSync />
+      <AppearanceSync />
       {/* WCAG 2.4.1 bypass block: keyboard users skip the rail + top bar chrome. */}
       <a
         href="#m-main-content"

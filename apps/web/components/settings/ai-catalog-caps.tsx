@@ -308,7 +308,7 @@ export function CapsCard({ caps, users, onChanged }: CapEditorProps) {
             <div>
               <Label>User</Label>
               <select
-                className="mt-1 h-8 rounded-[var(--m-radius-control)] border px-2 text-[12px]"
+                className="mt-1 h-[var(--m-density-control)] rounded-[var(--m-radius-control)] border px-2 text-[12px]"
                 style={{ borderColor: "var(--m-border)" }}
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
@@ -325,7 +325,7 @@ export function CapsCard({ caps, users, onChanged }: CapEditorProps) {
           <div>
             <Label>Period</Label>
             <select
-              className="mt-1 h-8 rounded-[var(--m-radius-control)] border px-2 text-[12px]"
+              className="mt-1 h-[var(--m-density-control)] rounded-[var(--m-radius-control)] border px-2 text-[12px]"
               style={{ borderColor: "var(--m-border)" }}
               value={period}
               onChange={(e) => setPeriod(e.target.value)}

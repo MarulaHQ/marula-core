@@ -147,7 +147,7 @@ export default function TicketsListPage() {
                 <Link
                   href={`/tickets/${ticket.id}`}
                   className="flex min-w-0 items-center gap-2 px-3 py-2 no-underline sm:gap-3 sm:px-4"
-                  style={{ minHeight: "var(--m-row-height)" }}
+                  style={{ minHeight: "var(--m-density-row)" }}
                 >
                   <span
                     className="w-20 shrink-0 font-mono text-[12.5px] font-semibold sm:w-24 sm:text-[13px]"

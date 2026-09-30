@@ -379,7 +379,7 @@ export default function TodayPage() {
                       return (
                         <li
                           key={t.id}
-                          className="row-hover grid h-8 min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-2 pl-1 pr-1 text-xs sm:grid-cols-[auto_auto_minmax(0,1fr)_auto_auto_auto_auto]"
+                          className="row-hover grid h-[var(--m-density-row)] min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-2 pl-1 pr-1 text-xs sm:grid-cols-[auto_auto_minmax(0,1fr)_auto_auto_auto_auto]"
                         >
                           <a
                             href={`/tickets/${t.id}`}

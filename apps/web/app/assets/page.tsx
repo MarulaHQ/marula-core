@@ -109,7 +109,7 @@ export default function AssetsPage() {
                 <Link
                   href={`/assets/${asset.id}`}
                   className="flex items-center gap-3 px-4 py-2 no-underline"
-                  style={{ minHeight: "var(--m-row-height)" }}
+                  style={{ minHeight: "var(--m-density-row)" }}
                 >
                   <span
                     className="w-24 shrink-0 font-mono text-[12.5px]"

@@ -320,7 +320,7 @@ export function NavRail({
                 aria-label={collapsed ? "Expand rail" : "Collapse rail"}
                 aria-pressed={collapsed}
                 onClick={onToggleCollapsed}
-                className={`m-rail-item flex h-8 ${collapsed ? "w-8 justify-center" : "min-w-0 flex-1 items-center gap-2 px-1"} items-center rounded-lg border-0 bg-transparent`}
+                className={`m-rail-item flex h-[var(--m-density-control)] ${collapsed ? "w-8 justify-center" : "min-w-0 flex-1 items-center gap-2 px-1"} items-center rounded-lg border-0 bg-transparent`}
                 style={{ color: "var(--m-mist)" }}
               >
                 <CollapseIcon collapsed={collapsed} />

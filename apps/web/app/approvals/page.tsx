@@ -373,7 +373,7 @@ export default function ApprovalsPage() {
           <select
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
-            className="h-[var(--m-control-height)] rounded-[var(--m-radius-control)] border px-2 text-[13px]"
+            className="h-[var(--m-density-control)] rounded-[var(--m-radius-control)] border px-2 text-[13px]"
             style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
             data-testid="reject-reason"
           >

@@ -268,7 +268,7 @@ export function TimerDock() {
           }}
           placeholder="Add note…"
           aria-label="Add a note to this ticket"
-          className="m-workbar-note h-8 min-w-16 max-w-[260px] flex-1 rounded-lg border px-2.5 text-[12.5px] outline-none md:flex-none md:w-56"
+          className="m-workbar-note h-[var(--m-density-control)] min-w-16 max-w-[260px] flex-1 rounded-lg border px-2.5 text-[12.5px] outline-none md:flex-none md:w-56"
         />
         <button
           type="button"
@@ -277,7 +277,7 @@ export function TimerDock() {
           aria-expanded={panelOpen}
           aria-controls="notes-task-panel"
           title="Notes & tasks (⌘⇧N)"
-          className="m-workbar-ghost m-workbar-panel-trigger flex h-8 w-8 shrink-0 items-center justify-center"
+          className="m-workbar-ghost m-workbar-panel-trigger flex h-[var(--m-density-control)] w-8 shrink-0 items-center justify-center"
           onClick={() => {
             setPanelFocusItem(null);
             setPanelOpen(true);
@@ -289,7 +289,7 @@ export function TimerDock() {
           type="button"
           onClick={() => void pauseOrResume()}
           aria-label={live ? "Pause timer" : "Resume timer"}
-          className="m-workbar-ghost flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0"
+          className="m-workbar-ghost flex h-[var(--m-density-control)] w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0"
         >
           {live ? <PauseIcon /> : <PlayIcon />}
         </button>
@@ -297,7 +297,7 @@ export function TimerDock() {
           type="button"
           onClick={() => router.push("/today")}
           aria-label="Switch ticket (opens Today)"
-          className="m-workbar-ghost flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0"
+          className="m-workbar-ghost flex h-[var(--m-density-control)] w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0"
         >
           <SwitchIcon />
         </button>
@@ -306,7 +306,7 @@ export function TimerDock() {
           data-testid="workbar-wrap-up"
           onClick={() => void wrapUp()}
           disabled={stopping}
-          className="m-workbar-wrapup flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3 text-[12.5px] font-semibold"
+          className="m-workbar-wrapup flex h-[var(--m-density-control)] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3 text-[12.5px] font-semibold"
           style={{ background: "var(--m-accent)", color: "var(--m-on-accent)" }}
         >
           <svg aria-hidden="true" width="11" height="11" viewBox="0 0 12 12" fill="none">
