@@ -716,6 +716,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(boards::list_statuses).post(boards::add_status),
         )
         .route(
+            &rp("/boards/{id}/statuses/usage"),
+            get(boards::status_usage),
+        )
+        .route(
             &rp("/boards/{id}/statuses/{status_id}"),
             axum::routing::patch(boards::update_status).delete(boards::delete_status),
         )
@@ -1446,6 +1450,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/settings/ai/decision/{surface_key}/preview"),
             post(decision_config::post_decision_preview),
+        )
+        .route(
+            &rp("/settings/ai/decision/{surface_key}/runs"),
+            get(decision_config::get_decision_runs),
         )
         .route(&rp("/ai/me/surfaces"), get(ai_policy::get_my_surfaces))
         .route(&rp("/ai/me/authorize"), post(ai_policy::authorize))

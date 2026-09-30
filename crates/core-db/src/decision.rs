@@ -13,7 +13,7 @@
 
 use crate::DbResult;
 use serde_json::Value;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Postgres};
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -262,4 +262,97 @@ where
     .fetch_all(executor)
     .await
     .map_err(Into::into)
+}
+
+// ---------------------------------------------------------------------------
+// Wave 41 lane 12: the shadow run log read model
+//
+// The append-only `decision_answers` store has held every answered run since
+// migration 0090 — shadow and live alike. What the settings pack asks for
+// (state 11: "what it would have said", state 12: a run log with agreement and
+// a count above the threshold) is a READ over those rows, not a new table.
+// Recording was already honest; only the reader was missing.
+// ---------------------------------------------------------------------------
+
+/// Newest answered runs for one surface, newest first, plus the ticket's
+/// current status name when the run was about a ticket.
+///
+/// The current status is what makes AGREEMENT computable: a shadow run
+/// proposes a label, and the label the ticket actually reached is the human's
+/// answer. Comparing them is the only agreement signal the product has, and it
+/// is a real one — it is measured against what happened, not a guess.
+#[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
+pub struct DecisionRunRow {
+    pub id: Uuid,
+    pub entity_type: String,
+    pub entity_id: Option<Uuid>,
+    pub mode: String,
+    pub provider: String,
+    pub model: String,
+    pub answers: Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// The ticket's human number, when the run was about a ticket.
+    pub ticket_number: Option<String>,
+    pub ticket_title: Option<String>,
+    /// The status the ticket sits in NOW — the human's answer, or NULL when
+    /// the ticket has since been deleted.
+    pub current_status: Option<String>,
+}
+
+/// Reads the run log for one surface over the last `days` days.
+pub async fn list_runs<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    surface: &str,
+    days: i32,
+    limit: i64,
+) -> DbResult<Vec<DecisionRunRow>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = r#"
+        SELECT a.id, a.entity_type, a.entity_id, a.mode, a.provider, a.model,
+               a.answers, a.created_at,
+               t.number AS ticket_number,
+               t.title  AS ticket_title,
+               s.name   AS current_status
+        FROM decision_answers a
+        LEFT JOIN tickets t ON t.id = a.entity_id AND a.entity_type = 'ticket'
+        LEFT JOIN board_statuses s ON s.id = t.status_id
+        WHERE a.org_id = $1 AND a.surface = $2
+          AND a.created_at >= now() - make_interval(days => $3)
+        ORDER BY a.created_at DESC
+        LIMIT $4"#;
+    let rows: Vec<DecisionRunRow> = sqlx::query_as(sql)
+        .bind(org_id)
+        .bind(surface)
+        .bind(days.clamp(1, 90))
+        .bind(limit.clamp(1, 500))
+        .fetch_all(executor)
+        .await?;
+    Ok(rows)
+}
+
+/// How many runs a surface has recorded in the window — the run-log's own
+/// count, so the summary never has to be computed by loading every row.
+pub async fn count_runs<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    surface: &str,
+    days: i32,
+) -> DbResult<i64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row: (i64,) = sqlx::query_as(
+        r#"SELECT count(*)::bigint FROM decision_answers
+           WHERE org_id = $1 AND surface = $2
+             AND created_at >= now() - make_interval(days => $3)"#,
+    )
+    .bind(org_id)
+    .bind(surface)
+    .bind(days.clamp(1, 90))
+    .fetch_one(executor)
+    .await?;
+    Ok(row.0)
 }

@@ -807,3 +807,73 @@ mod tests {
         assert!(f.category.is_none());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Wave 41 lane 12: the client-facing status label
+//
+// A portal ticket used to expose the ticket's semantic CATEGORY and nothing
+// else, so a status label was staff-only by accident rather than by decision.
+// `board_statuses.client_visible` makes it a decision: a visible status shows
+// the client its own words, a hidden one falls back to the category word, and
+// the ticket still reports where it stands either way.
+// ---------------------------------------------------------------------------
+
+/// A ticket plus what a client is allowed to be told about its status.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClientTicketView {
+    pub ticket: core_domain::entities::Ticket,
+    /// The status's own label, always present. The CLIENT-FACING label is
+    /// `Some(name)` only when the status is client-visible; otherwise the
+    /// caller shows the category word.
+    pub status_name: String,
+    pub status_client_visible: bool,
+}
+
+/// Same exposure contract as [`list_client_tickets`], with the status label.
+pub async fn list_client_ticket_views<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    client_id: Uuid,
+    f: PortalTicketFilter,
+) -> DbResult<Vec<ClientTicketView>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        r#"SELECT t.id, t.org_id, t.number, t.board_id, t.status_id, t.title, t.body, t.priority,
+                  t.client_id, t.site_id, t.contact_id, t.assignee_id, t.requester_id, t.category,
+                  t.due_at, t.resolved_at, t.created_at, t.updated_at,
+                  s.name AS status_name, s.client_visible AS status_client_visible
+           {PORTAL_TICKET_FROM}
+           JOIN board_statuses s ON s.id = t.status_id
+           WHERE t.org_id = $1 AND t.client_id = $2
+             AND ($3::uuid IS NULL OR t.board_id = $3)
+             AND ($4::text IS NULL OR t.category = $4)
+           ORDER BY t.updated_at DESC
+           LIMIT $5 OFFSET $6"#,
+        PORTAL_TICKET_FROM = PORTAL_TICKET_FROM,
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(client_id)
+        .bind(f.board_id)
+        .bind(f.category.map(|c| c.as_str().to_string()))
+        .bind(f.limit)
+        .bind(f.offset)
+        .fetch_all(executor)
+        .await?;
+    use sqlx::Row;
+    rows.into_iter()
+        .map(|row| {
+            // Read the joined columns first: `row_to_ticket` takes the row by
+            // value.
+            let status_name: String = row.get("status_name");
+            let status_client_visible: bool = row.get("status_client_visible");
+            Ok(ClientTicketView {
+                ticket: row_to_ticket(row)?,
+                status_name,
+                status_client_visible,
+            })
+        })
+        .collect()
+}

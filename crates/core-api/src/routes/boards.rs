@@ -7,7 +7,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::org_tx;
 use crate::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::Extensions,
     Json,
 };
@@ -17,7 +17,7 @@ use core_domain::policy::{BoardOp, Module, Permission};
 use core_domain::status::TicketStatusCategory;
 use core_domain::workflow::{self, TransitionEdge};
 use serde::Deserialize;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::board_access::authorize_board_op;
@@ -179,6 +179,58 @@ pub struct CreateStatusRequest {
     pub wip_limit: Option<i32>,
 }
 
+/// GET /api/boards/{id}/statuses/usage — per-status ticket counts and
+/// automation references (Wave 41 lane 12).
+///
+/// One read serves both the settings table's TICKETS column and the delete
+/// confirm's "12 tickets use this status" and "2 automations mention this
+/// status", so the table and the confirm can never quote different numbers for
+/// the same status.
+#[derive(Debug, serde::Serialize, ToSchema)]
+pub struct BoardStatusUsage {
+    pub status_id: Uuid,
+    /// Tickets currently in this status, closed ones included: the column is
+    /// where work has been, not a live queue.
+    pub ticket_count: i64,
+    /// Automation rules naming this status. They are PAUSED, never silently
+    /// repointed, if the status is deleted.
+    pub automation_count: i64,
+}
+
+#[utoipa::path(operation_id = "boards_status_usage", get, path = "/api/boards/{id}/statuses/usage", tag = "boards",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = [BoardStatusUsage])))]
+pub async fn status_usage(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<Vec<BoardStatusUsage>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, board_view())?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        authorize_board_op(&mut ctx.tx, &authed.principal, id, BoardOp::View).await?;
+        let usage = core_db::boards::status_usage(&mut *ctx.tx, org_id, id).await?;
+        Ok((ctx, usage))
+    })
+    .await
+    .map(|usage| {
+        Json(
+            usage
+                .into_iter()
+                .map(|u| BoardStatusUsage {
+                    status_id: u.status_id,
+                    ticket_count: u.ticket_count,
+                    automation_count: u.automation_count,
+                })
+                .collect(),
+        )
+    })
+}
+
 /// POST /api/boards/{id}/statuses — adds a custom status bound to a
 /// semantic category; emits `board.status_added`.
 #[utoipa::path(operation_id = "boards_add_status", post, path = "/api/boards/{id}/statuses", tag = "boards", security(("bearer" = [])),
@@ -274,6 +326,9 @@ pub struct UpdateStatusRequest {
     /// number = set it (1..=1000 — the DB CHECK is the backstop).
     #[serde(default)]
     pub wip_limit: WipLimitUpdate,
+    /// Wave 41 lane 12: whether the portal shows this status's own label to a
+    /// client. Absent = unchanged.
+    pub client_visible: Option<bool>,
 }
 
 /// PATCH /api/boards/{id}/statuses/{status_id} — rebinds/reorders/renames a
@@ -313,6 +368,7 @@ pub async fn update_status(
                 sort_order: req.sort_order,
                 is_entry: req.is_entry,
                 wip_limit: parse_wip_limit_update(&req),
+                client_visible: req.client_visible,
             },
         )
         .await?;
@@ -338,24 +394,54 @@ pub async fn update_status(
     Ok(Json(status))
 }
 
-/// DELETE /api/boards/{id}/statuses/{status_id} — removes an UNUSED custom
-/// status. Tickets referencing it force a 409; the last entry status of a
-/// board is protected so ticket creation can never break.
+/// What a delete with reassignment actually did (Wave 41 lane 12).
+///
+/// Returned instead of a bare 204 because the confirm has to say what
+/// happened, and the admin is the one who has to believe it.
+#[derive(Debug, serde::Serialize, ToSchema)]
+pub struct DeleteStatusResult {
+    /// Tickets moved to the replacement status before the delete.
+    pub moved_tickets: i64,
+    /// Automation rules that named this status and were PAUSED. Never
+    /// repointed: an automation's conditions are the org's own logic.
+    pub paused_automations: i64,
+    /// SLA pause states opened or closed by the move.
+    pub sla_pauses_changed: i64,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct DeleteStatusQuery {
+    /// Move every ticket in this status to `reassign_to` and then delete it.
+    /// Must be another status on the same board. Absent, a status holding
+    /// tickets is refused with 409 and nothing changes.
+    pub reassign_to: Option<Uuid>,
+}
+
+/// DELETE /api/boards/{id}/statuses/{status_id} — removes a custom status.
+///
+/// Without `reassign_to` a status holding tickets is refused (409), as before.
+/// With it, every ticket moves first — set-based, mirroring the per-ticket
+/// status-change invariants exactly (denormalised category, one-shot
+/// `resolved_at`, SLA pause bookkeeping) — and each moved ticket gets its own
+/// `ticket.status_changed` outbox row, so a bulk move is as auditable as a
+/// single one. Automations naming the status are paused, never repointed.
+/// Emits `board.status_removed`.
 #[utoipa::path(operation_id = "boards_delete_status", delete, path = "/api/boards/{id}/statuses/{status_id}", tag = "boards",
     security(("bearer" = [])),
-    params(("id" = Uuid, Path), ("status_id" = Uuid, Path)),
-    responses((status = 204)))]
+    params(("id" = Uuid, Path), ("status_id" = Uuid, Path), DeleteStatusQuery),
+    responses((status = 200, body = DeleteStatusResult), (status = 409)))]
 pub async fn delete_status(
     State(state): State<AppState>,
     extensions: Extensions,
     Path((id, status_id)): Path<(Uuid, Uuid)>,
-) -> ApiResult<axum::http::StatusCode> {
+    Query(query): Query<DeleteStatusQuery>,
+) -> ApiResult<Json<DeleteStatusResult>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, board_manage())?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
-    org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    let result = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         authorize_board_op(&mut ctx.tx, &authed.principal, id, BoardOp::ConfigureBoard).await?;
         let statuses = core_db::boards::list_statuses(&mut *ctx.tx, id).await?;
         let target = statuses
@@ -369,7 +455,104 @@ pub async fn delete_status(
             ));
         }
         let name = target.name.clone();
-        match core_db::boards::delete_status(&mut *ctx.tx, status_id).await {
+        let from_category = target.category;
+
+        // The replacement, when asked for, must exist on this board and must
+        // not be the status being deleted.
+        let replacement = match query.reassign_to {
+            None => None,
+            Some(reassign_to) if reassign_to == status_id => {
+                return Err(ApiError::Validation(
+                    "a status cannot replace itself".into(),
+                ));
+            }
+            Some(reassign_to) => {
+                let row = statuses
+                    .iter()
+                    .find(|s| s.id == reassign_to)
+                    .ok_or_else(|| {
+                        ApiError::Validation(
+                            "the replacement status is not on this board".into(),
+                        )
+                    })?;
+                Some(row.clone())
+            }
+        };
+
+        let now = chrono::Utc::now();
+        let mut moved = 0i64;
+        let mut sla_pauses_changed = 0u64;
+        if let Some(to) = replacement.as_ref() {
+            // 1. Tickets first: a bulk move that mirrors `update_status`.
+            let moved_ids =
+                core_db::tickets::reassign_status_bulk(&mut *ctx.tx, org_id, status_id, to.id)
+                    .await?;
+            moved = moved_ids.len() as i64;
+
+            // 2. SLA pause bookkeeping, the same category rule the per-ticket
+            //    path applies, set-based. Closing an open pause costs business
+            //    seconds, so the seconds are computed per policy in Rust.
+            if to.category.pauses_sla() {
+                sla_pauses_changed +=
+                    core_db::sla::apply_pause_bulk(&mut *ctx.tx, &moved_ids, now).await?;
+            } else {
+                let pauses =
+                    core_db::sla::open_pauses_for_tickets(&mut *ctx.tx, &moved_ids).await?;
+                let mut elapsed: Vec<(Uuid, i64)> = Vec::with_capacity(pauses.len());
+                for pause in pauses {
+                    let calendar =
+                        match core_db::sla::get_policy_record(&mut ctx.tx, org_id, pause.policy_id)
+                            .await
+                        {
+                            Ok(record) => core_db::sla::resolve_policy_calendar(
+                                &mut ctx.tx,
+                                &record,
+                            )
+                            .await
+                            .unwrap_or_else(|_| record.calendar.clone()),
+                            Err(_) => continue,
+                        };
+                    elapsed.push((
+                        pause.ticket_id,
+                        calendar.elapsed_business_secs(pause.paused_since, now),
+                    ));
+                }
+                sla_pauses_changed += core_db::sla::apply_resume_bulk(&mut *ctx.tx, &elapsed).await?;
+            }
+
+            // 3. One timeline row per moved ticket. A bulk move that wrote no
+            //    events would be the one status change an admin cannot audit.
+            for ticket_id in &moved_ids {
+                ctx.emit(
+                    types::TICKET_STATUS_CHANGED,
+                    "ticket",
+                    Some(ticket_id.to_string().as_str()),
+                    &serde_json::to_value(events::TicketStatusChanged {
+                        ticket_id: *ticket_id,
+                        board_id: id,
+                        assignee_id: None,
+                        from_status: name.clone(),
+                        to_status: to.name.clone(),
+                        from_category: from_category,
+                        to_category: to.category,
+                        changed_by: Some(user_id),
+                        occurred_at: now,
+                    })
+                    .unwrap_or_default(),
+                )
+                .await?;
+            }
+        }
+
+        // 4. Automations that named the status are paused, so none is left
+        //    pointing at something that no longer exists.
+        let paused_automations =
+            core_db::boards::pause_automations_mentioning(&mut *ctx.tx, org_id, status_id).await?;
+
+        // 5. The delete itself. Still RESTRICT-guarded: anything the bulk move
+        //    did not cover (a status in another board, say) is refused rather
+        //    than silently orphaned.
+        match core_db::boards::delete_status(&mut ctx.tx, status_id).await {
             Ok(()) => {}
             Err(core_db::DbError::Sql(sqlx::Error::Database(db))) if db.constraint().is_some() => {
                 return Err(ApiError::Conflict(
@@ -390,10 +573,17 @@ pub async fn delete_status(
             .unwrap_or_default(),
         )
         .await?;
-        Ok((ctx, ()))
+        Ok((
+            ctx,
+            DeleteStatusResult {
+                moved_tickets: moved,
+                paused_automations,
+                sla_pauses_changed: sla_pauses_changed as i64,
+            },
+        ))
     })
     .await?;
-    Ok(axum::http::StatusCode::NO_CONTENT)
+    Ok(Json(result))
 }
 
 /// GET response for a board's workflow: either its explicit matrix or the
