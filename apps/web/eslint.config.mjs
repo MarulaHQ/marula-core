@@ -43,7 +43,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import { defineConfig, globalIgnores } from "eslint/config";
 
 const THEME_NOTE =
-  "Marula design doctrine lives in docs/theme.md (the Marula ink-and-gold token layer, Figtree/Fraunces/JetBrains Mono typography, the primary that flips ink-to-gold on mode, the non-flipping ink timer bar, the motion law at or under 120ms) and the brand pack at brand/marula-mockups/marula-app-mockup-images/DESIGN-NOTES.md. Fix by using theme tokens and components. Never retype a hex and never restyle a primitive. Gold is never text on a light background: use --m-gold-text.";
+  "Marula design doctrine lives in docs/theme.md (the Marula ink-and-gold token layer, Figtree/Fraunces/JetBrains Mono typography, the primary that flips ink-to-gold on mode, the non-flipping ink timer bar, the motion law at or under 120ms) and the vendored reference pack at design/mockups/marula-app-mockup-images/DESIGN-NOTES.md. Fix by using theme tokens and components. Never retype a hex and never restyle a primitive. Gold is never text on a light background: use --m-gold-text.";
 
 export default defineConfig([
   globalIgnores(["node_modules/**", ".next/**", "public/**"]),

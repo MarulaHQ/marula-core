@@ -74,10 +74,14 @@ const tokensCssPath = resolve(root, "packages/ui/src/tokens.css");
 const globalsPath = resolve(root, "apps/web/app/globals.css");
 const componentsPath = resolve(root, "packages/ui/src/components.css");
 const tokensTsPath = resolve(root, "packages/ui/src/tokens.ts");
-// Filename still carries the pre-rebrand prefix: lane 1 renamed identifiers,
-// not this artifact. Retiring the file is lane 4's call (it draws the new
-// mockups), so the review points at what exists and checks only geometry.
-const mockupPath = resolve(root, "design/mockups/meridian-ticket-workbench-html-mockup-v2.html");
+// The reference pack lane 3 vendored under design/mockups/ is the live
+// aesthetic source. The pre-rebrand workbench v2 file stays on disk as history;
+// retiring it is lane 4's call, so the review reads the new pack and checks the
+// old geometry only.
+const mockupPath = resolve(
+  root,
+  "design/mockups/marula-app-mockup-images/source/marula-app-mockups.html",
+);
 
 check(existsSync(presetPath), "vendored preset exists (design/marula/marula.json)");
 check(existsSync(tokensCssPath), "packages/ui/src/tokens.css exists");
