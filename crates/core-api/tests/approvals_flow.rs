@@ -187,6 +187,19 @@ async fn submit_entry(app: &Router, bearer: &str, entry_id: &str) -> (u16, Value
     (status, body_json(response).await)
 }
 
+async fn fix_entry(app: &Router, bearer: &str, entry_id: &str, body: Value) -> (u16, Value) {
+    let response = send(
+        app,
+        axum::http::Method::POST,
+        &format!("/api/time-entries/{entry_id}/fix"),
+        Some(bearer),
+        Some(body),
+    )
+    .await;
+    let status = response.status().as_u16();
+    (status, body_json(response).await)
+}
+
 async fn decide(app: &Router, bearer: &str, body: Value) -> (u16, Value) {
     let response = send(
         app,
@@ -609,4 +622,221 @@ async fn decision_gating_and_per_approver_history() {
     )
     .await;
     assert_eq!(queue.as_array().unwrap().len(), 0, "{queue}");
+}
+
+/// The one-click verdict fix (Wave 41 lane 8): an approver applies a fix to a
+/// queued entry, the change lands on the append-only trail, the entry STAYS in
+/// the queue, and the guard rails (a raise, a draft, a locked entry) each
+/// refuse with their own typed reason.
+#[tokio::test]
+async fn verdict_fix_applies_to_a_queued_entry_and_stays_in_the_queue() {
+    let (_state, app) = test_state().await;
+    let bearer = register_org(&app, &format!("fix-{}", Uuid::now_v7().simple())).await;
+    let ticket = create_ticket(&app, &bearer).await;
+    let ticket_id = ticket["id"].as_str().unwrap().to_string();
+    let entry_id = create_entry(&app, &bearer, &ticket_id, 5).await;
+    let (status, _) = submit_entry(&app, &bearer, &entry_id).await;
+    assert_eq!(status, 200);
+
+    // The description fix writes the text it was handed.
+    let (status, body) = fix_entry(
+        &app,
+        &bearer,
+        &entry_id,
+        json!({
+            "idempotency_key": Uuid::now_v7().to_string(),
+            "description": "Replaced the failed drive and confirmed the array rebuilt.",
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["notes"],
+        json!("Replaced the failed drive and confirmed the array rebuilt.")
+    );
+    // The point of the whole thing: a fix clears an objection, it does not
+    // approve. The entry is still waiting on a person.
+    assert_eq!(body["approval_status"], json!("submitted"), "{body}");
+    assert_eq!(body["mutation"]["after"]["notes"], body["notes"]);
+
+    // A trim lowers the minutes.
+    let (status, body) = fix_entry(
+        &app,
+        &bearer,
+        &entry_id,
+        json!({
+            "idempotency_key": Uuid::now_v7().to_string(),
+            "minutes": 30,
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["minutes"], json!(30));
+
+    // An approver tidies a double-claim; raising what a client owes is not
+    // theirs to do from a queue, so the write is refused.
+    let (status, body) = fix_entry(
+        &app,
+        &bearer,
+        &entry_id,
+        json!({
+            "idempotency_key": Uuid::now_v7().to_string(),
+            "minutes": 240,
+        }),
+    )
+    .await;
+    assert_eq!(status, 422, "{body}");
+    assert_eq!(body["error"]["reason"], json!("validation_failed"));
+
+    // Trimming to nothing is a rejection, not a fix.
+    let (status, body) = fix_entry(
+        &app,
+        &bearer,
+        &entry_id,
+        json!({
+            "idempotency_key": Uuid::now_v7().to_string(),
+            "minutes": 0,
+        }),
+    )
+    .await;
+    assert_eq!(status, 422, "{body}");
+
+    // A fix with nothing in it changes nothing, and says so.
+    let (status, body) = fix_entry(
+        &app,
+        &bearer,
+        &entry_id,
+        json!({ "idempotency_key": Uuid::now_v7().to_string() }),
+    )
+    .await;
+    assert_eq!(status, 422, "{body}");
+
+    // The trail records both fixes, in order, on the same append-only log the
+    // decisions use.
+    let trail = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/time-entries/{entry_id}/approvals"),
+            Some(&bearer),
+            None,
+        )
+        .await,
+    )
+    .await;
+    let fixed: Vec<&Value> = trail
+        .as_array()
+        .expect("a trail array")
+        .iter()
+        .filter(|r| r["action"] == json!("fixed"))
+        .collect();
+    assert_eq!(fixed.len(), 2, "{trail}");
+    assert!(
+        fixed[0]["note"].as_str().unwrap_or("").contains("description:"),
+        "the trail says what changed: {fixed:?}"
+    );
+    assert!(
+        fixed[1]["note"].as_str().unwrap_or("").contains("60 → 30"),
+        "the trail says the minutes it moved: {fixed:?}"
+    );
+
+    // A draft is out of scope: the fix only applies to the queue.
+    let draft_id = create_entry(&app, &bearer, &ticket_id, 6).await;
+    let (status, body) = fix_entry(
+        &app,
+        &bearer,
+        &draft_id,
+        json!({
+            "idempotency_key": Uuid::now_v7().to_string(),
+            "description": "nope",
+        }),
+    )
+    .await;
+    assert_eq!(status, 422, "{body}");
+}
+
+/// The same fix on an entry an invoice already consumed is refused with the
+/// typed lock reason — the lock that protects an issued document from any
+/// later edit, fix or otherwise.
+#[tokio::test]
+async fn verdict_fix_refuses_an_invoice_locked_entry() {
+    let (state, app) = test_state().await;
+    let bearer = register_org(&app, &format!("fixlock-{}", Uuid::now_v7().simple())).await;
+    let ticket = create_ticket(&app, &bearer).await;
+    let ticket_id = ticket["id"].as_str().unwrap().to_string();
+    let entry_id = create_entry(&app, &bearer, &ticket_id, 5).await;
+    let (status, _) = submit_entry(&app, &bearer, &entry_id).await;
+    assert_eq!(status, 200);
+    let (status, _) = decide(
+        &app,
+        &bearer,
+        json!({ "entry_ids": [entry_id], "decision": "approve" }),
+    )
+    .await;
+    assert_eq!(status, 200);
+
+    // The lock comes from `invoice_time_entries`, so the fixture writes that
+    // link directly (as the sibling lock test does) rather than driving a whole
+    // invoice run for the sake of one row.
+    let me = me(&app, &bearer).await;
+    let org_id: Uuid = me["org_id"].as_str().unwrap().parse().unwrap();
+    let client_id = Uuid::now_v7();
+    let contract_id = Uuid::now_v7();
+    let invoice_id = Uuid::now_v7();
+    let today = chrono::Utc::now().date_naive();
+    sqlx::query("INSERT INTO clients (id, org_id, name) VALUES ($1, $2, 'Fix Co')")
+        .bind(client_id)
+        .bind(org_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO contracts (id, org_id, client_id, number, name, contract_type, status, currency, effective_from)
+         VALUES ($1, $2, $3, 'C-FIX-1', 'Fix contract', 'time_and_materials', 'active', 'USD', $4)",
+    )
+    .bind(contract_id)
+    .bind(org_id)
+    .bind(client_id)
+    .bind(today - chrono::Duration::days(1))
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO invoices (id, org_id, client_id, contract_id, number, status, currency,
+                               issued_at, due_on, total_minor, total_paid_minor)
+         VALUES ($1, $2, $3, $4, 'INV-FIX-1', 'issued', 'USD', $5, $6, 6000, 0)",
+    )
+    .bind(invoice_id)
+    .bind(org_id)
+    .bind(client_id)
+    .bind(contract_id)
+    .bind(today)
+    .bind(today + chrono::Duration::days(30))
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO invoice_time_entries (id, org_id, invoice_id, time_entry_id)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(org_id)
+    .bind(invoice_id)
+    .bind(entry_id.parse::<Uuid>().unwrap())
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let (status, body) = fix_entry(
+        &app,
+        &bearer,
+        &entry_id,
+        json!({
+            "idempotency_key": Uuid::now_v7().to_string(),
+            "description": "late edit",
+        }),
+    )
+    .await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["error"]["reason"], json!("time_entry_locked"));
 }

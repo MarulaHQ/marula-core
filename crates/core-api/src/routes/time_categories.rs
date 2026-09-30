@@ -830,7 +830,7 @@ pub async fn entry_suggestions(
     let row =
         core_db::decision::latest_answers_for_entity(&mut *tx, org_id, "decision_billing_audit", "time_entry", id)
             .await?;
-    let inputs = core_db::approvals::verdict_inputs(&mut *tx, org_id, &[id]).await?;
+    let inputs = core_db::approvals::verdict_inputs(&mut tx, org_id, &[id]).await?;
     let verdicts = inputs.first().map(build_verdicts).unwrap_or_default();
     tx.commit().await.map_err(ApiError::from)?;
     let mut suggestions = build_chips(row.as_ref());
@@ -884,7 +884,7 @@ pub async fn bulk_entry_suggestions(
         .map_err(ApiError::from)?;
     // One read for every entry's verdicts, so a hundred queue rows cost one
     // extra round trip rather than a hundred.
-    let inputs = core_db::approvals::verdict_inputs(&mut *tx, org_id, &ids).await?;
+    let inputs = core_db::approvals::verdict_inputs(&mut tx, org_id, &ids).await?;
     let mut items = Vec::with_capacity(ids.len());
     for id in ids {
         let row = core_db::decision::latest_answers_for_entity(
@@ -937,16 +937,14 @@ pub fn build_verdicts(input: &core_db::approvals::VerdictEntry) -> Vec<TimeVerdi
         .iter()
         .max_by_key(|(_, _, minutes)| *minutes);
     let (overlap_number, overlap_minutes) = match overlap {
-        Some((_, number, minutes)) => (
-            number.as_deref().map(|n| format!("#{n}")),
-            *minutes,
-        ),
+        Some((_, number, minutes)) => (number.as_deref(), *minutes),
         None => (None, 0),
     };
     let mut verdicts = verdicts_for(&VerdictInput {
         notes: input.entry.notes.as_deref(),
         minutes: input.entry.minutes,
-        ticket_number: input.ticket_number.as_deref().map(|n| format!("#{n}")),
+        ticket_number: input.ticket_number.as_deref(),
+        ticket_title: input.ticket_title.as_deref(),
         work_type_label: input.entry.work_type.as_deref(),
         peer_minutes: &input.peer_minutes,
         overlap_with_ticket_number: overlap_number.as_deref(),

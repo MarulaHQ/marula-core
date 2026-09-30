@@ -302,6 +302,21 @@ pub async fn reopen(
     Ok(entry)
 }
 
+/// What an approver's one-click fix changes. Grouped rather than passed as
+/// loose arguments because "which of these two is it" is the caller's only real
+/// decision, and a signature that takes both invites passing both by accident.
+#[derive(Debug, Clone, Default)]
+pub struct EntryFix<'a> {
+    /// The description to write, when the verdict offered one.
+    pub description: Option<&'a str>,
+    /// Whole minutes to take OFF THE END of the window, when the verdict
+    /// offered a trim. The duration follows, and the window is what an overlap
+    /// is a fact about. Only ever a shortening, never a lengthening.
+    pub trim_to_minutes: Option<i32>,
+    /// What the trail records, in words.
+    pub note: Option<&'a str>,
+}
+
 /// Applies an approver's one-click verdict fix to a queued entry: a better
 /// description, a trim of the double-claimed minutes, or both.
 ///
@@ -318,18 +333,23 @@ pub async fn fix(
     org_id: Uuid,
     entry_id: Uuid,
     actor_id: Uuid,
-    description: Option<&str>,
-    trim_to_minutes: Option<i32>,
-    note: Option<&str>,
+    change: &EntryFix<'_>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> DbResult<TimeEntry> {
+    // A trim moves the END of the window, and the duration follows it. Lowering
+    // `minutes` on its own would be a lie: an overlap is a fact about when the
+    // work happened, so shortening the minutes without moving `ended_at` would
+    // leave the same overlap in place and the mark would never clear.
     let row = sqlx::query!(
         r#"UPDATE time_entries
               SET notes = COALESCE($3, notes),
-                  minutes = COALESCE($4, minutes)
+                  ended_at = CASE WHEN $4::integer IS NULL THEN ended_at
+                                  ELSE ended_at - make_interval(mins => $4::integer) END,
+                  minutes = CASE WHEN $4::integer IS NULL THEN minutes
+                                 ELSE GREATEST(1, minutes - $4::integer) END
             WHERE org_id = $1 AND id = $2 AND approval_status = 'submitted'
-              AND ($4::integer IS NULL OR $4 <= minutes)
               AND ($4::integer IS NULL OR $4 > 0)
+              AND ($4::integer IS NULL OR $4 < minutes)
               AND NOT EXISTS (
                   SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = time_entries.id)
            RETURNING id, org_id, ticket_id, phase_id, user_id, started_at, ended_at, minutes, billable,
@@ -337,8 +357,8 @@ pub async fn fix(
                      approval_reason_code, created_at"#,
         org_id,
         entry_id,
-        description,
-        trim_to_minutes,
+        change.description,
+        change.trim_to_minutes,
     )
     .fetch_optional(&mut *tx)
     .await?
@@ -368,7 +388,7 @@ pub async fn fix(
         TimeApprovalAction::Fixed,
         actor_id,
         None,
-        note,
+        change.note.as_deref(),
         now,
     )
     .await?;
@@ -569,8 +589,11 @@ where
          te.timer_session_id, te.approval_status, te.approval_reason_code, te.created_at, \
          te.approval_submitted_by, te.approval_submitted_at, \
          te.approval_decided_by, te.approval_decided_at, \
-         EXISTS (SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = te.id) AS locked \
+         EXISTS (SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = te.id) AS locked, \
+         t.number AS ticket_number, t.title AS ticket_title, c.name AS client_name \
        FROM time_entries te \
+       LEFT JOIN tickets t ON t.id = te.ticket_id \
+       LEFT JOIN clients c ON c.id = t.client_id \
        WHERE te.org_id = $1 \
          AND ($2::text IS NULL OR te.approval_status = $2) \
          AND ($3::uuid IS NULL OR te.user_id = $3) \
@@ -595,9 +618,23 @@ where
             let decided_by: Option<Uuid> = row.get("approval_decided_by");
             let decided_at: Option<chrono::DateTime<chrono::Utc>> = row.get("approval_decided_at");
             let locked: bool = row.get("locked");
+            let ticket_number: Option<String> = row.get("ticket_number");
+            let ticket_title: Option<String> = row.get("ticket_title");
+            let client_name: Option<String> = row.get("client_name");
+            let ticket_id: Option<Uuid> = row.get("ticket_id");
             let entry = map_row(row);
+            let ticket = match (ticket_id, ticket_number, ticket_title) {
+                (Some(id), Some(number), Some(title)) => Some(core_domain::entities::TimeEntryTicketRef {
+                    id,
+                    number,
+                    title,
+                    client_name,
+                }),
+                _ => None,
+            };
             TimeEntryQueueItem {
                 entry,
+                ticket,
                 submitted_by,
                 submitted_at,
                 decided_by,

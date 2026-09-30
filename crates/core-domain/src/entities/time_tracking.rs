@@ -221,6 +221,27 @@ pub struct TimeEntryQueueItem {
     pub decided_at: Option<DateTime<Utc>>,
     /// True once the entry is consumed by an invoice — frozen forever.
     pub locked: bool,
+    /// The ticket's human number (`18366`) and title, so the queue can lead
+    /// with "#18366 Disable leaver accounts" instead of a uuid prefix. A
+    /// person reads a ticket number; they do not read an id. Absent for
+    /// project-scoped entries, which have no ticket at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ticket: Option<TimeEntryTicketRef>,
+}
+
+/// The ticket an entry bills through, named for a human reader.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TimeEntryTicketRef {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: TicketId,
+    pub number: String,
+    pub title: String,
+    /// The client the ticket belongs to, when it is known. `None` for a
+    /// ticket with no client yet — the row then shows no client rather than
+    /// an empty one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_name: Option<String>,
 }
 
 impl ApprovalStatus {

@@ -146,6 +146,8 @@ use utoipa::OpenApi;
         crate::routes::approvals::queue,
         crate::routes::approvals::history,
         crate::routes::approvals::reopen_entry,
+        // Wave 41 lane 8: the one-click verdict fix.
+        crate::routes::approvals::fix_entry,
         crate::routes::time::get_settings,
         crate::routes::time::put_settings,
         crate::routes::time::my_gaps,

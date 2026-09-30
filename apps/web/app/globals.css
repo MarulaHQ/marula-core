@@ -542,6 +542,24 @@ body {
 
 /* Row states: a gold tint and a 3px gold bar when selected, a focus ring on
    the row under the keyboard cursor. */
+/* Cells collapse their min-content, so the browser honours the pack's declared
+   widths instead of letting one long free-text cell push the table past its
+   card and clip its own last column. Scoped to the money block: a global
+   `td { overflow: hidden }` would clip every table in the app. */
+.m-money-scroll td {
+  overflow: hidden;
+}
+
+/* Fixed layout, or the free-text column's min-content sets the table's width:
+   the browser honours the declared widths, and long text ellipsises instead of
+   pushing the table past its card. Percentages, because `fr` is auto-layout
+   only. Scoped to the queue's scroll area — the shared `.m-table` stays auto
+   for every other surface. */
+.m-money-scroll table {
+  table-layout: fixed;
+  width: 100%;
+}
+
 .m-money-row-selected > td {
   background: var(--m-accent);
   box-shadow: inset 3px 0 0 var(--m-gold);
@@ -559,7 +577,11 @@ body {
 .m-money-verdict {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 6px 8px;
+  /* Wraps: a mark plus its fix button that cannot wrap sets the table's
+     min-content width, and the last column then pushes the table past its
+     container and clips its own button. */
+  flex-wrap: wrap;
   min-width: 0;
 }
 .m-money-mark {
@@ -676,7 +698,9 @@ body {
   border-top: none;
 }
 .m-money-act .m-money-act-tm {
-  width: 52px;
+  /* Wide enough for an ISO date (2026-08-31) on one line — the first render
+     wrapped it to two and made the card look broken. */
+  width: 78px;
   flex-shrink: 0;
   color: var(--m-text-secondary);
   font-variant-numeric: tabular-nums;

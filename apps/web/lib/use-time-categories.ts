@@ -89,6 +89,22 @@ export function suggestCategorySlug(
   return undefined;
 }
 
+/** The one action that clears a verdict, with the value it applies. The
+ *  server sends it so the button can never apply a different fix than the one
+ *  the verdict meant. */
+export interface BillingVerdictFix {
+  kind: "use_suggestion" | "trim_minutes" | "ask";
+  label: string;
+  suggested_description?: string | null;
+  trim_minutes?: number | null;
+}
+
+export interface BillingVerdict {
+  kind: "vague_description" | "overlaps" | "longer_than_usual";
+  label: string;
+  fix?: BillingVerdictFix | null;
+}
+
 export interface BillingSuggestion {
   chip: string;
   label: string;
@@ -96,6 +112,8 @@ export interface BillingSuggestion {
   state?: string | null;
   mode: string;
   recordedAt: string;
+  /** The server's mechanical verdicts (Wave 41 lane 8). Empty when clean. */
+  verdicts?: BillingVerdict[] | null;
 }
 
 /** The audit endpoint takes at most this many ids per request. */
@@ -138,6 +156,19 @@ export function useBillingSuggestions(entryIds: string[]) {
               state: sg.state ?? null,
               mode: sg.mode,
               recordedAt: sg.recorded_at,
+              verdicts: (sg.verdicts ?? []).map((v) => ({
+                kind: v.kind,
+                label: v.label,
+                fix:
+                  v.fix === undefined || v.fix === null
+                    ? null
+                    : {
+                        kind: v.fix.kind,
+                        label: v.fix.label,
+                        suggested_description: v.fix.suggested_description ?? null,
+                        trim_minutes: v.fix.trim_minutes ?? null,
+                      },
+              })),
             }));
           }
         }

@@ -128,8 +128,12 @@ pub struct VerdictInput<'a> {
     pub notes: Option<&'a str>,
     /// The entry's duration in minutes.
     pub minutes: i64,
-    /// The ticket's human number (`#18355`) when the entry is ticket-scoped.
+    /// The ticket's human number when the entry is ticket-scoped — the
+    /// overlap label names the other entry by it.
     pub ticket_number: Option<&'a str>,
+    /// The ticket's title, when ticket-scoped. This, not the number, is what
+    /// a suggested description is built from: a number is not a sentence.
+    pub ticket_title: Option<&'a str>,
     /// The work type's label, for a factual suggested description.
     pub work_type_label: Option<&'a str>,
     /// The same person's other entries, already narrowed to the ones this one
@@ -217,10 +221,15 @@ pub fn verdicts_for(input: &VerdictInput<'_>) -> Vec<TimeVerdict> {
 
     if input.overlap_minutes > 0 {
         let trim = input.overlap_minutes.min(input.minutes).max(0) as i32;
-        let other = input.overlap_with_ticket_number.unwrap_or("another entry");
+        let other = input
+            .overlap_with_ticket_number
+            .map(|n| format!("#{n}"))
+            .unwrap_or_else(|| "another entry".to_string());
         out.push(TimeVerdict {
             kind: TimeVerdictKind::Overlaps,
-            label: format!("Overlaps {other} by {}", hms(input.overlap_minutes)),
+            // The pack's own copy: minutes, not a duration. "by 30 min"
+            // reads as an amount to cut; "by 0:30" reads as a clock time.
+            label: format!("Overlaps {other} by {} min", input.overlap_minutes),
             fix: (trim > 0).then(|| TimeVerdictFix {
                 kind: TimeVerdictFixKind::TrimMinutes,
                 label: format!("Trim {}m", trim),
@@ -234,7 +243,7 @@ pub fn verdicts_for(input: &VerdictInput<'_>) -> Vec<TimeVerdict> {
         out.push(TimeVerdict {
             kind: TimeVerdictKind::VagueDescription,
             label: "Vague description".to_string(),
-            fix: suggested_description(input.ticket_number, input.work_type_label).map(|text| {
+            fix: suggested_description(input.ticket_title, input.work_type_label).map(|text| {
                 TimeVerdictFix {
                     kind: TimeVerdictFixKind::UseSuggestion,
                     label: "Use suggestion".to_string(),
@@ -320,15 +329,16 @@ mod tests {
         let out = verdicts_for(&VerdictInput {
             notes: Some("Replaced the failed drive and confirmed the rebuild."),
             minutes: 120,
-            ticket_number: Some("#18355"),
+            ticket_number: Some("18355"),
+            ticket_title: Some("Router swap"),
             work_type_label: Some("On-site"),
             peer_minutes: &[45, 60, 60],
-            overlap_with_ticket_number: Some("#18355"),
+            overlap_with_ticket_number: Some("18355"),
             overlap_minutes: 30,
         });
         assert_eq!(out.len(), 1, "one verdict, and it is the overlap: {out:?}");
         assert_eq!(out[0].kind, TimeVerdictKind::Overlaps);
-        assert_eq!(out[0].label, "Overlaps #18355 by 0:30");
+        assert_eq!(out[0].label, "Overlaps #18355 by 30 min");
         let fix = out[0].fix.as_ref().expect("a trim is offered");
         assert_eq!(fix.kind, TimeVerdictFixKind::TrimMinutes);
         assert_eq!(fix.trim_minutes, Some(30));
@@ -340,7 +350,8 @@ mod tests {
         let out = verdicts_for(&VerdictInput {
             notes: Some("Onsite"),
             minutes: 60,
-            ticket_number: Some("Printer not printing"),
+            ticket_number: Some("18310"),
+            ticket_title: Some("Printer not printing"),
             work_type_label: Some("On-site"),
             peer_minutes: &[],
             overlap_with_ticket_number: None,
@@ -364,6 +375,7 @@ mod tests {
             notes: None,
             minutes: 60,
             ticket_number: None,
+            ticket_title: None,
             work_type_label: None,
             peer_minutes: &[],
             overlap_with_ticket_number: None,
@@ -378,7 +390,8 @@ mod tests {
         let out = verdicts_for(&VerdictInput {
             notes: Some("Replaced the failed drive and confirmed the array rebuilt."),
             minutes: 180,
-            ticket_number: Some("#18355"),
+            ticket_number: Some("18355"),
+            ticket_title: Some("Router swap"),
             work_type_label: Some("On-site"),
             peer_minutes: &[30, 30, 45, 60],
             overlap_with_ticket_number: None,
@@ -398,7 +411,8 @@ mod tests {
         let out = verdicts_for(&VerdictInput {
             notes: Some("Replaced the failed drive and confirmed the array rebuilt."),
             minutes: 60,
-            ticket_number: Some("#18355"),
+            ticket_number: Some("18355"),
+            ticket_title: Some("Router swap"),
             work_type_label: Some("On-site"),
             peer_minutes: &[45, 60, 90],
             overlap_with_ticket_number: None,

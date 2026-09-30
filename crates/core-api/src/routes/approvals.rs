@@ -82,9 +82,11 @@ pub struct FixEntryRequest {
     /// The description to write. The server will only take text the approver
     /// saw: the factual suggestion it offered for this entry.
     pub description: Option<String>,
-    /// The entry's NEW total minutes, not a delta. Only ever lower than what
-    /// the entry holds — an approver tidies a double-claim, and raising a
-    /// billable value is not theirs to do from a queue.
+    /// Whole minutes to take off the END of the entry's window, not a new
+    /// total and not a delta on the duration. An overlap is a fact about when
+    /// the work happened, so the fix shortens the window and the duration
+    /// follows it. A trim only ever shortens: lengthening what a client is
+    /// billed is not an approver's call from a queue.
     pub minutes: Option<i32>,
     /// Free-text context recorded on the decision trail.
     pub note: Option<String>,
@@ -546,18 +548,13 @@ pub async fn fix_entry(
                 "an entry's minutes cannot be trimmed to zero — reject it with a reason instead".into(),
             ));
         }
-        if description.is_none() && minutes as i64 > 0 && minutes as i64 > 24 * 60 * 7 {
-            return Err(ApiError::Validation(
-                "that is not a trim; an approver lowers an entry's minutes, never rewrites them"
-                    .into(),
-            ));
-        }
+
     }
 
     let note = req.note.clone();
     let before = req.instant.clone();
     let response = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let existing = core_db::timers::get_time_entry(&mut ctx.tx, org_id, entry_id)
+        let existing = core_db::timers::get_time_entry(&mut *ctx.tx, org_id, entry_id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
         if let Some(minutes) = minutes {
@@ -586,9 +583,11 @@ pub async fn fix_entry(
             org_id,
             entry_id,
             user_id,
-            description,
-            minutes,
-            Some(&trail_note),
+            &core_db::approvals::EntryFix {
+                description,
+                trim_to_minutes: minutes,
+                note: Some(&trail_note),
+            },
             now,
         )
         .await

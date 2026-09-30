@@ -289,14 +289,16 @@ export default function CatalogPage(): ReactNode {
     }
   }
 
+  // With the other hooks, ABOVE the early returns: a hook after a `return` is
+  // a conditional hook, and React only tells you about it in production.
+  const prefs = useDataSurfacePrefs();
+
   if (items === null && loadError === null) {
     return <Spinner />;
   }
   if (loadError !== null) {
     return <EmptyState message={loadError} />;
   }
-
-  const prefs = useDataSurfacePrefs();
 
   return (
     <div className="m-money-page mx-auto w-full max-w-[1400px] p-4 md:p-6">

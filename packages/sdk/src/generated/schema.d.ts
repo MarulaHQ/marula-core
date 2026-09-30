@@ -11842,6 +11842,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/time-entries/{id}/fix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/time-entries/:id/fix — apply one verdict's fix to a queued
+         *     entry (`special:approve_time`).
+         * @description This is the server side of the queue's one-click fix: adopt the factual
+         *     description the server assembled from the ticket, or cut the minutes that
+         *     another entry of the same person already claimed. The entry stays in the
+         *     queue afterwards — the approver still presses Approve, because a fix clears
+         *     an objection and it does not sign anybody's time off.
+         */
+        post: operations["time_entry_fix"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/time-entries/{id}/reopen": {
         parameters: {
             query?: never;
@@ -18317,6 +18342,13 @@ export interface components {
             recorded_at: string;
             /** @description `act` | `pending` | `ignore` — threshold gate at read time. */
             state?: string | null;
+            /**
+             * @description The server's mechanical verdicts for this entry (Wave 41 lane 8), each
+             *     with the one action that clears it. Empty means clean — and empty for
+             *     an entry that is not visible in scope either, because RLS proves
+             *     visibility by absence, never by an error.
+             */
+            verdicts?: components["schemas"]["TimeVerdict"][];
         };
         EntrySuggestionsResponse: {
             /** Format: uuid */
@@ -18801,6 +18833,36 @@ export interface components {
             int: number;
         } | {
             bool: boolean;
+        };
+        /**
+         * @description POST /api/time-entries/:id/fix — an approver applies one verdict's fix
+         *     to an entry that is still in the queue. At least one of `description` /
+         *     `minutes` is required; the entry stays `submitted` afterwards, because
+         *     clearing the objection is not approving it.
+         */
+        FixEntryRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description The description to write. The server will only take text the approver
+             *     saw: the factual suggestion it offered for this entry.
+             */
+            description?: string | null;
+            /**
+             * Format: int32
+             * @description The entry's NEW total minutes, not a delta. Only ever lower than what
+             *     the entry holds — an approver tidies a double-claim, and raising a
+             *     billable value is not theirs to do from a queue.
+             */
+            minutes?: number | null;
+            /** @description Free-text context recorded on the decision trail. */
+            note?: string | null;
+        };
+        /**
+         * @description Instant-first mutation response (IF2): the entry as it now reads, plus the
+         *     undo substrate. The client reconciles from the snapshot and never has to
+         *     guess what the server did to the minutes.
+         */
+        FixEntryResponse: components["schemas"]["TimeEntry"] & {
+            mutation: components["schemas"]["MutationMeta"];
         };
         ForkReplySnippetRequest: components["schemas"]["MutationParams"] & {
             name: string;
@@ -26894,7 +26956,7 @@ export interface components {
          *     recorded past, not the requested transition).
          * @enum {string}
          */
-        TimeApprovalAction: "submitted" | "approved" | "rejected" | "reopened";
+        TimeApprovalAction: "submitted" | "approved" | "rejected" | "reopened" | "fixed";
         /**
          * @description An org's semantic time category (Wave 39 V4). Entries key their
          *     `work_type` column onto `slug`; the T&M rate card keys
@@ -27136,6 +27198,50 @@ export interface components {
              */
             time_gap_min_minutes: number;
         };
+        /** @description One verdict: what is odd, said in words, plus the fix beside it. */
+        TimeVerdict: {
+            fix?: null | components["schemas"]["TimeVerdictFix"];
+            kind: components["schemas"]["TimeVerdictKind"];
+            /**
+             * @description The mark's words, typed and short: "Vague description",
+             *     "Overlaps #18355 by 30 min", "Longer than usual, 2:00 vs 0:45".
+             */
+            label: string;
+        };
+        /**
+         * @description A remedy, carrying the value it applies so the client never has to
+         *     recompute it (and cannot apply a different one than the server meant).
+         */
+        TimeVerdictFix: {
+            kind: components["schemas"]["TimeVerdictFixKind"];
+            /**
+             * @description Button text, in the pack's voice: "Use suggestion", "Trim 30m",
+             *     "Ask the tech".
+             */
+            label: string;
+            /**
+             * @description Set for [`TimeVerdictFixKind::UseSuggestion`]: the exact description
+             *     to write. Assembled from the ticket title and the work type.
+             */
+            suggested_description?: string | null;
+            /**
+             * Format: int32
+             * @description Set for [`TimeVerdictFixKind::TrimMinutes`]: whole minutes to cut,
+             *     always positive and never more than the entry holds.
+             */
+            trim_minutes?: number | null;
+        };
+        /**
+         * @description The one action that clears a verdict.
+         * @enum {string}
+         */
+        TimeVerdictFixKind: "use_suggestion" | "trim_minutes" | "ask";
+        /**
+         * @description What is wrong with an entry. A closed set: an open string here would put
+         *     model prose on a money surface, which is exactly what the pack forbids.
+         * @enum {string}
+         */
+        TimeVerdictKind: "vague_description" | "overlaps" | "longer_than_usual";
         /**
          * @description Instant-first mutation response (IF2): session fields at the top level
          *     (unchanged shape) plus the additive `mutation` metadata.
@@ -52194,6 +52300,52 @@ export interface operations {
             };
             /** @description entry not visible in scope (rls_sparse) */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    time_entry_fix: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FixEntryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FixEntryResponse"];
+                };
+            };
+            /** @description entry not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description entry locked by invoicing (time_entry_locked) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description entry not in the queue, or the fix is not allowed */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

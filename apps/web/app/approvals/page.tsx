@@ -57,6 +57,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, useRequireAuth } from "../../lib/api";
+import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
 import { downloadRowsCsv } from "../../lib/csv-download";
 import { friendlyMutationText, resultErrorText } from "../../lib/error-copy";
@@ -101,6 +102,13 @@ type QueueItem = {
   decided_by: string | null;
   decided_at: string | null;
   locked: boolean;
+  /** The ticket named for a human reader; absent for project-scoped work. */
+  ticket?: {
+    id: string;
+    number: string;
+    title: string;
+    client_name?: string | null;
+  } | null;
 };
 
 /** The pack's exact refusal copy (pack §5): named, never a silent guess. */
@@ -131,6 +139,24 @@ function fmtWhen(iso: string | null | undefined): string {
   });
 }
 
+/** "Today" / "Yesterday" / "Mon 28 Sep" — the pack's day label. A queue is
+ *  read as "today's work", so spelling the date out wastes the column. */
+function dayLabel(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  const today = new Date();
+  const startOf = (d: Date): number =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(today) - startOf(date)) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return date.toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
 function clockTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleTimeString(undefined, {
@@ -156,18 +182,42 @@ interface ColumnDef {
   label: string;
   /** A column a user cannot turn off: the row's identity. */
   required?: boolean;
+  /** The pack's width for this column (`minmax(230px, 1.25fr)` and friends).
+   *  Without them the browser distributes the table by content and the ticket
+   *  and date cells wrap to three and five lines — which is what the first
+   *  render showed. A data table's proportions are design, not arithmetic. */
+  width: string;
 }
 
 const COLUMNS: readonly ColumnDef[] = [
-  { key: "person", label: "Person", required: true },
-  { key: "ticket", label: "Ticket and client" },
-  { key: "when", label: "When" },
-  { key: "time", label: "Time" },
-  { key: "billable", label: "Billable" },
-  { key: "note", label: "What they wrote" },
+  // Percentages, not the pack's px: the pane takes 420px of this canvas, so
+  // the pack's px floors exceed what is left and the table ran 1167px inside a
+  // 914px card, clipping its own last column. The ratios are the pack's; the
+  // units have to survive a narrower card. Requires the fixed layout in
+  // `globals.css` (`.m-money-scroll table`), since `fr` is auto-only.
+  { key: "person", label: "Person", required: true, width: "15%" },
+  { key: "ticket", label: "Ticket and client", width: "25%" },
+  { key: "when", label: "When", width: "7%" },
+  { key: "time", label: "Time", width: "6%" },
+  { key: "billable", label: "Billable", width: "10%" },
+  { key: "note", label: "What they wrote", width: "33%" },
 ];
 
 type ColumnKey = string;
+
+/** What a row's mark says, and the one action that clears it. `fix` is the
+ *  server's payload verbatim, so the button can only ever apply the remedy the
+ *  verdict meant. */
+interface RowVerdict {
+  label: string;
+  fix: {
+    kind: "use_suggestion" | "trim_minutes" | "ask";
+    label: string;
+    suggested_description?: string | null;
+    trim_minutes?: number | null;
+  } | null;
+  chip: string;
+}
 
 const FILTER_FIELDS = [
   { key: "person", label: "Person" },
@@ -210,7 +260,13 @@ export default function ApprovalsPage() {
   const [columns, setColumns] = useState(() =>
     COLUMNS.map((c) => {
       const stored = savedColumns.find((s) => s.key === c.key);
-      return { key: c.key as string, label: c.label, visible: stored?.visible ?? true, required: c.required };
+      return {
+        key: c.key as string,
+        label: c.label,
+        visible: stored?.visible ?? true,
+        required: c.required,
+        width: c.width,
+      };
     }),
   );
   const [order, setOrder] = useState<ColumnKey[]>(() => {
@@ -228,6 +284,7 @@ export default function ApprovalsPage() {
           label: c.label,
           visible: stored?.visible ?? true,
           required: c.required,
+          width: c.width,
         };
       }),
     );
@@ -248,12 +305,12 @@ export default function ApprovalsPage() {
           label: def.label,
           visible: incoming?.visible ?? true,
           required: def.required,
-          width: incoming?.width,
+          width: def.width,
         };
       }).filter((c) => next.some((n) => n.key === c.key));
       setColumns(merged);
       void prefs.save("approvals", {
-        columns: merged.map((c) => ({ key: c.key, visible: c.visible, width: c.width })),
+        columns: merged.map((c) => ({ key: c.key, visible: c.visible })),
         filters: clauses,
       });
     },
@@ -328,23 +385,39 @@ export default function ApprovalsPage() {
   const loadedIds = useMemo(() => (items ?? []).map((it) => it.entry.id), [items]);
   const suggestions = useBillingSuggestions(isApprover ? loadedIds : []);
 
-  /** The audit's answer for one entry, when it disagrees with the entry. A
-   *  mark is for something ODD; an audit that agrees with the tech says
-   *  nothing, which is what makes the clean strip worth having. */
+  /**
+   * The mark for one row, and the one action that clears it.
+   *
+   * The server's mechanical verdicts come first — an overlap or a two-word
+   * description is arithmetic, and it carries the exact remedy to apply. The
+   * model's billable disagreement is the fallback: it has no fix of its own,
+   * so it gets the one action that always works on it (ask the person).
+   */
   const verdictFor = useCallback(
-    (entry: Entry): { label: string; chip: string } | null => {
+    (entry: Entry): RowVerdict | null => {
       const chip = suggestions[entry.id]?.[0];
       if (chip === undefined) return null;
+      const verdict = chip.verdicts?.find((v) => v.fix !== null && v.fix !== undefined) ??
+        chip.verdicts?.[0];
+      if (verdict !== undefined) {
+        return {
+          label: verdict.label,
+          fix: verdict.fix ?? null,
+          chip: chip.chip,
+        };
+      }
       const disagrees =
         (chip.chip === "billable_false" && entry.billable) ||
         (chip.chip === "billable_true" && !entry.billable);
       if (!disagrees) return null;
-      return { label: chip.label, chip: chip.chip };
+      return { label: chip.label, fix: null, chip: chip.chip };
     },
     [suggestions],
   );
 
-  /** No answers at all IS the unconfigured surface: visibly absent. */
+  /** No answers at all IS the unconfigured surface: visibly absent. The
+   *  mechanical verdicts count, so an org without the audit surface still
+   *  gets the overlap and the description check. */
   const auditActive = Object.keys(suggestions).length > 0;
   const flaggedIds = useMemo(() => {
     const set = new Set<string>();
@@ -433,6 +506,9 @@ export default function ApprovalsPage() {
     () => filtered.find((it) => it.entry.id === cursorId) ?? filtered[0] ?? null,
     [filtered, cursorId],
   );
+  /** The cursor's own fix, so the pane's button applies the same remedy the
+   *  row's button would. */
+  const cursorFix = cursor === null ? null : (verdictFor(cursor.entry)?.fix ?? null);
 
   // ---- decisions --------------------------------------------------------
   function toggleSelect(id: string) {
@@ -522,9 +598,82 @@ export default function ApprovalsPage() {
     }
   }
 
+  /**
+   * Apply the row's fix: adopt the server's factual description, or cut the
+   * minutes that another entry already claimed.
+   *
+   * The entry stays in the queue — this clears the objection, it does not sign
+   * the time off, and the human still presses Approve. The write carries the
+   * instant-first envelope (an idempotency key per click) and the row updates
+   * from the server's own snapshot, so what the reader sees afterwards is what
+   * was stored rather than what we hoped for.
+   */
+  async function applyFix(entry: Entry, fix: NonNullable<RowVerdict["fix"]>) {
+    // Narrowed up front so the optimistic write and the request body cannot
+    // drift: a trim only ever sends the entry's NEW total, never a delta.
+    const nextDescription: string | undefined =
+      fix.kind === "use_suggestion" && fix.suggested_description != null
+        ? fix.suggested_description
+        : undefined;
+    const nextMinutes: number | undefined =
+      fix.kind === "trim_minutes" && fix.trim_minutes != null
+        ? entry.minutes - fix.trim_minutes
+        : undefined;
+    if (nextDescription === undefined && nextMinutes === undefined) {
+      askTech(entry);
+      return;
+    }
+    const payload: components["schemas"]["FixEntryRequest"] = {
+      idempotency_key: `fix-${entry.id}-${fix.kind}-${Date.now()}`,
+      ...(nextDescription !== undefined ? { description: nextDescription } : {}),
+      ...(nextMinutes !== undefined ? { minutes: nextMinutes } : {}),
+    };
+    setBusy(true);
+    const result = await runEnvelopeMutation<
+      components["schemas"]["FixEntryRequest"],
+      components["schemas"]["FixEntryResponse"]
+    >({
+      describe: "Apply the fix",
+      entityId: entry.id,
+      optimistic: () =>
+        setItems((prev) =>
+          prev?.map((it) =>
+            it.entry.id === entry.id
+              ? {
+                  ...it,
+                  entry: {
+                    ...it.entry,
+                    ...(nextDescription !== undefined ? { notes: nextDescription } : {}),
+                    ...(nextMinutes !== undefined ? { minutes: nextMinutes } : {}),
+                  },
+                }
+              : it,
+          ) ?? prev,
+        ),
+      revert: () => void reload(),
+      buildBody: () => payload,
+      request: (client, body) =>
+        client.POST("/api/v1/time-entries/{id}/fix", {
+          params: { path: { id: entry.id } },
+          body,
+        }),
+      versions: (response) => [[response.id, response.mutation.version]],
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setError(
+        result.reason === "time_entry_locked"
+          ? "That entry is already on an invoice — nothing left to fix."
+          : friendlyMutationText(result, "The fix was not applied."),
+      );
+      return;
+    }
+    await reload();
+  }
+
   /** Send one entry back with the reason the audit implies. The one-click fix
-   *  the pack draws — and a real decision, not an edit: a person still makes
-   *  every change, and the tech is told what to fix. */
+   *  for what has no mechanical remedy — and a real decision, not an edit: a
+   *  person still makes every change, and the tech is told what to fix. */
   function askTech(entry: Entry) {
     const verdict = verdictFor(entry);
     const reason = verdict?.chip === "billable_true" ? "non_billable_work" : "missing_notes";
@@ -918,7 +1067,7 @@ export default function ApprovalsPage() {
                 <thead>
                   <tr>
                     {isApprover && tab === "queue" ? (
-                      <Th style={{ width: 44 }} sortable={false} resizable={false}>
+                      <Th style={{ width: "4%" }} sortable={false} resizable={false}>
                         <input
                           type="checkbox"
                           aria-label="Select all"
@@ -940,15 +1089,14 @@ export default function ApprovalsPage() {
                       </Th>
                     ) : null}
                     {visibleColumns.map((column) => (
-                      <Th key={column.key} columnKey={column.key}>
+                      <Th
+                        key={column.key}
+                        columnKey={column.key}
+                        style={{ width: column.width, whiteSpace: "nowrap" }}
+                      >
                         {column.label}
                       </Th>
                     ))}
-                    {/* The row's decisions are not a preference, so the
-                        chooser cannot hide this column — and the header still
-                        names it, because a table's column count and its
-                        headers have to agree. */}
-                    <Th className="sr-only">Decide</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -980,6 +1128,7 @@ export default function ApprovalsPage() {
                         setRejectError(null);
                       }}
                       onAskTech={() => askTech(it.entry)}
+                      onApplyFix={(fix) => void applyFix(it.entry, fix)}
                       onReopen={() => void reopen(it.entry.id)}
                       onHistory={() => void loadHistory(it.entry.id)}
                     />
@@ -1014,6 +1163,11 @@ export default function ApprovalsPage() {
                 }
           }
           onAskTech={cursor === null ? undefined : () => askTech(cursor.entry)}
+          onApplyFix={
+            cursor === null || cursorFix === null
+              ? undefined
+              : (fix) => void applyFix(cursor.entry, fix)
+          }
           onHistory={
             cursor === null ? undefined : () => void loadHistory(cursor.entry.id)
           }
@@ -1136,6 +1290,7 @@ function QueueRow({
   onApprove,
   onReject,
   onAskTech,
+  onApplyFix,
   onReopen,
   onHistory,
 }: {
@@ -1146,7 +1301,7 @@ function QueueRow({
   meId: string;
   personName: string;
   categoryLabel: (slug: string) => string;
-  verdict: { label: string; chip: string } | null;
+  verdict: RowVerdict | null;
   flag?: string;
   selected: boolean;
   current: boolean;
@@ -1158,6 +1313,7 @@ function QueueRow({
   onApprove: () => void;
   onReject: () => void;
   onAskTech: () => void;
+  onApplyFix: (fix: NonNullable<RowVerdict["fix"]>) => void;
   onReopen: () => void;
   onHistory: () => void;
 }) {
@@ -1177,15 +1333,60 @@ function QueueRow({
         return (
           <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <MoneyAvatar initials={initialsOf(personName)} own={ownEntry} />
-            <span style={{ fontWeight: 500 }}>{personName}</span>
+            <span
+              title={personName}
+              style={{
+                fontWeight: 500,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {personName}
+            </span>
           </span>
         );
       case "ticket":
         return (
-          <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.3 }}>
-            <b>ticket {e.ticket_id?.slice(0, 8)}…</b>
-            <span style={{ color: "var(--m-text-secondary)", fontSize: 12 }}>
-              {e.work_type !== undefined && e.work_type !== null ? categoryLabel(e.work_type) : "Uncategorized"}
+          <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.3, minWidth: 0 }}>
+            {/* "#18366 Disable leaver accounts" — a ticket number a person can
+                read and quote. The uuid prefix is the fallback for an entry
+                whose ticket the queue could not name, never the first choice. */}
+            <b
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={item.ticket === null || item.ticket === undefined ? undefined : item.ticket.title}
+            >
+              {item.ticket === null || item.ticket === undefined ? (
+                <>ticket {e.ticket_id?.slice(0, 8)}…</>
+              ) : (
+                <>
+                  <Link
+                    href={`/tickets/${item.ticket.id}`}
+                    style={{ color: "var(--m-text)", textDecoration: "none" }}
+                  >
+                    #{item.ticket.number}
+                  </Link>{" "}
+                  {item.ticket.title}
+                </>
+              )}
+            </b>
+            <span
+              style={{
+                color: "var(--m-text-secondary)",
+                fontSize: 12,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {item.ticket?.client_name ?? "—"}
+              {e.work_type !== undefined && e.work_type !== null
+                ? ` · ${categoryLabel(e.work_type)}`
+                : ""}
               {ownEntry ? (
                 <Link
                   href={`/dispatch/travel?ticket_id=${e.ticket_id}`}
@@ -1200,10 +1401,18 @@ function QueueRow({
         );
       case "when":
         return (
-          <span style={{ color: "var(--m-text-secondary)" }}>
-            {fmtWhen(e.started_at)}
-            <br />
-            <span style={{ fontSize: 12 }}>{clockTime(e.ended_at)}</span>
+          // The pack's two lines: the day, then when it started. One wrapped
+          // "Sep 30, 08:15 AM" is five lines of nothing in a 72px column.
+          <span
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              color: "var(--m-text-secondary)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span>{dayLabel(e.started_at)}</span>
+            <span style={{ fontSize: 12 }}>{clockTime(e.started_at)}</span>
           </span>
         );
       case "time":
@@ -1225,15 +1434,37 @@ function QueueRow({
         );
       case "note":
         return (
-          <span style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 2 }}>
-            <span title={e.notes ?? undefined} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              gap: 2,
+              minWidth: 0,
+              width: "100%",
+            }}
+          >
+            <span
+              title={e.notes ?? undefined}
+              style={{
+                display: "block",
+                width: "100%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
               {e.notes ?? <span style={{ color: "var(--m-text-muted)" }}>Nothing written</span>}
             </span>
             {verdict !== null ? (
               <VerdictMark
                 label={verdict.label}
-                fix="Ask the tech"
-                onFix={onAskTech}
+                fix={verdict.fix === null ? "Ask the tech" : verdict.fix.label}
+                onFix={
+                  verdict.fix === null || verdict.fix.kind === "ask"
+                    ? onAskTech
+                    : () => void onApplyFix(verdict.fix as NonNullable<RowVerdict["fix"]>)
+                }
                 testId={`approval-audit-${e.id}`}
               />
             ) : null}
@@ -1252,7 +1483,7 @@ function QueueRow({
       aria-current={current ? "true" : undefined}
     >
       {inQueueTab ? (
-        <Td style={{ width: 44 }}>
+        <Td style={{ width: "4%" }}>
           <input
             type="checkbox"
             checked={selected}
@@ -1265,60 +1496,86 @@ function QueueRow({
         </Td>
       ) : null}
       {visibleColumns.map((key) => (
-        <Td key={key} data-column={key}>
+        <Td key={key} data-column={key} style={{ minWidth: 0 }}>
           {cell(key)}
+          {key === "note" ? (
+            /* The row's own decisions, its refusal and its trail, riding at
+               the end of the last cell beside the fix button the pack already
+               puts there. A column of their own pushed the table past its
+               container and tripled every row's height. */
+            <div
+              onClick={(ev) => ev.stopPropagation()}
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                gap: "6px 10px",
+                marginTop: 4,
+              }}
+            >
+              {inQueueTab ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={busy || ownEntry}
+                    onClick={onApprove}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={busy || ownEntry}
+                    onClick={onReject}
+                  >
+                    Reject…
+                  </Button>
+                </>
+              ) : null}
+              {tab === "rejected" && ownEntry && !item.locked ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={onReopen}
+                  data-testid={`reopen-${e.id}`}
+                >
+                  Reopen to draft
+                </Button>
+              ) : null}
+              <Button size="sm" variant="ghost" onClick={onHistory} data-testid={`history-${e.id}`}>
+                {historyOpen ? "Hide trail" : "Trail"}
+              </Button>
+              {item.locked ? <Tag tone="neutral">Locked — invoiced</Tag> : null}
+              <span style={{ flex: 1 }} />
+              {flag !== undefined ? (
+                <span role="status" style={{ color: "var(--m-status-warning-fg)", fontSize: 12 }}>
+                  {flag}
+                </span>
+              ) : null}
+              {e.approval_reason_code && REJECTION_REASON_CODES.has(e.approval_reason_code) ? (
+                <span role="alert" style={{ color: "var(--m-status-danger-fg)", fontSize: 12 }}>
+                  Rejected — {rejectReasonLabel(e.approval_reason_code)}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {key === "note" && historyOpen ? (
+            <div
+              className="grid gap-1 py-1 text-[12px]"
+              style={{ color: "var(--m-text-secondary)" }}
+              data-testid={`trail-${e.id}`}
+            >
+              {trail.length === 0 ? (
+                <span style={{ color: "var(--m-text-muted)" }}>No recorded decisions yet.</span>
+              ) : (
+                trail.map((line) => <span key={line}>{line}</span>)
+              )}
+            </div>
+          ) : null}
         </Td>
       ))}
-      {/* The row's own decisions, its refusal and its trail. The pack keeps the
-          queue a pure list and puts the decision in the pane; the app still
-          needs a per-row route to it, so it is the last cell and never a
-          column the chooser can hide — a decision is not a preference. */}
-      <Td onClick={(ev) => ev.stopPropagation()}>
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
-          {inQueueTab ? (
-            <>
-              <Button variant="secondary" disabled={busy || ownEntry} onClick={onApprove}>
-                Approve
-              </Button>
-              <Button variant="secondary" disabled={busy || ownEntry} onClick={onReject}>
-                Reject…
-              </Button>
-            </>
-          ) : null}
-          {tab === "rejected" && ownEntry && !item.locked ? (
-            <Button variant="secondary" disabled={busy} onClick={onReopen} data-testid={`reopen-${e.id}`}>
-              Reopen to draft
-            </Button>
-          ) : null}
-          <Button variant="ghost" onClick={onHistory} data-testid={`history-${e.id}`}>
-            {historyOpen ? "Hide trail" : "Trail"}
-          </Button>
-          {item.locked ? <Tag tone="neutral">Locked — invoiced</Tag> : null}
-          {flag !== undefined ? (
-            <span role="status" style={{ color: "var(--m-status-warning-fg)", fontSize: 12 }}>
-              {flag}
-            </span>
-          ) : null}
-          {e.approval_reason_code && REJECTION_REASON_CODES.has(e.approval_reason_code) ? (
-            <span role="alert" style={{ color: "var(--m-status-danger-fg)", fontSize: 12 }}>
-              Rejected — {rejectReasonLabel(e.approval_reason_code)}
-            </span>
-          ) : null}
-        </div>
-        {historyOpen ? (
-          <div
-            className="grid gap-1 py-1 text-[12px]"
-            style={{ color: "var(--m-text-secondary)" }}
-            data-testid={`trail-${e.id}`}
-          >
-            {trail.length === 0 ? (
-              <span style={{ color: "var(--m-text-muted)" }}>No recorded decisions yet.</span>
-            ) : (
-              trail.map((line) => <span key={line}>{line}</span>)
-            )}
-          </div>
-        ) : null}
-      </Td>
     </Tr>
   );
 }
@@ -1350,19 +1607,21 @@ function ContextPane({
   onApprove,
   onReject,
   onAskTech,
+  onApplyFix,
   onHistory,
 }: {
   item: QueueItem | null;
   meId: string;
   personName: string;
   categoryLabel: (slug: string) => string;
-  verdict: { label: string; chip: string } | null;
+  verdict: RowVerdict | null;
   records?: ApprovalRecord[];
   historyOpen: boolean;
   busy: boolean;
   onApprove?: () => void;
   onReject?: () => void;
   onAskTech?: () => void;
+  onApplyFix?: (fix: NonNullable<RowVerdict["fix"]>) => void;
   onHistory?: () => void;
 }) {
   if (item === null) {
@@ -1413,7 +1672,15 @@ function ContextPane({
         {verdict !== null ? (
           <div>
             <div className="m-money-lab">The audit says</div>
-            <VerdictMark label={verdict.label} fix="Ask the tech" onFix={onAskTech ?? undefined} />
+            <VerdictMark
+              label={verdict.label}
+              fix={verdict.fix === null ? "Ask the tech" : verdict.fix.label}
+              onFix={
+                verdict.fix === null || verdict.fix.kind === "ask"
+                  ? onAskTech
+                  : () => onApplyFix?.(verdict.fix as NonNullable<RowVerdict["fix"]>)
+              }
+            />
           </div>
         ) : null}
         {!e.billable ? (
@@ -1436,20 +1703,24 @@ function ContextPane({
           <div className="m-money-lab">The ticket</div>
           <div className="m-money-ticket">
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <b style={{ flex: 1 }}>
+              <b style={{ flex: 1, minWidth: 0 }}>
                 <Link
                   href={`/tickets/${e.ticket_id}`}
                   style={{ color: "var(--m-text)", textDecoration: "none" }}
                 >
-                  #{e.ticket_id?.slice(0, 8)}…
+                  {item.ticket === null || item.ticket === undefined
+                    ? `#${e.ticket_id?.slice(0, 8)}…`
+                    : `#${item.ticket.number} ${item.ticket.title}`}
                 </Link>
               </b>
               <Tag tone={statusTone(e.approval_status)}>{e.approval_status ?? "draft"}</Tag>
             </div>
             <MoneyKv label="Client">
-              <Link href={`/tickets/${e.ticket_id}`} style={{ color: "var(--m-accent-text)" }}>
-                open the ticket →
-              </Link>
+              {item.ticket?.client_name === null || item.ticket?.client_name === undefined ? (
+                <span style={{ color: "var(--m-text-muted)" }}>no client yet</span>
+              ) : (
+                item.ticket.client_name
+              )}
             </MoneyKv>
             {looksFine({
               own: ownEntry,
