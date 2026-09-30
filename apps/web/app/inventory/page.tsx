@@ -40,6 +40,22 @@ import type { FilterClause } from "@marula-core/ui";
 type CandidateView = components["schemas"]["CandidateView"];
 type CiMerge = components["schemas"]["CiMerge"];
 type ConfigItemView = components["schemas"]["ConfigItemView"];
+
+/**
+ * The identity keys that make one device one record, as `key: value` pairs.
+ *
+ * `identity_keys` is an OBJECT keyed by identity kind, not an array — casting it
+ * to `string[]` and calling `.join()` type-checked and then threw the moment a
+ * row rendered. The pack's Config-items view shows these pairs, which is also
+ * the only readable form: "okta:user-9f2" says which identity matched.
+ */
+function identityKeysText(keys: unknown): string {
+  if (keys == null || typeof keys !== "object") return "";
+  const entries = Object.entries(keys as Record<string, unknown>)
+    .filter(([, value]) => value != null && value !== "")
+    .map(([kind, value]) => `${kind}: ${String(value)}`);
+  return entries.join(", ");
+}
 type CiMergeStatus = components["schemas"]["CiMergeStatus"];
 
 const CONFIG_VIEWS = [
@@ -167,7 +183,7 @@ export default function InventoryPage(): ReactNode {
         q === "" ||
         i.name.toLowerCase().includes(q) ||
         i.tag.toLowerCase().includes(q) ||
-        (i.identity_keys as string[] | null ?? []).some((k) => k.toLowerCase().includes(q)),
+        identityKeysText(i.identity_keys).toLowerCase().includes(q),
     );
   }, [items, query]);
 
@@ -283,7 +299,7 @@ export default function InventoryPage(): ReactNode {
           item: item.name,
           tag: item.tag,
           status: item.status,
-          identity: ((item.identity_keys as string[] | null) ?? []).join(", "),
+          identity: identityKeysText(item.identity_keys),
         }[clause.field] ?? ""
       ).toLowerCase();
       const want = (clause.value ?? "").toLowerCase();
@@ -482,7 +498,7 @@ export default function InventoryPage(): ReactNode {
               item: item.name,
               tag: item.tag,
               status: item.status,
-              identity: ((item.identity_keys as string[] | null) ?? []).join(", "),
+              identity: identityKeysText(item.identity_keys),
               updated: item.updated_at,
             })),
           );
@@ -527,7 +543,7 @@ export default function InventoryPage(): ReactNode {
                 status: <ItemStatusMark status={item.status} testId={`inventory-status-${item.id}`} />,
                 identity: (
                   <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-                    {((item.identity_keys as string[] | null) ?? []).join(", ") || "—"}
+                    {identityKeysText(item.identity_keys) || "—"}
                   </span>
                 ),
                 updated: (

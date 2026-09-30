@@ -343,7 +343,6 @@ export default function StockLocationsPage(): ReactNode {
     }
   }
 
-  if (locations === null && loadError === null) return <Spinner />;
   if (loadError !== null) return <EmptyState message={loadError} />;
 
   const list = locations ?? [];
@@ -388,6 +387,11 @@ export default function StockLocationsPage(): ReactNode {
       return true;
     })
     .map((entry) => ({ ...entry, itemCount: itemCounts.get(entry.location.id) ?? 0 }));
+
+  // Every hook above runs on every render, so the loading guard belongs HERE,
+  // after them — putting it first made the hook count change between the
+  // loading render and the loaded one, which React rejects outright (#310).
+  if (locations === null && loadError === null) return <Spinner />;
 
   function cardActions(location: StockLocationView): ReactNode {
     return (
