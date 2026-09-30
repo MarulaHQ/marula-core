@@ -102,6 +102,12 @@ describe("DesktopUpdateStrip", () => {
     const installGate = new Promise<unknown>((_resolve, reject) => {
       rejectInstall = reject;
     });
+    // The strip is dismissed before rejectInstall fires, so nothing is attached
+    // to this promise at that moment and Node reports an unhandled rejection,
+    // which fails the whole run. A no-op catch marks it handled without
+    // changing what the component sees: its own chain still receives the
+    // rejection, which is what makes the failed state appear below.
+    installGate.catch(() => {});
     stubShell(async (cmd) => {
       if (cmd === "check_desktop_update") return UPDATE;
       return installGate;

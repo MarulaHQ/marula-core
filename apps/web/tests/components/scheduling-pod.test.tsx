@@ -43,7 +43,10 @@ const LINK_ACTIVE = {
   view_count: 2,
   scheduled_at: null,
   scheduled_appointment_id: null,
-  expires_at: "2026-09-30T00:00:00Z",
+  // Far future on purpose. derivedState checks expiry BEFORE the viewed
+  // branch, so a near date made this fixture time-dependent: the four tests
+  // below started failing the moment the clock passed it, with no code change.
+  expires_at: "2099-12-31T23:59:59Z",
   created_at: "2026-09-09T00:00:00Z",
   created_by: null,
 };

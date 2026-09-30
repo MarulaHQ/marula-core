@@ -221,7 +221,13 @@ describe("/approvals", () => {
     mount(<ApprovalsPage />);
     await screen.findByText("1h 30m");
     fireEvent.click(screen.getByTestId(`history-${E1}`));
-    expect(await screen.findByTestId(`trail-${E1}`)).toHaveTextContent("Rejected");
+    // waitFor, not findByTestId: the trail element mounts immediately with its
+    // empty state, and only fills once the approvals fetch resolves. Waiting for
+    // the element therefore raced the fetch, and the assertion read
+    // "No recorded decisions yet." roughly one run in four.
+    await waitFor(() => {
+      expect(screen.getByTestId(`trail-${E1}`)).toHaveTextContent("Rejected");
+    });
     expect(screen.getByTestId(`trail-${E1}`)).toHaveTextContent("Wrong ticket");
     expect(mock.callsTo("GET", `/api/v1/time-entries/${E1}/approvals`)).toHaveLength(1);
     cleanup();
