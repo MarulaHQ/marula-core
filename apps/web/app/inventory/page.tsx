@@ -26,15 +26,61 @@ import {
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { LedgerSurface, type LedgerColumn } from "../../components/assets-stock/ledger-surface";
+import { LedgerRow } from "../../components/assets-stock/ledger-row";
+import { csvFileName, downloadCsv } from "../../components/assets-stock/csv";
+import { NeutralMark, ReturnedMark } from "../../components/assets-stock/ledger-marks";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
+import type { FilterClause } from "@marula-core/ui";
 
 type CandidateView = components["schemas"]["CandidateView"];
 type CiMerge = components["schemas"]["CiMerge"];
 type ConfigItemView = components["schemas"]["ConfigItemView"];
 type CiMergeStatus = components["schemas"]["CiMergeStatus"];
+
+const CONFIG_VIEWS = [
+  { id: "ledger", label: "Config items" },
+  { id: "merge-queue", label: "Merge queue" },
+  { id: "devices", label: "Devices" },
+];
+
+const CONFIG_COLUMNS: LedgerColumn[] = [
+  { key: "item", label: "Item", required: true },
+  { key: "tag", label: "Tag" },
+  { key: "status", label: "Status" },
+  { key: "identity", label: "Identity keys" },
+  { key: "updated", label: "Updated" },
+];
+
+const CONFIG_FILTERS = [
+  { key: "item", label: "Item" },
+  { key: "tag", label: "Tag" },
+  { key: "status", label: "Status" },
+  { key: "identity", label: "Identity" },
+];
+
+/**
+ * A config item's ledger state, in the ledger's own marks: an orphan waits
+ * for a human (blush, with the word), an active item is healthy (green), and
+ * a merged record is quiet — it is still queryable, so it must not look like
+ * an error.
+ */
+function ItemStatusMark({
+  status,
+  testId,
+}: {
+  status: string;
+  testId?: string;
+}): ReactNode {
+  if (status === "active") return <ReturnedMark label="Active" testId={testId} />;
+  if (status === "orphan") return <NeutralMark label="Orphan · needs review" testId={testId} />;
+  if (status === "merged") return <NeutralMark label="Merged" testId={testId} />;
+  return <NeutralMark label={status} testId={testId} />;
+}
 
 const STATUS_TONE: Record<CiMergeStatus, "neutral" | "success" | "warning" | "danger"> = {
   pending: "warning",
@@ -79,6 +125,9 @@ export default function InventoryPage(): ReactNode {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [clauses, setClauses] = useState<FilterClause[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const router = useRouter();
 
   useEffect(() => {
     if (auth.status !== "authed") return;
@@ -227,6 +276,26 @@ export default function InventoryPage(): ReactNode {
     await refreshAll();
   }
 
+  const rows = filteredItems.filter((item) => {
+    for (const clause of clauses) {
+      const value = (
+        {
+          item: item.name,
+          tag: item.tag,
+          status: item.status,
+          identity: ((item.identity_keys as string[] | null) ?? []).join(", "),
+        }[clause.field] ?? ""
+      ).toLowerCase();
+      const want = (clause.value ?? "").toLowerCase();
+      if (clause.op === "is_set" && value === "") return false;
+      if (clause.op === "is_not_set" && value !== "") return false;
+      if (clause.op === "contains" && !value.includes(want)) return false;
+      if (clause.op === "eq" && value !== want) return false;
+      if (clause.op === "ne" && value === want) return false;
+    }
+    return true;
+  });
+
   if (items === null && loadError === null) {
     return <Spinner />;
   }
@@ -364,71 +433,117 @@ export default function InventoryPage(): ReactNode {
         </section>
       )}
 
-      {/* ---- config-item ledger ---- */}
-      <section className="grid gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
-            Config items
-          </h2>
-          <input
-            className="w-full rounded-md border bg-transparent px-2 py-1 text-[13px] md:max-w-80"
-            style={{ borderColor: "var(--m-border)", color: "var(--m-text)" }}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search name, tag, identity…"
-            aria-label="Search config items"
-            data-testid="inventory-search"
-          />
-        </div>
-        <Card className="overflow-x-auto p-0">
-          <Table data-testid="inventory-table">
-            <thead>
-              <tr>
-                <Th>Name</Th>
-                <Th>Tag</Th>
-                <Th>Status</Th>
-                <Th>Identity keys</Th>
-                <Th>Updated</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredItems.map((i) => (
-                <Tr key={i.id} data-testid={`inventory-row-${i.id}`}>
-                  <Td>
-                    <span className="font-medium">{i.name}</span>
-                    {i.merged_into_id !== null && i.merged_into_id !== undefined && (
-                      <span className="ml-1 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                        merged → {i.merged_into_id.slice(0, 8)}
+      <LedgerSurface
+        surface="config-items"
+        testId="config-items-ledger"
+        title="Config items"
+        subtitle="Devices mirrored from identity feeds, with the identity keys that make one device one record."
+        shortcuts={[
+          {
+            key: "merge-queue",
+            label: "In the merge queue",
+            count: pending.length,
+            tone: "blush",
+            active: false,
+            onClick: () => {
+              window.location.href = "/inventory/workbench";
+            },
+          },
+        ]}
+        headerAction={
+          <Link
+            href="/inventory/workbench"
+            className="m-ledger-bulk-action"
+            data-testid="open-workbench"
+          >
+            {pending.length > 0
+              ? `Open merge workbench (${pending.length} pending)`
+              : "Open merge workbench"}
+          </Link>
+        }
+        views={CONFIG_VIEWS}
+        activeView="ledger"
+        onViewChange={(id) => {
+          if (id === "merge-queue") router.push("/inventory/workbench");
+          if (id === "devices") router.push("/assets");
+        }}
+        columns={CONFIG_COLUMNS}
+        filterFields={CONFIG_FILTERS}
+        filterClauses={clauses}
+        onFilterChange={setClauses}
+        rowCount={rows.length}
+        rowsShown={rows.length}
+        onExport={(request) => {
+          const stamp = new Date().toISOString().slice(0, 10);
+          downloadCsv(
+            csvFileName("config-items", stamp),
+            request.columns,
+            rows.map((item) => ({
+              item: item.name,
+              tag: item.tag,
+              status: item.status,
+              identity: ((item.identity_keys as string[] | null) ?? []).join(", "),
+              updated: item.updated_at,
+            })),
+          );
+        }}
+        selectedIds={selected}
+        onToggleRow={(id, isSelected) =>
+          setSelected((cur) => (isSelected ? [...cur, id] : cur.filter((row) => row !== id)))
+        }
+        onToggleAll={(isSelected) => setSelected(isSelected ? rows.map((i) => i.id) : [])}
+        allSelected={rows.length > 0 && selected.length === rows.length}
+        someSelected={selected.length > 0 && selected.length < rows.length}
+        onClearSelection={() => setSelected([])}
+        emptyMessage="No config items match yet. A feed or a person creates one."
+        errorMessage={loadError}
+        keyboardHints="A merged record stays queryable, marked not deleted"
+      >
+        {(columns) =>
+          rows.map((item) => (
+            <LedgerRow
+              key={item.id}
+              id={item.id}
+              selected={selected.includes(item.id)}
+              selectable
+              onToggle={(rowId, isSelected) =>
+                setSelected((cur) => (isSelected ? [...cur, rowId] : cur.filter((id) => id !== rowId)))
+              }
+              columns={columns}
+              selectLabel={`Select ${item.name}`}
+              testId={`inventory-row-${item.id}`}
+              cells={{
+                item: (
+                  <span>
+                    <span style={{ color: "var(--m-text)" }}>{item.name}</span>
+                    {item.merged_into_id != null ? (
+                      <span className="ml-1 text-xs" style={{ color: "var(--m-text-muted)" }}>
+                        merged
                       </span>
-                    )}
-                  </Td>
-                  <Td className="font-mono text-[12px]">{i.tag}</Td>
-                  <Td>
-                    <StatusTag tone={ITEM_TONE[i.status] ?? "neutral"}>{i.status}</StatusTag>
-                  </Td>
-                  <Td className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                    {(() => {
-                      const keys = (i.identity_keys as string[] | null) ?? [];
-                      return keys.length > 0 ? keys.join(", ") : "—";
-                    })()}
-                  </Td>
-                  <Td>{new Date(i.updated_at).toLocaleString()}</Td>
-                </Tr>
-              ))}
-              {filteredItems.length === 0 && (
-                <Tr>
-                  <Td>
-                    <EmptyState message="No config items match yet." />
-                  </Td>
-                </Tr>
-              )}
-            </tbody>
-          </Table>
-        </Card>
-        <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-          Merged records stay queryable (their row is marked, not deleted).
-        </p>
-      </section>
+                    ) : null}
+                  </span>
+                ),
+                tag: <span className="font-mono text-xs">{item.tag}</span>,
+                status: <ItemStatusMark status={item.status} testId={`inventory-status-${item.id}`} />,
+                identity: (
+                  <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+                    {((item.identity_keys as string[] | null) ?? []).join(", ") || "—"}
+                  </span>
+                ),
+                updated: (
+                  <span className="font-mono text-xs tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                    {new Date(item.updated_at).toISOString().slice(0, 10)}
+                  </span>
+                ),
+              }}
+            />
+          ))
+        }
+      </LedgerSurface>
+      <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+        Merged records stay queryable (their row is marked, not deleted).
+      </p>
+
     </div>
   );
 }

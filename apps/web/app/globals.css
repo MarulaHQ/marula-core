@@ -18,6 +18,7 @@
 @import "@marula-core/ui/components.css";
 @import "@marula-core/layout/styles.css";
 @import "./shell.css";
+@import "./ledger.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 /*

@@ -34,14 +34,81 @@ import {
   Tr,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { LedgerSurface, type LedgerColumn } from "../../../components/assets-stock/ledger-surface";
+import { LedgerRow } from "../../../components/assets-stock/ledger-row";
+import { csvFileName, downloadCsv } from "../../../components/assets-stock/csv";
+import { NeutralMark, ReturnedMark } from "../../../components/assets-stock/ledger-marks";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
 import { LabelPrintButton } from "../../../components/labels/label-print-button";
+import type { FilterClause } from "@marula-core/ui";
+
+const LOCATION_VIEWS = [
+  { id: "locations", label: "Locations" },
+  { id: "ledger", label: "Ledger" },
+  { id: "tools", label: "Tools" },
+];
+
+const LOCATION_COLUMNS: LedgerColumn[] = [
+  { key: "location", label: "Location", required: true },
+  { key: "code", label: "Code" },
+  { key: "kind", label: "Kind" },
+  { key: "parent", label: "Parent" },
+  { key: "assignee", label: "Assigned user" },
+  { key: "items", label: "Items", align: "right", hiddenByDefault: true },
+  { key: "state", label: "State" },
+  { key: "actions", label: "Actions", align: "right" },
+];
+
+const LOCATION_FILTERS = [
+  { key: "location", label: "Location" },
+  { key: "code", label: "Code" },
+  { key: "kind", label: "Kind" },
+  { key: "state", label: "State" },
+];
 
 type StockLocationView = components["schemas"]["StockLocationView"];
+type OnHandRow = components["schemas"]["OnHandRow"];
+
+/**
+ * Depth-first over the parent chain, so a shelf reads under its warehouse.
+ * A location whose parent is absent (or that would close a cycle, which a
+ * data bug can produce) is treated as a root: the row is still a place stock
+ * lives, and hiding it would be worse than showing it at the wrong depth.
+ */
+function buildTree(locations: StockLocationView[]): { location: StockLocationView; depth: number }[] {
+  const byId = new Map(locations.map((location) => [location.id, location]));
+  const childrenOf = new Map<string | null, StockLocationView[]>();
+  for (const location of locations) {
+    const parent = byId.has(location.parent_id ?? "") ? (location.parent_id ?? null) : null;
+    const bucket = childrenOf.get(parent) ?? [];
+    bucket.push(location);
+    childrenOf.set(parent, bucket);
+  }
+  for (const bucket of childrenOf.values()) {
+    bucket.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  const out: { location: StockLocationView; depth: number }[] = [];
+  const seen = new Set<string>();
+  const walk = (parent: string | null, depth: number): void => {
+    for (const child of childrenOf.get(parent) ?? []) {
+      if (seen.has(child.id)) continue;
+      seen.add(child.id);
+      out.push({ location: child, depth });
+      walk(child.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  // Anything a cycle kept out of the walk still gets a row, at depth 0.
+  for (const location of locations) {
+    if (!seen.has(location.id)) out.push({ location, depth: 0 });
+  }
+  return out;
+}
 
 const KINDS = ["warehouse", "shelf", "van", "truck"] as const;
 
@@ -63,6 +130,10 @@ export default function StockLocationsPage(): ReactNode {
   const auth = useRequireAuth();
   const me = auth.me;
   const [locations, setLocations] = useState<StockLocationView[] | null>(null);
+  const [onHand, setOnHand] = useState<OnHandRow[]>([]);
+  const [clauses, setClauses] = useState<FilterClause[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const router = useRouter();
   const [directory, setDirectory] = useState<{ id: string; label: string }[]>([]);
   const [directoryDenied, setDirectoryDenied] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -83,12 +154,16 @@ export default function StockLocationsPage(): ReactNode {
   const [formBusy, setFormBusy] = useState(false);
 
   async function refresh(): Promise<void> {
-    const locationsRes = await api.api.GET("/api/v1/stock-locations", { params: { query: {} } });
+    const [locationsRes, onHandRes] = await Promise.all([
+      api.api.GET("/api/v1/stock-locations", { params: { query: {} } }),
+      api.api.GET("/api/v1/stock/on-hand", { params: { query: { limit: 1000 } } }),
+    ]);
     if (locationsRes.data === undefined) {
       setLoadError("Could not load stock locations — try reloading.");
       return;
     }
     setLocations(locationsRes.data);
+    setOnHand(onHandRes.data ?? []);
     const usersRes = await api.api.GET("/api/v1/org/users", { params: { query: { limit: 200 } } });
     if (usersRes.data !== undefined) {
       setDirectory(usersRes.data.users.map((user) => ({ id: user.id, label: user.display_name })));
@@ -274,6 +349,46 @@ export default function StockLocationsPage(): ReactNode {
   const list = locations ?? [];
   const parentOptions = list.filter((location) => location.id !== editing?.id);
 
+  // The location TREE: depth-first over the parent chain so a shelf reads
+  // under its warehouse. A parent that is missing (or archived out from under
+  // a child) is treated as a root rather than dropping the child, because a
+  // hidden location is a data problem, not a reason to lose a row.
+  const tree = useMemo(() => buildTree(list), [list]);
+
+  // How many distinct items sit in each location, read from the on-hand rows
+  // this page already loaded.
+  const itemCounts = useMemo(() => {
+    const counts = new Map<string, Set<string>>();
+    for (const row of onHand) {
+      const set = counts.get(row.stock_location_id) ?? new Set<string>();
+      set.add(row.stock_item_id);
+      counts.set(row.stock_location_id, set);
+    }
+    return new Map([...counts].map(([id, set]) => [id, set.size]));
+  }, [onHand]);
+
+  const rows = tree
+    .filter(({ location }) => {
+      for (const clause of clauses) {
+        const value = (
+          {
+            location: location.name,
+            code: location.code ?? "",
+            kind: location.kind,
+            state: location.active ? "active" : "archived",
+          }[clause.field] ?? ""
+        ).toLowerCase();
+        const want = (clause.value ?? "").toLowerCase();
+        if (clause.op === "is_set" && value === "") return false;
+        if (clause.op === "is_not_set" && value !== "") return false;
+        if (clause.op === "contains" && !value.includes(want)) return false;
+        if (clause.op === "eq" && value !== want) return false;
+        if (clause.op === "ne" && value === want) return false;
+      }
+      return true;
+    })
+    .map((entry) => ({ ...entry, itemCount: itemCounts.get(entry.location.id) ?? 0 }));
+
   function cardActions(location: StockLocationView): ReactNode {
     return (
       <div className="flex flex-wrap items-start gap-1">
@@ -307,103 +422,113 @@ export default function StockLocationsPage(): ReactNode {
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-350 gap-6 p-4 md:p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Stock locations
-          </h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--m-text-secondary)" }}>
-            Where stock lives. A van or truck can carry an assigned user.
-          </p>
-        </div>
+    <>
+    <LedgerSurface
+      surface="stock-locations"
+      testId="locations-ledger"
+      title="Stock locations"
+      subtitle="Where stock lives, as a tree. A van or truck can carry an assigned user."
+      headerAction={
         <Button onClick={openCreate} data-testid="stock-locations-new">
           New location
         </Button>
-      </header>
+      }
+      views={LOCATION_VIEWS}
+      activeView="locations"
+      onViewChange={(id) => {
+        if (id === "ledger") router.push("/stock");
+        if (id === "tools") router.push("/stock/tools");
+      }}
+      columns={LOCATION_COLUMNS}
+      filterFields={LOCATION_FILTERS}
+      filterClauses={clauses}
+      onFilterChange={setClauses}
+      rowCount={rows.length}
+      rowsShown={rows.length}
+      onExport={(request) => {
+        const stamp = new Date().toISOString().slice(0, 10);
+        downloadCsv(
+          csvFileName("stock-locations", stamp),
+          request.columns,
+          rows.map((entry) => ({
+            location: entry.location.name,
+            code: entry.location.code ?? "",
+            kind: entry.location.kind,
+            parent: entry.location.parent_id == null ? "" : nameOf(entry.location.parent_id),
+            assignee: entry.location.assigned_user_id == null ? "" : userLabel(entry.location.assigned_user_id),
+            state: entry.location.active ? "active" : "archived",
+            items: String(entry.itemCount),
+          })),
+        );
+      }}
+      selectedIds={selected}
+      onToggleRow={(id, isSelected) =>
+        setSelected((cur) => (isSelected ? [...cur, id] : cur.filter((row) => row !== id)))
+      }
+      onToggleAll={(isSelected) => setSelected(isSelected ? rows.map((r) => r.location.id) : [])}
+      allSelected={rows.length > 0 && selected.length === rows.length}
+      someSelected={selected.length > 0 && selected.length < rows.length}
+      bulkActions={[
+        {
+          key: "edit",
+          label: "Edit",
+          disabled: selected.length !== 1,
+          title: "Edit the selected location",
+          onClick: () => {
+            const only = rows.find((entry) => entry.location.id === selected[0]);
+            if (only != null) openEdit(only.location);
+          },
+        },
+      ]}
+      onClearSelection={() => setSelected([])}
+      emptyMessage="No locations yet. Create the first warehouse."
+      emptyAction={
+        <Button variant="secondary" onClick={openCreate} data-testid="locations-empty-new">
+          New location
+        </Button>
+      }
+      errorMessage={actionError}
+      keyboardHints="Indentation follows the parent chain"
+    >
+      {(columns) =>
+        rows.map(({ location, depth, itemCount }) => (
+          <LedgerRow
+            key={location.id}
+            id={location.id}
+            selected={selected.includes(location.id)}
+            selectable
+            onToggle={(rowId, isSelected) =>
+              setSelected((cur) => (isSelected ? [...cur, rowId] : cur.filter((id) => id !== rowId)))
+            }
+            columns={columns}
+            selectLabel={`Select ${location.name}`}
+            testId={`stock-location-row-${location.id}`}
+            cells={{
+              location: (
+                <span className="m-ledger-tree-row">
+                  {"\u00a0".repeat(depth * 4)}
+                  {depth > 0 ? <span className="m-ledger-tree-glyph">└</span> : null}
+                  <span style={{ color: "var(--m-text)" }}>{location.name}</span>
+                </span>
+              ),
+              code: <span className="font-mono text-xs">{location.code ?? "—"}</span>,
+              kind: <Tag tone="outline">{location.kind}</Tag>,
+              parent: <span>{nameOf(location.parent_id)}</span>,
+              assignee: <span>{userLabel(location.assigned_user_id)}</span>,
+              items: <span className="tabular-nums">{itemCount}</span>,
+              state:
+                location.active ? (
+                  <ReturnedMark label="Active" testId={`stock-location-state-${location.id}`} />
+                ) : (
+                  <NeutralMark label="Archived" />
+                ),
+              actions: <span className="flex justify-end gap-1">{cardActions(location)}</span>,
+            }}
+          />
+        ))
+      }
+    </LedgerSurface>
 
-      {directoryDenied && (
-        <p className="text-xs" style={{ color: "var(--m-text-muted)" }} data-testid="stock-locations-directory-note">
-          The staff directory needs a manager role. The assigned-user picker lists you only.
-        </p>
-      )}
-      {actionError !== null && (
-        <p className="text-xs" role="alert" style={{ color: "var(--m-status-danger-fg)" }} data-testid="stock-locations-error">
-          {actionError}
-        </p>
-      )}
-      {notice !== null && (
-        <p className="text-xs" role="status" style={{ color: "var(--m-status-success-fg)" }} data-testid="stock-locations-notice">
-          {notice}
-        </p>
-      )}
-
-      <div className="grid gap-3 sm:hidden" data-testid="stock-locations-cards">
-        {list.map((location, index) => (
-          <Card key={location.id} className="m-rise grid gap-2 p-4" style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }} data-testid={`stock-location-card-${location.id}`}>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-medium" style={{ color: "var(--m-text)" }}>
-                {location.name}
-              </span>
-              <Tag tone="outline">{location.kind}</Tag>
-              {!location.active && <StatusTag tone="neutral">archived</StatusTag>}
-            </div>
-            <p className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
-              {location.code ?? "no code"} · parent {nameOf(location.parent_id)} · assigned {userLabel(location.assigned_user_id)}
-            </p>
-            {cardActions(location)}
-          </Card>
-        ))}
-        {list.length === 0 && <EmptyState message="No locations yet. Create the first warehouse." />}
-      </div>
-
-      <Card className="m-rise hidden overflow-x-auto p-0 sm:block">
-        <Table data-testid="stock-locations-table">
-          <thead>
-            <tr>
-              <Th>Name</Th>
-              <Th>Code</Th>
-              <Th>Kind</Th>
-              <Th>Parent</Th>
-              <Th>Assigned user</Th>
-              <Th>State</Th>
-              <Th className="text-right">Actions</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((location) => (
-              <Tr key={location.id} className="row-hover" data-testid={`stock-location-row-${location.id}`}>
-                <Td>
-                  <span className="font-medium" style={{ color: "var(--m-text)" }}>
-                    {location.name}
-                  </span>
-                </Td>
-                <Td className="font-mono text-xs">{location.code ?? "—"}</Td>
-                <Td>
-                  <Tag tone="outline">{location.kind}</Tag>
-                </Td>
-                <Td className="text-xs">{nameOf(location.parent_id)}</Td>
-                <Td className="text-xs">{userLabel(location.assigned_user_id)}</Td>
-                <Td>
-                  <StatusTag tone={location.active ? "success" : "neutral"}>
-                    {location.active ? "active" : "archived"}
-                  </StatusTag>
-                </Td>
-                <Td>
-                  <div className="flex justify-end">{cardActions(location)}</div>
-                </Td>
-              </Tr>
-            ))}
-            {list.length === 0 && (
-              <Tr>
-                <Td>
-                  <EmptyState message="No locations yet. Create the first warehouse." />
-                </Td>
-              </Tr>
-            )}
-          </tbody>
-        </Table>
-      </Card>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent title={editing === null ? "New stock location" : `Edit ${editing.name}`} data-testid="stock-location-dialog">
@@ -498,6 +623,6 @@ export default function StockLocationsPage(): ReactNode {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

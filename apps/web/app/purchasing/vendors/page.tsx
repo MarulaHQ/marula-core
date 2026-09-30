@@ -33,11 +33,38 @@ import {
   Tr,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { LedgerSurface, type LedgerColumn } from "../../../components/assets-stock/ledger-surface";
+import { LedgerRow } from "../../../components/assets-stock/ledger-row";
+import { csvFileName, downloadCsv } from "../../../components/assets-stock/csv";
+import { NeutralMark, ReturnedMark } from "../../../components/assets-stock/ledger-marks";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
+import type { FilterClause } from "@marula-core/ui";
+
+const VENDOR_VIEWS = [
+  { id: "vendors", label: "Vendors" },
+  { id: "orders", label: "Orders" },
+];
+
+const VENDOR_COLUMNS: LedgerColumn[] = [
+  { key: "vendor", label: "Vendor", required: true },
+  { key: "code", label: "Code" },
+  { key: "currency", label: "Currency" },
+  { key: "contact", label: "Contact" },
+  { key: "state", label: "State" },
+  { key: "actions", label: "Actions", align: "right" },
+];
+
+const VENDOR_FILTERS = [
+  { key: "vendor", label: "Vendor" },
+  { key: "code", label: "Code" },
+  { key: "contact", label: "Contact" },
+  { key: "state", label: "State" },
+];
 
 type Vendor = components["schemas"]["Vendor"];
 type VendorDetail = components["schemas"]["VendorDetail"];
@@ -113,6 +140,9 @@ function contactRow(contact: VendorContact): ContactRow {
 export default function VendorsPage(): ReactNode {
   const auth = useRequireAuth();
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
+  const [clauses, setClauses] = useState<FilterClause[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const router = useRouter();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -421,115 +451,145 @@ export default function VendorsPage(): ReactNode {
     }
   }
 
+  const rows = filtered.filter((vendor) => {
+    for (const clause of clauses) {
+      const value = (
+        {
+          vendor: vendor.name,
+          code: vendor.code ?? "",
+          contact: vendor.email ?? vendor.phone ?? "",
+          state: vendor.active ? "active" : "inactive",
+        }[clause.field] ?? ""
+      ).toLowerCase();
+      const want = (clause.value ?? "").toLowerCase();
+      if (clause.op === "is_set" && value === "") return false;
+      if (clause.op === "is_not_set" && value !== "") return false;
+      if (clause.op === "contains" && !value.includes(want)) return false;
+      if (clause.op === "eq" && value !== want) return false;
+      if (clause.op === "ne" && value === want) return false;
+    }
+    return true;
+  });
+
   if (vendors === null && loadError === null) return <Spinner />;
   if (loadError !== null) return <EmptyState message={loadError} />;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Vendors
-          </h1>
-          <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Suppliers, their contacts, and the portal links a buyer opens mid-order.
-          </p>
-        </div>
+    <>
+    <LedgerSurface
+      surface="purchasing-vendors"
+      testId="vendors-ledger"
+      title="Vendors"
+      subtitle="Suppliers, their contacts, and the portal links a buyer opens mid-order."
+      headerAction={
         <Button onClick={openCreate} data-testid="purchasing-vendors-new">
           New vendor
         </Button>
-      </header>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search name, code, email…"
-          aria-label="Search vendors"
-          data-testid="purchasing-vendors-search"
-          style={{ maxWidth: 300 }}
-        />
-        <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--m-text-secondary)" }}>
-          <Checkbox
-            checked={showInactive}
-            onCheckedChange={(value) => setShowInactive(value === true)}
-            data-testid="purchasing-vendors-include-inactive"
+      }
+      views={VENDOR_VIEWS}
+      activeView="vendors"
+      onViewChange={(id) => {
+        if (id === "orders") router.push("/purchasing");
+      }}
+      columns={VENDOR_COLUMNS}
+      filterFields={VENDOR_FILTERS}
+      filterClauses={clauses}
+      onFilterChange={setClauses}
+      rowCount={rows.length}
+      rowsShown={rows.length}
+      onExport={(request) => {
+        const stamp = new Date().toISOString().slice(0, 10);
+        downloadCsv(
+          csvFileName("vendors", stamp),
+          request.columns,
+          rows.map((vendor) => ({
+            vendor: vendor.name,
+            code: vendor.code ?? "",
+            currency: vendor.default_currency,
+            contact: vendor.email ?? vendor.phone ?? "",
+            state: vendor.active ? "active" : "inactive",
+            website: vendor.website ?? "",
+          })),
+        );
+      }}
+      selectedIds={selected}
+      onToggleRow={(id, isSelected) =>
+        setSelected((cur) => (isSelected ? [...cur, id] : cur.filter((row) => row !== id)))
+      }
+      onToggleAll={(isSelected) => setSelected(isSelected ? rows.map((v) => v.id) : [])}
+      allSelected={rows.length > 0 && selected.length === rows.length}
+      someSelected={selected.length > 0 && selected.length < rows.length}
+      bulkActions={[
+        {
+          key: "edit",
+          label: "Edit",
+          disabled: selected.length !== 1,
+          title: "Edit the selected vendor",
+          onClick: () => {
+            const only = rows.find((vendor) => vendor.id === selected[0]);
+            if (only != null) openEdit(only);
+          },
+        },
+      ]}
+      onClearSelection={() => setSelected([])}
+      emptyMessage="No vendors match. Add the supplier you order from."
+      emptyAction={
+        <Button variant="secondary" onClick={openCreate} data-testid="purchasing-vendors-empty-new">
+          New vendor
+        </Button>
+      }
+      errorMessage={actionError}
+      onRetry={() => void refresh()}
+    >
+      {(columns) =>
+        rows.map((vendor) => (
+          <LedgerRow
+            key={vendor.id}
+            id={vendor.id}
+            selected={selected.includes(vendor.id)}
+            selectable
+            onToggle={(rowId, isSelected) =>
+              setSelected((cur) => (isSelected ? [...cur, rowId] : cur.filter((id) => id !== rowId)))
+            }
+            columns={columns}
+            selectLabel={`Select ${vendor.name}`}
+            testId={`purchasing-vendor-row-${vendor.id}`}
+            cells={{
+              vendor: (
+                <span className="flex items-center gap-1.5">
+                  <span style={{ color: "var(--m-text)" }}>{vendor.name}</span>
+                  {vendor.website != null && vendor.website !== "" ? <Tag tone="outline">web</Tag> : null}
+                </span>
+              ),
+              code: <span className="font-mono text-xs">{vendor.code ?? "—"}</span>,
+              currency: <span className="font-mono text-xs">{vendor.default_currency}</span>,
+              contact: vendor.email ?? vendor.phone ?? "—",
+              state: vendor.active ? (
+                <ReturnedMark label="Active" testId={`purchasing-vendor-state-${vendor.id}`} />
+              ) : (
+                <NeutralMark label="Inactive" />
+              ),
+              actions: (
+                <span className="flex justify-end gap-1">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void toggleDetail(vendor.id)}
+                    data-testid={`purchasing-vendor-open-${vendor.id}`}
+                  >
+                    {expandedId === vendor.id ? "Close" : "Contacts"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => openEdit(vendor)} data-testid={`purchasing-vendor-edit-${vendor.id}`}>
+                    Edit
+                  </Button>
+                </span>
+              ),
+            }}
           />
-          Show inactive
-        </label>
-      </div>
+        ))
+      }
+    </LedgerSurface>
 
-      {actionError !== null && (
-        <p className="text-xs" role="alert" style={{ color: "var(--m-status-danger-fg)" }} data-testid="purchasing-vendors-action-error">
-          {actionError}
-        </p>
-      )}
-      {notice !== null && (
-        <p className="text-xs" role="status" style={{ color: "var(--m-status-success-fg)" }} data-testid="purchasing-vendors-notice">
-          {notice}
-        </p>
-      )}
-
-      <Card className="m-rise overflow-x-auto p-0">
-        <Table data-testid="purchasing-vendors-table">
-          <thead>
-            <tr>
-              <Th>Name</Th>
-              <Th>Code</Th>
-              <Th>Currency</Th>
-              <Th>Contact</Th>
-              <Th>State</Th>
-              <Th className="text-right">Actions</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((vendor) => (
-              <Tr key={vendor.id} className="row-hover" data-testid={`purchasing-vendor-row-${vendor.id}`}>
-                <Td>
-                  <span className="font-medium" style={{ color: "var(--m-text)" }}>
-                    {vendor.name}
-                  </span>
-                  {vendor.website != null && vendor.website !== "" && (
-                    <Tag tone="outline" className="ml-1.5 text-xs">
-                      web
-                    </Tag>
-                  )}
-                </Td>
-                <Td className="font-mono text-xs">{vendor.code ?? "—"}</Td>
-                <Td className="font-mono text-xs">{vendor.default_currency}</Td>
-                <Td className="text-xs">{vendor.email ?? vendor.phone ?? "—"}</Td>
-                <Td>
-                  <StatusTag tone={vendor.active ? "success" : "neutral"}>
-                    {vendor.active ? "active" : "inactive"}
-                  </StatusTag>
-                </Td>
-                <Td>
-                  <div className="flex justify-end gap-1">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => void toggleDetail(vendor.id)}
-                      data-testid={`purchasing-vendor-open-${vendor.id}`}
-                    >
-                      {expandedId === vendor.id ? "Close" : "Contacts"}
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => openEdit(vendor)} data-testid={`purchasing-vendor-edit-${vendor.id}`}>
-                      Edit
-                    </Button>
-                  </div>
-                </Td>
-              </Tr>
-            ))}
-            {filtered.length === 0 && (
-              <Tr>
-                <Td colSpan={6}>
-                  <EmptyState message="No vendors match. Add the supplier you order from." />
-                </Td>
-              </Tr>
-            )}
-          </tbody>
-        </Table>
-      </Card>
 
       {expandedId !== null && (
         <Card className="m-rise grid gap-4 p-4" data-testid={`purchasing-vendor-panel-${expandedId}`}>
@@ -899,6 +959,6 @@ export default function VendorsPage(): ReactNode {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
