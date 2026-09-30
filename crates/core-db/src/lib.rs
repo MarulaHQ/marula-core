@@ -179,6 +179,19 @@ pub async fn set_org(tx: &mut Transaction<'_, Postgres>, org_id: Uuid) -> DbResu
     Ok(())
 }
 
+/// Allows the append-only ledger guards to be dropped FOR THIS TRANSACTION.
+///
+/// The demo/reset tooling (and its tests) wipe an org by cascade, which walks
+/// `stock_movements` and trips the append-only trigger. Tenant code never
+/// calls this, so the ledger guarantee is unchanged; a forgotten call fails
+/// closed. Migration 0119 defines the guard's side of this flag.
+pub async fn set_dev_reset_bypass(tx: &mut Transaction<'_, Postgres>) -> DbResult<()> {
+    sqlx::query("SELECT set_config('app.dev_reset_bypass', 'on', true)")
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 /// Binds the transaction to one org AND one user. The extra `app.user_id`
 /// GUC lets per-user RLS policies (settings) hide sibling users' rows even
 /// inside a correctly-org-scoped transaction.

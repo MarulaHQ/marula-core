@@ -17,7 +17,8 @@ import { MODELS, fetchActiveTimer } from "@/core/models";
 import { pauseTimer, resumeTimer } from "@/core/writes";
 import { useModel, useMutation } from "@/data/sync-context";
 import { isPaused } from "@/ui/timer-bar";
-import { elapsedMs, clockText } from "@/ui/clock-format";import { pack } from "@/ui/pack";
+import { elapsedMs, clockText } from "@/ui/clock-format";
+import { useLiveTimer } from "@/live/use-live-timer";import { pack } from "@/ui/pack";
 import { type , chrome } from "@/ui/tokens";
 
 const GOLD = chrome.gold;
@@ -30,6 +31,11 @@ export const TIME_TAB_HREF = "/(tabs)/time" as const;
 
 export function TimePill() {
   const router = useRouter();
+  // The pill is the pack's in-app mirror of the running timer, and it is
+  // mounted in EVERY tab — which makes it the host for the platform mirror
+  // too: the iOS Live Activity / lock screen and the Android ongoing
+  // notification. Without this call the widget never starts.
+  useLiveTimer();
   const { mutate } = useMutation();
   const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
   const session = timer.data ?? null;

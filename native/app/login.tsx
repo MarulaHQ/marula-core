@@ -9,7 +9,7 @@
 // org hasn't enabled one.
 
 import { Redirect, router } from "expo-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
@@ -26,10 +26,11 @@ const FRUIT = require("../assets/marula-fruit.png") as number;
 export default function LoginScreen() {
   const { status, signIn, error, biometricEnabled, biometricAvailable, unlock } = useAuth();
   const { tokens } = useTheme();
-  const [email, setEmail] = useState("tumi@brightline.example");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
   const [linkNote, setLinkNote] = useState<string | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
 
@@ -38,6 +39,15 @@ export default function LoginScreen() {
   if (status === "locked") return <Redirect href="/locked" />;
 
   const canSubmit = email.trim().length > 0 && password.length > 0 && !busy;
+
+  // The keyboard flow is part of the screen, not an affordance bolted on:
+  // Return moves email -> password, Return on password signs in. A field
+  // service tech signs in one-handed, often with a keyboard docked.
+  const submit = () => {
+    if (!canSubmit) return;
+    setBusy(true);
+    void signIn(email.trim(), password).finally(() => setBusy(false));
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: tokens.background }]} testID="login-screen">
@@ -63,12 +73,17 @@ export default function LoginScreen() {
           textContentType="username"
           placeholder="Work email"
           placeholderTextColor={tokens.textMuted}
+          returnKeyType="next"
+          onSubmitEditing={() => passwordRef.current?.focus()}
           style={[styles.input, { color: tokens.text }]}
         />
       </View>
       <View style={[styles.field, { borderColor: tokens.border, backgroundColor: tokens.surface }]}>
         <TextInput
+          ref={passwordRef}
           testID="login-password"
+          returnKeyType="go"
+          onSubmitEditing={submit}
           value={password}
           onChangeText={setPassword}
           secureTextEntry={!showPassword}
@@ -99,10 +114,7 @@ export default function LoginScreen() {
         testID="login-submit"
         disabled={!canSubmit}
         busy={busy}
-        onPress={() => {
-          setBusy(true);
-          void signIn(email.trim(), password).finally(() => setBusy(false));
-        }}
+        onPress={submit}
       />
       <SecondaryButton
         label="Email me a link"

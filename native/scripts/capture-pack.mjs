@@ -366,6 +366,48 @@ async function firstMyWorkTicket(accessToken) {
   return row === undefined ? null : row.id;
 }
 
+/**
+ * Undo our TOTP enrollment. The MFA state needs the owner enrolled, but the
+ * repo's own Maestro flows sign in as the owner and expect the Today tab —
+ * leaving a factor behind would break them (and the next person's demo). The
+ * capture run restores the seed it borrowed.
+ */
+async function unenrollTotpForMfaUser() {
+  const secret = await readTotpSecret();
+  if (secret === null) return;
+  const signIn = await fetch(`${API_URL}/api/v1/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: MFA_EMAIL, password: PASSWORD }),
+  });
+  if (!signIn.ok) return;
+  let body = await signIn.json();
+  if (typeof body.access_token !== "string") {
+    // The owner is gated by the very factor we enrolled: spend the stored
+    // secret to get a session, then turn the factor off.
+    const verified = await fetch(`${API_URL}/api/v1/auth/mfa/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mfa_token: body.mfa_token, code: totp(secret) }),
+    });
+    if (!verified.ok) return;
+    body = await verified.json();
+  }
+  const response = await fetch(`${API_URL}/api/v1/auth/mfa/totp/disable`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${body.access_token}`,
+    },
+    body: JSON.stringify({ password: PASSWORD, code: totp(secret) }),
+  });
+  console.log(
+    response.ok
+      ? "restored: owner TOTP unenrolled (the demo is back to its seeded shape)"
+      : `cleanup failed: ${response.status} ${(await response.text()).slice(0, 120)}`,
+  );
+}
+
 const arg = (name, fallback) => {
   const hit = process.argv.find((value) => value.startsWith(`--${name}=`));
   return hit === undefined ? fallback : hit.split("=")[1];
@@ -438,6 +480,7 @@ async function main() {
 
   await browser.close();
   await stopRunningTimer(session.accessToken, session0?.id ?? null);
+  await unenrollTotpForMfaUser();
   await writeFile(path.join(outDir, "INDEX.json"), JSON.stringify(shots, null, 2));
   console.log(`\n${shots.length} capture files in ${outDir}`);
 }

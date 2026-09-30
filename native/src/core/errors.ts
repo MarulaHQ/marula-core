@@ -27,6 +27,8 @@ export const REASON_COPY: Readonly<Record<string, string>> = {
   rls_sparse:
     "That item is no longer in your visible workspace — refresh to sync, then try again.",
   unauthorized: "Your session expired. Sign in again to continue.",
+  // Signing in is not the same as an expired session: say what happened.
+  signin_failed: "We couldn't sign you in with those details. Check the email and password and try again.",
   forbidden: "You don't have permission for this action — ask an owner or admin.",
   validation_failed:
     "Some details are missing or invalid. Check the form and try again.",
