@@ -84,6 +84,7 @@ website/public/changelog.xml
 
 # designer pack zip
 marula-designer-pack.zip
+brand/
 
 # Reference plugin build artifacts (Wave 34 lane 4)
 plugins/wasm/target/
