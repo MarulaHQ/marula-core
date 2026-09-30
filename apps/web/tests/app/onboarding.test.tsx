@@ -347,7 +347,7 @@ describe("/onboarding user flow", () => {
 
     // Personal defaults ride the typed user settings (theme override + mode).
     fireEvent.change(screen.getByTestId("onboarding-theme"), {
-      target: { value: "slate" },
+      target: { value: "marula-warm" },
     });
     fireEvent.change(screen.getByTestId("onboarding-mode"), {
       target: { value: "dark" },
@@ -379,7 +379,8 @@ describe("first-open welcome hero", () => {
     await screen.findByTestId("onboarding-welcome", {}, { timeout: 5000 });
     expect(screen.getByTestId("welcome-mode-light")).toBeInTheDocument();
     expect(screen.getByTestId("welcome-mode-dark")).toBeInTheDocument();
-    expect(screen.getByTestId("welcome-theme-tangerine")).toBeInTheDocument();
+    expect(screen.getByTestId("welcome-theme-marula")).toBeInTheDocument();
+    expect(screen.getByTestId("welcome-theme-marula-warm")).toBeInTheDocument();
     // Admin-added theme packs render as extra preview cards.
     await waitFor(() => {
       expect(screen.getByTestId("welcome-pack-ember-dusk")).toBeInTheDocument();

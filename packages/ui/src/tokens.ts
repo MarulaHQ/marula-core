@@ -38,6 +38,7 @@ export const PALETTE = [
   "#8C877C", // input
   "#8A8479", // disabled foreground
   "#6B4308", // on-accent / progress / time-entry text
+  "#EFEDE6", // meter track (logged-vs-expected bar)
   // Dark: the `marula` preset, Dark column
   "#34333D", // surface
   "#3A3944", // surface-2, accent, disabled fill
@@ -90,6 +91,11 @@ export const TOKEN = {
   goldSoft: "#F7E3A8",
   goldText: "#9A5B0F",
   ring: "#A8641A",
+  // The logged-vs-expected meter's own pair. It exists because the accent tint
+  // cannot carry a 3:1 indicator: gold-soft is 1.04:1 on the light canvas and
+  // the dark tint is a neutral at 1.19:1. Found by the vision review.
+  meterTrack: "#EFEDE6",
+  meterFill: "#9A5B0F",
   ink: "#2B2A33",
   bar: "#222129",
   cream: "#F6EFD9",

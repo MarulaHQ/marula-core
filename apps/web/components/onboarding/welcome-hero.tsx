@@ -34,11 +34,14 @@ type CardChoice = {
 
 const MODE_OPTIONS: ("light" | "dark")[] = ["light", "dark"];
 
+// The shipped built-ins, in the order a first-time user should meet them. The
+// first-run pick is the moment the D2 platform default matters most: Marula for
+// the Neutral canvas, then its warm sibling, then accessibility. Repointed in
+// wave41 lane 2.
 const BUILTINS: { id: string; label: string }[] = [
-  { id: "tangerine", label: "Tangerine" },
-  { id: "slate", label: "Slate" },
+  { id: "marula", label: "Marula" },
+  { id: "marula-warm", label: "Marula warm" },
   { id: "high_contrast", label: "High contrast" },
-  { id: "copper", label: "Copper" },
 ];
 
 function packPrimary(manifest: unknown): string | null {

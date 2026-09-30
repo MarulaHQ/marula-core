@@ -327,7 +327,10 @@ export default function TodayPage() {
                       key={i}
                       className="h-full flex-1 rounded-[1px]"
                       style={{
-                        background: filled ? "var(--m-accent-muted, var(--m-border))" : "transparent",
+                        // The meter's own fill token, not the accent tint: a
+                        // 2px indicator has to clear 3:1, and the tint is
+                        // neutral in dark (see tokens.css).
+                        background: filled ? "var(--m-meter-fill)" : "transparent",
                         border: "1px solid var(--m-border)",
                       }}
                     />

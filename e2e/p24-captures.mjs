@@ -5,10 +5,14 @@ import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const root =
-  "/Users/iordn/Documents/GitHub/marula-open-psa-core/.kilo/worktrees/p24-theming-system";
-const OUT = join(root, "design/qa-p24-theming-system/captures");
+// Wave 41 lane 2: repointed from the retired p24 worktree to this one, so the
+// script can run from any checkout rather than only from the lane that wrote it.
+const root = process.env.P41_REPO_ROOT ?? fileURLToPath(new URL("..", import.meta.url));
+// Repointed in wave41 lane 2: the captures land in the Marula theme lane's
+// evidence dir, and the preset set is the Marula built-ins.
+const OUT = join(root, process.env.P41_CAPTURE_OUT ?? "design/qa-p41-marula-theme/captures");
 mkdirSync(OUT, { recursive: true });
 
 const BASE = process.env.P24_WEB_URL ?? "http://127.0.0.1:15435";
@@ -25,19 +29,19 @@ function clearAuthGates() {
   try {
     execFileSync("/usr/bin/env", [
       `PGPASSWORD=postgres`, "psql", "-h", "127.0.0.1", "-p", PG_PORT,
-      "-U", "postgres", "-d", "marula", "-c", "DELETE FROM auth_lockouts",
+      "-U", "postgres", "-d", process.env.P24_DB ?? "marula", "-c", "DELETE FROM auth_lockouts",
     ], { stdio: "ignore", env: { ...process.env, PGPASSWORD: "postgres" } });
   } catch { /* gate table may not exist on older bundles */ }
 }
 
 const browser = await chromium.launch({ args: ["--no-proxy-server"] });
-const PRESETS = ["none", "tangerine", "slate", "high_contrast"];
+const PRESETS = ["none", "marula", "marula-warm", "high_contrast"];
 // Optional: only (re)capture labels matching this substring — misses can be
 // retried without redoing a full pass.
 const ONLY = process.env.P24_ONLY ?? "";
 
 const wanted = [];
-const PRESET_LABELS = { tangerine: "Tangerine", slate: "Slate", high_contrast: "High contrast" };
+const PRESET_LABELS = { marula: "Marula", "marula-warm": "Marula warm", high_contrast: "High contrast" };
 for (const mode of ["light", "dark"]) {
   for (const preset of PRESETS) {
     const label = preset === "none" ? `${mode}-baseline` : `${mode}-${preset}`;
@@ -87,8 +91,13 @@ for (const label of wanted) {
     if (page.url().includes("/login")) throw new Error(`${label}: appearance redirected to login`);
     const overrideGroup = page.locator('[role="radiogroup"][aria-label="Theme override"]');
     await overrideGroup.waitFor({ state: "visible", timeout: 20000 });
-    await page.locator('[role="radiogroup"][aria-label="Theme override"] [role="radio"]')
-      .filter({ hasText: preset === "none" ? "Org default" : PRESET_LABELS[preset] })
+    await page
+      .locator(
+        preset === "none"
+          ? '[role="radiogroup"][aria-label="Theme override"] [role="radio"]'
+          : `[role="radiogroup"][aria-label="Theme override"] [data-testid="appearance-preset-${preset}"]`,
+      )
+      .first()
       .click();
     await page
       .locator('text=/Saved to your account\\.|rejected/i')

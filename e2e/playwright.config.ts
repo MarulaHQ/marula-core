@@ -83,7 +83,7 @@ export default defineConfig({
     // scripts/check-theme-packs.mjs instead). testIgnore keeps their
     // runtime scoped to the auth + settings + theme-matrix flows.
     {
-      name: "slate-preset-light",
+      name: "warm-preset-light",
       use: { ...devices["Desktop Chrome"] },
       testMatch: [
         "flows/01-auth.spec.ts",
@@ -92,7 +92,7 @@ export default defineConfig({
       ],
     },
     {
-      name: "slate-preset-dark",
+      name: "warm-preset-dark",
       use: { ...devices["Desktop Chrome"] },
       testMatch: [
         "flows/01-auth.spec.ts",

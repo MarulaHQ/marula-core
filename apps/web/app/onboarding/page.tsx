@@ -55,12 +55,15 @@ const TIMEZONES = [
   "Pacific/Auckland",
 ];
 
+// The shipped built-ins, in the order a new user should meet them: the
+// platform default, then the two Marula canvases, then accessibility. Repointed
+// in wave41 lane 2 — `tangerine` is now `marula`, `marula-warm` is the mobile
+// default, and `slate`/`copper` are dropped (migration 0115).
 const THEMES = [
   ["org_default", "Follow the organization"],
-  ["tangerine", "Tangerine"],
-  ["slate", "Slate"],
+  ["marula", "Marula"],
+  ["marula-warm", "Marula warm"],
   ["high_contrast", "High contrast"],
-  ["copper", "Copper"],
 ] as const;
 
 const MODES = [

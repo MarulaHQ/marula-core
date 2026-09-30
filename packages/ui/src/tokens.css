@@ -113,6 +113,19 @@
                                   nobody "fixes" it into a state it was never
                                   carrying. */
 
+  /* ---- Data meters (logged-vs-expected bars) ----
+   * A meter fill is a NON-TEXT INDICATOR, so it answers to the 3:1 floor, not
+   * to a hue. The accent tint cannot do that job: gold-soft on the light canvas
+   * is 1.04:1, which reads only because the hue differs, and in dark the tint
+   * is a neutral, so a tint-filled meter came out at 1.19:1 and all but
+   * vanished. Caught by the vision review, not by the contrast audit, because
+   * the audit had nothing to check against.
+   *
+   * So the meter gets its own pair and flips on mode for the same reason the
+   * primary does: light needs the DEEP amber, dark can carry the gold. */
+  --m-meter-track: #efede6;
+  --m-meter-fill: #9a5b0f;
+
   /* ---- Timeline entry tints (DESIGN-NOTES §4, §7) ---- */
   --m-client: #ffffff;          /* client-visible entry: surface box + border */
   --m-note: #efece6;            /* internal note: tint, no border */
@@ -285,6 +298,9 @@
   --m-asbtn: #2b2a33;
   --m-asbtnf: #e8b83a;
   --m-asline: #cdb38b;
+
+  --m-meter-track: #2b2a33;
+  --m-meter-fill: #e8b83a;
 
   --m-client: #34333d;
   --m-note: #3a342a;

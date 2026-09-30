@@ -330,6 +330,31 @@ describe("input borders are distinct from decorative borders", () => {
   });
 });
 
+describe("data meters", () => {
+  it("holds the fill at the 3:1 non-text floor in both modes", () => {
+    // Found by the vision review: the logged-vs-expected bar was filled with
+    // the accent tint, which is 1.04:1 on the light canvas and 1.19:1 in dark.
+    // A 2px indicator that carries a number has to clear 3:1, so the meter
+    // carries its own pair, and the pair flips on mode for the same reason the
+    // primary does.
+    const light = parseVars(rootBlock);
+    const dark = parseVars(darkBlock);
+    expect(light.get("--m-meter-fill")?.toUpperCase()).toBe("#9A5B0F");
+    expect(light.get("--m-meter-track")?.toUpperCase()).toBe("#EFEDE6");
+    expect(dark.get("--m-meter-fill")?.toUpperCase()).toBe("#E8B83A");
+    expect(dark.get("--m-meter-track")?.toUpperCase()).toBe("#2B2A33");
+    expect(contrastRatio("#9A5B0F", "#EFEDE6")).toBeGreaterThanOrEqual(3.0);
+    expect(contrastRatio("#E8B83A", "#2B2A33")).toBeGreaterThanOrEqual(3.0);
+  });
+
+  it("is not the accent tint wearing a different name", () => {
+    // Pin the reason the meter exists, so a future pass that collapses it back
+    // into --m-accent-muted fails here rather than in someone's eyes.
+    expect(contrastRatio("#F7E3A8", "#EFEDE6")).toBeLessThan(3.0);
+    expect(contrastRatio("#3A3944", "#2B2A33")).toBeLessThan(3.0);
+  });
+});
+
 describe("disabled is a muted fill, not an opacity", () => {
   it("gives disabled text its own token pair at the 3:1 UI floor", () => {
     expect(contrastRatio(TOKEN.disabledFg, TOKEN.surface2)).toBeGreaterThanOrEqual(3.0);

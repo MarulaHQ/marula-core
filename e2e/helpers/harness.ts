@@ -16,13 +16,17 @@ export const TOKENS_KEY = "marula-tokens";
 export const TOKENS_EXP_KEY = "marula-tokens-exp";
 export const THEME_KEY = "marula-theme";
 /** Wave 24: the persisted preset attribute (localStorage key the app's
- * pre-paint bootstrap reads; empty/absent = Tangerine baseline). */
+ * pre-paint bootstrap reads; empty/absent = the tokens.css baseline). */
 export const THEME_PRESET_KEY = "marula-theme-preset";
 
 export type Theme = "light" | "dark";
 /** A shipped default preset id (playwright only covers shipped defaults
  * — arbitrary custom packs are not part of the E2E matrix). */
-export type ThemePresetSeed = "tangerine" | "slate" | "copper" | "high_contrast";
+// Repointed in wave41 lane 2. `tangerine` is renamed to `marula` (migration
+// 0115) and `slate`/`copper` are DROPPED: they were second-brand neutrals with
+// no authority in the brand spec, and the axis they wanted to move is now
+// `marula` vs `marula-warm`.
+export type ThemePresetSeed = "marula" | "marula-warm" | "high_contrast";
 
 type Fixtures = {
   /** Page authenticated as the demo org owner, themed by the active project. */
@@ -39,14 +43,14 @@ export const test = base.extend<Fixtures>({
 
   authedPage: async ({ browser, ownerTokens }, use, testInfo) => {
     // The base projects are named exactly `light` / `dark`; the preset
-    // projects suffix them (`slate-preset-dark`). Both shapes must resolve
+    // projects suffix them (`warm-preset-dark`). Both shapes must resolve
     // the theme, or the `dark` project silently runs light.
     const projectName = testInfo.project.name;
     const theme = (
       projectName === "dark" || projectName.endsWith("-dark") ? "dark" : "light"
     ) as Theme;
-    const preset = testInfo.project.name.startsWith("slate-preset")
-      ? "slate"
+    const preset = testInfo.project.name.startsWith("warm-preset")
+      ? "marula-warm"
       : testInfo.project.name.startsWith("high-contrast-preset")
         ? "high_contrast"
         : null;
