@@ -36,6 +36,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import {
@@ -45,7 +46,6 @@ import {
   LedgerFooter,
   NoMatches,
   PageFrame,
-  PageHeader,
   SkeletonRows,
   StatPill,
   StatusPill,
@@ -405,10 +405,10 @@ export default function ImportsPage() {
 
   return (
     <PageFrame>
-      <PageHeader
+      <SurfaceHeader
         title="Imports"
-        subtitle="Probe first, then commit"
-        attention={
+        description="Probe first, then commit"
+        meta={
           <>
             <StatPill tone="neutral" label="Runs" count={batches?.length ?? 0} />
             <StatPill

@@ -26,6 +26,7 @@ import {
   Button,
   Card,
   ColumnChooser,
+  ContextColumn,
   DataToolbar,
   DensitySwitch,
   Dialog,
@@ -51,6 +52,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -63,7 +65,6 @@ import {
   LockIcon,
   NoMatches,
   PageFrame,
-  PageHeader,
   PlusIcon,
   SkeletonRows,
   StatPill,
@@ -353,10 +354,10 @@ export default function SecretsVaultPage() {
 
   return (
     <PageFrame>
-      <PageHeader
+      <SurfaceHeader
         title="Secret vault"
-        subtitle="Org-level or per client · audited reveals"
-        attention={
+        description="Org-level or per client · audited reveals"
+        meta={
           <>
             <StatPill
               tone="blush"
@@ -414,17 +415,8 @@ export default function SecretsVaultPage() {
       />
 
       <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <aside
-          className="min-h-0 overflow-auto rounded-[16px] p-3"
-          style={{ border: "1px solid var(--m-border)", background: "var(--m-sidebar)" }}
-          aria-label="Secret categories"
-        >
-          <p
-            className="px-2 pb-2 text-[12px] font-semibold uppercase tracking-[0.06em]"
-            style={{ color: "var(--m-text-secondary)" }}
-          >
-            {scopeLabel}
-          </p>
+        <div className="min-h-0 overflow-auto">
+        <ContextColumn variant="none" label={scopeLabel}>
           {folders === null ? (
             <Spinner />
           ) : foldersError !== null ? (
@@ -446,7 +438,8 @@ export default function SecretsVaultPage() {
               }}
             />
           )}
-        </aside>
+        </ContextColumn>
+        </div>
 
         <div className="flex min-h-0 flex-col">
           <DataToolbar

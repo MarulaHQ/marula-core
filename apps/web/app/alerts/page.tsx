@@ -16,6 +16,7 @@
 import {
   Button,
   Card,
+  AssistantColumn,
   ColumnChooser,
   DataToolbar,
   DensitySwitch,
@@ -43,19 +44,19 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AssistantStub,
   BlushNote,
   HEAD_CELL_CLASS,
   KeyHint,
   LedgerFooter,
   PageFrame,
-  PageHeader,
   SkeletonRows,
+  SparkIcon,
   StatPill,
   StatusPill,
   TableCard,
@@ -366,10 +367,10 @@ export default function AlertsPage() {
 
   return (
     <PageFrame>
-      <PageHeader
+      <SurfaceHeader
         title="Alerts"
-        subtitle="Signed ingest, correlated into tickets"
-        attention={
+        description="Signed ingest, correlated into tickets"
+        meta={
           <>
             <StatPill
               tone="red"
@@ -607,16 +608,16 @@ export default function AlertsPage() {
               right edge of the feed, spark at the top, a count only while
               there is something to count. Clicking it narrows to the unrouted
               facet, which is the work an assistant pass would do. */}
-          <div className="relative flex min-h-0 flex-1">
-            <TableCard label="Alert feed" className="pr-10">
-            <AssistantStub
-              count={counts.unrouted}
-              label={
-                counts.unrouted === 1
-                  ? "1 alert has not been routed to a ticket"
-                  : `${counts.unrouted} alerts have not been routed to a ticket`
-              }
-              onOpen={() => setSeverityFilter("unrouted")}
+          <div className="flex min-h-0 flex-1 gap-3">
+            <TableCard label="Alert feed">
+            {/* AI ladder state 2: the resting stub. The count is the unrouted
+                alerts, and null when there are none, because there is nothing
+                to count. The Unrouted pill in the header is the way to act on
+                it. */}
+            <AssistantColumn
+              count={counts.unrouted === 0 ? null : counts.unrouted}
+              spark={<SparkIcon size={16} />}
+              label={`${counts.unrouted} alerts have not been routed to a ticket`}
             />
             {loadingAlerts ? (
               <SkeletonRows sentence="Loading the alert feed." columns={4} />

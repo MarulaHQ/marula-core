@@ -23,6 +23,7 @@ import {
   Button,
   Checkbox,
   ColumnChooser,
+  ContextColumn,
   DataToolbar,
   DensitySwitch,
   Dialog,
@@ -49,6 +50,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -63,7 +65,6 @@ import {
   LedgerFooter,
   NoMatches,
   PageFrame,
-  PageHeader,
   PlusIcon,
   SELECTED_ROW_STYLE,
   SelectionBar,
@@ -360,10 +361,10 @@ export default function KbPage() {
 
   return (
     <PageFrame>
-      <PageHeader
+      <SurfaceHeader
         title="Knowledge base"
-        subtitle="Runbooks, published deliberately"
-        attention={
+        description="Runbooks, published deliberately"
+        meta={
           <>
             <StatPill tone="gold" label="Changed today" count={changedToday} />
             <StatPill tone="blush" label="Drafts" count={draftCount} onClick={() => setView(view === "drafts" ? "all" : "drafts")} pressed={view === "drafts"} />
@@ -394,17 +395,8 @@ export default function KbPage() {
       ) : null}
 
       <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-[240px_minmax(0,1fr)]">
-        <aside
-          className="hidden min-h-0 flex-col overflow-auto rounded-[16px] p-3 xl:flex"
-          style={{ border: "1px solid var(--m-border)", background: "var(--m-sidebar)" }}
-          aria-label="Categories"
-        >
-          <p
-            className="px-2 pb-2 text-[12px] font-semibold uppercase tracking-[0.06em]"
-            style={{ color: "var(--m-text-secondary)" }}
-          >
-            Categories
-          </p>
+        <div className="hidden min-h-0 overflow-auto xl:block">
+        <ContextColumn variant="none" label="Categories">
           <ul className="grid gap-1">
             <li>
               <CategoryRow
@@ -453,7 +445,8 @@ export default function KbPage() {
               What clients see
             </Link>
           </div>
-        </aside>
+        </ContextColumn>
+        </div>
 
         <div className="flex min-h-0 flex-col">
           <DataToolbar

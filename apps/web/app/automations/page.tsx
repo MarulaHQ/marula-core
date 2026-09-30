@@ -42,6 +42,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -54,7 +55,6 @@ import {
   LedgerFooter,
   NoMatches,
   PageFrame,
-  PageHeader,
   PlusIcon,
   RuleStep,
   SkeletonRows,
@@ -520,10 +520,10 @@ export default function AutomationsPage() {
 
   return (
     <PageFrame>
-      <PageHeader
+      <SurfaceHeader
         title="Automation rules"
-        subtitle="WHEN · IF · THEN, in that order"
-        attention={
+        description="WHEN · IF · THEN, in that order"
+        meta={
           <>
             <StatPill
               tone="gold"

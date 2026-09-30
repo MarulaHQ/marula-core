@@ -249,16 +249,13 @@ describe("/alerts — the collapsed assistant stub", () => {
     // race between the stub and the feed it counts.
     await screen.findByText("Disk pressure on db-02");
     const stub = screen.getByTestId("assistant-stub");
-    // The pack draws the stub as a spark and a count; the sentence that
-    // explains it is its accessible name, so a screen reader gets the words
-    // and the eye gets the glyph.
+    // The shared AssistantColumn's resting state: a spark and a count, with
+    // the sentence as the element's accessible name, so a screen reader gets
+    // the words and the eye gets the glyph.
     expect(stub.getAttribute("aria-label") ?? "").toContain("not been routed to a ticket");
-    // 40px wide, docked to the right edge, not a row of its own.
-    expect(stub.className).toContain("w-10");
-    expect(stub.className).toContain("absolute");
-    // A count is rendered, not just a glyph (its exact value belongs to the
-    // fixture, not to this assertion).
-    expect(stub.textContent ?? "").toMatch(/\d/);
+    // The resting state is the stub, never the open 340px column.
+    expect(screen.queryByTestId("assistant-column")).toBeNull();
+    expect(screen.getByTestId("assistant-stub-count").textContent ?? "").toMatch(/\d/);
   });
 
   it("acknowledges an alert from its row", async () => {

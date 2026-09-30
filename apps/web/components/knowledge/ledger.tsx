@@ -261,44 +261,6 @@ export function StatPill({
   );
 }
 
-/** The 64px page header: title, attention shortcuts, then the primary action. */
-export function PageHeader({
-  title,
-  attention,
-  actions,
-  subtitle,
-}: {
-  title: string;
-  attention?: ReactNode;
-  actions?: ReactNode;
-  subtitle?: ReactNode;
-}): ReactNode {
-  return (
-    <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-4 pb-2 pt-3">
-      <div className="min-w-0">
-        <h1
-          className="truncate font-semibold tracking-[-0.01em]"
-          style={{ fontSize: 26, color: "var(--m-text)" }}
-        >
-          {title}
-        </h1>
-        {subtitle ? (
-          <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            {subtitle}
-          </p>
-        ) : null}
-      </div>
-      {attention ? (
-        <div className="ml-2 flex flex-wrap items-center gap-2" role="group" aria-label="Attention shortcuts">
-          {attention}
-        </div>
-      ) : null}
-      <span className="flex-1" />
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
-    </header>
-  );
-}
-
 /** The page body: 24px gutters, full height, canvas background. */
 export function PageFrame({ children }: { children: ReactNode }): ReactNode {
   return (
@@ -543,48 +505,6 @@ export function NoMatches({
         </button>
       }
     />
-  );
-}
-
-/**
- * The collapsed assistant stub — AI ladder state 2. In the pack this is a 40px
- * strip down the RIGHT edge of the surface, not a row above it: the spark sits
- * at the top of a narrow column that runs the height of the ledger, so the
- * affordance stays visible without a panel and without taking a row of its
- * own. There is no count when there is nothing to count.
- */
-export function AssistantStub({
-  count = 0,
-  label,
-  onOpen,
-}: {
-  count?: number;
-  /** The sentence the spark stands for; it becomes the strip's accessible name. */
-  label: string;
-  onOpen: () => void;
-}): ReactNode {
-  return (
-    <button
-      type="button"
-      data-testid="assistant-stub"
-      onClick={onOpen}
-      aria-label={label}
-      title={label}
-      className="absolute right-0 top-0 flex h-full w-10 flex-col items-center gap-2 border-l pt-3 transition-colors duration-100"
-      style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
-    >
-      <span style={{ color: "var(--m-gold)" }}>
-        <SparkIcon size={16} />
-      </span>
-      {count > 0 ? (
-        <span
-          className="tabular-nums inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[12px] font-bold"
-          style={{ background: "var(--m-accent)", color: "var(--m-on-accent)" }}
-        >
-          {count}
-        </span>
-      ) : null}
-    </button>
   );
 }
 

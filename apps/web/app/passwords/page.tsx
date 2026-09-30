@@ -27,6 +27,7 @@ import {
   Button,
   Card,
   ColumnChooser,
+  ContextColumn,
   DataToolbar,
   DensitySwitch,
   Dialog,
@@ -52,6 +53,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -67,7 +69,6 @@ import {
   LockIcon,
   NoMatches,
   PageFrame,
-  PageHeader,
   PlusIcon,
   SkeletonRows,
   StatPill,
@@ -479,10 +480,10 @@ export default function VaultPage() {
 
   return (
     <PageFrame>
-      <PageHeader
+      <SurfaceHeader
         title="Vault"
-        subtitle="Categories and credentials · audited reveals"
-        attention={
+        description="Categories and credentials · audited reveals"
+        meta={
           <>
             <StatPill
               tone="blush"
@@ -540,18 +541,8 @@ export default function VaultPage() {
       />
 
       <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <aside
-          className="min-h-0 overflow-auto rounded-[16px] p-3"
-          style={{ border: "1px solid var(--m-border)", background: "var(--m-sidebar)" }}
-          aria-label="Secret categories"
-          data-testid="vault-tree"
-        >
-          <p
-            className="px-2 pb-2 text-[12px] font-semibold uppercase tracking-[0.06em]"
-            style={{ color: "var(--m-text-secondary)" }}
-          >
-            {scopeLabel}
-          </p>
+        <div className="min-h-0 overflow-auto">
+        <ContextColumn variant="none" label={scopeLabel}>
           {folders === null ? (
             <Spinner />
           ) : foldersError !== null ? (
@@ -573,7 +564,8 @@ export default function VaultPage() {
               }}
             />
           )}
-        </aside>
+        </ContextColumn>
+        </div>
 
         <div className="flex min-h-0 flex-col">
           <DataToolbar

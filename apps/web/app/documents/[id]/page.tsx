@@ -35,6 +35,7 @@ import {
   Td,
   Th,
   Tr,
+  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -51,7 +52,6 @@ import {
   BlushNote,
   HEAD_CELL_CLASS,
   PageFrame,
-  PageHeader,
 } from "../../../components/knowledge/ledger";
 import { FieldsEditor, parseFieldInputs } from "../fields-editor";
 import { EntityPicker } from "../../../components/entities/entity-picker";
@@ -345,7 +345,7 @@ export default function DocumentDetailPage() {
   if (loadError !== null) {
     return (
       <PageFrame>
-        <PageHeader title="Document" />
+        <SurfaceHeader title="Document" />
         <div className="mb-2">
           <BlushNote title="This document did not load.">{loadError}</BlushNote>
         </div>
@@ -356,7 +356,7 @@ export default function DocumentDetailPage() {
   if (doc === null || body === null) {
     return (
       <PageFrame>
-        <PageHeader title="Document" />
+        <SurfaceHeader title="Document" />
         <Spinner />
       </PageFrame>
     );
@@ -374,9 +374,9 @@ export default function DocumentDetailPage() {
       >
         ← Documents
       </Link>
-      <PageHeader
+      <SurfaceHeader
         title={doc.title}
-        subtitle={
+        description={
           <span className="flex flex-wrap items-center gap-2">
             {doc.client_id != null ? (
               <Link href={`/clients/${doc.client_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">

@@ -44,6 +44,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import {
@@ -52,7 +53,6 @@ import {
   KeyHint,
   LedgerFooter,
   PageFrame,
-  PageHeader,
   PlusIcon,
   SkeletonRows,
   StatPill,
@@ -184,10 +184,10 @@ export default function DocumentsPage() {
 
   return (
     <PageFrame>
-      <PageHeader
+      <SurfaceHeader
         title="Documents"
-        subtitle="Org-global or per client · versioned"
-        attention={
+        description="Org-global or per client · versioned"
+        meta={
           <>
             <StatPill tone="neutral" label="Org-global" count={stats?.global ?? 0} onClick={() => setScope((s) => (s.kind === "global" ? { kind: "all" } : { kind: "global" }))} pressed={scope.kind === "global"} />
             <StatPill tone="neutral" label="Client-scoped" count={stats?.scoped ?? 0} onClick={() => setScope((s) => (s.kind === "all" ? { kind: "global" } : { kind: "all" }))} pressed={scope.kind === "all"} />
