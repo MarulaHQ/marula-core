@@ -41,6 +41,9 @@ async fn fresh_demo_db() -> (common::TestDb, tokio::sync::MutexGuard<'static, ()
 async fn wipe(db: &common::TestDb) {
     let mut tx = db.app.begin().await.unwrap();
     core_db::set_org(&mut tx, DEMO_ORG_ID).await.unwrap();
+    // Same escape demo::reset uses: the wipe cascades into the append-only
+    // ledger, which would otherwise make every test's setup a one-way door.
+    core_db::set_dev_reset_bypass(&mut tx).await.unwrap();
     sqlx::query("DELETE FROM orgs WHERE id = $1")
         .bind(DEMO_ORG_ID)
         .execute(&mut *tx)

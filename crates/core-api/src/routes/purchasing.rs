@@ -45,6 +45,7 @@ use core_domain::entities::{
 use core_domain::policy::{check, Action, Module, Permission};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -305,6 +306,21 @@ pub struct ListOrdersQuery {
     pub project_id: Option<Uuid>,
     #[serde(default)]
     pub q: Option<String>,
+}
+
+/// One row of the order list: the order itself plus its own totals.
+///
+/// The order fields are flattened, so this is the order's old wire shape plus
+/// a `totals` key — a client that ignores the new key keeps working, and one
+/// that reads it stops needing a request per order to know what an order is
+/// worth. `totals` is `null` for a caller without `ViewFinancials`, which is
+/// the same gate the detail endpoint's totals obey: the list never leaks money
+/// the detail page would hide.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PurchaseOrderSummary {
+    #[serde(flatten)]
+    pub order: PurchaseOrder,
+    pub totals: Option<PurchaseOrderRollup>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -1482,14 +1498,15 @@ pub async fn delete_external_link_route(
 /// GET /api/purchase-orders
 #[utoipa::path(operation_id = "purchase_orders_list", get, path = "/api/purchase-orders", tag = "purchasing", security(("bearer" = [])),
     params(ListOrdersQuery),
-    responses((status = 200, body = [PurchaseOrder])))]
+    responses((status = 200, body = [PurchaseOrderSummary])))]
 pub async fn list_orders(
     axum::extract::State(state): axum::extract::State<AppState>,
     extensions: Extensions,
     axum::extract::Query(q): axum::extract::Query<ListOrdersQuery>,
-) -> ApiResult<Json<Vec<PurchaseOrder>>> {
+) -> ApiResult<Json<Vec<PurchaseOrderSummary>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
+    let financial = financial_read(&authed);
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
@@ -1505,8 +1522,39 @@ pub async fn list_orders(
         LIST_LIMIT,
     )
     .await?;
+
+    // The same totals, by the same function, the detail endpoint reports — so
+    // a row's value and the order's own total can never disagree. Money is
+    // only summed for a caller allowed to see it; without that permission each
+    // row carries a null and the client shows the value as withheld, not zero.
+    let totals_by_order: HashMap<Uuid, PurchaseOrderRollup> = if financial && !rows.is_empty() {
+        let ids: Vec<Uuid> = rows.iter().map(|order| order.id).collect();
+        let lines = core_db::purchasing::list_po_lines_for_orders(&mut tx, org_id, &ids).await?;
+        let mut grouped: HashMap<Uuid, Vec<PurchaseOrderLine>> = HashMap::new();
+        for line in lines {
+            grouped.entry(line.purchase_order_id).or_default().push(line);
+        }
+        grouped
+            .into_iter()
+            .map(|(order_id, lines)| {
+                core_domain::entities::po_rollup(&lines)
+                    .map(|totals| (order_id, totals))
+                    .map_err(ApiError::from)
+            })
+            .collect::<ApiResult<HashMap<Uuid, PurchaseOrderRollup>>>()?
+    } else {
+        HashMap::new()
+    };
+
+    let out = rows
+        .into_iter()
+        .map(|order| {
+            let totals = totals_by_order.get(&order.id).cloned();
+            Ok(PurchaseOrderSummary { order, totals })
+        })
+        .collect::<ApiResult<Vec<PurchaseOrderSummary>>>()?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(rows))
+    Ok(Json(out))
 }
 
 /// GET /api/purchase-orders/{id} — header + lines + receipts + bill.

@@ -1,14 +1,19 @@
-// Stock item detail — on-hand by location, ledger, and the consume action.
+// Stock item detail — the pack's `15-stock-item` on live data.
 //
-// Purpose: the foundation's consumption surface, entirely server-backed.
-// On-hand and the movement ledger are read models (live for own writes;
-// cross-client stock events are not WS-routed today — recorded contract
-// gap); Consume is a queued write with an idempotency key, so an offline
-// consumption replays exactly once and reconciles from the ledger.
+// Purpose: drawn as the found-sheet's full page: name + SKU, the facts list
+// (On hand, Unit, SKU, Part no.), locations with counts and LOW as blush
+// (never red), the movement history as time entries (What · qty · when ·
+// note), and the bottom action bar with the pack's two verbs: Take/Use and
+// Move.
+//
+// Purpose is pack shape; mechanics stay the foundation's: consume is the
+// queued write with an idempotency key, Take/Use pre-fills it, Move jumps
+// to the movement screen staged with this item.
 
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { REASON_COPY } from "@/core/errors";
 import {
@@ -20,18 +25,17 @@ import {
 } from "@/core/models";
 import { consumeStock } from "@/core/writes";
 import { useModel, useMutation } from "@/data/sync-context";
+import { EmptyState, ErrorNote, Loading } from "@/ui/primitives";
 import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorNote,
-  Field,
-  Loading,
-  Mono,
-  Pill,
-  Screen,
-  SectionHeader,
-} from "@/ui/primitives";
+  PackHeader,
+  PackLabel,
+  PackPill,
+  PACK_ICONS,
+  PinnedBar,
+  PrimaryButton,
+  SecondaryButton,
+  actionReserve,
+} from "@/ui/pack";
 import { infoPair, type, useTheme } from "@/ui/tokens";
 
 export default function StockItemScreen() {
@@ -40,8 +44,6 @@ export default function StockItemScreen() {
   const { mutate } = useMutation();
   const [banner, setBanner] = useState<string | null>(null);
   const [locationId, setLocationId] = useState<string | null>(null);
-  const [qty, setQty] = useState("1");
-  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
   const item = useModel(
@@ -63,11 +65,12 @@ export default function StockItemScreen() {
   );
   const selectedLocation = locationId ?? rows[0]?.stock_location_id ?? null;
   const selectedRow = rows.find((row) => row.stock_location_id === selectedLocation);
+  const unit = item.data?.unit ?? "";
 
   if (id === undefined) return null;
   if (item.status === "error" && item.data === undefined) {
     return (
-      <Screen testID="stock-item-screen">
+      <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: 16 }]}>
         <EmptyState
           message={
             item.error?.reason === "not_found"
@@ -75,136 +78,159 @@ export default function StockItemScreen() {
               : (item.error?.text ?? "Couldn't load this item.")
           }
         />
-      </Screen>
+      </View>
     );
   }
   if (item.status === "loading" && item.data === undefined) {
     return (
-      <Screen testID="stock-item-screen" scroll={false}>
+      <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: 16 }]}>
         <Loading label="Loading item" />
-      </Screen>
+      </View>
     );
   }
 
-  const quantity = Number.parseFloat(qty.replace(",", "."));
-  const qtyMilli = Number.isFinite(quantity) ? Math.round(quantity * 1000) : Number.NaN;
+  const takeOne = () => {
+    if (selectedLocation === null) return;
+    setBusy(true);
+    setBanner(null);
+    void mutate(consumeStock, {
+      itemId: id,
+      ...(item.data !== undefined ? { itemName: item.data.name } : {}),
+      locationId: selectedLocation,
+      qtyMilli: 1000,
+    })
+      .then((result) => {
+        if (result.ok && result.queued) {
+          setBanner("Saved on this device — the ledger updates when it syncs.");
+        } else if (result.ok) {
+          setBanner("Used — the movement is on the ledger.");
+        } else {
+          setBanner(result.failure?.text ?? "Couldn't record the use.");
+        }
+      })
+      .finally(() => setBusy(false));
+  };
 
   return (
-    <Screen testID="stock-item-screen">
-      <Pressable onPress={() => router.back()} hitSlop={8}>
-        <Text style={[styles.back, { color: tokens.primary }]}>‹ Back</Text>
-      </Pressable>
+    <View style={[styles.screen, { backgroundColor: tokens.background }]}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: tokens.text }]}>{item.data?.name}</Text>
+        <PackHeader
+          onBack={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace("/(tabs)/board");
+          }}
+          backTestID="stock-item-back"
+          title={item.data?.name ?? "Item"}
+          detail={unit !== "" ? `Unit: ${unit}` : undefined}
+        />
+      </View>
+
+      <View style={[styles.scroll, { paddingBottom: actionReserve() }]} testID="stock-item-screen">
         <View style={styles.pills}>
-          {item.data?.sku != null ? <Pill pair={tokens.neutral} label={String(item.data.sku)} /> : null}
+          {item.data?.sku != null ? <PackPill pair={tokens.neutral} label={String(item.data.sku)} /> : null}
           {item.data?.part_number != null ? (
-            <Pill pair={tokens.neutral} label={String(item.data.part_number)} />
+            <PackPill pair={tokens.neutral} label={String(item.data.part_number)} />
           ) : null}
-          {item.data?.is_tool === true ? <Pill pair={infoPair(tokens)} label="TOOL" /> : null}
+          {item.data?.is_tool === true ? (
+            <PackPill pair={infoPair(tokens)} label="TOOL" />
+          ) : null}
+        </View>
+
+        {banner !== null ? <ErrorNote text={banner} /> : null}
+
+        <View>
+          <PackLabel style={{ marginBottom: 8 }}>On hand</PackLabel>
+          {rows.length === 0 ? (
+            <EmptyState message="No stock recorded at any location." />
+          ) : (
+            <View style={styles.rowsCard}>
+              {rows.map((row: OnHandRow) => {
+                const selected = row.stock_location_id === selectedLocation;
+                return (
+                  <Pressable
+                    key={row.stock_location_id}
+                    testID={`onhand-${row.stock_location_id}`}
+                    onPress={() => setLocationId(row.stock_location_id)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    style={[styles.locationRow, { borderBottomColor: tokens.border }]}
+                  >
+                    <Ionicons name={PACK_ICONS.location} size={18} color={tokens.textSecondary} />
+                    <Text style={[styles.locationName, { color: tokens.text }]}>
+                      {row.location_name}
+                    </Text>
+                    <View style={styles.locationEnd}>
+                      <Text style={[styles.qty, { color: tokens.text }]}>
+                        {formatQty(row.qty_milli)} {unit}
+                      </Text>
+                      {row.low ? <PackPill pair={tokens.warning} label="LOW" /> : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
+        <View>
+          <PackLabel style={{ marginBottom: 8 }}>Movement history</PackLabel>
+          {movements.status === "error" && movements.data === undefined ? (
+            <ErrorNote text={movements.error?.text ?? "Couldn't load the history."} onRetry={movements.refresh} />
+          ) : null}
+          {movements.data !== undefined && movements.data.length === 0 ? (
+            <EmptyState message="No movements recorded yet." />
+          ) : null}
+          <View style={styles.rowsCard}>
+            {(movements.data ?? []).slice(0, 12).map((movement, index) => (
+              <View
+                key={movement.id}
+                style={[styles.movementRow, index === 0 ? null : { borderTopColor: tokens.border, borderTopWidth: 1 }]}
+              >
+                <View style={styles.movementBody}>
+                  <Text style={[styles.movementKind, { color: tokens.text }]}>
+                    {movementKindLabel(movement.kind)} · {formatQty(movement.qty_milli)} {unit}
+                  </Text>
+                  <Text style={[styles.movementWhen, { color: tokens.textSecondary }]}>
+                    {new Date(movement.created_at).toLocaleString()}
+                    {movement.note != null && movement.note !== "" ? ` · ${movement.note}` : ""}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
         </View>
       </View>
 
-      {banner !== null ? <ErrorNote text={banner} /> : null}
-
-      <SectionHeader title="On hand" />
-      {rows.length === 0 ? (
-        <EmptyState message="No stock recorded at any location." />
-      ) : (
-        <Card>
-          {rows.map((row: OnHandRow) => {
-            const selected = row.stock_location_id === selectedLocation;
-            return (
-              <Pressable
-                key={row.stock_location_id}
-                testID={`onhand-${row.stock_location_id}`}
-                onPress={() => setLocationId(row.stock_location_id)}
-                style={styles.locationRow}
-              >
-                <View style={styles.locationBody}>
-                  <Text style={[styles.locationName, { color: tokens.text }]}>
-                    {row.location_name}
-                  </Text>
-                  <Mono muted>{formatQty(row.qty_milli)} {item.data?.unit ?? ""}</Mono>
-                </View>
-                {row.low ? <Pill pair={tokens.warning} label="LOW" /> : null}
-                {selected ? <Pill pair={infoPair(tokens)} label="SELECTED" /> : null}
-              </Pressable>
-            );
-          })}
-        </Card>
-      )}
-
-      <SectionHeader title="Consume from stock" />
-      <Card>
-        <Field
-          label="Quantity"
-          testID="consume-qty"
-          value={qty}
-          onChangeText={setQty}
-          keyboardType="decimal-pad"
-          hint={selectedRow !== undefined ? `Available: ${formatQty(selectedRow.qty_milli)}` : undefined}
+      <PinnedBar>
+        <SecondaryButton
+          label={selectedRow !== undefined && selectedRow.low ? "Use 1 (low stock)" : "Use 1"}
+          icon={PACK_ICONS.box}
+          style={{ flex: 1 }}
+          disabled={selectedLocation === null || busy}
+          onPress={takeOne}
         />
-        <Field
-          label="Note"
-          testID="consume-note"
-          value={note}
-          onChangeText={setNote}
-          placeholder="Charged to the job"
-          hint="Consumption records against the chosen location; attach a ticket from the job screen."
+        <PrimaryButton
+          label="Move stock"
+          icon={PACK_ICONS.kanban}
+          style={{ flex: 1.2 }}
+          onPress={() => router.push(`/move?item=${id}` as never)}
         />
-        <Button
-          label="Consume"
-          testID="consume-submit"
-          fullWidth
-          loading={busy}
-          disabled={selectedLocation === null || !Number.isFinite(qtyMilli) || qtyMilli <= 0}
-          onPress={() => {
-            if (selectedLocation === null || !Number.isFinite(qtyMilli)) return;
-            setBusy(true);
-            setBanner(null);
-            void mutate(consumeStock, {
-              itemId: id,
-              ...(item.data !== undefined ? { itemName: item.data.name } : {}),
-              locationId: selectedLocation,
-              qtyMilli,
-              ...(note.trim() !== "" ? { note: note.trim() } : {}),
-            })
-              .then((result) => {
-                if (result.ok && result.queued) {
-                  setBanner("Queued on this device — the ledger updates when it syncs.");
-                } else if (!result.ok) {
-                  setBanner(result.failure?.text ?? "Couldn't record the consumption.");
-                }
-              })
-              .finally(() => setBusy(false));
-          }}
-        />
-      </Card>
-
-      <SectionHeader title="Ledger" />
-      {movements.status === "error" && movements.data === undefined ? (
-        <ErrorNote text={movements.error?.text ?? "Couldn't load the ledger."} onRetry={movements.refresh} />
-      ) : null}
-      {movements.data !== undefined && movements.data.length === 0 ? (
-        <EmptyState message="No movements recorded yet." />
-      ) : null}
-      {(movements.data ?? []).slice(0, 12).map((movement) => (
-        <Card key={movement.id} style={styles.movement}>
-          <View style={styles.movementHeader}>
-            <Text style={[styles.movementKind, { color: tokens.text }]}>
-              {movement.kind.toUpperCase()}
-            </Text>
-            <Mono muted>{new Date(movement.created_at).toLocaleString()}</Mono>
-          </View>
-          <Mono muted>
-            {formatQty(movement.qty_milli)}
-            {movement.note != null && movement.note !== "" ? ` · ${movement.note}` : ""}
-          </Mono>
-        </Card>
-      ))}
-    </Screen>
+      </PinnedBar>
+    </View>
   );
+}
+
+function movementKindLabel(kind: string): string {
+  switch (kind.toLowerCase()) {
+    case "consume":
+      return "Used";
+    case "receive":
+      return "Received";
+    case "transfer":
+      return "Moved";
+    default:
+      return kind;
+  }
 }
 
 function formatQty(qtyMilli: number | null | undefined): string {
@@ -215,51 +241,69 @@ function formatQty(qtyMilli: number | null | undefined): string {
 }
 
 const styles = StyleSheet.create({
-  back: {
-    fontFamily: type.sansSemiBold,
-    fontSize: 15,
+  screen: {
+    flex: 1,
   },
   header: {
-    paddingTop: 4,
-    gap: 6,
+    paddingHorizontal: 12,
+    paddingTop: 8,
   },
-  title: {
-    fontFamily: type.sansBold,
-    fontSize: 24,
-    letterSpacing: -0.4,
+  scroll: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    gap: 18,
   },
   pills: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 6,
   },
+  rowsCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    borderColor: "transparent",
+    overflow: "hidden",
+  },
   locationRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
+    gap: 10,
     minHeight: 44,
-    paddingVertical: 6,
-  },
-  locationBody: {
-    flex: 1,
-    gap: 2,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
   },
   locationName: {
+    flex: 1,
     fontFamily: type.sansMedium,
     fontSize: 15,
   },
-  movement: {
-    gap: 4,
-  },
-  movementHeader: {
+  locationEnd: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 8,
+  },
+  qty: {
+    fontFamily: type.sansSemiBold,
+    fontSize: 14,
+    fontVariant: ["tabular-nums"],
+  },
+  movementRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  movementBody: {
+    gap: 2,
   },
   movementKind: {
     fontFamily: type.sansSemiBold,
-    fontSize: 13,
-    letterSpacing: 0.6,
+    fontSize: 14,
+  },
+  movementWhen: {
+    fontFamily: type.sans,
+    fontSize: 12,
   },
 });

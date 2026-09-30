@@ -1,17 +1,39 @@
-// /contracts/[id] — the contract editor (Workspace-core UI, T3).
+// /contracts/[id] — the contract record + editor (Workspace-core UI T3),
+// reshaped to the Marula surface pack's record template (Wave 41 lane 7
+// `p41-ui-clients`).
 //
-// Purpose: one agreement's full editor: identity + lifecycle, the
-// per-type commercial fields (recurring/T&M/retainer/fixed-fee), the T&M
-// rate card and fixed-fee schedule (replaced wholesale via PATCH, as the
-// API defines), and the per-contract billing preview that links into
-// /billing over the same window. All edits ride the IF1–IF3 envelope
-// with If-Match versioning and inline typed errors.
+// DERIVATION-GUIDE: `/contracts` and `/contracts/[id]` **Derive** from TL and
+// the KIT components. `DESIGN-NOTES-clients.md` §7 says a contract copies the
+// client's "Contracts and billing" tab: the contract card becomes the page,
+// and the ledger is its invoices. So this page is the SAME three-column record
+// shape the client and project records use — customer on the left, the editor
+// in the middle, what needs attention on the right — with the editors this
+// page has always carried (agreement, rate card, fee schedule, prepaid
+// blocks, not-to-exceed caps, change orders, service credits, billing
+// preview) untouched inside the content column.
+//
+// What changed is the frame and the signals, not the editing:
+//   1. **The renewal strip**, blush, stating the date a renewal quote should
+//      go out — the pack's point that a renewal is missed when the lead time
+//      is not written down.
+//   2. **A terms card** of four figures (value, term, billing, terms).
+//   3. **A right-hand summary** — status, term, renewal — so what needs
+//      attention is on the page rather than a click away.
+//   4. Every existing editor, its mutation, and its envelope versioning kept
+//      exactly as it was.
+//
+// THE colour rule (`DESIGN-NOTES.md` §A2): a contract nearing renewal is
+// BLUSH, never red. Red is only a genuine SLA breach, a P1, or a destructive
+// action — and a term that has ALREADY elapsed is the one renewal-adjacent
+// case allowed red, because the end date has genuinely passed.
+//
 // Non-purpose: no invoice issuing (documents are issued artifacts on
 // /billing); no contract deletion UI beyond the status lifecycle.
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -38,6 +60,13 @@ import { api, useRequireAuth } from "../../../lib/api";
 import { money } from "../../../lib/format";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { contractStatusTone, termSignal } from "../../../lib/money-summary";
+import { formatPackDate, renewalQuoteDueDate, renewalSignal } from "../../../lib/renewal-signals";
+import {
+  RecordFrame,
+  RecordRow,
+  RecordSection,
+  SummaryCard,
+} from "../../../components/records/record-frame";
 
 type ContractDetail = components["schemas"]["ContractDetail"];
 type ContractMutationResponse = components["schemas"]["ContractMutationResponse"];
@@ -55,6 +84,10 @@ export default function ContractDetailPage(): ReactNode {
   const contractId = params.id;
 
   const [contract, setContract] = useState<ContractDetail | null>(null);
+  // The client's name for the left column. Fetched once per contract and
+  // read defensively: a client that is out of scope must not blank the
+  // column, it names itself as the reference the contract already carries.
+  const [contractClientName, setContractClientName] = useState<string>("Client");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -115,6 +148,13 @@ export default function ContractDetailPage(): ReactNode {
     }
     setContract(data);
     setLoadError(null);
+    // The client's name, resolved separately from the contract payload.
+    // A failure here is not a page failure: the column falls back to a
+    // neutral label and the contract's own fields still read.
+    void api.api.GET("/api/v1/clients").then(({ data: cs }) => {
+      const found = (cs ?? []).find((c) => c.id === data.client_id);
+      if (found !== undefined) setContractClientName(found.name);
+    });
     setName(data.name);
     setStatus(data.status);
     setEffectiveFrom(data.effective_from);
@@ -415,14 +455,68 @@ export default function ContractDetailPage(): ReactNode {
   // it needs a billing frequency — the types that have one.
   const minimumBearing = needsAmount || isTm;
   const escalatorBearing = needsAmount;
+  const nowForTerm = Date.now();
+  const recordRenewal = renewalSignal(contract.effective_until, nowForTerm);
+  const recordQuoteDue = renewalQuoteDueDate(contract.effective_until);
+  const clientLabel = contractClientName;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
+    <div className="mx-auto grid w-full max-w-[1600px] gap-4 p-4 md:p-6">
+      <RecordFrame
+        context={
+          <>
+            <RecordSection label="Client">
+              <Link
+                href={`/clients/${contract.client_id}`}
+                className="text-[16px] font-semibold underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
+              >
+                {clientLabel}
+              </Link>
+            </RecordSection>
+            <RecordSection label="Contract">
+              <p className="text-[16px] font-semibold">{contract.name}</p>
+              <p className="font-mono text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                {contract.number}
+              </p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <Tag tone={contractStatusTone(contract.status)}>{contract.status}</Tag>
+                <Badge tone="neutral">{contract.contract_type.replaceAll("_", " ")}</Badge>
+              </div>
+            </RecordSection>
+            <RecordSection label="Term">
+              <RecordRow label="From">{formatPackDate(contract.effective_from) ?? "—"}</RecordRow>
+              <RecordRow label="Until">
+                {formatPackDate(contract.effective_until) ?? "Open-ended"}
+              </RecordRow>
+              {recordRenewal !== null ? (
+                /* BLUSH for a renewal inside its window. Only an ELAPSED term
+                   takes red, and only then. */
+                <span className="mt-1.5 inline-flex">
+                  <Badge tone={recordRenewal.tone === "danger" ? "danger" : "due"}>
+                    <span className="inline-flex items-center gap-1">
+                      <ClockGlyph />
+                      {recordRenewal.label}
+                    </span>
+                  </Badge>
+                </span>
+              ) : null}
+            </RecordSection>
+            <RecordSection label="Value">
+              <RecordRow label="Per period">
+                {contract.amount_minor != null
+                  ? `${money(contract.amount_minor, contract.currency)} / ${contract.billing_frequency ?? "period"}`
+                  : "Not priced"}
+              </RecordRow>
+            </RecordSection>
+          </>
+        }
+        content={
+          <>
       <div className="m-rise">
-        <Link href="/contracts" className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2" style={{ color: "var(--m-text-secondary)" }}>
-          ← Contracts
-        </Link>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link href="/contracts" className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2" style={{ color: "var(--m-text-secondary)" }}>
+            ← Contracts
+          </Link>
           <h1 className="font-mono text-lg font-semibold tabular-nums">{contract.number}</h1>
           <Tag tone={contractStatusTone(contract.status)}>{contract.status}</Tag>
           <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -443,6 +537,59 @@ export default function ContractDetailPage(): ReactNode {
             View client
           </Link>
         </div>
+      </div>
+
+      {/* The renewal strip: blush, and it names the date the renewal quote
+          should go out, so the lead time is written down rather than assumed. */}
+      {recordRenewal !== null ? (
+        <div
+          role="status"
+          data-testid="contract-renewal-strip"
+          className="mt-3 flex flex-wrap items-center gap-3 rounded-xl px-4 py-2.5"
+          style={{ background: "var(--m-status-due-bg, var(--m-time))", color: "var(--m-status-due-fg, var(--m-time-fg)" }}
+        >
+          <ClockGlyph />
+          <span className="text-[13px]">
+            <strong className="font-bold">{recordRenewal.label}.</strong>{" "}
+            {recordQuoteDue !== null
+              ? `The renewal quote should go out by ${formatPackDate(recordQuoteDue)}, 60 days before the end.`
+              : "The renewal quote should go out before the end."}
+          </span>
+          <span className="flex-1" />
+          {/* On the contract's own record, "start renewal" means moving the
+              term — so this focuses the field that does it rather than
+              opening a second, parallel editor somewhere else. */}
+          <Button
+            size="sm"
+            variant="secondary"
+            data-testid="contract-start-renewal"
+            onClick={() => {
+              const field = document.getElementById("cd-until");
+              if (field instanceof HTMLElement) {
+                field.focus();
+                field.scrollIntoView({ block: "center" });
+              }
+            }}
+          >
+            Start renewal
+          </Button>
+        </div>
+      ) : null}
+
+      {/* The contract's terms as four figures — the card the pack makes the
+          page. */}
+      <div
+        className="mt-3 grid grid-cols-2 gap-4 rounded-2xl border p-4 lg:grid-cols-4"
+        style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+        data-testid="contract-terms-card"
+      >
+        <Figure label="Value" emphasis
+          value={contract.amount_minor != null ? `${money(contract.amount_minor, contract.currency)} a ${shortFreq(contract.billing_frequency)}` : "—"} />
+        <Figure label="Term"
+          value={`${formatPackDate(contract.effective_from) ?? "—"} to ${formatPackDate(contract.effective_until) ?? "open"}`} />
+        <Figure label="Billing"
+          value={contract.billing_frequency != null ? `${shortFreq(contract.billing_frequency)}, on the ${billingDay(contract.billing_anchor)}` : "—"} />
+        <Figure label="Payment terms" value={contract.po_number != null && contract.po_number !== "" ? `Net 14 · ${contract.po_number}` : "Net 14"} />
       </div>
 
       {saveError !== null ? (
@@ -1156,6 +1303,67 @@ export default function ContractDetailPage(): ReactNode {
           </div>
         ) : null}
       </Card>
+          </>
+        }
+        summary={
+          <>
+            <p
+              className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em]"
+              style={{ color: "var(--m-text-muted)" }}
+            >
+              Right now
+            </p>
+            <SummaryCard title="Status">
+              <RecordRow label="Status">
+                <Tag tone={contractStatusTone(contract.status)}>{contract.status}</Tag>
+              </RecordRow>
+              <RecordRow label="Type">{contract.contract_type.replaceAll("_", " ")}</RecordRow>
+              <RecordRow label="Currency">{contract.currency}</RecordRow>
+            </SummaryCard>
+            <SummaryCard title="Renewal">
+              {recordRenewal === null ? (
+                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  {contract.effective_until == null || contract.effective_until === ""
+                    ? "Open-ended: there is nothing to renew."
+                    : "Nothing due inside the renewal window."}
+                </span>
+              ) : (
+                <>
+                  <RecordRow label="Term ends">
+                    {formatPackDate(contract.effective_until)}
+                  </RecordRow>
+                  <RecordRow label="Signal">
+                    <Badge tone={recordRenewal.tone === "danger" ? "danger" : "due"}>
+                      <span className="inline-flex items-center gap-1">
+                        <ClockGlyph />
+                        {recordRenewal.label}
+                      </span>
+                    </Badge>
+                  </RecordRow>
+                  {recordQuoteDue !== null ? (
+                    <RecordRow label="Quote by">{formatPackDate(recordQuoteDue)}</RecordRow>
+                  ) : null}
+                </>
+              )}
+            </SummaryCard>
+            <SummaryCard title="Billing">
+              <RecordRow label="Per period">
+                {contract.amount_minor != null
+                  ? money(contract.amount_minor, contract.currency)
+                  : "Not priced"}
+              </RecordRow>
+              <RecordRow label="Frequency">{contract.billing_frequency ?? "—"}</RecordRow>
+              <Link
+                href="/billing"
+                className="text-[13px] underline underline-offset-2"
+                style={{ color: "var(--m-text-secondary)" }}
+              >
+                Open billing →
+              </Link>
+            </SummaryCard>
+          </>
+        }
+      />
     </div>
   );
 }
@@ -1516,5 +1724,58 @@ function FeeScheduleEditor({ onApply, saving }: { onApply: (rows: { label: strin
         </Button>
       </div>
     </div>
+  );
+}
+
+/** The contract's terms as figures. The value figure is the one that earns
+ * the larger type, because it is the number an account manager is asked for. */
+function Figure({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
+  return (
+    <div>
+      <p
+        className="text-[11px] font-semibold uppercase tracking-[0.08em]"
+        style={{ color: "var(--m-text-muted)" }}
+      >
+        {label}
+      </p>
+      <p
+        className="mt-0.5 font-semibold tabular-nums"
+        style={{ fontSize: emphasis ? "20px" : "13px" }}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function shortFreq(f: string | null | undefined): string {
+  switch (f) {
+    case "monthly": return "month";
+    case "quarterly": return "quarter";
+    case "semiannual": return "half year";
+    case "annual": return "year";
+    case "weekly": return "week";
+    default: return "period";
+  }
+}
+
+function billingDay(anchor: string | null | undefined): string {
+  if (anchor == null || anchor === "") return "1st";
+  const day = Number(anchor.slice(8, 10));
+  if (!Number.isFinite(day) || day < 1) return "1st";
+  if (day === 1) return "1st";
+  if (day === 2) return "2nd";
+  if (day === 3) return "3rd";
+  return `${day}th`;
+}
+
+/** The clock that pairs with every renewal word. Colour is never alone, so
+ * the pill carries an icon and the number as well as the tone. */
+function ClockGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
   );
 }

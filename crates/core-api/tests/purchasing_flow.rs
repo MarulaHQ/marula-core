@@ -949,3 +949,194 @@ async fn internal_org_assets_ride_the_device_asset_lifecycle() {
     assert!(client_ids.contains(&client_asset["id"].as_str().unwrap().to_string()));
     assert!(!client_ids.contains(&asset_id.to_string()));
 }
+
+/// The list carries each order's own totals, and withholds them from a caller
+/// who cannot see financials — the same gate the order detail obeys.
+///
+/// The list is the surface a buyer scans all day, so "no money access" has to
+/// read as *withheld* rather than as zero. If this gate ever regressed to
+/// "always sum", a technician's screen would quietly start carrying the org's
+/// order values.
+#[tokio::test]
+async fn order_list_totals_follow_the_financials_gate() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("polist-{}", &Uuid::now_v7().simple().to_string()[..12]);
+    let token = register_org(&app, &slug).await;
+
+    let vendor = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/v1/vendors",
+            &[auth(&token)],
+            Some(json!({
+                "name": "Gate Vendor",
+                "default_currency": "USD",
+                "idempotency_key": key(),
+            })),
+        )
+        .await,
+    )
+    .await;
+    let vendor_id = vendor["id"].as_str().unwrap().to_string();
+
+    let order = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/v1/purchase-orders",
+            &[auth(&token)],
+            Some(json!({
+                "vendor_id": vendor_id,
+                "number": "PO-GATE-1",
+                "currency": "USD",
+                "idempotency_key": key(),
+            })),
+        )
+        .await,
+    )
+    .await;
+    let order_id = order["order"]["id"].as_str().unwrap().to_string();
+
+    // Two lines, so the row's total is real money and not a rounding artefact.
+    for (description, qty_ordered_milli, unit_cost_minor) in [
+        ("Rack rails", 2_000i64, 12_500i64),
+        ("Patch panel", 1_000, 40_000),
+    ] {
+        let response = send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/v1/purchase-orders/{order_id}/lines"),
+            &[auth(&token)],
+            Some(json!({
+                "description": description,
+                "qty_ordered_milli": qty_ordered_milli,
+                "unit_cost_minor": unit_cost_minor,
+                "idempotency_key": key(),
+            })),
+        )
+        .await;
+        assert_eq!(response.status(), 200, "line {description} must be added");
+    }
+    let expected_ordered = 2_000 * 12_500 / 1_000 + 1_000 * 40_000 / 1_000;
+
+    // The owner may see financials: the row carries the rollup…
+    let list = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/purchase-orders",
+            &[auth(&token)],
+            None,
+        )
+        .await,
+    )
+    .await;
+    let row = list
+        .as_array()
+        .expect("a list")
+        .iter()
+        .find(|row| row["id"].as_str() == Some(order_id.as_str()))
+        .expect("the order is in its own list")
+        .clone();
+    assert_eq!(
+        row["totals"]["ordered_minor"].as_i64(),
+        Some(expected_ordered),
+        "the list row is priced from its lines"
+    );
+    assert_eq!(
+        row["totals"]["received_minor"].as_i64(),
+        Some(0),
+        "nothing is received yet"
+    );
+    assert_eq!(
+        row["number"].as_str(),
+        Some("PO-GATE-1"),
+        "the order's own fields stay at the top level — the summary is additive"
+    );
+
+    // …and it is the same figure the order's own detail reports.
+    let detail = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/v1/purchase-orders/{order_id}"),
+            &[auth(&token)],
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        row["totals"]["ordered_minor"].as_i64(),
+        detail["totals"]["ordered_minor"].as_i64(),
+        "a row's value and the order's own total cannot disagree"
+    );
+
+    // A Read Only member may VIEW commercial but holds no financial permission.
+    let email = format!("gate-{}@purchasing.test", Uuid::now_v7());
+    let invite = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/org/users",
+            &[auth(&token)],
+            Some(json!({
+                "email": email,
+                "display_name": "Read Only Member",
+                "role": "read_only",
+            })),
+        )
+        .await,
+    )
+    .await;
+    let setup_token = invite["invite"]["setup_token"]
+        .as_str()
+        .expect("an invite carries a setup token")
+        .to_string();
+    let accept = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/org/users/accept-invite",
+            &[],
+            Some(json!({
+                "token": setup_token,
+                "password": "another-correct-horse-battery",
+            })),
+        )
+        .await,
+    )
+    .await;
+    let limited = accept["access_token"].as_str().unwrap().to_string();
+
+    let limited_list = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/purchase-orders",
+            &[auth(&limited)],
+            None,
+        )
+        .await,
+    )
+    .await;
+    let limited_row = limited_list
+        .as_array()
+        .expect("a list")
+        .iter()
+        .find(|row| row["id"].as_str() == Some(order_id.as_str()))
+        .expect("the order is still listed")
+        .clone();
+    assert_eq!(
+        limited_row["number"].as_str(),
+        Some("PO-GATE-1"),
+        "commercial view is enough to see the order itself"
+    );
+    assert!(
+        limited_row["totals"].is_null(),
+        "without ViewFinancials the totals are withheld, never zeroed: {}",
+        limited_row["totals"]
+    );
+}

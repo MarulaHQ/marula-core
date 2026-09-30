@@ -1,0 +1,468 @@
+/*
+ * Ledger surfaces — the Marula data-surface template, lane 9
+ * (apps/web/app/{assets,stock,purchasing,inventory} family).
+ *
+ * Purpose: the geometry the surface pack fixes for a record surface
+ * (DESIGN-NOTES-tickets §3, §4, §7, §10): a 64px page header with a
+ * 26px semibold title, a single 24px-guttered toolbar row that never wraps
+ * and never pushes the table down, the table inside a 16px-radius 1px-border
+ * card with a sticky column header, and a 52px footer that carries
+ * "shown of total" on the left and the density control on the right.
+ * Selection replaces the column header with a gold-tint action bar IN PLACE
+ * so the layout never jumps, and the bar is deliberately not an inverted
+ * surface.
+ *
+ * Everything is a token: the density row height rides `--m-density-row`, the
+ * radius rides the container token, and the severity tints ride the status
+ * pairs. No hex lives here — the pack's tokens were verified to match the
+ * landed token layer exactly, and this file is the one place the derived
+ * surfaces are allowed to look like the pack.
+ */
+
+/* The pack's per-density scale, stated once so the numbers below are the
+   mockup's: `--pill` 24/22/20 and `--hdr` 44/40/32. */
+:root {
+  --m-ledger-pill: 24px;
+  --m-ledger-hdr: 44px;
+}
+
+:root[data-density="compact"] {
+  --m-ledger-pill: 22px;
+  --m-ledger-hdr: 40px;
+}
+
+:root[data-density="dense"] {
+  --m-ledger-pill: 20px;
+  --m-ledger-hdr: 32px;
+}
+
+.m-ledger-page {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-width: 1400px;
+  margin-inline: auto;
+  padding: 16px;
+}
+
+@media (min-width: 768px) {
+  .m-ledger-page {
+    padding: 24px;
+  }
+}
+
+/* ---- page header (pack: 64px, title 26px semibold) ---- */
+
+.m-ledger-header {
+  display: grid;
+  gap: 4px;
+  min-height: 64px;
+  align-content: center;
+}
+
+.m-ledger-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.m-ledger-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--m-text);
+}
+
+.m-ledger-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--m-text-secondary);
+  max-width: 70ch;
+}
+
+/* ---- attention shortcuts: a counter that toggles a filter, dot + word ---- */
+
+.m-ledger-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-ledger-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: calc(var(--m-density-control) - 8px);
+  padding: 0 12px;
+  border: 1px solid var(--m-border);
+  border-radius: 999px;
+  background: var(--m-surface);
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.m-ledger-shortcut:hover {
+  background: var(--m-canvas);
+}
+
+/* An active chip is the pack's `--acc` fill with the accent ink, not a tint. */
+.m-ledger-shortcut.is-active {
+  background: var(--m-accent);
+  border-color: transparent;
+  color: var(--m-text);
+}
+
+.m-ledger-shortcut-count {
+  font-weight: 600;
+  color: var(--m-text);
+}
+
+.m-ledger-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+}
+
+.m-ledger-dot.is-gold {
+  background: var(--m-gold);
+}
+
+.m-ledger-dot.is-blush {
+  background: var(--m-status-warning-fg);
+}
+
+.m-ledger-dot.is-red {
+  background: var(--m-status-danger-fg);
+}
+
+.m-ledger-header-action {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- the table card (16px radius, 1px border) ---- */
+
+/* The pack's `.tb` is one row of `calc(--ctl + 16px)` that cannot wrap: chips
+   clip rather than push the table down. The shared toolbar wraps, so a ledger
+   pins the row and lets the chip strip clip inside it. */
+.m-ledger-page .m-data-toolbar {
+  flex-wrap: nowrap;
+  padding: 0;
+}
+
+.m-ledger-page .m-data-toolbar-main {
+  flex-wrap: nowrap;
+  height: calc(var(--m-density-control) + 16px);
+  overflow: hidden;
+}
+
+.m-ledger-card {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-container);
+  background: var(--m-surface);
+  overflow: hidden;
+}
+
+.m-ledger-table-wrap {
+  overflow-x: auto;
+  min-height: 0;
+}
+
+/* The pack's table: `.tc{padding:0 var(--px)}` — horizontal inset only, with the
+   row height carrying the vertical — and a header of `--hdr` (44/40/32) in 12px
+   uppercase at .06em. The shared `.m-table` pads 4px/10px at weight 500, so a
+   ledger restates the header treatment rather than inheriting a lighter one. */
+.m-ledger-card .m-table th,
+.m-ledger-card .m-table td {
+  padding: 0 12px;
+}
+
+.m-ledger-card .m-table td {
+  height: var(--m-density-row);
+}
+
+.m-ledger-card .m-table th {
+  height: var(--m-ledger-hdr);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.m-ledger-select-col {
+  width: 40px;
+}
+
+.m-ledger-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--m-primary);
+  cursor: pointer;
+}
+
+.m-ledger-card .m-table th[data-align="right"],
+.m-ledger-card .m-table td[data-align="right"] {
+  text-align: right;
+}
+
+/* The pack's selected row is `background: var(--acc)` + a 3px gold bar, and
+   `--m-accent` IS that value (#f7e3a8 light / #3a3944 dark). Using
+   `--m-accent-soft` here washed the selection out to a third of its strength. */
+.m-ledger-card .m-table tbody tr[data-selected="true"] {
+  background: var(--m-accent);
+  box-shadow: inset 3px 0 0 var(--m-gold);
+}
+
+/* ---- selection replaces the column header, in place (pack §7) ---- */
+
+.m-ledger-bulkbar-row th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  background: var(--m-accent);
+  border-bottom: 1px solid var(--m-border-strong);
+}
+
+.m-ledger-bulkbar {
+  width: 100%;
+}
+
+.m-ledger-bulkbar-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  min-height: var(--m-density-control);
+}
+
+.m-ledger-bulkbar-count {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--m-text);
+}
+
+.m-ledger-bulkbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.m-ledger-bulk-action {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface);
+  color: var(--m-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.m-ledger-bulk-action:hover:not(:disabled) {
+  background: var(--m-canvas);
+}
+
+.m-ledger-bulk-action:disabled {
+  color: var(--m-text-muted);
+  background: var(--m-surface-muted);
+  cursor: not-allowed;
+}
+
+/* ---- footer (52px: shown of total left, density right) ---- */
+
+.m-ledger-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 12px;
+  border-top: 1px solid var(--m-border);
+  background: var(--m-surface);
+}
+
+.m-ledger-shown {
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}
+
+.m-ledger-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.m-ledger-hints {
+  font-size: 12px;
+  color: var(--m-text-muted);
+}
+
+.m-ledger-hints kbd {
+  font-family: var(--m-font-mono);
+  /* The pack's floor is 12px; a keycap is still a legible 12px with the inset
+     doing the work of the extra point. */
+  font-size: 12px;
+  padding: 1px 4px;
+  border: 1px solid var(--m-border);
+  border-radius: 4px;
+  background: var(--m-canvas);
+}
+
+/* ---- shared empty / error / retry state inside the table card ---- */
+
+.m-ledger-state {
+  display: grid;
+  place-items: center;
+  min-height: 260px;
+  padding: 32px 24px;
+}
+
+.m-ledger-primary {
+  display: inline-flex;
+  align-items: center;
+  height: var(--m-density-control);
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--m-radius-control);
+  background: var(--m-primary);
+  color: var(--m-on-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.m-ledger-primary:hover {
+  background: var(--m-primary-hover, var(--m-primary));
+}
+
+/* `--px` goes 12 / 12 / 10, so the cell inset follows it. */
+:root[data-density="dense"] .m-ledger-card .m-table th,
+:root[data-density="dense"] .m-ledger-card .m-table td {
+  padding: 0 10px;
+}
+
+/* ---- severity pills: overdue RED, due soon blush, never colour alone ----
+ * The box is the kit's pill, to the pixel: 24px tall, 10px of inset, 999px
+ * radius (matching `.m-badge`, which the brand pass corrected to the pack's
+ * `--pill`). A severity pill and a status pill are the same object in two
+ * colours — if one is shorter than the other, a column of them looks ragged. */
+
+.m-ledger-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--m-ledger-pill);
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* The glyph inside a pill is 14px, not 12px: at 12px an alert triangle inside a
+   24px pill reads as a speck, which is the opposite of what the severity is
+   there to do. */
+.m-ledger-sev svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.m-ledger-sev-red {
+  background: var(--m-status-danger-bg);
+  color: var(--m-status-danger-fg);
+}
+
+.m-ledger-sev-blush {
+  background: var(--m-status-warning-bg);
+  color: var(--m-status-warning-fg);
+}
+
+.m-ledger-sev-green {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+}
+
+.m-ledger-sev-neutral {
+  background: var(--m-status-neutral-bg);
+  color: var(--m-status-neutral-fg);
+}
+
+/* ---- location tree (stock/locations): indent by depth, no third pattern ---- */
+
+.m-ledger-tree-row td:first-child {
+  white-space: nowrap;
+}
+
+.m-ledger-tree-indent {
+  display: inline-block;
+  color: var(--m-text-muted);
+}
+
+.m-ledger-tree-glyph {
+  margin-right: 6px;
+  color: var(--m-text-muted);
+}
+
+/* ---- merge queue: side-by-side comparison, a human decision surface ---- */
+
+.m-ledger-merge-compare {
+  display: grid;
+  gap: 0;
+  grid-template-columns: 180px 1fr 1fr;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-container);
+  overflow: hidden;
+}
+
+.m-ledger-merge-compare > * + * {
+  border-left: 1px solid var(--m-border);
+}
+
+.m-ledger-merge-cell {
+  padding: 10px 12px;
+  font-size: 13px;
+  min-height: var(--m-density-row);
+  display: flex;
+  align-items: center;
+}
+
+.m-ledger-merge-cell.is-label {
+  background: var(--m-canvas);
+  color: var(--m-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.m-ledger-merge-cell.is-picked {
+  background: var(--m-accent-soft);
+}
+
+.m-ledger-merge-head {
+  background: var(--m-surface);
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/*
+ * No motion of our own: the ledger's states are flat colour changes, and the
+ * motion law allows transform and opacity only (docs/theme.md §5). Nothing
+ * here animates, so there is nothing to disable under
+ * `prefers-reduced-motion`.
+ */

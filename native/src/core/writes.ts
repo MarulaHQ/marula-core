@@ -162,6 +162,8 @@ export interface TimerSessionArgs {
   ticketId?: string;
   reason?: string;
   notes?: string;
+  billable?: boolean;
+  workType?: string;
 }
 
 export type TimerStopBody = {
@@ -170,6 +172,8 @@ export type TimerStopBody = {
   reason?: string;
   idempotency_key: string;
   version?: number;
+  billable?: boolean;
+  work_type?: string;
 };
 
 export const stopTimer: WriteOperation<TimerSessionArgs, TimerStopBody> = {
@@ -191,6 +195,8 @@ export const stopTimer: WriteOperation<TimerSessionArgs, TimerStopBody> = {
     session_id: args.sessionId,
     ...(args.notes !== undefined ? { notes: args.notes } : {}),
     ...(args.reason !== undefined ? { reason: args.reason } : {}),
+    ...(args.billable !== undefined ? { billable: args.billable } : {}),
+    ...(args.workType !== undefined ? { work_type: args.workType } : {}),
     idempotency_key: base.idempotencyKey,
     ...(base.version !== undefined ? { version: base.version } : {}),
   }),
@@ -200,6 +206,8 @@ export const stopTimer: WriteOperation<TimerSessionArgs, TimerStopBody> = {
         session_id: body.session_id,
         ...(body.notes !== undefined ? { notes: body.notes } : {}),
         ...(body.reason !== undefined ? { reason: body.reason } : {}),
+        ...(body.billable !== undefined ? { billable: body.billable } : {}),
+        ...(body.work_type !== undefined ? { work_type: body.work_type } : {}),
         idempotency_key: body.idempotency_key,
         version: body.version ?? null,
       },
@@ -211,6 +219,41 @@ export type TimerToggleBody = {
   session_id: string;
   reason?: string;
   idempotency_key: string;
+};
+
+/** Checklist toggle args: who/what/whether. */
+export interface CheckToggleArgs {
+  ticketId: string;
+  itemId: string;
+  checked: boolean;
+}
+
+/** POST /api/v1/tickets/{id}/checklist/{item_id} — one tri-state toggle. */
+export const setChecklistItemChecked: WriteOperation<CheckToggleArgs, {
+  __path_id: string;
+  __path_item_id: string;
+  checked: boolean;
+  idempotency_key: string;
+}> = {
+  kind: "ticket.checklist_toggle",
+  label: (args) => `Checklist item on ticket`,
+  entityKey: (args) => `ticket:${args.ticketId}`,
+  entityId: (args) => `ticket:${args.ticketId}`,
+  method: "POST",
+  path: (args) => `/api/v1/tickets/${args.ticketId}/checklist/${args.itemId}`,
+  invalidate: (args) => [MODELS.ticketChecklist(args.ticketId), MODELS.ticket(args.ticketId)],
+  build: (args, base) => ({
+    __path_id: args.ticketId,
+    __path_item_id: args.itemId,
+    checked: args.checked,
+    idempotency_key: base.idempotencyKey,
+  }),
+  send: (client, body) =>
+    client.api.POST("/api/v1/tickets/{id}/checklist/{item_id}", {
+      params: { path: { id: body.__path_id, item_id: body.__path_item_id } },
+      body: { checked: body.checked, idempotency_key: body.idempotency_key },
+    }),
+  versionOf: (data) => mutationVersion(data),
 };
 
 export const pauseTimer: WriteOperation<TimerSessionArgs, TimerToggleBody> = {
@@ -958,6 +1001,7 @@ export const WRITE_OPERATIONS = {
   [addTicketNote.kind]: addTicketNote,
   [startTimer.kind]: startTimer,
   [stopTimer.kind]: stopTimer,
+  [setChecklistItemChecked.kind]: setChecklistItemChecked,
   [pauseTimer.kind]: pauseTimer,
   [resumeTimer.kind]: resumeTimer,
   [consumeStock.kind]: consumeStock,

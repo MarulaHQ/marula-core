@@ -40,20 +40,93 @@ import {
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { LedgerSurface, type LedgerColumn } from "../../components/assets-stock/ledger-surface";
+import { LedgerRow } from "../../components/assets-stock/ledger-row";
+import { csvFileName, downloadCsv } from "../../components/assets-stock/csv";
+import {
+  ClockIcon,
+  DueSoonMark,
+  NeutralMark,
+  ReturnedMark,
+} from "../../components/assets-stock/ledger-marks";
 import { MovementDialog, type MovementKind } from "../../components/stock/movement-dialog";
 import { ScanBar, type ScanEvent } from "../../components/scan/scan-bar";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { rejectionText } from "../../lib/error-copy";
 import { formatQtyMilli } from "../../lib/stock-format";
+import type { FilterClause } from "@marula-core/ui";
 
 type StockItemView = components["schemas"]["StockItemView"];
 type StockLocationView = components["schemas"]["StockLocationView"];
 type OnHandRow = components["schemas"]["OnHandRow"];
 type CatalogItemView = components["schemas"]["CatalogItemView"];
 type TicketRow = components["schemas"]["TicketWithFields"];
+
+const STOCK_VIEWS = [
+  { id: "ledger", label: "Ledger" },
+  { id: "tools", label: "Tools" },
+  { id: "loans", label: "Loans" },
+];
+
+const STOCK_COLUMNS: LedgerColumn[] = [
+  { key: "item", label: "Item", required: true },
+  { key: "location", label: "Location", align: "right" },
+  { key: "on-hand", label: "On hand", align: "right" },
+  { key: "reorder", label: "Reorder", align: "right" },
+  { key: "state", label: "State" },
+  { key: "kind", label: "Kind", hiddenByDefault: true },
+  { key: "actions", label: "Actions", align: "right" },
+];
+
+const STOCK_FILTERS = [
+  { key: "item", label: "Item" },
+  { key: "sku", label: "SKU" },
+  { key: "kind", label: "Kind" },
+  { key: "state", label: "State" },
+];
+
+type ItemTotals = { qty: number; locations: number; low: boolean };
+
+/** The ledger's own vocabulary for an item's state, shared by the filter and the cell. */
+function stockStateOf(
+  item: StockItemView,
+  totalsByItem: Map<string, ItemTotals>,
+  toolOut: Map<string, "checked out" | "on loan">,
+): string {
+  if (!item.active) return "archived";
+  const total = totalsByItem.get(item.id);
+  if (total?.low === true) return "low";
+  if ((total?.qty ?? 0) === 0 && toolOut.has(item.id)) return toolOut.get(item.id) ?? "out";
+  return "ok";
+}
+
+/**
+ * The stock ledger's state column. "Low" is the ATTENTION class, so it takes
+ * blush with a clock and the word — running out of a consumable is not a
+ * breach, and the pack reserves red for breach. A tool that is out reads as
+ * where it went, not as a fault.
+ */
+function ItemStateMark({
+  item,
+  total,
+  toolOut,
+}: {
+  item: StockItemView;
+  total: { qty: number; locations: number; low: boolean } | undefined;
+  toolOut: Map<string, "checked out" | "on loan">;
+}): ReactNode {
+  if (!item.active) return <NeutralMark label="Archived" />;
+  if (total?.low === true) return <DueSoonMark label="Low stock" testId={`stock-state-low-${item.id}`} />;
+  if ((total?.qty ?? 0) === 0 && toolOut.has(item.id)) {
+    const where = toolOut.get(item.id) ?? "out";
+    return <NeutralMark label={where} icon={<ClockIcon />} testId={`stock-state-out-${item.id}`} />;
+  }
+  return <ReturnedMark label="In stock" testId={`stock-state-ok-${item.id}`} />;
+}
 
 interface ItemForm {
   name: string;
@@ -94,6 +167,9 @@ export default function StockPage(): ReactNode {
   const [toolsOnly, setToolsOnly] = useState(false);
   const [lowOnly, setLowOnly] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [clauses, setClauses] = useState<FilterClause[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const router = useRouter();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogKind, setDialogKind] = useState<MovementKind>("receive");
@@ -178,6 +254,22 @@ export default function StockPage(): ReactNode {
       if (toolsOnly && !item.is_tool) return false;
       if (kindFilter !== "all" && item.kind !== kindFilter) return false;
       if (lowOnly && (totalsByItem.get(item.id)?.low ?? false) === false) return false;
+      for (const clause of clauses) {
+        const value = (
+          {
+            item: item.name,
+            sku: item.sku ?? item.part_number ?? "",
+            kind: item.kind,
+            state: stockStateOf(item, totalsByItem, toolOut),
+          }[clause.field] ?? ""
+        ).toLowerCase();
+        const want = (clause.value ?? "").toLowerCase();
+        if (clause.op === "is_set" && value === "") return false;
+        if (clause.op === "is_not_set" && value !== "") return false;
+        if (clause.op === "contains" && !value.includes(want)) return false;
+        if (clause.op === "eq" && value !== want) return false;
+        if (clause.op === "ne" && value === want) return false;
+      }
       if (q === "") return true;
       return (
         item.name.toLowerCase().includes(q) ||
@@ -185,7 +277,7 @@ export default function StockPage(): ReactNode {
         (item.part_number ?? "").toLowerCase().includes(q)
       );
     });
-  }, [items, query, kindFilter, toolsOnly, lowOnly, showArchived, totalsByItem]);
+  }, [items, query, kindFilter, toolsOnly, lowOnly, showArchived, totalsByItem, clauses, toolOut]);
 
   function openMovement(kind: MovementKind, itemId?: string): void {
     setDialogKind(kind);
@@ -293,21 +385,77 @@ export default function StockPage(): ReactNode {
     }
   }
 
+  async function reactivateItem(item: StockItemView): Promise<void> {
+    setActionError(null);
+    setBusyId(item.id);
+    const result = await runEnvelopeMutation({
+      describe: "Reactivate stock item",
+      entityId: item.id,
+      buildBody: (base) => ({ active: true, ...base }),
+      optimistic: () =>
+        setItems((cur) => (cur ?? []).map((i) => (i.id === item.id ? { ...i, active: true } : i))),
+      revert: () =>
+        setItems((cur) => (cur ?? []).map((i) => (i.id === item.id ? { ...i, active: item.active } : i))),
+      request: (client, body) =>
+        client.PATCH("/api/v1/stock-items/{id}", {
+          params: { path: { id: item.id } },
+          body: body as components["schemas"]["UpdateStockItemRequest"],
+        }),
+    });
+    setBusyId(null);
+    if (result.ok === false) {
+      setActionError(`Could not reactivate ${item.name}: ${rejectionText(result, "refused.")}`);
+    }
+  }
+
+  /** How many places hold this item, as the ledger's Location column reads. */
+  function locationCount(itemId: string): number {
+    return totalsByItem.get(itemId)?.locations ?? 0;
+  }
+
+  /** The reorder point across the item's rows, the number a buyer needs. */
+  function reorderPointFor(itemId: string): string {
+    const points = onHand
+      .filter((row) => row.stock_item_id === itemId)
+      .reduce((sum, row) => sum + (row.reorder_point_milli ?? 0), 0);
+    const unit = (items ?? []).find((item) => item.id === itemId)?.unit ?? "each";
+    return points === 0 ? "Not set" : formatQtyMilli(points, unit);
+  }
+
+  function itemState(item: StockItemView): string {
+    return stockStateOf(item, totalsByItem, toolOut);
+  }
+
   if (items === null && loadError === null) return <Spinner />;
   if (loadError !== null) return <EmptyState message={loadError} />;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Stock
-          </h1>
-          <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Physical parts and tools: quantities per location, low-stock alerts, and the movement ledger.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1">
+    <>
+    <LedgerSurface
+      surface="stock-ledger"
+      testId="stock-ledger"
+      title="Stock"
+      subtitle="Physical parts and tools: quantities per location, low-stock attention, and the movement ledger."
+      shortcuts={[
+        {
+          key: "reorder",
+          label: "At reorder point",
+          count: lowRows.length,
+          tone: "blush",
+          active: lowOnly,
+          onClick: () => setLowOnly((v) => !v),
+        },
+        {
+          key: "tools-out",
+          label: "Tools out",
+          count: toolOut.size,
+          tone: "gold",
+          active: toolsOnly,
+          onClick: () => setToolsOnly((v) => !v),
+        },
+      ]}
+      headerAction={
+        <>
           <Button variant="secondary" onClick={() => openMovement("receive")} data-testid="stock-receive">
             Receive stock
           </Button>
@@ -317,217 +465,171 @@ export default function StockPage(): ReactNode {
           <Button onClick={() => setCreateOpen(true)} data-testid="stock-new-item">
             New item
           </Button>
-        </div>
-      </header>
-
-      {lowRows.length > 0 && (
-        <Card
-          className="m-rise flex flex-wrap items-center justify-between gap-3 p-4"
-          style={{ borderColor: "var(--m-status-warning-fg)" }}
-          data-testid="stock-low-banner"
-        >
-          <div>
-            <p className="text-[13px] font-semibold" style={{ color: "var(--m-status-warning-fg)" }}>
-              {lowRows.length} item{lowRows.length === 1 ? "" : "s"} at or below the reorder point
+        </>
+      }
+      views={STOCK_VIEWS}
+      activeView="ledger"
+      onViewChange={(id) => {
+        if (id === "tools") router.push("/stock/tools");
+        if (id === "loans") router.push("/stock/loans");
+      }}
+      columns={STOCK_COLUMNS}
+      filterFields={STOCK_FILTERS}
+      filterClauses={clauses}
+      onFilterChange={setClauses}
+      rowCount={filtered.length}
+      rowsShown={filtered.length}
+      onExport={(request) => {
+        const stamp = new Date().toISOString().slice(0, 10);
+        downloadCsv(
+          csvFileName("stock-ledger", stamp),
+          request.columns,
+          filtered.map((item) => {
+            const total = totalsByItem.get(item.id);
+            return {
+              item: item.name,
+              location: String(locationCount(item.id)),
+              "on-hand": formatQtyMilli(total?.qty ?? 0, item.unit),
+              reorder: reorderPointFor(item.id),
+              kind: item.kind,
+              state: itemState(item),
+              sku: item.sku ?? item.part_number ?? "",
+            };
+          }),
+        );
+      }}
+      selectedIds={selected}
+      onToggleRow={(id, isSelected) =>
+        setSelected((cur) => (isSelected ? [...cur, id] : cur.filter((row) => row !== id)))
+      }
+      onToggleAll={(isSelected) => setSelected(isSelected ? filtered.map((i) => i.id) : [])}
+      allSelected={filtered.length > 0 && selected.length === filtered.length}
+      someSelected={selected.length > 0 && selected.length < filtered.length}
+      bulkActions={[
+        {
+          key: "receive",
+          label: "Receive",
+          disabled: selected.length === 0,
+          title: "Record a receipt into the selected items",
+          onClick: () => openMovement("receive", selected.length === 1 ? selected[0] : undefined),
+        },
+        {
+          key: "transfer",
+          label: "Move",
+          disabled: selected.length !== 1,
+          title: "Move the selected item between locations",
+          onClick: () => openMovement("transfer", selected[0]),
+        },
+      ]}
+      onClearSelection={() => setSelected([])}
+      emptyMessage="No stock items match. Receive stock or create an item to start the ledger."
+      emptyAction={
+        <Button variant="secondary" onClick={() => setCreateOpen(true)} data-testid="stock-empty-new">
+          New item
+        </Button>
+      }
+      errorMessage={loadError}
+      keyboardHints="Low stock is blush, never red"
+      childrenAfter={
+        <>
+          {actionError !== null && (
+            <p className="text-xs" role="alert" style={{ color: "var(--m-status-danger-fg)" }} data-testid="stock-action-error">
+              {actionError}
             </p>
-            <p className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-              {lowRows
-                .slice(0, 3)
-                .map((row) => `${row.item_name} at ${row.location_name} (${formatQtyMilli(row.qty_milli, row.unit)})`)
-                .join(" · ")}
-              {lowRows.length > 3 ? ` · +${lowRows.length - 3} more` : ""}
+          )}
+          {lastMovement !== null && (
+            <p className="text-xs" role="status" style={{ color: "var(--m-status-success-fg)" }} data-testid="stock-movement-recorded">
+              {lastMovement}
             </p>
+          )}
+          {scanNotice !== null && (
+            <p className="text-xs" role="status" style={{ color: "var(--m-status-warning-fg)" }} data-testid="stock-scan-notice">
+              {scanNotice}
+            </p>
+          )}
+          <div className="max-w-xl" data-testid="stock-dispatch-scan">
+            <ScanBar
+              surface="dispatch"
+              onScan={dispatchScan}
+              hint="Scan a part or unit to dispatch it to a ticket — the ticket picker opens next."
+            />
           </div>
-          <Button size="sm" variant="secondary" onClick={() => setLowOnly((v) => !v)} data-testid="stock-low-toggle">
-            {lowOnly ? "Show all" : "Show low only"}
-          </Button>
-        </Card>
-      )}
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {(
-          [
-            { label: "Items", value: (items ?? []).filter((i) => i.active).length, hint: `${(items ?? []).filter((i) => !i.active).length} archived`, testId: "stock-stat-items" },
-            { label: "Low stock", value: lowRows.length, hint: "at or below reorder point", testId: "stock-stat-low" },
-            { label: "Tools", value: (items ?? []).filter((i) => i.is_tool && i.active).length, hint: "checkout-eligible", testId: "stock-stat-tools" },
-            { label: "Locations", value: locations.filter((l) => l.active).length, hint: "warehouse · van · truck", testId: "stock-stat-locations" },
-          ] as const
-        ).map((tile, i) => (
-          <Card key={tile.label} className="m-rise p-4" style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>
-            <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
-              {tile.label}
-            </p>
-            <p className="mt-1 font-mono text-xl font-semibold tabular-nums" style={{ color: "var(--m-text)" }} data-testid={tile.testId}>
-              {tile.value}
-            </p>
-            <p className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
-              {tile.hint}
-            </p>
-          </Card>
-        ))}
-      </div>
-
-      <div className="max-w-xl" data-testid="stock-dispatch-scan">
-        <ScanBar
-          surface="dispatch"
-          onScan={dispatchScan}
-          hint="Scan a part or unit to dispatch it to a ticket — the ticket picker opens next."
-        />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search name, SKU, part number…"
-          aria-label="Search stock"
-          data-testid="stock-search"
-          style={{ maxWidth: 300 }}
-        />        <Select value={kindFilter} onValueChange={(value) => setKindFilter(value as typeof kindFilter)}>
-          <SelectTrigger aria-label="Filter by kind" data-testid="stock-kind-filter" style={{ width: 160 }}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All kinds</SelectItem>
-            <SelectItem value="consumable">Consumables</SelectItem>
-            <SelectItem value="serialized">Serialized</SelectItem>
-          </SelectContent>
-        </Select>
-        <label className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-          <Checkbox checked={toolsOnly} onCheckedChange={(v) => setToolsOnly(v === true)} data-testid="stock-tools-only" />
-          Tools only
-        </label>
-        <label className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-          <Checkbox checked={showArchived} onCheckedChange={(v) => setShowArchived(v === true)} data-testid="stock-show-archived" />
-          Show archived
-        </label>
-      </div>
-
-      {actionError !== null && (
-        <p className="text-xs" role="alert" style={{ color: "var(--m-status-danger-fg)" }} data-testid="stock-action-error">
-          {actionError}
-        </p>
-      )}
-      {lastMovement !== null && (
-        <p className="text-xs" role="status" style={{ color: "var(--m-status-success-fg)" }} data-testid="stock-movement-recorded">
-          {lastMovement}
-        </p>
-      )}
-      {scanNotice !== null && (
-        <p className="text-xs" role="status" style={{ color: "var(--m-status-warning-fg)" }} data-testid="stock-scan-notice">
-          {scanNotice}
-        </p>
-      )}
-
-      <Card className="m-rise overflow-x-auto p-0">
-        <Table data-testid="stock-table">
-          <thead>
-            <tr>
-              <Th>Item</Th>
-              <Th>Kind</Th>
-              <Th className="text-right">On hand</Th>
-              <Th className="text-right">Locations</Th>
-              <Th>State</Th>
-              <Th className="text-right">Actions</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((item) => {
-              const total = totalsByItem.get(item.id);
-              return (
-                <Tr key={item.id} className="row-hover" data-testid={`stock-row-${item.id}`}>
-                  <Td>
-                    <Link href={`/stock/${item.id}`} className="font-medium" style={{ color: "var(--m-text)" }}>
+        </>
+      }
+    >
+      {(columns) =>
+        filtered.map((item) => {
+          const total = totalsByItem.get(item.id);
+          return (
+            <LedgerRow
+              key={item.id}
+              id={item.id}
+              selected={selected.includes(item.id)}
+              selectable
+              onToggle={(rowId, isSelected) =>
+                setSelected((cur) => (isSelected ? [...cur, rowId] : cur.filter((id) => id !== rowId)))
+              }
+              columns={columns}
+              selectLabel={`Select ${item.name}`}
+              testId={`stock-row-${item.id}`}
+              cells={{
+                item: (
+                  <span className="flex items-center gap-1.5">
+                    <Link href={`/stock/${item.id}`} style={{ color: "var(--m-text)" }}>
                       {item.name}
                     </Link>
-                    {item.is_tool && (
-                      <Tag tone="outline" className="ml-1.5 text-[10px]">
-                        tool
-                      </Tag>
-                    )}
-                    <span className="ml-1.5 font-mono text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                    {item.is_tool ? <Tag tone="outline">tool</Tag> : null}
+                    <span className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
                       {item.sku ?? item.part_number ?? ""}
                     </span>
-                  </Td>
-                  <Td className="text-[12px]">{item.kind}</Td>
-                  <Td className="text-right font-mono text-[13px] tabular-nums">
+                  </span>
+                ),
+                location: (
+                  <span className="tabular-nums">{total?.locations ?? 0}</span>
+                ),
+                "on-hand": (
+                  <span className="font-mono tabular-nums">
                     {formatQtyMilli(total?.qty ?? 0, item.unit)}
-                  </Td>
-                  <Td className="text-right font-mono text-[13px] tabular-nums">{total?.locations ?? 0}</Td>
-                  <Td>
-                    <div className="flex flex-wrap items-center gap-1">
-                      {!item.active && <StatusTag tone="neutral">archived</StatusTag>}
-                      {item.active && total?.low === true && <StatusTag tone="warning">low</StatusTag>}
-                      {item.active && total?.low !== true && (total?.qty ?? 0) === 0 && toolOut.has(item.id) && (
-                        <StatusTag tone="warning" data-testid={`stock-state-out-${item.id}`}>
-                          {toolOut.get(item.id) ?? "out"}
-                        </StatusTag>
-                      )}
-                      {item.active &&
-                        total?.low !== true &&
-                        ((total?.qty ?? 0) > 0 || !toolOut.has(item.id)) && (
-                          <StatusTag tone="success">ok</StatusTag>
-                        )}
-                    </div>
-                  </Td>
-                  <Td>
-                    <div className="flex justify-end gap-1">
-                      <Button size="sm" variant="secondary" onClick={() => openMovement("receive", item.id)} data-testid={`stock-receive-${item.id}`}>
-                        Receive
+                  </span>
+                ),
+                reorder: (
+                  <span className="font-mono tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                    {reorderPointFor(item.id)}
+                  </span>
+                ),
+                kind: item.kind,
+                state: <ItemStateMark item={item} total={total} toolOut={toolOut} />,
+                actions: (
+                  <span className="flex justify-end gap-1">
+                    <Button size="sm" variant="secondary" onClick={() => openMovement("receive", item.id)} data-testid={`stock-receive-${item.id}`}>
+                      Receive
+                    </Button>
+                    {!item.is_tool && (
+                      <Button size="sm" variant="ghost" onClick={() => openMovement("consume", item.id)} data-testid={`stock-use-${item.id}`}>
+                        Use
                       </Button>
-                      {!item.is_tool && (
-                        <Button size="sm" variant="ghost" onClick={() => openMovement("consume", item.id)} data-testid={`stock-use-${item.id}`}>
-                          Use
-                        </Button>
-                      )}
-                      <Button size="sm" variant="ghost" onClick={() => openMovement("transfer", item.id)} data-testid={`stock-transfer-${item.id}`}>
-                        Move
-                      </Button>
-                      {item.active ? (
-                        <Button size="sm" variant="ghost" disabled={busyId === item.id} onClick={() => void archiveItem(item)}>
-                          Archive
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={busyId === item.id}
-                          onClick={() => {
-                            setBusyId(item.id);
-                            void runEnvelopeMutation({
-                              describe: "Reactivate stock item",
-                              entityId: item.id,
-                              buildBody: (base) => ({ active: true, ...base }),
-                              optimistic: () =>
-                                setItems((cur) => (cur ?? []).map((i) => (i.id === item.id ? { ...i, active: true } : i))),
-                              revert: () =>
-                                setItems((cur) => (cur ?? []).map((i) => (i.id === item.id ? { ...i, active: false } : i))),
-                              request: (client, body) =>
-                                client.PATCH("/api/v1/stock-items/{id}", {
-                                  params: { path: { id: item.id } },
-                                  body: body as components["schemas"]["UpdateStockItemRequest"],
-                                }),
-                            }).then(() => setBusyId(null));
-                          }}
-                        >
-                          Reactivate
-                        </Button>
-                      )}
-                    </div>
-                  </Td>
-                </Tr>
-              );
-            })}
-            {filtered.length === 0 && (
-              <Tr>
-                <Td>
-                  <EmptyState message="No stock items match. Receive stock or create an item to start the ledger." />
-                </Td>
-              </Tr>
-            )}
-          </tbody>
-        </Table>
-      </Card>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => openMovement("transfer", item.id)} data-testid={`stock-transfer-${item.id}`}>
+                      Move
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busyId === item.id}
+                      onClick={() => (item.active ? void archiveItem(item) : void reactivateItem(item))}
+                      data-testid={`stock-archive-${item.id}`}
+                    >
+                      {item.active ? "Archive" : "Reactivate"}
+                    </Button>
+                  </span>
+                ),
+              }}
+            />
+          );
+        })
+      }
+    </LedgerSurface>
+
 
       <MovementDialog
         open={dialogOpen}
@@ -643,6 +745,6 @@ export default function StockPage(): ReactNode {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

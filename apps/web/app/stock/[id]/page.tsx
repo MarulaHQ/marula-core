@@ -44,6 +44,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CheckInDialog } from "../../../components/stock/check-in-dialog";
 import { MovementDialog, type MovementKind } from "../../../components/stock/movement-dialog";
+import { NeutralMark, ReturnedMark } from "../../../components/assets-stock/ledger-marks";
 import { LabelPrintButton } from "../../../components/labels/label-print-button";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
@@ -426,33 +427,20 @@ export default function StockItemDetailPage(): ReactNode {
 
   return (
     <div className="mx-auto grid w-full max-w-350 gap-6 p-4 md:p-6">
-      <header className="m-rise flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }} data-testid="stock-detail-name">
-              {itemValue.name}
-            </h1>
-            <Tag tone="outline">{itemValue.kind}</Tag>
-            <Tag tone="outline">{itemValue.unit}</Tag>
-            {itemValue.is_tool && <Tag tone="outline">tool</Tag>}
-            <StatusTag tone={itemValue.active ? "success" : "neutral"}>
-              {itemValue.active ? "active" : "archived"}
-            </StatusTag>
-          </div>
-          <p className="mt-0.5 font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
-            {itemValue.sku ?? "no SKU"} · {itemValue.part_number ?? "no part number"} ·{" "}
-            {itemValue.last_unit_cost_minor == null
-              ? "last unit cost —"
-              : `last unit cost ${money(itemValue.last_unit_cost_minor, itemValue.currency)}`}
-          </p>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--m-text-secondary)" }}>
-            <Link href="/stock" style={{ color: "var(--m-status-info-fg)" }}>
-              Stock
-            </Link>{" "}
-            / item detail
-          </p>
-        </div>
-        <div className="flex flex-wrap items-start gap-1">
+      <header className="m-ledger-header">
+        <div className="m-ledger-title-row">
+          <h1 className="m-ledger-title" data-testid="stock-detail-name">
+            {itemValue.name}
+          </h1>
+          <Tag tone="outline">{itemValue.kind}</Tag>
+          <Tag tone="outline">{itemValue.unit}</Tag>
+          {itemValue.is_tool ? <Tag tone="outline">tool</Tag> : null}
+          {itemValue.active ? (
+            <ReturnedMark label="Active" testId="stock-detail-state" />
+          ) : (
+            <NeutralMark label="Archived" testId="stock-detail-state" />
+          )}
+          <div className="m-ledger-header-action">
           <LabelPrintButton purpose="stock_item" entityId={itemValue.id} entityLabel={itemValue.name} />
           <Button
             variant="secondary"
@@ -487,6 +475,14 @@ export default function StockItemDetailPage(): ReactNode {
             </Button>
           )}
         </div>
+          </div>
+        <p className="m-ledger-subtitle">
+          <Link href="/stock">Stock</Link> / item detail · {itemValue.sku ?? "no SKU"} ·{" "}
+          {itemValue.part_number ?? "no part number"} ·{" "}
+          {itemValue.last_unit_cost_minor == null
+            ? "last unit cost —"
+            : `last unit cost ${money(itemValue.last_unit_cost_minor, itemValue.currency)}`}
+        </p>
       </header>
 
       {actionError !== null && (
@@ -706,10 +702,11 @@ export default function StockItemDetailPage(): ReactNode {
         </Card>
       )}
 
-      <Card className="m-rise overflow-x-auto p-0" data-testid="stock-ledger-card">
-        <div className="p-4 pb-2">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
-            Movement ledger ({movements.length} rows, newest first)
+      <div className="m-ledger-card" data-testid="stock-ledger-card">
+        <div className="m-ledger-table-wrap">
+        <div className="m-ledger-subtitle" style={{ padding: "16px 16px 0" }}>
+          <h2 className="m-ledger-title" style={{ fontSize: 16 }}>
+            Movement history
           </h2>
         </div>
         <Table data-testid="stock-ledger-table">
@@ -793,7 +790,13 @@ export default function StockItemDetailPage(): ReactNode {
             )}
           </tbody>
         </Table>
-      </Card>
+        </div>
+        <footer className="m-ledger-footer">
+          <span className="m-ledger-shown tabular-nums">
+            {movements.length} movement{movements.length === 1 ? "" : "s"}, newest first
+          </span>
+        </footer>
+      </div>
 
       <MovementDialog
         open={movementOpen}
