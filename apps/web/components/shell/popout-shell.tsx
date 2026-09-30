@@ -3,7 +3,7 @@
 // Purpose (Wave 38 lane 1): a popout window renders NO nav rail and a slim
 // top bar (route-key title, back-to-main link, close) plus a slim workbar
 // (TimerDock, in-flow). Everything keyboard-first stays: ShortcutLayer
-// (shortcuts work per window), LiveRegion, ThemePresetSync. Lifecycle
+// (shortcuts work per window), LiveRegion, AppearanceSync. Lifecycle
 // honesty lives here too: the bye announcement + presence leave fire on
 // unload, and the dirty guard engages beforeunload while unsaved edits
 // exist (save-bar semantics, never silent data loss).
@@ -15,7 +15,7 @@ import { useEffect, type ReactNode } from "react";
 import { TimerDock } from "../timer-dock";
 import { ShortcutLayer } from "../shortcuts/shortcut-layer";
 import { LiveRegion } from "../a11y/live-region";
-import { ThemePresetSync } from "../theme-preset-sync";
+import { AppearanceSync } from "../appearance-sync";
 import { currentPopoutKey, currentShownEntity } from "../../lib/popout/window-key";
 import { leaveWindow, announceWindow, updateShownEntities, onFocusRequest } from "../../lib/popout/window-bus";
 import { POPOUT_ROUTES } from "../../lib/popout/registry";
@@ -83,7 +83,7 @@ export function PopoutShell({
 
   return (
     <div className="flex h-dvh min-h-0 flex-col">
-      <ThemePresetSync />
+      <AppearanceSync />
       <header
         data-testid="popout-bar"
         className="flex h-9 shrink-0 items-center gap-2 border-b px-3"

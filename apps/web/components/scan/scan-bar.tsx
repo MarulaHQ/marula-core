@@ -171,7 +171,7 @@ export function ScanBar({
     <div className={className} data-testid="scan-bar" data-surface={surface}>
       <div className="flex items-center gap-2">
         <div
-          className="flex h-8 flex-1 items-center gap-2 border px-2"
+          className="flex h-[var(--m-density-control)] flex-1 items-center gap-2 border px-2"
           style={{
             borderColor: "var(--m-border)",
             borderRadius: "var(--m-radius-control)",

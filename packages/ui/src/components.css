@@ -32,7 +32,7 @@
   align-items: center;
   justify-content: center;
   gap: 9px;
-  height: var(--m-control-height);
+  height: var(--m-density-control);
   padding: 0 16px;
   border-radius: var(--m-radius-control);
   border: 1px solid transparent;
@@ -48,7 +48,7 @@
 }
 
 .m-btn-sm {
-  height: var(--m-control-height-sm);
+  height: var(--m-density-control-sm);
   padding: 0 8px;
 }
 
@@ -104,6 +104,227 @@
   background: var(--m-status-danger-fg-hover);
 }
 
+/* The assistant surface is the one inverted surface on a screen, so its
+   action inverts with it: gold on ink, never the surface's own cream (gold on
+   cream is 1.7:1). The tokens flip together in dark mode, so this rule never
+   needs a dark-mode override. */
+.m-btn-assistant {
+  background: var(--m-asbtn);
+  color: var(--m-asbtnf);
+}
+
+.m-btn-assistant:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--m-asbtn) 88%, var(--m-asf));
+}
+
+.m-btn-assistant.m-btn-sm {
+  padding: 0 10px;
+}
+
+/* A second, SUBORDINATE assistant action. The vision review caught "Run" and
+   "Not this" rendering as two identical solid-gold pills, which is a
+   hierarchy defect wearing correct colours: gold means "act here", and if
+   every action on the card is gold then none of them is the one. The secondary
+   is gold on ink with a gold border, so it reads as available without
+   competing with the primary it sits beside. */
+.m-btn-assistant-outline {
+  background: transparent;
+  color: var(--m-asbtn);
+  box-shadow: inset 0 0 0 1px var(--m-asbtn);
+}
+
+.m-btn-assistant-outline:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--m-asbtn) 16%, transparent);
+  color: var(--m-asbtn);
+}
+
+.m-btn-assistant-outline:disabled {
+  cursor: not-allowed;
+  color: color-mix(in srgb, var(--m-asf) 40%, var(--m-asb));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--m-asf) 40%, var(--m-asb));
+}
+
+/* ---------- Assistant (wave41 lane 2b) ---------- */
+
+/* The single inverted surface on a screen. Its five tokens flip together, so
+   no rule here has a dark-mode variant — that is the point of holding them
+   as a set. */
+.m-assistant-card {
+  background: var(--m-asb);
+  color: var(--m-asf);
+  border-radius: var(--m-radius-container);
+  padding: var(--m-card-padding);
+}
+
+.m-assistant-eyebrow {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* NOT --m-asline. That token is the hairline DIVIDER inside this card, and
+     the vision review caught it being used for 12px text: in light mode it is
+     a dark warm grey on the ink card, which is a divider's contrast and not a
+     label's. The token is asymmetric by design (a dark tan in dark mode), so
+     it is only ever a line. This is the foreground mixed toward the
+     background, which lands near 8:1 in light and near 6:1 in dark because
+     both modes move the same distance from their own surface. */
+  color: color-mix(in srgb, var(--m-asf) 72%, var(--m-asb));
+}
+
+.m-assistant-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.m-assistant-body {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--m-asf);
+}
+
+.m-assistant-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.m-assistant-footer {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--m-asline);
+  font-size: 12px;
+}
+
+/* Dismissed: a dashed row, not a card. Undo stays reachable without opening
+   anything, because dismissing a recommendation is a reflex and the undo is
+   the safety net for it. */
+.m-assistant-dismissed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px dashed var(--m-asline);
+  border-radius: var(--m-radius-control);
+  font-size: 13px;
+  color: var(--m-asf);
+}
+
+.m-assistant-dismissed-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-assistant-undo {
+  margin-left: auto;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: var(--m-asbtn);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.m-assistant-undo:hover {
+  color: var(--m-asbtnf);
+  background: var(--m-asbtn);
+  border-radius: 4px;
+  text-decoration: none;
+}
+
+/* The open question and, once answered, the answer under it. */
+.m-assistant-question {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.m-assistant-question-mark {
+  display: inline-flex;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+  border-radius: 999px;
+  border: 1px solid var(--m-asline);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.m-assistant-question.is-answered .m-assistant-question-mark {
+  background: var(--m-asbtn);
+  border-color: var(--m-asbtn);
+  color: var(--m-asbtnf);
+}
+
+.m-assistant-question-body {
+  min-width: 0;
+}
+
+.m-assistant-answer {
+  display: block;
+  margin-top: 4px;
+  /* Same reasoning as the eyebrow: a divider token is not a text token. */
+  color: color-mix(in srgb, var(--m-asf) 72%, var(--m-asb));
+}
+
+/* The three states the assistant surface adds on top of the card: the ran
+   report, the quiet actions row, and an error the person has to see. */
+.m-assistant-ran {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: var(--m-asbtn);
+  color: var(--m-asbtnf);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.m-assistant-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--m-asf);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.m-assistant-link:hover {
+  color: var(--m-asbtn);
+  text-decoration: none;
+}
+
+.m-assistant-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--m-destructive);
+}
+
 /* ---------- Inputs ---------- */
 
 .m-input,
@@ -116,9 +337,14 @@
   color: var(--m-text);
 }
 
+/* Height is `--m-density-control`, which is 44px at the comfortable step —
+   the plan's `h-11`. The radius stays `--m-radius-control` (10px) rather than
+   the plan's literal `rounded-md` (6px): tokens.css states that buttons AND
+   inputs render at 10px, and a control that is not the same shape as the
+   button beside it is a visible seam in every form in the product. */
 .m-input,
 .m-select-trigger {
-  height: var(--m-control-height);
+  height: var(--m-density-control);
   padding: 0 10px;
 }
 
@@ -147,9 +373,12 @@
   cursor: not-allowed;
 }
 
+/* The plan's `border-destructive` on error. `--m-destructive` and
+   `--m-status-danger-fg` carry the same red in both modes by design, so a
+   field error and a P1 badge are the same red and cannot drift apart. */
 .m-input[aria-invalid="true"],
 .m-textarea[aria-invalid="true"] {
-  border-color: var(--m-status-danger-fg);
+  border-color: var(--m-destructive);
 }
 
 .m-field {
@@ -241,7 +470,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  height: var(--m-control-height-sm);
+  height: var(--m-density-control-sm);
   padding: 0 10px;
   cursor: pointer;
   color: var(--m-text);
@@ -255,6 +484,82 @@
 .m-select-item[data-disabled] {
   color: var(--m-text-muted);
   cursor: not-allowed;
+}
+
+/* ---------- Badge (wave41 lane 2b) ---------- */
+
+/* Status pills: fully round, soft status fill, the status' own dark text at
+   13px semibold (DESIGN-NOTES §6). Priority chips: squared, bold, fixed
+   width. Neither carries a border — a border on a soft fill reads as a third
+   colour that the palette does not have. */
+.m-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.m-badge-success {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+}
+
+.m-badge-warning {
+  background: var(--m-status-warning-bg);
+  color: var(--m-status-warning-fg);
+}
+
+.m-badge-due {
+  background: var(--m-status-due-bg);
+  color: var(--m-status-due-fg);
+}
+
+.m-badge-danger {
+  background: var(--m-status-danger-bg);
+  color: var(--m-status-danger-fg);
+}
+
+.m-badge-neutral {
+  background: var(--m-status-neutral-bg);
+  color: var(--m-status-neutral-fg);
+}
+
+.m-badge-offline {
+  background: var(--m-status-offline-bg);
+  color: var(--m-status-offline-fg);
+}
+
+.m-badge-p1,
+.m-badge-p2,
+.m-badge-p3,
+.m-badge-p4 {
+  min-width: 34px;
+  /* 6px, the plan's `rounded-md`: squared enough to read as a column entry
+     rather than a status pill, and squarer than the 10px control radius. */
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+/* Red is reserved for genuine breach, P1 and destructive actions, so P1 takes
+   the danger pair and nothing below it does. */
+.m-badge-p1 {
+  background: var(--m-status-danger-bg);
+  color: var(--m-status-danger-fg);
+}
+
+.m-badge-p2 {
+  background: var(--m-status-due-bg);
+  color: var(--m-status-due-fg);
+}
+
+.m-badge-p3,
+.m-badge-p4 {
+  background: var(--m-status-neutral-bg);
+  color: var(--m-status-neutral-fg);
 }
 
 /* ---------- Tag / StatusTag ---------- */
@@ -308,7 +613,7 @@
 }
 
 .m-card-header {
-  padding: 14px 16px;
+  padding: var(--m-card-padding);
   border-bottom: 1px solid var(--m-border);
   font-weight: 700;
   font-size: 16px;
@@ -317,7 +622,7 @@
 }
 
 .m-card-content {
-  padding: 20px;
+  padding: var(--m-card-padding);
 }
 
 .m-separator {
@@ -379,9 +684,709 @@
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  padding: 32px 16px;
+  padding: var(--m-card-padding) 16px;
   text-align: center;
   color: var(--m-text-secondary);
+}
+
+/* The mark is line work in the text colour at reduced weight, so it belongs
+   to the surface rather than sitting on it as an asset. */
+.m-empty-mark {
+  color: var(--m-text-muted);
+  opacity: 0.7;
+  margin-bottom: 2px;
+}
+
+/* ---------- Toaster (wave41 lane 2b) ---------- */
+
+/* Sonner runs unstyled so every declaration here is ours. The toast is ink in
+   EVERY theme — the same inversion the assistant card uses, because both mean
+   "this is not the ordinary surface" — and the undo action is the one gold
+   thing inside it. */
+[data-sonner-toaster] {
+  --normal-font: var(--m-font-ui);
+  font-family: var(--m-font-ui);
+  z-index: 80;
+}
+
+[data-sonner-toast] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--m-density-control);
+  padding: 0 12px 0 16px;
+  background: var(--m-asb);
+  color: var(--m-asf);
+  border: 0;
+  border-radius: var(--m-radius-control);
+  box-shadow: var(--m-shadow-overlay);
+  font-size: 14px;
+}
+
+[data-sonner-toast] [data-sonner-toast-content] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 0;
+  line-height: 1.4;
+}
+
+[data-sonner-toast] [data-sonner-toast-title] {
+  font-weight: 600;
+}
+
+[data-sonner-toast] [data-sonner-toast-description] {
+  color: color-mix(in srgb, var(--m-asf) 72%, var(--m-asb));
+  font-size: 13px;
+}
+
+[data-sonner-toast] [data-sonner-action] {
+  flex: none;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--m-asbtn);
+  color: var(--m-asbtnf);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-sonner-toast] [data-sonner-action]:hover {
+  background: color-mix(in srgb, var(--m-asbtn) 88%, var(--m-asf));
+}
+
+[data-sonner-toast] [data-sonner-close-button] {
+  flex: none;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: color-mix(in srgb, var(--m-asf) 72%, var(--m-asb));
+  cursor: pointer;
+}
+
+[data-sonner-toast] [data-sonner-close-button]:hover {
+  background: color-mix(in srgb, var(--m-asf) 12%, transparent);
+  color: var(--m-asf);
+}
+
+/* Density switch: the same segmented shape as the view switch, because the
+   two are read the same way — but radio semantics, and with the step's own
+   measurements on it, since "Compact" means nothing until you know 40px. */
+.m-density-switch {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface);
+  overflow: hidden;
+}
+
+.m-density-switch-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 148px;
+  padding: 10px 12px;
+  border: 0;
+  border-right: 1px solid var(--m-border);
+  background: transparent;
+  color: var(--m-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.m-density-switch-item:last-child {
+  border-right: 0;
+}
+
+.m-density-switch-item:hover:not(:disabled) {
+  background: var(--m-canvas);
+  color: var(--m-text);
+}
+
+.m-density-switch-item:disabled {
+  cursor: not-allowed;
+  background: var(--m-disabled-bg);
+  color: var(--m-text-disabled);
+}
+
+.m-density-switch-item.is-active {
+  background: var(--m-accent-soft);
+  color: var(--m-accent-text);
+}
+
+.m-density-switch-label {
+  font-size: 14px;
+  /* Constant weight for the same reason as the stepper and the view switch:
+     selecting a step must not resize the control under the pointer. */
+  font-weight: 600;
+}
+
+.m-density-switch-hint {
+  font-size: 12px;
+  color: var(--m-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.m-density-switch-item.is-active .m-density-switch-hint {
+  color: inherit;
+  opacity: 0.8;
+}
+
+/* ---------- Status stepper (wave41 lane 2b) ---------- */
+
+/* The current step is gold, a step already been through is green with a
+   check, and every step is a button — a technician who knows the answer is
+   Resolved should not have to walk it through Waiting. */
+.m-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.m-stepper-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-stepper-rail {
+  width: 22px;
+  height: 1px;
+  margin: 0 8px;
+  background: var(--m-border);
+}
+
+.m-stepper-rail[data-done="true"] {
+  background: var(--m-status-success-fg);
+}
+
+.m-stepper-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px 0 6px;
+  border: 1px solid var(--m-border);
+  border-radius: 999px;
+  background: var(--m-surface);
+  color: var(--m-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  /* Constant weight on purpose: at 500 the label is narrower than at 600, so
+     selecting a segment RESIZED it and moved the control under the pointer.
+     The state is carried by the fill and the ink, not by the weight. */
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+.m-stepper-step:disabled {
+  cursor: default;
+  background: var(--m-surface);
+  color: var(--m-text-disabled);
+  border-color: var(--m-border);
+}
+
+.m-stepper-mark {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--m-border);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.m-stepper-step:hover:not(:disabled) {
+  border-color: var(--m-border-strong);
+  color: var(--m-text);
+}
+
+/* Done is green with a check, per the colour rules: a step already passed is
+   finished, and finished is green everywhere else in the product too. */
+.m-stepper-step.is-done {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+  border-color: transparent;
+}
+
+.m-stepper-step.is-done .m-stepper-mark {
+  background: var(--m-status-success-fg);
+  border-color: transparent;
+  color: var(--m-status-success-bg);
+}
+
+/* The current step is gold. Not a tint of the current step — the step. */
+.m-stepper-step.is-current {
+  background: var(--m-accent-soft);
+  color: var(--m-accent-text);
+  border-color: var(--m-accent);
+}
+
+.m-stepper-step.is-current .m-stepper-mark {
+  background: var(--m-accent);
+  border-color: var(--m-accent);
+  color: var(--m-on-accent);
+}
+
+/* ---------- Composer (wave41 lane 2b) ---------- */
+
+/* A reply is the plain surface; an internal note takes the note tint, the
+   same tint internal timeline entries use, so a screenshot tells you who the
+   writer is talking to without reading the label. */
+.m-composer {
+  border-radius: 14px;
+  border: 1px solid var(--m-border);
+  background: var(--m-surface);
+}
+
+.m-composer-reply {
+  background: var(--m-surface);
+}
+
+.m-composer-internal {
+  background: var(--m-note);
+  border-color: transparent;
+}
+
+.m-composer-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 0;
+}
+
+.m-composer-visibility {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--m-text-secondary);
+}
+
+.m-composer-internal .m-composer-visibility {
+  color: var(--m-status-neutral-fg);
+}
+
+.m-composer-org {
+  font-size: 12px;
+  color: var(--m-text-muted);
+}
+
+.m-composer-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--m-text-secondary);
+  cursor: pointer;
+}
+
+/* ---------- Data surfaces (wave41 lane 2b, D12) ---------- */
+
+/* The strip the four controls share. One wrapping row rather than a
+   horizontal scroller: a scroller hides the control the user came for. */
+.m-data-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--m-card-padding) 0 10px;
+}
+
+.m-data-toolbar-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-data-toolbar-gap {
+  flex: 1 1 16px;
+}
+
+.m-toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--m-density-control-sm);
+  padding: 0 10px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface);
+  color: var(--m-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.m-toolbar-button:hover:not(:disabled) {
+  background: var(--m-canvas);
+  border-color: var(--m-border-strong);
+}
+
+.m-toolbar-button:disabled {
+  cursor: not-allowed;
+  background: var(--m-disabled-bg);
+  color: var(--m-text-disabled);
+  border-color: var(--m-border);
+}
+
+.m-toolbar-count {
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--m-status-neutral-bg);
+  color: var(--m-status-neutral-fg);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The popover both popovers share: a settings sheet, pinned to its trigger,
+   above the strip, and never wider than the viewport. */
+.m-column-chooser,
+.m-filter-builder-root {
+  position: relative;
+}
+
+.m-column-chooser-panel,
+.m-filter-builder {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  width: max-content;
+  min-width: 232px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 12px;
+  background: var(--m-overlay-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-container);
+  box-shadow: var(--m-shadow-overlay);
+}
+
+.m-filter-builder {
+  right: auto;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 280px;
+}
+
+.m-panel-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--m-text-muted);
+}
+
+.m-panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.m-builder-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.m-builder-label {
+  font-size: 12px;
+  color: var(--m-text-secondary);
+}
+
+/* Column list: the table's own order, so hiding and moving are the same
+   gesture and a column nobody has seen sits beside the ones they hide daily. */
+.m-column-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.m-column-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 2px;
+  border-radius: 6px;
+  cursor: grab;
+}
+
+.m-column-row.is-dragging {
+  opacity: 0.5;
+}
+
+.m-column-row.is-drop-target {
+  box-shadow: inset 0 2px 0 var(--m-accent);
+}
+
+.m-column-grip {
+  flex: none;
+  width: 14px;
+  color: var(--m-text-muted);
+  font-size: 12px;
+  line-height: 1;
+  text-align: center;
+}
+
+.m-column-label {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* View switch: a pressed segment rather than a menu, so getting back to the
+   view you were just in is one click and not a reopen. */
+.m-view-switch {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface);
+  overflow: hidden;
+}
+
+.m-view-switch-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--m-density-control-sm);
+  padding: 0 12px;
+  border: 0;
+  border-right: 1px solid var(--m-border);
+  background: transparent;
+  color: var(--m-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.m-view-switch-item:last-child {
+  border-right: 0;
+}
+
+.m-view-switch-item:hover {
+  background: var(--m-canvas);
+  color: var(--m-text);
+}
+
+/* Gold means the current thing, everywhere in the product — the active step,
+   the active chip, the running clock. A view switch is no exception. */
+.m-view-switch-item.is-active {
+  background: var(--m-accent-soft);
+  color: var(--m-accent-text);
+}
+
+.m-view-switch-hint {
+  color: var(--m-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Filter chips: the active filter, said back, one removable piece at a time. */
+.m-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-filter-empty {
+  font-size: 13px;
+  color: var(--m-text-muted);
+}
+
+.m-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.m-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border-radius: 999px;
+  background: var(--m-accent-soft);
+  color: var(--m-accent-text);
+  font-size: 13px;
+  font-weight: 500;
+  max-width: 320px;
+}
+
+.m-filter-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-filter-chip-remove {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.m-filter-chip-remove:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentcolor 18%, transparent);
+}
+
+/* Export: the count is on the control, because a row count discovered after
+   the fact is how a ledger goes to the wrong person. */
+.m-export {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-export-count {
+  font-size: 12px;
+  color: var(--m-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.m-export-note {
+  font-size: 12px;
+  color: var(--m-text-muted);
+}
+
+.m-export-error {
+  margin: 0;
+  width: 100%;
+  font-size: 12px;
+  color: var(--m-destructive);
+}
+
+/* Reorder and resize affordances. The grip and the divider are the only two
+   pixels of chrome on the header, and neither shows until the header is
+   hovered or focused, so a table at rest is still a table. */
+.m-table th.is-reorderable {
+  position: relative;
+  user-select: none;
+}
+
+.m-th-grip {
+  display: inline-block;
+  width: 10px;
+  margin-right: 2px;
+  color: var(--m-text-muted);
+  font-size: 10px;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.m-table th.is-reorderable:hover .m-th-grip,
+.m-table th.is-reorderable:focus-visible .m-th-grip,
+.m-table th:focus-within .m-th-grip {
+  opacity: 1;
+}
+
+.m-th-grip:active {
+  cursor: grabbing;
+}
+
+.m-table th.is-drag-source {
+  opacity: 0.5;
+}
+
+/* The drop indicator sits on the edge the column lands against, and is drawn
+   as an inset shadow so it does not move the cell's box. */
+.m-table th.is-drop-before {
+  box-shadow: inset 2px 0 0 var(--m-accent);
+}
+
+.m-table th.is-drop-after {
+  box-shadow: inset -2px 0 0 var(--m-accent);
+}
+
+.m-table th.is-resizable {
+  position: relative;
+}
+
+.m-th-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.m-th-resizer::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  left: 3px;
+  width: 1px;
+  background: var(--m-border-strong);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.m-table th:hover .m-th-resizer::after,
+.m-th-resizer:hover::after,
+.m-th-resizer:focus-visible::after {
+  opacity: 1;
 }
 
 /* ---------- Table ---------- */
@@ -405,7 +1410,7 @@
 }
 
 .m-table td {
-  height: var(--m-row-height);
+  height: var(--m-density-row);
   padding: 2px 10px;
   border-bottom: 1px solid var(--m-border);
   vertical-align: middle;

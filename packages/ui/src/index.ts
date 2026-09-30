@@ -9,6 +9,17 @@
 export { cn } from "./lib/cn";
 export * from "./tokens";
 export * from "./theme";
+export {
+  DENSITY_STEPS,
+  DENSITY_STEP_SPEC,
+  DENSITY_STORAGE_KEY,
+  DEFAULT_DENSITY,
+  applyDensity,
+  isDensity,
+  resolveInitialDensity,
+  useDensity,
+  type Density,
+} from "./density";
 export type {
   FixedRole,
   Platform,
@@ -53,7 +64,9 @@ export * from "./components/button";
 export * from "./components/input";
 export * from "./components/field";
 export * from "./components/checkbox";
+export * from "./components/badge";
 export * from "./components/tag";
+export * from "./components/assistant-card";
 export * from "./components/card";
 export * from "./components/separator";
 export * from "./components/kbd";
@@ -63,6 +76,15 @@ export * from "./components/table";
 export * from "./components/select";
 export * from "./components/dialog";
 export * from "./components/tooltip";
+export * from "./components/status-stepper";
+export * from "./components/composer-frame";
+export * from "./components/toaster";
+export * from "./components/density-switch";
+export * from "./components/data-toolbar";
+export * from "./components/view-switch";
+export * from "./components/column-chooser";
+export * from "./components/filter-bar";
+export * from "./components/export-control";
 
 export * from "./editor/toolbar";
 export * from "./editor/block-menu";

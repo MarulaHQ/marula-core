@@ -74,7 +74,7 @@ function SearchLauncher() {
       data-testid="search-launcher"
       onClick={() => router.push("/search")}
       aria-label="Search (Command K)"
-      className="m-top-search flex h-8 min-w-0 max-w-[420px] flex-1 cursor-pointer items-center gap-2 rounded-lg border px-3 text-left"
+      className="m-top-search flex h-[var(--m-density-control)] min-w-0 max-w-[420px] flex-1 cursor-pointer items-center gap-2 rounded-lg border px-3 text-left"
       style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)" }}
     >
       <svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" className="shrink-0">

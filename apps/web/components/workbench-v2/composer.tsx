@@ -49,13 +49,17 @@ export interface WbComposerProps {
   busy: boolean;
   /** Agent-panel draft insertion target. */
   draftRef: { current: string | null };
-  onPost(body: string, kind: NoteKindWire, attachmentIds: string[], draftKey?: string | null): Promise<void>;
+  onPost(body: string, kind: NoteKindWire, attachmentIds: string[], draftKey?: string | null, setWaitingAfterSend?: boolean): Promise<void>;
 }
 
 export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbComposerProps): ReactNode {
   const [draft, setDraft] = useState("");
   const [intent, setIntent] = useState<NoteKindWire>("internal");
   const [intentOpen, setIntentOpen] = useState(false);
+  // The spec's "Set to Waiting after send", offered only on a client-visible
+  // note. It rides the post, so the caller's onPost needs the intent and the
+  // move together — see the prop note on `onPost`.
+  const [setWaitingAfterSend, setSetWaitingAfterSend] = useState(false);
   const [staged, setStaged] = useState<File[]>([]);
   const [toolNote, setToolNote] = useState<string | null>(null);
   const [dictating, setDictating] = useState(false);
@@ -84,7 +88,13 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
       }
       // The autosave claim key rides the envelope so the committed
       // comment clears this surface's draft row (delete-on-submit, §5.2).
-      await onPost(body, intent, uploaded, composerRef.current?.draftKey() ?? null);
+      await onPost(
+        body,
+        intent,
+        uploaded,
+        composerRef.current?.draftKey() ?? null,
+        intent === "internal" ? false : setWaitingAfterSend,
+      );
       setDraft("");
       setStaged([]);
       setToolNote(null);
@@ -140,11 +150,17 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
       <div
         className="m-wb-composer-inner pointer-events-auto overflow-hidden rounded-[10px] border"
         style={{
-          background: "var(--m-surface)",
-          borderColor: "var(--m-border-strong)",
+          // The composer takes the internal-note tint when it is writing an
+          // internal note, so the mode is visible on the whole surface rather
+          // than on a label inside it (DESIGN-NOTES §4). The tint is the same
+          // one internal timeline entries use, which is the point: a note and
+          // the thing being written are unmistakably the same kind of thing.
+          background: intent === "internal" ? "var(--m-note)" : "var(--m-surface)",
+          borderColor: intent === "internal" ? "transparent" : "var(--m-border-strong)",
           boxShadow: "var(--m-shadow-overlay)",
         }}
         data-testid="notes-composer"
+        data-composer-mode={intent === "internal" ? "internal" : "reply"}
       >
         <div className="relative flex items-center gap-2 border-b px-2.5 py-1.5" style={{ borderColor: "var(--m-border)" }}>
           <button
@@ -183,9 +199,31 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
               ))}
             </div>
           )}
-          {intent !== "internal" && (
-            <span className="text-[10px]" style={{ color: "var(--m-text-muted)" }}>
-              {intent === "client_visible" ? "Visible to the client · may email the requester" : "Staff status update, not client-facing"}
+          {intent !== "internal" ? (
+            <>
+              <span className="text-[10px]" style={{ color: "var(--m-text-muted)" }}>
+                Visible to the client · may email the requester
+              </span>
+              {/* Only a client-visible note can move the ticket, and the spec
+                  offers the move only where it means something. An internal
+                  note changes nothing, so offering the control would imply it
+                  might. */}
+              <label
+                className="ml-auto flex items-center gap-1.5 text-[10px]"
+                style={{ color: "var(--m-text-secondary)" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={setWaitingAfterSend}
+                  onChange={(e) => setSetWaitingAfterSend(e.target.checked)}
+                  data-testid="composer-set-waiting"
+                />
+                <span>Set to Waiting after send</span>
+              </label>
+            </>
+          ) : (
+            <span className="text-[10px]" style={{ color: "var(--m-status-neutral-fg)" }}>
+              Only your team can see this
             </span>
           )}
         </div>
@@ -262,7 +300,7 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
               color: "var(--m-on-accent)",
             }}
           >
-            ➤ Send
+            {intent === "internal" ? "➤ Add note" : "➤ Send reply"}
           </button>
         </div>
         {toolNote !== null && (

@@ -225,7 +225,7 @@ export function HelpPanel() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               aria-label="Search all guides"
-              className="h-8 w-full rounded-lg border px-2.5 text-[12.5px] outline-none"
+              className="h-[var(--m-density-control)] w-full rounded-lg border px-2.5 text-[12.5px] outline-none"
               style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)", color: "var(--m-text)" }}
             />
           </div>

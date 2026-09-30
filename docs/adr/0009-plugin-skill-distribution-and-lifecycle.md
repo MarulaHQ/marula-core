@@ -83,3 +83,41 @@ surface).
   arrive digest-verified with provenance AND pass admin consent".
 - Got no lane prior to this ADR: confirmed — Wave 14 shipped the authorization seam
   only; no Wave 16–18 lane covered discovery/import/settings before this one.
+
+## Amendment — Wave 41 lane 2b: theme packs are restyle-only, and density is not a pack's business
+
+**Added 2026-09-30 by `p41-marula-theme-2b`.** This ADR's V1 decision covers
+staged imports, consent and the zero-capability rule for plugins and skills.
+Wave 41 turned the same distribution machinery onto **theme packs**
+(`artifact_kind: "theme"`), and two facts about that path are worth writing
+down here rather than leaving to the theme doc.
+
+**1. A theme pack restyles surfaces and nothing else.** The pack manifest may
+move only the neutral, chrome and accent-tint axes. It may not restyle the
+primary or its ink-to-gold mode flip, `destructive`, the status pairs, or the
+assistant inversion. The mechanism is that the fixed roles are ABSENT from
+`ROLE_TO_TOKEN`, so a preset naming one is dropped rather than repainted, and
+`assertPresetIsLegal` rejects it at the pack boundary. This is the same
+zero-capability posture as the plugin path, applied to colour: a pack is a
+declaration of what a theme looks like, and the moment it can move semantics
+it is a different kind of artifact with a different risk profile.
+
+**2. Density is a user preference, not a theme-pack concern.** A pack that
+shipped a density would be shipping a layout to one user and not the next,
+which is the part of appearance that is never a brand decision. Density is the
+USER-scope key `appearance.density` and a `data-density` attribute, outside the
+preset vocabulary by construction. The same reasoning puts the per-surface
+display state (named view, visible columns, filters, sort) in
+`appearance.data_surfaces` rather than in a pack: those are one person's working
+set, and a pack has no business carrying them between people.
+
+**3. The restyle-only boundary is also an accessibility boundary, and the gate
+enforces it per pack.** `scripts/check-theme-packs.mjs` runs the retired-hex
+blacklist, the AA and 3:1 floors, and the fixed-axis diff over every shipped
+built-in preset in both modes, and scores any installed pack manifest passed as
+a CLI arg or through `THEME_PACK_MANIFESTS` in CI. An off-schema token in any
+theme is mechanically rejected rather than applied.
+
+**Not amended:** the sources, staging, consent, update and uninstall rules above
+are unchanged. A theme pack travels the same road as a plugin import and is held
+to the same staged-until-consented posture.

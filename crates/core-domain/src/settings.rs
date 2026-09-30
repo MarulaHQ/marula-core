@@ -229,6 +229,7 @@ impl SettingDeclaration {
                 APPEARANCE_THEME => THEME_PRESET_OPTIONS,
                 APPEARANCE_THEME_OVERRIDE => THEME_OVERRIDE_OPTIONS,
                 APPEARANCE_MODE => MODE_OPTIONS,
+                APPEARANCE_DENSITY => DENSITY_OPTIONS,
                 AI_COMPLETION_PROVIDER => AI_PROVIDER_OPTIONS,
                 SHORTCUTS_PROFILE => SHORTCUT_PROFILE_OPTIONS,
                 TRAVEL_MILEAGE_RATE_UNIT => MILEAGE_RATE_UNIT_OPTIONS,
@@ -263,6 +264,20 @@ pub const APPEARANCE_THEME_OVERRIDE: &str = "appearance.theme_override";
 /// Per-user light/dark mode. Supersedes the old flat user-scope
 /// `appearance.theme` key via migration 0097 (U6-safe supersede).
 pub const APPEARANCE_MODE: &str = "appearance.mode";
+
+/// Wave 41 lane 2b, decision D7: the density step, user-selectable, three
+/// steps. `comfortable` is the default and matches Marula; `dense` reproduces
+/// the pre-Marula values so the data-heavy fleet, stock and billing tables do
+/// not regress for a self-hoster who needs them not to.
+pub const APPEARANCE_DENSITY: &str = "appearance.density";
+
+/// Wave 41 lane 2b, decision D12: the four data-surface controls (views,
+/// columns, filters, export) for one user, as ONE document keyed by surface.
+/// The settings table's value column carries a CHECK that admits only a
+/// string, a number or a boolean, so the document is stored as a JSON string
+/// and typed by `crate::data_surface` rather than by the registry's scalar
+/// `SettingValue` union — richer structures are entities, not settings.
+pub const APPEARANCE_DATA_SURFACES: &str = "appearance.data_surfaces";
 /// The org-scope setting key pointing at the active custom theme pack.
 pub const APPEARANCE_THEME_PACK: &str = "appearance.theme_pack";
 pub const ONBOARDING_WIZARD_COMPLETED: &str = "onboarding.wizard_completed";
@@ -678,6 +693,10 @@ pub const WEEK_START_OPTIONS: &[&str] = &["monday", "sunday"];
 pub const THEME_PRESET_OPTIONS: &[&str] = &["marula", "marula-warm", "high_contrast"];
 pub const MODE_OPTIONS: &[&str] = &["system", "light", "dark"];
 
+/// The three density steps of D7, in the order a chooser renders them. The
+/// order is the ergonomic order (roomiest first), not the numeric one.
+pub const DENSITY_OPTIONS: &[&str] = &["comfortable", "compact", "dense"];
+
 pub const THEME_OPTIONS: &[&str] = THEME_PRESET_OPTIONS;
 /// Keyboard-shortcut profiles (Wave 29 lane 1). 'custom' per-command
 /// remapping is reserved but not shipped: adding it later is an additive
@@ -799,6 +818,44 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                              device preference; the device-level instant toggle syncs here. \
                              Supersedes the old flat user-scope appearance.theme key \
                              (U6-safe migration 0097).",
+            },
+            SettingDeclaration {
+                key: APPEARANCE_DENSITY,
+                kind: SettingKind::Enumeration,
+                default: SettingValue::Text("comfortable".into()),
+                scope: SettingScope::User,
+                section: SettingSection::Appearance,
+                visibility: SettingVisibility::Ui,
+                label: "Density",
+                description: "How much room the interface takes: comfortable (44px controls, \
+                             48px rows, 24px card padding, the Marula default), compact \
+                             (36/40/16) or dense (32/32/12, the pre-Marula values the \
+                             data-heavy fleet, stock and billing tables were built at). One \
+                             attribute on the document root moves every control that reads \
+                             the token, so this is a per-user preference rather than a \
+                             per-surface setting. 44px stays the floor for tap targets on \
+                             every step; only pointer targets sit at 32px under dense.",
+            },
+            SettingDeclaration {
+                key: APPEARANCE_DATA_SURFACES,
+                kind: SettingKind::Text {
+                    max_len: crate::data_surface::MAX_DOCUMENT_CHARS,
+                },
+                default: SettingValue::Text("{}".into()),
+                scope: SettingScope::User,
+                section: SettingSection::Appearance,
+                visibility: SettingVisibility::Hidden,
+                label: "Data surface preferences",
+                description: "Per-user state for the data-surface controls: the named view, \
+                             the visible columns and their order and widths, the active \
+                             filter clauses and the sort, for each surface that has been \
+                             changed. A JSON document stored as a string (the settings value \
+                             column admits no object) and parsed by \
+                             core_domain::data_surface, which owns the closed vocabularies \
+                             and rejects anything malformed. An empty document means every \
+                             surface is on its own defaults; export reads the same document, \
+                             so an export always matches what the table is showing. \
+                             Hidden from the generated UI: the four controls write it.",
             },
             SettingDeclaration {
                 key: ONBOARDING_WIZARD_COMPLETED,
@@ -1593,7 +1650,9 @@ mod tests {
         // tours.disabled, tours.completed = 16.
         // Wave 29 lane 1 added shortcuts.profile (user scope) = 17.
         // Wave 34 lane 8 added the digest trio (opt-in, hour, marker) = 20.
-        assert_eq!(declarations_for(SettingScope::User).len(), 20);
+        // Wave 41 lane 2b added the two appearance seams (density, and the
+        // data-surface document) = 22.
+        assert_eq!(declarations_for(SettingScope::User).len(), 22);
         // Tripwire count: bump deliberately when an org-scope setting is
         // added (Wave 26 lane 1: flows_disabled + six org steps ×
         // done/dismissed = 13, so 15 → 28; Wave 26 lane 2 added
@@ -1776,6 +1835,62 @@ mod tests {
         assert!(connector_enabled("immybot", &off));
         assert_eq!(connector_key("ninjaone"), Some(CONNECTORS_CI_FEEDERS));
         assert_eq!(connector_key("dms_sync"), Some(CONNECTORS_DMS_SYNC));
+    }
+
+    #[test]
+    fn density_seam_is_user_scope_and_defaults_to_comfortable() {
+        let decl = declaration(APPEARANCE_DENSITY).expect("density is declared");
+        assert_eq!(decl.scope, SettingScope::User);
+        assert_eq!(decl.section, SettingSection::Appearance);
+        assert_eq!(decl.visibility, SettingVisibility::Ui);
+        assert_eq!(decl.default, SettingValue::Text("comfortable".into()));
+        assert_eq!(decl.options(), Some(DENSITY_OPTIONS));
+        for step in ["comfortable", "compact", "dense"] {
+            assert!(
+                decl.validate(&SettingValue::Text(step.into())).is_ok(),
+                "{step}"
+            );
+        }
+        for rejected in ["cosy", "Comfortable", "tight", ""] {
+            assert!(
+                decl.validate(&SettingValue::Text(rejected.into())).is_err(),
+                "{rejected}"
+            );
+        }
+        assert!(
+            decl.validate(&SettingValue::Integer(1)).is_err(),
+            "density is a name, not a number"
+        );
+        // The Marula default is the roomiest step, not the densest: the whole
+        // point of D7 is that comfortable is what a new account lands on.
+        assert_eq!(
+            default_value(APPEARANCE_DENSITY),
+            Some(SettingValue::Text("comfortable".into()))
+        );
+    }
+
+    #[test]
+    fn data_surface_document_is_user_scope_bounded_and_not_ui_listed() {
+        let decl = declaration(APPEARANCE_DATA_SURFACES).expect("the D12 seam is declared");
+        assert_eq!(decl.scope, SettingScope::User);
+        assert_eq!(decl.section, SettingSection::Appearance);
+        // Hidden: the four controls own it, so it must not appear in the
+        // generated settings hub as a field a user edits by hand.
+        assert_eq!(decl.visibility, SettingVisibility::Hidden);
+        assert_eq!(decl.default, SettingValue::Text("{}".into()));
+        assert_eq!(
+            decl.kind,
+            SettingKind::Text {
+                max_len: crate::data_surface::MAX_DOCUMENT_CHARS
+            }
+        );
+        // The declared cap and the parser's cap are one number, or a document
+        // could be accepted on write and refused on read.
+        let parsed = crate::data_surface::DataSurfacePrefs::parse("{}").unwrap();
+        assert_eq!(parsed.to_compact_string().unwrap(), "{}");
+        let over = "x".repeat(crate::data_surface::MAX_DOCUMENT_CHARS + 1);
+        assert!(decl.validate(&SettingValue::Text(over.clone())).is_err());
+        assert!(crate::data_surface::DataSurfacePrefs::parse(&over).is_err());
     }
 
     #[test]

@@ -210,6 +210,34 @@ not carry.
   before Marula, so the fleet, stock and billing tables built at 28px rows do
   not regress for anyone who reaches for it. **44px remains the tap-target
   floor on every step**, and only pointer targets sit at 32px under `dense`.
+- **Density mechanism (Wave 41 lane 2b).** The step is the USER-scope typed key
+  `appearance.density`, an enumeration of the three names whose default is
+  `comfortable`. It is written to `data-density` on `<html>` by
+  `packages/ui/src/density.ts`, which is also the pre-paint bootstrap in
+  `apps/web/app/layout.tsx` and the `AppearanceSync` that re-applies the
+  account's value at session start. `tokens.css` declares one block per step,
+  so a single attribute move relocates the whole product. A control opts in by
+  using the token, never a number: `height: var(--m-density-control)`. The
+  pre-Marula aliases (`--m-control-height`, `--m-row-height`) are retired, and
+  the sweep that retired them covered every call site, because a `var()` with
+  no definition renders nothing at all. The one judgement call the ladder does
+  NOT make: a control that is not a control keeps its size. Avatars, colour
+  swatches and other fixed marks are not density, and the sweep left them at
+  32px on purpose. The measurements a user is shown sit in
+  `DENSITY_STEP_SPEC` next to the switch, and `tokens.test.ts` asserts they
+  equal what `tokens.css` renders, so a step cannot claim 44px while painting
+  40px.
+- **Per-surface display state is separate from density (D12).** Density is one
+  preference for the whole product. The named view, the visible columns with
+  their order and widths, the filter clauses and the sort are per user and per
+  surface, and they live in the USER-scope key `appearance.data_surfaces` as
+  one JSON document keyed by surface. A missing row means every surface is on
+  its own defaults. It is stored as a JSON **string** because `settings.value`
+  admits only a string, a number or a boolean, so an object is refused by the
+  database before any code sees it; `crates/core-domain/src/data_surface.rs`
+  owns the shape and the closed operator and direction vocabularies. An export
+  reads the same document, which is why an export always matches the table it
+  came from.
 - **Motion:** transitions at or under 120ms, on transform and opacity, with
   `prefers-reduced-motion` collapsing them. Subtle motion is encouraged:
   entrance reveals, staggered list entrances, panel slide-ins, hover
@@ -225,12 +253,38 @@ not carry.
 - **Buttons:** 10px radius. Primary is the flipping pair (§2 rule 2).
   Secondary is a surface with a 1px border. Destructive is `#B42318`. The
   assistant variant is the one action inside the inverted card.
-- **Status indicators:** pill tags (999px, bold, 11px) over the §3.4 pairs.
-  Priority is a separate family: square-ish, bold, fixed width, so that a
-  priority never reads as a status.
+- **Status indicators:** `Badge` is the Marula label. A **status** badge is a
+  fully-round pill (999px) on the §3.4 pair's soft fill with that pair's own
+  dark text, at **13px semibold** (DESIGN-NOTES §6: a tag in a ledger is read
+  at a glance, not scanned). `due` is the blush/amber pair and is deliberately
+  not the warning pair, because due today is a date and not a warning.
+  **Priority** is a different family, not a status: `p1`–`p4`, 6px radius, bold,
+  **fixed 34px width**, so a priority column is a column. P1 takes red and
+  nothing below it does, because red is reserved for genuine breach, P1 and
+  destructive actions. `Tag` is the pre-Marula label (999px, bold, 11px) and
+  still has call sites; retiring it is a per-surface sweep, not a change to
+  the design system.
+- **The assistant surface:** `AssistantCard` is the single inverted surface a
+  screen is allowed (§3.6), and it reads only `--m-asb` / `--m-asf` /
+  `--m-asline` / `--m-asbtn` / `--m-asbtnf`. An action inside it is the
+  `assistant` button variant: gold on ink, never the surface's own cream,
+  which is 1.7:1. Its three states are part of the primitive, not per-surface
+  work: the card with its action, the card after the action ran (a finished
+  report, not a disabled button), and the dashed row with Undo that a
+  dismissal collapses to. A question keeps its text after it is answered,
+  because a question that disappears leaves no trace of what was asked.
 - **Tables:** sticky headers, a 48px row at the default density, hover via the
-  surface-hover mix. Column order and column width are user state, and the
-  header owns them.
+  surface-hover mix. Column order and column width are user state and the
+  header owns them: `Th` carries drag-to-reorder and drag-to-resize, plus the
+  keyboard route for each (Alt+Arrow to move a column, Arrow or Shift+Arrow on
+  a focused header or its divider to resize) because a drag is an operation a
+  keyboard user cannot perform at all. Both are pointer- and key-driven off
+  the same callbacks, and a bare Arrow is left to the surface, since on a
+  sortable table Arrow sorts. The four surrounding controls are
+  `ViewSwitch`, `ColumnChooser`, `FilterBar` and `ExportControl` on a shared
+  `DataToolbar`; the chooser's list is the table's own order, so hiding a
+  column and moving one are the same gesture, and the export states its row
+  count on the control rather than after the file arrives.
 - **Cards:** `rounded-xl`, 1px border, 24px padding.
 - **Charts:** the §3.5 ramp. Gridlines at border colour. No gradients.
 - **Forms:** labels above fields. Validation renders **on the field**, with
@@ -273,7 +327,7 @@ Dry, precise, documentation-grade — unchanged by the visual overhaul.
   with no authority in the brand spec, and the axis they wanted is now `marula`
   versus `marula-warm`. `tangerine` is renamed to `marula` by migration 0115.
   Machine source: `packages/ui/src/theme-tokens.ts` (frontend) + `crates/core-domain/src/theme_pack.rs` (backend boundary). Application is a `data-preset` attribute on `<html>` (attribute-scoped token overrides at the same specificity — the unset attribute IS the tokens.css baseline, so nothing changes unless the org or user picks a preset).
-- **Settings keys (typed registry):** `appearance.theme` (ORG scope: preset id or `pack:<slug>`), `appearance.theme_override` (USER scope: the `org_default` sentinel wins user→org, same precedence as the sticky AI model picks), and `appearance.mode` (USER scope: system/light/dark, a U6-safe supersedes of the flat old user `appearance.theme` key via migration 0097).
+- **Settings keys (typed registry):** `appearance.theme` (ORG scope: preset id or `pack:<slug>`), `appearance.theme_override` (USER scope: the `org_default` sentinel wins user→org, same precedence as the sticky AI model picks), and `appearance.mode` (USER scope: system/light/dark, a U6-safe supersedes of the flat old user `appearance.theme` key via migration 0097). Wave 41 lane 2b adds two more USER-scope keys in the same Appearance section: `appearance.density` (the three steps of §5) and `appearance.data_surfaces` (the D12 document, hidden from the generated settings UI because the four data-surface controls write it). Migration **0117** holds the density step at the DATABASE level with a CHECK constraint, because a row can also arrive by a restore or a future write that bypasses the registry, and an illegal step has no token block to fall back to.
 - **Theme packs (leg B) ride ADR 0009 V1** — marketplace registry / pinned GitHub / local zip staged imports, `artifact_kind: "theme"`, **zero capabilities** (the ingestion gate refuses capability declarations: topics restyle and nothing else). The manifest carries ONLY token overrides; **typed rejection of off-schema keys** (a `font_family` key is a 422 with the key named, never a silent ignore).
 - **Import by export (tweakcn / shadcn):** the pack manifest may be a RAW tweakcn export (the vendored `design/marula/marula.json` is the exemplar shape — `{ name, cssVars: { light, dark } }` over the shadcn variable vocabulary, frequently `oklch()`) or a shadcn registry-item theme (same `cssVars` shape). The ingestion seam coerces: identity from the export's `name` (version 1.0.0 + current schema version stamped), oklch → sRGB hex, shadcn variable names mapped onto schema roles (background/card/popover/border/foreground/secondary-foreground/muted-foreground/primary/primary-foreground/destructive/chart-N). Unmapped export variables (sidebar ramps, hover tints, radius, fonts) are DROPPED — the schema stays restyle-only. Derived tones recompute client-side. The coerced manifest must pass the same validate() gate (contrast floors included), so an export whose converted basics fail AA is refused outright: upload your export file as the zip's `manifest.json` and it imports with no hand translation.
 - **Status pairs note:** shadcn/tweakcn exports carry no success/warning tags. The PSA status colours (§3.4) survive every pack, exactly per rule 5 above and the D8 fixed axis.

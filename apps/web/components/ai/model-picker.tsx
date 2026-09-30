@@ -150,7 +150,7 @@ export function ModelPicker({
     <Select value={value !== "" ? value : undefined} onValueChange={commit}>
       <SelectTrigger
         data-testid="ai-model-picker"
-        className={compact ? "h-8 text-[12px]" : "text-[12px]"}
+        className={compact ? "h-[var(--m-density-control)] text-[12px]" : "text-[12px]"}
         style={{ borderRadius: "var(--m-radius-control)" }}
         aria-label="Model used by this AI surface"
       >

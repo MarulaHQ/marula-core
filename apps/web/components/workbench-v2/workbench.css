@@ -77,7 +77,17 @@
   border-color: var(--m-accent-muted);
 }
 
-/* Bubble variants — tinted from tokens, per the mockup. */
+/* Bubble variants — tinted from tokens, per the mockup, and corrected against
+   DESIGN-NOTES §4 by wave41 lane 2b. The spec's rule for the timeline is that
+   each entry's FILL says what kind of entry it is, so a person can read a
+   screenshot without the icons. Three corrections, and the reasons:
+   - Client is a surface box WITH a border, not a tint. The tint was doing the
+     job the border already does, and it made every reply look like a note.
+   - Internal takes the note tint and NO border, the same tint the internal
+     composer takes, so a note and the thing being written match.
+   - A time entry takes GOLD. It was on the amber "due or needs attention"
+     pair, which means a time entry and a P2 were the same colour, and the
+     colours in §5 are not interchangeable. */
 .m-wb-bubble {
   border: 1px solid var(--m-border);
   border-radius: 9px;
@@ -89,8 +99,23 @@
 }
 
 .m-wb-bubble[data-variant="client"] {
-  background: color-mix(in srgb, var(--m-chart-1) 12%, var(--m-surface));
-  border-color: color-mix(in srgb, var(--m-chart-1) 30%, var(--m-border));
+  background: var(--m-surface);
+  border-color: var(--m-border);
+}
+
+/* Internal: the note tint, and the border removed — the tint is the signal
+   and a border on top of it reads as a second, different thing. */
+.m-wb-bubble[data-variant="internal"] {
+  background: var(--m-note);
+  border-color: transparent;
+  color: var(--m-note-fg);
+}
+
+/* System: a quiet tint. Quiet means quieter than the surface it sits on, so
+   it takes the sunken fill and nothing else — no border, no accent. */
+.m-wb-bubble[data-variant="system"] {
+  background: var(--m-surface-sunken, var(--m-canvas));
+  border-color: transparent;
 }
 
 .m-wb-bubble[data-variant="agent"] {
@@ -99,10 +124,12 @@
   color: var(--m-text-secondary);
 }
 
+/* A time entry is gold, which is the product's word for "this one is
+   happening now" — the same gold as the running clock and the current step. */
 .m-wb-bubble[data-variant="time"] {
-  background: var(--m-status-warning-bg);
-  border-color: color-mix(in srgb, var(--m-status-warning-fg) 25%, var(--m-border));
-  color: var(--m-status-warning-fg);
+  background: var(--m-accent-soft);
+  border-color: var(--m-accent-muted);
+  color: var(--m-accent-text);
 }
 
 .m-wb-attachment {

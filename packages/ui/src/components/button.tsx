@@ -1,7 +1,12 @@
 "use client";
 /**
- * Button — Workbench §6: 2px radius, weight 500, solid Ember primary,
- * bordered secondary, outline destructive. Ember marks interactivity only.
+ * Button — Marula §6: 10px radius, weight 500, and a primary that flips with
+ * the mode (ink with gold text in light, gold with ink text in dark).
+ *
+ * The `assistant` variant is the one control that lives INSIDE the assistant
+ * surface, so it inverts with it: the card is the single inverted surface on
+ * a screen, and an action on that card is gold on ink rather than the
+ * surface's own cream, because gold-on-cream is 1.7:1 and unreadable.
  */
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -16,6 +21,8 @@ const buttonVariants = cva("m-btn", {
       ghost: "m-btn-ghost",
       destructive: "m-btn-destructive",
       "destructive-solid": "m-btn-destructive-solid",
+      assistant: "m-btn-assistant",
+      "assistant-outline": "m-btn-assistant-outline",
     },
     size: {
       md: "",

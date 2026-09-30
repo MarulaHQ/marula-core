@@ -104,7 +104,7 @@ function OptionsEditor({ options, onChange, error }: OptionsEditorProps): ReactN
             }
           }}
           placeholder="Add an option…"
-          className="h-8 text-xs"
+          className="h-[var(--m-density-control)] text-xs"
           aria-invalid={error !== null}
         />
         <Button size="sm" variant="secondary" onClick={add}>

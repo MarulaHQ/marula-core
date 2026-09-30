@@ -38,6 +38,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 
 import { BoardNav } from "../../../components/board-nav";
 import { api, useRequireAuth } from "../../../lib/api";
+import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
 import {
   categoryTone,
   dueChip,
@@ -625,7 +626,13 @@ export default function BoardPage() {
 
   const [workflow, setWorkflow] = useState<BoardTransitions | null>(null);
   const [filters, setFilters] = useState<BoardFilters>(EMPTY_FILTERS);
-  const [compact, setCompact] = useState(false);
+  // Density is the account's, not this board's (wave41 lane 2b, D7). It used
+  // to be a local useState that reset on every navigation and was invisible
+  // to every other surface; it now rides the same typed key as the rest of
+  // the product, so the toggle here and the switch in Settings > Appearance
+  // are the same setting and either one moves the other.
+  const prefs = useDataSurfacePrefs();
+  const compact = prefs.density !== "comfortable";
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -830,7 +837,12 @@ export default function BoardPage() {
                   ? { borderColor: "var(--m-accent)", color: "var(--m-accent)", boxShadow: "0 0 0 1px var(--m-accent)" }
                   : { borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }
               }
-              onClick={() => setCompact((v) => !v)}
+              onClick={() => void prefs.setDensity(compact ? "comfortable" : "compact")}
+              title={
+                prefs.density === "dense"
+                  ? "Dense — set in Settings > Appearance"
+                  : undefined
+              }
             >
               {compact ? "Compact" : "Comfortable"}
             </button>

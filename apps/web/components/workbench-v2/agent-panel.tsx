@@ -23,6 +23,12 @@ import { api } from "../../lib/api";
 import { runChatTurn } from "../../lib/agent-chat";
 import { announce } from "../a11y/live-region";
 import { ModelPicker, useLazySurfacePick } from "../ai/model-picker";
+import {
+  AssistantCard,
+  AssistantCardDismissed,
+  AssistantCardQuestion,
+  Button,
+} from "@marula-core/ui";
 
 type KbArticle = components["schemas"]["KbArticle"];
 type SearchResult = components["schemas"]["SearchResult"];
@@ -67,6 +73,13 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
   const [articles, setArticles] = useState<KbArticle[] | null>(null);
   const [hits, setHits] = useState<SearchResult[] | null>(null);
   const [proposals, setProposals] = useState<AgentProposalView[] | null>(null);
+  // The spec's assistant states, keyed by proposal id: "ran" once a person
+  // approved it, "dismissed" once they said not this one. Keyed rather than a
+  // single pair of booleans because the panel outlives any one proposal — a
+  // new one must not inherit the last one's dismissal.
+  const [proposalStates, setProposalStates] = useState<Record<string, "ran" | "dismissed">>({});
+  const [deciding, setDeciding] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [chat, setChat] = useState<ChatLine[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -275,6 +288,154 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
     respond("✓ Draft ready — inserted into the ticket composer.");
   }
 
+    async function decide(decision: "approve" | "decline"): Promise<void> {
+      if (pending === null || deciding) return;
+      setDeciding(true);
+      setActionError(null);
+      const previous = proposalStates;
+      // Optimistic, because a decision that waits for a round trip to feel
+      // acknowledged is a decision people avoid making. A declined proposal
+      // writes nothing server-side, so there is nothing to reconcile.
+      setProposalStates((prev) => ({ ...prev, [pending.id]: decision === "approve" ? "ran" : "dismissed" }));
+      const { error } =
+        decision === "approve"
+          ? await api.api.POST("/api/v1/agent-proposals/{id}/approve", {
+              params: { path: { id: pending.id } },
+              body: { note: null },
+            })
+          : await api.api.POST("/api/v1/agent-proposals/{id}/decline", {
+              params: { path: { id: pending.id } },
+              body: { note: null },
+            });
+      setDeciding(false);
+      if (error !== undefined) {
+        setProposalStates(previous);
+        setActionError(decision === "approve" ? "The run was rejected." : "The dismissal was rejected.");
+        return;
+      }
+      if (decision === "approve") {
+        // The spec's System entry. The proposal's own write is the record; this
+        // line is the sentence in the timeline that says a person ran it.
+        respond(`Ran the agent's recommendation: ${pending.rationale ?? "the proposed next step"}.`);
+      }
+    }
+
+    // Undo of a dismissal: a decline cannot be un-declined, so Undo brings the
+    // recommendation back to be approved rather than pretending it was never
+    // touched. The audit row stays — it is the server's, not the panel's.
+    function undoDismissal(): void {
+      if (pending === null) return;
+      setProposalStates((prev) => {
+        const next = { ...prev };
+        delete next[pending.id];
+        return next;
+      });
+      setActionError(null);
+    }
+
+    // The recommended next step. Three states, all of them from the spec: the
+    // card with its primary action, the card after the action RAN, and the
+    // dashed row it collapses to when the recommendation is not this one.
+    const pendingState = pending === null ? undefined : proposalStates[pending.id];
+    const recommendBlock =
+      pending?.rationale != null && pendingState === "dismissed" ? (
+        <div className="mt-3">
+          <AssistantCardDismissed
+            data-testid="wb-agent-dismissed"
+            summary={`Dismissed: ${pending.rationale}`}
+            onUndo={undoDismissal}
+          />
+        </div>
+      ) : (
+        <div className="mt-3">
+          <AssistantCard
+            eyebrow="Recommended next step"
+            data-testid="wb-agent-recommend"
+            heading={pending?.rationale ?? "No agent proposals filed for this ticket yet."}
+            action={
+              pendingState === "ran" ? (
+                // "Script ran" is a finished state, not a disabled button: it
+                // reports what happened and stays visible so the person can
+                // see their own work in the timeline.
+                <span className="m-assistant-ran" data-testid="wb-agent-ran">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
+                    <path d="M4 12.5 9.5 18 20 6.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Script ran
+                </span>
+              ) : (
+                <Button
+                  variant="assistant"
+                  size="sm"
+                  disabled={deciding || pending === null}
+                  data-testid="wb-agent-run"
+                  onClick={() => void decide("approve")}
+                >
+                  {deciding ? "Working…" : "Run"}
+                </Button>
+              )
+            }
+            secondaryActions={
+              <Button
+                // Outlined, not filled: the vision review caught Run and Not
+                // this rendering as two identical gold pills, which leaves the
+                // primary no more likely than the dismissal. Gold means "act
+                // here", so a card where everything is gold says nothing.
+                variant="assistant-outline"
+                size="sm"
+                disabled={deciding || pending === null || pendingState === "ran"}
+                data-testid="wb-agent-not-this"
+                onClick={() => void decide("decline")}
+              >
+                Not this
+              </Button>
+            }
+            footer={
+              <div className="flex flex-wrap items-center gap-2">
+                {articles !== null && articles[0] !== undefined ? (
+                  <Link
+                    href={`/kb/${articles[0].id}`}
+                    className="m-assistant-link"
+                    data-testid="wb-agent-evidence"
+                  >
+                    View evidence ↗
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  className="m-assistant-link"
+                  data-testid="wb-agent-draft"
+                  onClick={draftUpdate}
+                >
+                  Draft customer update
+                </button>
+                <button
+                  type="button"
+                  className="m-assistant-link"
+                  onClick={() => chatInputRef.current?.focus()}
+                >
+                  Ask Agent
+                </button>
+              </div>
+            }
+          >
+            <AssistantCardQuestion
+              question="Do you want me to do anything client-facing?"
+              answer={
+                pendingState === "ran"
+                  ? "No — drafts wait for your approval, and nothing is sent without it."
+                  : undefined
+              }
+            />
+          </AssistantCard>
+          {actionError !== null ? (
+            <p className="m-assistant-error" role="alert" data-testid="wb-agent-action-error">
+              {actionError}
+            </p>
+          ) : null}
+        </div>
+      );
+
   return (
     <aside
       aria-label="Agent panel"
@@ -373,60 +534,8 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
           </>
         )}
 
-        {/* Recommended next step */}
-        <div
-          className="mt-3 rounded-lg border p-2.5"
-          style={{ borderColor: "var(--m-accent-muted)", background: "var(--m-accent-soft)" }}
-          data-testid="wb-agent-recommend"
-        >
-          <div className="flex items-center gap-1.5 text-[11px] font-bold" style={{ color: "var(--m-accent)" }}>
-            <svg aria-hidden width="11" height="11" viewBox="0 0 18 18" fill="none">
-              <path d="M9 2.5 10.6 7.4 15.5 9 10.6 10.6 9 15.5 7.4 10.6 2.5 9 7.4 7.4Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-            </svg>
-            <span>Recommended next step</span>
-          </div>
-          {pending?.rationale != null ? (
-            <>
-              <p className="mb-2 mt-1.5 text-[10.5px] leading-relaxed" style={{ color: "var(--m-text-secondary)" }}>
-                {pending.rationale}
-              </p>
-              <div className="grid gap-1.5">
-                {articles !== null && articles[0] !== undefined && (
-                  <Link
-                    href={`/kb/${articles[0].id}`}
-                    className="m-wb-agent-btn block rounded-md border px-2.5 text-left text-[10.5px] font-semibold no-underline leading-[28px]"
-                    style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
-                  >
-                    ⌕ View evidence ↗
-                  </Link>
-                )}
-                <button
-                  type="button"
-                  data-testid="wb-agent-draft"
-                  className="m-wb-agent-btn cursor-pointer rounded-md border px-2.5 text-left text-[10.5px] font-semibold leading-[28px]"
-                  style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
-                  onClick={draftUpdate}
-                >
-                  ▤ Draft customer update
-                </button>
-                <button
-                  type="button"
-                  className="m-wb-agent-btn cursor-pointer rounded-md border px-2.5 text-left text-[10.5px] font-semibold leading-[28px]"
-                  style={{ borderColor: "var(--m-accent)", background: "var(--m-accent)", color: "var(--m-on-accent)" }}
-                  onClick={() => chatInputRef.current?.focus()}
-                >
-                  ◌ Ask Agent
-                </button>
-              </div>
-            </>
-          ) : (
-            <p className="mt-1.5 text-[10.5px]" data-testid="wb-agent-no-proposal" style={{ color: "var(--m-text-muted)" }}>
-              {proposals === null
-                ? "Checking the agent proposal ledger…"
-                : "No agent proposals filed for this ticket yet — the agent platform surfaces its recommendations here when it files one."}
-            </p>
-          )}
-        </div>
+
+        {recommendBlock}
 
         {/* Chat */}
         <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--m-border)" }}>

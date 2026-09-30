@@ -24,7 +24,7 @@
 
 import type { components } from "@marula-core/sdk";
 import { snapshotOf } from "@marula-core/sdk";
-import { Spinner, StatusTag, Button } from "@marula-core/ui";
+import { Spinner, StatusTag, Button, Badge, StatusStepper } from "@marula-core/ui";
 import { TranscribeControl } from "../../../components/attachments/transcribe-control";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -123,18 +123,15 @@ const TABS: { id: WbTab; label: string }[] = [
 function priorityPill(priority: string | null | undefined): ReactNode {
   if (priority == null) return null;
   const p = priority.toLowerCase();
-  const tone =
-    p === "p1" ? { fg: "var(--m-status-danger-fg)", bg: "var(--m-status-danger-bg)" }
-    : p === "p2" ? { fg: "var(--m-status-warning-fg)", bg: "var(--m-status-warning-bg)" }
-    : { fg: "var(--m-status-neutral-fg)", bg: "var(--m-status-neutral-bg)" };
+  // The Badge priority family already carries the colour rule: P1 is the only
+  // red, P2 the blush/amber "due or soon" pair, and the rest quiet. A
+  // hand-rolled pill here is a second copy of that decision, and the two
+  // copies would drift the first time a colour moved.
+  if (p !== "p1" && p !== "p2" && p !== "p3" && p !== "p4") return null;
   return (
-    <span
-      className="inline-flex h-[21px] items-center rounded-full px-2 text-[10px] font-bold"
-      style={{ background: tone.bg, color: tone.fg }}
-      data-testid="wb-priority-pill"
-    >
+    <Badge priority={p} data-testid="wb-priority-pill">
       {priority.toUpperCase()}
-    </span>
+    </Badge>
   );
 }
 
@@ -557,6 +554,7 @@ async function changeStatus(statusId: string): Promise<void> {
     kind: TicketComment["kind"],
     attachmentIds: string[],
     draftKey?: string | null,
+    setWaitingAfterSend?: boolean,
   ): Promise<void> {
     if (ticket === null) return;
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -612,6 +610,18 @@ async function changeStatus(statusId: string): Promise<void> {
           c.id === tempId && applied !== null ? (applied as TicketComment) : c,
         ),
       }));
+      // "Set to Waiting after send" (DESIGN-NOTES §4): a sent reply usually
+      // means the next move belongs to the client, so the composer offers to
+      // move the ticket with the note rather than making it a second
+      // round trip. Only on a client-visible note — the composer does not
+      // offer the box for an internal one, and this guard is what makes an
+      // internal note genuinely unable to move the ticket.
+      if (setWaitingAfterSend) {
+        const waiting = statuses.find((s) => s.category === "waiting");
+        if (waiting !== undefined && waiting.id !== applied?.status_id) {
+          await changeStatus(waiting.id);
+        }
+      }
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not post note");
@@ -1115,9 +1125,24 @@ async function changeStatus(statusId: string): Promise<void> {
               }}
             >
               <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: "currentColor" }} />
-              {(current?.name ?? "Unknown status").toUpperCase()}
+              {current?.name ?? "Unknown status"}
             </span>
           </div>
+
+          {/* The stepper the spec asks for (DESIGN-NOTES §4): the current step
+              in gold, earlier steps checked, any step settable. It sits under
+              the meta row rather than inside it because it is a control and
+              the row above it is a fact list. */}
+          {statuses.length > 1 ? (
+            <div className="mt-3">
+              <StatusStepper
+                steps={statuses.map((s) => ({ id: s.id, label: s.name }))}
+                currentId={current?.id ?? ""}
+                onSelect={(id) => void changeStatus(id)}
+                label="Ticket status"
+              />
+            </div>
+          ) : null}
 
           {/* Decision workbench suggestion card (Wave 23 lane 3): inline
               AI triage suggestions — suggestions-by-default, pending state

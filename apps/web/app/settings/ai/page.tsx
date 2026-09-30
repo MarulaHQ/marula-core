@@ -379,7 +379,7 @@ function GrantEditor({
           onValueChange={(v) => setGrant(v as "role" | "user")}
         >
           <SelectTrigger
-            className="h-8 w-24 text-[12px]"
+            className="h-[var(--m-density-control)] w-24 text-[12px]"
             style={{ borderRadius: "var(--m-radius-control)" }}
           >
             <SelectValue />
@@ -390,7 +390,7 @@ function GrantEditor({
           </SelectContent>
         </Select>
         <select
-          className="h-8 max-w-48 rounded-[var(--m-radius-control)] border px-1 text-[12px]"
+          className="h-[var(--m-density-control)] max-w-48 rounded-[var(--m-radius-control)] border px-1 text-[12px]"
           style={{ borderColor: "var(--m-border)" }}
           value={target}
           onChange={(e) => setTarget(e.target.value)}

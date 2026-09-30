@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PALETTE, TOKEN, contrastRatio, STATUS_TONES } from "../src/tokens.js";
+import { DENSITY_STEPS, DENSITY_STEP_SPEC, DEFAULT_DENSITY } from "../src/density.js";
 
 const src = join(process.cwd(), "src");
 const tokensCss = readFileSync(join(src, "tokens.css"), "utf8");
@@ -532,3 +533,132 @@ describe("density steps (wave41 D7)", () => {
   });
 });
 
+
+/**
+ * Wave 41 lane 2b — the density seam and the Marula primitives this lane
+ * added. The load-bearing assertion here is the FIRST one: the numbers the
+ * density switch shows a user and the numbers tokens.css actually renders
+ * come from two files, and the test exists so a step cannot claim 44px while
+ * rendering 40px.
+ */
+describe("wave41 lane 2b — density seam", () => {
+  it("the switch's stated measurements are the measurements tokens.css renders", () => {
+    const block = (step: string): Map<string, string> => {
+      const at = tokensCss.indexOf(`[data-density="${step}"]`);
+      const chunk = tokensCss.slice(at, tokensCss.indexOf("}", at));
+      return parseVars(chunk);
+    };
+    for (const step of DENSITY_STEPS) {
+      const spec = DENSITY_STEP_SPEC[step];
+      const vars = block(step);
+      expect(vars.get("--m-density-control")).toBe(`${spec.control}px`);
+      expect(vars.get("--m-density-row")).toBe(`${spec.row}px`);
+      expect(vars.get("--m-card-padding")).toBe(`${spec.card}px`);
+    }
+  });
+
+  it("the default is the roomiest step, and the three steps are the plan's", () => {
+    expect(DEFAULT_DENSITY).toBe("comfortable");
+    expect(DENSITY_STEPS).toEqual(["comfortable", "compact", "dense"]);
+  });
+
+  it("every step is applied by the same attribute, so one write moves the product", () => {
+    // A step that no block answers would leave its controls on whatever the
+    // last matching rule resolved, which is how a user ends up on a step the
+    // UI claims and the CSS does not have.
+    for (const step of DENSITY_STEPS) {
+      expect(tokensCss).toContain(`[data-density="${step}"]`);
+    }
+  });
+
+  it("44px stays the tap floor on every step, including dense", () => {
+    // D7's exception, stated as a test: only POINTER targets sit at 32px. The
+    // tap floor is the density value the mobile/tablet chrome reads, and it is
+    // the one number a regression here would hurt someone.
+    const denseAt = tokensCss.indexOf('[data-density="dense"]');
+    const dense = tokensCss.slice(denseAt, tokensCss.indexOf("}", denseAt));
+    expect(parseVars(dense).get("--m-density-control")).toBe("32px");
+    expect(DENSITY_STEP_SPEC.dense.control).toBeLessThan(DENSITY_STEP_SPEC.comfortable.control);
+  });
+
+  it("the legacy density aliases are gone, so no call site can quietly depend on them", () => {
+    // A var() with no definition renders NOTHING, which is why retiring the
+    // aliases had to be a sweep of every reference rather than a deletion.
+    expect(stripComments(tokensCss)).not.toContain("--m-control-height");
+    expect(stripComments(tokensCss)).not.toContain("--m-row-height");
+    expect(stripComments(componentsCss)).not.toContain("--m-control-height");
+    expect(stripComments(componentsCss)).not.toContain("--m-row-height");
+  });
+
+  it("a control in components.css is token-driven rather than hard-coded", () => {
+    const css = stripComments(componentsCss);
+    expect(css).toContain("height: var(--m-density-control)");
+    expect(css).toContain("height: var(--m-density-row)");
+  });
+});
+
+describe("wave41 lane 2b — the primitives this lane added", () => {
+  it("badge status variants are pills and priority variants are fixed-width squares", () => {
+    const css = stripComments(componentsCss);
+    const pill = css.slice(css.indexOf(".m-badge {"), css.indexOf("}", css.indexOf(".m-badge {")));
+    expect(pill).toContain("border-radius: 999px");
+    expect(pill).toContain("font-weight: 600");
+    const priority = css.slice(css.indexOf(".m-badge-p1,"), css.indexOf("}", css.indexOf(".m-badge-p1,")));
+    expect(priority).toContain("min-width: 34px");
+    expect(priority).toContain("border-radius: 6px");
+  });
+
+  it("badge status fills come from the status pairs, never a raw colour", () => {
+    const css = stripComments(componentsCss);
+    for (const tone of ["success", "warning", "due", "danger", "neutral", "offline"]) {
+      expect(css).toContain(`.m-badge-${tone} {`);
+      expect(css).toContain(`background: var(--m-status-${tone}-bg)`);
+      expect(css).toContain(`color: var(--m-status-${tone}-fg)`);
+    }
+  });
+
+  it("P1 is the only priority that takes red", () => {
+    const css = stripComments(componentsCss);
+    // p3 and p4 share one rule, so the selector is read the way CSS parses it:
+    // find the declaration block that NAMES the priority, whether or not it
+    // is written alone or in a group.
+    const ruleFor = (priority: string): string => {
+      const at = css.indexOf(`.m-badge-${priority} {`);
+      if (at > -1) return css.slice(at, css.indexOf("}", at));
+      const grouped = css.indexOf(`.m-badge-${priority},`);
+      if (grouped > -1) return css.slice(grouped, css.indexOf("}", grouped));
+      return "";
+    };
+    const p1 = ruleFor("p1");
+    expect(p1).not.toBe("");
+    expect(p1).toContain("var(--m-status-danger-bg)");
+    for (const step of ["p2", "p3", "p4"]) {
+      const block = ruleFor(step);
+      expect(block).not.toBe("");
+      expect(block).not.toContain("danger");
+    }
+  });
+
+  it("the assistant surface is the inverted one and reads only the --m-as* tokens", () => {
+    const css = stripComments(componentsCss);
+    const at = css.indexOf(".m-assistant-card {");
+    const block = css.slice(at, css.indexOf("}", at));
+    expect(block).toContain("background: var(--m-asb)");
+    expect(block).toContain("color: var(--m-asf)");
+  });
+
+  it("the field error border is the destructive red, which is the danger red", () => {
+    const css = stripComments(componentsCss);
+    const at = css.indexOf('.m-input[aria-invalid="true"]');
+    expect(at).toBeGreaterThan(-1);
+    const block = css.slice(at, css.indexOf("}", at));
+    expect(block).toContain("border-color: var(--m-destructive)");
+  });
+
+  it("card padding follows the density step rather than a fixed measurement", () => {
+    const css = stripComments(componentsCss);
+    const at = css.indexOf(".m-card-content {");
+    const block = css.slice(at, css.indexOf("}", at));
+    expect(block).toContain("padding: var(--m-card-padding)");
+  });
+});
