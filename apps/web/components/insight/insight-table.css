@@ -1,0 +1,109 @@
+/*
+ * Wave 41 lane 11 (`p41-ui-insight`) — the pack's data-surface table
+ * treatment, scoped to the six Insight routes.
+ *
+ * The pack draws a data table's column header as small caps: 12px,
+ * uppercase, 0.06em tracking, 600 weight, in the muted text token, sticky on
+ * a surface background. The shared `.m-table` primitive does not uppercase
+ * (it is also used by print and ledger views that want sentence case), so
+ * the treatment rides on a modifier here rather than changing a primitive
+ * ten lanes are building against.
+ *
+ * The data-surface frame's other two drawn rules live with it: the footer
+ * pager is an underlined text link, not a button, and the keyboard hints are
+ * key caps.
+ */
+.m-insight-table thead th {
+  height: 38px;
+  padding: 0 10px;
+  background: var(--m-surface);
+  border-bottom: 1px solid var(--m-border);
+  color: var(--m-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.m-insight-table tbody td {
+  height: var(--m-density-row);
+  padding: 2px 10px;
+  border-bottom: 1px solid var(--m-border);
+  vertical-align: middle;
+}
+
+.m-insight-table tbody tr:hover {
+  background: var(--m-surface-2);
+}
+
+.m-insight-table tbody tr[data-selected="true"] {
+  background: var(--m-accent-soft);
+}
+
+/* The pack's footer pager: an underlined text link. */
+.m-insight-pager {
+  color: var(--m-text);
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--m-border-strong);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+}
+
+.m-insight-pager:hover:not(:disabled) {
+  text-decoration-color: var(--m-accent);
+}
+
+.m-insight-pager:disabled {
+  color: var(--m-text-muted);
+  text-decoration: none;
+  cursor: default;
+}
+
+/* The pack's keyboard hints: a key cap and its verb. */
+.m-insight-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--m-border);
+  border-radius: 5px;
+  background: var(--m-surface);
+  color: var(--m-text-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1;
+}
+
+/*
+ * The density control, sized for a 52px footer.
+ *
+ * The shared `DensitySwitch` gives every step a 148px minimum and stacks the
+ * label over its "44px controls, 48px rows" hint, so three steps occupy about
+ * 450px — a third of the footer, in a surface whose whole footer is 52px
+ * tall. The pack draws this control as a compact three-cell row.
+ *
+ * The step names stay (an unlabelled icon is worse, and the switch already
+ * carries a full screen-reader sentence per step); the hint and the width go.
+ * Scoped to this lane's footers, because the primitive is shared with nine
+ * other in-flight lanes.
+ */
+.m-insight-footer .m-density-switch-item {
+  min-width: 0;
+  padding: 0 12px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.m-insight-footer .m-density-switch-hint {
+  display: none;
+}

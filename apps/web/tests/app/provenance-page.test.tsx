@@ -1,5 +1,6 @@
-// Integration test: /provenance — filter application, keyset paging
-// via next_cursor, and before/after rendering.
+// Integration test: /provenance — the data-surface frame (view switch,
+// filter bar clauses, column chooser, export, density footer), keyset
+// paging via next_cursor, and before/after rendering.
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -61,6 +62,18 @@ function setupApi(): MockApi {
   return mock;
 }
 
+/** Add one clause through the D12 filter builder. */
+async function addClause(
+  user: ReturnType<typeof userEvent.setup>,
+  fieldLabel: string,
+  value: string,
+): Promise<void> {
+  await user.click(screen.getByRole("button", { name: /add filter/i }));
+  await user.selectOptions(screen.getByLabelText("Field"), fieldLabel);
+  await user.type(screen.getByLabelText("Value"), value);
+  await user.click(screen.getByRole("button", { name: "Add" }));
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   seedAuthTokens();
@@ -94,6 +107,30 @@ describe("/provenance integration", () => {
     cleanup();
   });
 
+  it("carries the four data-surface controls and no bulk bar", async () => {
+    setupApi();
+    render(
+      <AuthProvider>
+        <ProvenancePage />
+      </AuthProvider>,
+    );
+    await screen.findByText("status");
+    // View switch, filter bar, column chooser, export and the density step.
+    expect(screen.getByRole("tablist", { name: "Provenance views" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add filter/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Columns" })).toBeInTheDocument();
+    // One button per format, and the row count on the strip so the user
+    // knows the size before they ask.
+    expect(screen.getByRole("button", { name: "Export CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export XLSX" })).toBeInTheDocument();
+    expect(screen.getByText(/\d+ rows?/)).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Density" })).toBeInTheDocument();
+    // Audit and provenance take every control EXCEPT the selection bar.
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
+    cleanup();
+  });
+
   it("pages with the keyset cursor", async () => {
     const mock = setupApi();
     const user = userEvent.setup();
@@ -103,7 +140,7 @@ describe("/provenance integration", () => {
       </AuthProvider>,
     );
     await screen.findByText("status");
-    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Load 50 more" }));
     await waitFor(() => {
       const calls = mock.callsTo("GET", "/api/v1/provenance");
       expect(calls[calls.length - 1]?.query.cursor).toBe("cur-1");
@@ -111,7 +148,7 @@ describe("/provenance integration", () => {
     cleanup();
   });
 
-  it("shows the typed empty state when filters match nothing", async () => {
+  it("filters through the chip bar and shows the empty state when nothing matches", async () => {
     const mock = setupApi();
     const user = userEvent.setup();
     render(
@@ -120,13 +157,34 @@ describe("/provenance integration", () => {
       </AuthProvider>,
     );
     await screen.findByText("status");
-    await user.type(screen.getByLabelText("Entity"), "invoice");
-    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await addClause(user, "Entity", "invoice");
+    // The clause reads back as a sentence chip with a remove button.
+    expect(await screen.findByText("Entity contains invoice")).toBeInTheDocument();
     await waitFor(() => {
       const calls = mock.callsTo("GET", "/api/v1/provenance");
       expect(calls[calls.length - 1]?.query.entity).toBe("invoice");
     });
-    await screen.findByText(/No provenance rows match/);
+    await screen.findByText(/No writes match these filters/);
+    // The empty state never suggests another way to ask.
+    expect(screen.queryByText(/ask/i)).not.toBeInTheDocument();
+    cleanup();
+  });
+
+  it("switches views without a round trip for the client-side ones", async () => {
+    setupApi();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <ProvenancePage />
+      </AuthProvider>,
+    );
+    await screen.findByText("status");
+    expect(screen.getByText("p3")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /Agent/ }));
+    await waitFor(() => {
+      expect(screen.queryByText("status")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("p2")).toBeInTheDocument();
     cleanup();
   });
 });

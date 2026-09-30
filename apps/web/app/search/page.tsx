@@ -1,28 +1,27 @@
-// /search — unified search across tickets, comments, clients/sites/contacts,
-// KB articles and documents (2.16 + the 0062 vector leg; Wave 17 lane 6 UX pass).
+// /search — unified search (Wave 41 lane 11, Marula rebrand).
 //
-// Purpose: one query box over GET /api/v1/search; the core fuses the FTS,
+// Purpose: one query box over GET /api/v1/search. The core fuses the FTS,
 // trigram and pgvector legs by reciprocal rank fusion and returns one
-// blended ranking — this surface renders whatever the core ranks honestly
-// (server rank order, grouped by kind, semantic hits indistinguishable from
-// lexical ones because they ARE one ranking). Each group shows its count;
-// ArrowUp/ArrowDown moves the keyboard cursor and Enter opens the focused
-// result; recent queries persist locally and re-run with one click. Kinds
-// without a detail page (site, contact, KB article) render as
-// informational rows, never links to nowhere.
+// blended ranking — this surface renders whatever the core ranks honestly.
+// Results are grouped by kind with counts, the keyboard cursor moves with
+// arrows and Enter opens the focused result, and recent queries re-run with
+// one click.
 //
-// Non-purpose: no server-side filters/facets, no portal visibility logic;
-// local recents are unchanged. Pins are PERSISTENT and server-backed
-// (GET/POST/DELETE /api/v1/search/pins): a pin stores the query + the
-// snapshot title at pin time and re-runs its query with one click.
+// **P4 — this surface shows NO AI affordance at all.** Reranking happens
+// where the user must never know it happened; the audit trail is the only
+// trace. No sparkle, no hint, no "ask", no assistant stub, and the no-results
+// state must not suggest one. This is the strictest rule in the pack.
+//
+// Non-purpose: no server-side facets, no portal visibility logic.
 "use client";
 
-import { friendlyMutationText } from "../../lib/error-copy";
-import { Button, EmptyState, Input, Spinner, Tag } from "@marula-core/ui";
+import { Button, Spinner, Tag } from "@marula-core/ui";
+import { InsightState } from "../../components/insight/insight-state";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { friendlyMutationText } from "../../lib/error-copy";
 import { api, useRequireAuth } from "../../lib/api";
 
 type SearchResult = components["schemas"]["SearchResult"];
@@ -149,7 +148,7 @@ export default function SearchPage() {
       setError(null);
     } catch (err) {
       if (seq !== seqRef.current) return;
-      setError(friendlyMutationText(err, "Search failed"));
+      setError(friendlyMutationText(err, "The search did not run."));
     } finally {
       if (seq === seqRef.current) setLoading(false);
     }
@@ -192,30 +191,24 @@ export default function SearchPage() {
     setPinError(null);
   }, []);
 
-  const handlePin = useCallback(
-    async (hit: SearchResult, querySnapshot: string) => {
-      setRowPinError(null);
-      const { error, data } = await api.api.POST("/api/v1/search/pins", {
-        body: { query: querySnapshot, entity_kind: hit.entity_kind, entity_id: hit.entity_id },
-      });
-      if (error !== undefined || data === undefined) {
-        // 404: the pinned row left the org's index — honest, no fake pin.
-        setRowPinError(
-          friendlyMutationText(
-            error,
-            "The result could not be pinned.",
-          ),
-        );
-        return;
-      }
-      // Idempotent POST answers the stored pin — reflect server state.
-      setPins((cur) => {
-        const rest = (cur ?? []).filter((p) => p.id !== data.id);
-        return [data, ...rest];
-      });
-    },
-    [],
-  );
+  const handlePin = useCallback(async (hit: SearchResult, querySnapshot: string) => {
+    setRowPinError(null);
+    const { error, data } = await api.api.POST("/api/v1/search/pins", {
+      body: { query: querySnapshot, entity_kind: hit.entity_kind, entity_id: hit.entity_id },
+    });
+    if (error !== undefined || data === undefined) {
+      // 404: the pinned row left the org's index — honest, no fake pin.
+      setRowPinError(
+        friendlyMutationText(error, "The result could not be pinned."),
+      );
+      return;
+    }
+    // Idempotent POST answers the stored pin — reflect server state.
+    setPins((cur) => {
+      const rest = (cur ?? []).filter((p) => p.id !== data.id);
+      return [data, ...rest];
+    });
+  }, []);
 
   const handleUnpin = useCallback(
     async (pin: SearchPinView) => {
@@ -292,30 +285,63 @@ export default function SearchPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4">
-        <Input
-          autoFocus
-          type="search"
-          placeholder="Search tickets, clients, documents, KB…   (↑↓ move · Enter open)"
-          value={rawQuery}
-          onChange={(event) => setRawQuery(event.target.value)}
-          aria-label="Search"
-          aria-describedby="search-kbd-hint"
-          style={{ maxWidth: 520 }}
-        />
+      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
+        <header className="m-rise flex flex-wrap items-center justify-between gap-3">
+          <h1
+            className="text-[26px] font-semibold tracking-[-0.01em]"
+            style={{ color: "var(--m-text)" }}
+          >
+            Search
+          </h1>
+          <span
+            className="text-[13px]"
+            style={{ color: "var(--m-text-secondary)" }}
+          >
+            Tickets, clients, sites, documents and the knowledge base
+          </span>
+        </header>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            autoFocus
+            type="search"
+            placeholder="Search tickets, clients, documents, KB…"
+            value={rawQuery}
+            onChange={(event) => setRawQuery(event.target.value)}
+            aria-label="Search"
+            aria-describedby="search-kbd-hint"
+            className="m-input h-[44px] max-w-[520px] flex-1"
+          />
+          <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+            ↑↓ move · Enter open
+          </span>
+        </div>
         <p id="search-kbd-hint" className="sr-only">
           Use the up and down arrows to move between results and Enter to open the focused one.
         </p>
 
+        {pinError !== null ? (
+          <div
+            role="alert"
+            className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+            style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          >
+            {pinError}
+          </div>
+        ) : null}
+
         {recent.length > 0 ? (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+            <span
+              className="text-[12px] font-semibold uppercase tracking-[0.06em]"
+              style={{ color: "var(--m-text-muted)" }}
+            >
               Recent
             </span>
             {recent.map((q) => (
               <button
                 key={q}
-                className="rounded-full border px-2 py-0.5 text-[11px] transition-opacity duration-100 hover:opacity-80"
+                className="rounded-full border px-2.5 py-1 text-[12px] transition-opacity duration-100 hover:opacity-80"
                 style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
                 onClick={() => setRawQuery(q)}
               >
@@ -325,36 +351,24 @@ export default function SearchPage() {
           </div>
         ) : null}
 
-        {error !== null && (
-          <p className="text-sm" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
-            {error}
-          </p>
-        )}
-        {loading && query.length >= 2 && <Spinner />}
-        {!loading && error === null && query.length < 2 && (
-          <>
-            <EmptyState message='Type at least two characters. Use "quotes" for exact phrases and -word to exclude.' />
-        {pinError !== null ? (
-          <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
-            {pinError}
-          </p>
-        ) : null}
-        {/* Persistent pins strip — snapshot titles, click re-runs the query. */}
         {pins !== null ? (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+            <span
+              className="text-[12px] font-semibold uppercase tracking-[0.06em]"
+              style={{ color: "var(--m-text-muted)" }}
+            >
               Pinned
             </span>
             {(pins ?? []).length === 0 ? (
-              <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+              <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
                 Pin a result to keep it here.
               </span>
             ) : (
               (pins ?? []).map((pin) => (
                 <span
                   key={pin.id}
-                  className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]"
-                  style={{ borderColor: "var(--m-border)", background: "color-mix(in srgb, var(--m-accent) 6%, transparent)" }}
+                  className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[12px]"
+                  style={{ borderColor: "var(--m-border)", background: "var(--m-accent-soft)" }}
                 >
                   <button
                     className="flex items-center gap-1 transition-opacity duration-100 hover:opacity-80"
@@ -379,25 +393,78 @@ export default function SearchPage() {
           </div>
         ) : null}
 
-        {recent.length > 0 ? (
-              <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-                Recent searches re-run with one click above.
-              </p>
-            ) : null}
-          </>
+        {error !== null && (
+          <div
+            role="alert"
+            className="rounded-[16px] border"
+            style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+          >
+            <InsightState
+              tone="error"
+              title="The search didn't run"
+              hint={`${error} Your recent searches are still here.`}
+              primary={
+                <Button variant="primary" size="sm" onClick={() => setRawQuery(query)}>
+                  Try again
+                </Button>
+              }
+            />
+          </div>
         )}
+
+        {loading && query.length >= 2 ? (
+          <div className="flex items-center gap-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+            <Spinner /> Searching…
+          </div>
+        ) : null}
+
+        {!loading && error === null && query.length < 2 && (
+          /* Under two characters this is the resting shape, and it says what
+             the field understands. No suggestion of any other way to search. */
+          <div
+            className="rounded-[16px] border"
+            style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+          >
+            <InsightState
+              title="Type at least two characters"
+              hint="Use “quotes” for an exact phrase and -word to exclude one."
+            />
+          </div>
+        )}
+
+        {/* No results: the pack's quiet empty shape. It points at the query,
+            never at another way to ask the question. */}
         {!loading && error === null && query.length >= 2 && response !== null && response.total === 0 && (
-          <EmptyState message={`No results for “${response.query}”.`} />
+          <div
+            className="rounded-[16px] border"
+            style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+            data-testid="search-empty"
+          >
+            <InsightState
+              title={`Nothing matches “${response.query}”`}
+              hint="Check the spelling, or search for fewer words."
+              primary={
+                <Button variant="primary" size="sm" onClick={() => setRawQuery("")}>
+                  Clear the search
+                </Button>
+              }
+            />
+          </div>
         )}
-        {!loading && response !== null && response.total > 0 ? (
-          <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-            {response.total} match{response.total === 1 ? "" : "es"}
+
+        {response !== null && response.total > 0 ? (
+          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+            <span className="tabular-nums font-semibold" style={{ color: "var(--m-text)" }}>
+              {response.total}
+            </span>{" "}
+            match{response.total === 1 ? "" : "es"}
             {" · "}
             {GROUP_ORDER.filter((k) => (groups.get(k)?.length ?? 0) > 0)
               .map((k) => `${GROUP_LABEL[k]} ${groups.get(k)?.length}`)
               .join(" · ")}
           </p>
         ) : null}
+
         {GROUP_ORDER.map((key) => {
           const hits = groups.get(key);
           if (hits === undefined || hits.length === 0) return null;
@@ -405,7 +472,7 @@ export default function SearchPage() {
           return (
             <section key={key} className="flex flex-col gap-1">
               <h2
-                className="text-xs font-semibold uppercase tracking-wide"
+                className="text-[12px] font-semibold uppercase tracking-[0.06em]"
                 style={{ color: "var(--m-text-muted)" }}
               >
                 {GROUP_LABEL[key]} · {hits.length}
@@ -419,12 +486,12 @@ export default function SearchPage() {
                   const focused = cursorIndex === flatIndex;
                   const body = (
                     <>
-                      <span className="text-sm" style={focused ? { fontWeight: 600 } : undefined}>
+                      <span className="text-[14px]" style={focused ? { fontWeight: 600 } : undefined}>
                         {hit.title}
                       </span>
                       {hit.snippet.length > 0 && (
                         <span
-                          className="truncate text-xs"
+                          className="truncate text-[13px]"
                           style={{ color: "var(--m-text-secondary)" }}
                         >
                           {hit.snippet}
@@ -436,10 +503,10 @@ export default function SearchPage() {
                     <li
                       key={`${hit.entity_kind}-${hit.entity_id}`}
                       data-cursor={focused ? "true" : undefined}
-                      className="flex items-center gap-3 rounded-md border-b px-1 py-2 transition-colors last:border-b-0"
+                      className="flex items-center gap-3 border-b px-2 py-2.5 transition-colors last:border-b-0"
                       style={{
                         borderColor: "var(--m-border)",
-                        background: focused ? "color-mix(in srgb, var(--m-accent) 6%, transparent)" : "transparent",
+                        background: focused ? "var(--m-accent-soft)" : "transparent",
                       }}
                     >
                       <Tag>{GROUP_KIND_LABEL[hit.entity_kind] ?? hit.entity_kind}</Tag>
@@ -452,11 +519,15 @@ export default function SearchPage() {
                           {body}
                         </Link>
                       ) : (
-                        <div className="min-w-0 flex-1">{body}</div>
+                        /* Same column layout as the linked branch: without
+                           `flex-col` the title and the snippet run together on
+                           one line, which is how a result with no link used to
+                           read ("...tunnelCheck the rekey window..."). */
+                        <div className="flex min-w-0 flex-1 flex-col">{body}</div>
                       )}
                       <button
                         data-testid={`search-pin-${hit.entity_kind}-${hit.entity_id}`}
-                        className="shrink-0 text-[11px] underline-offset-2 hover:underline"
+                        className="shrink-0 text-[12px] underline-offset-2 hover:underline"
                         style={{ color: "var(--m-text-muted)" }}
                         onClick={() => void handlePin(hit, query)}
                       >
@@ -469,13 +540,19 @@ export default function SearchPage() {
             </section>
           );
         })}
+
         {rowPinError !== null ? (
-          <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+          <div
+            role="alert"
+            className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+            style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          >
             {rowPinError}
-          </p>
+          </div>
         ) : null}
+
         {response !== null && response.total > (response.results?.length ?? 0) && (
-          <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+          <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
             Showing {response.results?.length ?? 0} of {response.total} matches.
           </p>
         )}

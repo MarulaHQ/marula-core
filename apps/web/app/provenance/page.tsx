@@ -1,38 +1,57 @@
-// /provenance — the provenance browser (Wave 9 lane 7 close-out; Wave 17
-// lane 6 browser pass).
+// /provenance — the write trail as a data-surface template (Wave 41 lane 11).
 //
-// Purpose: queryable who/what/field/before-after history over applied
-// writes: actor kind facets as taps, record coordinates (entity/id/field),
-// time window, keyset cursor paging. Each row renders the before → after
-// pair as mono diff cells; ticket rows link straight into the record.
+// Purpose: who changed what, field by field, across every applied write, in
+// the TL frame — one toolbar row (views + filter chips left, Columns +
+// Export right), a 16px-radius bordered table, the 52px footer with
+// density. **No bulk actions**: the pack takes the view switch, column
+// chooser, filter bar and export control on provenance and audit, and
+// explicitly rules out the selection bar. This is a read model; undo lives on
+// the ticket surface, not here.
 //
-// Non-purpose: no editing — provenance is a read model; undo/revert
-// actions live on the ticket surface.
+// Non-purpose: no editing, no reverting. Before → after renders in mono, the
+// before value muted and the after value in ink — colour is a hint, the
+// words are the content.
 "use client";
 
 import {
   Button,
-  Card,
-  EmptyState,
-  Input,
-  Label,
+  ColumnChooser,
+  DataToolbar,
+  DensitySwitch,
+  ExportControl,
+  FilterBar,
   Spinner,
   Table,
   Tag,
   Td,
   Th,
   Tr,
+  type FilterClause,
+  type FilterField,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
 import { rejectionText } from "../../lib/error-copy";
+import {
+  downloadCsv,
+  toCsv,
+  sortRows,
+  toggleSort,
+  useSurfaceTableColumns,
+  type InsightColumn,
+} from "../../lib/insight-table";
+import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
+import { SurfaceTabs } from "../../components/insight/surface-tabs";
+import { InsightState } from "../../components/insight/insight-state";
+import "../../components/insight/insight-table.css";
 
 type ProvenanceEvent = components["schemas"]["ProvenanceEvent"];
 
-const ACTOR_KINDS = ["", "human", "agent", "import"] as const;
+const SURFACE_KEY = "provenance.trail";
 
+/** The actor word carries the colour; the tag is never colour alone. */
 const ACTOR_TONE: Record<string, "success" | "neutral" | "warning" | "danger"> = {
   human: "neutral",
   agent: "success",
@@ -46,234 +65,400 @@ function valueCell(value: unknown): string {
   return String(value);
 }
 
-function entityHref(e: ProvenanceEvent): string | null {
+function entityHref(e: { entity: string; entity_id: string }): string | null {
   if (e.entity === "ticket") return `/tickets/${e.entity_id}`;
   return null;
 }
 
+type ProvRow = {
+  key: string;
+  occurred: string;
+  occurredLabel: string;
+  actorKind: string;
+  entity: string;
+  op: string;
+  entityId: string;
+  href: string | null;
+  field: string;
+  before: string;
+  after: string;
+  seq: number;
+};
+
 export default function ProvenancePage() {
   const auth = useRequireAuth();
+  const prefs = useDataSurfacePrefs();
+
   const [events, setEvents] = useState<ProvenanceEvent[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [actorKind, setActorKind] = useState<string>("");
-  const [entity, setEntity] = useState<string>("");
-  const [field, setField] = useState<string>("");
-  const [from, setFrom] = useState<string>("");
-  const [to, setTo] = useState<string>("");
+  const [view, setView] = useState<"all" | "agent" | "imports">("all");
+  const [clauses, setClauses] = useState<FilterClause[]>([]);
+
+  const FILTER_FIELDS: FilterField[] = useMemo(
+    () => [
+      { key: "field", label: "Field", operators: ["contains"] },
+      { key: "entity", label: "Entity", operators: ["contains"] },
+      { key: "actor", label: "Actor", operators: ["eq"] },
+    ],
+    [],
+  );
 
   const load = useCallback(
-    async (opts: { cursor?: string | null }) => {
+    async (opts: { cursor: string | null }) => {
       setLoadError(null);
+      const fieldClause = clauses.find((c) => c.field === "field");
+      const entityClause = clauses.find((c) => c.field === "entity");
       const { data, error } = await api.api.GET("/api/v1/provenance", {
         params: {
           query: {
-            actor_kind: actorKind === "" ? null : actorKind,
-            entity: entity.trim() === "" ? null : entity.trim(),
-            field: field.trim() === "" ? null : field.trim(),
-            from: from === "" ? null : new Date(from).toISOString(),
-            to: to === "" ? null : new Date(to).toISOString(),
-            cursor: opts.cursor ?? null,
+            field: fieldClause?.value === undefined || fieldClause.value === "" ? null : fieldClause.value,
+            entity: entityClause?.value === undefined || entityClause.value === "" ? null : entityClause.value,
+            cursor: opts.cursor,
             limit: 50,
           },
         },
       });
-      if (error !== undefined || data === undefined) {
-        setLoadError(rejectionText(error as never, "Failed to load provenance."));
+      if (error === undefined && data !== undefined) {
+        // Pre-guard (lane 10 sweep): a resolving read can carry a malformed
+        // payload — render an honest empty trail, never a crash.
+        setEvents(Array.isArray(data.events) ? data.events : []);
+        setCursor(opts.cursor);
+        setNextCursor(data.next_cursor ?? null);
         return;
       }
-      // Pre-guard (lane 10 sweep): a resolving read can carry a malformed
-      // payload — render an honest empty trail, never a crash.
-      setEvents(Array.isArray(data.events) ? data.events : []);
-      setCursor(opts.cursor ?? null);
-      setNextCursor(data.next_cursor ?? null);
+      setLoadError(rejectionText(error as never, "The write trail did not load."));
     },
-    [actorKind, entity, field, from, to],
+    [clauses],
   );
 
   useEffect(() => {
     if (auth.status === "authed") void load({ cursor: null });
-  }, [auth.status, actorKind, entity, field, from, to, load]);
+  }, [auth.status, clauses, load]);
+
+  const rows: ProvRow[] = useMemo(
+    () =>
+      (events ?? []).map((e) => ({
+        key: `${e.write_id ?? e.idempotency_key ?? e.occurred_at}-${e.seq}-${e.field}`,
+        occurred: e.occurred_at,
+        occurredLabel: new Date(e.occurred_at).toLocaleString("en-GB", {
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        actorKind: e.actor_kind,
+        entity: e.entity,
+        op: e.op,
+        entityId: e.entity_id.slice(0, 8),
+        href: entityHref(e),
+        field: e.field,
+        before: valueCell(e.before),
+        after: valueCell(e.after),
+        seq: e.seq,
+      })),
+    [events],
+  );
+
+  const columns: readonly InsightColumn<ProvRow>[] = useMemo(
+    () => [
+      {
+        key: "when",
+        label: "When",
+        sortValue: (r) => r.occurred,
+        render: (r) => (
+          <span className="whitespace-nowrap text-[12px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+            {r.occurredLabel}
+          </span>
+        ),
+      },
+      {
+        key: "actor",
+        label: "Actor",
+        sortValue: (r) => r.actorKind,
+        render: (r) => <Tag tone={ACTOR_TONE[r.actorKind] ?? "neutral"}>{r.actorKind}</Tag>,
+      },
+      {
+        key: "record",
+        label: "Record",
+        sortValue: (r) => `${r.entity} ${r.op} ${r.entityId}`,
+        render: (r) =>
+          r.href !== null ? (
+            <Link
+              href={r.href}
+              className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2 hover:decoration-[var(--m-accent)]"
+              style={{ color: "var(--m-text)" }}
+            >
+              {r.entity} {r.op} · {r.entityId}
+            </Link>
+          ) : (
+            <span className="text-[13px]" style={{ color: "var(--m-text)" }}>
+              {r.entity} {r.op} · {r.entityId}
+            </span>
+          ),
+      },
+      {
+        key: "field",
+        label: "Field",
+        required: true,
+        sortValue: (r) => r.field,
+        render: (r) => <span className="font-mono text-[12px]">{r.field}</span>,
+      },
+      {
+        key: "change",
+        label: "Before → After",
+        render: (r) => (
+          <span className="flex min-w-0 items-center gap-2 font-mono text-[11px]">
+            <span
+              className="max-w-56 truncate rounded px-1.5 py-0.5"
+              style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
+              title={`before: ${r.before}`}
+            >
+              {r.before}
+            </span>
+            <span aria-hidden="true" style={{ color: "var(--m-text-muted)" }}>→</span>
+            <span
+              className="max-w-56 truncate rounded px-1.5 py-0.5"
+              style={{ background: "var(--m-accent-soft)", color: "var(--m-text)" }}
+              title={`after: ${r.after}`}
+            >
+              {r.after}
+            </span>
+          </span>
+        ),
+      },
+      {
+        key: "seq",
+        label: "Seq",
+        sortValue: (r) => r.seq,
+        render: (r) => (
+          <span className="text-right font-mono text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+            {r.seq}
+          </span>
+        ),
+      },
+    ],
+    [],
+  );
+
+  const table = useSurfaceTableColumns<ProvRow>(SURFACE_KEY, prefs, columns);
+
+  const viewFiltered = useMemo(() => {
+    const base =
+      view === "agent"
+        ? rows.filter((r) => r.actorKind === "agent")
+        : view === "imports"
+          ? rows.filter((r) => r.actorKind === "import")
+          : rows;
+    if (clauses.length === 0) return base;
+    return base.filter((r) => {
+      const actorClause = clauses.find((c) => c.field === "actor");
+      if (actorClause !== undefined && actorClause.value !== undefined) {
+        if (actorClause.value !== "any" && r.actorKind !== actorClause.value) return false;
+      }
+      return true;
+    });
+  }, [rows, view, clauses]);
+
+  const sorted = useMemo(
+    () => sortRows(viewFiltered, "prov", columns, table.saved.sort),
+    [viewFiltered, columns, table.saved.sort],
+  );
+
+  const handleExport = useCallback(() => {
+    const csv = toCsv(table.keys, columns, sorted, (col, r) => {
+      if (col.key === "when") return r.occurredLabel;
+      if (col.key === "actor") return r.actorKind;
+      if (col.key === "record") return `${r.entity} ${r.op} ${r.entityId}`;
+      if (col.key === "change") return `${r.before} -> ${r.after}`;
+      if (col.key === "field") return r.field;
+      return String(r.seq);
+    });
+    downloadCsv("marula-provenance.csv", csv);
+  }, [table.keys, columns, sorted]);
 
   if (auth.status !== "authed") return null;
 
-  const grouped = (events ?? []).reduce<Record<string, number>>((acc, e) => {
-    acc[e.actor_kind] = (acc[e.actor_kind] ?? 0) + 1;
-    return acc;
-  }, {});
-
   return (
-    <div className="mx-auto grid w-full max-w-[1300px] gap-6 p-4 md:p-6">
-      <div>
-        <h1 className="text-lg font-semibold">Provenance</h1>
-        <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Who changed what, field by field, across every applied write —
-          including agent sessions and imports. A query surface over the write
-          trail; it never rewrites history.
+    <div className="grid gap-4 p-6">
+      <header className="m-rise grid gap-1.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1
+            className="text-[26px] font-semibold tracking-[-0.01em]"
+            style={{ color: "var(--m-text)" }}
+          >
+            Provenance
+          </h1>
+          <span
+            className="inline-flex h-6 items-center rounded-full px-2.5 text-[12px] font-semibold"
+            style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
+          >
+            Read-only
+          </span>
+        </div>
+        <p className="max-w-2xl text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+          Who changed what, field by field, across every applied write — including agent
+          sessions and imports. It never rewrites history.
         </p>
-      </div>
+      </header>
 
-      <Card>
-        <form
-          className="grid gap-3 p-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void load({ cursor: null });
-          }}
-        >
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <Label htmlFor="pv-entity">Entity</Label>
-              <Input id="pv-entity" placeholder="ticket" value={entity} onChange={(e) => setEntity(e.target.value)} />
-            </div>
-            <div>
-              <Label htmlFor="pv-field">Field</Label>
-              <Input id="pv-field" placeholder="status" value={field} onChange={(e) => setField(e.target.value)} />
-            </div>
-            <div>
-              <Label htmlFor="pv-from">From</Label>
-              <Input id="pv-from" type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
-            </div>
-            <div>
-              <Label htmlFor="pv-to">To</Label>
-              <Input id="pv-to" type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
-            </div>
-            <Button type="submit">Apply</Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setActorKind("");
-                setEntity("");
-                setField("");
-                setFrom("");
-                setTo("");
-              }}
-            >
-              Clear
-            </Button>
-          </div>
-          <div className="flex flex-wrap gap-1" role="group" aria-label="Actor kind facets">
-            {ACTOR_KINDS.map((k) => (
-              <button
-                key={k}
-                type="button"
-                className="rounded-full border px-2.5 py-0.5 text-[11px] transition-opacity duration-100 hover:opacity-80"
-                style={{
-                  borderColor: actorKind === k ? "var(--m-accent)" : "var(--m-border)",
-                  background: actorKind === k ? "var(--m-accent)" : "transparent",
-                  color: actorKind === k ? "var(--m-background)" : "var(--m-text-secondary)",
-                }}
-                aria-pressed={actorKind === k}
-                onClick={() => setActorKind(k)}
-              >
-                {k === "" ? "any actor" : k}
-                {k !== "" && grouped[k] !== undefined ? (
-                  <span className="ml-1 tabular-nums" style={{ opacity: 0.8 }}>
-                    {grouped[k]}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-        </form>
-      </Card>
+      <DataToolbar
+        label="Write trail controls"
+        views={
+          <SurfaceTabs
+            tabs={[
+              { id: "all", label: "All writes", hint: String(rows.length) },
+              { id: "agent", label: "Agent", hint: String(rows.filter((r) => r.actorKind === "agent").length) },
+              { id: "imports", label: "Imports", hint: String(rows.filter((r) => r.actorKind === "import").length) },
+            ]}
+            activeId={view}
+            onChange={(id) => setView(id as "all" | "agent" | "imports")}
+            label="Provenance views"
+          />
+        }
+        filters={
+          <FilterBar
+            fields={FILTER_FIELDS}
+            clauses={clauses}
+            onChange={(next) => {
+              const serverChanged =
+                next.filter((c) => c.field === "field").length !==
+                  clauses.filter((c) => c.field === "field").length ||
+                next.filter((c) => c.field === "entity").length !==
+                  clauses.filter((c) => c.field === "entity").length;
+              setClauses(next);
+              if (serverChanged) void load({ cursor: null });
+            }}
+            label="provenance filters"
+            emptyHint=""
+          />
+        }
+        columns={<ColumnChooser columns={table.chooser} onChange={table.onChooser} label="Provenance columns" />}
+        export={
+          <ExportControl
+            columns={table.keys}
+            rowCount={sorted.length}
+            sort={table.saved.sort}
+            onExport={() => handleExport()}
+            label="Export"
+          />
+        }
+      />
 
       {loadError !== null ? (
-        <p role="alert" className="text-[13px]">{loadError}</p>
+        <div
+          role="alert"
+          className="rounded-[16px] border"
+          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+        >
+          <InsightState
+            tone="error"
+            title="Couldn't load the write trail"
+            hint={`${loadError} Your filters and columns are saved, so nothing is lost.`}
+            primary={
+              <Button variant="primary" size="sm" onClick={() => void load({ cursor: null })}>
+                Retry
+              </Button>
+            }
+          />
+        </div>
       ) : events === null ? (
-        <div className="flex justify-center py-10"><Spinner /></div>
-      ) : events.length === 0 ? (
-        <Card>
-          <div className="p-4">
-            <EmptyState message="No provenance rows match these filters. Widen the window or clear a filter." />
-          </div>
-        </Card>
+        <div className="flex justify-center py-10">
+          <Spinner />
+        </div>
+      ) : sorted.length === 0 ? (
+        <div
+          className="rounded-[16px] border"
+          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+        >
+          <InsightState
+            title="No writes match these filters"
+            hint="Widen the window, or clear a filter to see the whole trail."
+            primary={
+              <Button variant="primary" size="sm" onClick={() => setClauses([])}>
+                Clear filters
+              </Button>
+            }
+          />
+        </div>
       ) : (
-        <Card className="overflow-x-auto p-0">
-          <Table>
+        <div
+          className="overflow-x-auto rounded-[16px] border"
+          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+        >
+          <Table className="m-insight-table">
             <thead>
               <tr>
-                <Th>When</Th>
-                <Th>Actor</Th>
-                <Th>Record</Th>
-                <Th>Field</Th>
-                <Th>Before → After</Th>
-                <Th className="text-right">Seq</Th>
+                {table.keys.map((key) => {
+                  const col = columns.find((c) => c.key === key);
+                  if (col === undefined) return null;
+                  const active = table.saved.sort?.field === key;
+                  return (
+                    <Th
+                      key={key}
+                      columnKey={key}
+                      sortable={false}
+                      resizable={false}
+                      aria-sort={active ? (table.saved.sort?.dir === "asc" ? "ascending" : "descending") : undefined}
+                      className={col.sortValue !== undefined ? "cursor-pointer select-none" : undefined}
+                      onClick={
+                        col.sortValue !== undefined
+                          ? () => table.save(toggleSort(table.saved, key))
+                          : undefined
+                      }
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        {col.label}
+                        {active ? <span aria-hidden="true">{table.saved.sort?.dir === "asc" ? "↑" : "↓"}</span> : null}
+                      </span>
+                    </Th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
-              {events.map((e) => {
-                const href = entityHref(e);
-                return (
-                  <Tr key={`${e.write_id ?? e.idempotency_key ?? e.occurred_at}-${e.seq}-${e.field}`}>
-                    <Td className="whitespace-nowrap text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                      {new Date(e.occurred_at).toLocaleString()}
-                    </Td>
-                    <Td>
-                      <Tag tone={ACTOR_TONE[e.actor_kind] ?? "neutral"}>{e.actor_kind}</Tag>
-                    </Td>
-                    <Td className="text-[12px]">
-                      {href !== null ? (
-                        <Link
-                          href={href}
-                          className="underline decoration-[var(--m-border)] underline-offset-2 hover:text-[var(--m-accent)]"
-                        >
-                          {e.entity} {e.op} · {e.entity_id.slice(0, 8)}
-                        </Link>
-                      ) : (
-                        <span>
-                          {e.entity} {e.op} · {e.entity_id.slice(0, 8)}
-                        </span>
-                      )}
-                    </Td>
-                    <Td className="font-mono text-[12px]">{e.field}</Td>
-                    <Td>
-                      <span className="flex min-w-0 items-center gap-2 font-mono text-[11px]">
-                        <span
-                          className="max-w-56 truncate rounded px-1.5 py-0.5"
-                          style={{ background: "color-mix(in srgb, var(--m-status-danger-fg) 8%, transparent)" }}
-                          title={`before: ${valueCell(e.before)}`}
-                        >
-                          {valueCell(e.before)}
-                        </span>
-                        <span aria-hidden="true" style={{ color: "var(--m-text-muted)" }}>→</span>
-                        <span
-                          className="max-w-56 truncate rounded px-1.5 py-0.5"
-                          style={{ background: "color-mix(in srgb, var(--m-status-success-fg) 10%, transparent)" }}
-                          title={`after: ${valueCell(e.after)}`}
-                        >
-                          {valueCell(e.after)}
-                        </span>
-                      </span>
-                    </Td>
-                    <Td className="text-right font-mono tabular-nums text-[11px]">{e.seq}</Td>
-                  </Tr>
-                );
-              })}
+              {sorted.map((r) => (
+                <Tr key={r.key}>
+                  {table.keys.map((key) => {
+                    const col = columns.find((c) => c.key === key);
+                    if (col === undefined) return null;
+                    return <Td key={key}>{col.render(r)}</Td>;
+                  })}
+                </Tr>
+              ))}
             </tbody>
           </Table>
-          <div className="flex items-center justify-between p-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={cursor === null}
-              onClick={() => void load({ cursor: null })}
-            >
-              First page
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={nextCursor === null}
-              onClick={() => void load({ cursor: nextCursor })}
-            >
-              Next page
-            </Button>
+          <div className="m-insight-footer flex min-h-[52px] flex-wrap items-center gap-3 px-3 pb-2">
+            <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+              <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
+                {sorted.length}
+              </b>{" "}
+              of{" "}
+              <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
+                {rows.length}
+              </b>{" "}
+              writes
+            </span>
+            {nextCursor !== null ? (
+              <button
+                type="button"
+                className="m-insight-pager"
+                onClick={() => void load({ cursor: nextCursor })}
+              >
+                Load 50 more
+              </button>
+            ) : null}
+            <span className="flex-1" />
+            <span className="flex items-center gap-2">
+              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                Density
+              </span>
+              <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
+            </span>
           </div>
-        </Card>
+        </div>
       )}
     </div>
   );

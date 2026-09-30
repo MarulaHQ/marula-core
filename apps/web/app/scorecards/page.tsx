@@ -11,10 +11,24 @@
 // Workbench tokens, light+dark, ≤120ms transitions, responsive.
 "use client";
 
-import { Button, Card, Checkbox, EmptyState, FieldHint, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Table, Tag, Td, Th, Tr } from "@marula-core/ui";
+import {
+  Button,
+  Card,
+  Checkbox,
+  EmptyState,
+  FieldHint,
+  Spinner,
+  Table,
+  Tag,
+  Td,
+  Th,
+  Tr,
+} from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
+import { SurfaceTabs } from "../../components/insight/surface-tabs";
+import "../../components/insight/insight-table.css";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { isManagerPermissions } from "../../lib/dashboards";
 
@@ -63,20 +77,25 @@ function attainmentTone(ratio: number | null | undefined): "success" | "warning"
   return "danger";
 }
 
+/** One metric block. The label is the pack's small-caps 12px; the value is
+ *  18px semibold tabular; the hint is the quiet line under it. */
 function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div
-      className="p-3 min-w-0"
-      style={{ border: "1px solid var(--m-border)" }}
+      className="min-w-0 rounded-[12px] p-3"
+      style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)" }}
     >
-      <div className="text-[11px] uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+      <div
+        className="text-[12px] font-semibold uppercase tracking-[0.06em]"
+        style={{ color: "var(--m-text-muted)" }}
+      >
         {label}
       </div>
-      <div className="mt-1 text-[15px] font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>
+      <div className="mt-1 text-[18px] font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>
         {value}
       </div>
       {hint ? (
-        <div className="mt-0.5 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+        <div className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
           {hint}
         </div>
       ) : null}
@@ -115,7 +134,10 @@ function ScorecardBody({ card }: { card: Scorecard }) {
       </div>
 
       <div>
-        <div className="text-[11px] uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+        <div
+          className="text-[12px] font-semibold uppercase tracking-[0.06em]"
+          style={{ color: "var(--m-text-muted)" }}
+        >
           Workload mix (approved minutes by work type)
         </div>
         {totalMix === 0 ? (
@@ -153,7 +175,10 @@ function ScorecardBody({ card }: { card: Scorecard }) {
         style={{ borderColor: "var(--m-border)" }}
         data-testid="csat-section"
       >
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+        <h3
+          className="text-[12px] font-semibold uppercase tracking-[0.06em]"
+          style={{ color: "var(--m-text-muted)" }}
+        >
           CSAT
         </h3>
         {card.csat.available ? (
@@ -250,51 +275,61 @@ export default function ScorecardsPage() {
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="grid gap-6 max-w-6xl mx-auto p-4 md:p-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
+    <div className="mx-auto grid w-full max-w-6xl gap-4 p-6">
+      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <h1
+            className="text-[26px] font-semibold tracking-[-0.01em]"
+            style={{ color: "var(--m-text)" }}
+          >
             Scorecards
           </h1>
-          <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Coaching metrics over approved work and SLA outcomes. Private by default — you see your
-            own card; owners and admins see the team.
-          </p>
+          <span
+            className="inline-flex h-6 items-center rounded-full px-2.5 text-[12px] font-semibold"
+            style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
+          >
+            {isManager ? "Team visible" : "Private to you"}
+          </span>
         </div>
-        <Select
-          value={String(days)}
-          onValueChange={(v) => setDays(Number(v))}
-        >
-          <SelectTrigger className="w-40" aria-label="Scorecard window">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {WINDOWS.map((w) => (
-              <SelectItem key={w.days} value={String(w.days)}>
-                {w.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* The window IS this surface's view control (Dispatch sub-nav pattern):
+            the pack draws it as tabs beside the title, not a select. */}
+        <SurfaceTabs
+          tabs={WINDOWS.map((w) => ({ id: String(w.days), label: w.label }))}
+          activeId={String(days)}
+          onChange={(id) => setDays(Number(id))}
+          label="Scorecard window"
+        />
       </header>
 
-      {ownError && (
-        <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+      <p className="max-w-2xl text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+        Coaching metrics over approved work and SLA outcomes. Private by default — you see your
+        own card; owners and admins see the team.
+      </p>
+
+      {ownError !== null && (
+        <div
+          role="alert"
+          className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+        >
           {ownError}
-        </p>
+        </div>
       )}
 
       <section aria-label="Your scorecard">
         <Card className="p-4 md:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-            <h2 className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-[16px] font-semibold" style={{ color: "var(--m-text)" }}>
               {own ? own.display_name : "Your scorecard"}
             </h2>
             {own ? (
-              <Tag tone="neutral">
+              <span
+                className="inline-flex h-6 items-center rounded-full px-2.5 text-[12px] font-semibold tabular-nums"
+                style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
+              >
                 {new Date(own.window.from).toISOString().slice(0, 10)} –{" "}
                 {new Date(new Date(own.window.to).getTime() - 1).toISOString().slice(0, 10)}
-              </Tag>
+              </span>
             ) : null}
           </div>
           {own === null && !ownError ? (
@@ -320,8 +355,8 @@ export default function ScorecardsPage() {
                 </FieldHint>
               </span>
             </label>
-            {settingsError && (
-              <p role="alert" className="mt-1 text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+            {settingsError !== null && (
+              <p role="alert" className="mt-1 text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
                 {settingsError}
               </p>
             )}
@@ -330,14 +365,18 @@ export default function ScorecardsPage() {
       </section>
 
       {isManager && (
-        <section aria-label="Team scorecards">
-          <h2 className="text-sm font-semibold mb-2" style={{ color: "var(--m-text)" }}>
+        <section aria-label="Team scorecards" className="grid gap-3">
+          <h2 className="text-[16px] font-semibold" style={{ color: "var(--m-text)" }}>
             Team
           </h2>
-          {teamError && (
-            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+          {teamError !== null && (
+            <div
+              role="alert"
+              className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+              style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+            >
               {teamError}
-            </p>
+            </div>
           )}
           {team === null && !teamError ? (
             <div className="p-6 flex justify-center">
@@ -348,18 +387,18 @@ export default function ScorecardsPage() {
               <EmptyState message="No active staff members to score yet." />
             </Card>
           ) : team ? (
-            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(20rem, 1fr))" }}>
+            <div className="grid items-start gap-4 xl:grid-cols-2">
               {team.scorecards.map((card) => (
-                <Card key={card.user_id} className="p-4">
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="text-[13px] font-medium truncate" style={{ color: "var(--m-text)" }}>
+                <Card key={card.user_id} className="grid gap-2 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[16px] font-semibold" style={{ color: "var(--m-text)" }}>
                       {card.display_name}
                     </span>
                     <Tag tone={attainmentTone(card.sla.response_attainment)}>
-                      resp {fmtPct(card.sla.response_attainment)}
+                      Response {fmtPct(card.sla.response_attainment)}
                     </Tag>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                  <div className="grid grid-cols-2 gap-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
                     <span>
                       Resolution SLA{" "}
                       <strong className="tabular-nums" style={{ color: "var(--m-text)" }}>
@@ -436,14 +475,18 @@ function ClientsCsat({ from, to }: { from: string; to: string }) {
   }, [from, to]);
 
   return (
-    <section aria-label="Client CSAT">
-      <h2 className="text-sm font-semibold mb-2" style={{ color: "var(--m-text)" }}>
+    <section aria-label="Client CSAT" className="grid gap-3">
+      <h2 className="text-[16px] font-semibold" style={{ color: "var(--m-text)" }}>
         Client satisfaction
       </h2>
-      {error && (
-        <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+      {error !== null && (
+        <div
+          role="alert"
+          className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+        >
           {error}
-        </p>
+        </div>
       )}
       {!error && rollups === null ? (
         <div className="p-6 flex justify-center">
@@ -458,28 +501,31 @@ function ClientsCsat({ from, to }: { from: string; to: string }) {
           <EmptyState message="No client responses in this window." />
         </Card>
       ) : rollups ? (
-        <Card className="p-0 overflow-hidden">
-          <Table>
+        <div
+          className="overflow-x-auto rounded-[16px] border"
+          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+        >
+          <Table className="m-insight-table">
             <thead>
               <tr>
-                <Th>Client</Th>
-                <Th style={{ textAlign: "right" }}>Responses</Th>
-                <Th style={{ textAlign: "right" }}>Avg score</Th>
-                <Th style={{ textAlign: "right" }}>Low (≤2)</Th>
+                <Th sortable={false} resizable={false}>Client</Th>
+                <Th sortable={false} resizable={false} className="text-right">Responses</Th>
+                <Th sortable={false} resizable={false} className="text-right">Avg score</Th>
+                <Th sortable={false} resizable={false} className="text-right">Low (≤2)</Th>
               </tr>
             </thead>
             <tbody>
               {rollups.map((r) => (
                 <Tr key={r.client_id}>
                   <Td>{r.client_name}</Td>
-                  <Td style={{ textAlign: "right" }}>{r.responses}</Td>
-                  <Td style={{ textAlign: "right" }}>{r.avg_score !== null ? r.avg_score.toFixed(2) : "—"}</Td>
-                  <Td style={{ textAlign: "right" }}>{r.low_scores}</Td>
+                  <Td className="text-right tabular-nums">{r.responses}</Td>
+                  <Td className="text-right tabular-nums">{r.avg_score !== null ? r.avg_score.toFixed(2) : "—"}</Td>
+                  <Td className="text-right tabular-nums">{r.low_scores}</Td>
                 </Tr>
               ))}
             </tbody>
           </Table>
-        </Card>
+        </div>
       ) : null}
     </section>
   );

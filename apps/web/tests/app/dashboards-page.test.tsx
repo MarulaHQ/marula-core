@@ -124,8 +124,8 @@ describe("/dashboards integration", () => {
     expect(screen.getByText("My open tickets")).toBeInTheDocument();
     expect(screen.getByText("My first response")).toBeInTheDocument();
     expect(screen.getByText("Org-wide scope")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Apply Team load preset" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Apply SLA health preset" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Apply Team load preset" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Apply SLA health preset" })).toBeInTheDocument();
 
     // Widget charts rendered from report fixtures.
     expect(await screen.findByText("Alice", {}, { timeout: 5000 })).toBeInTheDocument();
@@ -253,6 +253,36 @@ describe("/dashboards integration", () => {
     expect(screen.getByText("No tickets created or resolved in the last 30 days.")).toBeInTheDocument();
     expect(screen.getByText("No open tickets assigned to you.")).toBeInTheDocument();
     expect(screen.getByText("No tickets assigned to you in the last 30 days.")).toBeInTheDocument();
+    cleanup();
+  });
+
+  it("surfaces a save failure in blush instead of swallowing it", async () => {
+    const mock = setupApi(MANAGER_ME);
+    // The registry refuses the write; the arrangement stays on screen and the
+    // user is told, in words, rather than watching a silent drop.
+    mock.on("PUT", "/api/v1/settings/user", () => ({
+      status: 409,
+      json: { error: { message: "settings registry is read-only for this account" } },
+    }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("My time", {}, { timeout: 5000 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
+    fireEvent.click(screen.getByRole("button", { name: "Time by client" }));
+
+    const notice = await screen.findByTestId("dashboard-save-error", {}, { timeout: 5000 });
+    expect(notice).toHaveTextContent(/did not save/i);
+    // Blush family, never the danger family: a failed save is not a breach.
+    expect(notice).toHaveStyle({
+      background: "var(--m-status-due-bg)",
+      color: "var(--m-status-due-fg)",
+    });
+    // The arrangement the user just built is still on screen.
+    expect(await screen.findByText("Acme Corp", {}, { timeout: 5000 })).toBeInTheDocument();
     cleanup();
   });
 

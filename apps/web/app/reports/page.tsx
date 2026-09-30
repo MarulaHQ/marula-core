@@ -1,29 +1,35 @@
-// /reports — Report builder v1, saved reports, and scheduled delivery
-// (Wave 14 lane 4 R6; builds on the Wave 11 lane 8 R3/R4 surfaces).
+// /reports — the report surface as a data-surface template (Wave 41 lane 11).
 //
-// Purpose:
-//  - R6 builder: catalog-driven thin report builder (view → measures →
-//    group-by → filters → viz) with compile-on-demand preview and
-//    save/share (org/self scope).
-//  - Saved reports: run (compiled server-side from the stored spec),
-//    edit-in-builder, publish/unpublish, delete.
-//  - R4 schedules: schedule CRUD + delivery history (unchanged surface).
+// Purpose: builder, saved reports and schedules over the R6 API, drawn in
+// the TL frame: a 26px title row, ONE toolbar row (view switch left, filter
+// chips middle, Columns + Export right), a bordered 16px-radius table, and
+// the 52px footer with shown-of-total and the density control. Columns,
+// sort and filters persist per user under the surface key
+// `reports.saved` via the appearance.data_surfaces document (the lane 2b
+// pattern). Export says what it will export and respects the view.
+// Validation trouble is blush (`--m-status-due`), never red; red is reserved
+// for breach — a failed save is a loading sentence, not an error.
 //
-// Instant-first mutations, typed reason-code copy (never raw JSON),
-// Workbench tokens, light+dark, ≤120ms transitions, responsive.
+// Non-purpose: no AI affordance anywhere on this surface (the report
+// builder is not a granted decision surface), no bulk actions.
 "use client";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 import {
   Button,
   Card,
+  ColumnChooser,
+  DataToolbar,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTrigger,
   EmptyState,
+  ExportControl,
   FieldHint,
+  FilterBar,
   Input,
   Label,
   Select,
@@ -37,9 +43,11 @@ import {
   Td,
   Th,
   Tr,
+  type FilterClause,
+  type FilterField,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, useRequireAuth } from "../../lib/api";
 import { friendlyMutationText } from "../../lib/error-copy";
@@ -48,14 +56,36 @@ import { ReportBuilder } from "../../components/report-builder";
 import { VIEW_LABELS } from "../../lib/report-builder";
 import { isManagerPermissions } from "../../lib/dashboards";
 import { decodeSpecFromQuery } from "../../lib/report-spec-codec";
+import {
+  downloadCsv,
+  toCsv,
+  useSurfaceTableColumns,
+  type InsightColumn,
+  sortRows,
+  toggleSort,
+} from "../../lib/insight-table";
+import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
+import { SurfaceTabs } from "../../components/insight/surface-tabs";
+import { InsightState } from "../../components/insight/insight-state";
+import "../../components/insight/insight-table.css";
 
-type DeepLinkSeed = { spec: components["schemas"]["ReportSpec"]; from?: string; to?: string; nonce: number } | null;
+type DeepLinkSeed =
+  | { spec: components["schemas"]["ReportSpec"]; from?: string; to?: string; nonce: number }
+  | null;
 
 type ReportDefinitionView = components["schemas"]["ReportDefinitionView"];
 type ReportScheduleView = components["schemas"]["ReportScheduleView"];
 type ScheduleCadence = components["schemas"]["ScheduleCadence"];
 
 type Tab = "builder" | "saved" | "schedules";
+
+const SURFACE_KEY = "reports.saved";
+
+/** A spec view outside the shipped label set renders as its raw id, never blank. */
+function viewLabel(view: string): string {
+  const known = VIEW_LABELS as Record<string, string>;
+  return known[view] ?? view;
+}
 
 export default function ReportsPage() {
   return (
@@ -69,6 +99,7 @@ function ReportsInner() {
   const auth = useRequireAuth();
   const canPublish =
     auth.status === "authed" && isManagerPermissions(auth.me?.permissions ?? []);
+  const prefs = useDataSurfacePrefs();
 
   const [tab, setTab] = useState<Tab>("builder");
 
@@ -93,7 +124,7 @@ function ReportsInner() {
   const [catalog, setCatalog] = useState<components["schemas"]["CatalogView"][] | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
 
-  // Definitions state
+  // Saved reports
   const [definitions, setDefinitions] = useState<ReportDefinitionView[] | null>(null);
   const [loadingDefs, setLoadingDefs] = useState(false);
   const [defsError, setDefsError] = useState<string | null>(null);
@@ -101,6 +132,172 @@ function ReportsInner() {
   const [runToken, setRunToken] = useState<{ def: ReportDefinitionView; nonce: number } | null>(null);
   const [rowBusyId, setRowBusyId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; text: string } | null>(null);
+
+  // Saved-table state: view switch (all/mine), filters, columns.
+  const [view, setView] = useState<"all" | "mine">("all");
+  const [clauses, setClauses] = useState<FilterClause[]>([]);
+
+  const FILTER_FIELDS: FilterField[] = useMemo(
+    () => [
+      { key: "name", label: "Name", operators: ["contains"] },
+      { key: "data", label: "Data", operators: ["contains"] },
+      { key: "visibility", label: "Visibility", operators: ["eq"] },
+    ],
+    [],
+  );
+
+  type DefRow = {
+    id: string;
+    name: string;
+    description: string | null;
+    view: string;
+    scope: "org" | "self";
+    updated: string;
+  };
+
+  const defColumns: readonly InsightColumn<DefRow>[] = useMemo(
+    () => [
+      {
+        key: "name",
+        label: "Report",
+        sortValue: (r) => r.name.toLowerCase(),
+        render: (r) => (
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-medium" style={{ color: "var(--m-text)" }}>
+              {r.name}
+            </div>
+            {r.description !== null && r.description !== "" && (
+              <div className="truncate text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                {r.description}
+              </div>
+            )}
+          </div>
+        ),
+      },
+      {
+        key: "data",
+        label: "Data",
+        sortValue: (r) => r.view,
+        render: (r) => (
+          <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+            {viewLabel(r.view)}
+          </span>
+        ),
+      },
+      {
+        key: "visibility",
+        label: "Visibility",
+        sortValue: (r) => r.scope,
+        render: (r) =>
+          r.scope === "org" ? (
+            <Tag tone="neutral">Org-wide</Tag>
+          ) : (
+            <Tag tone="neutral">Private</Tag>
+          ),
+      },
+      {
+        key: "updated",
+        label: "Updated",
+        sortValue: (r) => r.updated,
+        render: (r) => (
+          <span className="whitespace-nowrap text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+            {new Date(r.updated).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+          </span>
+        ),
+      },
+      {
+        key: "actions",
+        label: "",
+        render: (r) => (
+          <div className="flex flex-wrap justify-end gap-1">
+            {rowBusyId === r.id ? <Spinner /> : null}
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                const def = definitions?.find((d) => d.id === r.id);
+                if (def === undefined) return;
+                setEditingDef(def);
+                setRunToken({ def, nonce: Date.now() });
+                setTab("builder");
+              }}
+            >
+              Run
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const def = definitions?.find((d) => d.id === r.id);
+                if (def === undefined) return;
+                setEditingDef(def);
+                setTab("builder");
+              }}
+            >
+              Edit
+            </Button>
+            {canPublish && r.scope === "self" ? (
+              <Button size="sm" variant="ghost" onClick={() => void handleShare(r, "org")}>
+                Publish
+              </Button>
+            ) : null}
+            {canPublish && r.scope === "org" ? (
+              <Button size="sm" variant="ghost" onClick={() => void handleShare(r, "self")}>
+                Unpublish
+              </Button>
+            ) : null}
+            <Button size="sm" variant="ghost" onClick={() => void handleDeleteDefinition(r.id)}>
+              Delete
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleShare/handleDelete are stableEnough for render use
+    [canPublish, rowBusyId, definitions],
+  );
+
+  const defsTable = useSurfaceTableColumns<DefRow>(SURFACE_KEY, prefs, defColumns);
+
+  const clauseMatches = useCallback(
+    (r: DefRow) =>
+      clauses.every((c) => {
+        const hay =
+          c.field === "name"
+            ? r.name
+            : c.field === "data"
+              ? viewLabel(r.view)
+              : r.scope === "org"
+                ? "org-wide"
+                : "private";
+        return c.op === "contains" ? hay.toLowerCase().includes((c.value ?? "").toLowerCase()) : hay.toLowerCase() === (c.value ?? "").toLowerCase();
+      }),
+    [clauses],
+  );
+
+  const defRows: DefRow[] = useMemo(
+    () =>
+      (definitions ?? []).map((d) => ({
+        id: d.id,
+        name: d.name,
+        description: d.description ?? null,
+        view: d.spec.view,
+        scope: d.scope,
+        updated: d.updated_at,
+      })),
+    [definitions],
+  );
+
+  const viewFiltered = useMemo(() => {
+    const base = view === "mine" ? defRows.filter((r) => r.scope === "self") : defRows;
+    return clauses.length === 0 ? base : base.filter(clauseMatches);
+  }, [view, defRows, clauses, clauseMatches]);
+
+  const defSort = defsTable.saved.sort;
+  const sortedRows = useMemo(
+    () => sortRows(viewFiltered, "defs", defColumns, defSort),
+    [viewFiltered, defColumns, defSort],
+  );
 
   // Schedules state
   const [schedules, setSchedules] = useState<ReportScheduleView[] | null>(null);
@@ -154,12 +351,15 @@ function ReportsInner() {
           setCatalogError("The report field catalog could not be loaded.");
           return;
         }
-        setCatalog(data.views);
+        // A resolving read can carry a payload without `views`. Setting
+        // `undefined` here would leave the builder's `catalog?.find` throwing
+        // and take the whole surface down; `null` is its "no catalog" state.
+        setCatalog(Array.isArray(data.views) ? data.views : null);
       })
       .catch(() => setCatalogError("The report field catalog could not be loaded."));
   }, [auth.status, refreshDefinitions, refreshSchedules]);
 
-  const handleDeleteDefinition = async (id: string) => {
+  const handleDeleteDefinition = useCallback(async (id: string) => {
     setRowBusyId(id);
     setRowError(null);
     const { error } = await api.api.DELETE("/api/v1/report-definitions/{id}", {
@@ -172,39 +372,44 @@ function ReportsInner() {
     }
     if (editingDef?.id === id) setEditingDef(null);
     void refreshDefinitions();
-  };
+  }, [editingDef?.id, refreshDefinitions]);
 
   /** Share = flip the definition's visibility scope (full-replace PUT). */
-  const handleShare = async (def: ReportDefinitionView, scope: "org" | "self") => {
-    setRowBusyId(def.id);
-    setRowError(null);
-    const idempotencyKey =
-      typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `share-${Date.now()}`;
-    const { error } = await api.api.PUT("/api/v1/report-definitions/{id}", {
-      params: { path: { id: def.id } },
-      body: {
-        name: def.name,
-        description: def.description ?? null,
-        spec: def.spec,
-        scope,
-        idempotency_key: idempotencyKey,
-      },
-    });
-    setRowBusyId(null);
-    if (error !== undefined) {
-      setRowError({
-        id: def.id,
-        text: friendlyMutationText(
-          error,
-          scope === "org"
-            ? "This report could not be published org-wide."
-            : "This report could not be made private.",
-        ),
+  const handleShare = useCallback(
+    async (row: DefRow, scope: "org" | "self") => {
+      const def = definitions?.find((d) => d.id === row.id);
+      if (def === undefined) return;
+      setRowBusyId(def.id);
+      setRowError(null);
+      const idempotencyKey =
+        typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `share-${Date.now()}`;
+      const { error } = await api.api.PUT("/api/v1/report-definitions/{id}", {
+        params: { path: { id: def.id } },
+        body: {
+          name: def.name,
+          description: def.description ?? null,
+          spec: def.spec,
+          scope,
+          idempotency_key: idempotencyKey,
+        },
       });
-      return;
-    }
-    void refreshDefinitions();
-  };
+      setRowBusyId(null);
+      if (error !== undefined) {
+        setRowError({
+          id: def.id,
+          text: friendlyMutationText(
+            error,
+            scope === "org"
+              ? "This report could not be published org-wide."
+              : "This report could not be made private.",
+          ),
+        });
+        return;
+      }
+      void refreshDefinitions();
+    },
+    [definitions, refreshDefinitions],
+  );
 
   const handleSaveSchedule = async () => {
     if (!schedName.trim() || !schedDefId) return;
@@ -234,7 +439,7 @@ function ReportsInner() {
     void refreshSchedules();
   };
 
-  const handleDeleteSchedule = async (id: string) => {
+  const handleDeleteSchedule = useCallback(async (id: string) => {
     const { error } = await api.api.DELETE("/api/v1/report-schedules/{id}", {
       params: { path: { id } },
     });
@@ -243,39 +448,66 @@ function ReportsInner() {
       return;
     }
     void refreshSchedules();
-  };
+  }, [refreshSchedules]);
+
+  const handleExport = useCallback(
+    (opts: { format: string }) => {
+      const csv = toCsv(
+        defsTable.keys.filter((k) => k !== "actions"),
+        defColumns,
+        sortedRows,
+        (col, row) => {
+          if (col.key === "data") return viewLabel(row.view);
+          if (col.key === "visibility") return row.scope === "org" ? "Org-wide" : "Private";
+          if (col.key === "updated") return new Date(row.updated).toISOString().slice(0, 10);
+          return row.name;
+        },
+      );
+      downloadCsv(`marula-reports.${opts.format === "xlsx" ? "xlsx" : "csv"}`, csv);
+    },
+    [defsTable.keys, defColumns, sortedRows],
+  );
 
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="grid gap-6 max-w-6xl mx-auto p-4 md:p-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
+    <div className="grid gap-5 p-6">
+      <header className="m-rise flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-3">
+          <h1
+            className="text-[26px] font-semibold tracking-[-0.01em]"
+            style={{ color: "var(--m-text)" }}
+          >
             Reports
           </h1>
-          <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Build reports over the operational read model, run them on demand, or schedule delivery.
-          </p>
+          <span
+            className="inline-flex h-6 items-center rounded-full px-2.5 text-[12px] font-semibold"
+            style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
+          >
+            Build, run and schedule
+          </span>
         </div>
+      </header>
 
-        <div className="flex items-center gap-2" role="tablist" aria-label="Report sections">
-          <Button variant={tab === "builder" ? "primary" : "secondary"} onClick={() => setTab("builder")} aria-selected={tab === "builder"} role="tab">
-            Builder
-          </Button>
-          <Button variant={tab === "saved" ? "primary" : "secondary"} onClick={() => setTab("saved")} aria-selected={tab === "saved"} role="tab">
-            Saved reports
-          </Button>
-          <Button variant={tab === "schedules" ? "primary" : "secondary"} onClick={() => setTab("schedules")} aria-selected={tab === "schedules"} role="tab">
-            Schedules
-          </Button>
-        </div>
+      {/* Sub-navigation is the header-row pattern: the sections sit BESIDE the
+          title, and the pack draws the active one as a raised surface card. */}
+      <header className="flex flex-wrap items-center gap-3">
+        <SurfaceTabs
+          tabs={[
+            { id: "builder", label: "Builder" },
+            { id: "saved", label: "Saved reports" },
+            { id: "schedules", label: "Schedules" },
+          ]}
+          activeId={tab}
+          onChange={(id) => setTab(id as Tab)}
+          label="Report sections"
+        />
       </header>
 
       {tab === "builder" && (
         <div className="grid gap-4">
           {catalogError !== null ? (
-            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
               {catalogError}
             </p>
           ) : null}
@@ -298,99 +530,162 @@ function ReportsInner() {
       )}
 
       {tab === "saved" && (
-        <div className="grid gap-4">
-          {defsError && (
-            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+        <div className="grid gap-3">
+          {/* The one toolbar row: views left, filters middle, columns + export right. */}
+          <DataToolbar
+            label="Saved reports controls"
+            views={
+              <SurfaceTabs
+                tabs={[
+                  { id: "all", label: "All reports", hint: String(defRows.length) },
+                  { id: "mine", label: "Private to me", hint: String(defRows.filter((r) => r.scope === "self").length) },
+                ]}
+                activeId={view}
+                onChange={(id) => setView(id as "all" | "mine")}
+                label="Saved report views"
+              />
+            }
+            filters={
+              <FilterBar
+                fields={FILTER_FIELDS}
+                clauses={clauses}
+                onChange={setClauses}
+                label="report filters"
+                emptyHint=""
+              />
+            }
+            columns={
+              <ColumnChooser
+                columns={defsTable.chooser.filter((c) => c.key !== "actions")}
+                onChange={(next) =>
+                  defsTable.onChooser([
+                    ...next,
+                    defsTable.chooser.find((c) => c.key === "actions") ?? {
+                      key: "actions",
+                      label: "",
+                      visible: true,
+                    },
+                  ])
+                }
+                label="Saved report columns"
+              />
+            }
+            export={
+              <ExportControl
+                columns={defsTable.keys.filter((k) => k !== "actions")}
+                rowCount={sortedRows.length}
+                sort={defSort}
+                onExport={(req) => handleExport({ format: req.format })}
+                label="Export"
+              />
+            }
+          />
+
+          {defsError !== null && (
+            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
               {defsError}
             </p>
           )}
-          <Card className="overflow-x-auto">
+
+          <div
+            className="overflow-x-auto rounded-[16px] border"
+            style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+          >
             {loadingDefs ? (
-              <div className="p-6 flex justify-center">
+              <div className="flex justify-center p-6">
                 <Spinner />
               </div>
-            ) : definitions === null || definitions.length === 0 ? (
-              <div className="p-6">
-                <EmptyState message="No saved reports yet. Build one in the Builder tab, then save it here." />
-              </div>
+            ) : sortedRows.length === 0 ? (
+              <InsightState
+                title={
+                  clauses.length > 0
+                    ? "No saved reports match these filters"
+                    : "No saved reports yet"
+                }
+                hint={
+                  clauses.length > 0
+                    ? "Try removing one, or widen the match."
+                    : "Build one in the Builder tab, then save it here."
+                }
+                primary={
+                  clauses.length > 0 ? (
+                    <Button variant="primary" size="sm" onClick={() => setClauses([])}>
+                      Clear filters
+                    </Button>
+                  ) : (
+                    <Button variant="primary" size="sm" onClick={() => setTab("builder")}>
+                      Open the builder
+                    </Button>
+                  )
+                }
+              />
             ) : (
-              <Table>
+              <Table className="m-insight-table">
                 <thead>
                   <tr>
-                    <Th>Name</Th>
-                    <Th>Data</Th>
-                    <Th>Visibility</Th>
-                    <Th>Updated</Th>
-                    <Th className="text-right">Actions</Th>
+                    {defsTable.keys.map((key) => {
+                      const col = defColumns.find((c) => c.key === key);
+                      if (col === undefined) return null;
+                      const active = defSort?.field === key;
+                      return (
+                        <Th
+                          key={key}
+                          columnKey={key}
+                          sortable={false}
+                          resizable={false}
+                          aria-sort={active ? (defSort?.dir === "asc" ? "ascending" : "descending") : undefined}
+                          className="cursor-pointer select-none"
+                          onClick={
+                            col.sortValue !== undefined
+                              ? () => defsTable.save(toggleSort(defsTable.saved, key))
+                              : undefined
+                          }
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {col.label}
+                            {active ? <span aria-hidden="true">{defSort?.dir === "asc" ? "↑" : "↓"}</span> : null}
+                          </span>
+                        </Th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
-                  {definitions.map((d) => (
-                    <Tr key={d.id}>
-                      <Td>
-                        <div className="font-medium text-[13px]">{d.name}</div>
-                        {d.description && (
-                          <div className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                            {d.description}
-                          </div>
-                        )}
-                      </Td>
-                      <Td className="text-[12px]">{VIEW_LABELS[d.spec.view] ?? d.spec.view}</Td>
-                      <Td>
-                        <Tag tone={d.scope === "org" ? "neutral" : "warning"}>
-                          {d.scope === "org" ? "Org-wide" : "Private"}
-                        </Tag>
-                      </Td>
-                      <Td className="text-[12px] whitespace-nowrap" style={{ color: "var(--m-text-secondary)" }}>
-                        {new Date(d.updated_at).toLocaleDateString()}
-                      </Td>
-                      <Td className="text-right">
-                        <div className="flex justify-end flex-wrap gap-1">
-                          {rowBusyId === d.id ? <Spinner /> : null}
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => {
-                              setEditingDef(d);
-                              setRunToken({ def: d, nonce: Date.now() });
-                              setTab("builder");
-                            }}
-                          >
-                            Run
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setEditingDef(d);
-                              setTab("builder");
-                            }}
-                          >
-                            Edit
-                          </Button>
-                          {canPublish && d.scope === "self" ? (
-                            <Button size="sm" variant="ghost" onClick={() => void handleShare(d, "org")}>
-                              Publish
-                            </Button>
-                          ) : null}
-                          {canPublish && d.scope === "org" ? (
-                            <Button size="sm" variant="ghost" onClick={() => void handleShare(d, "self")}>
-                              Unpublish
-                            </Button>
-                          ) : null}
-                          <Button size="sm" variant="ghost" onClick={() => void handleDeleteDefinition(d.id)}>
-                            Delete
-                          </Button>
-                        </div>
-                      </Td>
+                  {sortedRows.map((r) => (
+                    <Tr key={r.id}>
+                      {defsTable.keys.map((key) => {
+                        const col = defColumns.find((c) => c.key === key);
+                        if (col === undefined) return null;
+                        return <Td key={key}>{col.render(r)}</Td>;
+                      })}
                     </Tr>
                   ))}
                 </tbody>
               </Table>
             )}
-          </Card>
+          </div>
+          <div className="m-insight-footer flex min-h-[52px] flex-wrap items-center gap-3">
+            <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+              <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
+                {sortedRows.length}
+              </b>{" "}
+              of{" "}
+              <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
+                {defRows.length}
+              </b>{" "}
+              saved reports
+            </span>
+            <span className="flex-1" />
+            <span className="flex items-center gap-2">
+              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                Density
+              </span>
+              <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
+            </span>
+          </div>
+
           {rowError !== null ? (
-            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
               {rowError.text}
             </p>
           ) : null}
@@ -399,8 +694,10 @@ function ReportsInner() {
 
       {tab === "schedules" && (
         <div className="grid gap-4">
-          <div className="flex justify-between items-center flex-wrap gap-2">
-            <h2 className="text-sm font-semibold">Delivery schedules</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-[16px] font-semibold" style={{ color: "var(--m-text)" }}>
+              Delivery schedules
+            </h2>
             <Dialog
               open={scheduleModalOpen}
               onOpenChange={(open) => {
@@ -422,7 +719,7 @@ function ReportsInner() {
               }}
             >
               <DialogTrigger asChild>
-                <Button>Create schedule</Button>
+                <Button>New schedule</Button>
               </DialogTrigger>
               <DialogContent title="Create delivery schedule">
                 <div className="grid gap-3 p-4">
@@ -482,11 +779,14 @@ function ReportsInner() {
 
                   <div>
                     <Label htmlFor="sch-recip">Recipients</Label>
-                    <div className="grid gap-1 max-h-40 overflow-y-auto border p-2" style={{ borderColor: "var(--m-border)" }}>
+                    <div
+                      className="grid max-h-40 gap-1 overflow-y-auto border p-2"
+                      style={{ borderColor: "var(--m-border)" }}
+                    >
                       {orgUsers === null ? (
                         <Spinner />
                       ) : orgUsers.length === 0 ? (
-                        <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                        <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
                           No staff users found.
                         </span>
                       ) : (
@@ -509,8 +809,8 @@ function ReportsInner() {
                     <FieldHint>Delivery goes to org staff — pick at least one recipient.</FieldHint>
                   </div>
 
-                  {schedFormError && (
-                    <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                  {schedFormError !== null && (
+                    <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
                       {schedFormError}
                     </p>
                   )}
@@ -531,61 +831,72 @@ function ReportsInner() {
             </Dialog>
           </div>
 
-          {schedulesError && (
-            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+          {schedulesError !== null && (
+            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
               {schedulesError}
             </p>
           )}
 
-          <Card className="overflow-x-auto">
+          <div
+            className="overflow-x-auto rounded-[16px] border"
+            style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+          >
             {loadingSchedules ? (
-              <div className="p-6 flex justify-center">
+              <div className="flex justify-center p-6">
                 <Spinner />
               </div>
             ) : schedules === null || schedules.length === 0 ? (
-              <div className="p-6">
-                <EmptyState message="No delivery schedules yet. Save a report first, then schedule it here." />
-              </div>
+              <InsightState
+                title="No delivery schedules yet"
+                hint="Save a report first, then schedule it here."
+                primary={
+                  <Button variant="primary" size="sm" onClick={() => setTab("saved")}>
+                    Go to saved reports
+                  </Button>
+                }
+              />
             ) : (
-              <Table>
+              <Table className="m-insight-table">
                 <thead>
                   <tr>
-                    <Th>Name</Th>
-                    <Th>Report</Th>
-                    <Th>Cadence</Th>
-                    <Th>Next run</Th>
-                    <Th>Last run</Th>
-                    <Th>Recipients</Th>
-                    <Th className="text-right">Actions</Th>
+                    <Th sortable={false} resizable={false}>Name</Th>
+                    <Th sortable={false} resizable={false}>Report</Th>
+                    <Th sortable={false} resizable={false}>Cadence</Th>
+                    <Th sortable={false} resizable={false}>Next run</Th>
+                    <Th sortable={false} resizable={false}>Last run</Th>
+                    <Th sortable={false} resizable={false}>Recipients</Th>
+                    <Th sortable={false} resizable={false} className="text-right">Actions</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {schedules.map((s) => (
                     <Tr key={s.id}>
-                      <Td className="font-medium text-[13px]">{s.name}</Td>
-                      <Td className="text-[12px]">{s.definition_name}</Td>
+                      <Td className="text-[13px] font-medium">{s.name}</Td>
+                      <Td className="text-[13px]">{s.definition_name}</Td>
                       <Td>
                         <Tag tone="neutral">
                           {s.cadence} @ {s.time_of_day}
                         </Tag>
                       </Td>
-                      <Td className="text-[12px] whitespace-nowrap" style={{ color: "var(--m-text-secondary)" }}>
-                        {s.next_run_at ? new Date(s.next_run_at).toLocaleString() : "—"}
+                      <Td className="whitespace-nowrap text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                        {s.next_run_at
+                          ? new Date(s.next_run_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+                          : "—"}
                       </Td>
-                      <Td className="text-[12px] whitespace-nowrap">
-                        {s.last_error ? (
-                          <span title={s.last_error} style={{ color: "var(--m-status-danger-fg)" }}>
-                            Failed {s.last_run_at ? new Date(s.last_run_at).toLocaleString() : ""}
+                      <Td className="whitespace-nowrap text-[13px] tabular-nums">
+                        {s.last_error !== null && s.last_error !== undefined && s.last_error !== "" ? (
+                          <span title={s.last_error} style={{ color: "var(--m-status-due-fg)" }}>
+                            Failed · needs attention
                           </span>
                         ) : s.last_run_at ? (
                           <span style={{ color: "var(--m-text-secondary)" }}>
-                            {new Date(s.last_run_at).toLocaleString()}
+                            {new Date(s.last_run_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                           </span>
                         ) : (
                           "—"
                         )}
                       </Td>
-                      <Td className="text-[12px]">
+                      <Td className="text-[13px]">
                         {s.recipients.length} recipient{s.recipients.length === 1 ? "" : "s"}
                       </Td>
                       <Td className="text-right">
@@ -601,9 +912,25 @@ function ReportsInner() {
                 </tbody>
               </Table>
             )}
-          </Card>
+          </div>
+          <div className="m-insight-footer flex min-h-[52px] flex-wrap items-center gap-3">
+            <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+              <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
+                {schedules?.length ?? 0}
+              </b>{" "}
+              schedules
+            </span>
+            <span className="flex-1" />
+            <span className="flex items-center gap-2">
+              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                Density
+              </span>
+              <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
+            </span>
+          </div>
         </div>
       )}
     </div>
   );
 }
+

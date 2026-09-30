@@ -239,6 +239,26 @@ describe("/reports builder integration", () => {
     cleanup();
   });
 });
+describe("/reports catalog robustness", () => {
+  it("shows the builder's own state when the catalog payload has no views", async () => {
+    const mock = new MockApi();
+    mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+    // A resolving read can carry a payload the page did not expect. The tab
+    // row has to survive it, because the builder sits inside the same surface.
+    mock.on("GET", "/api/v1/report-catalog", () => ({ json: { views: undefined } }));
+    mock.on("GET", "/api/v1/report-definitions", () => ({ json: DEFINITIONS }));
+    mock.on("GET", "/api/v1/report-schedules", () => ({ json: { schedules: [] } }));
+    mock.install();
+    render(
+      <AuthProvider>
+        <ReportsPage />
+      </AuthProvider>,
+    );
+    expect(await screen.findByRole("tab", { name: "Saved reports" })).toBeInTheDocument();
+    cleanup();
+  });
+});
+
 describe("/reports deep link (Wave 23 lane 1, items 2+3)", () => {
   it("seeds and auto-runs a builder preview from ?spec=", async () => {
     const mock = new MockApi();
