@@ -431,6 +431,11 @@ pub async fn put_board_identity(
         Some(Some(raw)) if !raw.trim().is_empty() => Some(require_mailbox("reply_to", raw)?),
         _ => None,
     };
+    // A board signature is a signature: same placeholders, same gate, so a
+    // board cannot store a token the send path would not expand.
+    if let Some(Some(raw)) = req.signature.as_ref() {
+        crate::email::validate_signature_text("signature", raw)?;
+    }
 
     let view = crate::org_tx::with_org_tx(&state, org, user, |mut ctx| async move {
         core_db::set_org(&mut ctx.tx, org)
@@ -768,6 +773,13 @@ pub struct OutboundSettingsView {
     pub from_name: String,
     pub reply_to: String,
     pub signature: String,
+    /// The org's own greeting — what opens mail the workspace sends to its
+    /// staff, and the fallback for a member with none (Wave 42).
+    pub org_greeting: String,
+    /// `allowed` | `org_locked`: whether members may sign with their own
+    /// details. The UI renders a locked org's state rather than a disabled
+    /// field with no reason.
+    pub signature_policy: String,
     pub brand_name: String,
     pub logo_url: String,
     pub smtp_host: String,
@@ -912,6 +924,14 @@ pub async fn get_mail_settings(
                 &org_value_or_default(&mut tx, org, registry::EMAIL_SIGNATURE).await?,
             )
             .unwrap_or_default(),
+            org_greeting: as_text(
+                &org_value_or_default(&mut tx, org, registry::EMAIL_ORG_GREETING).await?,
+            )
+            .unwrap_or_default(),
+            signature_policy: crate::email::signature_policy(&mut *tx, org)
+                .await?
+                .as_str()
+                .to_string(),
             brand_name: as_text(
                 &org_value_or_default(&mut tx, org, registry::EMAIL_BRAND_NAME).await?,
             )
@@ -968,6 +988,13 @@ pub struct PutOutboundSettingsRequest {
     pub reply_to: Option<String>,
     #[serde(default)]
     pub signature: Option<String>,
+    /// The org's own greeting (Wave 42).
+    #[serde(default)]
+    pub org_greeting: Option<String>,
+    /// `allowed` | `org_locked` (Wave 42). Absent leaves the policy alone,
+    /// so an older client that does not know the key cannot reset it.
+    #[serde(default)]
+    pub signature_policy: Option<String>,
     #[serde(default)]
     pub brand_name: Option<String>,
     #[serde(default)]
@@ -1015,6 +1042,11 @@ pub async fn put_outbound_settings(
     push_text(registry::EMAIL_FROM_NAME, &req.from_name)?;
     push_text(registry::EMAIL_REPLY_TO, &req.reply_to)?;
     push_text(registry::EMAIL_SIGNATURE, &req.signature)?;
+    // The org greeting and the signature policy join the same editor and
+    // the same save: the greeting, the org signature, and the rule that
+    // says whether a member may have their own are one decision, so they
+    // are one write.
+    push_text(registry::EMAIL_ORG_GREETING, &req.org_greeting)?;
     push_text(registry::EMAIL_BRAND_NAME, &req.brand_name)?;
     push_text(registry::EMAIL_LOGO_URL, &req.logo_url)?;
     push_text(registry::EMAIL_SMTP_HOST, &req.smtp_host)?;
@@ -1041,8 +1073,25 @@ pub async fn put_outbound_settings(
             &mut updates,
         )?;
     }
+    if let Some(policy) = &req.signature_policy {
+        validate_setting(
+            registry::EMAIL_SIGNATURE_POLICY,
+            &serde_json::json!(policy.trim()),
+            &mut updates,
+        )?;
+    }
     // Mailbox-shaped text fields get the same shape gate the UI promises.
     for (key, value) in &updates {
+        // A signature or greeting may only carry placeholders the send path
+        // expands, checked on the write so the editor can name the field.
+        if matches!(
+            *key,
+            registry::EMAIL_SIGNATURE | registry::EMAIL_ORG_GREETING
+        ) {
+            if let Some(text) = value.as_str() {
+                crate::email::validate_signature_text(key, text)?;
+            }
+        }
         if matches!(
             *key,
             registry::EMAIL_FROM_ADDRESS | registry::EMAIL_REPLY_TO
@@ -1114,6 +1163,31 @@ pub struct DeliveryLedgerRow {
     pub ticket_id: Option<Uuid>,
     pub created_at: String,
     pub updated_at: String,
+    /// Which rung of the greeting/signature chain supplied each block for
+    /// THIS message (Wave 42), as the wire name plus the wording an admin
+    /// reads. `None` is a row written before the lane recorded it, and it
+    /// renders as "none" rather than a guess.
+    pub greeting_source: Option<EmailSourceView>,
+    pub signature_source: Option<EmailSourceView>,
+}
+
+/// One rung of the resolution chain, as the ledger reports it.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct EmailSourceView {
+    /// The stable wire name (`user_default`, `board_identity`, …).
+    pub source: String,
+    /// Ledger wording: "the sender", "the board", "the organization".
+    pub label: String,
+}
+
+fn source_view(raw: Option<&str>) -> Option<EmailSourceView> {
+    raw.map(|name| {
+        let source = core_domain::email_signature::SignatureSource::parse(name);
+        EmailSourceView {
+            source: source.as_str().to_string(),
+            label: source.admin_label().to_string(),
+        }
+    })
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1260,6 +1334,8 @@ pub async fn get_delivery_ledger(
                 ticket_id: r.ticket_id,
                 created_at: r.created_at.to_rfc3339(),
                 updated_at: r.updated_at.to_rfc3339(),
+                greeting_source: source_view(r.greeting_source.as_deref()),
+                signature_source: source_view(r.signature_source.as_deref()),
             })
             .collect(),
         counts: DeliveryCounts {
@@ -1339,8 +1415,21 @@ pub async fn test_send(
         };
         let identity = crate::email::resolve_mail_identity(&mut tx, org, None, &state.mail).await?;
         let brand = crate::email::resolve_brand(&mut tx, org).await?;
+        // The probe resolves the envelope for the ADMIN who pressed the
+        // button, not for the system: an admin checking "will my mail look
+        // right" needs to see the signature that will actually go out,
+        // which under `allowed` is their own. The greeting stays absent —
+        // the probe's job is the transport and From identity.
+        let envelope = crate::email::resolve_envelope(
+            &mut tx,
+            org,
+            None,
+            Some(user),
+            &crate::email::EnvelopeOverrides::default(),
+        )
+        .await?;
         tx.commit().await.map_err(ApiError::from)?;
-        (transport, identity, brand, reason)
+        (transport, identity, brand, envelope, reason)
     };
     if let Some(reason) = reason {
         return Err(ApiError::Conflict(format!(
@@ -1353,18 +1442,19 @@ pub async fn test_send(
             brand_name: &brand.brand_name,
             logo_url: brand.logo_url.as_deref(),
             greeting: None,
-            signoff: identity.signature.as_deref(),
+            signoff: envelope.signature.as_deref(),
         },
         &transport,
         &identity.from_address,
     );
     // The tx closure is `async move`; it takes its own copies of the
     // enqueue/log inputs while the response below still reports `to` and
-    // `transport` (compile fix, Wave 34 lane 6: the fast-forwarded lane-8
+    // `transport` (compile fix, Wave 34 lane 8: the fast-forwarded lane-8
     // commit used both after the move).
     let mail = state.mail.clone();
     let to_in_tx = to.clone();
     let transport_in_tx = transport.clone();
+    let sources = crate::email::RenderedSources::of(&envelope);
     let message_id = crate::org_tx::with_org_tx(&state, org, user, |mut ctx| async move {
         let message_id = crate::email::enqueue_rendered_outbound(
             &mut ctx.tx,
@@ -1374,6 +1464,7 @@ pub async fn test_send(
             &rendered.subject,
             &rendered.text_body,
             None,
+            sources,
         )
         .await?;
         core_db::audit::insert(

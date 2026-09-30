@@ -120,6 +120,12 @@
           "audience": "both",
           "updated": "2026-09-23",
           "title": "How to use the keyboard shortcuts"
+        },
+        {
+          "path": "how-to/staff-email-signature",
+          "audience": "staff",
+          "updated": "2026-09-30",
+          "title": "How to sign your own email"
         }
       ]
     },
@@ -195,7 +201,7 @@
           "path": "how-to/project-billing",
           "audience": "admin",
           "updated": "2026-09-29",
-          "title": "How to bill project work — contracts, milestones, fees"
+          "title": "How to bill project work \u2014 contracts, milestones, fees"
         },
         {
           "path": "how-to/admin-billing-verification",
@@ -659,7 +665,7 @@
           "path": "how-to/project-billing",
           "audience": "admin",
           "updated": "2026-09-29",
-          "title": "How to bill project work — contracts, milestones, fees"
+          "title": "How to bill project work \u2014 contracts, milestones, fees"
         }
       ]
     }

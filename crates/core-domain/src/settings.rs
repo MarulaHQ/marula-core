@@ -342,8 +342,33 @@ pub const AI_FEATURES_ENABLED: &str = "ai.features_enabled";
 /// client-email composers (close-flow summary email, reply composer).
 /// Editable defaults live in the settings registry, so they persist as
 /// real user settings instead of device-local panel state.
+///
+/// Wave 42: `email.signoff` is the PERSONAL SIGNATURE. Its meaning is
+/// unchanged (the block that closes mail a person writes) and the key is
+/// kept so the composers that already read it keep working, but it now
+/// carries the template dialect's placeholders, resolves at SEND time from
+/// the sending user's row, and is gated by `EMAIL_SIGNATURE_POLICY`.
+/// `email.greeting` stays a plain salutation line with no placeholders —
+/// the recipient's name is the COMPOSER's business (it knows the ticket's
+/// contact), not the settings store's.
 pub const EMAIL_GREETING: &str = "email.greeting";
 pub const EMAIL_SIGNOFF: &str = "email.signoff";
+/// Org default signature (the pre-Wave-42 `email.signature`, unchanged key —
+/// Wave 42 re-scoped the ROLES around it, not the storage): the block that
+/// closes mail the org sends, and the fallback for a member with no
+/// signature of their own. Holds the same placeholders as a personal
+/// signature, resolved at send time against the SENDING user.
+pub const EMAIL_SIGNATURE: &str = "email.signature";
+/// Org default greeting (Wave 42). The house voice: opens mail the org
+/// sends to its own staff (notification and digest envelopes), and is the
+/// fallback for a person with no greeting of their own.
+pub const EMAIL_ORG_GREETING: &str = "email.org_greeting";
+/// Admin policy over personal signatures (Wave 42): `allowed` (a member
+/// may keep their own signature; the org default is the fallback) or
+/// `org_locked` (every signature is the org's — the personal editor and
+/// the per-message override are both refused). Deny wins, the same shape
+/// as `EMAIL_DIGEST_POLICY`.
+pub const EMAIL_SIGNATURE_POLICY: &str = "email.signature_policy";
 
 // --- Wave 34 lane 8 (`p34-email-config-closeout`): mail configuration ----
 //
@@ -370,9 +395,6 @@ pub const EMAIL_FROM_NAME: &str = "email.from_name";
 /// Org-level Reply-To. Empty sends no Reply-To header (the From address is
 /// the reply path). Boards override it with their own identity.
 pub const EMAIL_REPLY_TO: &str = "email.reply_to";
-/// Org-level signature block appended to outbound mail after the greeting
-/// body. Boards override it with their own signature.
-pub const EMAIL_SIGNATURE: &str = "email.signature";
 /// Wordmark shown in the branded notification/digest wrapper header.
 /// Empty falls back to the org name.
 pub const EMAIL_BRAND_NAME: &str = "email.brand_name";
@@ -416,6 +438,8 @@ pub const CSAT_QUIET_FROM: &str = "csat.quiet_from";
 pub const CSAT_QUIET_UNTIL: &str = "csat.quiet_until";
 /// Digest policy options (org scope).
 pub const EMAIL_DIGEST_POLICY_OPTIONS: &[&str] = &["allowed", "disabled"];
+/// Signature policy options (org scope, Wave 42).
+pub const EMAIL_SIGNATURE_POLICY_OPTIONS: &[&str] = &["allowed", "org_locked"];
 /// Per-user digest options.
 pub const EMAIL_DIGEST_OPTIONS: &[&str] = &["off", "daily"];
 
@@ -963,14 +987,48 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
             },
             SettingDeclaration {
                 key: EMAIL_SIGNOFF,
-                kind: SettingKind::Text { max_len: 500 },
+                kind: SettingKind::Text { max_len: 1000 },
                 default: SettingValue::Text(String::new()),
                 scope: SettingScope::User,
                 section: SettingSection::Email,
                 visibility: SettingVisibility::Ui,
-                label: "Email sign-off",
-                description: "Default sign-off block appended to client emails you \
-                             compose (e.g. your name and title). Empty appends none.",
+                label: "Your email signature",
+                description: "The block that closes email you write to a client. \
+                             Placeholders like {{user.name}} and {{org.name}} fill \
+                             in when the message sends, never when you save. Empty \
+                             falls back to the workspace signature — and while the \
+                             workspace signature is locked to the organization, this \
+                             field is refused rather than ignored.",
+            },
+            // Wave 42: the org's own greeting + the policy over personal
+            // signatures. Both are org scope; the personal signature is the
+            // user-scope `email.signoff` above.
+            SettingDeclaration {
+                key: EMAIL_ORG_GREETING,
+                kind: SettingKind::Text { max_len: 500 },
+                default: SettingValue::Text(String::new()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Org email greeting",
+                description: "Opens mail the workspace sends to its own staff — \
+                             notifications and the daily digest. It is also the \
+                             fallback for a member with no greeting of their own. \
+                             Empty opens the message with the recipient's name.",
+            },
+            SettingDeclaration {
+                key: EMAIL_SIGNATURE_POLICY,
+                kind: SettingKind::Enumeration,
+                default: SettingValue::Text("allowed".into()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Personal signatures",
+                description: "Whether members may sign mail with their own details. \
+                             Allowed keeps a personal signature with the workspace \
+                             one as its fallback; locked to the organization sends \
+                             the workspace signature on every message and refuses \
+                             personal ones.",
             },
             // Wave 34 lane 8 (`p34-email-config-closeout`): outbound mail
             // configuration. Selection/identity only — credentials live in
@@ -1034,9 +1092,12 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                 section: SettingSection::Email,
                 visibility: SettingVisibility::Ui,
                 label: "Org email signature",
-                description: "Signature block appended to outbound mail below the \
-                             body (name, role, phone). Boards with their own \
-                             signature override it.",
+                description: "The workspace signature: it closes every outbound \
+                             message, and it is the fallback for a member with no \
+                             signature of their own. Placeholders like \
+                             {{org.name}} and {{user.name}} fill in when the message \
+                             sends. A board with its own signature takes precedence \
+                             for that board's mail.",
             },
             SettingDeclaration {
                 key: EMAIL_BRAND_NAME,
@@ -1909,6 +1970,59 @@ mod tests {
             SettingValue::Boolean(true).to_json(),
             serde_json::json!(true)
         );
+    }
+
+    /// Wave 42: the greeting/signature family and the policy over personal
+    /// signatures. The scopes and the option list are pinned here because
+    /// the resolver's two personal rungs are gated on the policy — a key
+    /// that drifted to the wrong scope, or an option list that grew a third
+    /// name the migration's CHECK does not know, would fail open.
+    #[test]
+    fn wave42_signature_family_declares_the_scopes_the_resolver_assumes() {
+        let greeting = declaration(EMAIL_ORG_GREETING).unwrap();
+        assert_eq!(greeting.scope, SettingScope::Org);
+        assert_eq!(greeting.section, SettingSection::Email);
+        assert_eq!(greeting.visibility, SettingVisibility::Ui);
+        assert!(greeting
+            .validate(&SettingValue::Text("Hello from Acme,".into()))
+            .is_ok());
+
+        let policy = declaration(EMAIL_SIGNATURE_POLICY).unwrap();
+        assert_eq!(policy.scope, SettingScope::Org);
+        assert_eq!(policy.kind, SettingKind::Enumeration);
+        assert_eq!(policy.default, SettingValue::Text("allowed".into()));
+        for allowed in EMAIL_SIGNATURE_POLICY_OPTIONS {
+            assert!(policy
+                .validate(&SettingValue::Text((*allowed).into()))
+                .is_ok());
+        }
+        assert!(policy
+            .validate(&SettingValue::Text("org_locked_or_not".into()))
+            .is_err());
+        // Exactly the two names the migration 0118 CHECK lists — one list,
+        // quoted in three places, and this test is what makes the drift
+        // loud rather than silent.
+        assert_eq!(EMAIL_SIGNATURE_POLICY_OPTIONS, &["allowed", "org_locked"]);
+
+        // The personal signature is the pre-existing per-user key (Wave 12
+        // lane 6): same key, wider cap, now a signature rather than a plain
+        // sign-off. Keeping the key is what stops the composers that already
+        // read it from orphaning a stored value.
+        let personal = declaration(EMAIL_SIGNOFF).unwrap();
+        assert_eq!(personal.scope, SettingScope::User);
+        assert_eq!(personal.kind, SettingKind::Text { max_len: 1000 });
+        assert!(personal
+            .validate(&SettingValue::Text("x".repeat(1000)))
+            .is_ok());
+        assert!(personal
+            .validate(&SettingValue::Text("x".repeat(1001)))
+            .is_err());
+
+        // The org signature keeps its key and its cap; only its role changed
+        // (it is now the fallback for a member with none of their own).
+        let org = declaration(EMAIL_SIGNATURE).unwrap();
+        assert_eq!(org.scope, SettingScope::Org);
+        assert_eq!(org.kind, SettingKind::Text { max_len: 1000 });
     }
 
     #[test]

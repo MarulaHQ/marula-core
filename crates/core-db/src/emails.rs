@@ -742,6 +742,11 @@ pub struct OutboundLedgerRow {
     pub ticket_id: Option<Uuid>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// Which rung of the greeting/signature chain supplied each block for
+    /// THIS message (Wave 42), or `None` for a row written before the lane
+    /// recorded it.
+    pub greeting_source: Option<String>,
+    pub signature_source: Option<String>,
 }
 
 /// Newest-first page of the org's outbound ledger, optionally filtered by
@@ -755,7 +760,8 @@ pub async fn list_outbound_ledger(
 ) -> DbResult<Vec<OutboundLedgerRow>> {
     let rows = sqlx::query!(
         r#"SELECT m.id, m.rfc_message_id, m.subject, m.to_addresses, m.from_address,
-                  m.ticket_id, m.created_at, q.status, q.attempts, q.max_attempts,
+                  m.ticket_id, m.created_at, m.greeting_source, m.signature_source,
+                  q.status, q.attempts, q.max_attempts,
                   q.last_error, q.updated_at
            FROM email_messages m
            JOIN email_outbound q ON q.email_message_id = m.id
@@ -787,6 +793,8 @@ pub async fn list_outbound_ledger(
             ticket_id: r.ticket_id,
             created_at: r.created_at,
             updated_at: r.updated_at,
+            greeting_source: r.greeting_source,
+            signature_source: r.signature_source,
         })
         .collect())
 }
@@ -831,6 +839,14 @@ pub struct NewOutbound {
     pub ticket_id: Option<Uuid>,
     /// Transport label chosen from config at enqueue time.
     pub transport: String,
+    /// Which rung of the resolution chain supplied the signature that went
+    /// out (Wave 42) — `None` for a message whose ledger row predates the
+    /// lane, which the delivery view reads as `unset` rather than a guess.
+    pub signature_source: Option<String>,
+    /// The same for the greeting. `None` on a message that had no greeting
+    /// block at all is the same shape as "not recorded", and both read as
+    /// `unset`: the column says what was recorded, not what was true.
+    pub greeting_source: Option<String>,
 }
 
 pub async fn enqueue_outbound(conn: &mut PgConnection, o: NewOutbound) -> DbResult<Uuid> {
@@ -839,8 +855,8 @@ pub async fn enqueue_outbound(conn: &mut PgConnection, o: NewOutbound) -> DbResu
         r#"INSERT INTO email_messages (id, org_id, direction, rfc_message_id, in_reply_to,
                                        email_refs, subject, from_address, from_name,
                                        to_addresses, body_text, ticket_id, scan_status,
-                                       transport)
-           VALUES ($1, $2, 'outbound', $3, $4, $5, $6, $7, $8, $9, $10, $11, 'skipped', $12)"#,
+                                       transport, signature_source, greeting_source)
+           VALUES ($1, $2, 'outbound', $3, $4, $5, $6, $7, $8, $9, $10, $11, 'skipped', $12, $13, $14)"#,
         msg_id,
         o.org_id,
         o.rfc_message_id,
@@ -853,6 +869,8 @@ pub async fn enqueue_outbound(conn: &mut PgConnection, o: NewOutbound) -> DbResu
         o.body_text,
         o.ticket_id,
         o.transport,
+        o.signature_source,
+        o.greeting_source,
     )
     .execute(&mut *conn)
     .await?;

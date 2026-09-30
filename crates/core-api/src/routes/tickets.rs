@@ -131,6 +131,27 @@ pub struct AddCommentRequest {
     /// there is no version to match.)
     #[serde(flatten, default)]
     pub instant: instant::MutationParams,
+    /// Per-message greeting/signature the composer wrote (Wave 42). Never a
+    /// stored preference. A locked org refuses it: an override is a
+    /// personal signature that was never stored, so a workspace that
+    /// locked signatures must not be routable around one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_envelope: Option<EmailEnvelopeOverride>,
+}
+
+/// The greeting and signature a composer wrote for THIS message (Wave 42).
+///
+/// Purely additive and purely per-message: it changes what goes out with
+/// this one note and is never stored as a preference. The composer
+/// prefills both fields from the sender's own default, so this carries the
+/// EDIT, and the composer is the only thing that should set it — the
+/// server never merges it into a preference behind the sender's back.
+#[derive(Debug, Clone, Default, Serialize, ToSchema, PartialEq, Eq)]
+pub struct EmailEnvelopeOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub greeting: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -1482,6 +1503,42 @@ pub async fn add_comment(
         // Email-out v1: client-visible replies notify the requester
         // (skipped when the author IS the requester or the requester has
         // no account email). Enqueue-only here; the worker transports.
+        //
+        // The composer may have written a greeting and a signature for THIS
+        // message. A locked org refuses the signature rather than dropping
+        // it: a per-message override is a personal signature that was never
+        // stored, so silently ignoring it would send a message the sender
+        // did not write. The refusal names the policy, so the composer can
+        // say why rather than "rejected".
+        let email_overrides = match req.email_envelope.clone() {
+            Some(override_fields) => {
+                let overrides = crate::email::EnvelopeOverrides {
+                    greeting: override_fields.greeting,
+                    signature: override_fields.signature,
+                };
+                if overrides
+                    .signature
+                    .as_deref()
+                    .is_some_and(|text| !text.trim().is_empty())
+                {
+                    let policy = crate::email::signature_policy(
+                        &mut ctx.tx,
+                        org_id,
+                    )
+                    .await?;
+                    if !policy.allows_personal() {
+                        return Err(ApiError::Validation(
+                            "This workspace locks email signatures to its own, so a \
+                             per-message signature cannot be sent. The organization's \
+                             signature is on its way."
+                                .into(),
+                        ));
+                    }
+                }
+                overrides
+            }
+            None => crate::email::EnvelopeOverrides::default(),
+        };
         if req.kind == NoteKind::ClientVisible {
             if let Ok(ticket) = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await {
                 if let Some(requester_id) = ticket.requester_id {
@@ -1505,6 +1562,13 @@ pub async fn add_comment(
                                     in_reply_to: None,
                                     references: Vec::new(),
                                     ticket_id: Some(id),
+                                    // The AUTHOR is the person the requester is
+                                    // corresponding with, so their default (or
+                                    // the override they wrote for this note) is
+                                    // the signature that goes out — resolved
+                                    // here, at send time, from their row.
+                                    signer: Some(user_id),
+                                    overrides: email_overrides.clone(),
                                 },
                             )
                             .await?;

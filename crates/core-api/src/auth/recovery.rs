@@ -169,6 +169,12 @@ async fn issue_mail_token(
                 in_reply_to: None,
                 references: vec![],
                 ticket_id: None,
+                // The product is writing to someone who may not even be
+                // logged in yet, so nobody signs it personally: the
+                // workspace signature closes it, and the ledger records
+                // that rather than guessing at a person.
+                signer: None,
+                overrides: crate::email::EnvelopeOverrides::default(),
             },
         )
         .await?;

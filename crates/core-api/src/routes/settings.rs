@@ -280,6 +280,121 @@ pub async fn user_values_get(
     Ok(Json(values))
 }
 
+/// One placeholder the signature editor can insert, with the value it would
+/// expand to for the caller RIGHT NOW.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct EmailTokenView {
+    /// The placeholder key, e.g. `user.name`.
+    pub key: String,
+    /// Human label for the picker row.
+    pub label: String,
+    /// What it expands to for this caller, or `None` when their record has
+    /// no value for it — a token that would render empty says so here
+    /// instead of looking like a field the editor forgot.
+    pub value: Option<String>,
+}
+
+/// The caller's resolved email envelope: the greeting and signature that
+/// would go out, which rung supplied each, the org's own signature for the
+/// fallback story, the policy in force, and the insertable tokens.
+///
+/// This is the preview AND the composer's prefill in one call, resolved
+/// through the same chain and the same dialect the send path uses. A UI
+/// that previewed with its own regex would be a second implementation of
+/// the rules, and the one thing a preview must never be is more generous
+/// than the send.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct EmailEnvelopeView {
+    pub policy: String,
+    pub greeting: Option<String>,
+    pub greeting_source: String,
+    pub signature: Option<String>,
+    pub signature_source: String,
+    /// The org's own signature (rendered), so a member can see what their
+    /// messages fall back to without an admin.
+    pub org_signature: Option<String>,
+    /// The caller's own stored defaults, unrendered — the token form the
+    /// editor edits.
+    pub user_greeting: String,
+    pub user_signature: String,
+    pub tokens: Vec<EmailTokenView>,
+}
+
+/// GET /api/settings/user/email-envelope — the caller's resolved envelope,
+/// for the signature editor's live preview and the composer's prefill.
+#[utoipa::path(operation_id = "settings_user_email_envelope", get,
+    path = "/api/settings/user/email-envelope", tag = "settings",
+    security(("bearer" = [])),
+    responses((status = 200, body = EmailEnvelopeView)))]
+pub async fn user_email_envelope_get(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<EmailEnvelopeView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    let (org_id, user_id) = (authed.principal.user.org_id, authed.principal.user.id);
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    let envelope = crate::email::resolve_envelope(
+        &mut tx,
+        org_id,
+        None,
+        Some(user_id),
+        &crate::email::EnvelopeOverrides::default(),
+    )
+    .await?;
+
+    // The stored forms, unrendered: the editor edits placeholders, and a
+    // preview that handed back a rendered string would overwrite the
+    // sender's tokens with today's values the moment they looked.
+    let stored_text = |value: Option<serde_json::Value>| {
+        value
+            .as_ref()
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    let user_greeting = stored_text(
+        core_db::settings::get_user_value(&mut *tx, org_id, user_id, registry::EMAIL_GREETING)
+            .await?,
+    );
+    let user_signature = stored_text(
+        core_db::settings::get_user_value(&mut *tx, org_id, user_id, registry::EMAIL_SIGNOFF).await?,
+    );
+
+    // Rendered against the CALLER's own row, which is the whole point of a
+    // live preview: what you see is what the next message carries.
+    let signer_ctx = crate::email::signer_context(&mut tx, org_id, Some(user_id)).await?;
+    let render_ctx = signer_ctx.render_context();
+    let org_signature = envelope
+        .org_default_signature
+        .as_deref()
+        .map(|block| core_domain::email_signature::render_signature(block, &signer_ctx));
+    let tokens = core_domain::templates::SIGNATURE_VARIABLE_LABELS
+        .iter()
+        .map(|(key, label)| EmailTokenView {
+            key: (*key).to_string(),
+            label: (*label).to_string(),
+            value: render_ctx.get(*key).cloned(),
+        })
+        .collect();
+    tx.commit().await.map_err(ApiError::from)?;
+
+    Ok(Json(EmailEnvelopeView {
+        policy: envelope.policy.as_str().to_string(),
+        greeting: envelope.greeting,
+        greeting_source: envelope.greeting_source.as_str().to_string(),
+        signature: envelope.signature,
+        signature_source: envelope.signature_source.as_str().to_string(),
+        org_signature,
+        user_greeting,
+        user_signature,
+        tokens,
+    }))
+}
+
 /// PUT /api/settings/user — upserts one of the CALLER's own user-scope
 /// overrides. No role requirement: everyone may tune their own preferences.
 #[utoipa::path(operation_id = "settings_user_put", put, path = "/api/settings/user",
@@ -301,6 +416,34 @@ pub async fn user_value_put(
     }
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    // A locked org does not merely ignore a personal signature — it
+    // refuses the write, and names the policy that did it. Accepting the
+    // value and then not using it would leave a stored preference the admin
+    // never agreed to, waiting for the day the lock is lifted; refusing
+    // with a bare "rejected" would leave the member unable to tell a
+    // policy from a typo.
+    if decl.key == registry::EMAIL_SIGNOFF {
+        let mut probe = state.pool.begin().await.map_err(ApiError::from)?;
+        core_db::set_org_and_user(&mut probe, org_id, user_id)
+            .await
+            .map_err(ApiError::from)?;
+        let policy = crate::email::signature_policy(&mut *probe, org_id).await?;
+        probe.commit().await.map_err(ApiError::from)?;
+        if !policy.allows_personal() {
+            return Err(ApiError::Validation(format!(
+                "{} is locked to the organization, so it cannot be saved. Your \
+                 messages carry the workspace signature until an admin allows \
+                 personal signatures again.",
+                registry::EMAIL_SIGNOFF
+            )));
+        }
+        // And the same gate the org pair takes: a stored default carrying a
+        // placeholder the send path cannot expand is refused here, on the
+        // field, rather than sent later as a visible placeholder.
+        if let Some(text) = value.to_json().as_str() {
+            crate::email::validate_signature_text(decl.key, text)?;
+        }
+    }
     crate::org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         core_db::settings::upsert_user_setting(
             &mut ctx.tx,

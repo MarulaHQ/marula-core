@@ -11,24 +11,26 @@
 //   (semantic floor mirrored from core-domain workflow; the API stays
 //   authoritative). Confirming posts the final note (chosen visibility,
 //   client-visible by default), then applies the status change.
-// Step 4 (optional) — client email: greeting + sign-off pre-filled from
-//   the tech's per-user preferences (panel-state store — the settings
-//   registry has no greeting/sign-off declarations; follow-up recorded),
-//   client/contact names pulled intelligently from the ticket, posting a
-//   client-visible note so the backend's outbound email path (2.4
-//   MailTransport fan-out to the requester) delivers it.
+// Step 4 (optional) — client email: greeting + signature read from the
+//   tech's ACCOUNT (Wave 42; they were device-local panel prefs welded into
+//   the note text, which meant a second device signed mail differently and
+//   neither matched what the client received). Each is overridable for this
+//   message only, with "save as my default" (policy-checked) and a reset.
+//   The requester's name is pulled from the ticket, the note posts
+//   client-visible, and the backend's outbound path (2.4 MailTransport
+//   fan-out) mails it with the resolved blocks around the generated body.
 // Non-purpose: no checklist enforcement changes (the server refuses
 // closes that violate required items — typed rejections surface inline).
 
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Button, Label, StatusTag, Textarea } from "@marula-core/ui";
+import { Button, FieldHint, Label, StatusTag, Tag, Textarea } from "@marula-core/ui";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { api } from "../../lib/api";
+import { api, apiBaseUrl, authHeaders } from "../../lib/api";
+import { friendlyMutationText } from "../../lib/error-copy";
 import { useDialogA11y } from "../../lib/a11y/use-dialog-a11y";
-import { LocalStoragePanelStateStore } from "@marula-core/layout";
 import { PaperclipIcon } from "./icons";
 import type { NoteKindWire } from "./notes-composer";
 
@@ -37,30 +39,45 @@ type BoardTransitionsResponse = components["schemas"]["BoardTransitionsResponse"
 type ChecklistItem = components["schemas"]["ChecklistItem"];
 type TimeEntry = components["schemas"]["TimeEntry"];
 
-const prefsStore = new LocalStoragePanelStateStore({ namespace: "marula.email-prefs" });
-
-interface EmailPrefs {
-  greeting: string;
-  signOff: string;
+/**
+ * The caller's resolved email envelope (Wave 42), read from the ACCOUNT
+ * rather than this device's panel state — the greeting and sign-off used to
+ * live in local storage, which meant a second device signed mail differently
+ * and neither matched what the client actually received. The endpoint is
+ * pinned by this lane's OpenAPI regen; until the pin lands it is fetched
+ * through the authed fetch helper rather than the generated client.
+ */
+interface EmailEnvelope {
+  policy: "allowed" | "org_locked";
+  greeting: string | null;
+  greeting_source: string;
+  signature: string | null;
+  signature_source: string;
+  org_signature: string | null;
+  user_greeting: string;
+  user_signature: string;
+  tokens: { key: string; label: string; value: string | null }[];
 }
 
-async function loadPrefs(userId: string): Promise<EmailPrefs> {
-  try {
-    const raw = await prefsStore.load(userId);
-    if (raw === null) return { greeting: "", signOff: "" };
-    const parsed = JSON.parse(raw) as Partial<EmailPrefs> | null;
-    return {
-      greeting: typeof parsed?.greeting === "string" ? parsed.greeting : "",
-      signOff: typeof parsed?.signOff === "string" ? parsed.signOff : "",
-    };
-  } catch {
-    return { greeting: "", signOff: "" };
-  }
+const ENVELOPE_PATH = "/api/v1/settings/user/email-envelope";
+
+async function loadEnvelope(): Promise<EmailEnvelope | null> {
+  const response = await fetch(`${apiBaseUrl()}${ENVELOPE_PATH}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) return null;
+  return (await response.json()) as EmailEnvelope;
 }
 
-async function savePrefs(userId: string, prefs: EmailPrefs): Promise<void> {
-  await prefsStore.save(userId, JSON.stringify(prefs));
-}
+/** Ledger wording for each rung of the chain, as the composer shows it. */
+const SOURCE_LABEL: Record<string, string> = {
+  message_override: "this message",
+  user_default: "my default",
+  board_identity: "the board",
+  org_default: "the organization",
+  product: "a fixed Marula line",
+  unset: "nothing yet",
+};
 
 /** Client mirror of the server's transition verdict (core-domain workflow). */
 function transitionAllowed(
@@ -96,8 +113,17 @@ export interface CloseFlowProps {
   statuses: BoardStatus[];
   workflow: BoardTransitionsResponse;
   statusId: string | null;
-  /** Posts a note through the page's instant-first mutate. */
-  onPostNote(body: string, kind: NoteKindWire): Promise<void>;
+  /**
+   * Posts a note through the page's instant-first mutate. The envelope is
+   * the per-message greeting/signature (Wave 42): the SERVER assembles them
+   * around the note when it mails the requester, so the note stays the note
+   * rather than a letter with a salutation welded on.
+   */
+  onPostNote(
+    body: string,
+    kind: NoteKindWire,
+    envelope?: { greeting?: string | null; signature?: string | null } | null,
+  ): Promise<void>;
   /** Applies the status change through the page's instant-first mutate. */
   onChangeStatus(statusId: string): Promise<void>;
 }
@@ -195,26 +221,93 @@ function CloseFlowInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  // Step 4: client email.
-  const [prefs, setPrefs] = useState<EmailPrefs>({ greeting: "", signOff: "" });
+  // Step 4: client email — greeting and signature (Wave 42).
+  //
+  // These were device-local panel prefs welded into the note text. They are
+  // read from the ACCOUNT now, and travel to the server as a per-message
+  // envelope, because the requester is mailed by the backend's own generated
+  // body — not by a textarea here. The preview below is assembled the way
+  // the send path assembles it, so what the member reads is what the
+  // client receives.
+  const recipientName = contactName ?? clientName;
+  const [envelope, setEnvelope] = useState<EmailEnvelope | null>(null);
+  const [greetingOverride, setGreetingOverride] = useState("");
+  const [signatureOverride, setSignatureOverride] = useState("");
+  const [touched, setTouched] = useState({ greeting: false, signature: false });
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   useEffect(() => {
     if (step !== "email") return;
-    void loadPrefs(userId).then(setPrefs);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    void (async () => {
+      const loaded = await loadEnvelope();
+      if (cancelled || loaded === null) return;
+      setEnvelope(loaded);
+      setGreetingOverride(loaded.user_greeting);
+      setSignatureOverride(loaded.user_signature);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [step]);
 
-  const recipientName = contactName ?? clientName;
-  const salutation = (prefs.greeting.trim() !== "" ? prefs.greeting : "Hi {name},").replace(
-    "{name}",
-    recipientName ?? "there",
-  );
-  const signature = prefs.signOff.trim() !== "" ? prefs.signOff : "Thank you,";
-  const [emailBody, setEmailBody] = useState("");
-  useEffect(() => {
-    if (step !== "email") return;
-    setEmailBody(`${salutation}\n\n${finalBody}\n\n${signature}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
+  const locked = envelope?.policy === "org_locked";
+
+  // The effective blocks: the override when one was written for this
+  // message, otherwise the resolved default, labelled by its source so the
+  // member can see which rung will answer.
+  const greetingSource = touched.greeting
+    ? "message_override"
+    : (envelope?.greeting_source ?? "product");
+  const effectiveGreeting =
+    touched.greeting && greetingOverride.trim() !== ""
+      ? greetingOverride
+      : (envelope?.greeting ?? `Hi ${recipientName ?? "there"},`);
+  const signatureSource = touched.signature
+    ? "message_override"
+    : (envelope?.signature_source ?? "unset");
+  const effectiveSignature =
+    touched.signature && signatureOverride.trim() !== ""
+      ? signatureOverride
+      : (envelope?.signature ?? null);
+
+  /** Saves the edited block as this member's own default (policy-checked). */
+  async function saveAsMyDefault(
+    key: "email.greeting" | "email.signoff",
+    value: string,
+  ): Promise<void> {
+    setSaveState("saving");
+    setSaveError(null);
+    const res = await api.api.PUT("/api/v1/settings/user", { body: { key, value } });
+    if (res.error) {
+      setSaveState("error");
+      setSaveError(
+        (res.error as { error?: { message?: string } }).error?.message ??
+          friendlyMutationText(res.error, "Could not save your default"),
+      );
+      return;
+    }
+    setSaveState("saved");
+    const refreshed = await loadEnvelope();
+    if (refreshed !== null) setEnvelope(refreshed);
+  }
+
+  /** Puts the member's own default back after a per-message edit. */
+  function resetToMyDefault(field: "greeting" | "signature"): void {
+    if (envelope === null) return;
+    setTouched((current) => ({ ...current, [field]: false }));
+    if (field === "greeting") setGreetingOverride(envelope.user_greeting);
+    else setSignatureOverride(envelope.user_signature);
+  }
+
+  function insertToken(key: string): void {
+    if (locked) return;
+    setSignatureOverride((current) =>
+      current.length > 0 ? `${current}\n{{${key}}}` : `{{${key}}}`,
+    );
+    setTouched((current) => ({ ...current, signature: true }));
+  }
 
   async function run(fn: () => Promise<void>): Promise<boolean> {
     setBusy(true);
@@ -408,75 +501,224 @@ function CloseFlowInner({
         {step === "email" && (
           <div className="grid gap-2" data-testid="close-step-email">
             <p className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
-              Optionally email the client the summary. Greeting and sign-off come from your preferences
-              (editable here); {recipientName !== null ? `writing to ${recipientName}` : "no client/contact name on this ticket"}.
-              The note posts client-visible and the outbound email rides the backend mail path.
+              Emails the client the summary
+              {recipientName !== null ? ` (writing to ${recipientName})` : ""}. Your
+              greeting and signature come from your account; change them here for this
+              message only, or keep them. The note posts client-visible and the requester
+              is emailed by the backend path with these blocks around it.
             </p>
-            <div className="grid gap-1">
-              <Label htmlFor="close-email-greeting">Greeting</Label>
-              <Textarea
-                id="close-email-greeting"
-                rows={2}
-                value={salutation}
-                onChange={(e) => setPrefs({ ...prefs, greeting: e.target.value })}
-                data-testid="close-email-greeting"
-              />
+
+            {locked ? (
+              <div
+                className="grid gap-2 rounded-md border p-3"
+                data-testid="close-email-locked"
+                style={{
+                  borderColor: "var(--m-border)",
+                  background: "var(--m-surface-muted)",
+                }}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Tag tone="neutral">Locked to the organization</Tag>
+                  <span className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
+                    This workspace sends one signature of its own.
+                  </span>
+                </div>
+                {effectiveSignature !== null && (
+                  <pre
+                    className="m-0 whitespace-pre-wrap text-xs"
+                    style={{ color: "var(--m-text)" }}
+                    data-testid="close-email-locked-block"
+                  >
+                    {effectiveSignature}
+                  </pre>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-1">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <Label htmlFor="close-email-greeting">Greeting for this message</Label>
+                    {touched.greeting && (
+                      <span className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => resetToMyDefault("greeting")}
+                          data-testid="close-email-greeting-reset"
+                        >
+                          Reset to my default
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() =>
+                            void saveAsMyDefault("email.greeting", greetingOverride)
+                          }
+                          data-testid="close-email-greeting-save"
+                        >
+                          Save as my default
+                        </Button>
+                      </span>
+                    )}
+                  </div>
+                  <Textarea
+                    id="close-email-greeting"
+                    rows={2}
+                    value={greetingOverride}
+                    placeholder="Leave as my default"
+                    onChange={(e) => {
+                      setGreetingOverride(e.target.value);
+                      setTouched((current) => ({ ...current, greeting: true }));
+                    }}
+                    data-testid="close-email-greeting"
+                  />
+                  <FieldHint>
+                    Empty sends your own default, and the workspace greeting if you have
+                    none.
+                  </FieldHint>
+                </div>
+
+                <div className="grid gap-1">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <Label htmlFor="close-email-signoff">Signature for this message</Label>
+                    {touched.signature && (
+                      <span className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => resetToMyDefault("signature")}
+                          data-testid="close-email-signoff-reset"
+                        >
+                          Reset to my default
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() =>
+                            void saveAsMyDefault("email.signoff", signatureOverride)
+                          }
+                          data-testid="close-email-signoff-save"
+                        >
+                          Save as my default
+                        </Button>
+                      </span>
+                    )}
+                  </div>
+                  <Textarea
+                    id="close-email-signoff"
+                    rows={2}
+                    value={signatureOverride}
+                    placeholder="Leave as my default"
+                    onChange={(e) => {
+                      setSignatureOverride(e.target.value);
+                      setTouched((current) => ({ ...current, signature: true }));
+                    }}
+                    data-testid="close-email-signoff"
+                  />
+                  <FieldHint>
+                    Empty sends your own default, and the workspace signature if you have
+                    none. Placeholders fill in when the message sends.
+                  </FieldHint>
+                  {envelope !== null && envelope.tokens.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+                        Insert
+                      </span>
+                      {envelope.tokens.map((token) => (
+                        <Button
+                          key={token.key}
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => insertToken(token.key)}
+                          data-testid={`close-email-token-${token.key.replaceAll(".", "-")}`}
+                        >
+                          {token.label}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            <div
+              className="grid gap-1.5 rounded-md border p-3"
+              data-testid="close-email-preview"
+              style={{ borderColor: "var(--m-border)" }}
+            >
+              <span className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
+                How it goes out
+              </span>
+              <pre
+                className="m-0 whitespace-pre-wrap text-xs"
+                style={{ color: "var(--m-text)" }}
+                data-testid="close-email-preview-body"
+              >
+                {[
+                  effectiveGreeting,
+                  "",
+                  `New reply on ticket ${ticketNumber}:`,
+                  "",
+                  finalBody,
+                  effectiveSignature === null ? null : "",
+                  effectiveSignature,
+                ]
+                  .filter((line): line is string => line !== null)
+                  .join("\n")
+                  .trim()}
+              </pre>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Tag tone="neutral">
+                  Signature: {SOURCE_LABEL[signatureSource] ?? signatureSource}
+                </Tag>
+                <Tag tone="neutral">
+                  Greeting: {SOURCE_LABEL[greetingSource] ?? greetingSource}
+                </Tag>
+              </div>
             </div>
-            <div className="grid gap-1">
-              <Label htmlFor="close-email-body">Email body</Label>
-              <Textarea
-                id="close-email-body"
-                rows={7}
-                value={emailBody}
-                onChange={(e) => setEmailBody(e.target.value)}
-                data-testid="close-email-body"
-              />
-            </div>
-            <div className="grid gap-1">
-              <Label htmlFor="close-email-signoff">Sign-off</Label>
-              <Textarea
-                id="close-email-signoff"
-                rows={2}
-                value={signature}
-                onChange={(e) => setPrefs({ ...prefs, signOff: e.target.value })}
-                data-testid="close-email-signoff"
-              />
-            </div>
-            <p className="flex items-center gap-1 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-              <PaperclipIcon /> Preferences save to your account on this device.
-            </p>
+
+            {saveState === "error" && (
+              <span
+                className="text-xs"
+                role="alert"
+                style={{ color: "var(--m-status-danger-fg)" }}
+                data-testid="close-email-save-error"
+              >
+                {saveError ?? "Could not save that default."}
+              </span>
+            )}
+            {saveState === "saved" && (
+              <span
+                className="text-xs"
+                role="status"
+                style={{ color: "var(--m-status-success-fg)" }}
+                data-testid="close-email-save-saved"
+              >
+                Saved to your account.
+              </span>
+            )}
+
             <div className="flex justify-between gap-2">
               <Button size="sm" variant="ghost" onClick={onCloseDialog} disabled={busy}>
                 Skip email
               </Button>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => {
-                    void savePrefs(userId, prefs);
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={busy || finalBody.trim() === ""}
+                data-testid="close-email-send"
+                onClick={() =>
+                  void run(async () => {
+                    await onPostNote(finalBody, "client_visible", {
+                      greeting: touched.greeting ? greetingOverride : null,
+                      signature: touched.signature ? signatureOverride : null,
+                    });
                     setStep("done");
-                  }}
-                  data-testid="close-email-skip"
-                >
-                  Save prefs, finish
-                </Button>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={busy || emailBody.trim() === ""}
-                  data-testid="close-email-send"
-                  onClick={() =>
-                    void run(async () => {
-                      await onPostNote(emailBody, "client_visible");
-                      await savePrefs(userId, prefs);
-                      setStep("done");
-                    })
-                  }
-                >
-                  Send &amp; finish
-                </Button>
-              </div>
+                  })
+                }
+              >
+                Send &amp; finish
+              </Button>
             </div>
           </div>
         )}

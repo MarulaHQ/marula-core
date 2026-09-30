@@ -1677,6 +1677,11 @@ pub async fn send_statement(
                 in_reply_to: None,
                 references: vec![],
                 ticket_id: None,
+                // The member who ran the dunning sweep is the person the
+                // client is corresponding with, so their signature resolves
+                // (their default, or the org's when they have none).
+                signer: Some(user_id),
+                overrides: crate::email::EnvelopeOverrides::default(),
             },
         )
         .await?;

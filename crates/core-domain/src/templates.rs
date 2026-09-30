@@ -148,7 +148,56 @@ pub fn validate_content(
 /// out-of-vocabulary variables are hard errors — never silent empties
 /// (ADR 0004: typed variables, resolved from entity context).
 pub fn render(kind: TemplateKind, text: &str, ctx: &RenderContext) -> Result<String, RenderError> {
-    let vocab = variables_for_kind(kind);
+    render_with(text, variables_for_kind(kind), kind.as_str(), ctx)
+}
+
+/// The SIGNATURE vocabulary (Wave 42). A signature identifies the person
+/// who wrote the message, so it gets the sender's own row and nothing
+/// else: no ticket, no client, no contact.
+///
+/// It is exactly the set the `users` row can fill today: `display_name`,
+/// `email`, and the org's name. A `users.title` or `users.phone` column
+/// would add its entry here in the same commit that adds the column.
+/// Offering a token that can only ever render empty is the one thing this
+/// vocabulary must not do, because the editor would promise a field the
+/// send path cannot deliver — so the closed set is also the offerable set.
+pub const SIGNATURE_VARIABLES: &[&str] = &["org.name", "user.name", "user.email"];
+
+/// Human labels for the signature placeholders — the token picker's rows
+/// come from this, so the picker and the vocabulary cannot drift.
+pub const SIGNATURE_VARIABLE_LABELS: &[(&str, &str)] = &[
+    ("user.name", "Your name"),
+    ("user.email", "Your email address"),
+    ("org.name", "Workspace name"),
+];
+
+/// Write-time gate for a signature (org default or personal): every
+/// placeholder must be in the signature vocabulary, malformed ones reject.
+/// Same contract as `validate_content`, over the signature vocabulary.
+pub fn validate_signature(text: &str) -> Result<(), RenderError> {
+    for key in extract_placeholders(text)? {
+        if !SIGNATURE_VARIABLES.contains(&key.as_str()) {
+            return Err(RenderError::UnknownVariable(key, "signature".to_string()));
+        }
+    }
+    Ok(())
+}
+
+/// Renders a signature through the SAME engine and the SAME error type as
+/// every other template — this is a vocabulary, not a second dialect.
+pub fn render_signature(text: &str, ctx: &RenderContext) -> Result<String, RenderError> {
+    render_with(text, SIGNATURE_VARIABLES, "signature", ctx)
+}
+
+/// The one placeholder scanner. Every renderer is a vocabulary over it, so
+/// a malformed placeholder, an empty `{{}}`, or a nested brace behaves
+/// identically wherever it is met.
+fn render_with(
+    text: &str,
+    vocab: &[&str],
+    kind_label: &str,
+    ctx: &RenderContext,
+) -> Result<String, RenderError> {
     let mut out = String::with_capacity(text.len());
     let bytes = text.as_bytes();
     let mut i = 0;
@@ -172,7 +221,7 @@ pub fn render(kind: TemplateKind, text: &str, ctx: &RenderContext) -> Result<Str
             if !vocab.contains(&key) {
                 return Err(RenderError::UnknownVariable(
                     key.to_string(),
-                    kind.as_str().to_string(),
+                    kind_label.to_string(),
                 ));
             }
             // A vocabulary key missing from the context (e.g. no contact on

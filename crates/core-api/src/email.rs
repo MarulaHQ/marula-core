@@ -15,6 +15,8 @@ use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 use chrono::Utc;
 use core_db::emails::{self, InboundRoute, NewMessage};
+use core_domain::email_signature as signature;
+use core_domain::email_signature::{SignaturePolicy, SignatureSource};
 use core_domain::entities::{EmailDirection, ScanStatus};
 use core_domain::events::{self, types, EmailMessageRecorded, TicketCommentAdded};
 use core_domain::settings as registry;
@@ -174,6 +176,228 @@ pub async fn resolve_brand(conn: &mut PgConnection, org_id: Uuid) -> ApiResult<B
         brand_name,
         logo_url,
     })
+}
+
+// --- greeting + signature resolution (Wave 42) -------------------------------
+
+/// The greeting and signature that go out with one message, plus WHICH
+/// source supplied each. The sources are the ledger's memory: a delivery
+/// view that showed the block without saying where it came from would make
+/// every "why does this say that" question a guess.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedEnvelope {
+    pub greeting: Option<String>,
+    pub signature: Option<String>,
+    pub greeting_source: SignatureSource,
+    pub signature_source: SignatureSource,
+    /// The policy in force, so a caller can render the honest locked state
+    /// without reading the setting a second time.
+    pub policy: SignaturePolicy,
+    /// The org's stored signature, UNRENDERED. Carried so a preview can
+    /// show the fallback a member actually gets without re-reading the
+    /// setting and hoping the two reads agree.
+    pub org_default_signature: Option<String>,
+}
+
+/// Per-message overrides a composer may set for THIS message. Both are
+/// personal by nature — a greeting written for one client and a signature
+/// written for one reply — so both are closed by the org lock exactly like
+/// the stored personal signature is.
+#[derive(Debug, Clone, Default)]
+pub struct EnvelopeOverrides {
+    pub greeting: Option<String>,
+    pub signature: Option<String>,
+}
+
+/// The org's signature policy, read on its own so a route that only needs
+/// to ASK may lock can without resolving a whole envelope.
+pub async fn signature_policy(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+) -> ApiResult<SignaturePolicy> {
+    Ok(SignaturePolicy::parse(
+        &stored_text(conn, org_id, registry::EMAIL_SIGNATURE_POLICY)
+            .await?
+            .unwrap_or_else(|| SignaturePolicy::Allowed.as_str().to_string()),
+    ))
+}
+
+/// Reads the four stored candidates and walks the chain, rendering the
+/// winner against the SENDER's row at send time. The chain itself is
+/// `core_domain::email_signature` and is unit-tested there; this function
+/// is the read side and nothing else.
+///
+/// `signer` is `Some(user_id)` when a person wrote the message and `None`
+/// when the product sent it (a notification or digest to a member, a
+/// public booking confirmation) — a machine has no personal signature to
+/// borrow, so the personal rungs are skipped.
+pub async fn resolve_envelope(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    ticket_id: Option<Uuid>,
+    signer: Option<Uuid>,
+    overrides: &EnvelopeOverrides,
+) -> ApiResult<ResolvedEnvelope> {
+    let policy = signature_policy(&mut *conn, org_id).await?;
+    let signer_kind = match signer {
+        Some(_) => signature::Signer::User,
+        None => signature::Signer::System,
+    };
+
+    // The board rung needs the ticket's board, which needs the ticket. A
+    // ticket that vanished mid-flight must not fail the send: the org
+    // default is the honest fallback, and the ledger records it.
+    let board_signature = match ticket_id {
+        Some(id) => match core_db::tickets::get_ticket(&mut *conn, org_id, id).await {
+            Ok(ticket) => core_db::emails::get_board_identity(&mut *conn, org_id, ticket.board_id)
+                .await?
+                .signature,
+            Err(_) => None,
+        },
+        None => None,
+    };
+
+    // The user default is read only when the policy admits it. Reading it
+    // under a lock and then discarding it would leave a personal signature
+    // in the row the moment the lock is lifted, which is a state the admin
+    // never agreed to: they locked it, they meant it.
+    let user_default = match (signer, policy.allows_personal()) {
+        (Some(user_id), true) => core_db::settings::get_user_value(
+            &mut *conn,
+            org_id,
+            user_id,
+            registry::EMAIL_SIGNOFF,
+        )
+        .await?
+        .as_ref()
+        .and_then(|value| value.as_str())
+        .map(str::to_string),
+        _ => None,
+    };
+
+    let signature_input = signature::SignatureInput {
+        override_text: overrides.signature.clone(),
+        user_default,
+        board_signature,
+        org_default: stored_text(conn, org_id, registry::EMAIL_SIGNATURE).await?,
+    };
+    let greeting_input = signature::SignatureInput {
+        override_text: overrides.greeting.clone(),
+        // A personal greeting is house voice, not identity, so the lock
+        // does not reach it — see the domain module's header for why.
+        user_default: match signer {
+            Some(user_id) => core_db::settings::get_user_value(
+                &mut *conn,
+                org_id,
+                user_id,
+                registry::EMAIL_GREETING,
+            )
+            .await?
+            .as_ref()
+            .and_then(|value| value.as_str())
+            .map(str::to_string),
+            None => None,
+        },
+        board_signature: None,
+        org_default: stored_text(conn, org_id, registry::EMAIL_ORG_GREETING).await?,
+    };
+
+    let signature_resolved = signature::resolve(policy, signer_kind, &signature_input);
+    let greeting_resolved = signature::resolve_greeting(signer_kind, &greeting_input);
+    let ctx = signer_context(&mut *conn, org_id, signer).await?;
+
+    Ok(ResolvedEnvelope {
+        greeting: greeting_resolved
+            .text
+            .as_deref()
+            .map(|text| signature::render_signature(text, &ctx)),
+        signature: signature_resolved
+            .text
+            .as_deref()
+            .map(|text| signature::render_signature(text, &ctx)),
+        greeting_source: greeting_resolved.source,
+        signature_source: signature_resolved.source,
+        policy,
+        org_default_signature: signature_input.org_default.clone(),
+    })
+}
+
+/// The row a signature is rendered against. Resolved NOW, at send time —
+/// this is the whole point of the lane: an edited display name, a new
+/// email address or a renamed org reaches the next message without anyone
+/// re-saving a signature. A system envelope still gets the org name, so an
+/// org placeholder in the org signature is never blank.
+///
+/// Public because the preview renders the org's signature through the very
+/// same call the send path uses — a preview that resolved its own context
+/// would be a second implementation of "what does this expand to".
+pub async fn signer_context(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    signer: Option<Uuid>,
+) -> ApiResult<signature::SignerContext> {
+    let org_name = core_db::orgs::get_org(&mut *conn, org_id)
+        .await
+        .map(|org| org.name)
+        .unwrap_or_default();
+    let (user_name, user_email) = match signer {
+        Some(user_id) => match core_db::users::get_user(&mut *conn, org_id, user_id).await {
+            Ok(user) => (user.display_name, user.email),
+            // A deactivated or deleted user must not blank the signature:
+            // the block is sent with the org's name alone, which is the
+            // honest rendering of a record that is no longer there.
+            Err(_) => (String::new(), String::new()),
+        },
+        None => (String::new(), String::new()),
+    };
+    Ok(signature::SignerContext {
+        user_name,
+        user_email,
+        org_name,
+    })
+}
+
+/// Write-time gate for a stored greeting or signature (the org pair, a
+/// personal default, a board identity). The registry already caps the
+/// length; this refuses a placeholder outside the signature vocabulary, so
+/// a stored value can never contain a token the send path would not
+/// expand. The message names the offending key because the editor shows it
+/// on the field.
+///
+/// It runs on the write path and NOT at render time on purpose: a stored
+/// value that got here anyway (a restore, a direct table write) is sent
+/// with its placeholder visible, which is a visible fault someone will fix,
+/// rather than a silently blank line nobody will.
+pub fn validate_signature_text(key: &str, text: &str) -> ApiResult<()> {
+    if let Err(err) = core_domain::templates::validate_signature(text) {
+        return Err(ApiError::Validation(format!("{key}: {err}")));
+    }
+    Ok(())
+}
+
+/// Assembles the text body of one outbound message: greeting, the body the
+/// caller rendered, then the signature. Each block is optional and each is
+/// skipped when it is absent, so a message with nothing configured reads as
+/// the body alone — never as blank lines where a block should have been.
+pub fn assemble_body(envelope: &ResolvedEnvelope, body: &str) -> String {
+    let mut out = String::new();
+    if let Some(greeting) = envelope.greeting.as_deref() {
+        let greeting = greeting.trim();
+        if !greeting.is_empty() {
+            out.push_str(greeting);
+            out.push_str("\n\n");
+        }
+    }
+    out.push_str(body.trim());
+    if let Some(signature) = envelope.signature.as_deref() {
+        let signature = signature.trim();
+        if !signature.is_empty() {
+            out.push('\n');
+            out.push_str(signature);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 /// Outcome of processing one webhook POST — terminal statuses surfaced to
@@ -743,23 +967,64 @@ pub struct OutboundEnqueue<'a> {
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
     pub ticket_id: Option<Uuid>,
+    /// The person whose signature applies — `Some` for mail a person
+    /// wrote to a client, `None` for mail the product sent on its own.
+    /// This is what makes a personal signature personal: the same user id
+    /// on two messages can resolve differently if the policy or the row
+    /// changed between them.
+    pub signer: Option<Uuid>,
+    /// Greeting/signature the composer wrote for THIS message.
+    pub overrides: EnvelopeOverrides,
+}
+
+impl OutboundEnqueue<'_> {
+    /// A system-sent message: no personal signer, no per-message override.
+    /// A system-sent message: no personal signer, no per-message override.
+    pub fn system(
+        mail: &MailStack,
+        org_id: Uuid,
+        to_addresses: Vec<String>,
+        kind: &core_mail::outbound::OutboundKind,
+        ticket_id: Option<Uuid>,
+    ) -> Self {
+        Self {
+            mail,
+            org_id,
+            to_addresses,
+            kind,
+            in_reply_to: None,
+            references: Vec::new(),
+            ticket_id,
+            signer: None,
+            overrides: EnvelopeOverrides::default(),
+        }
+    }
 }
 
 /// Shared outbound enqueue: resolves the from/reply-to identity (org, then
-/// the ticket's board when there is one), appends the effective signature,
-/// renders the kind, writes the ledger + retry rows, and emits
-/// `email.message_recorded` (outcome `queued`). Caller owns the transaction.
+/// the ticket's board when there is one), resolves the greeting and
+/// signature for the SENDER, renders the kind, writes the ledger + retry
+/// rows, and emits `email.message_recorded` (outcome `queued`). Caller owns
+/// the transaction.
+///
+/// The greeting and signature are the resolved values, not the org's
+/// stored text: the board rung and the personal rungs live in
+/// `resolve_envelope`, and the two sources land on the ledger row so the
+/// delivery log can say which one applied.
 pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResult<()> {
     if req.to_addresses.is_empty() {
         return Ok(());
     }
     let identity = resolve_mail_identity(tx, req.org_id, req.ticket_id, req.mail).await?;
-    let mut body = req.kind.body();
-    if let Some(signature) = identity.signature.as_deref() {
-        if !signature.trim().is_empty() {
-            body = format!("{}\n\n{}", body.trim_end(), signature.trim());
-        }
-    }
+    let envelope = resolve_envelope(
+        tx,
+        req.org_id,
+        req.ticket_id,
+        req.signer,
+        &req.overrides,
+    )
+    .await?;
+    let body = assemble_body(&envelope, &req.kind.body());
     let message_id = emails::enqueue_outbound(
         tx,
         emails::NewOutbound {
@@ -778,6 +1043,8 @@ pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResul
             body_text: body,
             ticket_id: req.ticket_id,
             transport: identity.transport_label,
+            signature_source: Some(envelope.signature_source.as_str().to_string()),
+            greeting_source: Some(envelope.greeting_source.as_str().to_string()),
         },
     )
     .await?;
@@ -793,10 +1060,40 @@ pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResul
             "outcome": "queued",
             "ticket_id": req.ticket_id,
             "comment_id": null,
+            "signature_source": envelope.signature_source.as_str(),
+            "greeting_source": envelope.greeting_source.as_str(),
         }),
     )
     .await?;
     Ok(())
+}
+
+/// The two provenance labels a caller-rendered message carries. The caller
+/// already rendered the blocks INTO the body with the branded wrapper, so
+/// this function must not assemble anything again — it only records which
+/// rung supplied each block, because the wrapper path is still a message
+/// that went out under someone's name.
+#[derive(Debug, Clone, Default)]
+pub struct RenderedSources {
+    pub greeting: Option<String>,
+    pub signature: Option<String>,
+}
+
+impl RenderedSources {
+    /// From a resolved envelope — the shape every wrapper path has.
+    pub fn of(envelope: &ResolvedEnvelope) -> Self {
+        Self {
+            greeting: Some(envelope.greeting_source.as_str().to_string()),
+            signature: Some(envelope.signature_source.as_str().to_string()),
+        }
+    }
+
+    /// The honest "not recorded" state, for a render path that resolves no
+    /// envelope. It is deliberately not a default: a new caller has to say
+    /// so, rather than inherit a claim of provenance it never made.
+    pub fn unrecorded() -> Self {
+        Self::default()
+    }
 }
 
 /// Enqueues one caller-rendered message (admin probe, digest, notification
@@ -811,6 +1108,7 @@ pub async fn enqueue_rendered_outbound(
     subject: &str,
     body: &str,
     ticket_id: Option<Uuid>,
+    sources: RenderedSources,
 ) -> ApiResult<Uuid> {
     let identity = resolve_mail_identity(tx, org_id, ticket_id, mail).await?;
     let message_id = emails::enqueue_outbound(
@@ -827,6 +1125,8 @@ pub async fn enqueue_rendered_outbound(
             body_text: body.to_string(),
             ticket_id,
             transport: identity.transport_label,
+            signature_source: sources.signature,
+            greeting_source: sources.greeting,
         },
     )
     .await?;

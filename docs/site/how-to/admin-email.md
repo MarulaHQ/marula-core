@@ -179,7 +179,51 @@ with a branded wrapper around it:
   quiet hours do not hold it. The workspace policy can disable digests
   entirely. It cannot turn them on for someone who has not opted in.
 
-## 5. Reply by email
+## 5. Greeting, signature, and the personal-signature policy
+
+Three fields under **Sending**, one save:
+
+- **Org greeting** opens mail the workspace sends to its own staff: a
+  notification, or the daily digest. It also stands in when a member has no
+  greeting of their own. Empty opens the message with the recipient's name.
+- **Org signature** closes every outbound message, and is the fallback for a
+  member with none of their own. It takes the same placeholders a personal
+  signature does (`{{user.name}}`, `{{user.email}}`, `{{org.name}}`), and a
+  placeholder outside that set is refused on the field rather than stored to
+  be sent raw later.
+- **Personal signatures** is the policy, and it is the one with a decision
+  behind it.
+
+| Policy | What happens |
+| --- | --- |
+| **Allowed** | A member who sets a signature keeps it. The org signature is their fallback, and a board with its own signature sits one rung above the org for that board's mail. |
+| **Locked to the organization** | Every message carries the org signature, or the board's where one exists. A member's own block is refused rather than ignored. |
+
+A board with its own signature under a lock still wins over the org
+signature: the lock closes personal signatures, and a board signature is the
+org speaking through a shared inbox, not a person.
+
+**What "refused" means, concretely.** Under a lock, saving a personal
+signature is a refusal that names the policy, and a per-message override on
+a client-visible note is a refusal that names it too. Nothing is stored
+quietly. If you allow personal signatures again later, the member's default is
+exactly where it was. The lock closed the rungs, it did not delete anyone's
+preference behind them.
+
+The greeting is not covered by the policy. A greeting is the house opening
+line, and the per-user greeting predates this setting, so locking it would
+remove a feature rather than govern one.
+
+Members see their own editor, and the reason their messages are signed the
+way they are, at Settings and Preferences.
+
+A member edits their own copy at **Settings → Preferences**, and the
+[staff how-to](staff-email-signature.md) covers that editor from their side.
+The Email page's delivery log carries a **Signed by** column naming which
+signature went out, one of the sender, the board, the organization, this
+message or none, so a question about one message has an answer.
+
+## 6. Reply by email
 
 When a client replies to a message from a ticket, Marula matches the
 `In-Reply-To` and `References` headers against the message ledger and
@@ -194,7 +238,7 @@ threads the reply onto the ticket. For that to work:
 The Email page shows reply routing as on or off. If it reads off, no client
 reply can reach a ticket until routing is enabled.
 
-## 6. Malware scanning (optional, recommended)
+## 7. Malware scanning (optional, recommended)
 
 Attachments are scanned before anything is written when a scanner is
 configured: `EMAIL_SCAN=clamd` switches the scan provider on, and
@@ -208,7 +252,7 @@ means the bytes are kept unscanned. That is a deliberate standalone-first
 default, not a promise of safety. Run clamd when you accept attachments
 from outside your organization.
 
-## 7. Self-host runbook
+## 8. Self-host runbook
 
 For deployments configured by environment (the path older installs use),
 the worker still honors these variables:

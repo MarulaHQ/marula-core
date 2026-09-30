@@ -421,7 +421,17 @@ export function TicketWorkspaceClassic(): ReactNode {
     patchModel(updater);
   }
 
-  async function postComment(body: string, kind: TicketComment["kind"], attachmentIds: string[]): Promise<void> {
+  /**
+   * Posts a note. `emailEnvelope` (Wave 42) is the per-message
+   * greeting/signature the close-flow wrote; it is null everywhere else, and
+   * the server treats an absent envelope as "resolve the defaults".
+   */
+  async function postComment(
+    body: string,
+    kind: TicketComment["kind"],
+    attachmentIds: string[],
+    emailEnvelope?: { greeting?: string | null; signature?: string | null } | null,
+  ): Promise<void> {
     if (ticket === null) return;
     try {
       const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -446,6 +456,17 @@ export function TicketWorkspaceClassic(): ReactNode {
           body,
           kind,
           attachment_ids: attachmentIds,
+          // Only the close-flow sends one, so the field is absent everywhere
+          // else rather than a pair of nulls in every note body.
+          ...(emailEnvelope != null &&
+          (emailEnvelope.greeting != null || emailEnvelope.signature != null)
+            ? {
+                email_envelope: {
+                  greeting: emailEnvelope.greeting ?? undefined,
+                  signature: emailEnvelope.signature ?? undefined,
+                },
+              }
+            : {}),
           ...base,
         }),
         optimistic: () => {
@@ -1093,8 +1114,12 @@ export function TicketWorkspaceClassic(): ReactNode {
                     statuses={statuses}
                     workflow={workflow}
                     statusId={ticket.status_id}
-                    onPostNote={async (body, kind) => {
-                      await postComment(body, kind, []);
+                    // The envelope rides along with the note (Wave 42): the
+                    // server assembles greeting + note + signature around the
+                    // generated body it mails the requester, so the note itself
+                    // stays the note.
+                    onPostNote={async (body, kind, envelope) => {
+                      await postComment(body, kind, [], envelope);
                     }}
                     onChangeStatus={changeStatus}
                   />

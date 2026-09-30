@@ -71,6 +71,9 @@ interface OutboundView {
   from_name: string;
   reply_to: string;
   signature: string;
+  /** The org's own greeting, and the rule over personal ones (Wave 42). */
+  org_greeting: string;
+  signature_policy: string;
   brand_name: string;
   logo_url: string;
   smtp_host: string;
@@ -108,6 +111,11 @@ interface LedgerRow {
   max_attempts: number;
   last_error: string | null;
   created_at: string;
+  /** Which rung supplied the signature / greeting for THIS message, and the
+   *  wording an admin reads (Wave 42). Null on a row sent before the lane
+   *  recorded it, which renders as "none" rather than a guess. */
+  signature_source: { source: string; label: string } | null;
+  greeting_source: { source: string; label: string } | null;
 }
 
 interface LedgerView {
@@ -129,6 +137,19 @@ interface OrgDefaultRow {
 interface OrgDefaultsView {
   defaults: OrgDefaultRow[];
 }
+
+/**
+ * The org signature's insertable fields (Wave 42). The keys are the
+ * signature vocabulary the send path expands; `{{user.name}}` is worth
+ * having in an ORG signature because the org signature also stands in for
+ * a member who has none of their own — so the fallback that lands is still
+ * addressed to the sender.
+ */
+const ORG_SIGNATURE_TOKENS: readonly { key: string; label: string }[] = [
+  { key: "org.name", label: "Workspace name" },
+  { key: "user.name", label: "Sender name" },
+  { key: "user.email", label: "Sender email" },
+];
 
 const TRANSPORT_LABELS: Record<string, string> = {
   none: "None (keep messages queued)",
@@ -612,6 +633,11 @@ function SendingCard({
   const [fromName, setFromName] = useState(out.from_name);
   const [replyTo, setReplyTo] = useState(out.reply_to);
   const [signature, setSignature] = useState(out.signature);
+  // Wave 42: the org greeting and the rule over personal signatures ride the
+  // same editor and the same save, because they are one decision — what
+  // this workspace calls itself on the way out, and who may add to it.
+  const [orgGreeting, setOrgGreeting] = useState(out.org_greeting);
+  const [signaturePolicy, setSignaturePolicy] = useState(out.signature_policy);
   const [smtpHost, setSmtpHost] = useState(out.smtp_host);
   const [smtpPort, setSmtpPort] = useState(String(out.smtp_port));
   const [smtpUsername, setSmtpUsername] = useState(out.smtp_username);
@@ -637,6 +663,8 @@ function SendingCard({
     setFromName(out.from_name);
     setReplyTo(out.reply_to);
     setSignature(out.signature);
+    setOrgGreeting(out.org_greeting);
+    setSignaturePolicy(out.signature_policy);
     setSmtpHost(out.smtp_host);
     setSmtpPort(String(out.smtp_port));
     setSmtpUsername(out.smtp_username);
@@ -649,6 +677,8 @@ function SendingCard({
     fromName !== out.from_name ||
     replyTo !== out.reply_to ||
     signature !== out.signature ||
+    orgGreeting !== out.org_greeting ||
+    signaturePolicy !== out.signature_policy ||
     smtpHost !== out.smtp_host ||
     smtpPort !== String(out.smtp_port) ||
     smtpUsername !== out.smtp_username ||
@@ -666,6 +696,8 @@ function SendingCard({
           from_name: fromName,
           reply_to: replyTo,
           signature,
+          org_greeting: orgGreeting,
+          signature_policy: signaturePolicy,
           smtp_host: smtpHost,
           smtp_port: Number.isFinite(port) ? port : out.smtp_port,
           smtp_username: smtpUsername,
@@ -915,6 +947,25 @@ function SendingCard({
             />
           </label>
           <label className="grid gap-1">
+            <span className="text-xs">Org greeting</span>
+            <Input
+              value={orgGreeting}
+              onChange={(e) => {
+                setOrgGreeting(e.target.value);
+                setSaved(false);
+              }}
+              placeholder="Hello from Acme,"
+              data-testid="mail-org-greeting"
+            />
+            <FieldHint>
+              Opens mail the workspace sends to its own staff, and stands in when a member
+              has no greeting of their own. Empty opens the message with their name.
+            </FieldHint>
+          </label>
+        </div>
+
+        <div className="grid gap-2" data-testid="mail-signature-block">
+          <div className="grid gap-1">
             <span className="text-[12px]">Org signature</span>
             <textarea
               value={signature}
@@ -924,8 +975,59 @@ function SendingCard({
               }}
               rows={3}
               className="m-input"
-              placeholder={"Acme Support\nsupport@yourdomain.com"}
+              placeholder={"{{org.name}} Support\nsupport@yourdomain.com"}
+              data-testid="mail-org-signature"
             />
+            <FieldHint>
+              Closes every outbound message, and is the fallback for a member with no
+              signature of their own. Placeholders fill in when a message sends.
+            </FieldHint>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
+              Insert a field
+            </span>
+            {ORG_SIGNATURE_TOKENS.map((token) => (
+              <Button
+                key={token.key}
+                variant="secondary"
+                onClick={() => {
+                  setSignature((current) =>
+                    current.length > 0 ? `${current}\n{{${token.key}}}` : `{{${token.key}}}`,
+                  );
+                  setSaved(false);
+                }}
+                data-testid={`mail-signature-token-${token.key.replaceAll(".", "-")}`}
+              >
+                {token.label}
+              </Button>
+            ))}
+          </div>
+
+          <label className="grid gap-1 md:max-w-md">
+            <span className="text-xs">Personal signatures</span>
+            <Select
+              value={signaturePolicy}
+              onValueChange={(next) => {
+                setSignaturePolicy(next);
+                setSaved(false);
+              }}
+              data-testid="mail-signature-policy"
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="allowed">Allowed — members may sign as themselves</SelectItem>
+                <SelectItem value="org_locked">Locked: every message carries the org signature</SelectItem>
+              </SelectContent>
+            </Select>
+            <FieldHint>
+              {signaturePolicy === "org_locked"
+                ? "Members cannot keep a signature of their own, and a per-message override is refused rather than dropped — the ledger records the org signature as the one that went out."
+                : "A member who sets a signature keeps it, with the org signature as their fallback."}
+            </FieldHint>
           </label>
         </div>
 
@@ -1098,6 +1200,7 @@ function LedgerCard({
                   <Th className="font-medium">Subject</Th>
                   <Th className="font-medium">State</Th>
                   <Th className="font-medium">Attempts</Th>
+                  <Th className="font-medium">Signed by</Th>
                   <Th className="font-medium">Detail</Th>
                 </tr>
               </thead>
@@ -1120,6 +1223,24 @@ function LedgerCard({
                     </Td>
                     <Td className="px-3 py-2 text-[12px]" style={{ fontFamily: "var(--m-font-mono)" }}>
                       {row.attempts}/{row.max_attempts}
+                    </Td>
+                    <Td className="px-3 py-2 text-xs">
+                      {/* Which rung of the resolution chain supplied this
+                          message's signature (Wave 42). A row sent before the
+                          lane recorded it reads "none" — the truth about a row
+                          nothing was recorded against. */}
+                      <span
+                        style={{ color: "var(--m-text-secondary)" }}
+                        data-testid={`ledger-signed-${row.message_id}`}
+                      >
+                        {row.signature_source?.label ?? "none"}
+                        {row.greeting_source != null && row.greeting_source.source !== "unset" && (
+                          <span style={{ color: "var(--m-text-muted)" }}>
+                            {" · opens "}
+                            {row.greeting_source.label}
+                          </span>
+                        )}
+                      </span>
                     </Td>
                     <Td className="px-3 py-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                       {row.last_error ? (

@@ -1612,6 +1612,12 @@ pub async fn public_book(
                             in_reply_to: None,
                             references: vec![],
                             ticket_id: resolved.ticket_id,
+                            // A public booking is written by the BOOKER, not
+                            // by a member: nobody on the org side signed it,
+                            // so the personal rungs are skipped and the
+                            // ticket's board (then the org) closes the mail.
+                            signer: None,
+                            overrides: crate::email::EnvelopeOverrides::default(),
                         },
                     )
                     .await?;

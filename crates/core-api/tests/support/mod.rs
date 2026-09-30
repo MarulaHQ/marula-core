@@ -440,6 +440,10 @@ impl MailHarness {
                 in_reply_to: None,
                 references: Vec::new(),
                 ticket_id: Some(ticket_id),
+                // Seeded directly for transport coverage: nobody wrote this
+                // one, so the workspace signature closes it.
+                signer: None,
+                overrides: email::EnvelopeOverrides::default(),
             },
         )
         .await

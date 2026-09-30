@@ -14,83 +14,401 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, Card, FieldHint, Label, Textarea } from "@marula-core/ui";
+import {
+  Button,
+  Card,
+  FieldHint,
+  Input,
+  Label,
+  Spinner,
+  Tag,
+  Textarea,
+} from "@marula-core/ui";
 import { useTheme } from "@marula-core/ui";
 import type { Theme } from "@marula-core/ui";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { api, useRequireAuth } from "../../../lib/api";
+import { api, apiBaseUrl, authHeaders, useRequireAuth } from "../../../lib/api";
 import { useToursState } from "../../../lib/help/help-settings";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 
-type GreetingKey = "email.greeting" | "email.signoff";
+/** The two per-user email keys this card owns, in editor order. */
+const GREETING_HINTS: Record<string, string> = {
+  "email.greeting": "Opens every outgoing ticket email — e\u2019Hi there,\u2019",
+  "email.signoff": "Closes every outgoing ticket email — e.g. \u201cKind regards,\n{{user.name}}\u201d.",
+};
 
-const GREETING_KEYS: readonly (readonly [GreetingKey, string])[] = [
-  ["email.greeting", "Greeting"],
-  ["email.signoff", "Sign-off"],
-];
+/** One insertable placeholder, with the value it expands to for this member. */
+interface SignatureToken {
+  key: string;
+  label: string;
+  value: string | null;
+}
 
 /**
- * Debounced autosave for one user-scope text setting — the instant-first
- * dominant path: the local state updates as the user types, the wire write
- * fires after the user stops (600ms), and a typed rejection surfaces
- * inline.
+ * The caller's resolved envelope. The endpoint is pinned by this lane's
+ * OpenAPI regen; until the pin lands the fetch is typed here rather than
+ * through the generated client, which is the same escape the other
+ * settings pages use for a shape the SDK does not carry yet.
  */
-function useDebouncedUserSetting(key: GreetingKey, authed: boolean): {
-  value: string;
-  onChange(next: string): void;
-  state: "idle" | "saving" | "saved" | "error";
-  error: string | null;
-} {
-  const [value, setValue] = useState("");
-  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const runId = useRef(0);
+interface EmailEnvelope {
+  policy: "allowed" | "org_locked";
+  greeting: string | null;
+  greeting_source: string;
+  signature: string | null;
+  signature_source: string;
+  org_signature: string | null;
+  user_greeting: string;
+  user_signature: string;
+  tokens: SignatureToken[];
+}
+
+const ENVELOPE_PATH = "/api/v1/settings/user/email-envelope";
+
+async function fetchEnvelope(): Promise<EmailEnvelope | null> {
+  const response = await fetch(`${apiBaseUrl()}${ENVELOPE_PATH}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) return null;
+  return (await response.json()) as EmailEnvelope;
+}
+
+/** Reads a stored user setting straight from the registry projection. */
+async function putUserSetting(key: string, value: string): Promise<string | null> {
+  const res = await api.api.PUT("/api/v1/settings/user", { body: { key, value } });
+  if (res.error) {
+    return (
+      (res.error as { error?: { message?: string } }).error?.message ?? "rejected"
+    );
+  }
+  return null;
+}
+
+/** Renders the source a resolved block came from, in the member's own words. */
+const SOURCE_LABEL: Record<string, string> = {
+  message_override: "this message",
+  user_default: "your default",
+  board_identity: "the board",
+  org_default: "the organization",
+  product: "a fixed Marula line",
+  unset: "nothing yet",
+};
+
+/**
+ * The per-user greeting and signature (Wave 42).
+ *
+ * The signature is edited as PLACEHOLDERS and previewed as VALUES: the
+ * picker inserts `{{user.name}}`, the preview shows what that becomes for
+ * this member right now, and the send path expands the placeholder at send
+ * time against the sending user's row. A preview that showed the rendered
+ * text and saved it back would bake today's name into tomorrow's mail.
+ */
+function SignatureCard({ authed }: { authed: boolean }) {
+  const [envelope, setEnvelope] = useState<EmailEnvelope | null>(null);
+  const [fields, setFields] = useState<Record<string, string>>({});
+  const [saveState, setSaveState] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
+  const [errors, setErrors] = useState<Record<string, string | null>>({});
+  const [resetting, setResetting] = useState(false);
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+  const runIds = useRef<Record<string, number>>({});
+  const signatureRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const locked = envelope?.policy === "org_locked";
 
   useEffect(() => {
     if (!authed) return;
+    let cancelled = false;
     void (async () => {
-      const { data } = await api.api.GET("/api/v1/settings/user");
-      const row = (data ?? []).find((v) => v.key === key);
-      if (row && typeof row.value === "string") setValue(row.value);
+      const loaded = await fetchEnvelope();
+      if (cancelled || loaded === null) return;
+      setEnvelope(loaded);
+      setFields({
+        "email.greeting": loaded.user_greeting,
+        "email.signoff": loaded.user_signature,
+      });
     })();
     return () => {
-      if (timer.current !== null) clearTimeout(timer.current);
+      cancelled = true;
+      for (const timer of Object.values(timers.current)) {
+        if (timer !== null && timer !== undefined) clearTimeout(timer);
+      }
     };
-  }, [key, authed]);
+  }, [authed]);
 
-  function onChange(next: string): void {
-    setValue(next);
-    setState("saving");
-    setError(null);
-    if (timer.current !== null) clearTimeout(timer.current);
-    const myRun = ++runId.current;
-    timer.current = setTimeout(() => {
+  /**
+   * Debounced autosave per key — the instant-first dominant path, same as
+   * the rest of this page: the field updates as you type, the wire write
+   * fires once you stop, and a rejection lands on the field that caused it.
+   * A newer keystroke wins: the run id is compared before any state is
+   * written, so a slow save can never overwrite the field you are still
+   * editing.
+   */
+  function edit(key: string, next: string): void {
+    setFields((current) => ({ ...current, [key]: next }));
+    setSaveState((current) => ({ ...current, [key]: "saving" }));
+    setErrors((current) => ({ ...current, [key]: null }));
+    const previous = timers.current[key];
+    if (previous !== null && previous !== undefined) clearTimeout(previous);
+    const myRun = (runIds.current[key] ?? 0) + 1;
+    runIds.current[key] = myRun;
+    timers.current[key] = setTimeout(() => {
       void (async () => {
-        const res = await api.api.PUT("/api/v1/settings/user", {
-          body: { key, value: next },
-        });
-        if (runId.current !== myRun) return;
-        if (res.error) {
-          const detail =
-            (res.error as { error?: { message?: string } }).error?.message ?? "rejected";
-          setState("error");
-          setError(detail);
+        const rejection = await putUserSetting(key, next);
+        if (runIds.current[key] !== myRun) return;
+        if (rejection !== null) {
+          setSaveState((current) => ({ ...current, [key]: "error" }));
+          setErrors((current) => ({ ...current, [key]: rejection }));
           return;
         }
-        setState("saved");
+        setSaveState((current) => ({ ...current, [key]: "saved" }));
+        const refreshed = await fetchEnvelope();
+        if (runIds.current[key] === myRun && refreshed !== null) setEnvelope(refreshed);
       })();
     }, 600);
   }
 
-  return { value, onChange, state, error };
+  /** Inserts a placeholder at the caret, on its own line, and re-previews. */
+  function insertToken(key: string): void {
+    const field = signatureRef.current;
+    if (field === null || locked) return;
+    const at = field.selectionStart ?? fields["email.signoff"]?.length ?? 0;
+    const current = fields["email.signoff"] ?? "";
+    const before = current.slice(0, at);
+    const after = current.slice(field.selectionEnd ?? at);
+    const token = `{{${key}}}`;
+    const spacer = before.length > 0 && !before.endsWith("\n") ? "\n" : "";
+    edit("email.signoff", `${before}${spacer}${token}${after}`);
+    const caret = before.length + spacer.length + token.length;
+    requestAnimationFrame(() => {
+      field.focus();
+      field.setSelectionRange(caret, caret);
+    });
+  }
+
+  /** Clears the stored default, so the next message falls back to the org's. */
+  function resetToDefault(): void {
+    if (envelope === null) return;
+    setResetting(true);
+    void (async () => {
+      const rejection = await putUserSetting("email.signoff", "");
+      setResetting(false);
+      if (rejection !== null) {
+        setSaveState((current) => ({ ...current, "email.signoff": "error" }));
+        setErrors((current) => ({ ...current, "email.signoff": rejection }));
+        return;
+      }
+      setFields((current) => ({ ...current, "email.signoff": "" }));
+      setSaveState((current) => ({ ...current, "email.signoff": "saved" }));
+      const refreshed = await fetchEnvelope();
+      if (refreshed !== null) setEnvelope(refreshed);
+    })();
+  }
+
+  // The preview is the server's own rendering of the SAVED block, resolved
+  // against this member's row — so what is read here is what the next
+  // message carries, and it moves the moment the row does. It is labelled
+  // as the saved block because mid-edit the value that would send is
+  // still the stored one, not the keystroke.
+  const previewSignature = envelope?.signature ?? null;
+  const previewGreeting = envelope?.greeting ?? null;
+
+  return (
+    <Card className="p-5 grid gap-2" data-testid="pref-signature-card">
+      <h2 className="text-sm font-semibold">Email signature</h2>
+      <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+        {locked
+          ? "This workspace sends one signature of its own. An admin can allow personal ones."
+          : "Saved automatically as you type — no Save button. Placeholders fill in when a message sends, so a new name or address reaches your mail without saving it again."}
+      </p>
+
+      {locked && (
+        <div
+          className="grid gap-2 rounded-lg border p-3"
+          data-testid="pref-signature-locked"
+          style={{ borderColor: "var(--m-border)", background: "var(--m-surface-muted)" }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Tag tone="neutral">Locked to the organization</Tag>
+            <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+              Your messages carry the workspace signature.
+            </span>
+          </div>
+          {envelope?.org_signature != null && envelope.org_signature.length > 0 && (
+            <pre
+              className="m-0 whitespace-pre-wrap text-[13px]"
+              style={{ color: "var(--m-text)" }}
+              data-testid="pref-signature-locked-block"
+            >
+              {envelope.org_signature}
+            </pre>
+          )}
+        </div>
+      )}
+
+      <div className="grid gap-1">
+        <Label htmlFor="email.greeting">Greeting</Label>
+        <Input
+          id="email.greeting"
+          value={fields["email.greeting"] ?? ""}
+          onChange={(e) => edit("email.greeting", e.target.value)}
+          data-testid="pref-email-greeting"
+        />
+        <FieldHint>{GREETING_HINTS["email.greeting"]}</FieldHint>
+        <SaveNote
+          state={saveState["email.greeting"]}
+          error={errors["email.greeting"]}
+          testId="pref-email-greeting"
+        />
+      </div>
+
+      <div className="grid gap-1">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <Label htmlFor="email.signoff">Signature</Label>
+          {!locked && (fields["email.signoff"] ?? "").length > 0 && (
+            <Button
+              variant="secondary"
+              onClick={resetToDefault}
+              disabled={resetting}
+              data-testid="pref-signature-reset"
+            >
+              {resetting ? "Clearing…" : "Clear and use the workspace signature"}
+            </Button>
+          )}
+        </div>
+        <Textarea
+          id="email.signoff"
+          ref={signatureRef}
+          value={fields["email.signoff"] ?? ""}
+          onChange={(e) => edit("email.signoff", e.target.value)}
+          rows={3}
+          disabled={locked}
+          data-testid="pref-email-signoff"
+        />
+        <FieldHint>
+          {locked
+            ? "Locked: an admin set the workspace to a single signature."
+            : GREETING_HINTS["email.signoff"]}
+        </FieldHint>
+        <SaveNote
+          state={saveState["email.signoff"]}
+          error={errors["email.signoff"]}
+          testId="pref-email-signoff"
+        />
+      </div>
+
+      {envelope !== null && envelope.tokens.length > 0 && (
+        <div className="grid gap-1" data-testid="pref-signature-tokens">
+          <span className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
+            Insert a field
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {envelope.tokens.map((token) => (
+              <Button
+                key={token.key}
+                variant="secondary"
+                onClick={() => insertToken(token.key)}
+                disabled={locked}
+                data-testid={`pref-signature-token-${token.key.replaceAll(".", "-")}`}
+              >
+                {token.label}
+                {token.value !== null && (
+                  <span className="ml-1" style={{ color: "var(--m-text-muted)" }}>
+                    {token.value}
+                  </span>
+                )}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(previewSignature !== null || previewGreeting !== null) && (
+        <div className="grid gap-1" data-testid="pref-signature-preview">
+          <span className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
+            Preview — the saved block, as the next message carries it
+          </span>
+          <div
+            className="grid gap-2 rounded-lg border p-3"
+            style={{ borderColor: "var(--m-border)" }}
+          >
+            {previewGreeting !== null && (
+              <p className="m-0 text-[13px]" style={{ color: "var(--m-text)" }}>
+                {previewGreeting}
+              </p>
+            )}
+            <pre
+              className="m-0 whitespace-pre-wrap text-[13px]"
+              style={{ color: "var(--m-text)" }}
+            >
+              {previewSignature ?? "No signature configured — messages go out unsigned."}
+            </pre>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Tag tone="neutral">
+                Signature: {SOURCE_LABEL[envelope?.signature_source ?? "unset"] ?? "unset"}
+              </Tag>
+              <Tag tone="neutral">
+                Greeting: {SOURCE_LABEL[envelope?.greeting_source ?? "unset"] ?? "unset"}
+              </Tag>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {envelope === null && (
+        <span
+          className="flex items-center gap-2 text-xs"
+          style={{ color: "var(--m-text-muted)" }}
+        >
+          <Spinner label="Loading your signature" /> Loading your signature…
+        </span>
+      )}
+    </Card>
+  );
 }
 
-const GREETING_HINTS: Record<GreetingKey, string> = {
-  "email.greeting": "Opens every outgoing ticket email — e.g. “Hi there,”.",
-  "email.signoff": "Closes every outgoing ticket email — e.g. “Kind regards,\nThe team”.",
-};
+/** The autosave state under one field: saving, saved, or a refusal. */
+function SaveNote({
+  state,
+  error,
+  testId,
+}: {
+  state: "idle" | "saving" | "saved" | "error" | undefined;
+  error: string | null | undefined;
+  testId: string;
+}) {
+  if (state === "error") {
+    return (
+      <span
+        className="text-xs"
+        role="alert"
+        style={{ color: "var(--m-status-danger-fg)" }}
+        data-testid={`${testId}-error`}
+      >
+        {error ?? "Save failed — keep editing, it retries on the next keystroke."}
+      </span>
+    );
+  }
+  if (state === "saving") {
+    return (
+      <span className="text-xs" style={{ color: "var(--m-text-muted)" }} role="status">
+        Saving…
+      </span>
+    );
+  }
+  if (state === "saved") {
+    return (
+      <span
+        className="text-xs"
+        role="status"
+        style={{ color: "var(--m-status-success-fg)" }}
+        data-testid={`${testId}-saved`}
+      >
+        Saved to your account.
+      </span>
+    );
+  }
+  return null;
+}
 
 export default function UserPreferencesPage() {
   const auth = useRequireAuth();
@@ -101,8 +419,6 @@ export default function UserPreferencesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const greeting = useDebouncedUserSetting("email.greeting", authed);
-  const signoff = useDebouncedUserSetting("email.signoff", authed);
   const tours = useToursState(authed);
 
   useEffect(() => {
@@ -182,53 +498,7 @@ export default function UserPreferencesPage() {
         )}
       </Card>
 
-      <Card className="p-5 grid gap-2">
-        <h2 className="text-sm font-semibold">Email signature</h2>
-        <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Saved automatically as you type — no Save button. Applied to every
-          outgoing ticket email.
-        </p>
-        {GREETING_KEYS.map(([settingKey, title]) => {
-          const hook = settingKey === "email.greeting" ? greeting : signoff;
-          return (
-            <div key={settingKey} className="grid gap-1">
-              <Label htmlFor={settingKey}>{title}</Label>
-              <Textarea
-                id={settingKey}
-                value={hook.value}
-                onChange={(e) => hook.onChange(e.target.value)}
-                rows={2}
-                data-testid={`pref-${settingKey.replaceAll(".", "-")}`}
-              />
-              <FieldHint>{GREETING_HINTS[settingKey]}</FieldHint>
-              {hook.state === "error" && (
-                <span
-                  className="text-[12px]"
-                  role="alert"
-                  style={{ color: "var(--m-status-danger-fg)" }}
-                  data-testid={`pref-${settingKey.replaceAll(".", "-")}-error`}
-                >
-                  {hook.error ?? "Save failed — keep editing, it retries on the next keystroke."}
-                </span>
-              )}
-              {hook.state === "saving" && (
-                <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }} role="status">
-                  Saving…
-                </span>
-              )}
-              {hook.state === "saved" && (
-                <span
-                  className="text-[12px]"
-                  role="status"
-                  style={{ color: "var(--m-status-success-fg)" }}
-                >
-                  Saved to your account.
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </Card>
+      <SignatureCard authed={authed} />
 
       <Card className="p-5 grid gap-2" data-testid="pref-tours-card">
         <h2 className="text-sm font-semibold">Feature tours</h2>

@@ -282,6 +282,10 @@ fn outbound_fixture(org: Uuid) -> emails::NewOutbound {
         body_text: "we got it".into(),
         ticket_id: None,
         transport: "recording".into(),
+        // Wave 42 provenance: this fixture is the org's own block, and the
+        // column is what the delivery view reads.
+        signature_source: Some("org_default".into()),
+        greeting_source: Some("org_default".into()),
     }
 }
 

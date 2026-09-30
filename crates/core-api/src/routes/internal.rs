@@ -160,21 +160,29 @@ pub async fn notification_email(
         }
         Err(e) => return Err(e.into()),
     };
-    let identity = crate::email::resolve_org_identity(
+    let brand = crate::email::resolve_brand(&mut tx, req.org_id).await?;
+    // A notification is the PRODUCT writing to one of its own staff, so
+    // the signer is the system: no personal rung applies, and the envelope
+    // resolves to the org's own greeting and signature. The recipient's
+    // first name is the fallback salutation when the org has not set one.
+    let envelope = crate::email::resolve_envelope(
         &mut tx,
         req.org_id,
-        &state.mail.from_address,
-        state.mail.from_name.as_deref(),
+        req.ticket_id,
+        None,
+        &crate::email::EnvelopeOverrides::default(),
     )
     .await?;
-    let brand = crate::email::resolve_brand(&mut tx, req.org_id).await?;
-    let greeting = greeting_for(&recipient.display_name);
+    let greeting = envelope
+        .greeting
+        .clone()
+        .unwrap_or_else(|| greeting_for(&recipient.display_name));
     let rendered = core_mail::brand::render_notification(
         &core_mail::brand::Brand {
             brand_name: &brand.brand_name,
             logo_url: brand.logo_url.as_deref(),
             greeting: Some(greeting.as_str()),
-            signoff: identity.signature.as_deref(),
+            signoff: envelope.signature.as_deref(),
         },
         &req.title,
         req.body.as_deref(),
@@ -187,6 +195,7 @@ pub async fn notification_email(
         &rendered.subject,
         &rendered.text_body,
         req.ticket_id,
+        crate::email::RenderedSources::of(&envelope),
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -247,15 +256,22 @@ pub async fn digest_email(
         }
         Err(e) => return Err(e.into()),
     };
-    let identity = crate::email::resolve_org_identity(
+    let brand = crate::email::resolve_brand(&mut tx, req.org_id).await?;
+    // Same shape as the notification fan-out: the product writes this, so
+    // the org's own greeting and signature resolve, and the recipient's
+    // first name is the salutation fallback.
+    let envelope = crate::email::resolve_envelope(
         &mut tx,
         req.org_id,
-        &state.mail.from_address,
-        state.mail.from_name.as_deref(),
+        None,
+        None,
+        &crate::email::EnvelopeOverrides::default(),
     )
     .await?;
-    let brand = crate::email::resolve_brand(&mut tx, req.org_id).await?;
-    let greeting = greeting_for(&recipient.display_name);
+    let greeting = envelope
+        .greeting
+        .clone()
+        .unwrap_or_else(|| greeting_for(&recipient.display_name));
     let items: Vec<core_mail::brand::DigestItem> = req
         .items
         .iter()
@@ -269,7 +285,7 @@ pub async fn digest_email(
             brand_name: &brand.brand_name,
             logo_url: brand.logo_url.as_deref(),
             greeting: Some(greeting.as_str()),
-            signoff: identity.signature.as_deref(),
+            signoff: envelope.signature.as_deref(),
         },
         &req.day,
         &items,
@@ -282,6 +298,7 @@ pub async fn digest_email(
         &rendered.subject,
         &rendered.text_body,
         None,
+        crate::email::RenderedSources::of(&envelope),
     )
     .await?;
     core_db::settings::upsert_user_setting(
@@ -323,8 +340,6 @@ pub async fn csat_email(
 ) -> ApiResult<Response> {
     ensure_internal_token(&state, &headers)?;
     let mail = state.mail.clone();
-    let from_address = state.mail.from_address.clone();
-    let from_name = state.mail.from_name.clone();
     let link_base = state.config.web_base_url.trim_end_matches('/').to_string();
     let response = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
         // Only the FIRST delivery attempt transitions the row; a redelivered
@@ -342,21 +357,29 @@ pub async fn csat_email(
                 Json(EnqueueEmailResponse::skipped("skipped_already_sent")),
             ));
         }
-        let identity = crate::email::resolve_org_identity(
+        let brand = crate::email::resolve_brand(&mut ctx.tx, req.org_id).await?;
+        // The survey is the PRODUCT writing to a client about a resolved
+        // ticket, so the signer is the system: the personal rungs are
+        // skipped and the board's signature (then the org's) applies. The
+        // salutation stays the fixed neutral "Hi," — the survey link is
+        // single-use and the respondent is not named on the envelope — so
+        // the ledger records it as the product's own line rather than
+        // claiming a rung supplied it.
+        let envelope = crate::email::resolve_envelope(
             &mut ctx.tx,
             req.org_id,
-            &from_address,
-            from_name.as_deref(),
+            Some(req.ticket_id),
+            None,
+            &crate::email::EnvelopeOverrides::default(),
         )
         .await?;
-        let brand = crate::email::resolve_brand(&mut ctx.tx, req.org_id).await?;
         let link = format!("{link_base}/portal/csat?token={}", req.token);
         let rendered = core_mail::brand::render_notification(
             &core_mail::brand::Brand {
                 brand_name: &brand.brand_name,
                 logo_url: brand.logo_url.as_deref(),
                 greeting: Some("Hi,"),
-                signoff: identity.signature.as_deref(),
+                signoff: envelope.signature.as_deref(),
             },
             "How did we do?",
             Some(&format!(
@@ -371,6 +394,14 @@ pub async fn csat_email(
             &rendered.subject,
             &rendered.text_body,
             Some(req.ticket_id),
+            crate::email::RenderedSources {
+                greeting: Some(
+                    core_domain::email_signature::SignatureSource::Product
+                        .as_str()
+                        .to_string(),
+                ),
+                signature: Some(envelope.signature_source.as_str().to_string()),
+            },
         )
         .await?;
         let client_id = core_db::csat::get(&mut *ctx.tx, req.org_id, req.survey_id)

@@ -1358,6 +1358,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/settings/user"),
             get(settings::user_values_get).put(settings::user_value_put),
         )
+        // Wave 42: the caller's resolved greeting/signature envelope — the
+        // live preview and the composer prefill, through the same chain the
+        // send path uses.
+        .route(
+            &rp("/settings/user/email-envelope"),
+            get(settings::user_email_envelope_get),
+        )
         .route(
             &rp("/org"),
             get(settings::org_profile_get).patch(settings::org_profile_patch),

@@ -15,6 +15,7 @@ pub mod data_surface;
 pub mod day_pack;
 pub mod deprecation;
 pub mod entities;
+pub mod email_signature;
 pub mod error;
 pub mod events;
 pub mod fx;
