@@ -491,11 +491,21 @@
 /* Status pills: fully round, soft status fill, the status' own dark text at
    13px semibold (DESIGN-NOTES §6). Priority chips: squared, bold, fixed
    width. Neither carries a border — a border on a soft fill reads as a third
-   colour that the palette does not have. */
+   colour that the palette does not have.
+
+   The pill's box is part of its geometry, not decoration. The pack sets it
+   at `--pill: 24px` tall with `padding: 0 10px`; without that inset a pill is
+   a run of text on a coloured fill with the glyphs touching the round ends,
+   which is exactly what it looked like. Restored from
+   `marula-surface-pack/source/clients.html` (`.pill`). */
 .m-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* The pack's `--pill` is 24px; `min-height` rather than `height` so a
+     two-line label inside a badge grows instead of clipping. */
+  min-height: 24px;
+  padding: 0 10px;
   border-radius: 999px;
   font-size: 13px;
   font-weight: 600;
@@ -538,9 +548,16 @@
 .m-badge-p3,
 .m-badge-p4 {
   min-width: 34px;
+  /* The pack's priority chip (`.pri`) is 22px tall with `padding: 0 6px` at
+     12px — tighter than the status pill, because it is a column entry rather
+     than a label. It was inheriting the status pill's 13px with no box of its
+     own. */
+  min-height: 22px;
+  padding: 0 6px;
   /* 6px, the plan's `rounded-md`: squared enough to read as a column entry
      rather than a status pill, and squarer than the 10px control radius. */
   border-radius: 6px;
+  font-size: 12px;
   font-weight: 700;
 }
 

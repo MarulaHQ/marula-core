@@ -33,7 +33,7 @@ import {
 } from "react";
 import { AppState } from "react-native";
 
-import { friendlyMutationError } from "@/core/errors";
+import { REASON_COPY, friendlyMutationError } from "@/core/errors";
 import { fetchMe, type Me } from "@/core/models";
 import { API_URL } from "@/config";
 import { fetchWithAuthRefresh } from "@/data/http";
@@ -201,7 +201,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         await persistAndContinue(result);
       } catch (cause) {
-        setError(friendlyMutationError(cause).text);
+        // A rejected sign-in is not a mutation conflict and not an expired
+        // session; the reason catalogue gets its own line for it.
+        setError(
+          friendlyMutationError(cause).reason === "unauthorized"
+            ? (REASON_COPY.signin_failed ?? "We couldn't sign you in with those details.")
+            : friendlyMutationError(cause).text,
+        );
         throw cause;
       }
     },
@@ -222,7 +228,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         mfaTokenRef.current = null;
         await persistAndContinue(tokens);
       } catch (cause) {
-        setError(friendlyMutationError(cause).text);
+        // A rejected sign-in is not a mutation conflict and not an expired
+        // session; the reason catalogue gets its own line for it.
+        setError(
+          friendlyMutationError(cause).reason === "unauthorized"
+            ? (REASON_COPY.signin_failed ?? "We couldn't sign you in with those details.")
+            : friendlyMutationError(cause).text,
+        );
         throw cause;
       }
     },

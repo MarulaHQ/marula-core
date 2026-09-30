@@ -8,6 +8,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.join(here, "src"),
+      // The pack-rules tests read tokens.ts, which imports React Native for
+      // the theme hook. The node suite never renders; stub the module.
+      "react-native": path.join(here, "tests", "rn-stub.ts"),
     },
   },
   test: {

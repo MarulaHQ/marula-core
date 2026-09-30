@@ -35,18 +35,104 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { OrderStatusTag } from "../../components/purchasing/status";
+import { OrderStatusTag, orderStatusLabel } from "../../components/purchasing/status";
+import { LedgerSurface, type LedgerColumn } from "../../components/assets-stock/ledger-surface";
+import { LedgerRow } from "../../components/assets-stock/ledger-row";
+import { csvFileName, downloadCsv } from "../../components/assets-stock/csv";
+import { DueSoonMark, OverdueMark } from "../../components/assets-stock/ledger-marks";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { rejectionText } from "../../lib/error-copy";
 import { money } from "../../lib/format";
 import { parseQtyToMilli } from "../../lib/stock-format";
+import type { FilterClause } from "@marula-core/ui";
 
 type PurchaseOrder = components["schemas"]["PurchaseOrder"];
+/** A row of the order list: the order plus its own totals, money-gated. */
+type OrderRow = components["schemas"]["PurchaseOrderSummary"];
 type Vendor = components["schemas"]["Vendor"];
 type Project = components["schemas"]["Project"];
 type StockItemView = components["schemas"]["StockItemView"];
 type OrderLineInput = components["schemas"]["OrderLineInput"];
+
+const PURCHASING_VIEWS = [
+  { id: "orders", label: "Orders" },
+  { id: "vendors", label: "Vendors" },
+];
+
+const PURCHASING_COLUMNS: LedgerColumn[] = [
+  { key: "po", label: "PO", required: true },
+  { key: "vendor", label: "Vendor" },
+  { key: "status", label: "Status" },
+  { key: "value", label: "Value", align: "right" },
+  { key: "expected", label: "Expected" },
+  { key: "currency", label: "Currency", hiddenByDefault: true },
+  { key: "reference", label: "Vendor reference", hiddenByDefault: true },
+  { key: "actions", label: "Actions", align: "right" },
+];
+
+const PURCHASING_FILTERS = [
+  { key: "po", label: "PO" },
+  { key: "vendor", label: "Vendor" },
+  { key: "status", label: "Status" },
+  { key: "expected", label: "Expected" },
+  { key: "reference", label: "Vendor reference" },
+];
+
+/** Receiving is legal while goods can still arrive: sent, not fully received. */
+function canReceive(order: PurchaseOrder | undefined): boolean {
+  if (order == null) return false;
+  return order.status === "ordered" || order.status === "partially_received";
+}
+
+/**
+ * The Value column, straight from the order's own rollup — the same totals the
+ * order page reports, so the two can never disagree and no request per row is
+ * needed. `totals` is null for a caller without financial access, which is the
+ * API withholding money rather than the order being worthless; that reads as
+ * "Withheld", never as a zero and never as a bare dash.
+ */
+function OrderValue({ order }: { order: OrderRow }): ReactNode {
+  if (order.totals == null) {
+    return (
+      <span style={{ color: "var(--m-text-muted)" }} title="Financial access is needed to see order values">
+        Withheld
+      </span>
+    );
+  }
+  return <span className="font-mono tabular-nums">{money(order.totals.ordered_minor, order.currency)}</span>;
+}
+
+/**
+ * The Expected column. An order still open past its expected date is a
+ * genuine breach of what we told the vendor, so it takes red with the word
+ * and an alert icon; an order due inside three days is blush. A closed order
+ * is just a date.
+ */
+function OrderExpected({ order }: { order: PurchaseOrder }): ReactNode {
+  if (order.expected_at == null || order.expected_at === "") {
+    return <span style={{ color: "var(--m-text-muted)" }}>Not set</span>;
+  }
+  const closed = order.status === "received" || order.status === "closed" || order.status === "cancelled";
+  if (closed) {
+    return <span className="font-mono text-xs tabular-nums">{order.expected_at.slice(0, 10)}</span>;
+  }
+  const now = new Date();
+  const at = new Date(`${order.expected_at.slice(0, 10)}T23:59:59`);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Number.isNaN(at.getTime())
+    ? Number.POSITIVE_INFINITY
+    : Math.round(
+        (new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime() - startOfToday.getTime()) / 86_400_000,
+      );
+  if (days < 0) {
+    return <OverdueMark label={`${Math.abs(days)}d past expected`} testId={`purchasing-late-${order.id}`} />;
+  }
+  if (days <= 3) {
+    return <DueSoonMark label={days === 0 ? "Due today" : `In ${days}d`} testId={`purchasing-due-${order.id}`} />;
+  }
+  return <span className="font-mono text-xs tabular-nums">{order.expected_at.slice(0, 10)}</span>;
+}
 
 const STATUS_FILTERS = [
   "all",
@@ -122,7 +208,11 @@ function toMinor(major: string): number | null {
 export default function PurchasingPage(): ReactNode {
   const auth = useRequireAuth();
   const router = useRouter();
-  const [orders, setOrders] = useState<PurchaseOrder[] | null>(null);
+  const [orders, setOrders] = useState<OrderRow[] | null>(null);
+  const [clauses, setClauses] = useState<FilterClause[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [awaitingOnly, setAwaitingOnly] = useState(false);
+  const [pastExpectedOnly, setPastExpectedOnly] = useState(false);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [stockItems, setStockItems] = useState<StockItemView[]>([]);
@@ -308,18 +398,67 @@ export default function PurchasingPage(): ReactNode {
   if (orders === null && loadError === null) return <Spinner />;
   if (loadError !== null) return <EmptyState message={loadError} />;
 
+  const pastExpected = (orders ?? []).filter((order) => {
+    if (order.expected_at == null || order.expected_at === "") return false;
+    if (order.status === "received" || order.status === "closed" || order.status === "cancelled") return false;
+    return order.expected_at.slice(0, 10) < new Date().toISOString().slice(0, 10);
+  }).length;
+
+  const rows = (orders ?? []).filter((order) => {
+    if (awaitingOnly && !canReceive(order)) return false;
+    if (pastExpectedOnly) {
+      const open = order.status !== "received" && order.status !== "closed" && order.status !== "cancelled";
+      if (!open || order.expected_at == null || order.expected_at.slice(0, 10) >= new Date().toISOString().slice(0, 10)) {
+        return false;
+      }
+    }
+    for (const clause of clauses) {
+      const value = (
+        {
+          po: order.number,
+          vendor: vendorById.get(order.vendor_id)?.name ?? "",
+          status: orderStatusLabel(order.status),
+          expected: order.expected_at ?? "",
+          reference: order.vendor_reference ?? "",
+        }[clause.field] ?? ""
+      ).toLowerCase();
+      const want = (clause.value ?? "").toLowerCase();
+      if (clause.op === "is_set" && value === "") return false;
+      if (clause.op === "is_not_set" && value !== "") return false;
+      if (clause.op === "contains" && !value.includes(want)) return false;
+      if (clause.op === "eq" && value !== want) return false;
+      if (clause.op === "ne" && value === want) return false;
+    }
+    return true;
+  });
+
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-            Purchase orders
-          </h1>
-          <p className="mt-0.5 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            What the shop ordered, what suppliers still owe, and where each order stands.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1">
+    <>
+    <LedgerSurface
+      surface="purchasing-orders"
+      testId="purchasing-ledger"
+      title="Purchase orders"
+      subtitle="What the shop ordered, what suppliers still owe, and where each order stands."
+      shortcuts={[
+        {
+          key: "awaiting",
+          label: "Awaiting receive",
+          count: stats.awaiting,
+          tone: "blush",
+          active: awaitingOnly,
+          onClick: () => setAwaitingOnly((v) => !v),
+        },
+        {
+          key: "overdue",
+          label: "Past expected",
+          count: pastExpected,
+          tone: "red",
+          active: pastExpectedOnly,
+          onClick: () => setPastExpectedOnly((v) => !v),
+        },
+      ]}
+      headerAction={
+        <>
           <Button asChild variant="secondary">
             <Link href="/purchasing/vendors" data-testid="purchasing-vendors-link">
               Vendors
@@ -328,148 +467,119 @@ export default function PurchasingPage(): ReactNode {
           <Button onClick={openCreate} data-testid="purchasing-new">
             New order
           </Button>
-        </div>
-      </header>
+        </>
+      }
+      views={PURCHASING_VIEWS}
+      activeView="orders"
+      onViewChange={(id) => {
+        if (id === "vendors") router.push("/purchasing/vendors");
+      }}
+      columns={PURCHASING_COLUMNS}
+      filterFields={PURCHASING_FILTERS}
+      filterClauses={clauses}
+      onFilterChange={setClauses}
+      rowCount={rows.length}
+      rowsShown={rows.length}
+      onExport={(request) => {
+        const stamp = new Date().toISOString().slice(0, 10);
+        downloadCsv(
+          csvFileName("purchase-orders", stamp),
+          request.columns,
+          rows.map((order) => ({
+            po: order.number,
+            vendor: vendorById.get(order.vendor_id)?.name ?? "",
+            status: orderStatusLabel(order.status),
+            value:
+              order.totals == null
+                ? ""
+                : money(order.totals.ordered_minor, order.currency),
+            expected: order.expected_at ?? "",
+            currency: order.currency,
+            reference: order.vendor_reference ?? "",
+          })),
+        );
+      }}
+      selectedIds={selected}
+      onToggleRow={(id, isSelected) =>
+        setSelected((cur) => (isSelected ? [...cur, id] : cur.filter((row) => row !== id)))
+      }
+      onToggleAll={(isSelected) => setSelected(isSelected ? rows.map((o) => o.id) : [])}
+      allSelected={rows.length > 0 && selected.length === rows.length}
+      someSelected={selected.length > 0 && selected.length < rows.length}
+      bulkActions={[
+        {
+          key: "receive",
+          label: "Receive",
+          disabled: selected.length !== 1 || !canReceive(rows.find((order) => order.id === selected[0])),
+          title: "Receive goods against this order",
+          onClick: () => {
+            const only = rows.find((order) => order.id === selected[0]);
+            if (only != null) router.push(`/purchasing/${only.id}?action=receive`);
+          },
+        },
+      ]}
+      onClearSelection={() => setSelected([])}
+      emptyMessage="No purchase orders match. Raise one with New order."
+      errorMessage={loadError}
+      keyboardHints="Receive is a row action, not a separate flow"
+    >
+      {(columns) =>
+        rows.map((order) => {
+          return (
+            <LedgerRow
+              key={order.id}
+              id={order.id}
+              selected={selected.includes(order.id)}
+              selectable
+              onToggle={(rowId, isSelected) =>
+                setSelected((cur) => (isSelected ? [...cur, rowId] : cur.filter((id) => id !== rowId)))
+              }
+              columns={columns}
+              selectLabel={`Select order ${order.number}`}
+              testId={`purchasing-row-${order.id}`}
+              cells={{
+                po: (
+                  <Link
+                    href={`/purchasing/${order.id}`}
+                    className="font-mono text-xs font-medium"
+                    style={{ color: "var(--m-text)" }}
+                    data-testid={`purchasing-open-${order.id}`}
+                  >
+                    {order.number}
+                  </Link>
+                ),
+                vendor: vendorById.get(order.vendor_id)?.name ?? "—",
+                status: <OrderStatusTag status={order.status} />,
+                value: (
+                  <OrderValue order={order} />
+                ),
+                expected: <OrderExpected order={order} />,
+                currency: <span className="font-mono text-xs">{order.currency}</span>,
+                reference: order.vendor_reference ?? "—",
+                actions: (
+                  <span className="flex justify-end gap-1">
+                    {canReceive(order) ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => router.push(`/purchasing/${order.id}?action=receive`)}
+                        data-testid={`purchasing-receive-${order.id}`}
+                      >
+                        Receive
+                      </Button>
+                    ) : null}
+                    <Button asChild size="sm" variant="ghost">
+                      <Link href={`/purchasing/${order.id}`}>Open</Link>
+                    </Button>
+                  </span>
+                ),
+              }}
+            />
+          );
+        })
+      }
+    </LedgerSurface>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {(
-          [
-            {
-              label: "Open orders",
-              value: stats.open,
-              hint: "draft, ordered, or partially received",
-              testId: "purchasing-stat-open",
-            },
-            {
-              label: "Awaiting receipt",
-              value: stats.awaiting,
-              hint: "sent to the vendor, goods not in",
-              testId: "purchasing-stat-awaiting",
-            },
-            {
-              label: "Received this month",
-              value: stats.receivedThisMonth,
-              hint: "received or closed, updated this month",
-              testId: "purchasing-stat-received",
-            },
-            {
-              label: "Active vendors",
-              value: stats.activeVendors,
-              hint: `${stats.inactiveVendors} inactive`,
-              testId: "purchasing-stat-vendors",
-            },
-          ] as const
-        ).map((tile, i) => (
-          <Card key={tile.label} className="m-rise p-4" style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
-              {tile.label}
-            </p>
-            <p
-              className="mt-1 font-mono text-xl font-semibold tabular-nums"
-              style={{ color: "var(--m-text)" }}
-              data-testid={tile.testId}
-            >
-              {tile.value}
-            </p>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--m-text-muted)" }}>
-              {tile.hint}
-            </p>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search number, vendor, reference…"
-            aria-label="Search purchase orders"
-            data-testid="purchasing-search"
-            style={{ maxWidth: 300 }}
-          />
-          <Select value={vendorFilter} onValueChange={setVendorFilter}>
-            <SelectTrigger aria-label="Filter by vendor" data-testid="purchasing-vendor-filter" style={{ width: 200 }}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All vendors</SelectItem>
-              {vendors.map((vendor) => (
-                <SelectItem key={vendor.id} value={vendor.id}>
-                  {vendor.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by status">
-          {STATUS_FILTERS.map((status) => (
-            <Button
-              key={status}
-              size="sm"
-              variant={statusFilter === status ? "primary" : "secondary"}
-              aria-pressed={statusFilter === status}
-              onClick={() => setStatusFilter(status)}
-              data-testid={`purchasing-status-${status}`}
-            >
-              {STATUS_FILTER_LABELS[status]}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      <Card className="m-rise overflow-x-auto p-0">
-        <Table data-testid="purchasing-table">
-          <thead>
-            <tr>
-              <Th>Number</Th>
-              <Th>Vendor</Th>
-              <Th>Status</Th>
-              <Th>Project</Th>
-              <Th>Expected</Th>
-              <Th>Currency</Th>
-              <Th>Vendor reference</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((order) => {
-              const projectName =
-                order.project_id === null || order.project_id === undefined
-                  ? null
-                  : (projectNames.get(order.project_id) ?? null);
-              return (
-                <Tr key={order.id} className="row-hover" data-testid={`purchasing-row-${order.id}`}>
-                  <Td>
-                    <Link
-                      href={`/purchasing/${order.id}`}
-                      className="font-mono text-xs font-medium"
-                      style={{ color: "var(--m-text)" }}
-                      data-testid={`purchasing-open-${order.id}`}
-                    >
-                      {order.number}
-                    </Link>
-                  </Td>
-                  <Td>{vendorById.get(order.vendor_id)?.name ?? "—"}</Td>
-                  <Td>
-                    <OrderStatusTag status={order.status} />
-                  </Td>
-                  <Td className="text-xs">{projectName ?? "—"}</Td>
-                  <Td className="font-mono text-xs tabular-nums">{order.expected_at ?? "—"}</Td>
-                  <Td className="font-mono text-xs">{order.currency}</Td>
-                  <Td className="text-xs">{order.vendor_reference ?? "—"}</Td>
-                </Tr>
-              );
-            })}
-            {filtered.length === 0 && (
-              <Tr>
-                <Td colSpan={7}>
-                  <EmptyState message="No purchase orders match. Raise one with New order." />
-                </Td>
-              </Tr>
-            )}
-          </tbody>
-        </Table>
-      </Card>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent title="New purchase order">
@@ -683,6 +793,6 @@ export default function PurchasingPage(): ReactNode {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
