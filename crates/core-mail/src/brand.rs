@@ -203,7 +203,7 @@ const DEFAULT_WORDMARK: &str = "marula";
 
 /// Header wordmark: the caller's brand name, else the org name, else the
 /// Marula wordmark.
-fn wordmark(brand: &Brand<'_>) -> &str {
+fn wordmark<'a>(brand: &Brand<'a>) -> &'a str {
     let name = brand.brand_name.trim();
     if name.is_empty() {
         DEFAULT_WORDMARK
