@@ -83,8 +83,15 @@ curl -s -X POST "$API/api/v1/stock/receive" "${AUTH[@]}" \
 echo "[seed] on-hand: 5 receipts incl. one serialized tool unit (FLU-8842)"
 
 # ---------------------------------------------------------------- clients + loans
-CLIENT=$(curl -s "$API/api/v1/clients" "${AUTH[@]}" | jqp "d[0]['id']")
-CLIENT2=$(curl -s "$API/api/v1/clients" "${AUTH[@]}" | jqp "d[1]['id']")
+# One client per loan. Sharing a client across loans in a single run collapsed
+# them into one row, and a capture that shows only the RED half of the severity
+# rule is worse than no capture: it looks like the blush case does not exist.
+mk_client() { # name
+  curl -s -X POST "$API/api/v1/clients" "${AUTH[@]}" \
+    -d "{\"name\":\"$1\",\"idempotency_key\":\"$(key)\"}" | jqp "d.get('id','')"
+}
+CLIENT=$(mk_client "Harbour Dental (overdue loan)")
+CLIENT2=$(mk_client "Meridian Clinic (due soon)")
 soon=$(python3 -c "import datetime;print((datetime.date.today()+datetime.timedelta(days=2)).isoformat())")
 past=$(python3 -c "import datetime;print((datetime.date.today()-datetime.timedelta(days=9)).isoformat())")
 issued_from=$(python3 -c "import datetime;print((datetime.date.today()-datetime.timedelta(days=14)).isoformat())+'T09:00:00Z'")

@@ -39,7 +39,7 @@ import { OrderStatusTag, orderStatusLabel } from "../../components/purchasing/st
 import { LedgerSurface, type LedgerColumn } from "../../components/assets-stock/ledger-surface";
 import { LedgerRow } from "../../components/assets-stock/ledger-row";
 import { csvFileName, downloadCsv } from "../../components/assets-stock/csv";
-import { DueSoonMark, OverdueMark } from "../../components/assets-stock/ledger-marks";
+import { DueSoonMark, OverdueMark, ReceiveIcon } from "../../components/assets-stock/ledger-marks";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { rejectionText } from "../../lib/error-copy";
@@ -510,6 +510,7 @@ export default function PurchasingPage(): ReactNode {
         {
           key: "receive",
           label: "Receive",
+          icon: <ReceiveIcon />,
           disabled: selected.length !== 1 || !canReceive(rows.find((order) => order.id === selected[0])),
           title: "Receive goods against this order",
           onClick: () => {
@@ -521,7 +522,6 @@ export default function PurchasingPage(): ReactNode {
       onClearSelection={() => setSelected([])}
       emptyMessage="No purchase orders match. Raise one with New order."
       errorMessage={loadError}
-      keyboardHints="Receive is a row action, not a separate flow"
     >
       {(columns) =>
         rows.map((order) => {

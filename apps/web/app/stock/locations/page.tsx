@@ -492,7 +492,6 @@ export default function StockLocationsPage(): ReactNode {
         </Button>
       }
       errorMessage={actionError}
-      keyboardHints="Indentation follows the parent chain"
     >
       {(columns) =>
         rows.map(({ location, depth, itemCount }) => (

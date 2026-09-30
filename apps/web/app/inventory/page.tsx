@@ -513,7 +513,6 @@ export default function InventoryPage(): ReactNode {
         onClearSelection={() => setSelected([])}
         emptyMessage="No config items match yet. A feed or a person creates one."
         errorMessage={loadError}
-        keyboardHints="A merged record stays queryable, marked not deleted"
       >
         {(columns) =>
           rows.map((item) => (

@@ -116,6 +116,55 @@ export function MergeIcon({ className }: { className?: string }): React.JSX.Elem
   );
 }
 
+/** The marks a bulk action wears: the pack's bar is icon + label, never
+ * label alone, so an action is recognisable before it is read. */
+export function OpenIcon(): React.JSX.Element {
+  return (
+    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path d="M4.5 2.5h5v5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9.5 2.5 3 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function CopyIcon(): React.JSX.Element {
+  return (
+    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <rect x="4.2" y="4.2" width="5.6" height="5.6" rx="1.4" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M7.8 2.4H3.4a1.4 1.4 0 0 0-1.4 1.4v4.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function ReturnIcon(): React.JSX.Element {
+  return (
+    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path d="M7.4 2.6 3.2 6l4.2 3.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3.4 6h5.2a2.6 2.6 0 0 1 0 5.2H7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function ReceiveIcon(): React.JSX.Element {
+  return (
+    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path d="M6 1.8v5.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M3.6 4.8 6 7.2l2.4-2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.2 8.4v1.2a1.4 1.4 0 0 0 1.4 1.4h4.8a1.4 1.4 0 0 0 1.4-1.4V8.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function MoveIcon(): React.JSX.Element {
+  return (
+    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path d="M6 1.8v8.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M3.4 7.6 6 10.2l2.6-2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.4 3.6h7.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** Raised-severity pill shell: icon + words, tinted by tone. */
 function SeverityPill({
   tone,
