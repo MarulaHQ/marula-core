@@ -229,30 +229,31 @@ export function AppHeader() {
     >
       <div className="flex shrink-0 items-center gap-2">
         {/*
-          The canonical lockup in the brand's COLOUR variant: gold fruit, green
-          leaf, outlined lowercase wordmark — one asset, no font dependency,
-          which is the point of the kit drawing the wordmark as outlines.
+          The canonical lockup: gold fruit, green leaf, outlined lowercase
+          wordmark — one asset, with no font dependency, which is the point of
+          the kit drawing the wordmark as outlines.
 
-          This header was the one place that re-drew the identity: it took the
-          mark from the kit and then re-typed the wordmark as live text in
+          This header was the one surface that re-drew the identity: it took
+          the mark from the kit and then re-typed the wordmark as live text in
           Fraunces, which put a capital "Marula" beside a lowercase brand and
-          depended on a webfont being installed. The colour variant matters as
-          much as the asset: the mono lockup is a single-colour silhouette,
-          correct where one colour is required, but it renders the fruit as a
-          dark blob — and the pack draws the header in colour.
+          depended on a webfont being installed. It also reached for the MONO
+          lockup, a single-colour silhouette — right where one colour is
+          required, wrong everywhere else, because it renders the fruit as a
+          dark blob. `brand.tsx` now defaults to the colour variant, so this
+          header just asks for the brand and gets the brand.
 
           `BrandMark` drops to the favicon dot below the kit's MARK_MIN_SIZE
           (32), so the narrow call below passes 32 and renders as itself.
         */}
         <span className="hidden md:inline-flex items-center">
-          <BrandLockup size={LOCKUP_COMPLIANT_HEIGHT} variant="color" />
+          <BrandLockup size={LOCKUP_COMPLIANT_HEIGHT} />
         </span>
         {/*
           Below the md breakpoint the wordmark collides with the right dock
           cluster at ~480px, so the mark alone carries the identity there.
         */}
         <span className="inline-flex md:hidden items-center">
-          <BrandMark size={32} variant="color" />
+          <BrandMark size={32} />
         </span>
       </div>
 
