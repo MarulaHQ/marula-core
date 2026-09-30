@@ -52,7 +52,12 @@ export function CapacityForecastPanel({
         const data = await api.api.GET("/api/v1/dispatch/planning/forecast", {
           params: { query: { days } },
         });
-        if (live && data.data) setView(data.data as ForecastView);
+        // A payload that is not a forecast is not a forecast. This panel sits
+        // above the planning horizon, so a short or unexpected body must leave
+        // the page standing rather than take it down with it.
+        if (live && Array.isArray((data.data as { entries?: unknown } | undefined)?.entries)) {
+          setView(data.data as ForecastView);
+        }
       } catch (e) {
         if (live) {
           onError?.(e instanceof Error ? e.message : "could not load the forecast");

@@ -74,7 +74,7 @@ export function PhaseAllocationsPanel({
         api.api.GET("/api/v1/org/users", { params: { query: {} } }),
       ]);
       if (allocations.data) setList(allocations.data as AllocationList);
-      if (projs.data) {
+      if (Array.isArray(projs.data)) {
         setProjectOptions(
           (projs.data as { id: string; name: string }[]).map((p) => ({
             id: p.id,
@@ -82,7 +82,7 @@ export function PhaseAllocationsPanel({
           })),
         );
       }
-      if (users.data) {
+      if (users.data !== undefined && Array.isArray(users.data.users)) {
         // `/org/users` returns a PAGE, not a bare array, and the real shape
         // is already in the SDK types — so no cast is needed and a rename
         // upstream becomes a type error here rather than an undefined read.

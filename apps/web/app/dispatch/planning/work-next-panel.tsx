@@ -61,7 +61,11 @@ export function WorkNextPanel({
       const res = await api.api.GET("/api/v1/dispatch/work-next", {
         params: { query: userId ? { user_id: userId } : {} },
       });
-      if (res.data) setQueue(res.data as QueueView);
+      // Same boundary rule as the forecast panel: a body that is not a queue is
+      // ignored, not rendered until it crashes.
+      if (Array.isArray((res.data as { entries?: unknown } | undefined)?.entries)) {
+        setQueue(res.data as QueueView);
+      }
     } catch (e) {
       onError?.(e instanceof Error ? e.message : "could not load the queue");
     } finally {
