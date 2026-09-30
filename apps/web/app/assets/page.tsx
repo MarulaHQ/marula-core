@@ -19,7 +19,7 @@ import { Button } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
   LedgerSurface,
@@ -30,9 +30,12 @@ import { LedgerRow } from "../../components/assets-stock/ledger-row";
 import { csvFileName, downloadCsv } from "../../components/assets-stock/csv";
 import {
   ClockIcon,
+  CopyIcon,
   DueSoonMark,
   NeutralMark,
   OfflineDotIcon,
+  OpenIcon,
+  ReturnedMark,
 } from "../../components/assets-stock/ledger-marks";
 import { api, useRequireAuth } from "../../lib/api";
 import type { FilterClause } from "@marula-core/ui";
@@ -96,6 +99,21 @@ const FILTER_FIELDS = [
   { key: "status", label: "Status" },
   { key: "client", label: "Client" },
 ];
+
+/**
+ * A device's status, in the pack's own vocabulary rather than one grey for all.
+ *
+ * A status column is read by tone before it is read by word, so "rented" and
+ * "retired" cannot both be the same pill: in use is a live state (green), on
+ * loan is attention (blush, it is out with someone), retired is quiet (grey),
+ * and anything unrecognised stays neutral rather than borrowing a meaning.
+ */
+function AssetStatusMark({ status }: { status: string }): ReactNode {
+  if (status === "active" || status === "in_use") return <ReturnedMark label={status} />;
+  if (status === "rented" || status === "loaned") return <DueSoonMark label={status} />;
+  if (status === "retired" || status === "archived") return <NeutralMark label={status} />;
+  return <NeutralMark label={status} />;
+}
 
 const VIEWS = [
   { id: "devices", label: "Devices" },
@@ -232,6 +250,7 @@ export default function AssetsPage() {
     {
       key: "open",
       label: "Open",
+      icon: <OpenIcon />,
       onClick: () => {
         const first = selected[0];
         if (first != null) router.push(`/assets/${first}`);
@@ -242,6 +261,7 @@ export default function AssetsPage() {
     {
       key: "copy-tag",
       label: "Copy tag",
+      icon: <CopyIcon />,
       onClick: () => {
         const tags = selected
           .map((id) => (assets ?? []).find((asset) => asset.id === id)?.tag)
@@ -348,7 +368,6 @@ export default function AssetsPage() {
       }
       errorMessage={error}
       onRetry={() => void refresh(debouncedQ)}
-      keyboardHints="Click a header to sort"
     >
       {(columns) =>
         rows.map((asset) => {
@@ -385,7 +404,7 @@ export default function AssetsPage() {
                   </span>
                 ),
                 type: asset.kind,
-                status: <NeutralMark label={asset.status} />,
+                status: <AssetStatusMark status={asset.status} />,
                 warranty:
                   warranty.kind === "ending" ? (
                     <DueSoonMark label={warranty.label} testId={`assets-warranty-${asset.id}`} />

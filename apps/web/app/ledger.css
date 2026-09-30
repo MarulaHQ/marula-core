@@ -243,8 +243,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  padding: 0 12px;
+  gap: 10px;
+  padding: 0 14px;
   min-height: var(--m-density-control);
 }
 
@@ -260,15 +260,45 @@
   gap: 4px;
 }
 
+/* White pills with a hairline, sitting ON the gold band the way the pack's do.
+   Inheriting the band's tint made every action disappear into it. */
 .m-ledger-bulk-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--m-border);
+  padding: 0 12px;
+  border: 1px solid var(--m-border-strong);
   border-radius: var(--m-radius-control);
   background: var(--m-surface);
   color: var(--m-text);
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+}
+
+.m-ledger-bulk-action-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--m-text-secondary);
+}
+
+/* Clearing is the way OUT of the mode, so it is a link, not another pill. */
+.m-ledger-bulk-clear {
+  height: 32px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--m-text);
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--m-text-muted);
+  cursor: pointer;
+}
+
+.m-ledger-bulk-clear:hover {
+  text-decoration-color: currentColor;
 }
 
 .m-ledger-bulk-action:hover:not(:disabled) {
@@ -306,20 +336,69 @@
   gap: 16px;
 }
 
+/*
+ * The shared DensitySwitch states its step on two lines at 148px wide, which
+ * makes it the loudest thing in a footer the pack draws as a quiet icon
+ * segment. Rather than fork a control that also carries its measurements for
+ * screen readers, a ledger keeps the label and drops the visible hint line:
+ * the numbers stay announced, and the footer stops shouting. The pack's
+ * icon-only form is the right fix, and it belongs to the kit.
+ */
+.m-ledger-card .m-density-switch-item {
+  min-width: 0;
+  padding: 0 12px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  height: var(--m-density-control);
+}
+
+.m-ledger-card .m-density-switch-hint {
+  display: none;
+}
+
+.m-ledger-card .m-density-switch {
+  border-radius: 999px;
+}
+
+/*
+ * The shared ExportControl prints the row count beside its buttons, and the
+ * footer already carries "shown of total" — so a ledger showed the same number
+ * twice on one screen. The pack states it once, in the footer. Both format
+ * buttons stay (that is a capability, not a decoration); only the duplicate
+ * figure goes.
+ */
+.m-ledger-page .m-export-count {
+  display: none;
+}
+
 .m-ledger-hints {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   font-size: 12px;
   color: var(--m-text-muted);
 }
 
-.m-ledger-hints kbd {
+.m-ledger-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.m-ledger-kbd {
   font-family: var(--m-font-mono);
   /* The pack's floor is 12px; a keycap is still a legible 12px with the inset
      doing the work of the extra point. */
   font-size: 12px;
-  padding: 1px 4px;
+  line-height: 1;
+  min-width: 20px;
+  padding: 3px 4px;
+  text-align: center;
   border: 1px solid var(--m-border);
-  border-radius: 4px;
+  border-radius: 5px;
   background: var(--m-canvas);
+  color: var(--m-text-secondary);
 }
 
 /* ---- shared empty / error / retry state inside the table card ---- */

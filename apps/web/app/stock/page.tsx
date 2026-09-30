@@ -50,6 +50,8 @@ import {
   ClockIcon,
   DueSoonMark,
   NeutralMark,
+  MoveIcon,
+  ReceiveIcon,
   ReturnedMark,
 } from "../../components/assets-stock/ledger-marks";
 import { MovementDialog, type MovementKind } from "../../components/stock/movement-dialog";
@@ -509,6 +511,7 @@ export default function StockPage(): ReactNode {
         {
           key: "receive",
           label: "Receive",
+          icon: <ReceiveIcon />,
           disabled: selected.length === 0,
           title: "Record a receipt into the selected items",
           onClick: () => openMovement("receive", selected.length === 1 ? selected[0] : undefined),
@@ -516,6 +519,7 @@ export default function StockPage(): ReactNode {
         {
           key: "transfer",
           label: "Move",
+          icon: <MoveIcon />,
           disabled: selected.length !== 1,
           title: "Move the selected item between locations",
           onClick: () => openMovement("transfer", selected[0]),
@@ -529,7 +533,6 @@ export default function StockPage(): ReactNode {
         </Button>
       }
       errorMessage={loadError}
-      keyboardHints="Low stock is blush, never red"
       childrenAfter={
         <>
           {actionError !== null && (

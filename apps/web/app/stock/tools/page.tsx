@@ -520,7 +520,6 @@ export default function StockToolsPage(): ReactNode {
       onClearSelection={() => setSelected([])}
       emptyMessage="No tool units yet. Flag a serialized stock item as a tool to see it here."
       errorMessage={actionError}
-      keyboardHints="Overdue is red, due soon is blush"
       childrenAfter={
         <>
           {directoryDenied && (

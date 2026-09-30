@@ -46,6 +46,7 @@ import { csvFileName, downloadCsv } from "../../../components/assets-stock/csv";
 import {
   DueSoonMark,
   OverdueMark,
+  ReturnIcon,
   ReturnedMark,
 } from "../../../components/assets-stock/ledger-marks";
 import { api, useRequireAuth } from "../../../lib/api";
@@ -508,6 +509,7 @@ export default function StockLoansPage(): ReactNode {
         {
           key: "return",
           label: "Return",
+          icon: <ReturnIcon />,
           disabled: selected.length !== 1,
           title: "Record the return of one loan",
           onClick: () => {
@@ -523,7 +525,6 @@ export default function StockLoansPage(): ReactNode {
           : "No loans out. Issue a loan to send stock to a client."
       }
       errorMessage={actionError}
-      keyboardHints="Overdue is red, due soon is blush"
     >
       {(columns) =>
         rows.map((detail) => (
