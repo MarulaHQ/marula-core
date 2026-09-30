@@ -283,8 +283,8 @@ export default function ProvenancePage() {
 
   return (
     <div className="grid gap-4 p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <header className="m-rise grid gap-1.5">
+        <div className="flex flex-wrap items-center gap-3">
           <h1
             className="text-[26px] font-semibold tracking-[-0.01em]"
             style={{ color: "var(--m-text)" }}
@@ -298,7 +298,7 @@ export default function ProvenancePage() {
             Read-only
           </span>
         </div>
-        <p className="max-w-md text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+        <p className="max-w-2xl text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           Who changed what, field by field, across every applied write — including agent
           sessions and imports. It never rewrites history.
         </p>
@@ -332,6 +332,7 @@ export default function ProvenancePage() {
               if (serverChanged) void load({ cursor: null });
             }}
             label="provenance filters"
+            emptyHint=""
           />
         }
         columns={<ColumnChooser columns={table.chooser} onChange={table.onChooser} label="Provenance columns" />}
@@ -341,7 +342,7 @@ export default function ProvenancePage() {
             rowCount={sorted.length}
             sort={table.saved.sort}
             onExport={() => handleExport()}
-            label="Export the write trail"
+            label="Export"
           />
         }
       />
@@ -429,7 +430,7 @@ export default function ProvenancePage() {
               ))}
             </tbody>
           </Table>
-          <div className="flex min-h-[52px] flex-wrap items-center gap-3 px-3 pb-2">
+          <div className="m-insight-footer flex min-h-[52px] flex-wrap items-center gap-3 px-3 pb-2">
             <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
               <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
                 {sorted.length}

@@ -519,7 +519,11 @@ export default function SearchPage() {
                           {body}
                         </Link>
                       ) : (
-                        <div className="min-w-0 flex-1">{body}</div>
+                        /* Same column layout as the linked branch: without
+                           `flex-col` the title and the snippet run together on
+                           one line, which is how a result with no link used to
+                           read ("...tunnelCheck the rekey window..."). */
+                        <div className="flex min-w-0 flex-1 flex-col">{body}</div>
                       )}
                       <button
                         data-testid={`search-pin-${hit.entity_kind}-${hit.entity_id}`}

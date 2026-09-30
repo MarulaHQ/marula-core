@@ -81,3 +81,29 @@
   font-size: 11px;
   line-height: 1;
 }
+
+/*
+ * The density control, sized for a 52px footer.
+ *
+ * The shared `DensitySwitch` gives every step a 148px minimum and stacks the
+ * label over its "44px controls, 48px rows" hint, so three steps occupy about
+ * 450px — a third of the footer, in a surface whose whole footer is 52px
+ * tall. The pack draws this control as a compact three-cell row.
+ *
+ * The step names stay (an unlabelled icon is worse, and the switch already
+ * carries a full screen-reader sentence per step); the hint and the width go.
+ * Scoped to this lane's footers, because the primitive is shared with nine
+ * other in-flight lanes.
+ */
+.m-insight-footer .m-density-switch-item {
+  min-width: 0;
+  padding: 0 12px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.m-insight-footer .m-density-switch-hint {
+  display: none;
+}

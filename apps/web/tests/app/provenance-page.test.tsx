@@ -119,10 +119,10 @@ describe("/provenance integration", () => {
     expect(screen.getByRole("tablist", { name: "Provenance views" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /add filter/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Columns" })).toBeInTheDocument();
-    // The export control offers a button per format, and carries the row
-    // count so the user knows the size before they ask.
-    const exportButtons = screen.getAllByRole("button", { name: /export the write trail/i });
-    expect(exportButtons.length).toBeGreaterThan(0);
+    // One button per format, and the row count on the strip so the user
+    // knows the size before they ask.
+    expect(screen.getByRole("button", { name: "Export CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export XLSX" })).toBeInTheDocument();
     expect(screen.getByText(/\d+ rows?/)).toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: "Density" })).toBeInTheDocument();
     // Audit and provenance take every control EXCEPT the selection bar.

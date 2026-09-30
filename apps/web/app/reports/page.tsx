@@ -192,7 +192,7 @@ function ReportsInner() {
           r.scope === "org" ? (
             <Tag tone="neutral">Org-wide</Tag>
           ) : (
-            <Tag tone="warning">Private</Tag>
+            <Tag tone="neutral">Private</Tag>
           ),
       },
       {
@@ -351,7 +351,10 @@ function ReportsInner() {
           setCatalogError("The report field catalog could not be loaded.");
           return;
         }
-        setCatalog(data.views);
+        // A resolving read can carry a payload without `views`. Setting
+        // `undefined` here would leave the builder's `catalog?.find` throwing
+        // and take the whole surface down; `null` is its "no catalog" state.
+        setCatalog(Array.isArray(data.views) ? data.views : null);
       })
       .catch(() => setCatalogError("The report field catalog could not be loaded."));
   }, [auth.status, refreshDefinitions, refreshSchedules]);
@@ -543,7 +546,13 @@ function ReportsInner() {
               />
             }
             filters={
-              <FilterBar fields={FILTER_FIELDS} clauses={clauses} onChange={setClauses} label="report filters" />
+              <FilterBar
+                fields={FILTER_FIELDS}
+                clauses={clauses}
+                onChange={setClauses}
+                label="report filters"
+                emptyHint=""
+              />
             }
             columns={
               <ColumnChooser
@@ -567,7 +576,7 @@ function ReportsInner() {
                 rowCount={sortedRows.length}
                 sort={defSort}
                 onExport={(req) => handleExport({ format: req.format })}
-                label="Export saved reports"
+                label="Export"
               />
             }
           />
@@ -655,7 +664,7 @@ function ReportsInner() {
               </Table>
             )}
           </div>
-          <div className="flex min-h-[52px] flex-wrap items-center gap-3">
+          <div className="m-insight-footer flex min-h-[52px] flex-wrap items-center gap-3">
             <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
               <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
                 {sortedRows.length}
@@ -904,7 +913,7 @@ function ReportsInner() {
               </Table>
             )}
           </div>
-          <div className="flex min-h-[52px] flex-wrap items-center gap-3">
+          <div className="m-insight-footer flex min-h-[52px] flex-wrap items-center gap-3">
             <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
               <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
                 {schedules?.length ?? 0}

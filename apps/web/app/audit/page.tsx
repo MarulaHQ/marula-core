@@ -262,8 +262,8 @@ export default function AuditPage() {
 
   return (
     <div className="grid gap-4 p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <header className="m-rise grid gap-1.5">
+        <div className="flex flex-wrap items-center gap-3">
           <h1
             className="text-[26px] font-semibold tracking-[-0.01em]"
             style={{ color: "var(--m-text)" }}
@@ -277,7 +277,7 @@ export default function AuditPage() {
             Append-only
           </span>
         </div>
-        <p className="max-w-md text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+        <p className="max-w-2xl text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           Every security change, administrative action and domain lifecycle event, in order.
           Rows expand in place to their structured detail. Nothing here can be edited or
           deleted.
@@ -312,7 +312,7 @@ export default function AuditPage() {
               if (actionChanged || actorChanged) void loadEvents(null);
             }}
             label="audit filters"
-            emptyHint="No filters"
+            emptyHint=""
           />
         }
         columns={
@@ -328,7 +328,7 @@ export default function AuditPage() {
             rowCount={sorted.length}
             sort={table.saved.sort}
             onExport={() => handleExport()}
-            label="Export audit ledger"
+            label="Export"
           />
         }
       />
@@ -463,7 +463,7 @@ export default function AuditPage() {
               </tbody>
             </Table>
           )}
-          <div className="flex min-h-[52px] flex-wrap items-center gap-3 px-3 pb-2">
+          <div className="m-insight-footer flex min-h-[52px] flex-wrap items-center gap-3 px-3 pb-2">
             <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
               <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
                 {sorted.length}

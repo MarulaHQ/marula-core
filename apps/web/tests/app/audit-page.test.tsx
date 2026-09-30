@@ -61,7 +61,11 @@ describe("/audit integration", () => {
     expect(screen.getByRole("tablist", { name: "Audit views" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /add filter/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Columns" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /export audit ledger/i }).length).toBeGreaterThan(0);
+    // One button per format, and the row count on the strip so the user
+    // knows the size before they ask.
+    expect(screen.getByRole("button", { name: "Export CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export XLSX" })).toBeInTheDocument();
+    expect(screen.getByText(/\d+ rows?/)).toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: "Density" })).toBeInTheDocument();
     // The bulk bar is wrong here: an append-only ledger has no bulk action.
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();

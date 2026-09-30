@@ -35,15 +35,9 @@ import {
   visiblePresets,
   widgetDef,
   widgetVisible,
-  type WidgetDef,
 } from "../../lib/dashboards";
 import { api, useRequireAuth } from "../../lib/api";
 import { friendlyMutationText } from "../../lib/error-copy";
-
-/** Wide widgets span the full row; everything else sits two-up on xl. */
-function isWide(def: WidgetDef): boolean {
-  return def.id === "time_by_user:self" || def.id === "time_by_user:org" || def.id === "sla_breaches:org";
-}
 
 export default function DashboardsPage() {
   const auth = useRequireAuth();
@@ -257,7 +251,7 @@ export default function DashboardsPage() {
             const def = widgetDef(id);
             if (def === undefined) return null;
             return (
-              <div key={id} className={`min-w-0 ${isWide(def) ? "xl:col-span-2" : ""}`}>
+              <div key={id} className="min-w-0">
                 <ReportWidget
                   def={def}
                   meUserId={auth.me?.user_id ?? ""}
