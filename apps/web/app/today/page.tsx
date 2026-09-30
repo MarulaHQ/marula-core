@@ -22,6 +22,7 @@ import { useCallback, useEffect, useState } from "react";
 import { BoardNav } from "../../components/board-nav";
 import { OnboardingResumeBanner } from "../../components/onboarding/resume-banner";
 import { DayPackPanel } from "../../components/today/day-pack-panel";
+import { TodayDayContext } from "../../components/today/day-context";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { dueBucket, dueLabel, fmtMins } from "../../lib/format";
@@ -237,6 +238,15 @@ export default function TodayPage() {
             meUserId={auth.me?.user_id ?? ""}
             meName={auth.me?.display_name ?? ""}
           />
+
+          {/* Who holds the pager and what is already booked. One call feeds
+              both cards, so the rota and the schedule can never disagree about
+              the same day. It loads after mount and reports its own state, so a
+              technician without dispatch scope loses two cards rather than the
+              queue above them. */}
+          <div className="m-rise" style={{ animationDelay: "60ms" }}>
+            <TodayDayContext />
+          </div>
 
           {/* Attention strip: the day at a glance */}
           <div className="m-rise grid gap-3 sm:grid-cols-2 xl:grid-cols-4" style={{ animationDelay: "30ms" }}>

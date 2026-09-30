@@ -1855,6 +1855,184 @@
 .m-surface-header-description {
   margin: 0;
   max-width: 72ch;
+
+/* --- resolved: p41-ui-operations blocks follow the p41-ui-chrome ones --- */
+/* --- entrance motion ------------------------------------------------------
+ * One generic reveal for a list that renders a known number of rows. Transform
+ * and opacity only, 120ms, no layout property animated — the motion law in
+ * docs/theme.md §5.
+ *
+ * The stagger is the CALLER's to set, as an inline `animation-delay`, because
+ * only the surface knows how many rows it rendered and how many of them are
+ * worth staggering. This file may not name a custom property of its own: the
+ * css-contract test requires every `var(--*)` here to be a tokens.css token.
+ * A caller that wants no stagger simply does not set a delay.
+ */
+.m-enter > * {
+  animation: m-enter 120ms ease-out both;
+}
+
+@keyframes m-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-enter > * {
+    animation-duration: 0.01ms;
+    animation-delay: 0ms;
+  }
+}
+
+/* --- merge banner ----------------------------------------------------------
+ * A neutral/sand strip. History, not alarm: nothing here is at risk, so the
+ * warning and danger pairs are both wrong. The leading mark is drawn in bark so
+ * it reads as a filing mark rather than a status dot.
+ */
+.m-merge-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--m-status-neutral-bg);
+  color: var(--m-status-neutral-fg);
+  font-size: 12.5px;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-merge-banner-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--m-bark);
+}
+
+.m-merge-banner-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.m-merge-banner-link {
+  flex-shrink: 0;
+  color: var(--m-gold-text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.m-merge-banner-link.is-muted {
+  color: var(--m-text-muted);
+  font-weight: 400;
+  text-decoration: none;
+}
+
+/* --- ticket ledger ---------------------------------------------------------
+ * The parts of a data surface that DataToolbar does not own: the bulk-action
+ * cluster, the sort control inside a `Th`, the merged-row flag and the table's
+ * foot line. All of it is surface-shaped rather than a new primitive, so it
+ * lives here with the rest of the component styling.
+ */
+.m-bulk-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface-2);
+}
+
+.m-bulk-count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--m-text);
+  white-space: nowrap;
+}
+
+.m-bulk-bar .m-input {
+  min-height: var(--m-density-control-sm);
+  padding: 0 8px;
+  font-size: 12.5px;
+}
+
+.m-th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.m-th-sort-mark {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--m-text-muted);
+}
+
+/* The merged flag is a word, not a dot: a row that is closed because of a
+ * merge has to say so at a glance, in the same column as everything else. */
+.m-merged-flag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--m-status-neutral-bg);
+  color: var(--m-status-neutral-fg);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.m-table-foot {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--m-border);
+  font-size: 12.5px;
+  color: var(--m-text-muted);
+}
+
+.m-merge-row td {
+  padding: 0;
+}
+
+/* --- Today: on call & schedule --------------------------------------------
+ * Two quiet cards beside the queue. A technician reads them once, at the top of
+ * the day, and then stops — so they are dense rows on a card rather than a
+ * timetable. The section title carries the count so the card's own body can
+ * stay a list.
+ */
+.m-day-context-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--m-text-muted);
+}
+
+.m-day-context-count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.m-day-context-note {
+  margin: 0;
   font-size: 13px;
   color: var(--m-text-secondary);
 }
@@ -1922,6 +2100,121 @@
 
 .m-assistant-column-name {
   font-size: 13px;
+
+/* --- resolved: p41-ui-operations blocks follow the p41-ui-chrome ones --- */
+.m-day-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.m-day-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--m-density-row);
+  padding: 4px 0;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-day-list > .m-day-row:first-child {
+  border-top: 0;
+}
+
+.m-day-when {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  color: var(--m-text-secondary);
+}
+
+.m-day-name {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+  color: var(--m-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-day-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--m-text-muted);
+}
+
+/* --- workbench: custom fields, tags, link tree -----------------------------
+ * Facts about a ticket, in the neutral surface voice. Nothing here takes a
+ * status pair, because nothing here is a status.
+ */
+.m-panel-subhead {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--m-text-muted);
+}
+
+/* Custom fields are a definition list, so the screen reader gets name/value
+ * pairs rather than a grid of loose spans. Two columns at the workbench width,
+ * one when it narrows; the label/value rhythm is the separator. */
+.m-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.m-field-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--m-text-muted);
+}
+
+.m-field-required {
+  margin-left: 2px;
+  color: var(--m-status-danger-fg);
+}
+
+.m-field-value {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--m-text);
+  overflow-wrap: anywhere;
+}
+
+.m-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* The rollup strip: four facts about the linked tree, read in one pass. Mono
+ * figures with tabular numerals so the digits line up down the column. */
+.m-rollup {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-container);
+  background: var(--m-surface-2);
+}
+
+.m-rollup-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.m-rollup-value {
+  font-size: 16px;
   font-weight: 600;
   color: var(--m-text);
 }
@@ -1972,4 +2265,46 @@
   font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+
+/* --- resolved: p41-ui-operations blocks follow the p41-ui-chrome ones --- */
+.m-rollup-label {
+  font-size: 11px;
+  color: var(--m-text-muted);
+}
+
+.m-edge-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.m-edge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--m-density-row);
+  padding: 5px 0;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-edge-list > .m-edge:first-child {
+  border-top: 0;
+}
+
+.m-edge-link {
+  flex-shrink: 0;
+  font-family: var(--m-font-mono);
+  font-size: 12.5px;
+  color: var(--m-text);
+  text-decoration-color: var(--m-accent);
+}
+
+.m-edge-label {
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}
+
+.m-edge-meta {
+  font-size: 12px;
+  color: var(--m-text-muted);
 }

@@ -64,6 +64,12 @@ import { WbContextPanel } from "../../../components/workbench-v2/context-panel";
 import { WbAgentPanel } from "../../../components/workbench-v2/agent-panel";
 import { DecisionSuggestionsCard } from "../../../components/workbench-v2/decision-card";
 import { WbComposer } from "../../../components/workbench-v2/composer";
+import { MergeBanner } from "../../../components/tickets/merge-banner";
+import {
+  CustomFieldsPanel,
+  TagsPanel,
+  TicketLinksPanel,
+} from "../../../components/ticket-workspace/ticket-fields";
 import { MovementDialog, type MovementKind } from "../../../components/stock/movement-dialog";
 import { PickDialog } from "../../../components/stock/pick-dialog";
 import {
@@ -1102,6 +1108,17 @@ async function changeStatus(statusId: string): Promise<void> {
             {ticket.number} · {ticket.title}
           </h1>
 
+          {/* A merged ticket stays queryable by doctrine but is closed and
+              never re-opens, so the page has to say so in the first thing the
+              reader sees. Gating below (take-it, move-board) is already keyed
+              off `isMerged`; this is the sentence that explains why those
+              controls are missing rather than broken. */}
+          {mergedIntoId !== null ? (
+            <div className="mt-2.5 overflow-hidden rounded-[var(--m-radius-container)] border" style={{ borderColor: "var(--m-border)" }}>
+              <MergeBanner survivorId={mergedIntoId} />
+            </div>
+          ) : null}
+
           <div className="mt-2.5 flex flex-wrap items-center gap-3">
             <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
               <strong style={{ color: "var(--m-text)" }}>{clientName ?? (ticket.client_id != null ? "Client" : "No client")}</strong>
@@ -1225,19 +1242,23 @@ async function changeStatus(statusId: string): Promise<void> {
                   the Details tab — it is read/send-only (no note surface), so
                   it cannot conflict with the floating composer. */}
               <SchedulingPod ticketId={ticket.id} ticketTitle={ticket.title} />
-              <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                Custom fields, tags, links and undo live in the{" "}
-                <Link href={`/tickets/classic/${ticket.id}`} className="underline" style={{ color: "var(--m-accent)" }}>
-                  classic workspace
-                </Link>{" "}
-                for now — this surface grows them next.
-              </p>
+              {/* Custom fields and tags used to be a link away in the classic
+                  workspace. The value payload turned out to be
+                  self-describing, so the fields cost no fetch at all and the
+                  tags cost one, paid only when this tab is opened. */}
+              <CustomFieldsPanel fields={ticket.custom_fields} />
+              <TagsPanel ticketId={ticket.id} />
             </div>
           )}
           {activeTab === "related" && (
             <div className="grid content-start gap-2">
+              {/* The explicit link tree (parent/child, major-incident members)
+                  and its rollup. This used to be a link away in the classic
+                  workspace; similarity search below is a different question —
+                  "what else mentions this" rather than "what is attached". */}
+              <TicketLinksPanel ticketId={ticket.id} />
               <h2 className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
-                Related tickets
+                Similar tickets
               </h2>
               <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                 Tickets sharing this one&apos;s words, from the unified search.
@@ -1263,13 +1284,6 @@ async function changeStatus(statusId: string): Promise<void> {
                   </Link>
                 ))
               )}
-              <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                Merge, supersede and link trees are managed in the{" "}
-                <Link href={`/tickets/classic/${ticket.id}`} className="underline" style={{ color: "var(--m-accent)" }}>
-                  classic workspace
-                </Link>{" "}
-                Related tab.
-              </p>
             </div>
           )}
           {activeTab === "time" && (
