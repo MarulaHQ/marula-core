@@ -501,11 +501,11 @@ pub async fn delete_status(
                 let mut elapsed: Vec<(Uuid, i64)> = Vec::with_capacity(pauses.len());
                 for pause in pauses {
                     let calendar =
-                        match core_db::sla::get_policy_record(&mut ctx.tx, org_id, pause.policy_id)
+                        match core_db::sla::get_policy_record(&mut *ctx.tx, org_id, pause.policy_id)
                             .await
                         {
                             Ok(record) => core_db::sla::resolve_policy_calendar(
-                                &mut ctx.tx,
+                                &mut *ctx.tx,
                                 &record,
                             )
                             .await
@@ -552,7 +552,7 @@ pub async fn delete_status(
         // 5. The delete itself. Still RESTRICT-guarded: anything the bulk move
         //    did not cover (a status in another board, say) is refused rather
         //    than silently orphaned.
-        match core_db::boards::delete_status(&mut ctx.tx, status_id).await {
+        match core_db::boards::delete_status(&mut *ctx.tx, status_id).await {
             Ok(()) => {}
             Err(core_db::DbError::Sql(sqlx::Error::Database(db))) if db.constraint().is_some() => {
                 return Err(ApiError::Conflict(

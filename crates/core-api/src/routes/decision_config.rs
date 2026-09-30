@@ -1052,35 +1052,22 @@ pub async fn get_decision_runs(
     let user_id = authed.principal.user.id;
     let days = q.days.unwrap_or(7).clamp(1, 90);
     let limit = q.limit.unwrap_or(50).clamp(1, 500);
+    // The closure takes the key by move, so the envelope keeps the original.
+    let surface = surface_key.clone();
 
     let payload = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         // Thresholds come from the org's own config, so the log's "above
-        // threshold" is the same rule the consumers act on: the forked
-        // questions when the org edited them, the curated starter set
-        // otherwise.
-        let config = core_db::decision::get_surface_config(&mut ctx.tx, org_id, &surface_key)
+        // threshold" is the same rule the consumers act on. `effective_config`
+        // is the one resolver (forked questions when the org edited them, the
+        // curated starter set otherwise) and the edge already uses it, so the
+        // log and the edge can never read different thresholds.
+        let config = core_db::decision::get_surface_config(&mut *ctx.tx, org_id, &surface)
             .await?
             .ok_or(ApiError::NotFound)?;
-        let document = match config.config.clone() {
-            Some(fork) => fork,
-            None => core_db::decision::get_question_set(
-                &mut *ctx.tx,
-                &surface_key,
-                config.starter_version,
-            )
-            .await?
-            .ok_or(ApiError::NotFound)?,
-        };
-        let effective: SurfaceConfig = serde_json::from_value(document).map_err(|e| {
-            ApiError::Internal(anyhow::anyhow!("stored question set is unreadable: {e}"))
-        })?;
-        let rows = core_db::decision::list_runs(
-            &mut *ctx.tx,
-            org_id,
-            &surface_key,
-            days,
-            limit,
-        )
+        let effective = super::decision_edge::effective_config(&mut ctx.tx, &surface, &config)
+            .await
+            .map_err(|quiet| ApiError::Conflict(quiet.reason()))?;
+        let rows = core_db::decision::list_runs(&mut *ctx.tx, org_id, &surface, days, limit)
         .await?;
         Ok((ctx, (effective, rows)))
     })
@@ -1138,7 +1125,7 @@ pub async fn get_decision_runs(
         // Agreement compares a proposed label against where the ticket
         // actually is. A ticket that has been deleted cannot be compared, and
         // saying so beats a silent zero.
-        let comparison = row.current_status.as_ref().and_then(|current| {
+        let comparison = row.current_status.as_ref().map(|current| {
             let needle = current.trim().to_lowercase();
             answers
                 .iter()
