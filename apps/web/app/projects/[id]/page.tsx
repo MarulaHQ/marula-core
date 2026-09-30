@@ -1,18 +1,37 @@
 // /projects/[id] — one engagement's delivery surface (Wave 17 lane 4 UX
-// pass). Identity header, glanceable roll-up strip (phases / tasks /
-// milestones + schedule-risk counts), a sequence rail over the phases
-// (gantt: the dated timeline is <ProjectGantt/>, mounted below — phases
-// carry nullable start/end dates since Wave 34, and the timeline draws
-// only the ones that HAVE both. The sequence rail stays, because an
-// undated phase is still an ordered stage.
+// pass; Wave 41 lane 7 `p41-ui-clients` reshaped it to the pack's record
+// template).
+//
+// Identity header, glanceable roll-up strip (phases / tasks / milestones +
+// schedule-risk counts), a sequence rail over the phases (gantt: the dated
+// timeline is <ProjectGantt/>, mounted below — phases carry nullable
+// start/end dates since Wave 34, and the timeline draws only the ones that
+// HAVE both. The sequence rail stays, because an undated phase is still an
+// ordered stage).
 //
 // gantt-lite: phases are ordered stages, not dated bars — the schema has
 // sort_order + status, no dates), phase/task groups with per-phase
-// progress, a needs-attention triage filter (overdue / due-soon /
-// blocked), and the finish-to-start dependency editor (PUT full set).
+// progress, a needs-attention triage filter (overdue / due-soon / blocked),
+// and the finish-to-start dependency editor (PUT full set).
 // Mutations keep the IF1–IF3 envelope with optimistic status reconcile.
-// Non-purpose: no budget burn EDITING here
-// view, no ticket conversion.
+// Non-purpose: no budget burn EDITING here, no ticket conversion.
+//
+// **What Wave 41 changed** (the frame and the signals, not the behaviour):
+//   1. The page is now the pack's three-column RECORD shape — the client and
+//      the owner on the left, the delivery surface in the middle, what needs
+//      attention on the right — reusing the skeleton the client record
+//      established rather than inventing a second one for projects.
+//   2. **At risk is BLUSH; overdue is RED only once the due date has actually
+//      passed** — the existing `projectRisk` already split these, and the
+//      left column now shows both sides with their words, never colour alone.
+//   3. The right column carries a **budget bar on the Dispatch utilisation
+//      bar's language** (flat 1px track, blush overflow), fed by the real
+//      cost-rollup — one bar rule transferred rather than a new one invented.
+//
+// Every existing capability — the roll-up strip, the phase rail, the gantt,
+// phase-grouped tasks with blocked-by chips, the attention filter, the
+// dependency editor and the optimistic complete-task envelope — is kept
+// exactly as it was. A visual rebrand does not remove function.
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
@@ -53,6 +72,12 @@ import { api, useRequireAuth } from "../../../lib/api";
 import { ProjectGantt } from "../../../components/project-gantt";
 import { dueLabel, money } from "../../../lib/format";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import {
+  RecordFrame,
+  RecordRow,
+  RecordSection,
+  SummaryCard,
+} from "../../../components/records/record-frame";
 
 type Project = components["schemas"]["Project"];
 type ProjectPhase = components["schemas"]["ProjectPhase"];
@@ -539,8 +564,79 @@ export default function ProjectDetailPage() {
   );
   const linkedContract = contracts.find((c) => c.id === project.billing_contract_id) ?? null;
 
+  // The budget bar reads the real cost-rollup, the same figures the roll-up
+  // strip prints: spent against the project's own budget, in the rollup's
+  // base currency so a multi-currency book is not silently summed wrong.
+  const budgetSpent = rollup?.po_bill_base_minor ?? null;
+  const budgetCap = rollup?.budget_minor ?? null;
+  const budgetCurrency = rollup?.base_currency ?? project.currency ?? "USD";
+  const budgetPct =
+    budgetSpent === null || budgetCap === null || budgetCap === 0
+      ? null
+      : Math.round((budgetSpent / budgetCap) * 100);
+
   return (
-    <div className="mx-auto grid w-full max-w-[1200px] gap-5 p-4 md:p-6">
+    <div className="mx-auto grid w-full max-w-[1600px] gap-4 p-4 md:p-6">
+      <RecordFrame
+        context={
+          <>
+            <RecordSection label="Client">
+              {client === null ? (
+                <p className="text-[16px] font-semibold">Internal</p>
+              ) : (
+                <Link
+                  href={`/clients/${client.id}`}
+                  className="text-[16px] font-semibold underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
+                >
+                  {client.name}
+                </Link>
+              )}
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <Tag tone={projectStatusTone(project.status)}>
+                  {STATUS_LABEL[project.status] ?? project.status.replaceAll("_", " ")}
+                </Tag>
+                {risk !== null ? (
+                  /* The pack's rule, on the client-facing side of the
+                     record too: a date coming up is blush, a date that has
+                     passed is red. Both carry their words. */
+                  <Tag tone={risk.tone === "danger" ? "danger" : "warning"}>{risk.label}</Tag>
+                ) : null}
+              </div>
+            </RecordSection>
+
+            <RecordSection label="Commitment">
+              <RecordRow label="Starts">{project.start_date ?? "Not set"}</RecordRow>
+              <RecordRow label="Due">{project.due_date ?? "Not set"}</RecordRow>
+              <RecordRow label="Billing">{project.billing_method.replaceAll("_", " ")}</RecordRow>
+            </RecordSection>
+
+            <RecordSection label="Budget">
+              {budgetCap === null ? (
+                <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  No budget set on this project.
+                </p>
+              ) : (
+                <>
+                  <RecordRow label="Budget">{money(budgetCap, budgetCurrency)}</RecordRow>
+                  <RecordRow label="Committed">
+                    {budgetSpent === null ? "—" : money(budgetSpent, budgetCurrency)}
+                  </RecordRow>
+                  <div className="mt-2">
+                    <BudgetBar pct={budgetPct} />
+                  </div>
+                </>
+              )}
+            </RecordSection>
+
+            <RecordSection label="Owner">
+              <RecordRow label="Account owner">
+                {client === null ? "Unassigned" : "You"}
+              </RecordRow>
+            </RecordSection>
+          </>
+        }
+        content={
+          <>
       <div className="m-rise">
         <Link
           href="/projects"
@@ -986,7 +1082,138 @@ export default function ProjectDetailPage() {
         busy={busy}
         onSave={() => void saveDependencies()}
       />
+          </>
+        }
+        summary={
+          <>
+            <p
+              className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em]"
+              style={{ color: "var(--m-text-muted)" }}
+            >
+              Right now
+            </p>
+
+            <SummaryCard title="Budget">
+              {budgetPct === null ? (
+                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  Set a budget to see this bar.
+                </span>
+              ) : (
+                <>
+                  <RecordRow label="Budget">
+                    {money(budgetCap as number, budgetCurrency)}
+                  </RecordRow>
+                  <RecordRow label="Committed">
+                    {money(budgetSpent as number, budgetCurrency)}
+                  </RecordRow>
+                  <div className="mt-1">
+                    <BudgetBar pct={budgetPct} />
+                  </div>
+                </>
+              )}
+            </SummaryCard>
+
+            <SummaryCard title="Risk">
+              {risk === null ? (
+                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  Nothing at risk.
+                </span>
+              ) : (
+                <RecordRow label="Schedule">
+                  <Tag tone={risk.tone === "danger" ? "danger" : "warning"}>
+                    {risk.label}
+                  </Tag>
+                </RecordRow>
+              )}
+              {overdue.length > 0 ? (
+                <RecordRow label="Overdue tasks">
+                  <Tag tone="danger">{overdue.length} overdue</Tag>
+                </RecordRow>
+              ) : null}
+              {blocked.length > 0 ? (
+                <RecordRow label="Blocked">
+                  <Tag tone="warning">{blocked.length} blocked</Tag>
+                </RecordRow>
+              ) : null}
+              {dueSoon.length > 0 ? (
+                <RecordRow label="Due in 3d">
+                  <Tag tone="warning">{dueSoon.length} due in 3d</Tag>
+                </RecordRow>
+              ) : null}
+            </SummaryCard>
+
+            <SummaryCard title="Progress">
+              <RecordRow label="Phases">
+                {pProgress.done}/{pProgress.total}
+              </RecordRow>
+              <RecordRow label="Tasks">
+                {tProgress.done}/{tProgress.total}
+              </RecordRow>
+              {pProgress.milestonesTotal > 0 ? (
+                <RecordRow label="Milestones">
+                  {pProgress.milestonesDone}/{pProgress.milestonesTotal}
+                </RecordRow>
+              ) : null}
+            </SummaryCard>
+          </>
+        }
+      />
     </div>
+  );
+}
+
+/**
+ * The budget bar, on the Dispatch utilisation bar's language: a flat 1px
+ * track, a flat fill, and the one rule that transfers with it — past the
+ * budget the overflow is BLUSH and the percentage carries an alert icon, so
+ * the number is never colour alone.
+ */
+function BudgetBar({ pct }: { pct: number | null }) {
+  if (pct === null) {
+    return (
+      <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+        Set a budget to see this bar.
+      </p>
+    );
+  }
+  const over = pct > 100;
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className="h-1.5 flex-1 overflow-hidden rounded-full"
+        style={{ background: "var(--m-border)" }}
+        role="meter"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`Budget ${pct}% committed`}
+      >
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${Math.min(pct, 100)}%`,
+            background: over ? "var(--m-accent)" : "var(--m-text-secondary)",
+            opacity: over ? 1 : 0.7,
+          }}
+        />
+      </div>
+      <span
+        className="inline-flex items-center gap-1 text-[13px] font-semibold tabular-nums"
+        style={{ color: over ? "var(--m-accent-text)" : "var(--m-text-secondary)" }}
+      >
+        {over ? <AlertGlyph /> : null}
+        {pct}%
+      </span>
+    </div>
+  );
+}
+
+function AlertGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v5M12 16.5v.01" />
+    </svg>
   );
 }
 
