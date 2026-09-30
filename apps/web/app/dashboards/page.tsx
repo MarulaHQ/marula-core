@@ -1,24 +1,24 @@
-// /dashboards — static dashboards (TASKLIST R2), Wave 17 lane 1 polish.
+// /dashboards — the widget grid (Wave 41 lane 11, Marula rebrand).
 //
-// Purpose: per-user widget rows over the shipped R1 reports API. Defaults
-// first: until the user stores an arrangement, the 'My day' preset IS the
-// dashboard; 'Team load' and 'SLA health' are one click away. Rows persist
-// through the EXISTING settings-registry machinery (wave 2.5): a single
-// user-scope registry key (dashboards.widgets) written with the same
-// GET/PUT pattern the settings pages use. Widget arrangement is fixed
-// vertical rows — drag-arrangement (react-grid-layout) stays out until it
-// proves wanted, per ADR 0001; the Wave 17 grid presents the same ordered
-// rows as a responsive two-column layout with wide lead widgets.
+// Purpose: the per-user report widget surface. The page header keeps the TL
+// frame (title row with attention shortcuts, one toolbar row, 24px gutters);
+// the body composes Dispatch Planning-card language: 16px-radius bordered
+// cards, flat, no gradients. Widget catalogue, per-user persisted row order
+// (settings key `dashboards.widgets`, the lane 2b pattern), role-limited
+// visibility (the server is the enforcement point; the UI mirrors it), and
+// a save-failed state that SURFACES — a fixed blush notice above the grid,
+// never a silent drop.
 //
-// RBAC: org-lens widgets and org presets appear only for managers (the
-// /api/v1/me permission set matching the server's owner-or-admin seam);
-// everyone else gets personal-lens widgets, which the report API would
-// force onto self anyway.
-//
-// Non-purpose: no report-spec editing (R3) and no shared/org dashboards.
+// Non-purpose: no report-spec editing (that is /reports), no drag-to-resize
+// of widget cards (drag-to-reorder of ROWS stays in a later wave if wanted).
 "use client";
 
-import { Button, Card, EmptyState, Spinner } from "@marula-core/ui";
+import {
+  Button,
+  Card,
+  EmptyState,
+  Spinner,
+} from "@marula-core/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ReportWidget } from "../../components/dashboards/report-widget";
 import { PluginWidgetsSection } from "../../components/dashboards/plugin-widget";
@@ -37,6 +37,7 @@ import {
   type WidgetDef,
 } from "../../lib/dashboards";
 import { api, useRequireAuth } from "../../lib/api";
+import { friendlyMutationText } from "../../lib/error-copy";
 
 /** Wide widgets span the full row; everything else sits two-up on xl. */
 function isWide(def: WidgetDef): boolean {
@@ -84,14 +85,21 @@ export default function DashboardsPage() {
       setRows(next);
       setSaveError(null);
       void (async () => {
-        const res = await api.api.PUT("/api/v1/settings/user", {
-          body: { key: WIDGET_ROWS_KEY, value: encodeWidgetRows(next) },
-        });
-        if (res.error) {
-          const detail =
-            (res.error as { error?: { message?: string } }).error?.message ??
-            "rejected";
-          setSaveError(`Saving your layout failed: ${detail}`);
+        try {
+          const res = await api.api.PUT("/api/v1/settings/user", {
+            body: { key: WIDGET_ROWS_KEY, value: encodeWidgetRows(next) },
+          });
+          if (res.error) {
+            const detail = friendlyMutationText(
+              res.error,
+              "the server refused the change",
+            );
+            setSaveError(`Your dashboard did not save — ${detail}. Your arrangement is still on screen; try again.`);
+          }
+        } catch (e) {
+          setSaveError(
+            friendlyMutationText(e, "Your dashboard did not save — the network dropped. Your arrangement is still on screen; try again."),
+          );
         }
       })();
     },
@@ -115,20 +123,27 @@ export default function DashboardsPage() {
   return (
     <main className="mx-auto grid w-full max-w-6xl gap-5 p-6">
       <header className="m-rise grid gap-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div className="flex items-baseline gap-3">
-            <h1 className="text-lg font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
+        {/* Page header row, TL frame: title 26px semibold + scope pill, action right. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            <h1
+              className="text-[26px] font-semibold tracking-[-0.01em]"
+              style={{ color: "var(--m-text)" }}
+            >
               Dashboards
             </h1>
             <span
-              className="text-[11px] font-medium uppercase tracking-wide"
-              style={{ color: "var(--m-text-muted)" }}
+              className="inline-flex h-6 items-center rounded-full px-2.5 text-[12px] font-semibold"
+              style={{
+                background: "var(--m-surface-2)",
+                color: "var(--m-text-secondary)",
+              }}
             >
               {manager ? "Org-wide scope" : "Your data only"}
             </span>
           </div>
           <Button
-            variant="secondary"
+            variant={pickerOpen ? "secondary" : "primary"}
             size="sm"
             aria-expanded={pickerOpen}
             aria-controls="widget-picker"
@@ -137,7 +152,13 @@ export default function DashboardsPage() {
             {pickerOpen ? "Close" : "Add widget"}
           </Button>
         </div>
-        <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Default presets">
+
+        {/* Toolbar row: named arrangement views (the presets) on the left. */}
+        <div
+          className="flex flex-wrap items-center gap-2"
+          role="group"
+          aria-label="Saved arrangements"
+        >
           {presets.map((preset) => {
             const active =
               preset.widgets.length === visible.length &&
@@ -156,13 +177,15 @@ export default function DashboardsPage() {
             );
           })}
         </div>
+
+        {/* The catalogue: a popover-style card under the Add widget button. */}
         {pickerOpen && (
           <Card className="grid gap-1 p-3" id="widget-picker">
             <p
-              className="text-[10px] font-semibold uppercase tracking-wide"
+              className="text-[12px] font-semibold uppercase tracking-[0.06em]"
               style={{ color: "var(--m-text-muted)" }}
             >
-              Widget catalog
+              Widget catalogue
             </p>
             {candidates.length === 0 ? (
               <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -195,10 +218,32 @@ export default function DashboardsPage() {
             )}
           </Card>
         )}
+
+        {/* Save failure SURFACES: fixed-position blush notice, never swallowed. */}
         {saveError !== null && (
-          <p className="text-[12px]" role="alert" style={{ color: "var(--m-status-danger-fg)" }}>
+          <div
+            role="alert"
+            className="flex items-center gap-2 rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+            style={{
+              background: "var(--m-status-due-bg)",
+              color: "var(--m-status-due-fg)",
+            }}
+            data-testid="dashboard-save-error"
+          >
+            <svg
+              aria-hidden="true"
+              className="size-4 shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              <path d="M4 17l6-6 4 4 6-8" />
+              <path d="M4 21h16" opacity="0.4" />
+            </svg>
             {saveError}
-          </p>
+          </div>
         )}
       </header>
 

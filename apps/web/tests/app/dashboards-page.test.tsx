@@ -256,6 +256,36 @@ describe("/dashboards integration", () => {
     cleanup();
   });
 
+  it("surfaces a save failure in blush instead of swallowing it", async () => {
+    const mock = setupApi(MANAGER_ME);
+    // The registry refuses the write; the arrangement stays on screen and the
+    // user is told, in words, rather than watching a silent drop.
+    mock.on("PUT", "/api/v1/settings/user", () => ({
+      status: 409,
+      json: { error: { message: "settings registry is read-only for this account" } },
+    }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("My time", {}, { timeout: 5000 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
+    fireEvent.click(screen.getByRole("button", { name: "Time by client" }));
+
+    const notice = await screen.findByTestId("dashboard-save-error", {}, { timeout: 5000 });
+    expect(notice).toHaveTextContent(/did not save/i);
+    // Blush family, never the danger family: a failed save is not a breach.
+    expect(notice).toHaveStyle({
+      background: "var(--m-status-due-bg)",
+      color: "var(--m-status-due-fg)",
+    });
+    // The arrangement the user just built is still on screen.
+    expect(await screen.findByText("Acme Corp", {}, { timeout: 5000 })).toBeInTheDocument();
+    cleanup();
+  });
+
   it("offers restore-from-empty through the My day preset", async () => {
     const mock = setupApi(MANAGER_ME);
     mock.setStored(JSON.stringify({ version: 1, widgets: [] }));

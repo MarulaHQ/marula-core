@@ -16,6 +16,7 @@ import { Button, Card, EmptyState, StatusTag, Tag, Table, Td, Th, Tr } from "@ma
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { WidgetDef } from "../../lib/dashboards";
+import { WidgetSkeleton } from "./widget-skeleton";
 import { AGING_BUCKET_LABELS, formatMinutes, formatSeconds } from "../../lib/dashboards";
 import {
   agingRows,
@@ -178,18 +179,6 @@ export function ReportWidget({ def, meUserId, entranceDelay = 0, onRemove }: Pro
       </div>
       {body}
     </Card>
-  );
-}
-
-/** Typed loading state: quiet skeleton bars, no spinner churn. */
-function WidgetSkeleton({ label }: { label: string }) {
-  return (
-    <div className="grid gap-2" aria-busy="true" aria-label={label}>
-      <div className="m-skel h-3 w-1/3" />
-      <div className="m-skel h-3 w-2/3" />
-      <div className="m-skel h-3 w-1/2" />
-      <div className="m-skel h-3 w-1/4" />
-    </div>
   );
 }
 
