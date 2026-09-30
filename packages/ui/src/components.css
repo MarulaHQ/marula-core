@@ -1856,6 +1856,8 @@
   margin: 0;
   max-width: 72ch;
 
+}
+
 /* --- resolved: p41-ui-operations blocks follow the p41-ui-chrome ones --- */
 /* --- entrance motion ------------------------------------------------------
  * One generic reveal for a list that renders a known number of rows. Transform
@@ -1970,6 +1972,14 @@
   cursor: pointer;
   font: inherit;
   color: inherit;
+  /* Tailwind's form reset sets `text-transform: none` on buttons, which
+     silently cancelled the `.m-table th` uppercase eyebrow. Every SORTABLE
+     column therefore rendered its header in sentence case while every
+     non-sortable one ("ASSIGNEE", "SLA") rendered it as the eyebrow, so a
+     single table header row was two different type treatments. Inheriting
+     puts the button back under the primitive's decision. */
+  text-transform: inherit;
+  letter-spacing: inherit;
 }
 
 .m-th-sort-mark {
@@ -2103,6 +2113,8 @@
 
 .m-assistant-column-name {
   font-size: 13px;
+
+}
 
 /* --- resolved: p41-ui-operations blocks follow the p41-ui-chrome ones --- */
 .m-day-list {
@@ -2275,6 +2287,8 @@
   font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+
+}
 
 /* --- resolved: p41-ui-operations blocks follow the p41-ui-chrome ones --- */
 .m-rollup-label {
