@@ -25,7 +25,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { applyTheme, Spinner } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { api, useRequireAuth } from "../../lib/api";
-import "../../app/share.css";
+import "../share.css";
 
 type ShareClaimMaterial = components["schemas"]["ShareClaimMaterial"];
 
