@@ -1,31 +1,39 @@
-// /kb — staff knowledge-base authoring (native KB v1 + docs-platform),
-// Wave 17 lane 6 reader-experience pass.
+// /kb — the staff knowledge base, on the mockup pack's ledger template.
 //
-// Purpose: the internal authoring + reading surface. Category rail with
-// per-category counts, article list with status filter + client-side
-// search, article reader with server-rendered sanitized content, an
-// outline (TOC) built from the rendered headings, article metadata and
-// the draft/published/archived posture, plus the client-facing
-// visibility flags (article AND category both must pass the portal
-// gate). The Tiptap editing wiring is the shipped lane-2 envelope
-// (ADR 0007) — this file never re-wires it.
+// Purpose: the internal authoring + reading surface, composed from the pack's
+// Tickets list (DERIVATION-GUIDE.md line 33: "Editor with a publish state").
+// A category rail on the left, the article ledger on the right: a 64px page
+// header with attention shortcuts, one control row (views, filters, columns,
+// export), the bordered table card, and the 52px footer with the row count and
+// the density control. The article editor carries the PUBLISH state the brief
+// asks for — status, category and portal visibility, in one row, so the
+// difference between "written" and "visible to the client" is a decision on
+// screen rather than a post-hoc fix.
 //
-// Non-purpose: no new editor architecture; no portal logic (the portal's
-// own gated search owns client visibility enforcement).
+// Non-purpose: no new editor architecture; the Tiptap wiring is the shipped
+// lane-2 envelope (ADR 0007) and this file never re-wires it. Portal gating
+// stays the portal's own concern — an article AND its category must both be
+// client-facing before the portal's gated search can see it, and this page
+// only reports that state honestly.
 "use client";
 
 import { rejectionText } from "../../lib/error-copy";
 import { KbArticleEditor } from "../../lib/editor/kb-article-editor";
 import {
   Button,
-  Card,
-  EmptyState,
-  Input,
-  KbProse,
+  Checkbox,
+  ColumnChooser,
+  DataToolbar,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
+  EmptyState,
+  ExportControl,
   FieldHint,
+  FilterBar,
+  Input,
+  KbProse,
   Label,
   Select,
   SelectContent,
@@ -33,12 +41,35 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  Table,
   Tag,
+  Td,
+  Th,
+  Tr,
+  ViewSwitch,
+  applyDensity,
+  useDensity,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import { api, useRequireAuth } from "../../lib/api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertIcon,
+  BookIcon,
+  CheckIcon,
+  FileIcon,
+  HEAD_CELL_CLASS,
+  KeyHint,
+  LedgerFooter,
+  PageFrame,
+  PageHeader,
+  PlusIcon,
+  SelectionBar,
+  StatPill,
+  TableCard,
+  downloadCsv,
+} from "../../components/knowledge/ledger";
+import { api, useRequireAuth } from "../../lib/api";
 import {
   rememberVersion,
   runEnvelopeMutation,
@@ -57,8 +88,66 @@ const STATUS_TONE: Record<KbArticleStatus, "success" | "warning" | "neutral"> = 
   archived: "neutral",
 };
 
-const STATUS_FILTERS = ["all", "draft", "published", "archived"] as const;
-type StatusFilter = (typeof STATUS_FILTERS)[number];
+/** The pack's article-ledger columns (DESIGN-NOTES-tickets.md §11: the
+ *  Ticket-like primary column is always required and first). */
+type ColumnKey = "article" | "category" | "status" | "visibility" | "updated" | "created";
+
+const DEFAULT_COLUMNS: { key: ColumnKey; label: string; visible: boolean; required?: boolean }[] = [
+  { key: "article", label: "Article", visible: true, required: true },
+  { key: "category", label: "Category", visible: true },
+  { key: "status", label: "Status", visible: true },
+  { key: "visibility", label: "Portal", visible: true },
+  { key: "updated", label: "Last edited", visible: true },
+  { key: "created", label: "Created", visible: false },
+];
+
+const COLUMN_STORAGE_KEY = "marula-kb-cols";
+
+function loadColumns(): typeof DEFAULT_COLUMNS {
+  try {
+    const raw = window.localStorage.getItem(COLUMN_STORAGE_KEY);
+    if (raw === null) return DEFAULT_COLUMNS;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_COLUMNS;
+    const order = parsed.filter((k): k is ColumnKey =>
+      DEFAULT_COLUMNS.some((c) => c.key === k),
+    );
+    const visible = new Set(parsed.filter((k): k is string => typeof k === "string"));
+    const next = order.map(
+      (key) =>
+        DEFAULT_COLUMNS.find((c) => c.key === key) ?? {
+          key,
+          label: key,
+          visible: true,
+        },
+    );
+    for (const column of DEFAULT_COLUMNS) {
+      if (!next.some((c) => c.key === column.key)) next.push(column);
+    }
+    // A column the user's saved order hides stays hidden; anything absent from
+    // the saved set falls back to the default's own visibility.
+    return next.map((c) => {
+      const fallback = DEFAULT_COLUMNS.find((d) => d.key === c.key);
+      return { ...c, visible: visible.has(`vis:${c.key}`) || (fallback?.visible ?? false) };
+    });
+  } catch {
+    return DEFAULT_COLUMNS;
+  }
+}
+
+function saveColumns(columns: { key: ColumnKey; visible: boolean }[]): void {
+  try {
+    window.localStorage.setItem(
+      COLUMN_STORAGE_KEY,
+      JSON.stringify([
+        ...columns.map((c) => c.key),
+        ...columns.filter((c) => c.visible).map((c) => `vis:${c.key}`),
+      ]),
+    );
+  } catch {
+    // Storage unavailable: the choice lasts for this visit only.
+  }
+}
 
 /** Extracts heading entries from the sanitized preview HTML for the TOC. */
 function headingsOf(html: string | null | undefined): { level: number; text: string }[] {
@@ -72,6 +161,18 @@ function headingsOf(html: string | null | undefined): { level: number; text: str
   return out;
 }
 
+type Visibility = "gated" | "ungated" | "staff";
+
+function visibilityOf(
+  article: KbArticle,
+  categoryById: Map<string, KbCategory>,
+): Visibility {
+  if (!article.client_visible) return "staff";
+  const category =
+    article.category_id != null ? categoryById.get(article.category_id) : undefined;
+  return category?.client_visible === true ? "gated" : "ungated";
+}
+
 export default function KbPage() {
   const auth = useRequireAuth();
   const [categories, setCategories] = useState<KbCategory[] | null>(null);
@@ -79,8 +180,17 @@ export default function KbPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [query, setQuery] = useState("");
+  const [view, setView] = useState("all");
+  const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>(
+    [],
+  );
+  const [columns, setColumns] = useState<typeof DEFAULT_COLUMNS>(DEFAULT_COLUMNS);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busyBulk, setBusyBulk] = useState(false);
+  const [bulkNote, setBulkNote] = useState<{ tone: "good" | "attention"; text: string } | null>(
+    null,
+  );
+  const density = useDensity();
 
   const [editing, setEditing] = useState<KbArticle | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -90,6 +200,7 @@ export default function KbPage() {
   const [viewLoading, setViewLoading] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<KbCategory | null>(null);
+  const firstLoad = useRef(true);
 
   const refresh = useCallback(async () => {
     const [c, a] = await Promise.all([
@@ -109,6 +220,13 @@ export default function KbPage() {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
 
+  useEffect(() => {
+    if (firstLoad.current) {
+      firstLoad.current = false;
+      setColumns(loadColumns());
+    }
+  }, []);
+
   const categoryById = useMemo(
     () => new Map((categories ?? []).map((c) => [c.id, c])),
     [categories],
@@ -122,94 +240,188 @@ export default function KbPage() {
     [categories],
   );
 
-  const countByCategory = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const a of articles ?? []) {
-      if (a.category_id !== null && a.category_id !== undefined) {
-        counts.set(a.category_id, (counts.get(a.category_id) ?? 0) + 1);
-      }
-    }
-    return counts;
-  }, [articles]);
+  const all = useMemo(
+    () =>
+      (articles ?? []).slice().sort((a, b) => {
+        const at = Date.parse(a.updated_at);
+        const bt = Date.parse(b.updated_at);
+        if (Number.isNaN(at) || Number.isNaN(bt)) return a.id.localeCompare(b.id);
+        return bt - at;
+      }),
+    [articles],
+  );
+
+  const inCategory = useMemo(
+    () => all.filter((a) => selectedCategory === null || a.category_id === selectedCategory),
+    [all, selectedCategory],
+  );
+
+  const changedToday = useMemo(() => {
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+    return inCategory.filter((a) => Date.parse(a.updated_at) >= since).length;
+  }, [inCategory]);
+  const draftCount = useMemo(
+    () => inCategory.filter((a) => a.status === "draft").length,
+    [inCategory],
+  );
+  const unfiledCount = useMemo(
+    () => inCategory.filter((a) => a.category_id === null || a.category_id === undefined).length,
+    [inCategory],
+  );
 
   const visible = useMemo(() => {
-    if (articles === null) return null;
-    const q = query.trim().toLowerCase();
-    return articles
-      .filter((a) => selectedCategory === null || a.category_id === selectedCategory)
-      .filter((a) => statusFilter === "all" || a.status === statusFilter)
-      .filter(
-        (a) =>
-          q === "" ||
-          a.title.toLowerCase().includes(q) ||
-          a.slug.toLowerCase().includes(q) ||
-          (a.body ?? "").toLowerCase().includes(q),
-      )
-      .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
-  }, [articles, selectedCategory, statusFilter, query]);
+    let rows = inCategory;
+    if (view === "drafts") rows = rows.filter((a) => a.status === "draft");
+    if (view === "published") rows = rows.filter((a) => a.status === "published");
+    if (view === "archived") rows = rows.filter((a) => a.status === "archived");
+    for (const clause of clauses) {
+      const field = clause.field;
+      const value = (clause.value ?? "").toLowerCase();
+      rows = rows.filter((a) => {
+        if (field === "title") return a.title.toLowerCase().includes(value);
+        if (field === "category") {
+          const name =
+            a.category_id != null ? (categoryById.get(a.category_id)?.name ?? "") : "";
+          return name.toLowerCase().includes(value);
+        }
+        if (field === "status") return a.status === value;
+        if (field === "visibility") return visibilityOf(a, categoryById) === value;
+        return true;
+      });
+    }
+    return rows;
+  }, [inCategory, view, clauses, categoryById]);
+
+  const shown = columns.filter((c) => c.visible);
+
+  const toggleSelected = useCallback((id: string, on: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const setStatus = useCallback(
+    async (ids: string[], status: KbArticleStatus) => {
+      setBusyBulk(true);
+      let ok = 0;
+      const failed: string[] = [];
+      for (const id of ids) {
+        const result = await runEnvelopeMutation<
+          components["schemas"]["UpdateArticleRequest"],
+          components["schemas"]["ArticleMutationResponse"]
+        >({
+          describe: `KB article ${status}`,
+          entityId: id,
+          buildBody: (base) => ({
+            idempotency_key: base.idempotency_key,
+            ...(base.version !== undefined ? { version: base.version } : {}),
+            status,
+          }),
+          optimistic: () => {},
+          revert: () => {},
+          request: (client, body) =>
+            client.PATCH("/api/v1/kb/articles/{id}", { params: { path: { id } }, body }),
+          versions: (response) => {
+            rememberVersion(id, response.mutation.version);
+            return [[id, response.mutation.version]];
+          },
+        });
+        if (result.ok) ok += 1;
+        else failed.push(result.friendly ?? result.message ?? `#${id.slice(0, 6)}`);
+      }
+      setBusyBulk(false);
+      setSelected(new Set());
+      await refresh();
+      // The outcome is a strip above the table, not a toast: a bulk change that
+      // half-succeeded must stay readable after the toast has gone.
+      if (failed.length === 0) {
+        setBulkNote({
+          tone: "good",
+          text: `${ok} article${ok === 1 ? "" : "s"} moved to ${status}.`,
+        });
+      } else {
+        setBulkNote({
+          tone: "attention",
+          text: `${ok} changed, ${failed.length} rejected — ${failed.join(", ")}.`,
+        });
+      }
+    },
+    [refresh],
+  );
 
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-8 p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Knowledge base</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Internal runbooks and how-tos. Articles flagged client-facing (in a
-            client-facing category) appear in the portal.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setEditingCategory(null);
-              setCategoryOpen(true);
-            }}
-          >
-            New category
-          </Button>
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setEditorOpen(true);
-            }}
-          >
-            New article
-          </Button>
-        </div>
-      </div>
+    <PageFrame>
+      <PageHeader
+        title="Knowledge base"
+        subtitle="Runbooks and how-tos. A client reads an article only once it and its category are both client-facing."
+        attention={
+          <>
+            <StatPill tone="gold" label="Changed today" count={changedToday} />
+            <StatPill tone="blush" label="Drafts" count={draftCount} onClick={() => setView(view === "drafts" ? "all" : "drafts")} pressed={view === "drafts"} />
+            <StatPill tone="blush" label="Unfiled" count={unfiledCount} />
+          </>
+        }
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => { setEditingCategory(null); setCategoryOpen(true); }}>
+              <PlusIcon size={16} /> New category
+            </Button>
+            <Button onClick={() => { setEditing(null); setEditorOpen(true); }} data-testid="kb-new-article">
+              <PlusIcon size={16} /> New article
+            </Button>
+          </>
+        }
+      />
 
       {loadError !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+        <p
+          role="alert"
+          className="mb-2 inline-flex items-center gap-2 rounded-[12px] p-3 text-[13px]"
+          style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
+        >
+          <AlertIcon size={16} />
           {loadError}
         </p>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
-        <Card className="self-start">
-          <h2 className="p-4 pb-2 text-sm font-semibold">Categories</h2>
-          <ul className="grid gap-1 px-2 pb-4">
+      <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-[240px_minmax(0,1fr)]">
+        <aside
+          className="hidden min-h-0 flex-col overflow-auto rounded-[16px] p-3 xl:flex"
+          style={{ border: "1px solid var(--m-border)", background: "var(--m-sidebar)" }}
+          aria-label="Categories"
+        >
+          <p
+            className="px-2 pb-2 text-[12px] font-semibold uppercase tracking-[0.06em]"
+            style={{ color: "var(--m-text-secondary)" }}
+          >
+            Categories
+          </p>
+          <ul className="grid gap-1">
             <li>
-              <CategoryChip
+              <CategoryRow
                 name="All articles"
-                count={articles?.length ?? 0}
+                count={all.length}
                 selected={selectedCategory === null}
                 onSelect={() => setSelectedCategory(null)}
               />
             </li>
             {sortedCategories.map((c) => (
-              <li key={c.id} className="flex items-center justify-between gap-1">
-                <CategoryChip
+              <li key={c.id} className="group flex items-center gap-1">
+                <CategoryRow
                   name={c.name}
-                  count={countByCategory.get(c.id) ?? 0}
+                  count={all.filter((a) => a.category_id === c.id).length}
                   selected={selectedCategory === c.id}
                   clientVisible={c.client_visible}
                   onSelect={() => setSelectedCategory(c.id)}
                 />
                 <button
-                  className="shrink-0 pr-1 text-[11px]"
+                  type="button"
+                  className="shrink-0 px-1 text-[12px] opacity-0 transition-opacity duration-100 group-hover:opacity-100 focus-visible:opacity-100"
                   style={{ color: "var(--m-text-muted)" }}
                   onClick={() => {
                     setEditingCategory(c);
@@ -221,129 +433,309 @@ export default function KbPage() {
               </li>
             ))}
           </ul>
-          <p className="px-4 pb-4 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-            <Link href="/kb/secrets" className="underline decoration-[var(--m-border)] underline-offset-2">
+          <div className="mt-auto pt-4">
+            <Link
+              href="/kb/secrets"
+              className="block rounded-[10px] px-2 py-1.5 text-[12px] underline-offset-2 hover:underline"
+              style={{ color: "var(--m-text-secondary)" }}
+            >
               Secret categories
-            </Link>{" "}
-            live beside the KB (ADR 0006).
-          </p>
-        </Card>
-
-        <Card>
-          <div className="flex flex-wrap items-center justify-between gap-2 p-4 pb-2">
-            <h2 className="text-sm font-semibold">
-              {selectedCategory !== null
-                ? (categoryById.get(selectedCategory)?.name ?? "Articles")
-                : "All articles"}
-            </h2>
-            <div className="flex flex-wrap items-center gap-2">
-              <Input
-                type="search"
-                aria-label="Search articles"
-                placeholder="Search title, slug, body…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="w-56"
-              />
-              <div className="flex gap-1" role="group" aria-label="Status filter">
-                {STATUS_FILTERS.map((s) => (
-                  <button
-                    key={s}
-                    className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-opacity duration-100 hover:opacity-80 ${statusFilter === s ? "font-semibold" : ""}`}
-                    style={{
-                      borderColor: "var(--m-border)",
-                      background:
-                        statusFilter === s
-                          ? "var(--m-accent)"
-                          : "transparent",
-                      color: statusFilter === s ? "var(--m-background)" : "var(--m-text-secondary)",
-                      opacity: statusFilter === s ? 1 : 0.75,
-                    }}
-                    onClick={() => setStatusFilter(s)}
-                  >
-                    {s === "all" ? "All" : s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          {visible === null ? (
-            <div className="p-4">
-              <Spinner />
-            </div>
-          ) : visible.length === 0 ? (
-            <div className="p-4">
-              <EmptyState message="No articles match. Draft articles are staff-only — staff search (and the FTS preview) sees them; publishing makes an article (with the client-facing flags) portal-visible through the portal's own gated search." />
-            </div>
-          ) : (
-            <ul className="grid gap-2 px-4 pb-4">
-              {visible.map((a) => {
-                const category =
-                  a.category_id !== null && a.category_id !== undefined
-                    ? categoryById.get(a.category_id)
-                    : null;
-                return (
-                  <li
-                    key={a.id}
-                    className="grid gap-1 rounded-md border p-3 transition-transform duration-100 hover:-translate-y-px"
-                    style={{ borderColor: "var(--m-border)" }}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="min-w-0 truncate text-[13px] font-medium">{a.title}</p>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Tag tone={STATUS_TONE[a.status]}>{a.status}</Tag>
-                        {articlePortalGated(a, categoryById) ? (
-                          <Tag tone="success">client</Tag>
-                        ) : a.client_visible ? (
-                          <Tag tone="warning">client · ungated</Tag>
-                        ) : null}
-                      </div>
-                    </div>
-                    <p className="line-clamp-1 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                      {firstLineOf(a)}
-                    </p>
-                    <div className="flex flex-wrap items-center justify-between gap-1">
-                      <p className="truncate text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                        /{a.slug}
-                        {a.category_id !== null && category !== null && category !== undefined
-                          ? ` · ${category.name}`
-                          : ""}{" "}
-                        · updated {new Date(a.updated_at).toLocaleDateString()}
-                      </p>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            setViewing(a);
-                            setViewContent(null);
-                            setViewOpen(true);
-                          }}
-                        >
-                          View
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            setEditing(a);
-                            setEditorOpen(true);
-                          }}
-                        >
-                          Edit
-                        </Button>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          <p className="px-4 pb-4 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
-            Portal view:{" "}
-            <Link href="/portal/kb" className="underline decoration-[var(--m-border)] underline-offset-2">
-              /portal/kb
             </Link>
-          </p>
-        </Card>
+            <Link
+              href="/portal/kb"
+              className="block rounded-[10px] px-2 py-1.5 text-[12px] underline-offset-2 hover:underline"
+              style={{ color: "var(--m-text-secondary)" }}
+            >
+              What clients see
+            </Link>
+          </div>
+        </aside>
+
+        <div className="flex min-h-0 flex-col">
+          <DataToolbar
+            label="Knowledge base controls"
+            views={
+              <ViewSwitch
+                label="Article views"
+                views={[
+                  { id: "all", label: "All", hint: String(inCategory.length) },
+                  { id: "drafts", label: "Drafts", hint: String(draftCount) },
+                  { id: "published", label: "Published" },
+                  { id: "archived", label: "Archived" },
+                ]}
+                activeId={view}
+                onChange={setView}
+              />
+            }
+            filters={
+              <FilterBar
+                label="Article filters"
+                emptyHint="No filters"
+                fields={[
+                  { key: "title", label: "Title", operators: ["contains"] },
+                  { key: "category", label: "Category", operators: ["contains"] },
+                  { key: "status", label: "Status", operators: ["eq"] },
+                  { key: "visibility", label: "Portal", operators: ["eq"] },
+                ]}
+                clauses={clauses}
+                onChange={(next) =>
+                  setClauses(
+                    next.map((c) => ({ ...c, op: c.op as never })),
+                  )
+                }
+              />
+            }
+            columns={
+              <ColumnChooser
+                label="Article columns"
+                columns={columns.map((c) => ({ key: c.key, label: c.label, visible: c.visible, required: c.required }))}
+                onChange={(next) => {
+                  const mapped = next.map((c) => ({
+                    key: c.key as ColumnKey,
+                    label: c.label,
+                    visible: c.visible,
+                    required: c.required,
+                  }));
+                  setColumns(mapped);
+                  saveColumns(mapped);
+                }}
+              />
+            }
+            export={
+              <ExportControl
+                label="Export"
+                formats={["csv"]}
+                columns={shown.map((c) => c.label)}
+                rowCount={visible.length}
+                filters={clauses}
+                onExport={() => {
+                  downloadCsv(
+                    `knowledge-base-${view}.csv`,
+                    shown.map((c) => c.label),
+                    visible.map((a) =>
+                      shown.map((c) => {
+                        if (c.key === "article") return a.title;
+                        if (c.key === "category")
+                          return a.category_id != null
+                            ? (categoryById.get(a.category_id)?.name ?? "")
+                            : "";
+                        if (c.key === "status") return a.status;
+                        if (c.key === "visibility") return visibilityOf(a, categoryById);
+                        if (c.key === "updated") return a.updated_at;
+                        return a.created_at;
+                      }),
+                    ),
+                  );
+                }}
+              />
+            }
+          />
+
+          <TableCard label="Knowledge base articles">
+            {articles === null ? (
+              <div className="p-4">
+                <Spinner />
+              </div>
+            ) : (
+              <Table data-testid="kb-article-table">
+                <thead>
+                  {selected.size > 0 ? (
+                    <tr>
+                      <th colSpan={shown.length + 1} style={{ padding: 0 }}>
+                        <SelectionBar
+                          count={selected.size}
+                          noun="article"
+                          onClear={() => setSelected(new Set())}
+                        >
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={busyBulk}
+                            onClick={() => void setStatus([...selected], "published")}
+                            data-testid="kb-bulk-publish"
+                          >
+                            Publish
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={busyBulk}
+                            onClick={() => void setStatus([...selected], "archived")}
+                          >
+                            Archive
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={busyBulk}
+                            onClick={() => void setStatus([...selected], "draft")}
+                          >
+                            Move to draft
+                          </Button>
+                        </SelectionBar>
+                      </th>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <Th style={{ width: 44 }} sortable={false} resizable={false}>
+                        <Checkbox
+                          aria-label="Select all articles"
+                          checked={selected.size > 0 && selected.size === visible.length}
+                          onCheckedChange={(on) =>
+                            setSelected(on ? new Set(visible.map((a) => a.id)) : new Set())
+                          }
+                        />
+                      </Th>
+                      {shown.map((c) => (
+                        <Th key={c.key} className={HEAD_CELL_CLASS}>
+                          {c.label}
+                        </Th>
+                      ))}
+                    </tr>
+                  )}
+                </thead>
+                <tbody>
+                  {visible.map((a) => {
+                    const visibility = visibilityOf(a, categoryById);
+                    return (
+                      <Tr
+                        key={a.id}
+                        selected={selected.has(a.id)}
+                        style={{ height: "var(--m-density-row)" }}
+                      >
+                        <Td>
+                          <Checkbox
+                            aria-label={`Select ${a.title}`}
+                            checked={selected.has(a.id)}
+                            onCheckedChange={(on) => toggleSelected(a.id, on === true)}
+/>
+
+          {bulkNote !== null ? (
+            <div
+              role="status"
+              data-testid="kb-bulk-note"
+              className="mb-2 flex flex-wrap items-center gap-2 rounded-[12px] px-3 py-2 text-[13px]"
+              style={{
+                background:
+                  bulkNote.tone === "good"
+                    ? "var(--m-status-success-bg)"
+                    : "var(--m-status-due-bg)",
+                color:
+                  bulkNote.tone === "good"
+                    ? "var(--m-status-success-fg)"
+                    : "var(--m-status-due-fg)",
+              }}
+            >
+              {bulkNote.tone === "good" ? <CheckIcon size={16} /> : <AlertIcon size={16} />}
+              <span>{bulkNote.text}</span>
+              <button
+                type="button"
+                className="ml-auto underline underline-offset-2"
+                onClick={() => setBulkNote(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          ) : null}
+
+
+                        </Td>
+                        {shown.map((c) => (
+                          <Td key={c.key}>
+                            {c.key === "article" ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setViewing(a);
+                                  setViewContent(null);
+                                  setViewOpen(true);
+                                }}
+                                className="flex min-w-0 items-center gap-2 text-left"
+                              >
+                                <span style={{ color: "var(--m-text-muted)" }}>
+                                  <FileIcon size={16} />
+                                </span>
+                                <span className="truncate font-semibold" style={{ color: "var(--m-text)" }}>
+                                  {a.title}
+                                </span>
+                              </button>
+                            ) : null}
+                            {c.key === "category" ? (
+                              <span style={{ color: "var(--m-text-secondary)" }}>
+                                {a.category_id != null
+                                  ? (categoryById.get(a.category_id)?.name ?? "Unknown category")
+                                  : "Unfiled"}
+                              </span>
+                            ) : null}
+                            {c.key === "status" ? <Tag tone={STATUS_TONE[a.status]}>{a.status}</Tag> : null}
+                            {c.key === "visibility" ? (
+                              visibility === "gated" ? (
+                                <Tag tone="success">In the portal</Tag>
+                              ) : visibility === "ungated" ? (
+                                <Tag tone="warning">Client-facing, not in the portal</Tag>
+                              ) : (
+                                <Tag tone="neutral">Staff only</Tag>
+                              )
+                            ) : null}
+                            {c.key === "updated" ? (
+                              <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                                {relativeTime(a.updated_at)}
+                              </span>
+                            ) : null}
+                            {c.key === "created" ? (
+                              <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                                {new Date(a.created_at).toLocaleDateString()}
+                              </span>
+                            ) : null}
+                          </Td>
+                        ))}
+                      </Tr>
+                    );
+                  })}
+                  {visible.length === 0 ? (
+                    <tr>
+                      <td colSpan={shown.length + 1}>
+                        <EmptyState
+                          message={
+                            articles.length === 0
+                              ? "No articles yet. Write the runbook you keep explaining on the phone."
+                              : "No articles match this view. Clear the filters, or switch back to All."
+                          }
+                          action={
+                            articles.length === 0 ? (
+                              <Button onClick={() => { setEditing(null); setEditorOpen(true); }}>
+                                New article
+                              </Button>
+                            ) : (
+                              <Button variant="secondary" onClick={() => { setClauses([]); setView("all"); }}>
+                                Clear filters
+                              </Button>
+                            )
+                          }
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </Table>
+            )}
+          </TableCard>
+
+          <LedgerFooter
+            shown={visible.length}
+            total={articles?.length ?? 0}
+            noun="articles"
+            density={<DensitySwitch value={density} onChange={applyDensity} />}
+            hints={
+              <>
+                <KeyHint keys="J K" label="move" />
+                <KeyHint keys="X" label="select" />
+                <KeyHint keys="↵" label="open" />
+                <KeyHint keys="F" label="filter" />
+              </>
+            }
+          />
+        </div>
       </div>
 
       <Dialog open={viewOpen} onOpenChange={setViewOpen}>
@@ -374,16 +766,38 @@ export default function KbPage() {
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent
           title={editing === null ? "New article" : "Edit article"}
-          description="Content edits save instantly. Use the FTS preview to check how the article surfaces in search before publishing."
+          description="Content saves as you type. Publishing is the row below, and it is the only thing the portal sees."
         >
-          <ArticleEditor
-            article={editing}
-            categories={categories ?? []}
-            onDone={() => {
-              setEditorOpen(false);
-              void refresh();
-            }}
-          />
+          {editing === null ? (
+            <NewArticleForm
+              categories={categories ?? []}
+              onCreated={(created) => {
+                setEditing(created);
+                void refresh();
+              }}
+            />
+          ) : (
+            <div className="grid gap-2">
+              <KbArticleEditor
+                article={editing}
+                onSaved={() => void refresh()}
+                onRejection={(message, reason) => {
+                  if (message === null && reason === null) return;
+                  // A rejected autosave is a strip, not a toast: the content
+                  // is still open and the user has to see why it did not land.
+                  setBulkNote({
+                    tone: "attention",
+                    text: rejectionText({ reason: reason ?? undefined, message: message ?? undefined }),
+                  });
+                }}
+              />
+              <PublishRow
+                article={editing}
+                categories={categories ?? []}
+                onSaved={() => void refresh()}
+              />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -401,27 +815,320 @@ export default function KbPage() {
           />
         </DialogContent>
       </Dialog>
+    </PageFrame>
+  );
+}
+
+function relativeTime(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "—";
+  const minutes = Math.round((Date.now() - then) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+/** The publish state: status, category and portal visibility in one row. The
+ *  client's visibility is a decision, so it is stated as one and never
+ *  inferred from the status alone. */
+function PublishRow({
+  article,
+  categories,
+  onSaved,
+}: {
+  article: KbArticle;
+  categories: KbCategory[];
+  onSaved: () => void;
+}): React.ReactNode {
+  const [status, setStatus] = useState<KbArticleStatus>(article.status);
+  const [categoryId, setCategoryId] = useState<string>(article.category_id ?? "");
+  const [clientVisible, setClientVisible] = useState<boolean>(article.client_visible);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const category = categories.find((c) => c.id === categoryId);
+  const gated = clientVisible && category?.client_visible === true;
+
+  const save = useCallback(
+    async (next: {
+      status?: KbArticleStatus;
+      category_id?: string | null;
+      client_visible?: boolean;
+    }) => {
+      setBusy(true);
+      setError(null);
+      const result = await runEnvelopeMutation<
+        components["schemas"]["UpdateArticleRequest"],
+        components["schemas"]["ArticleMutationResponse"]
+      >({
+        describe: "KB article publish state",
+        entityId: article.id,
+        buildBody: (base) => ({
+          idempotency_key: base.idempotency_key,
+          ...(base.version !== undefined ? { version: base.version } : {}),
+          ...next,
+        }),
+        optimistic: () => {},
+        revert: () => {},
+        request: (client, body) =>
+          client.PATCH("/api/v1/kb/articles/{id}", {
+            params: { path: { id: article.id } },
+            body,
+          }),
+        versions: (response) => {
+          rememberVersion(article.id, response.mutation.version);
+          return [[article.id, response.mutation.version]];
+        },
+      });
+      setBusy(false);
+      if (!result.ok) {
+        setError(result.friendly ?? result.message ?? "The change was rejected.");
+        return;
+      }
+      onSaved();
+    },
+    [article.id, onSaved],
+  );
+
+  return (
+    <div
+      className="grid gap-3 rounded-[12px] p-3"
+      style={{ border: "1px solid var(--m-border)", background: "var(--m-surface-2)" }}
+      data-testid="kb-publish-row"
+    >
+      <p className="text-[12px] font-semibold uppercase tracking-[0.06em]" style={{ color: "var(--m-text-secondary)" }}>
+        Publish state
+      </p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <Label htmlFor="kb-status">Status</Label>
+          <Select
+            value={status}
+            onValueChange={(v) => {
+              const next = v as KbArticleStatus;
+              setStatus(next);
+              void save({ status: next });
+            }}
+          >
+            <SelectTrigger id="kb-status" data-testid="kb-publish-status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label htmlFor="kb-category">Category</Label>
+          <Select
+            value={categoryId}
+            onValueChange={(v) => {
+              setCategoryId(v);
+              void save({ category_id: v === "" ? null : v });
+            }}
+          >
+            <SelectTrigger id="kb-category" data-testid="kb-publish-category">
+              <SelectValue placeholder="Unfiled" />
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label htmlFor="kb-client-visible">Portal</Label>
+          <Select
+            value={clientVisible ? "yes" : "no"}
+            onValueChange={(v) => {
+              const next = v === "yes";
+              setClientVisible(next);
+              void save({ client_visible: next });
+            }}
+          >
+            <SelectTrigger id="kb-client-visible" data-testid="kb-publish-visibility">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="no">Staff only</SelectItem>
+              <SelectItem value="yes">Client-facing</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+        {busy
+          ? "Saving…"
+          : gated
+            ? "In the client portal: the article and its category are both client-facing."
+            : clientVisible
+              ? "Marked client-facing, but the category is staff-only, so the portal cannot show it yet."
+              : "Staff only. The portal's own gated search never sees a draft."}
+      </p>
+      {error !== null ? (
+        <p
+          role="alert"
+          className="inline-flex items-center gap-2 text-[13px]"
+          style={{ color: "var(--m-status-due-fg)" }}
+        >
+          <AlertIcon size={14} />
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
 
-/** The effective portal gate needs BOTH flags plus a live category. */
-function articlePortalGated(
-  a: KbArticle,
-  categoryById: Map<string, KbCategory>,
-): boolean {
-  if (!a.client_visible || a.category_id === null || a.category_id === undefined) return false;
-  return categoryById.get(a.category_id)?.client_visible === true;
+function NewArticleForm({
+  categories,
+  onCreated,
+}: {
+  categories: KbCategory[];
+  onCreated: (article: KbArticle) => void;
+}): React.ReactNode {
+  const [title, setTitle] = useState("");
+  const [slug, setSlug] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [clientVisible, setClientVisible] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (title.trim() === "") {
+      setError("Give the article a title before saving.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    let createdId = "";
+    const result = await runEnvelopeMutation<
+      components["schemas"]["CreateArticleRequest"],
+      components["schemas"]["ArticleMutationResponse"]
+    >({
+      describe: "Create KB article",
+      buildBody: (base) => ({
+        idempotency_key: base.idempotency_key,
+        title: title.trim(),
+        slug: slug.trim() === "" ? slugify(title) : slugify(slug),
+        body: "",
+        status: "draft",
+        category_id: categoryId === "" ? null : categoryId,
+        client_visible: clientVisible,
+      }),
+      optimistic: () => {},
+      revert: () => {},
+      request: (client, body) => client.POST("/api/v1/kb/articles", { body }),
+      versions: (response) => {
+        createdId = response.id;
+        rememberVersion(response.id, response.mutation.version);
+        return [[response.id, response.mutation.version]];
+      },
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.friendly ?? result.message ?? "The article was not created.");
+      return;
+    }
+    if (createdId === "") {
+      setError("The article was created but its id came back empty — reopen the list and find it.");
+      return;
+    }
+    onCreated({
+      id: createdId,
+      title: title.trim(),
+      slug: slug.trim() === "" ? slugify(title) : slugify(slug),
+      body: "",
+      status: "draft",
+      category_id: categoryId === "" ? null : categoryId,
+      client_visible: clientVisible,
+      content_jsonb: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } as KbArticle);
+  };
+
+  return (
+    <div className="grid gap-3 p-4">
+      <div>
+        <Label htmlFor="kb-new-title">Title</Label>
+        <Input
+          id="kb-new-title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          data-testid="kb-new-title"
+        />
+      </div>
+      <div>
+        <Label htmlFor="kb-new-slug">Slug</Label>
+        <Input
+          id="kb-new-slug"
+          value={slug}
+          placeholder={title.trim() === "" ? "reset-printer-on-fleet-mfp" : slugify(title)}
+          onChange={(e) => setSlug(e.target.value)}
+        />
+        <FieldHint>Leave empty and the title becomes the slug.</FieldHint>
+      </div>
+      <div>
+        <Label htmlFor="kb-new-category">Category</Label>
+        <Select value={categoryId} onValueChange={setCategoryId}>
+          <SelectTrigger id="kb-new-category">
+            <SelectValue placeholder="Unfiled" />
+          </SelectTrigger>
+          <SelectContent>
+            {categories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <Label htmlFor="kb-new-visible">Portal</Label>
+        <Select value={clientVisible ? "yes" : "no"} onValueChange={(v) => setClientVisible(v === "yes")}>
+          <SelectTrigger id="kb-new-visible">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="no">Staff only</SelectItem>
+            <SelectItem value="yes">Client-facing</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <FieldHint>
+        New articles start as drafts. Nothing reaches a client until you publish.
+      </FieldHint>
+      {error !== null ? (
+        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
+          {error}
+        </p>
+      ) : null}
+      <DialogActions>
+        <Button variant="secondary" onClick={submit} disabled={busy} data-testid="kb-create-article">
+          Create draft
+        </Button>
+      </DialogActions>
+    </div>
+  );
 }
 
-function firstLineOf(a: KbArticle): string {
-  const source = (a.body ?? "").trim();
-  if (source === "") return "No summary yet — open the editor to add content.";
-  const line = source.split("\n").find((l) => l.trim() !== "");
-  return line ?? "Untitled body";
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
-function CategoryChip({
+function CategoryRow({
   name,
   count,
   selected,
@@ -436,25 +1143,30 @@ function CategoryChip({
 }) {
   return (
     <button
-      className="w-full min-w-0 truncate rounded-md px-2 py-1 text-left text-[13px] transition-transform duration-100 hover:-translate-y-px"
+      className="flex w-full min-w-0 items-center gap-2 rounded-[10px] px-2 py-1.5 text-left text-[13px] transition-colors duration-100"
       style={{
         background: selected ? "var(--m-accent)" : "transparent",
-        color: selected ? "var(--m-background)" : "var(--m-text)",
+        color: selected ? "var(--m-on-accent)" : "var(--m-text)",
         fontWeight: selected ? 600 : 400,
       }}
       onClick={onSelect}
+      aria-current={selected ? "true" : undefined}
     >
-      {name}
+      <span className="truncate">{name}</span>
+      {clientVisible ? (
+        <span title="Client-facing category" style={{ color: selected ? "var(--m-on-accent)" : "var(--m-status-success-fg)" }}>
+          <BookIcon size={14} />
+        </span>
+      ) : null}
       <span
-        className="ml-2 inline-block rounded-full px-1.5 text-[10px] tabular-nums"
+        className="tabular-nums ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[12px]"
         style={{
-          background: selected ? "rgba(255,255,255,.2)" : "var(--m-border)",
-          color: selected ? "var(--m-background)" : "var(--m-text-secondary)",
+          background: selected ? "var(--m-surface)" : "var(--m-surface-2)",
+          color: selected ? "var(--m-on-accent)" : "var(--m-text-secondary)",
         }}
       >
         {count}
       </span>
-      {clientVisible ? " · client" : ""}
     </button>
   );
 }
@@ -501,7 +1213,9 @@ function ArticleViewer({
               {category.client_visible ? " · client-facing category" : ""}
             </Tag>
           ) : null}
-          {article.client_visible ? <Tag tone={category?.client_visible ? "success" : "warning"}>client-facing</Tag> : null}
+          {article.client_visible ? (
+            <Tag tone={category?.client_visible ? "success" : "warning"}>client-facing</Tag>
+          ) : null}
           <span>
             /{article.slug} · created {new Date(article.created_at).toLocaleDateString()} · updated{" "}
             {new Date(article.updated_at).toLocaleDateString()}
@@ -514,9 +1228,16 @@ function ArticleViewer({
         </div>
       ) : (
         <>
-          {headings !== null && headings.length > 1 ? (
-            <nav aria-label="On this page" className="rounded-md border p-3" style={{ borderColor: "var(--m-border)" }}>
-              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+          {headings.length > 1 ? (
+            <nav
+              aria-label="On this page"
+              className="rounded-[12px] p-3"
+              style={{ border: "1px solid var(--m-border)" }}
+            >
+              <p
+                className="mb-1 text-[11px] font-semibold uppercase tracking-wide"
+                style={{ color: "var(--m-text-muted)" }}
+              >
                 On this page
               </p>
               <ul className="grid gap-0.5">
@@ -621,7 +1342,7 @@ function CategoryForm({ category, onDone }: { category: KbCategory | null; onDon
           });
     setBusy(false);
     if (!result.ok) {
-      setError(rejectionText(result, "The category was rejected."));
+      setError(result.friendly ?? result.message ?? "The category was not saved.");
       return;
     }
     onDone();
@@ -635,365 +1356,51 @@ function CategoryForm({ category, onDone }: { category: KbCategory | null; onDon
       </div>
       <div>
         <Label htmlFor="cat-desc">Description</Label>
-        <Input id="cat-desc" value={description} onChange={(e) => setDescription(e.target.value)} />
+        <Input
+          id="cat-desc"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
       </div>
       <div>
-        <Label htmlFor="cat-position">Sort position</Label>
+        <Label htmlFor="cat-position">Order</Label>
         <Input
           id="cat-position"
-          inputMode="numeric"
-          placeholder="Lower sorts first"
+          type="number"
           value={position}
           onChange={(e) => setPosition(e.target.value)}
         />
-        <FieldHint>Empty places the category last.</FieldHint>
+        <FieldHint>Lower numbers come first in the rail.</FieldHint>
       </div>
-      <label className="flex items-start gap-2 text-[13px]">
-        <input
-          type="checkbox"
-          className="mt-0.5"
-          checked={clientVisible}
-          onChange={(e) => setClientVisible(e.target.checked)}
-          aria-describedby="cat-visibility-note"
-        />
-        <span>
-          Client-facing category
-          <span
-            id="cat-visibility-note"
-            className="block text-[11px]"
-            style={{ color: "var(--m-text-muted)" }}
-          >
-            The portal gate needs the client-facing flag on BOTH this category
-            and each article — staff-only otherwise.
-          </span>
-        </span>
-      </label>
+      <div>
+        <Label htmlFor="cat-visible">Portal</Label>
+        <Select
+          value={clientVisible ? "yes" : "no"}
+          onValueChange={(v) => setClientVisible(v === "yes")}
+        >
+          <SelectTrigger id="cat-visible">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="no">Staff only</SelectItem>
+            <SelectItem value="yes">Client-facing</SelectItem>
+          </SelectContent>
+        </Select>
+        <FieldHint>
+          An article reaches the portal only when the article and this category are both
+          client-facing.
+        </FieldHint>
+      </div>
       {error !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
           {error}
         </p>
       ) : null}
       <DialogActions>
-        <Button variant="ghost" onClick={onDone}>
-          Cancel
-        </Button>
-        <Button onClick={() => void submit()} disabled={busy || name.trim() === ""}>
-          {busy ? <Spinner /> : null} Save
+        <Button variant="secondary" onClick={submit} disabled={busy}>
+          Save category
         </Button>
       </DialogActions>
-    </div>
-  );
-}
-
-function ArticleEditor({
-  article,
-  categories,
-  onDone,
-}: {
-  article: KbArticle | null;
-  categories: KbCategory[];
-  onDone: () => void;
-}) {
-  // New articles create FIRST (instant-first: the create is autosave too
-  // — one idempotent POST), then the editor mounts immediately; every
-  // content transaction after that autosaves under the IF1–IF3 envelope.
-  const [preview, setPreview] = useState<components["schemas"]["SearchResult"][] | null>(null);
-  const [previewing, setPreviewing] = useState(false);
-  const [title, setTitle] = useState(article?.title ?? "");
-  const [categoryId, setCategoryId] = useState(article?.category_id ?? "");
-  const [status, setStatus] = useState<KbArticleStatus>(article?.status ?? "draft");
-  const [clientVisible, setClientVisible] = useState(article?.client_visible ?? false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const versionRef = useRef<number | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const patchMetadata = useCallback(
-    async (
-      id: string,
-      patch: Partial<Record<"title" | "category_id" | "status" | "client_visible", unknown>>,
-    ) => {
-      const result = await runEnvelopeMutation<
-        components["schemas"]["UpdateArticleRequest"],
-        components["schemas"]["ArticleMutationResponse"]
-      >({
-        describe: "KB article metadata autosave",
-        entityId: id,
-        buildBody: (base) =>
-          ({
-            idempotency_key: base.idempotency_key,
-            ...(versionRef.current !== null ? { version: versionRef.current } : {}),
-            ...patch,
-          }) as unknown as components["schemas"]["UpdateArticleRequest"],
-        optimistic: () => {},
-        revert: () => {},
-        request: (client, body) =>
-          client.PATCH("/api/v1/kb/articles/{id}", {
-            params: { path: { id } },
-            body,
-          }),
-        versions: (response) => {
-          versionRef.current = response.mutation.version;
-          return [[id, response.mutation.version]];
-        },
-      });
-      if (!result.ok) {
-        setError(rejectionText(result, "The article metadata was rejected."));
-      }
-      return result.ok;
-    },
-    [],
-  );
-
-  // Debounced metadata autosave (title rides it; category/status flips
-  // commit immediately — status flips are explicit lifecycle actions).
-  const debounceTitle = useCallback(
-    (next: string, id: string | null) => {
-      if (id === null) return;
-      if (timerRef.current !== null) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null;
-        void patchMetadata(id, { title: next });
-      }, 700);
-    },
-    [patchMetadata],
-  );
-
-  useEffect(
-    () => () => {
-      if (timerRef.current !== null) clearTimeout(timerRef.current);
-    },
-    [],
-  );
-
-  const previewFts = async () => {
-    setPreviewing(true);
-    setPreview(null);
-    const { data } = await api.api.GET("/api/v1/search", {
-      params: { query: { q: title, limit: 5 } },
-    });
-    setPreviewing(false);
-    if (data !== undefined) setPreview(data.results);
-  };
-
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    const shared = {
-      title,
-      category_id: categoryId === "" ? null : categoryId,
-      status,
-      client_visible: clientVisible,
-    };
-    const result =
-      article === null
-        ? await runEnvelopeMutation<
-            components["schemas"]["CreateArticleRequest"],
-            components["schemas"]["ArticleMutationResponse"]
-          >({
-            describe: "Create KB article",
-            buildBody: (base) => ({
-              idempotency_key: base.idempotency_key,
-              ...shared,
-              content_jsonb: {
-                schema_ver: 1,
-                doc: { type: "doc", content: [{ type: "paragraph" }] },
-              },
-            }) as unknown as components["schemas"]["CreateArticleRequest"],
-            optimistic: () => {},
-            revert: () => {},
-            request: (client, body) => client.POST("/api/v1/kb/articles", { body }),
-            versions: (response) => {
-              versionRef.current = response.mutation.version;
-              rememberVersion(response.id, response.mutation.version);
-              return [[response.id, response.mutation.version]];
-            },
-          })
-        : await runEnvelopeMutation<
-            components["schemas"]["UpdateArticleRequest"],
-            components["schemas"]["ArticleMutationResponse"]
-          >({
-            describe: "Update KB article",
-            entityId: article.id,
-            buildBody: (base) => ({
-              idempotency_key: base.idempotency_key,
-              version: base.version,
-              ...shared,
-            }) as unknown as components["schemas"]["UpdateArticleRequest"],
-            optimistic: () => {},
-            revert: () => {},
-            request: (client, body) =>
-              client.PATCH("/api/v1/kb/articles/{id}", { params: { path: { id: article.id } }, body }),
-            versions: (response) => {
-              versionRef.current = response.mutation.version;
-              rememberVersion(article.id, response.mutation.version);
-              return [[article.id, response.mutation.version]];
-            },
-          });
-    setBusy(false);
-    if (!result.ok) {
-      setError(rejectionText(result, "The article was rejected."));
-      return;
-    }
-    onDone();
-  };
-
-  const category = categories.find((c) => c.id === categoryId);
-  const portalGate = clientVisible && (category?.client_visible ?? false);
-
-  return (
-    <div className="grid gap-3 p-4">
-      <div>
-        <Label htmlFor="art-title">Title</Label>
-        <Input
-          id="art-title"
-          value={title}
-          onChange={(e) => {
-            setTitle(e.target.value);
-            debounceTitle(e.target.value, article?.id ?? null);
-          }}
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="art-category">Category</Label>
-          <Select
-            value={categoryId}
-            onValueChange={(v) => {
-              setCategoryId(v);
-              const id = article?.id;
-              if (id !== undefined) {
-                void patchMetadata(id, {
-                  category_id: v === "" ? null : v,
-                });
-              }
-            }}
-          >
-            <SelectTrigger id="art-category">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">Uncategorized</SelectItem>
-              {categories.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                  {c.client_visible ? " (client-facing)" : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor="art-status">Status</Label>
-          <Select
-            value={status}
-            onValueChange={(v) => {
-              setStatus(v as KbArticleStatus);
-              const id = article?.id;
-              if (id !== undefined) void patchMetadata(id, { status: v });
-            }}
-          >
-            <SelectTrigger id="art-status">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUSES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      {article === null ? (
-        <>
-          <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-            Creating the article now — the rich editor opens instantly after the
-            create (instant-first: no Save clicks for content).
-          </p>
-          {error !== null ? (
-            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-              {error}
-            </p>
-          ) : null}
-          <DialogActions>
-            <Button variant="ghost" onClick={onDone}>
-              Cancel
-            </Button>
-            <Button onClick={() => void submit()} disabled={busy || title.trim() === ""}>
-              {busy ? <Spinner /> : null} Create article
-            </Button>
-          </DialogActions>
-        </>
-      ) : (
-        <>
-          <label className="flex items-start gap-2 text-[13px]">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={clientVisible}
-              onChange={(e) => {
-                setClientVisible(e.target.checked);
-                void patchMetadata(article.id, { client_visible: e.target.checked });
-              }}
-              aria-describedby="art-visibility-note"
-            />
-            <span>
-              Client-facing article
-              <span
-                id="art-visibility-note"
-                className="block text-[11px]"
-                style={{
-                  color: portalGate ? "var(--m-status-success-fg)" : "var(--m-text-muted)",
-                }}
-              >
-                {portalGate
-                  ? "Portal clients can read this article once published."
-                  : "Staff-only: the portal gate needs the client-facing flags on BOTH the article and its category."}
-              </span>
-            </span>
-          </label>
-          {error !== null ? (
-            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-              {error}
-            </p>
-          ) : null}
-          <KbArticleEditor
-            article={article as KbArticle & { content_jsonb?: unknown }}
-            onSaved={() => setError(null)}
-            onRejection={(friendly) =>
-              setError(friendly ?? "The content save was rejected.")
-            }
-          />
-          <DialogActions>
-            <Button variant="ghost" onClick={() => void previewFts()} disabled={previewing || title.trim() === ""}>
-              {previewing ? <Spinner /> : null} Preview search
-            </Button>
-            <Button variant="ghost" onClick={onDone}>
-              Close
-            </Button>
-          </DialogActions>
-          {preview !== null ? (
-            <div className="grid gap-1">
-              {preview.length === 0 ? (
-                <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                  No indexed hits yet — drafts index on save; new titles surface after the next save.
-                </p>
-              ) : (
-                preview.map((r) => (
-                  <p key={r.entity_id} className="flex items-center gap-2 text-[12px]">
-                    <Tag>{r.entity_kind}</Tag> {r.title}
-                    {r.entity_kind === "kb_article" && r.entity_id === (article?.id ?? "") ? (
-                      <span className="font-medium">(this article)</span>
-                    ) : null}
-                  </p>
-                ))
-              )}
-            </div>
-          ) : null}
-        </>
-      )}
     </div>
   );
 }

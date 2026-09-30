@@ -16,11 +16,16 @@
 import {
   Button,
   Card,
+  ColumnChooser,
+  DataToolbar,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
   EmptyState,
+  ExportControl,
   FieldHint,
+  FilterBar,
   Input,
   Label,
   Select,
@@ -29,11 +34,32 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  Table,
   Tag,
+  Td,
+  Th,
+  Tr,
+  ViewSwitch,
+  applyDensity,
+  useDensity,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  BlushNote,
+  HEAD_CELL_CLASS,
+  InlineVerdict,
+  KeyHint,
+  LedgerFooter,
+  PageFrame,
+  PageHeader,
+  PlusIcon,
+  RuleStep,
+  StatPill,
+  TableCard,
+  downloadCsv,
+} from "../../components/knowledge/ledger";
 import { api, useRequireAuth } from "../../lib/api";
 import { rejectionText } from "../../lib/error-copy";
 
@@ -66,6 +92,33 @@ interface AutomationRuleView {
   created_at?: string;
   updated_at?: string;
 }
+
+type RuleColumnKey =
+  | "rule"
+  | "status"
+  | "trigger"
+  | "conditions"
+  | "actions"
+  | "board"
+  | "updated";
+
+interface RuleColumn {
+  key: RuleColumnKey;
+  label: string;
+  visible: boolean;
+  required?: boolean;
+}
+
+/** The pack's ledger columns; `rule` is the identity and cannot be hidden. */
+const RULE_COLUMNS: RuleColumn[] = [
+  { key: "rule", label: "Rule", visible: true, required: true },
+  { key: "status", label: "Status", visible: true },
+  { key: "trigger", label: "Trigger", visible: true },
+  { key: "conditions", label: "Conditions", visible: true },
+  { key: "actions", label: "Actions", visible: true },
+  { key: "board", label: "Board", visible: false },
+  { key: "updated", label: "Updated", visible: false },
+];
 
 const TRIGGER_EVENTS: { value: string; label: string }[] = [
   { value: "ticket.created", label: "Ticket created" },
@@ -179,6 +232,13 @@ export default function AutomationsPage() {
   }, [auth.status]);
 
   const [rules, setRules] = useState<AutomationRuleView[] | null>(null);
+  const [view, setView] = useState("all");
+  const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>(
+    [],
+  );
+  const [columns, setColumns] = useState<RuleColumn[]>(RULE_COLUMNS);
+  const [suggestedNudge, setSuggestedNudge] = useState(false);
+  const density = useDensity();
   const [boards, setBoards] = useState<BoardNavEntry[]>([]);
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [loading, setLoading] = useState(false);
@@ -432,115 +492,317 @@ export default function AutomationsPage() {
     [rules],
   );
 
+  const visibleRules = useMemo(() => {
+    let rows = rulesSorted;
+    if (view === "enabled") rows = rows.filter((r) => r.enabled);
+    if (view === "paused") rows = rows.filter((r) => !r.enabled);
+    for (const clause of clauses) {
+      const value = (clause.value ?? "").toLowerCase();
+      if (clause.field === "name") rows = rows.filter((r) => r.name.toLowerCase().includes(value));
+      if (clause.field === "trigger")
+        rows = rows.filter((r) => r.trigger_event.toLowerCase().includes(value));
+      if (clause.field === "board") {
+        rows = rows.filter((r) => {
+          const name = r.board_id == null ? "all boards" : (boards.find((b) => b.id === r.board_id)?.name ?? "");
+          return name.toLowerCase().includes(value);
+        });
+      }
+    }
+    return rows;
+  }, [rulesSorted, view, clauses, boards]);
+
+  const shownColumns = columns.filter((c) => c.visible);
+
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1000px] gap-6 p-4 md:p-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Automation rules</h1>
-          <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Event-triggered actions: automatically prioritize, assign, notify, or
-            add internal notes when domain events fire.
-          </p>
-        </div>
-        <Button onClick={openNewRule}>New rule</Button>
-      </header>
+    <PageFrame>
+      <PageHeader
+        title="Automation rules"
+        subtitle="WHEN an event fires, IF the conditions hold, THEN the actions run in order. A test run tells you what a rule would do before it does it."
+        attention={
+          <>
+            <StatPill
+              tone="gold"
+              label="Enabled"
+              count={rulesSorted.filter((r) => r.enabled).length}
+              onClick={() => setView(view === "enabled" ? "all" : "enabled")}
+              pressed={view === "enabled"}
+            />
+            <StatPill
+              tone="neutral"
+              label="Paused"
+              count={rulesSorted.filter((r) => !r.enabled).length}
+              onClick={() => setView(view === "paused" ? "all" : "paused")}
+              pressed={view === "paused"}
+            />
+            <StatPill
+              tone="blush"
+              label="Match every ticket"
+              count={rulesSorted.filter((r) => (r.conditions ?? []).length === 0).length}
+            />
+          </>
+        }
+        actions={
+          <Button onClick={openNewRule} data-testid="automation-new-rule">
+            <PlusIcon size={16} /> New rule
+          </Button>
+        }
+      />
 
       {errorMsg !== null ? (
-        <EmptyState message={errorMsg} />
-      ) : loading && rules === null ? (
-        <div className="flex justify-center py-10">
-          <Spinner />
+        <div className="mb-2">
+          <BlushNote title="The rules did not load.">{errorMsg}</BlushNote>
         </div>
-      ) : rulesSorted.length === 0 ? (
-        <Card>
-          <div className="p-6">
-            <EmptyState message="No automation rules yet. A rule answers: WHEN an event fires, IF these conditions hold, THEN apply these effects." />
-          </div>
-        </Card>
-      ) : (
-        <div className="grid gap-3">
-          {rulesSorted.map((r) => (
-            <Card key={r.id} className="p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-semibold">{r.name}</p>
-                    <Tag tone={r.enabled ? "success" : "neutral"}>
-                      {r.enabled ? "enabled" : "disabled"}
-                    </Tag>
-                  </div>
-                  <p className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                    <code>{r.trigger_event}</code>
-                    {r.board_id !== null && r.board_id !== undefined
-                      ? ` · board: ${boards.find((b) => b.id === r.board_id)?.name ?? "—"}`
-                      : " · all boards"}
-                  </p>
-                </div>
-                <div className="flex gap-1">
-                  <Button
-                    data-testid={`automation-test-run-${r.id}`}
-                    variant="ghost"
-                    disabled={testingId !== null && testingId !== r.id}
-                    onClick={() => void handleTestRun(r)}
-                  >
-                    {testingId === r.id ? <Spinner /> : null} Test run
-                  </Button>
-                  <Button variant="ghost" onClick={() => void handleToggleRule(r)}>
-                    {r.enabled ? "Disable" : "Enable"}
-                  </Button>
-                  <Button variant="ghost" onClick={() => openEditRule(r)}>
-                    Edit
-                  </Button>
-                  {deleteArm === r.id ? (
-                    <>
-                      <Button variant="destructive" onClick={() => void handleDeleteRule(r.id)}>
-                        Confirm delete
-                      </Button>
-                      <Button variant="ghost" onClick={() => setDeleteArm(null)}>
-                        Keep
-                      </Button>
-                    </>
-                  ) : (
-                    <Button variant="ghost" onClick={() => setDeleteArm(r.id)}>
-                      Delete
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <div className="mt-3">
-                <RuleChips
-                  trigger={r.trigger_event}
-                  conditions={r.conditions ?? []}
-                  actions={r.actions ?? []}
-                  userName={userName}
-                />
-              </div>
-              {testError !== null && testedId === r.id ? (
-                <p role="alert" className="mt-2 text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                  {testError}
-                </p>
-              ) : null}
-              {testRun !== null && testRun.rule_id === r.id ? (
-                <TestRunResult
-                  result={testRun}
-                  userName={userName}
-                  onClose={() => {
-                    setTestRun(null);
-                    setTestError(null);
-                  }}
-                />
-              ) : null}
-            </Card>
-          ))}
-          {rowError !== null ? (
-            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
-              {rowError}
-            </p>
-          ) : null}
+      ) : null}
+      {rowError !== null ? (
+        <div className="mb-2" role="alert">
+          <BlushNote title="The last action on a rule was rejected.">{rowError}</BlushNote>
         </div>
-      )}
+      ) : null}
+
+      <div className="flex min-h-0 flex-1 flex-col">
+        <DataToolbar
+          label="Automation controls"
+          views={
+            <ViewSwitch
+              label="Rule views"
+              views={[
+                { id: "all", label: "All rules", hint: String(rulesSorted.length) },
+                { id: "enabled", label: "Enabled" },
+                { id: "paused", label: "Paused" },
+              ]}
+              activeId={view}
+              onChange={setView}
+            />
+          }
+          filters={
+            <FilterBar
+              label="Rule filters"
+              emptyHint="No filters"
+              fields={[
+                { key: "name", label: "Rule", operators: ["contains"] },
+                { key: "trigger", label: "Trigger", operators: ["contains"] },
+                { key: "board", label: "Board", operators: ["contains"] },
+              ]}
+              clauses={clauses}
+              onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+            />
+          }
+          columns={
+            <ColumnChooser
+              label="Rule columns"
+              columns={columns.map((c) => ({
+                key: c.key,
+                label: c.label,
+                visible: c.visible,
+                required: c.required,
+              }))}
+              onChange={(next) =>
+                setColumns(
+                  next.map((c) => ({
+                    key: c.key as RuleColumnKey,
+                    label: c.label,
+                    visible: c.visible,
+                    required: c.required,
+                  })),
+                )
+              }
+            />
+          }
+          export={
+            <ExportControl
+              label="Export"
+              formats={["csv"]}
+              columns={shownColumns.map((c) => c.label)}
+              rowCount={visibleRules.length}
+              filters={clauses}
+              onExport={() =>
+                downloadCsv(
+                  "automation-rules.csv",
+                  shownColumns.map((c) => c.label),
+                  visibleRules.map((r) =>
+                    shownColumns.map((c) => {
+                      if (c.key === "rule") return r.name;
+                      if (c.key === "status") return r.enabled ? "enabled" : "paused";
+                      if (c.key === "trigger") return r.trigger_event;
+                      if (c.key === "conditions")
+                        return (r.conditions ?? []).map((x) => x.type).join(" ");
+                      if (c.key === "actions") return (r.actions ?? []).map((x) => x.type).join(" ");
+                      if (c.key === "board")
+                        return r.board_id == null
+                          ? "All boards"
+                          : (boards.find((b) => b.id === r.board_id)?.name ?? "—");
+                      return r.updated_at ?? "";
+                    }),
+                  ),
+                )
+              }
+            />
+          }
+        />
+
+        <TableCard label="Automation rules">
+          {loading && rules === null ? (
+            <div className="flex justify-center p-6"><Spinner /></div>
+          ) : visibleRules.length === 0 ? (
+            <EmptyState
+              message="No automation rules here. A rule answers: WHEN an event fires, IF these conditions hold, THEN apply these effects."
+              action={
+                <Button onClick={openNewRule}>New rule</Button>
+              }
+            />
+          ) : (
+            <Table data-testid="automation-rules-table">
+              <thead>
+                <tr>
+                  {shownColumns.map((c) => (
+                    <Th key={c.key} className={HEAD_CELL_CLASS}>
+                      {c.label}
+                    </Th>
+                  ))}
+                  <Th className={`${HEAD_CELL_CLASS} text-right`}>Actions</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRules.map((r) => (
+                  <Tr key={r.id} style={{ height: "var(--m-density-row)" }}>
+                    {shownColumns.map((c) => (
+                      <Td key={c.key}>
+                        {c.key === "rule" ? (
+                          <div className="flex min-w-0 items-center gap-2">
+                            <button
+                              type="button"
+                              className="truncate font-semibold underline decoration-transparent underline-offset-2 transition-colors duration-100 hover:decoration-[var(--m-border-strong)]"
+                              style={{ color: "var(--m-text)" }}
+                              onClick={() => openEditRule(r)}
+                            >
+                              {r.name}
+                            </button>
+                          </div>
+                        ) : null}
+                        {c.key === "status" ? (
+                          <Tag tone={r.enabled ? "success" : "neutral"}>
+                            {r.enabled ? "enabled" : "paused"}
+                          </Tag>
+                        ) : null}
+                        {c.key === "trigger" ? (
+                          <code className="font-mono text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                            {r.trigger_event}
+                          </code>
+                        ) : null}
+                        {c.key === "conditions" ? (
+                          (r.conditions ?? []).length === 0 ? (
+                            // P3: the gap and its one-click fix, in the row.
+                            <InlineVerdict
+                              tone="blush"
+                              onFix={() => {
+                                openEditRule(r);
+                                setSuggestedNudge(true);
+                              }}
+                              fixLabel="Add one"
+                            >
+                              matches every ticket
+                            </InlineVerdict>
+                          ) : (
+                            <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                              {(r.conditions ?? []).length} condition
+                              {(r.conditions ?? []).length === 1 ? "" : "s"}
+                            </span>
+                          )
+                        ) : null}
+                        {c.key === "actions" ? (
+                          <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                            {(r.actions ?? []).length} action
+                            {(r.actions ?? []).length === 1 ? "" : "s"}
+                          </span>
+                        ) : null}
+                        {c.key === "board" ? (
+                          <span style={{ color: "var(--m-text-secondary)" }}>
+                            {r.board_id == null
+                              ? "All boards"
+                              : (boards.find((b) => b.id === r.board_id)?.name ?? "—")}
+                          </span>
+                        ) : null}
+                        {c.key === "updated" ? (
+                          <span className="tabular-nums text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                            {r.updated_at == null ? "—" : new Date(r.updated_at).toLocaleDateString()}
+                          </span>
+                        ) : null}
+                      </Td>
+                    ))}
+                    <Td className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          data-testid={`automation-test-run-${r.id}`}
+                          variant="ghost"
+                          size="sm"
+                          disabled={testingId !== null && testingId !== r.id}
+                          onClick={() => void handleTestRun(r)}
+                        >
+                          {testingId === r.id ? <Spinner /> : null} Test run
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => void handleToggleRule(r)}>
+                          {r.enabled ? "Pause" : "Enable"}
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => openEditRule(r)}>
+                          Edit
+                        </Button>
+                        {deleteArm === r.id ? (
+                          <>
+                            <Button variant="destructive-solid" size="sm" onClick={() => void handleDeleteRule(r.id)}>
+                              Confirm delete
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => setDeleteArm(null)}>
+                              Keep
+                            </Button>
+                          </>
+                        ) : (
+                          <Button variant="ghost" size="sm" onClick={() => setDeleteArm(r.id)}>
+                            Delete
+                          </Button>
+                        )}
+                      </div>
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </TableCard>
+
+        <LedgerFooter
+          shown={visibleRules.length}
+          total={rulesSorted.length}
+          noun="rules"
+          density={<DensitySwitch value={density} onChange={applyDensity} />}
+          hints={
+            <>
+              <KeyHint keys="J K" label="move" />
+              <KeyHint keys="↵" label="edit" />
+              <KeyHint keys="F" label="filter" />
+            </>
+          }
+        />
+      </div>
+
+      {testError !== null && testedId !== null ? (
+        <div className="mt-2" role="alert">
+          <BlushNote title="The test run did not come back.">{testError}</BlushNote>
+        </div>
+      ) : null}
+      {testRun !== null ? (
+        <div className="mt-3">
+          <TestRunResult
+            result={testRun}
+            userName={userName}
+            onClose={() => {
+              setTestRun(null);
+              setTestError(null);
+            }}
+          />
+        </div>
+      ) : null}
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
@@ -559,56 +821,92 @@ export default function AutomationsPage() {
               />
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <Label htmlFor="ar-board">Board scope</Label>
-                <Select
-                  value={boardId}
-                  onValueChange={(v) => setBoardId(v ?? "")}
-                >
-                  <SelectTrigger id="ar-board" className="w-full">
-                    <SelectValue placeholder="All boards (org-wide)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All boards</SelectItem>
-                    {boards.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
-                        {b.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            {/* WHEN — the trigger and the scope it fires in */}
+            <RuleStep
+              word="WHEN"
+              summary={
+                <>
+                  <code className="font-mono">{triggerEvent}</code> fires on{" "}
+                  {boardId === "" || boardId === "all"
+                    ? "every board"
+                    : (boards.find((b) => b.id === boardId)?.name ?? "one board")}
+                  .
+                </>
+              }
+            >
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <Label htmlFor="ar-board">Board scope</Label>
+                  <Select
+                    value={boardId}
+                    onValueChange={(v) => setBoardId(v ?? "")}
+                  >
+                    <SelectTrigger id="ar-board" className="w-full">
+                      <SelectValue placeholder="All boards (org-wide)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All boards</SelectItem>
+                      {boards.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>
+                          {b.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <div>
-                <Label htmlFor="ar-event">1 · WHEN — trigger event</Label>
-                <Select value={triggerEvent} onValueChange={(v) => setTriggerEvent(v ?? "ticket.created")}>
-                  <SelectTrigger id="ar-event" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TRIGGER_EVENTS.map((ev) => (
-                      <SelectItem key={ev.value} value={ev.value}>
-                        {ev.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div>
+                  <Label htmlFor="ar-event">Trigger event</Label>
+                  <Select value={triggerEvent} onValueChange={(v) => setTriggerEvent(v ?? "ticket.created")}>
+                    <SelectTrigger id="ar-event" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TRIGGER_EVENTS.map((ev) => (
+                        <SelectItem key={ev.value} value={ev.value}>
+                          {ev.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-            </div>
+            </RuleStep>
 
-            {/* Conditions */}
-            <section className="rounded-md border p-3" style={{ borderColor: "var(--m-border)" }}>
-              <div className="flex items-center justify-between">
-                <div className="text-[13px] font-semibold">2 · IF — conditions</div>
-                <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                  ALL must match
-                </span>
-              </div>
+            {/* IF — conditions, with the suggested one offered in place */}
+            <RuleStep
+              word="IF"
+              summary={
+                conditions.length === 0 ? (
+                  "Every occurrence of the trigger matches." + (suggestedNudge ? " That is usually not what you meant." : "")
+                ) : (
+                  `All ${conditions.length} condition${conditions.length === 1 ? "" : "s"} must hold.`
+                )
+              }
+            >
               {conditions.length === 0 ? (
-                <p className="mt-1 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
-                  No conditions — the rule matches every occurrence of the trigger.
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                    No conditions — the rule matches every occurrence of the trigger.
+                  </p>
+                  {/* P3, not a panel: the suggestion sits in the rule it is
+                      about, states what it would do, and adds itself in one
+                      click. An assistant column for a one-line fix would cost
+                      more screen than the fix is worth. */}
+                  <InlineVerdict
+                    tone="blush"
+                    onFix={() => {
+                      setConditions([
+                        ...conditions,
+                        { type: "unassigned" } as AutomationCondition,
+                      ]);
+                      setSuggestedNudge(false);
+                    }}
+                    fixLabel="Add “unassigned”"
+                  >
+                    Most new rules want one condition
+                  </InlineVerdict>
+                </div>
               ) : (
                 <div className="mt-2 grid gap-1">
                   {conditions.map((c, i) => (
@@ -683,16 +981,17 @@ export default function AutomationsPage() {
                   </p>
                 ) : null}
               </div>
-            </section>
+            </RuleStep>
 
-            {/* Actions */}
-            <section className="rounded-md border p-3" style={{ borderColor: "var(--m-border)" }}>
-              <div className="flex items-center justify-between">
-                <div className="text-[13px] font-semibold">3 · THEN — actions</div>
-                <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                  applied in order · at least one required
-                </span>
-              </div>
+            {/* THEN — actions, applied in order */}
+            <RuleStep
+              word="THEN"
+              summary={
+                actions.length === 0
+                  ? "Nothing happens yet — a rule needs at least one action."
+                  : `${actions.length} action${actions.length === 1 ? "" : "s"}, applied in order.`
+              }
+            >
               {actions.length === 0 ? (
                 <p className="mt-1 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
                   No actions yet — add at least one.
@@ -814,7 +1113,7 @@ export default function AutomationsPage() {
                   </p>
                 ) : null}
               </div>
-            </section>
+            </RuleStep>
 
             {formError !== null ? (
               <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
@@ -829,6 +1128,7 @@ export default function AutomationsPage() {
               <Button
                 onClick={() => void handleSaveRule()}
                 disabled={saving || name.trim() === "" || actions.length === 0}
+                data-testid="automation-save-rule"
               >
                 {saving ? <Spinner /> : null} Save rule
               </Button>
@@ -836,7 +1136,7 @@ export default function AutomationsPage() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageFrame>
   );
 }
 

@@ -30,7 +30,11 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  Table,
   Tag,
+  Td,
+  Th,
+  Tr,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -43,6 +47,12 @@ import {
   useRequireAuth,
 } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import {
+  BlushNote,
+  HEAD_CELL_CLASS,
+  PageFrame,
+  PageHeader,
+} from "../../../components/knowledge/ledger";
 import { FieldsEditor, parseFieldInputs } from "../fields-editor";
 import { EntityPicker } from "../../../components/entities/entity-picker";
 import type { LinkTarget } from "../../../lib/entity-links";
@@ -334,21 +344,21 @@ export default function DocumentDetailPage() {
 
   if (loadError !== null) {
     return (
-      <div className="mx-auto w-full max-w-[1400px] p-4 md:p-6">
-        <Card>
-          <div className="p-4">
-            <EmptyState message={loadError} />
-          </div>
-        </Card>
-      </div>
+      <PageFrame>
+        <PageHeader title="Document" />
+        <div className="mb-2">
+          <BlushNote title="This document did not load.">{loadError}</BlushNote>
+        </div>
+      </PageFrame>
     );
   }
 
   if (doc === null || body === null) {
     return (
-      <div className="mx-auto w-full max-w-[1400px] p-4 md:p-6">
+      <PageFrame>
+        <PageHeader title="Document" />
         <Spinner />
-      </div>
+      </PageFrame>
     );
   }
 
@@ -356,48 +366,54 @@ export default function DocumentDetailPage() {
   const right = version(diffRight);
 
   return (
-    <div className="mx-auto grid w-full grid-cols-1 max-w-[1400px] gap-6 p-4 md:p-6">
-      <div className="m-entity-rise">
-        <Link href="/documents" className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2" style={{ color: "var(--m-text-secondary)" }}>
-          ← Documents
-        </Link>
-        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold">{doc.title}</h1>
-            <p className="mt-1 flex flex-wrap items-center gap-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              {doc.client_id != null ? (
-                <Link href={`/clients/${doc.client_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
-                  {clients?.find((c) => c.id === doc.client_id)?.name ?? "Client"}
-                </Link>
-              ) : (
-                <span>Org-global</span>
-              )}
-              {layout !== null ? <Tag tone="outline">{layout.name}</Tag> : null}
-              <span className="tabular-nums">v{doc.current_version}</span>
-              <span>
-                ·{" "}
-                {doc.content_updated_at === null || doc.content_updated_at === undefined
-                  ? "no content revision yet"
-                  : `updated ${new Date(doc.content_updated_at).toLocaleString()}`}
-              </span>
-              {doc.restored_from_version != null ? (
-                <Tag tone="warning">restored from v{doc.restored_from_version}</Tag>
-              ) : null}
-            </p>
-          </div>
+    <PageFrame>
+      <Link
+        href="/documents"
+        className="mb-1 inline-block text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+        style={{ color: "var(--m-text-secondary)" }}
+      >
+        ← Documents
+      </Link>
+      <PageHeader
+        title={doc.title}
+        subtitle={
+          <span className="flex flex-wrap items-center gap-2">
+            {doc.client_id != null ? (
+              <Link href={`/clients/${doc.client_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
+                {clients?.find((c) => c.id === doc.client_id)?.name ?? "Client"}
+              </Link>
+            ) : (
+              <span>Org-global</span>
+            )}
+            {layout !== null ? <Tag tone="outline">{layout.name}</Tag> : null}
+            <span className="tabular-nums">v{doc.current_version}</span>
+            <span>
+              ·{" "}
+              {doc.content_updated_at === null || doc.content_updated_at === undefined
+                ? "no content revision yet"
+                : `updated ${new Date(doc.content_updated_at).toLocaleString()}`}
+            </span>
+            {doc.restored_from_version != null ? (
+              <Tag tone="warning">restored from v{doc.restored_from_version}</Tag>
+            ) : null}
+          </span>
+        }
+        actions={
           <Button variant="secondary" onClick={() => setEditMeta((v) => !v)}>
             {editMeta ? "Close details" : "Edit details"}
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       {error !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-          {error}{" "}
-          <button className="underline" onClick={() => void refresh()}>
-            Reload
-          </button>
-        </p>
+        <div className="mb-2" role="alert">
+          <BlushNote title="The last save did not land.">
+            {error}{" "}
+            <button className="underline underline-offset-2" onClick={() => void refresh()}>
+              Reload
+            </button>
+          </BlushNote>
+        </div>
       ) : null}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -491,33 +507,46 @@ export default function DocumentDetailPage() {
                     </Button>
                   )}
                 </div>
-                <ul className="grid gap-1">
-                  {versions.map((v, i) => (
-                    <li
-                      key={v.version}
-                      className="m-entity-row m-entity-rise flex items-center justify-between gap-3 rounded-[0.5rem] border px-3 py-2 text-[13px]"
-                      style={{ borderColor: "var(--m-border)", "--stagger-i": Math.min(i, 10) } as React.CSSProperties}
-                    >
-                      <div className="min-w-0">
-                        <span className="font-medium tabular-nums">v{v.version}</span>
-                        <span className="ml-2" style={{ color: "var(--m-text-secondary)" }}>
-                          {v.change_summary !== "" ? v.change_summary : "no summary"}
-                          {v.restored_from_version != null ? ` (restored from v${v.restored_from_version})` : ""}
-                        </span>
-                        <span className="ml-2" style={{ color: "var(--m-text-muted)" }}>
-                          {new Date(v.created_at).toLocaleString()}
-                        </span>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setRestoreTarget(v)}
-                        disabled={v.version === doc.current_version}
-                      >
-                        {v.version === doc.current_version ? "current" : "Restore"}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
+                <Table className="m-versions" data-testid="document-versions">
+                  <thead>
+                    <tr>
+                      <Th className={HEAD_CELL_CLASS}>Version</Th>
+                      <Th className={HEAD_CELL_CLASS}>Change</Th>
+                      <Th className={HEAD_CELL_CLASS}>Saved</Th>
+                      <Th className={HEAD_CELL_CLASS}> </Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versions.map((v) => {
+                      const isCurrent = v.version === doc.current_version;
+                      return (
+                        <Tr key={v.version} style={{ height: "var(--m-density-row)" }}>
+                          <Td className="tabular-nums font-semibold">v{v.version}</Td>
+                          <Td style={{ color: "var(--m-text-secondary)" }}>
+                            {v.change_summary !== "" ? v.change_summary : "no summary"}
+                            {v.restored_from_version != null ? ` (restored from v${v.restored_from_version})` : ""}
+                          </Td>
+                          <Td className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                            {new Date(v.created_at).toLocaleString()}
+                          </Td>
+                          <Td className="text-right">
+                            {isCurrent ? (
+                              <Tag tone="success">current</Tag>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setRestoreTarget(v)}
+                              >
+                                Restore
+                              </Button>
+                            )}
+                          </Td>
+                        </Tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
                 {left !== null && right !== null ? <DiffView left={left} right={right} /> : null}
               </div>
             ) : (
@@ -743,7 +772,7 @@ export default function DocumentDetailPage() {
           </DialogActions></div>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageFrame>
   );
 }
 

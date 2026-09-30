@@ -25,11 +25,16 @@
 import {
   Button,
   Card,
+  ColumnChooser,
+  DataToolbar,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
   EmptyState,
+  ExportControl,
   FieldHint,
+  FilterBar,
   Input,
   Label,
   Select,
@@ -38,11 +43,31 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  Table,
   Tag,
+  Td,
+  Th,
+  Tr,
+  ViewSwitch,
+  applyDensity,
+  useDensity,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import {
+  AlertIcon,
+  HEAD_CELL_CLASS,
+  KeyHint,
+  LedgerFooter,
+  LockIcon,
+  PageFrame,
+  PageHeader,
+  PlusIcon,
+  StatPill,
+  TableCard,
+  downloadCsv,
+} from "../../../components/knowledge/ledger";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
 import { friendlyMutationError } from "../../../lib/error-copy";
 import { newIdempotencyKey } from "../../../lib/envelope-write";
@@ -74,6 +99,36 @@ const KIND_LABELS: Record<string, string> = {
   recovery_codes: "recovery codes",
   documents: "documents",
 };
+
+type SecretColumnKey = "record" | "kind" | "fields" | "expires" | "updated";
+
+/** The pack's ledger columns; `record` is the identity and cannot be hidden. */
+interface SecretColumn {
+  key: SecretColumnKey;
+  label: string;
+  visible: boolean;
+  required?: boolean;
+}
+
+const SECRET_COLUMNS: SecretColumn[] = [
+  { key: "record", label: "Record", visible: true, required: true },
+  { key: "kind", label: "Kind", visible: true },
+  { key: "fields", label: "Sealed fields", visible: true },
+  { key: "expires", label: "Expires", visible: true },
+  { key: "updated", label: "Last rotated", visible: false },
+];
+
+/**
+ * A record's shape, never its contents: which fields are sealed. This is the
+ * one row a ledger can show honestly — the values themselves only exist inside
+ * the confirmed, audited reveal.
+ */
+function sealedFields(record: SecretRecord): string {
+  const filled = (record.fields ?? []).filter((f) => f.has_value);
+  if (filled.length === 0) return record.object_key !== null ? "encrypted file" : "—";
+  const keys = filled.map((f) => f.field_key);
+  return record.object_key !== null ? `${keys.join(", ")} + file` : keys.join(", ");
+}
 
 const FIELD_LABELS: Record<string, string> = {
   secret: "Secret",
@@ -160,6 +215,12 @@ export default function SecretsVaultPage() {
   const [folderDialog, setFolderDialog] = useState<"new" | "edit" | "fork" | null>(null);
   const [folderForDialog, setFolderForDialog] = useState<SecretFolder | null>(null);
   const [grantsOpen, setGrantsOpen] = useState(false);
+  const [view, setView] = useState("all");
+  const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>(
+    [],
+  );
+  const [columns, setColumns] = useState<SecretColumn[]>(SECRET_COLUMNS);
+  const density = useDensity();
 
   const clientById = useMemo(
     () => new Map((clients ?? []).map((c) => [c.id as string, c])),
@@ -230,66 +291,141 @@ export default function SecretsVaultPage() {
       });
   }, [selectedFolder, scope]);
 
+  /* --- the ledger: a record surface, so it takes the five controls (D12) --- */
+
+  const sortedRecords = useMemo(
+    () =>
+      (records ?? [])
+        .slice()
+        .sort((a, b) =>
+          a.title.localeCompare(b.title, undefined, { sensitivity: "base" }),
+        ),
+    [records],
+  );
+
+  const expiringSoon = useMemo(() => {
+    const soon = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    return sortedRecords.filter((r) => {
+      if (r.expires_at == null) return false;
+      const at = Date.parse(r.expires_at);
+      return !Number.isNaN(at) && at >= Date.now() && at <= soon;
+    }).length;
+  }, [sortedRecords]);
+
+  const expiredCount = useMemo(
+    () =>
+      sortedRecords.filter((r) => {
+        if (r.expires_at == null) return false;
+        const at = Date.parse(r.expires_at);
+        return !Number.isNaN(at) && at < Date.now();
+      }).length,
+    [sortedRecords],
+  );
+
+  const visibleRecords = useMemo(() => {
+    let rows = sortedRecords;
+    if (view === "expiring") rows = rows.filter((r) => r.expires_at != null);
+    if (view === "expired") {
+      rows = rows.filter((r) => {
+        if (r.expires_at == null) return false;
+        const at = Date.parse(r.expires_at);
+        return !Number.isNaN(at) && at < Date.now();
+      });
+    }
+    if (view === "files") rows = rows.filter((r) => r.object_key !== null);
+    for (const clause of clauses) {
+      const value = (clause.value ?? "").toLowerCase();
+      if (clause.field === "title") rows = rows.filter((r) => r.title.toLowerCase().includes(value));
+      if (clause.field === "kind") rows = rows.filter((r) => r.kind === clause.value);
+    }
+    return rows;
+  }, [sortedRecords, view, clauses]);
+
+  const shownColumns = columns.filter((c) => c.visible);
+
   if (auth.status !== "authed") return null;
 
   const scopeLabel =
     scope.kind === "org" ? "Org-level vault" : `Vault — ${clientById.get(scope.id)?.name ?? "client"}`;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Secret vault</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Secret categories are KB-class: org-level or per client, with restricted chains
-            grant-gated behind the scenes. Every reveal is audited.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select
-            value={scope.kind === "org" ? "org" : scope.id}
-            onValueChange={(v) => {
-              setScope(v === "org" ? { kind: "org" } : { kind: "client", id: v });
-              setSelectedFolder(null);
-            }}
-          >
-            <SelectTrigger aria-label="Vault scope" className="w-60 whitespace-nowrap">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="org">Org-level</SelectItem>
-              {(clients ?? []).map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {canManage ? (
-            <Button variant="ghost" onClick={() => setGrantsOpen(true)}>
-              Category grants
+    <PageFrame>
+      <PageHeader
+        title="Secret vault"
+        subtitle="Org-level or per client. Plaintext exists only inside an audited reveal, and the reveal is a decision you confirm."
+        attention={
+          <>
+            <StatPill
+              tone="blush"
+              label="Expiring in 30 days"
+              count={expiringSoon}
+              onClick={() => setView(view === "expiring" ? "all" : "expiring")}
+              pressed={view === "expiring"}
+            />
+            <StatPill
+              tone="red"
+              label="Expired"
+              count={expiredCount}
+              onClick={() => setView(view === "expired" ? "all" : "expired")}
+              pressed={view === "expired"}
+            />
+          </>
+        }
+        actions={
+          <>
+            <Select
+              value={scope.kind === "org" ? "org" : scope.id}
+              onValueChange={(v) => {
+                setScope(v === "org" ? { kind: "org" } : { kind: "client", id: v });
+                setSelectedFolder(null);
+              }}
+            >
+              <SelectTrigger aria-label="Vault scope" className="w-60 whitespace-nowrap">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="org">Org-level</SelectItem>
+                {(clients ?? []).map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {canManage ? (
+              <Button variant="secondary" onClick={() => setGrantsOpen(true)}>
+                Category grants
+              </Button>
+            ) : null}
+            <Button
+              onClick={() => {
+                setFolderForDialog(null);
+                setFolderDialog("new");
+              }}
+              data-testid="kb-secrets-new-category"
+            >
+              <PlusIcon size={16} /> New category
             </Button>
-          ) : null}
-          <Button
-            onClick={() => {
-              setFolderForDialog(null);
-              setFolderDialog("new");
-            }}
-          >
-            New category
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-        <Card className="self-start">
-          <h2 className="p-4 pb-2 text-sm font-semibold">{scopeLabel}</h2>
+      <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <aside
+          className="min-h-0 overflow-auto rounded-[16px] p-3"
+          style={{ border: "1px solid var(--m-border)", background: "var(--m-sidebar)" }}
+          aria-label="Secret categories"
+        >
+          <p
+            className="px-2 pb-2 text-[12px] font-semibold uppercase tracking-[0.06em]"
+            style={{ color: "var(--m-text-secondary)" }}
+          >
+            {scopeLabel}
+          </p>
           {folders === null ? (
-            <div className="px-4 pb-4">
-              <Spinner />
-            </div>
+            <Spinner />
           ) : foldersError !== null ? (
-            <p role="alert" className="px-4 pb-4 text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
               {foldersError}
             </p>
           ) : (
@@ -307,67 +443,223 @@ export default function SecretsVaultPage() {
               }}
             />
           )}
-        </Card>
+        </aside>
 
-        <Card>
-          <h2 className="p-4 pb-2 text-sm font-semibold">
-            {selectedFolderRow?.label ?? "Secret records"}
-          </h2>
-          {selectedFolderRow !== null ? (
-            <p className="px-4 pb-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-              {KIND_LABELS[selectedFolderRow.kind] ?? selectedFolderRow.kind}
-              {selectedFolderRow.restricted
-                ? " · restricted category — read is grant-gated, reveal needs an edit grant"
-                : ""}
-              {selectedFolderRow.forked_from !== null ? " · forked seed" : ""}
-            </p>
-          ) : null}
-          {selectedFolder === null ? (
-            <div className="px-4 pb-4">
-              <EmptyState message="Select a category in the tree to browse its secret records." />
-            </div>
-          ) : records === null ? (
-            <div className="px-4 pb-4">
-              <Spinner />
-            </div>
-          ) : records.length === 0 ? (
-            <div className="px-4 pb-4">
-              <EmptyState message="No secret records in this category yet." />
-            </div>
-          ) : (
-            <ul className="grid gap-2 px-4 pb-4">
-              {records
-                .slice()
-                .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }))
-                .map((r) => (
-                  <li
-                    key={r.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--m-radius-container)] border px-3 py-2"
-                    style={{ borderColor: "var(--m-border)" }}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-[13px] font-medium">{r.title}</p>
-                      <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                        {KIND_LABELS[r.kind] ?? r.kind}
-                        {r.fields?.some((f) => f.field_key === "username" && f.has_value)
-                          ? " · username"
-                          : ""}
-                        {r.fields?.some((f) => f.field_key === "url" && f.has_value) ? " · url" : ""}
-                        {r.object_key !== null ? " · stored ciphertext file" : ""}
-                        · updated {new Date(r.updated_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {r.expires_at != null && new Date(r.expires_at) < new Date() ? (
-                        <Tag tone="danger">expired</Tag>
-                      ) : null}
-                      <Button onClick={() => setOpenRecord(r)}>Open</Button>
-                    </div>
-                  </li>
-                ))}
-            </ul>
-          )}
-        </Card>
+        <div className="flex min-h-0 flex-col">
+          <DataToolbar
+            label="Secret record controls"
+            views={
+              <ViewSwitch
+                label="Secret views"
+                views={[
+                  { id: "all", label: "All", hint: String(sortedRecords.length) },
+                  { id: "expiring", label: "With an expiry" },
+                  { id: "expired", label: "Expired" },
+                  { id: "files", label: "Files" },
+                ]}
+                activeId={view}
+                onChange={setView}
+              />
+            }
+            filters={
+              <FilterBar
+                label="Secret filters"
+                emptyHint="No filters"
+                fields={[
+                  { key: "title", label: "Record", operators: ["contains"] },
+                  { key: "kind", label: "Kind", operators: ["eq"] },
+                ]}
+                clauses={clauses}
+                onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+              />
+            }
+            columns={
+              <ColumnChooser
+                label="Secret columns"
+                columns={columns.map((c) => ({
+                  key: c.key,
+                  label: c.label,
+                  visible: c.visible,
+                  required: c.required,
+                }))}
+                onChange={(next) =>
+                  setColumns(
+                    next.map((c) => ({
+                      key: c.key as SecretColumnKey,
+                      label: c.label,
+                      visible: c.visible,
+                      required: c.required,
+                    })),
+                  )
+                }
+              />
+            }
+            export={
+              <ExportControl
+                label="Export"
+                formats={["csv"]}
+                columns={shownColumns.map((c) => c.label)}
+                rowCount={visibleRecords.length}
+                filters={clauses}
+                onExport={() => {
+                  // Metadata only, never a value: an export of this vault must
+                  // not become the plaintext copy it exists to avoid.
+                  downloadCsv(
+                    "secret-records.csv",
+                    shownColumns.map((c) => c.label),
+                    visibleRecords.map((r) =>
+                      shownColumns.map((c) => {
+                        if (c.key === "record") return r.title;
+                        if (c.key === "kind") return r.kind;
+                        if (c.key === "fields")
+                          return (r.fields ?? [])
+                            .filter((f) => f.has_value)
+                            .map((f) => f.field_key)
+                            .join(" ");
+                        if (c.key === "expires")
+                          return r.expires_at == null ? "" : r.expires_at;
+                        return r.updated_at;
+                      }),
+                    ),
+                  );
+                }}
+              />
+            }
+          />
+
+          <TableCard label="Secret records">
+            {selectedFolderRow !== null ? (
+              <div
+                className="flex flex-wrap items-center gap-2 border-b px-3 py-2 text-[12px]"
+                style={{ color: "var(--m-text-secondary)" }}
+              >
+                <span className="font-semibold" style={{ color: "var(--m-text)" }}>
+                  {selectedFolderRow.label}
+                </span>
+                <span>{KIND_LABELS[selectedFolderRow.kind] ?? selectedFolderRow.kind}</span>
+                {selectedFolderRow.restricted ? (
+                  <Tag tone="warning">restricted · reveal needs an edit grant</Tag>
+                ) : null}
+                {selectedFolderRow.forked_from !== null ? <Tag tone="neutral">forked seed</Tag> : null}
+              </div>
+            ) : null}
+
+            {selectedFolder === null ? (
+              <EmptyState message="Pick a category in the tree to browse its records. Nothing is listed until you do — a vault has no flat 'everything' view on purpose." />
+            ) : records === null ? (
+              <div className="p-4">
+                <Spinner />
+              </div>
+            ) : visibleRecords.length === 0 ? (
+              <EmptyState
+                message={
+                  records.length === 0
+                    ? "No records in this category yet."
+                    : "No records match this view."
+                }
+                action={
+                  records.length > 0 ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setClauses([]);
+                        setView("all");
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ) : (
+              <Table data-testid="kb-secrets-table">
+                <thead>
+                  <tr>
+                    {shownColumns.map((c) => (
+                      <Th key={c.key} className={HEAD_CELL_CLASS}>
+                        {c.label}
+                      </Th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRecords.map((r) => {
+                    const expired =
+                      r.expires_at != null && Date.parse(r.expires_at) < Date.now();
+                    return (
+                      <Tr key={r.id} style={{ height: "var(--m-density-row)" }}>
+                        {shownColumns.map((c) => (
+                          <Td key={c.key}>
+                            {c.key === "record" ? (
+                              <button
+                                type="button"
+                                className="flex min-w-0 items-center gap-2 text-left"
+                                onClick={() => setOpenRecord(r)}
+                              >
+                                <span style={{ color: "var(--m-text-muted)" }}>
+                                  <LockIcon size={16} />
+                                </span>
+                                <span
+                                  className="truncate font-semibold"
+                                  style={{ color: "var(--m-text)" }}
+                                >
+                                  {r.title}
+                                </span>
+                              </button>
+                            ) : null}
+                            {c.key === "kind" ? (
+                              <Tag tone="neutral">{KIND_LABELS[r.kind] ?? r.kind}</Tag>
+                            ) : null}
+                            {c.key === "fields" ? (
+                              <span
+                                className="font-mono text-[12px]"
+                                style={{ color: "var(--m-text-secondary)" }}
+                              >
+                                {sealedFields(r)}
+                              </span>
+                            ) : null}
+                            {c.key === "expires" ? (
+                              expired ? (
+                                <Tag tone="danger">
+                                  <AlertIcon size={12} /> expired
+                                </Tag>
+                              ) : r.expires_at == null ? (
+                                <span style={{ color: "var(--m-text-muted)" }}>never</span>
+                              ) : (
+                                <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                                  {new Date(r.expires_at).toLocaleDateString()}
+                                </span>
+                              )
+                            ) : null}
+                            {c.key === "updated" ? (
+                              <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                                {new Date(r.updated_at).toLocaleDateString()}
+                              </span>
+                            ) : null}
+                          </Td>
+                        ))}
+                      </Tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+            )}
+          </TableCard>
+
+          <LedgerFooter
+            shown={visibleRecords.length}
+            total={records?.length ?? 0}
+            noun="records"
+            density={<DensitySwitch value={density} onChange={applyDensity} />}
+            hints={
+              <>
+                <KeyHint keys="J K" label="move" />
+                <KeyHint keys="↵" label="open" />
+                <KeyHint keys="F" label="filter" />
+              </>
+            }
+          />
+        </div>
       </div>
 
       <RecordDialog
@@ -403,7 +695,7 @@ export default function SecretsVaultPage() {
       />
 
       <GrantsDialog open={grantsOpen} onClose={() => setGrantsOpen(false)} folders={folders ?? []} />
-    </div>
+    </PageFrame>
   );
 }
 
@@ -515,6 +807,7 @@ function RecordDialog({
   const [reveal, setReveal] = useState<SecretReveal | null>(null);
   const [revealError, setRevealError] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
+  const [confirmingReveal, setConfirmingReveal] = useState(false);
   const [editing, setEditing] = useState(false);
   const [notAvailable, setNotAvailable] = useState(false);
   const [links, setLinks] = useState<ResolvedLink[] | null>(null);
@@ -623,8 +916,13 @@ function RecordDialog({
             ) : null}
             {canReveal ? (
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="secondary" onClick={() => void doReveal()} disabled={revealing}>
-                  {revealing ? <Spinner /> : null} Reveal (audited)
+                <Button
+                  variant="secondary"
+                  onClick={() => setConfirmingReveal(true)}
+                  disabled={revealing}
+                  data-testid="kb-secret-reveal-open"
+                >
+                  <LockIcon size={16} /> Reveal (audited)
                 </Button>
                 <Button variant="ghost" onClick={() => setEditing(true)}>
                   Edit / rotate fields
@@ -657,6 +955,49 @@ function RecordDialog({
           </div>
         )}
       </DialogContent>
+
+      {/* The reveal is a separate confirmation, not the same click. A vault
+          hides values by default, and the one gesture that un-hides them has
+          to be its own decision — with the consequence stated before the
+          plaintext exists anywhere on the page. */}
+      <Dialog open={confirmingReveal} onOpenChange={setConfirmingReveal}>
+        <DialogContent
+          title="Reveal this secret?"
+          description="The plaintext is decrypted for this browser only, shown here, and written to the audit trail with your name. It is never cached and never exported."
+        >
+          <div className="grid gap-3 p-1">
+            <dl className="grid gap-1 text-[13px]">
+              <MetaRow label="Record">{current?.title ?? "—"}</MetaRow>
+              <MetaRow label="Category">
+                {current === null
+                  ? "—"
+                  : (folders.find((f) => f.id === current.folder_id)?.label ?? "—")}
+              </MetaRow>
+              <MetaRow label="Fields">{sealedFields(current ?? ({ fields: [], object_key: null } as unknown as SecretRecord))}</MetaRow>
+              <MetaRow label="Scope">{clientName}</MetaRow>
+            </dl>
+            <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+              Close the dialog once you have what you came for. The next reader of this
+              record sees the same masks.
+            </p>
+            <DialogActions>
+              <Button variant="secondary" onClick={() => setConfirmingReveal(false)}>
+                Keep it sealed
+              </Button>
+              <Button
+                onClick={() => {
+                  setConfirmingReveal(false);
+                  void doReveal();
+                }}
+                disabled={revealing}
+                data-testid="kb-secret-reveal-confirm"
+              >
+                {revealing ? <Spinner /> : null} Reveal and record it
+              </Button>
+            </DialogActions>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

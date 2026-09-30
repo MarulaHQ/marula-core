@@ -26,11 +26,16 @@ import { friendlyMutationError } from "../../lib/error-copy";
 import {
   Button,
   Card,
+  ColumnChooser,
+  DataToolbar,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
   EmptyState,
+  ExportControl,
   FieldHint,
+  FilterBar,
   Input,
   Label,
   Select,
@@ -44,6 +49,9 @@ import {
   Td,
   Th,
   Tr,
+  ViewSwitch,
+  applyDensity,
+  useDensity,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -51,6 +59,19 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { api, useAuth, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation, newIdempotencyKey } from "../../lib/envelope-write";
+import {
+  AlertIcon,
+  HEAD_CELL_CLASS,
+  KeyHint,
+  LedgerFooter,
+  LockIcon,
+  PageFrame,
+  PageHeader,
+  PlusIcon,
+  StatPill,
+  TableCard,
+  downloadCsv,
+} from "../../components/knowledge/ledger";
 import { EntityPicker } from "../../components/entities/entity-picker";
 import { PasswordLinksPanel, SecretSharePanel, SecretTargetPicker } from "../../components/secret-share";
 import type { LinkTarget } from "../../lib/entity-links";
@@ -102,6 +123,40 @@ const LINK_KINDS: components["schemas"]["LinkKind"][] = [
   "client",
   "secret",
 ];
+
+type VaultColumnKey = "record" | "username" | "kind" | "scope" | "expires" | "fields";
+
+interface VaultColumn {
+  key: VaultColumnKey;
+  label: string;
+  visible: boolean;
+  required?: boolean;
+}
+
+/**
+ * Two ledgers, one column set: the category records and the flat credential
+ * vault are the same records seen through two hierarchies, so they share the
+ * columns and switch by view instead of growing their own.
+ */
+const VAULT_COLUMNS: VaultColumn[] = [
+  { key: "record", label: "Record", visible: true, required: true },
+  { key: "username", label: "Username", visible: true },
+  { key: "kind", label: "Kind", visible: true },
+  { key: "scope", label: "Scope", visible: false },
+  { key: "expires", label: "Expires", visible: true },
+  { key: "fields", label: "Sealed fields", visible: false },
+];
+
+/**
+ * A record's shape, never its contents: which fields are sealed. The values
+ * themselves exist only inside a confirmed, audited reveal.
+ */
+function sealedFieldList(record: SecretRecord): string {
+  const filled = (record.fields ?? []).filter((f) => f.has_value);
+  if (filled.length === 0) return record.object_key != null ? "encrypted file" : "—";
+  const keys = filled.map((f) => f.field_key);
+  return record.object_key != null ? `${keys.join(", ")} + file` : keys.join(", ");
+}
 
 type VaultScope = { kind: "org" } | { kind: "client"; id: string };
 
@@ -177,6 +232,13 @@ export default function VaultPage() {
   const [history, setHistory] = useState<PasswordHistoryEntry[] | null>(null);
 
   const [vaultQuery, setVaultQuery] = useState("");
+  const [view, setView] = useState("categories");
+  const [confirmingLegacy, setConfirmingLegacy] = useState<PasswordEntry | null>(null);
+  const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>(
+    [],
+  );
+  const [columns, setColumns] = useState<VaultColumn[]>(VAULT_COLUMNS);
+  const density = useDensity();
 
   const clientById = useMemo(() => new Map((clients ?? []).map((c) => [c.id, c])), [clients]);
 
@@ -286,16 +348,126 @@ export default function VaultPage() {
   };
 
   const legacyFiltered = useMemo(() => {
-    if (entries === null) return null;
+    let rows = entries;
     const needle = vaultQuery.trim().toLowerCase();
-    if (needle === "") return entries;
-    return entries.filter(
-      (e) =>
-        e.title.toLowerCase().includes(needle) ||
-        (e.username ?? "").toLowerCase().includes(needle) ||
-        (e.url ?? "").toLowerCase().includes(needle),
-    );
-  }, [entries, vaultQuery]);
+    if (rows === null) return null;
+    if (needle !== "") {
+      rows = rows.filter(
+        (e) =>
+          e.title.toLowerCase().includes(needle) ||
+          (e.username ?? "").toLowerCase().includes(needle) ||
+          (e.url ?? "").toLowerCase().includes(needle),
+      );
+    }
+    for (const clause of clauses) {
+      const value = (clause.value ?? "").toLowerCase();
+      if (clause.field === "record") rows = rows.filter((e) => e.title.toLowerCase().includes(value));
+      if (clause.field === "username") rows = rows.filter((e) => (e.username ?? "").toLowerCase().includes(value));
+      if (clause.field === "url") rows = rows.filter((e) => (e.url ?? "").toLowerCase().includes(value));
+    }
+    if (view === "expired") rows = rows.filter(legacyExpired);
+    if (view === "rotate") rows = rows.filter(legacyRotationDue);
+    return rows;
+  }, [entries, vaultQuery, clauses, view]);
+
+  const sortedRecords = useMemo(
+    () =>
+      (records ?? [])
+        .slice()
+        .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" })),
+    [records],
+  );
+
+  const filteredRecords = useMemo(() => {
+    let rows = sortedRecords;
+    for (const clause of clauses) {
+      const value = (clause.value ?? "").toLowerCase();
+      if (clause.field === "record") rows = rows.filter((r) => r.title.toLowerCase().includes(value));
+      if (clause.field === "kind") rows = rows.filter((r) => r.kind === clause.value);
+    }
+    if (view === "expired") {
+      rows = rows.filter((r) => r.expires_at != null && Date.parse(r.expires_at) < Date.now());
+    }
+    return rows;
+  }, [sortedRecords, clauses, view]);
+
+  const selectedFolderRow = useMemo(
+    () => (folders ?? []).find((f) => f.id === selectedFolder) ?? null,
+    [folders, selectedFolder],
+  );
+
+  const expiredCount = useMemo(() => {
+    const rows = view === "credentials" ? (legacyFiltered ?? []) : filteredRecords;
+    return rows.filter((r) =>
+      view === "credentials"
+        ? legacyExpired(r as PasswordEntry)
+        : r.expires_at != null && Date.parse(r.expires_at) < Date.now(),
+    ).length;
+  }, [view, legacyFiltered, filteredRecords]);
+
+  const rotationDueCount = useMemo(
+    () => (legacyFiltered ?? []).filter(legacyRotationDue).length,
+    [legacyFiltered],
+  );
+
+  const visibleColumns = columns;
+  const shownColumns = visibleColumns.filter((c) => c.visible);
+
+  /** One flat shape for the export and the footer, whichever view is on screen. */
+  const shownRows = useMemo(
+    () =>
+      view === "credentials"
+        ? (legacyFiltered ?? []).map((e) => ({
+            title: e.title,
+            username: e.username ?? "",
+            kind: "password",
+            scope:
+              e.client_id != null ? (clientById.get(e.client_id)?.name ?? "") : "Org-level",
+            expires: e.expires_at ?? "",
+            fields: "",
+            updated: e.updated_at ?? "",
+          }))
+        : filteredRecords.map((r) => ({
+            title: r.title,
+            username:
+              (r.fields ?? []).find((f) => f.field_key === "username" && f.has_value) !== undefined
+                ? "set"
+                : "",
+            kind: r.kind,
+            scope:
+              r.client_id != null ? (clientById.get(r.client_id)?.name ?? "") : "Org-level",
+            expires: r.expires_at ?? "",
+            fields: sealedFieldList(r),
+            updated: r.updated_at,
+          })),
+    [view, legacyFiltered, filteredRecords, clientById],
+  );
+
+  const openNewRecord = () => {
+    if (selectedFolder === null) return;
+    const folder = (folders ?? []).find((f) => f.id === selectedFolder);
+    const kind =
+      folder?.kind === "api_keys"
+        ? "api_key"
+        : folder?.kind === "certificates"
+          ? "certificate"
+          : folder?.kind === "recovery_codes"
+            ? "recovery_code"
+            : folder?.kind === "documents"
+              ? "document"
+              : "password";
+    setOpenRecord({
+      id: "",
+      org_id: scope.kind === "org" ? "" : scope.id,
+      folder_id: selectedFolder,
+      title: "",
+      kind,
+      fields: [],
+      client_id: scope.kind === "client" ? scope.id : null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } satisfies SecretRecord);
+  };
 
   if (auth.status !== "authed") return null;
 
@@ -303,60 +475,84 @@ export default function VaultPage() {
     scope.kind === "org" ? "Org-level vault" : `Vault — ${clientById.get(scope.id)?.name ?? "client"}`;
 
   return (
-    <div className="mx-auto grid w-full grid-cols-1 max-w-[1400px] gap-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Vault</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Secret categories are KB-class: org-level or per client, with restricted chains
-            grant-gated behind the scenes. Every reveal is audited.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select
-            value={scope.kind === "org" ? "org" : scope.id}
-            onValueChange={(v) => {
-              setScope(v === "org" ? { kind: "org" } : { kind: "client", id: v });
-              setSelectedFolder(null);
-            }}
-          >
-            <SelectTrigger aria-label="Vault scope" className="w-60 whitespace-nowrap">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="org">Org-level</SelectItem>
-              {(clients ?? []).map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {canManage ? (
-            <Button variant="ghost" onClick={() => setGrantsOpen(true)}>
-              Category grants
+    <PageFrame>
+      <PageHeader
+        title="Vault"
+        subtitle="Secret categories, org-level or per client, with restricted chains grant-gated behind the scenes. Plaintext exists only inside a confirmed reveal."
+        attention={
+          <>
+            <StatPill
+              tone="blush"
+              label="Rotation due"
+              count={rotationDueCount}
+              onClick={() => setView(view === "rotate" ? "categories" : "rotate")}
+              pressed={view === "rotate"}
+            />
+            <StatPill
+              tone="red"
+              label="Expired"
+              count={expiredCount}
+              onClick={() => setView(view === "expired" ? "categories" : "expired")}
+              pressed={view === "expired"}
+            />
+          </>
+        }
+        actions={
+          <>
+            <Select
+              value={scope.kind === "org" ? "org" : scope.id}
+              onValueChange={(v) => {
+                setScope(v === "org" ? { kind: "org" } : { kind: "client", id: v });
+                setSelectedFolder(null);
+              }}
+            >
+              <SelectTrigger aria-label="Vault scope" className="w-60 whitespace-nowrap">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="org">Org-level</SelectItem>
+                {(clients ?? []).map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {canManage ? (
+              <Button variant="secondary" onClick={() => setGrantsOpen(true)}>
+                Category grants
+              </Button>
+            ) : null}
+            <Button
+              onClick={() => {
+                setFolderForDialog(null);
+                setFolderDialog("new");
+              }}
+              data-testid="vault-new-category"
+            >
+              <PlusIcon size={16} /> New category
             </Button>
-          ) : null}
-          <Button
-            onClick={() => {
-              setFolderForDialog(null);
-              setFolderDialog("new");
-            }}
-          >
-            New category
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      <div className="grid gap-6 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <Card className="self-start m-entity-rise" data-testid="vault-tree" style={{ "--stagger-i": 0 } as React.CSSProperties}>
-          <h2 className="p-4 pb-2 text-sm font-semibold">{scopeLabel}</h2>
+      <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <aside
+          className="min-h-0 overflow-auto rounded-[16px] p-3"
+          style={{ border: "1px solid var(--m-border)", background: "var(--m-sidebar)" }}
+          aria-label="Secret categories"
+          data-testid="vault-tree"
+        >
+          <p
+            className="px-2 pb-2 text-[12px] font-semibold uppercase tracking-[0.06em]"
+            style={{ color: "var(--m-text-secondary)" }}
+          >
+            {scopeLabel}
+          </p>
           {folders === null ? (
-            <div className="px-4 pb-4">
-              <Spinner />
-            </div>
+            <Spinner />
           ) : foldersError !== null ? (
-            <p role="alert" className="px-4 pb-4 text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
+            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
               {foldersError}
             </p>
           ) : (
@@ -374,116 +570,325 @@ export default function VaultPage() {
               }}
             />
           )}
-        </Card>
+        </aside>
 
-        <Card className="m-entity-rise min-h-64" style={{ "--stagger-i": 1 } as React.CSSProperties}>
-          <div className="flex flex-wrap items-center justify-between gap-2 p-4 pb-2">
-            <h2 className="text-sm font-semibold">
-              {selectedFolder
-                ? (folders ?? []).find((f) => f.id === selectedFolder)?.label ?? "Secret records"
-                : "Secret records"}
-            </h2>
-            {selectedFolder !== null ? (
-              <Button
-                size="sm"
-                onClick={() => {
-                  const folder = (folders ?? []).find((f) => f.id === selectedFolder);
-                  const kind =
-                    folder?.kind === "api_keys"
-                      ? "api_key"
-                      : folder?.kind === "certificates"
-                        ? "certificate"
-                        : folder?.kind === "recovery_codes"
-                          ? "recovery_code"
-                          : folder?.kind === "documents"
-                            ? "document"
-                            : "password";
-                  setOpenRecord({
-                    id: "",
-                    org_id: scope.kind === "org" ? "" : (scope.id),
-                    folder_id: selectedFolder,
-                    title: "",
-                    kind,
-                    fields: [],
-                    client_id: scope.kind === "client" ? scope.id : null,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                  } satisfies SecretRecord);
+        <div className="flex min-h-0 flex-col">
+          <DataToolbar
+            label="Vault controls"
+            views={
+              <ViewSwitch
+                label="Vault views"
+                views={[
+                  { id: "categories", label: "Categories", hint: String(sortedRecords.length) },
+                  { id: "credentials", label: "Credentials", hint: String(legacyFiltered?.length ?? 0) },
+                  { id: "expired", label: "Expired" },
+                  { id: "rotate", label: "Rotation due" },
+                ]}
+                activeId={view}
+                onChange={setView}
+              />
+            }
+            filters={
+              <FilterBar
+                label="Vault filters"
+                emptyHint="No filters"
+                fields={[
+                  { key: "title", label: "Record", operators: ["contains"] },
+                  { key: "username", label: "Username", operators: ["contains"] },
+                  { key: "kind", label: "Kind", operators: ["eq"] },
+                  { key: "url", label: "URL", operators: ["contains"] },
+                ]}
+                clauses={clauses}
+                onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+              />
+            }
+            columns={
+              <ColumnChooser
+                label="Vault columns"
+                columns={visibleColumns.map((c) => ({
+                  key: c.key,
+                  label: c.label,
+                  visible: c.visible,
+                  required: c.required,
+                }))}
+                onChange={(next) =>
+                  setColumns(
+                    next.map((c) => ({
+                      key: c.key as VaultColumnKey,
+                      label: c.label,
+                      visible: c.visible,
+                      required: c.required,
+                    })),
+                  )
+                }
+              />
+            }
+            export={
+              <ExportControl
+                label="Export"
+                formats={["csv"]}
+                columns={shownColumns.map((c) => c.label)}
+                rowCount={shownRows.length}
+                filters={clauses}
+                onExport={() => {
+                  // Never a value: an export of the vault is a metadata ledger,
+                  // so the plaintext stays behind the reveal.
+                  downloadCsv(
+                    "vault.csv",
+                    shownColumns.map((c) => c.label),
+                    shownRows.map((row) =>
+                      shownColumns.map((c) => {
+                        if (c.key === "record") return row.title;
+                        if (c.key === "username") return row.username ?? "";
+                        if (c.key === "kind") return row.kind;
+                        if (c.key === "scope") return row.scope;
+                        if (c.key === "expires") return row.expires ?? "";
+                        if (c.key === "fields") return row.fields;
+                        return row.updated;
+                      }),
+                    ),
+                  );
                 }}
-              >
-                New record
-              </Button>
-            ) : null}
-          </div>
-          {selectedFolder !== null ? (
-            <p className="px-4 pb-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-              {(() => {
-                const f = (folders ?? []).find((x) => x.id === selectedFolder);
-                if (f === undefined) return null;
-                return (
-                  <>
-                    {KIND_LABELS[f.kind] ?? f.kind}
-                    {f.restricted ? " · restricted category — read is grant-gated, reveal needs an edit grant" : ""}
-                    {f.forked_from !== null ? " · forked seed" : ""}
-                    {f.is_default_seed ? " · shipped seed (fork to customize)" : ""}
-                  </>
-                );
-              })()}
-            </p>
-          ) : null}
-          {selectedFolder === null ? (
-            <div className="px-4 pb-4">
-              <EmptyState message="Select a category in the tree to browse its secret records. Restricted categories you cannot access are hidden entirely — never dead entries." />
-            </div>
-          ) : records === null ? (
-            <div className="px-4 pb-4">
-              <Spinner />
-            </div>
-          ) : records.length === 0 ? (
-            <div className="px-4 pb-4">
-              <EmptyState message="No secret records in this category yet." />
-            </div>
-          ) : (
-            <ul className="grid gap-2 px-4 pb-4">
-              {records
-                .slice()
-                .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }))
-                .map((r, i) => (
-                  <li
-                    key={r.id}
-                    className="m-entity-row m-entity-rise flex flex-wrap items-center justify-between gap-2 rounded-[0.5rem] border px-3 py-2"
-                    style={{ borderColor: "var(--m-border)", "--stagger-i": Math.min(i, 10) } as React.CSSProperties}
+              />
+            }
+          />
+
+          <TableCard label={view === "credentials" ? "Credentials" : "Secret records"}>
+            {view === "credentials" ? (
+              legacyFiltered === null ? (
+                <div className="p-4">
+                  <Spinner />
+                </div>
+              ) : legacyFiltered.length === 0 ? (
+                <EmptyState message="No credentials match. Vault entries can be org-level or scoped to a client; secrets are encrypted at rest and revealed only through the audited path." />
+              ) : (
+                <Table data-testid="vault-credentials-table">
+                  <thead>
+                    <tr>
+                      {shownColumns.map((c) => (
+                        <Th key={c.key} className={HEAD_CELL_CLASS}>
+                          {c.label}
+                        </Th>
+                      ))}
+                      <Th className={`${HEAD_CELL_CLASS} text-right`}>Reveal</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {legacyFiltered.map((e) => (
+                      <Tr key={e.id} style={{ height: "var(--m-density-row)" }}>
+                        {shownColumns.map((c) => (
+                          <Td key={c.key}>
+                            {c.key === "record" ? (
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span style={{ color: "var(--m-text-muted)" }}>
+                                  <LockIcon size={16} />
+                                </span>
+                                <span className="truncate font-semibold" style={{ color: "var(--m-text)" }}>
+                                  {e.title}
+                                </span>
+                                {(e.url ?? "") !== "" ? (
+                                  <a
+                                    href={e.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="underline decoration-[var(--m-border)] underline-offset-2"
+                                    style={{ color: "var(--m-text-secondary)" }}
+                                  >
+                                    open
+                                  </a>
+                                ) : null}
+                              </span>
+                            ) : null}
+                            {c.key === "username" ? (
+                              (e.username ?? "") !== "" ? (
+                                e.username
+                              ) : (
+                                <span style={{ color: "var(--m-text-muted)" }}>—</span>
+                              )
+                            ) : null}
+                            {c.key === "scope" ? (
+                              e.client_id != null && clientById.get(e.client_id) ? (
+                                <Link
+                                  href={`/clients/${e.client_id}`}
+                                  className="underline decoration-[var(--m-border)] underline-offset-2"
+                                >
+                                  {clientById.get(e.client_id)!.name}
+                                </Link>
+                              ) : (
+                                <span style={{ color: "var(--m-text-muted)" }}>Org-level</span>
+                              )
+                            ) : null}
+                            {c.key === "expires" ? (
+                              e.expires_at == null ? (
+                                <span style={{ color: "var(--m-text-muted)" }}>—</span>
+                              ) : legacyExpired(e) ? (
+                                <Tag tone="danger">
+                                  <AlertIcon size={12} /> expired
+                                </Tag>
+                              ) : legacyRotationDue(e) ? (
+                                <Tag tone="warning">rotation due</Tag>
+                              ) : (
+                                <span className="tabular-nums">
+                                  {new Date(e.expires_at).toLocaleDateString()}
+                                </span>
+                              )
+                            ) : null}
+                          </Td>
+                        ))}
+                        <Td className="text-right">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setConfirmingLegacy(e)}
+                            disabled={legacyRevealing === e.id}
+                            data-testid={`vault-reveal-${e.id}`}
+                          >
+                            <LockIcon size={14} /> Reveal
+                          </Button>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )
+            ) : (
+              <>
+                {selectedFolderRow !== null ? (
+                  <div
+                    className="flex flex-wrap items-center gap-2 border-b px-3 py-2 text-[12px]"
+                    style={{ color: "var(--m-text-secondary)" }}
                   >
-                    <div className="min-w-0">
-                      <p className="truncate text-[13px] font-medium">{r.title}</p>
-                      <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                        {KIND_LABELS[r.kind] ?? r.kind}
-                        {r.fields?.some((f) => f.field_key === "username" && f.has_value)
-                          ? " · username"
-                          : ""}
-                        {r.fields?.some((f) => f.field_key === "url" && f.has_value) ? " · url" : ""}
-                        {r.object_key != null ? " · stored ciphertext file" : ""}
-                        · updated {new Date(r.updated_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {r.expires_at != null && new Date(r.expires_at) < new Date() ? (
-                        <Tag tone="danger">expired</Tag>
-                      ) : null}
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={r.id === ""}
-                        onClick={() => setOpenRecord(r)}
-                      >
-                        Open
+                    <span className="font-semibold" style={{ color: "var(--m-text)" }}>
+                      {selectedFolderRow.label}
+                    </span>
+                    <span>{KIND_LABELS[selectedFolderRow.kind] ?? selectedFolderRow.kind}</span>
+                    {selectedFolderRow.restricted ? (
+                      <Tag tone="warning">restricted · reveal needs an edit grant</Tag>
+                    ) : null}
+                    {selectedFolderRow.is_default_seed ? <Tag tone="neutral">shipped seed</Tag> : null}
+                    {selectedFolderRow.forked_from !== null ? <Tag tone="neutral">forked seed</Tag> : null}
+                  </div>
+                ) : null}
+
+                {selectedFolder === null ? (
+                  <EmptyState message="Pick a category in the tree to browse its records. Restricted categories you cannot access are hidden entirely — never dead entries." />
+                ) : records === null ? (
+                  <div className="p-4">
+                    <Spinner />
+                  </div>
+                ) : sortedRecords.length === 0 ? (
+                  <EmptyState
+                    message="No records in this category yet."
+                    action={
+                      <Button size="sm" onClick={() => openNewRecord()}>
+                        New record
                       </Button>
-                    </div>
-                  </li>
-                ))}
-            </ul>
-          )}
-        </Card>
+                    }
+                  />
+                ) : (
+                  <Table data-testid="vault-records-table">
+                    <thead>
+                      <tr>
+                        {shownColumns.map((c) => (
+                          <Th key={c.key} className={HEAD_CELL_CLASS}>
+                            {c.label}
+                          </Th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedRecords.map((r) => {
+                        const expired =
+                          r.expires_at != null && Date.parse(r.expires_at) < Date.now();
+                        return (
+                          <Tr key={r.id} style={{ height: "var(--m-density-row)" }}>
+                            {shownColumns.map((c) => (
+                              <Td key={c.key}>
+                                {c.key === "record" ? (
+                                  <button
+                                    type="button"
+                                    className="flex min-w-0 items-center gap-2 text-left"
+                                    onClick={() => setOpenRecord(r)}
+                                    disabled={r.id === ""}
+                                  >
+                                    <span style={{ color: "var(--m-text-muted)" }}>
+                                      <LockIcon size={16} />
+                                    </span>
+                                    <span className="truncate font-semibold" style={{ color: "var(--m-text)" }}>
+                                      {r.title}
+                                    </span>
+                                  </button>
+                                ) : null}
+                                {c.key === "kind" ? (
+                                  <Tag tone="neutral">{KIND_LABELS[r.kind] ?? r.kind}</Tag>
+                                ) : null}
+                                {c.key === "fields" ? (
+                                  <span className="font-mono text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                                    {sealedFieldList(r)}
+                                  </span>
+                                ) : null}
+                                {c.key === "scope" ? (
+                                  r.client_id != null && clientById.get(r.client_id) ? (
+                                    <Link
+                                      href={`/clients/${r.client_id}`}
+                                      className="underline decoration-[var(--m-border)] underline-offset-2"
+                                    >
+                                      {clientById.get(r.client_id)!.name}
+                                    </Link>
+                                  ) : (
+                                    <span style={{ color: "var(--m-text-muted)" }}>Org-level</span>
+                                  )
+                                ) : null}
+                                {c.key === "expires" ? (
+                                  expired ? (
+                                    <Tag tone="danger">
+                                      <AlertIcon size={12} /> expired
+                                    </Tag>
+                                  ) : r.expires_at == null ? (
+                                    <span style={{ color: "var(--m-text-muted)" }}>never</span>
+                                  ) : (
+                                    <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                                      {new Date(r.expires_at).toLocaleDateString()}
+                                    </span>
+                                  )
+                                ) : null}
+                              </Td>
+                            ))}
+                          </Tr>
+                        );
+                      })}
+                    </tbody>
+                  </Table>
+                )}
+              </>
+            )}
+          </TableCard>
+
+          <LedgerFooter
+            shown={shownRows.length}
+            total={view === "credentials" ? (entries?.length ?? 0) : (records?.length ?? 0)}
+            noun={view === "credentials" ? "credentials" : "records"}
+            density={<DensitySwitch value={density} onChange={applyDensity} />}
+            trailing={
+              selectedFolder !== null && view !== "credentials" ? (
+                <Button
+                  size="sm"
+                  onClick={() => openNewRecord()}
+                  data-testid="vault-new-record"
+                >
+                  <PlusIcon size={14} /> New record
+                </Button>
+              ) : null
+            }
+            hints={
+              <>
+                <KeyHint keys="J K" label="move" />
+                <KeyHint keys="↵" label="open" />
+                <KeyHint keys="F" label="filter" />
+              </>
+            }
+          />
+        </div>
       </div>
 
       <RecordDialog
@@ -495,7 +900,6 @@ export default function VaultPage() {
         isNew={openRecord?.id === ""}
         onClose={() => {
           setOpenRecord(null);
-          if (openRecord?.id === "") setOpenRecord(null);
         }}
         onChanged={() => {
           reloadRecords();
@@ -503,133 +907,48 @@ export default function VaultPage() {
         }}
       />
 
-      {/* ---- legacy entries (byte-compatible PasswordEntry surface) ---- */}
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-3 p-4 pb-0">
-          <div>
-            <h2 className="text-sm font-semibold">Legacy password entries</h2>
-            <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              The original org/client flat vault. It stays beside the category trees — no cutover.
-            </p>
-          </div>
-          <Button
-            onClick={() => {
-              setLegacyEditing(null);
-              setLegacyEditOpen(true);
-            }}
-          >
-            New credential
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 p-4 pb-0">
-          <Input
-            aria-label="Search vault"
-            placeholder="Search title, user, URL…"
-            value={vaultQuery}
-            onChange={(e) => setVaultQuery(e.target.value)}
-            className="w-64"
-          />
-        </div>
-        {legacyFiltered === null ? (
-          <div className="p-4">
-            {foldersError !== null ? (
-              <p role="alert" className="text-[13px]">{foldersError}</p>
-            ) : (
-              <Spinner />
-            )}
-          </div>
-        ) : legacyFiltered.length === 0 ? (
-          <div className="p-4">
-            <EmptyState message="No credentials match. Vault entries can be org-level or scoped to a client; secrets are encrypted at rest and revealed only through the audited path." />
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-            <thead>
-              <tr>
-                <Th>Title</Th>
-                <Th>Username</Th>
-                <Th>Scope</Th>
-                <Th>Expires</Th>
-                <Th className="text-right">Actions</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {legacyFiltered.map((e) => (
-                <Tr key={e.id} className="m-entity-row">
-                  <Td>
-                    <span className="font-medium">{e.title}</span>
-                    {(e.url ?? "") !== "" ? (
-                      <a
-                        href={e.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="ml-2 underline decoration-[var(--m-border)] underline-offset-2"
-                        style={{ color: "var(--m-text-secondary)" }}
-                      >
-                        open
-                      </a>
-                    ) : null}
-                  </Td>
-                  <Td>{(e.username ?? "") !== "" ? e.username : <span style={{ color: "var(--m-text-muted)" }}>—</span>}</Td>
-                  <Td>
-                    {e.client_id != null && clientById.get(e.client_id) ? (
-                      <Link
-                        href={`/clients/${e.client_id}`}
-                        className="underline decoration-[var(--m-border)] underline-offset-2"
-                      >
-                        {clientById.get(e.client_id)!.name}
-                      </Link>
-                    ) : (
-                      <span style={{ color: "var(--m-text-muted)" }}>Org-level</span>
-                    )}
-                  </Td>
-                  <Td>
-                    {e.expires_at == null ? (
-                      <span style={{ color: "var(--m-text-muted)" }}>—</span>
-                    ) : legacyExpired(e) ? (
-                      <Tag tone="danger">expired</Tag>
-                    ) : (
-                      new Date(e.expires_at).toLocaleDateString()
-                    )}
-                    {e.rotate_at != null ? (
-                      <span className="ml-2 whitespace-nowrap">
-                        <Tag tone={new Date(e.rotate_at) < new Date() ? "warning" : "outline"}>
-                          {legacyRotationDue(e) ? "rotation due" : `rotate by ${new Date(e.rotate_at).toLocaleDateString()}`}
-                        </Tag>
-                      </span>
-                    ) : null}
-                  </Td>
-                  <Td className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button variant="secondary" size="sm" onClick={() => void legacyRevealEntry(e)} disabled={legacyRevealing === e.id}>
-                        {legacyRevealing === e.id ? <Spinner /> : null} Reveal
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setLegacyEditing(e);
-                          setLegacyEditOpen(true);
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => void openHistory(e)}>
-                        History
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => void removeLegacy(e)}>
-                        Delete
-                      </Button>
-                    </div>
-                  </Td>
-                </Tr>
-              ))}
-            </tbody>
-            </Table>
-          </div>
-        )}
-      </Card>
+      {/* The flat credential vault gets the same confirmation the category
+          records get: one gesture to open the value, a second, deliberate one
+          to decrypt it. */}
+      <Dialog open={confirmingLegacy !== null} onOpenChange={(o) => !o && setConfirmingLegacy(null)}>
+        <DialogContent
+          title="Reveal this credential?"
+          description="The secret is decrypted for this browser only, shown below, and written to the audit trail with your name. It is never cached and never exported."
+        >
+          {confirmingLegacy !== null ? (
+            <div className="grid gap-3 p-1">
+              <dl className="grid gap-1 text-[13px]">
+                <MetaRow label="Credential">{confirmingLegacy.title}</MetaRow>
+                <MetaRow label="Username">{confirmingLegacy.username ?? "—"}</MetaRow>
+                <MetaRow label="Scope">
+                  {confirmingLegacy.client_id != null
+                    ? (clientById.get(confirmingLegacy.client_id)?.name ?? "client")
+                    : "Org-level"}
+                </MetaRow>
+              </dl>
+              <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                Close this once you have what you came for. The next reader sees the same mask.
+              </p>
+              <DialogActions>
+                <Button variant="secondary" onClick={() => setConfirmingLegacy(null)}>
+                  Keep it sealed
+                </Button>
+                <Button
+                  onClick={() => {
+                    const entry = confirmingLegacy;
+                    setConfirmingLegacy(null);
+                    if (entry !== null) void legacyRevealEntry(entry);
+                  }}
+                  disabled={confirmingLegacy !== null && legacyRevealing === confirmingLegacy.id}
+                  data-testid="vault-reveal-confirm"
+                >
+                  Reveal and record it
+                </Button>
+              </DialogActions>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={legacyEditOpen} onOpenChange={setLegacyEditOpen}>
         <DialogContent
@@ -751,7 +1070,7 @@ export default function VaultPage() {
       />
 
       <GrantsDialog open={grantsOpen} onClose={() => setGrantsOpen(false)} folders={folders ?? []} />
-    </div>
+    </PageFrame>
   );
 }
 

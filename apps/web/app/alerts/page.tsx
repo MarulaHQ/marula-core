@@ -16,12 +16,17 @@
 import {
   Button,
   Card,
+  ColumnChooser,
+  DataToolbar,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTrigger,
   EmptyState,
+  ExportControl,
   FieldHint,
+  FilterBar,
   Input,
   Label,
   Select,
@@ -35,10 +40,25 @@ import {
   Td,
   Th,
   Tr,
+  ViewSwitch,
+  applyDensity,
+  useDensity,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AssistantStub,
+  BlushNote,
+  HEAD_CELL_CLASS,
+  KeyHint,
+  LedgerFooter,
+  PageFrame,
+  PageHeader,
+  StatPill,
+  TableCard,
+  downloadCsv,
+} from "../../components/knowledge/ledger";
 import { api, useRequireAuth } from "../../lib/api";
 import { rejectionText, envelopeOf, friendlyMutationText } from "../../lib/error-copy";
 
@@ -63,6 +83,31 @@ const STATUS_TONE: Record<string, "success" | "warning" | "neutral"> = {
   acknowledged: "neutral",
   resolved: "success",
 };
+
+type AlertColumnKey =
+  | "severity"
+  | "alert"
+  | "source"
+  | "status"
+  | "escalation"
+  | "received";
+
+interface AlertColumn {
+  key: AlertColumnKey;
+  label: string;
+  visible: boolean;
+  required?: boolean;
+}
+
+/** The pack's ledger columns; `alert` is the identity and cannot be hidden. */
+const ALERT_COLUMNS: AlertColumn[] = [
+  { key: "severity", label: "Severity", visible: true },
+  { key: "alert", label: "Alert", visible: true, required: true },
+  { key: "source", label: "Source", visible: true },
+  { key: "status", label: "Status", visible: true },
+  { key: "escalation", label: "Escalation", visible: true },
+  { key: "received", label: "Received", visible: true },
+];
 
 function matchesFilter(alert: AlertView, filter: SeverityFilter): boolean {
   if (filter === "all") return true;
@@ -110,6 +155,11 @@ export default function AlertsPage() {
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [busyAlertId, setBusyAlertId] = useState<string | null>(null);
   const [sourceById, setSourceById] = useState<Map<string, AlertSourceView>>(new Map());
+  const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>(
+    [],
+  );
+  const [columns, setColumns] = useState<AlertColumn[]>(ALERT_COLUMNS);
+  const density = useDensity();
 
   const refreshBoards = useCallback(async () => {
     const { data } = await api.api.GET("/api/v1/boards/nav");
@@ -277,10 +327,26 @@ export default function AlertsPage() {
   const handleResolve = (a: AlertView) =>
     void triageAlert(a, "/api/v1/alerts/{id}/resolve", "resolved");
 
-  const filteredAlerts = useMemo(
-    () => (alerts ?? []).filter((a) => matchesFilter(a, severityFilter)),
-    [alerts, severityFilter],
-  );
+  const shownColumns = columns.filter((c) => c.visible);
+
+  const filteredAlerts = useMemo(() => {
+    // The source, ticket and status filters ride the server query; the
+    // builder's clauses are this list's own narrowing, so both live here
+    // rather than each hiding half of a filter behind a round trip.
+    let rows = (alerts ?? []).filter((a) => matchesFilter(a, severityFilter));
+    for (const clause of clauses) {
+      const value = (clause.value ?? "").toLowerCase();
+      if (clause.field === "title") rows = rows.filter((a) => a.title.toLowerCase().includes(value));
+      if (clause.field === "severity") rows = rows.filter((a) => a.severity === clause.value);
+      if (clause.field === "status") rows = rows.filter((a) => a.status === clause.value);
+      if (clause.field === "source") {
+        rows = rows.filter((a) =>
+          (sourceById.get(a.source_id)?.name ?? a.source_id).toLowerCase().includes(value),
+        );
+      }
+    }
+    return rows;
+  }, [alerts, severityFilter, clauses, sourceById]);
 
   const counts = useMemo(() => {
     const all = { all: 0, escalated: 0, unrouted: 0 };
@@ -297,29 +363,45 @@ export default function AlertsPage() {
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1100px] gap-6 p-4 md:p-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Alerts</h1>
-          <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            HMAC-signed machine-to-machine ingest, storm correlation into incident tickets, and source administration.
-          </p>
-        </div>
-        <div className="flex items-center gap-2" role="group" aria-label="View">
-          <Button
-            variant={tab === "alerts" ? "primary" : "secondary"}
-            onClick={() => setTab("alerts")}
-          >
-            Alert feed
-          </Button>
-          <Button
-            variant={tab === "sources" ? "primary" : "secondary"}
-            onClick={() => setTab("sources")}
-          >
-            Sources
-          </Button>
-        </div>
-      </header>
+    <PageFrame>
+      <PageHeader
+        title="Alerts"
+        subtitle="HMAC-signed machine-to-machine ingest, storm correlation into incident tickets, and source administration."
+        attention={
+          <>
+            <StatPill
+              tone="red"
+              label="Critical"
+              count={bySeverityKey(counts, "critical")}
+              onClick={() => setSeverityFilter(severityFilter === "critical" ? "all" : "critical")}
+              pressed={severityFilter === "critical"}
+            />
+            <StatPill
+              tone="blush"
+              label="Unrouted"
+              count={counts.unrouted}
+              onClick={() => setSeverityFilter(severityFilter === "unrouted" ? "all" : "unrouted")}
+              pressed={severityFilter === "unrouted"}
+            />
+          </>
+        }
+        actions={
+          <>
+            <Button
+              variant={tab === "alerts" ? "primary" : "secondary"}
+              onClick={() => setTab("alerts")}
+            >
+              Alert feed
+            </Button>
+            <Button
+              variant={tab === "sources" ? "primary" : "secondary"}
+              onClick={() => setTab("sources")}
+            >
+              Sources
+            </Button>
+          </>
+        }
+      />
 
       {/* Secret shown exactly once */}
       {revealedSecret !== null ? (
@@ -356,9 +438,95 @@ export default function AlertsPage() {
       ) : null}
 
       {tab === "alerts" ? (
-        <div className="grid gap-4">
-          <Card className="p-4">
-            <div className="flex flex-wrap items-end gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <DataToolbar
+            label="Alert feed controls"
+            views={
+              <ViewSwitch
+                label="Alert views"
+                views={[
+                  { id: "all", label: "All alerts", hint: String(filteredAlerts.length) },
+                  { id: "open", label: "Open" },
+                  { id: "acknowledged", label: "Acknowledged" },
+                  { id: "resolved", label: "Resolved" },
+                ]}
+                activeId={filterStatus}
+                onChange={(id) => setFilterStatus(id as typeof filterStatus)}
+              />
+            }
+            filters={
+              <FilterBar
+                label="Alert filters"
+                emptyHint="No filters"
+                fields={[
+                  { key: "title", label: "Alert", operators: ["contains"] },
+                  { key: "severity", label: "Severity", operators: ["eq"] },
+                  { key: "source", label: "Source", operators: ["contains"] },
+                  { key: "status", label: "Status", operators: ["eq"] },
+                ]}
+                clauses={clauses}
+                onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+              />
+            }
+            columns={
+              <ColumnChooser
+                label="Alert columns"
+                columns={columns.map((c) => ({ key: c.key, label: c.label, visible: c.visible, required: c.required }))}
+                onChange={(next) =>
+                  setColumns(
+                    next.map((c) => ({
+                      key: c.key as AlertColumnKey,
+                      label: c.label,
+                      visible: c.visible,
+                      required: c.required,
+                    })),
+                  )
+                }
+              />
+            }
+            export={
+              <ExportControl
+                label="Export"
+                formats={["csv"]}
+                columns={shownColumns.map((c) => c.label)}
+                rowCount={filteredAlerts.length}
+                filters={clauses}
+                onExport={() =>
+                  downloadCsv(
+                    "alerts.csv",
+                    shownColumns.map((c) => c.label),
+                    filteredAlerts.map((a) =>
+                      shownColumns.map((c) => {
+                        if (c.key === "severity") return a.severity;
+                        if (c.key === "alert") return a.title;
+                        if (c.key === "source") return sourceById.get(a.source_id)?.name ?? a.source_id.slice(0, 8);
+                        if (c.key === "status") return a.status;
+                        if (c.key === "escalation")
+                          return a.incident_ticket_id == null ? "unrouted" : a.incident_ticket_id;
+                        return a.received_at;
+                      }),
+                    ),
+                  )
+                }
+              />
+            }
+          />
+          <div className="flex min-h-0 flex-1 flex-col gap-0">
+            {/* AI ladder state 2: the collapsed stub, 40px, with the count of
+                what is waiting. It opens onto the unrouted facet — which is
+                the work the assistant would do — instead of spending a third
+                of the feed's width on a column nobody reads. */}
+            <AssistantStub
+              count={counts.unrouted}
+              label={
+                counts.unrouted === 1
+                  ? "alert has not been routed to a ticket"
+                  : "alerts have not been routed to a ticket"
+              }
+              onOpen={() => setSeverityFilter("unrouted")}
+            />
+            <div className="flex flex-wrap items-end gap-3 py-3">
+            <div className="w-56">
               <div className="w-56">
                 <Label htmlFor="filter-source">Source</Label>
                 <Select
@@ -407,7 +575,8 @@ export default function AlertsPage() {
                 </Select>
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap gap-1" role="group" aria-label="Severity facets">
+            </div>
+            <div className="flex flex-wrap gap-1 py-2" role="group" aria-label="Severity facets">
               {SEVERITY_FILTERS.map((f) => {
                 const count =
                   f === "all"
@@ -438,15 +607,14 @@ export default function AlertsPage() {
                 );
               })}
             </div>
-          </Card>
 
           {alertsError !== null ? (
-            <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
-              {alertsError}
-            </p>
+            <div className="mb-2" role="alert">
+              <BlushNote title="The alert feed did not load.">{alertsError}</BlushNote>
+            </div>
           ) : null}
 
-          <Card className="overflow-x-auto">
+          <TableCard label="Alert feed">
             {loadingAlerts ? (
               <div className="flex justify-center p-6">
                 <Spinner />
@@ -462,91 +630,119 @@ export default function AlertsPage() {
                 />
               </div>
             ) : (
-              <Table>
+              <Table data-testid="alerts-table">
                 <thead>
                   <tr>
-                    <Th>Severity</Th>
-                    <Th>Alert</Th>
-                    <Th>Source</Th>
-                    <Th>Triage</Th>
-                    <Th>Escalation</Th>
-                    <Th>Received</Th>
+                    {shownColumns.map((c) => (
+                      <Th key={c.key} className={HEAD_CELL_CLASS}>
+                        {c.label}
+                      </Th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {filteredAlerts.map((a) => (
-                    <Tr key={a.id}>
-                      <Td>
-                        <Tag tone={SEVERITY_TONE[a.severity] ?? "neutral"}>{a.severity}</Tag>
-                      </Td>
-                      <Td>
-                        <div className="text-[13px] font-medium">{a.title}</div>
-                        <div className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                          dedup {a.dedup_key} · corr {a.correlation_key}
-                        </div>
-                      </Td>
-                      <Td className="text-[12px]">{sourceById.get(a.source_id)?.name ?? a.source_id.slice(0, 8)}</Td>
-                      <Td>
-                        <div className="flex items-center gap-2">
-                          <Tag tone={STATUS_TONE[a.status] ?? "neutral"}>{a.status}</Tag>
-                          {rowErrors[a.id] !== undefined ? (
-                            <span className="text-[11px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                              {rowErrors[a.id]}
+                    <Tr key={a.id} style={{ height: "var(--m-density-row)" }}>
+                      {shownColumns.map((c) => (
+                        <Td key={c.key}>
+                          {c.key === "severity" ? (
+                            <Tag tone={SEVERITY_TONE[a.severity] ?? "neutral"}>{a.severity}</Tag>
+                          ) : null}
+                          {c.key === "alert" ? (
+                            <div className="min-w-0">
+                              <div className="truncate text-[13px] font-semibold" style={{ color: "var(--m-text)" }}>
+                                {a.title}
+                              </div>
+                              <div className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                                dedup {a.dedup_key} · corr {a.correlation_key}
+                              </div>
+                            </div>
+                          ) : null}
+                          {c.key === "source" ? (
+                            <span className="text-[12px]">
+                              {sourceById.get(a.source_id)?.name ?? a.source_id.slice(0, 8)}
                             </span>
                           ) : null}
-                          {a.status === "open" ? (
-                            <Button
-                              data-testid={`alert-ack-${a.id}`}
-                              variant="ghost"
-                              size="sm"
-                              disabled={busyAlertId === a.id}
-                              onClick={() => handleAcknowledge(a)}
-                            >
-                              Acknowledge
-                            </Button>
+                          {c.key === "status" ? (
+                            <div className="flex items-center gap-2">
+                              <Tag tone={STATUS_TONE[a.status] ?? "neutral"}>{a.status}</Tag>
+                              {rowErrors[a.id] !== undefined ? (
+                                <span className="text-[11px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                                  {rowErrors[a.id]}
+                                </span>
+                              ) : null}
+                              {a.status === "open" ? (
+                                <Button
+                                  data-testid={`alert-ack-${a.id}`}
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={busyAlertId === a.id}
+                                  onClick={() => handleAcknowledge(a)}
+                                >
+                                  Acknowledge
+                                </Button>
+                              ) : null}
+                              {a.status === "open" || a.status === "acknowledged" ? (
+                                <Button
+                                  data-testid={`alert-resolve-${a.id}`}
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={busyAlertId === a.id}
+                                  onClick={() => handleResolve(a)}
+                                >
+                                  Resolve
+                                </Button>
+                              ) : null}
+                              {a.acked_by != null && a.acked_at != null ? (
+                                <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                                  acked {relativeTime(a.acked_at)}
+                                </span>
+                              ) : null}
+                            </div>
                           ) : null}
-                          {a.status === "open" || a.status === "acknowledged" ? (
-                            <Button
-                              data-testid={`alert-resolve-${a.id}`}
-                              variant="ghost"
-                              size="sm"
-                              disabled={busyAlertId === a.id}
-                              onClick={() => handleResolve(a)}
-                            >
-                              Resolve
-                            </Button>
+                          {c.key === "escalation" ? (
+                            a.incident_ticket_id !== null && a.incident_ticket_id !== undefined ? (
+                              <div className="flex items-center gap-2">
+                                <Tag tone="success">escalated</Tag>
+                                <Link
+                                  href={`/tickets/${a.incident_ticket_id}`}
+                                  className="text-[13px] font-medium underline decoration-[var(--m-border)] underline-offset-2"
+                                >
+                                  Ticket #{a.incident_ticket_id.slice(0, 8)}
+                                </Link>
+                              </div>
+                            ) : (
+                              <Tag tone="neutral">unrouted</Tag>
+                            )
                           ) : null}
-                          {a.acked_by !== null && a.acked_by !== undefined && a.acked_at !== null && a.acked_at !== undefined ? (
-                            <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                              acked {relativeTime(a.acked_at)}
+                          {c.key === "received" ? (
+                            <span className="whitespace-nowrap text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                              {relativeTime(a.received_at)}
                             </span>
                           ) : null}
-                        </div>
-                      </Td>
-                      <Td>
-                        {a.incident_ticket_id !== null && a.incident_ticket_id !== undefined ? (
-                          <div className="flex items-center gap-2">
-                            <Tag tone="success">escalated</Tag>
-                            <Link
-                              href={`/tickets/${a.incident_ticket_id}`}
-                              className="text-[13px] font-medium underline decoration-[var(--m-border)] underline-offset-2 hover:text-[var(--m-accent)]"
-                            >
-                              Ticket #{a.incident_ticket_id.slice(0, 8)}
-                            </Link>
-                          </div>
-                        ) : (
-                          <Tag tone="neutral">unrouted</Tag>
-                        )}
-                      </Td>
-                      <Td className="whitespace-nowrap text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                        {relativeTime(a.received_at)}
-                      </Td>
+                        </Td>
+                      ))}
                     </Tr>
                   ))}
                 </tbody>
               </Table>
             )}
-          </Card>
+          </TableCard>
+
+          <LedgerFooter
+            shown={filteredAlerts.length}
+            total={counts.all}
+            noun="alerts"
+            density={<DensitySwitch value={density} onChange={applyDensity} />}
+            hints={
+              <>
+                <KeyHint keys="J K" label="move" />
+                <KeyHint keys="A" label="acknowledge" />
+                <KeyHint keys="F" label="filter" />
+              </>
+            }
+          />
+          </div>
         </div>
       ) : null}
 
@@ -701,7 +897,7 @@ export default function AlertsPage() {
           </Card>
         </div>
       ) : null}
-    </div>
+    </PageFrame>
   );
 }
 

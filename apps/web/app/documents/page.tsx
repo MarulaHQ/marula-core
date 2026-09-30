@@ -17,13 +17,17 @@
 import { rejectionText } from "../../lib/error-copy";
 import {
   Button,
-  Card,
+  ColumnChooser,
+  DataToolbar,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTrigger,
   EmptyState,
+  ExportControl,
   FieldHint,
+  FilterBar,
   Input,
   Label,
   Select,
@@ -37,8 +41,23 @@ import {
   Td,
   Th,
   Tr,
+  ViewSwitch,
+  applyDensity,
+  useDensity,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
+import {
+  BlushNote,
+  HEAD_CELL_CLASS,
+  KeyHint,
+  LedgerFooter,
+  PageFrame,
+  PageHeader,
+  PlusIcon,
+  StatPill,
+  TableCard,
+  downloadCsv,
+} from "../../components/knowledge/ledger";
 import { FieldsEditor, parseFieldInputs } from "./fields-editor";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -53,6 +72,24 @@ type LayoutMutationResponse = components["schemas"]["LayoutMutationResponse"];
 
 type Scope = { kind: "all" } | { kind: "global" } | { kind: "client"; id: string };
 
+type DocumentColumnKey = "title" | "type" | "scope" | "version" | "updated";
+
+interface DocumentColumn {
+  key: DocumentColumnKey;
+  label: string;
+  visible: boolean;
+  required?: boolean;
+}
+
+/** The pack's ledger columns; `title` is the identity and stays first. */
+const DOCUMENT_COLUMNS: DocumentColumn[] = [
+  { key: "title", label: "Title", visible: true, required: true },
+  { key: "type", label: "Type", visible: true },
+  { key: "scope", label: "Scope", visible: true },
+  { key: "version", label: "Version", visible: true },
+  { key: "updated", label: "Updated", visible: true },
+];
+
 export default function DocumentsPage() {
   const auth = useRequireAuth();
   const [docs, setDocs] = useState<Document[] | null>(null);
@@ -66,6 +103,11 @@ export default function DocumentsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [layoutsOpen, setLayoutsOpen] = useState(false);
+  const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>(
+    [],
+  );
+  const [columns, setColumns] = useState<DocumentColumn[]>(DOCUMENT_COLUMNS);
+  const density = useDensity();
 
   const layoutById = useMemo(
     () => new Map((layouts ?? []).map((l) => [l.id, l])),
@@ -102,11 +144,31 @@ export default function DocumentsPage() {
     return docs.filter((d) => {
       if (scope.kind === "global" && d.client_id !== null) return false;
       if (scope.kind === "client" && d.client_id !== scope.id) return false;
-      if (layoutFilter !== "all" && d.layout_id !== layoutFilter) return false;
+      // "typed"/"untyped" are views, not a type id, so they are matched here
+      // rather than against layout_id.
+      if (layoutFilter === "typed" && d.layout_id == null) return false;
+      if (layoutFilter === "untyped" && d.layout_id != null) return false;
+      if (layoutFilter !== "all" && layoutFilter !== "typed" && layoutFilter !== "untyped" && d.layout_id !== layoutFilter) {
+        return false;
+      }
       if (needle !== "" && !d.title.toLowerCase().includes(needle)) return false;
+      for (const clause of clauses) {
+        const value = (clause.value ?? "").toLowerCase();
+        if (clause.field === "title" && !d.title.toLowerCase().includes(value)) return false;
+        if (clause.field === "type") {
+          const name = d.layout_id != null ? (layoutById.get(d.layout_id)?.name ?? "") : "";
+          if (!name.toLowerCase().includes(value)) return false;
+        }
+        if (clause.field === "scope") {
+          const name = d.client_id != null ? (clientById.get(d.client_id)?.name ?? "") : "org-global";
+          if (!name.toLowerCase().includes(value)) return false;
+        }
+      }
       return true;
     });
-  }, [docs, scope, q, layoutFilter]);
+  }, [docs, scope, q, layoutFilter, clauses, layoutById, clientById]);
+
+  const shownColumns = columns.filter((c) => c.visible);
 
   const stats = useMemo(() => {
     if (docs === null) return null;
@@ -119,181 +181,219 @@ export default function DocumentsPage() {
   if (auth.status !== "authed") return null;
 
   return (
-    <div className="mx-auto grid w-full grid-cols-1 max-w-[1400px] gap-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Documents</h1>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Client and org-wide documentation: typed records, runbooks, and credentials-adjacent
-            references with full version history.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setLayoutsOpen(true)}>
-            Manage types
-          </Button>
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button>New document</Button>
-            </DialogTrigger>
-            <DialogContent
-              title="New document"
-              description="Pick a scope and, optionally, a typed layout. Custom fields are validated against the layout's schema."
-            >
-              <CreateDocumentForm
-                layouts={layouts ?? []}
-                clients={clients ?? []}
-                onDone={() => {
-                  setCreateOpen(false);
-                  void refresh();
-                }}
-              />
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
+    <PageFrame>
+      <PageHeader
+        title="Documents"
+        subtitle="Typed records, runbooks and references — org-global or per client, each with its own version history."
+        attention={
+          <>
+            <StatPill tone="neutral" label="Org-global" count={stats?.global ?? 0} onClick={() => setScope((s) => (s.kind === "global" ? { kind: "all" } : { kind: "global" }))} pressed={scope.kind === "global"} />
+            <StatPill tone="neutral" label="Client-scoped" count={stats?.scoped ?? 0} onClick={() => setScope((s) => (s.kind === "all" ? { kind: "global" } : { kind: "all" }))} pressed={scope.kind === "all"} />
+            <StatPill tone="gold" label="Typed" count={stats?.typed ?? 0} />
+          </>
+        }
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => setLayoutsOpen(true)} data-testid="documents-manage-types">
+              Manage types
+            </Button>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button data-testid="documents-new">
+                  <PlusIcon size={16} /> New document
+                </Button>
+              </DialogTrigger>
+              <DialogContent
+                title="New document"
+                description="Pick a scope and, optionally, a typed layout. Custom fields are validated against the layout's schema."
+              >
+                <CreateDocumentForm
+                  layouts={layouts ?? []}
+                  clients={clients ?? []}
+                  onDone={() => {
+                    setCreateOpen(false);
+                    void refresh();
+                  }}
+                />
+              </DialogContent>
+            </Dialog>
+          </>
+        }
+      />
 
-      {stats !== null ? (
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4" data-testid="documents-stats">
-          {(
-            [
-              { label: "Total documents", value: stats.total, key: "documents-stat-total" },
-              { label: "Org-global", value: stats.global, key: "documents-stat-global" },
-              { label: "Client-scoped", value: stats.scoped, key: "documents-stat-scoped" },
-              { label: "Typed with layouts", value: stats.typed, key: "documents-stat-typed" },
-            ] as const
-          ).map((s, i) => (
-            <div
-              key={s.key}
-              className="m-entity-rise rounded-[0.75rem] border p-4"
-              style={{ borderColor: "var(--m-border)", "--stagger-i": i } as React.CSSProperties}
-              data-testid={s.key}
-            >
-              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
-                {s.label}
-              </p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums">{s.value}</p>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      <Card className="m-entity-rise" style={{ "--stagger-i": 4 } as React.CSSProperties}>
-        <div className="flex flex-wrap items-center justify-between gap-3 p-4 pb-0">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <Input
-              aria-label="Search documents"
-              placeholder="Search by title…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="w-56"
+      <div className="flex min-h-0 flex-1 flex-col">
+        <DataToolbar
+          label="Document controls"
+          views={
+            <ViewSwitch
+              label="Document views"
+              views={[
+                { id: "all", label: "All", hint: String(filtered?.length ?? 0) },
+                { id: "global", label: "Org-global" },
+                { id: "typed", label: "Typed" },
+                { id: "untyped", label: "Untyped" },
+              ]}
+              activeId={layoutFilter === "all" ? "all" : layoutFilter === "untyped" ? "untyped" : scope.kind === "global" ? "global" : "typed"}
+              onChange={(id) => {
+                if (id === "all") {
+                  setLayoutFilter("all");
+                  setScope({ kind: "all" });
+                }
+                if (id === "global") {
+                  setScope({ kind: "global" });
+                  setLayoutFilter("all");
+                }
+                if (id === "typed") setLayoutFilter("typed");
+                if (id === "untyped") setLayoutFilter("untyped");
+              }}
             />
-            <Select
-              value={scope.kind === "client" ? scope.id : scope.kind}
-              onValueChange={(v) =>
-                setScope(
-                  v === "all"
-                    ? { kind: "all" }
-                    : v === "global"
-                      ? { kind: "global" }
-                      : { kind: "client", id: v },
+          }
+          filters={
+            <FilterBar
+              label="Document filters"
+              emptyHint="No filters"
+              fields={[
+                { key: "title", label: "Title", operators: ["contains"] },
+                { key: "type", label: "Type", operators: ["contains"] },
+                { key: "scope", label: "Scope", operators: ["contains"] },
+              ]}
+              clauses={clauses}
+              onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+            />
+          }
+          columns={
+            <ColumnChooser
+              label="Document columns"
+              columns={columns.map((c) => ({ key: c.key, label: c.label, visible: c.visible, required: c.required }))}
+              onChange={(next) =>
+                setColumns(
+                  next.map((c) => ({
+                    key: c.key as DocumentColumnKey,
+                    label: c.label,
+                    visible: c.visible,
+                    required: c.required,
+                  })),
                 )
               }
-            >
-              <SelectTrigger aria-label="Filter by scope" className="w-52 whitespace-nowrap">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All scopes</SelectItem>
-                <SelectItem value="global">Org-global</SelectItem>
-                {(clients ?? []).map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
+            />
+          }
+          export={
+            <ExportControl
+              label="Export"
+              formats={["csv"]}
+              columns={shownColumns.map((c) => c.label)}
+              rowCount={filtered?.length ?? 0}
+              filters={clauses}
+              onExport={() => {
+                downloadCsv(
+                  "documents.csv",
+                  shownColumns.map((c) => c.label),
+                  (filtered ?? []).map((d) =>
+                    shownColumns.map((c) => {
+                      if (c.key === "title") return d.title;
+                      if (c.key === "type")
+                        return d.layout_id != null ? (layoutById.get(d.layout_id)?.name ?? "") : "";
+                      if (c.key === "scope")
+                        return d.client_id != null ? (clientById.get(d.client_id)?.name ?? "") : "Org-global";
+                      if (c.key === "version") return `v${d.current_version}`;
+                      return d.updated_at;
+                    }),
+                  ),
+                );
+              }}
+            />
+          }
+        />
+
+        <TableCard label="Documents">
+          {filtered === null ? (
+            <div className="p-4">
+              {loadError !== null ? (
+                <BlushNote title="The list did not load.">{loadError}</BlushNote>
+              ) : (
+                <Spinner />
+              )}
+            </div>
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              message="No documents match. Documents can be org-global or client-scoped; pick a type to give them structured fields."
+              action={
+                <Button onClick={() => setCreateOpen(true)}>New document</Button>
+              }
+            />
+          ) : (
+            <Table data-testid="documents-table">
+              <thead>
+                <tr>
+                  {shownColumns.map((c) => (
+                    <Th key={c.key} className={c.key === "version" ? `${HEAD_CELL_CLASS} text-right` : HEAD_CELL_CLASS}>
+                      {c.label}
+                    </Th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((d) => (
+                  <Tr key={d.id} style={{ height: "var(--m-density-row)" }}>
+                    {shownColumns.map((c) => (
+                      <Td key={c.key} className={c.key === "version" ? "text-right tabular-nums" : undefined}>
+                        {c.key === "title" ? (
+                          <Link
+                            href={`/documents/${d.id}`}
+                            className="font-semibold underline decoration-transparent underline-offset-2 transition-colors duration-100 hover:decoration-[var(--m-border-strong)]"
+                            style={{ color: "var(--m-text)" }}
+                          >
+                            {d.title}
+                          </Link>
+                        ) : null}
+                        {c.key === "type" ? (
+                          d.layout_id != null && layoutById.get(d.layout_id) ? (
+                            <Tag tone="outline">{layoutById.get(d.layout_id)!.name}</Tag>
+                          ) : (
+                            <span style={{ color: "var(--m-text-muted)" }}>—</span>
+                          )
+                        ) : null}
+                        {c.key === "scope" ? (
+                          d.client_id != null && clientById.get(d.client_id) ? (
+                            <Link
+                              href={`/clients/${d.client_id}`}
+                              className="underline decoration-[var(--m-border)] underline-offset-2"
+                            >
+                              {clientById.get(d.client_id)!.name}
+                            </Link>
+                          ) : (
+                            <span style={{ color: "var(--m-text-muted)" }}>Org-global</span>
+                          )
+                        ) : null}
+                        {c.key === "version" ? `v${d.current_version}` : null}
+                        {c.key === "updated" ? (
+                          <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                            {new Date(d.updated_at).toLocaleDateString()}
+                          </span>
+                        ) : null}
+                      </Td>
+                    ))}
+                  </Tr>
                 ))}
-              </SelectContent>
-            </Select>
-            <Select value={layoutFilter} onValueChange={setLayoutFilter}>
-              <SelectTrigger aria-label="Filter by type" className="w-44 whitespace-nowrap">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All types</SelectItem>
-                <SelectItem value="untyped">Untyped</SelectItem>
-                {(layouts ?? []).map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {l.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        {filtered === null ? (
-          <div className="p-4">
-            {loadError !== null ? (
-              <p role="alert" className="text-[13px]">
-                {loadError}
-              </p>
-            ) : (
-              <Spinner />
-            )}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="p-4">
-            <EmptyState message="No documents match. Documents can be org-global or client-scoped; pick a type to give them structured fields." />
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-            <thead>
-              <tr>
-                <Th>Title</Th>
-                <Th>Type</Th>
-                <Th>Scope</Th>
-                <Th className="text-right">Version</Th>
-                <Th>Updated</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((d, i) => (
-                <Tr key={d.id} className="m-entity-row" style={{ "--stagger-i": Math.min(i, 12) } as React.CSSProperties}>
-                  <Td>
-                    <Link
-                      href={`/documents/${d.id}`}
-                      className="font-medium underline decoration-transparent underline-offset-2 transition-colors duration-[100ms] hover:decoration-[var(--m-border-strong)]"
-                    >
-                      {d.title}
-                    </Link>
-                  </Td>
-                  <Td>
-                    {d.layout_id != null && layoutById.get(d.layout_id) ? (
-                      <Tag tone="outline">{layoutById.get(d.layout_id)!.name}</Tag>
-                    ) : (
-                      <span style={{ color: "var(--m-text-muted)" }}>—</span>
-                    )}
-                  </Td>
-                  <Td>
-                    {d.client_id != null && clientById.get(d.client_id) ? (
-                      <Link
-                        href={`/clients/${d.client_id}`}
-                        className="underline decoration-[var(--m-border)] underline-offset-2"
-                      >
-                        {clientById.get(d.client_id)!.name}
-                      </Link>
-                    ) : (
-                      <span style={{ color: "var(--m-text-muted)" }}>Org-global</span>
-                    )}
-                  </Td>
-                  <Td className="text-right tabular-nums">v{d.current_version}</Td>
-                  <Td>{new Date(d.updated_at).toLocaleString()}</Td>
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
-          </div>
-        )}
-      </Card>
+              </tbody>
+            </Table>
+          )}
+        </TableCard>
+
+        <LedgerFooter
+          shown={filtered?.length ?? 0}
+          total={stats?.total ?? 0}
+          noun="documents"
+          density={<DensitySwitch value={density} onChange={applyDensity} />}
+          hints={
+            <>
+              <KeyHint keys="J K" label="move" />
+              <KeyHint keys="↵" label="open" />
+              <KeyHint keys="F" label="filter" />
+            </>
+          }
+        />
+      </div>
 
       <Dialog open={layoutsOpen} onOpenChange={setLayoutsOpen}>
         <DialogContent
@@ -308,7 +408,7 @@ export default function DocumentsPage() {
           />
         </DialogContent>
       </Dialog>
-    </div>
+    </PageFrame>
   );
 }
 
@@ -505,7 +605,27 @@ function LayoutEditForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Parsed on every keystroke, not on save: the invalid-JSON state is the one
+  // this editor has to be honest about, and a reader should meet it while
+  // they are still holding the mistake, not after a round trip.
+  const schemaState = useMemo(() => {
+    if (schemaText.trim() === "") {
+      return { ok: false as const, message: "The schema is empty. An array of field objects goes here." };
+    }
+    try {
+      JSON.parse(schemaText);
+      return { ok: true as const, message: null };
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : "the JSON does not parse";
+      return {
+        ok: false as const,
+        message: `That is not valid JSON: ${detail}. Fix the braces and quotes, then save — nothing is sent until it parses.`,
+      };
+    }
+  }, [schemaText]);
+
   const submit = async () => {
+    if (!schemaState.ok) return;
     setBusy(true);
     setError(null);
     let fields: unknown;
@@ -588,12 +708,19 @@ function LayoutEditForm({
           value={schemaText}
           onChange={(e) => setSchemaText(e.target.value)}
           rows={10}
+          aria-invalid={!schemaState.ok}
+          aria-describedby={!schemaState.ok ? "layout-schema-problem" : undefined}
           className="mt-1 w-full rounded-[var(--m-radius-container)] border bg-transparent p-2 font-mono text-[12px]"
           style={{ borderColor: "var(--m-border)" }}
         />
+        {schemaState.ok ? null : (
+          <div id="layout-schema-problem" className="mt-2" data-testid="documents-invalid-schema">
+            <BlushNote title="The schema does not parse.">{schemaState.message}</BlushNote>
+          </div>
+        )}
       </div>
       {error !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
           {error}
         </p>
       ) : null}
@@ -601,7 +728,11 @@ function LayoutEditForm({
         <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button onClick={() => void submit()} disabled={busy || name.trim() === ""}>
+        <Button
+          onClick={() => void submit()}
+          disabled={busy || name.trim() === "" || !schemaState.ok}
+          data-testid="documents-layout-save"
+        >
           {busy ? <Spinner /> : null} {layout === null ? "Create type" : "Save changes"}
         </Button>
       </DialogActions>
