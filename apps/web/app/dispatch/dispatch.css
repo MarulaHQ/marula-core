@@ -1668,6 +1668,12 @@
   color: var(--m-text-muted);
   font-weight: 600;
   text-align: center;
+  white-space: nowrap;
+  max-width: 100%;
+}
+/* the day label can never push a column wide enough to collide with the next */
+.dp-hz .col {
+  min-width: 0;
 }
 .dp-hz .lb.today {
   color: var(--m-text);
@@ -2188,4 +2194,29 @@
   align-items: center;
   gap: 6px;
   color: var(--m-text-muted);
+}
+
+/* dense: ONE line per block. The id and the title share it and ellipsize.
+ * Two lines in a 30px block clipped the second, which is the whole reason the
+ * pack's dense step drops to a single line rather than shrinking the type. */
+[data-density="dense"] .dp-blk .dp-tt {
+  display: none;
+}
+[data-density="dense"] .dp-blk .dp-ti {
+  display: inline;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-density="dense"] .dp-blk .dp-bt {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* dense: the id and the title share the single line (the pack draws
+ * `#18366 Dis…`). The client keeps its own line at compact and above, where
+ * there is room for it. */
+[data-density="dense"] .dp-blk .dp-cl {
+  display: none;
 }

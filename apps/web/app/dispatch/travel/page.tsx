@@ -469,7 +469,7 @@ export default function TravelDraftsPage() {
       <div className="dp-tb">
         <div className="dp-seg" role="group" aria-label="Travel views">
           <button type="button" aria-pressed={view === "drafts"} onClick={() => setView("drafts")}>
-            Drafts<span className="dp-views cnt">{(drafts ?? []).filter((d) => d.status === "draft").length}</span>
+            Drafts<span className="dp-views cnt"> {(drafts ?? []).filter((d) => d.status === "draft").length}</span>
           </button>
           <button type="button" aria-pressed={view === "recon"} onClick={() => setView("recon")}>
             Reconciliation

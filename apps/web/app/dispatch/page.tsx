@@ -1318,13 +1318,18 @@ export default function DispatchBoardPage() {
     const cf = collisions.some((x) => x.a.jid === j.jid || x.b.jid === j.jid);
     const gap = 4;
     const r = rowIndex.get(j) ?? 0;
+    // A single block is centred in its lane, the way the pack draws it. It used
+    // to sit at the top of the lane (an absolutely positioned box with no `top`
+    // takes its static position), which left the block hugging the ruler and
+    // the lane's own vertical rhythm broken. Stacked blocks carry their own row
+    // maths and must not also be translated.
     const pos: React.CSSProperties =
       nr > 1
         ? {
             top: `calc((var(--dp-lane) - var(--dp-blk)) / 2 + ${r} * ((var(--dp-blk) - ${gap * (nr - 1)}px) / ${nr} + ${gap}px))`,
             height: `calc((var(--dp-blk) - ${gap * (nr - 1)}px) / ${nr})`,
           }
-        : { height: blkHeight };
+        : { top: "50%", transform: "translateY(-50%)", height: blkHeight };
     const travel = travelMin(j, jobs.filter((x) => x.tech === j.tech).sort((a, b) => a.s - b.s));
     return (
       <div key={j.jid}>
@@ -1348,7 +1353,7 @@ export default function DispatchBoardPage() {
           <div className="dp-bt">
             {j.prop && <span className="dp-num">{j.num}</span>}
             <span className="pid">#{j.tk}</span>
-            <span>{SHORT[j.client] ?? j.client}</span>
+            <span className="dp-cl">{SHORT[j.client] ?? j.client}</span>
             {cf && (
               <span className="dp-warn">
                 <AlertIcon size={14} />

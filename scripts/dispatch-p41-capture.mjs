@@ -379,10 +379,12 @@ const STATES = [
 ];
 
 async function shot(browser, { viewport, theme, preset, id, path, run, hold, ai }) {
-  // The width belongs in the filename: the narrow-width passes reuse the same
-  // state ids, and a shared name means the 1024 shot silently replaces the
-  // 1600 one that lane 15 diffs against the pack.
-  const tag = `${id}-${viewport.width}-${theme}`;
+  // BOTH dimensions belong in the filename. The narrow-width passes reuse the
+  // same state ids, and the two light themes share the theme name, so a name
+  // carrying only (id, theme) means marula-warm silently replaces the default
+  // marula light and the 1024 shot silently replaces the 1600 one. Lane 15
+  // diffs these against the pack, and a missing file is a missing state.
+  const tag = `${id}-${viewport.width}-${preset ?? 'marula'}-${theme}`;
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   page.on('pageerror', (e) => console.error('PAGEERROR', id, theme, String(e).slice(0, 300)));
@@ -393,7 +395,10 @@ async function shot(browser, { viewport, theme, preset, id, path, run, hold, ai 
   await page.addInitScript(
     ({ t, p }) => {
       window.localStorage.setItem('marula-theme', t);
-      window.localStorage.setItem('marula-preset', p);
+      // A pre-paint hint only. AppearanceSync re-resolves the preset from the
+      // org setting after auth, so the settings/org fixture is what decides
+      // which preset the shot really shows.
+      window.localStorage.setItem('marula-theme-preset', p);
       window.localStorage.setItem('marula-density', 'comfortable');
       window.localStorage.setItem(
         'marula-tokens',
@@ -412,10 +417,19 @@ async function shot(browser, { viewport, theme, preset, id, path, run, hold, ai 
     if (key === '/api/v1/settings/org') {
       // The pack's state 01 is the board with NO grant: the toolbar's right
       // side holds only Filter. Every other state has it on.
+      //
+      // `appearance.theme` is what actually selects the preset. AppearanceSync
+      // runs after auth, resolves user override then org theme, and calls
+      // setThemePreset(null) when neither is set — which wipes whatever the
+      // inline bootstrap put on data-preset. A capture that sets the preset in
+      // localStorage alone photographs the default theme twice under two names.
       await r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([{ key: 'ai.features_enabled', value: ai !== false, scope: 'org' }]),
+        body: JSON.stringify([
+          { key: 'ai.features_enabled', value: ai !== false, scope: 'org' },
+          { key: 'appearance.theme', value: preset ?? 'marula', scope: 'org' },
+        ]),
       });
       return;
     }
@@ -447,14 +461,14 @@ async function contactSheet(browser, theme) {
   // Only the reference width belongs on the sheet; the narrow passes are for
   // the responsive claim, not for the surface overview.
   const files = (await readdir(STATES_DIR))
-    .filter((f) => f.endsWith(`-1600-${theme}.png`) && /^\d\d-/.test(f))
+    .filter((f) => f.endsWith(`-1600-marula-${theme}.png`) && /^\d\d-/.test(f))
     .sort();
   if (files.length === 0) {
     console.error('no captures for the', theme, 'sheet');
     return;
   }
   const cells = files
-    .map((f) => `<figure><img src="${f}"><figcaption>${f.replace(`-1600-${theme}.png`, '')}</figcaption></figure>`)
+    .map((f) => `<figure><img src="${f}"><figcaption>${f.replace(`-1600-marula-${theme}.png`, '')}</figcaption></figure>`)
     .join('\n');
   const html = `<!doctype html><meta charset="utf-8">
 <style>
@@ -511,7 +525,8 @@ for (const vp of [{ width: 1280, height: 900 }, { width: 1024, height: 800 }]) {
   }
 }
 
-// One sheet per theme, the way the pack's own overview works.
+// One sheet per theme, taken from the DEFAULT preset's files, the way the
+// pack's own overview works. The warm capture stays on disk for comparison.
 for (const t of THEMES) {
   await contactSheet(browser, t.theme).catch((e) => console.error('FAIL sheet', t.theme, e.message));
 }
