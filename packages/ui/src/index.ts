@@ -85,6 +85,8 @@ export * from "./components/view-switch";
 export * from "./components/column-chooser";
 export * from "./components/filter-bar";
 export * from "./components/export-control";
+export * from "./components/surface-header";
+export * from "./components/surface-columns";
 
 export * from "./editor/toolbar";
 export * from "./editor/block-menu";

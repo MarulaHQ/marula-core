@@ -1,8 +1,14 @@
 // Settings shell primitives — the shared IA vocabulary for /settings/*.
 //
-// Purpose: one header, one save pattern, one destructive-confirm pattern,
-// and one honest-empty-state pattern used by EVERY settings page so the
-// area reads as a single product (Wave 17 lane 7 settings IA pass).
+// Purpose: one save pattern, one destructive-confirm pattern, and one
+// honest-empty-state pattern used by EVERY settings page so the area reads as
+// a single product (Wave 17 lane 7 settings IA pass). The page header itself
+// is no longer defined here: `SettingsHeader` is a thin alias for the
+// surface pack's `SurfaceHeader` at its `compact` size (Wave 41 lane
+// `p41-ui-chrome`), which is what the 65 staff pages outside /settings were
+// each re-deriving on their own. Keeping the name and the props means all 33
+// call sites are untouched while the frame has exactly one owner.
+//
 // Tokens only (docs/theme.md) — components never declare hexes.
 //
 // Non-purpose: no data fetching and no settings logic here — pages own
@@ -11,10 +17,17 @@
 
 import { Button } from "@marula-core/ui";
 import { Dialog, DialogActions, DialogContent } from "@marula-core/ui";
+import { SurfaceHeader } from "@marula-core/ui";
 import { friendlyMutationText } from "../../lib/error-copy";
 import type { ReactNode } from "react";
 
-/** Standard settings page header: title + one-line description. */
+/**
+ * Standard settings page header: title + one-line description, plus a
+ * right-aligned meta/actions slot.
+ *
+ * The `compact` title is the pack's settings/utility shape; a settings page
+ * that wants the large data-surface title passes `<SurfaceHeader>` directly.
+ */
 export function SettingsHeader({
   title,
   description,
@@ -27,22 +40,16 @@ export function SettingsHeader({
   children?: ReactNode;
 }) {
   return (
-    <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 className="text-lg font-semibold" style={{ color: "var(--m-text)" }}>
-          {title}
-        </h1>
-        {description ? (
-          <p
-            className="mt-1 text-[13px]"
-            style={{ color: "var(--m-text-secondary)" }}
-          >
-            {description}
-          </p>
-        ) : null}
-      </div>
-      {children ? <div className="flex items-center gap-2">{children}</div> : null}
-    </header>
+    <SurfaceHeader
+      size="compact"
+      title={title}
+      description={description}
+      actions={children}
+      // The alias keeps the settings area's historical 16px under the header;
+      // `SurfaceHeader` itself is spacing-neutral so a new surface can drop it
+      // into a grid or a flex column without fighting for the gap.
+      className="mb-4"
+    />
   );
 }
 

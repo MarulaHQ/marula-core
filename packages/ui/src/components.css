@@ -1414,6 +1414,13 @@
   font-size: 13px;
 }
 
+/* Column headers carry the pack's uppercase eyebrow (S1's table, and the
+   same eyebrow the context column uses). It used to be applied per page with
+   an ad-hoc `uppercase tracking-wide` class, which is how 44 files ended up
+   disagreeing about it — 10px on one, 12px on another. Deciding it here is
+   the whole point of the primitive. Tracking is 0.06em rather than the
+   eyebrow's 0.08em: a column header is a longer string than a section label
+   ("LAST ACTIVITY" against "CONTRACT"), and it sits at 13px, not 12. */
 .m-table th {
   position: sticky;
   top: 0;
@@ -1422,7 +1429,9 @@
   border-bottom: 1px solid var(--m-border-strong);
   padding: 4px 10px;
   text-align: left;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--m-text-secondary);
 }
 
@@ -1727,4 +1736,194 @@
 /* Saved (read-only) article prose reuses the same vocabulary. */
 .m-kb-prose :where(p) {
   margin: 0.5em 0;
+}
+
+/* ---------- Page frame (Wave 41 `p41-ui-chrome`) ------------------------- */
+
+/* The surface pack's page frame: S1's data-surface template and the compact
+   settings shape. Tokens only — the widths are the pack's, not guesses.
+
+   No outer margin: a frame that also decides the space around it fights
+   whatever container it is dropped into. Spacing stays with the surface's
+   own layout, which is what the `SettingsHeader` alias does explicitly. */
+.m-surface-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.m-surface-header-eyebrow {
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}
+
+.m-surface-header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.m-surface-header-id {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+
+.m-surface-header-title {
+  margin: 0;
+  color: var(--m-text);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+/* The two sizes the pack draws. `surface` is the ledger shape every
+   `web/<area>/states` sheet uses; `compact` is the settings/utility shape. */
+.m-surface-header-title-surface {
+  font-size: 26px;
+}
+
+.m-surface-header-title-compact {
+  font-size: 18px;
+}
+
+.m-surface-header-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-surface-header-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-surface-header-description {
+  margin: 0;
+  max-width: 72ch;
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}
+
+/* Context column — 290px, S2's width in all three variants. Below xl the
+   column stacks in source order instead of sitting beside a fluid one. */
+.m-context-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (min-width: 1280px) {
+  .m-context-column {
+    width: 290px;
+    flex-shrink: 0;
+    max-height: calc(100vh - 11rem);
+    overflow-y: auto;
+    padding-top: 8px;
+    border-right: 1px solid var(--m-border);
+  }
+}
+
+.m-context-column-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--m-text-muted);
+}
+
+.m-context-column-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Assistant column — 340px, S3's width. */
+.m-assistant-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (min-width: 1280px) {
+  .m-assistant-column {
+    width: 340px;
+    flex-shrink: 0;
+    max-height: calc(100vh - 11rem);
+    overflow-y: auto;
+    padding-left: 18px;
+    border-left: 1px solid var(--m-border);
+  }
+}
+
+.m-assistant-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.m-assistant-column-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m-text);
+}
+
+.m-assistant-column-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* The stub — 40px, a spark and a count. It is how a surface keeps the
+   affordance visible without spending its one inverted surface (A3), and it
+   is where alert triage opens by default.
+   The badge uses `--m-ink-dark`, NOT `--m-ink`: `--m-ink` is declared twice in
+   tokens.css (the real ink at :root, then re-aliased to `var(--m-text)`),
+   so the second declaration wins and it resolves to CREAM in dark mode. A
+   `--m-ink` background paired with `--m-cream` text is therefore cream on
+   cream in dark. `--m-ink-dark` is never overridden, so the badge keeps its
+   ink ground in both themes. See the lane landing record; the aliasing itself
+   is the token owner's call, not this component's. */
+.m-assistant-stub {
+  position: relative;
+  display: flex;
+  width: 40px;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding-top: 10px;
+}
+
+.m-assistant-stub-spark {
+  display: grid;
+  place-items: center;
+  color: var(--m-gold-text);
+}
+
+.m-assistant-stub-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--m-ink-dark);
+  color: var(--m-cream);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }

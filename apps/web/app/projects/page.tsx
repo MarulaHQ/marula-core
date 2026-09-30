@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
   Td,
   Th,
@@ -336,102 +337,105 @@ export default function ProjectsPage() {
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
       {/* ---- header: title, four stat pills, one primary ---- */}
-      <header className="flex flex-wrap items-center gap-4">
-        <h1 className="text-[26px] font-semibold leading-none tracking-[-0.01em]">Projects</h1>
-        <div className="flex flex-wrap items-center gap-2">
+      <SurfaceHeader
+        title="Projects"
+        meta={
+          <div className="flex flex-wrap items-center gap-2">
           <StatPill
-            label="active"
-            count={posture.active}
-            active={view === "active"}
-            dot="var(--m-canopy)"
-            onToggle={() => setView(view === "active" ? "all" : "active")}
+          label="active"
+          count={posture.active}
+          active={view === "active"}
+          dot="var(--m-canopy)"
+          onToggle={() => setView(view === "active" ? "all" : "active")}
           />
           <StatPill
-            label="at risk"
-            count={posture.atRisk}
-            active={view === "risk"}
-            dot="var(--m-blush)"
-            onToggle={() => setView(view === "risk" ? "all" : "risk")}
+          label="at risk"
+          count={posture.atRisk}
+          active={view === "risk"}
+          dot="var(--m-blush)"
+          onToggle={() => setView(view === "risk" ? "all" : "risk")}
           />
           <StatPill label="complete" count={posture.complete} active={false} dot="var(--m-canopy)" onToggle={() => undefined} />
           <StatPill label="overdue" count={posture.overdue} active={false} dot="var(--m-danger)" onToggle={() => undefined} />
-        </div>
-        <span className="flex-1" />
-        <Dialog
+          </div>
+        }
+        actions={
+          <Dialog
           open={createOpen}
           onOpenChange={(open) => {
-            setCreateOpen(open);
-            if (!open) setCreateError(null);
+          setCreateOpen(open);
+          if (!open) setCreateError(null);
           }}
-        >
+          >
           <DialogTrigger asChild>
-            <Button variant="primary" data-testid="new-project">
-              <PlusIcon />
-              New project
-            </Button>
+          <Button variant="primary" data-testid="new-project">
+          <PlusIcon />
+          New project
+          </Button>
           </DialogTrigger>
           <DialogContent
-            title="New project"
-            description="Create the engagement, then shape phases and tasks on its page."
+          title="New project"
+          description="Create the engagement, then shape phases and tasks on its page."
           >
-            <div className="grid gap-3 p-4">
-              <div>
-                <Label htmlFor="project-name">Name</Label>
-                <Input id="project-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Exchange migration" />
-              </div>
-              <div>
-                <Label htmlFor="project-client">Client</Label>
-                <Select value={clientId} onValueChange={setClientId}>
-                  <SelectTrigger id="project-client" className="w-56">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Internal (no client)</SelectItem>
-                    {clients.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="project-billing">Billing method</Label>
-                <Select value={billingMethod} onValueChange={(v) => setBillingMethod(v as BillingMethod)}>
-                  <SelectTrigger id="project-billing" className="w-56">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {BILLING_METHODS.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {m.replaceAll("_", " ")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="project-budget">Budget (USD)</Label>
-                <Input id="project-budget" type="number" min={0} step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Optional" />
-                <FieldHint>Leave empty for an unbudgeted project.</FieldHint>
-              </div>
-              {createError !== null ? (
-                <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                  {createError}
-                </p>
-              ) : null}
-              <DialogActions>
-                <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={() => void createProject()} disabled={creating || name.trim() === ""}>
-                  {creating ? <Spinner /> : null} Create project
-                </Button>
-              </DialogActions>
-            </div>
+          <div className="grid gap-3 p-4">
+          <div>
+          <Label htmlFor="project-name">Name</Label>
+          <Input id="project-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Exchange migration" />
+          </div>
+          <div>
+          <Label htmlFor="project-client">Client</Label>
+          <Select value={clientId} onValueChange={setClientId}>
+          <SelectTrigger id="project-client" className="w-56">
+          <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+          <SelectItem value="none">Internal (no client)</SelectItem>
+          {clients.map((c) => (
+          <SelectItem key={c.id} value={c.id}>
+          {c.name}
+          </SelectItem>
+          ))}
+          </SelectContent>
+          </Select>
+          </div>
+          <div>
+          <Label htmlFor="project-billing">Billing method</Label>
+          <Select value={billingMethod} onValueChange={(v) => setBillingMethod(v as BillingMethod)}>
+          <SelectTrigger id="project-billing" className="w-56">
+          <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+          {BILLING_METHODS.map((m) => (
+          <SelectItem key={m} value={m}>
+          {m.replaceAll("_", " ")}
+          </SelectItem>
+          ))}
+          </SelectContent>
+          </Select>
+          </div>
+          <div>
+          <Label htmlFor="project-budget">Budget (USD)</Label>
+          <Input id="project-budget" type="number" min={0} step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Optional" />
+          <FieldHint>Leave empty for an unbudgeted project.</FieldHint>
+          </div>
+          {createError !== null ? (
+          <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+          {createError}
+          </p>
+          ) : null}
+          <DialogActions>
+          <Button variant="ghost" onClick={() => setCreateOpen(false)}>
+          Cancel
+          </Button>
+          <Button onClick={() => void createProject()} disabled={creating || name.trim() === ""}>
+          {creating ? <Spinner /> : null} Create project
+          </Button>
+          </DialogActions>
+          </div>
           </DialogContent>
-        </Dialog>
-      </header>
+          </Dialog>
+        }
+      />
 
       {/* The toolbar's vertical padding is `var(--m-card-padding)`, and the
           pack's toolbar sits flush under the page head. The primitive takes no

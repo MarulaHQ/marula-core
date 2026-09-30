@@ -42,6 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
   Td,
   Th,
@@ -287,133 +288,136 @@ export default function ContractsPage() {
 
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
-      <header className="flex flex-wrap items-center gap-4">
-        <h1 className="text-[26px] font-semibold leading-none tracking-[-0.01em]">Contracts</h1>
-        <div className="flex flex-wrap items-center gap-2">
+      <SurfaceHeader
+        title="Contracts"
+        meta={
+          <div className="flex flex-wrap items-center gap-2">
           <StatPill label="active" count={posture.active} active={view === "active"} dot="var(--m-canopy)" onToggle={() => setView(view === "active" ? "all" : "active")} />
           <StatPill
-            label="renewing soon"
-            count={posture.renewing}
-            active={view === "renewing"}
-            dot="var(--m-blush)"
-            onToggle={() => setView(view === "renewing" ? "all" : "renewing")}
+          label="renewing soon"
+          count={posture.renewing}
+          active={view === "renewing"}
+          dot="var(--m-blush)"
+          onToggle={() => setView(view === "renewing" ? "all" : "renewing")}
           />
           <StatPill label="draft" count={posture.draft} active={false} dot="var(--m-input)" onToggle={() => undefined} />
           {posture.elapsed > 0 ? (
-            <StatPill label="term elapsed" count={posture.elapsed} active={false} dot="var(--m-danger)" onToggle={() => undefined} />
+          <StatPill label="term elapsed" count={posture.elapsed} active={false} dot="var(--m-danger)" onToggle={() => undefined} />
           ) : null}
-        </div>
-        <span className="flex-1" />
-        <Dialog
+          </div>
+        }
+        actions={
+          <Dialog
           open={createOpen}
           onOpenChange={(open) => {
-            setCreateOpen(open);
-            if (!open) setCreateError(null);
+          setCreateOpen(open);
+          if (!open) setCreateError(null);
           }}
-        >
+          >
           <DialogTrigger asChild>
-            <Button variant="primary" data-testid="new-contract">
-              <PlusIcon />
-              New contract
-            </Button>
+          <Button variant="primary" data-testid="new-contract">
+          <PlusIcon />
+          New contract
+          </Button>
           </DialogTrigger>
           <DialogContent
-            title="New contract"
-            description="A contract is the commercial agreement an invoice run bills against. Draft contracts preview and are refused by invoice runs."
+          title="New contract"
+          description="A contract is the commercial agreement an invoice run bills against. Draft contracts preview and are refused by invoice runs."
           >
-            <div className="grid gap-3 p-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="ct-number">Number</Label>
-                  <Input id="ct-number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="CTR-2026-04" />
-                </div>
-                <div>
-                  <Label htmlFor="ct-name">Name</Label>
-                  <Input id="ct-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Managed Gold" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="ct-client">Client</Label>
-                  <Select value={clientId} onValueChange={setClientId}>
-                    <SelectTrigger id="ct-client" className="w-full">
-                      <SelectValue placeholder="Choose a client" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="ct-type">Type</Label>
-                  <Select value={type} onValueChange={(v) => setType(v as ContractType)}>
-                    <SelectTrigger id="ct-type" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TYPES.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {TYPE_LABEL[t]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="ct-from">Effective from</Label>
-                  <Input id="ct-from" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
-                </div>
-                <div>
-                  <Label htmlFor="ct-until">Effective until</Label>
-                  <Input id="ct-until" type="date" value={effectiveUntil} onChange={(e) => setEffectiveUntil(e.target.value)} />
-                  <FieldHint>Empty means open-ended: there is nothing to renew.</FieldHint>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="ct-amount">Per-period price</Label>
-                  <Input id="ct-amount" type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Optional" />
-                </div>
-                <div>
-                  <Label htmlFor="ct-freq">Billing frequency</Label>
-                  <Select value={frequency} onValueChange={setFrequency}>
-                    <SelectTrigger id="ct-freq" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {["weekly", "monthly", "quarterly", "semiannual", "annual"].map((f) => (
-                        <SelectItem key={f} value={f}>
-                          {f}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FieldHint>Applies to recurring and retainer contracts.</FieldHint>
-                </div>
-              </div>
-              {createError !== null ? (
-                <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                  {createError}
-                </p>
-              ) : null}
-              <DialogActions>
-                <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={() => void createContract()} disabled={createDisabled}>
-                  {creating ? <Spinner /> : null} Create contract
-                </Button>
-              </DialogActions>
-            </div>
+          <div className="grid gap-3 p-4">
+          <div className="grid grid-cols-2 gap-3">
+          <div>
+          <Label htmlFor="ct-number">Number</Label>
+          <Input id="ct-number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="CTR-2026-04" />
+          </div>
+          <div>
+          <Label htmlFor="ct-name">Name</Label>
+          <Input id="ct-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Managed Gold" />
+          </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+          <div>
+          <Label htmlFor="ct-client">Client</Label>
+          <Select value={clientId} onValueChange={setClientId}>
+          <SelectTrigger id="ct-client" className="w-full">
+          <SelectValue placeholder="Choose a client" />
+          </SelectTrigger>
+          <SelectContent>
+          {clients.map((c) => (
+          <SelectItem key={c.id} value={c.id}>
+          {c.name}
+          </SelectItem>
+          ))}
+          </SelectContent>
+          </Select>
+          </div>
+          <div>
+          <Label htmlFor="ct-type">Type</Label>
+          <Select value={type} onValueChange={(v) => setType(v as ContractType)}>
+          <SelectTrigger id="ct-type" className="w-full">
+          <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+          {TYPES.map((t) => (
+          <SelectItem key={t} value={t}>
+          {TYPE_LABEL[t]}
+          </SelectItem>
+          ))}
+          </SelectContent>
+          </Select>
+          </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+          <div>
+          <Label htmlFor="ct-from">Effective from</Label>
+          <Input id="ct-from" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+          </div>
+          <div>
+          <Label htmlFor="ct-until">Effective until</Label>
+          <Input id="ct-until" type="date" value={effectiveUntil} onChange={(e) => setEffectiveUntil(e.target.value)} />
+          <FieldHint>Empty means open-ended: there is nothing to renew.</FieldHint>
+          </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+          <div>
+          <Label htmlFor="ct-amount">Per-period price</Label>
+          <Input id="ct-amount" type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Optional" />
+          </div>
+          <div>
+          <Label htmlFor="ct-freq">Billing frequency</Label>
+          <Select value={frequency} onValueChange={setFrequency}>
+          <SelectTrigger id="ct-freq" className="w-full">
+          <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+          {["weekly", "monthly", "quarterly", "semiannual", "annual"].map((f) => (
+          <SelectItem key={f} value={f}>
+          {f}
+          </SelectItem>
+          ))}
+          </SelectContent>
+          </Select>
+          <FieldHint>Applies to recurring and retainer contracts.</FieldHint>
+          </div>
+          </div>
+          {createError !== null ? (
+          <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+          {createError}
+          </p>
+          ) : null}
+          <DialogActions>
+          <Button variant="ghost" onClick={() => setCreateOpen(false)}>
+          Cancel
+          </Button>
+          <Button onClick={() => void createContract()} disabled={createDisabled}>
+          {creating ? <Spinner /> : null} Create contract
+          </Button>
+          </DialogActions>
+          </div>
           </DialogContent>
-        </Dialog>
-      </header>
+          </Dialog>
+        }
+      />
 
       {/* The toolbar's vertical padding is `var(--m-card-padding)`, and the
           pack's toolbar sits flush under the page head. The primitive takes no

@@ -57,6 +57,25 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run lint typecheck test
 
+  shared-chrome:
+    name: Shared chrome — feature CSS out of the shared layer, no hand-rolled title blocks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Wave 41 lane `p41-ui-chrome`. The surface pack specified the shared
+      # chrome once and no lane was given the job of embodying it in code, so
+      # two holes let rot back in: feature CSS injected into the shared
+      # stylesheets (the p41-ui-operations and p41-ui-money failure), and pages
+      # each hand-rolling their own <h1> block (65 of them). Both ledgers in
+      # the script may only SHRINK, so this is a ratchet rather than a one-off
+      # cleanup. Deliberately dependency-free: it runs before the JS install
+      # and needs nothing but node, so a stylesheet-boundary break fails fast
+      # rather than behind a full workspace install.
+      - run: node scripts/check-shared-chrome.mjs
+
   migrations:
     name: Migration safety (no destructive change without --breaking)
     runs-on: ubuntu-latest

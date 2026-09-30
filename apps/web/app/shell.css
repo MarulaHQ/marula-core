@@ -49,6 +49,24 @@
   transition: transform 100ms ease;
 }
 
+/* The active rail item. The pack is explicit (S1's Rules panel): "a soft gold
+   tile with a dark glyph (a stone tile with a gold glyph in dark)". It was a
+   neutral 12% ink wash in both themes, so the active item read as grey in
+   light and grey in dark, and the gold rule was never honoured.
+
+   Declared here rather than inline on the element so the two themes can differ:
+   the two treatments are opposites (gold ground / ink glyph in light, stone
+   ground / gold glyph in dark), which one constant cannot express. */
+.m-rail-item[aria-current="page"] {
+  background-color: color-mix(in srgb, var(--m-gold) 26%, transparent) !important;
+  color: var(--m-text-dark);
+}
+
+[data-theme="dark"] .m-rail-item[aria-current="page"] {
+  background-color: color-mix(in srgb, var(--m-text-dark) 14%, transparent) !important;
+  color: var(--m-gold-text);
+}
+
 .m-rail-item:focus-visible {
   outline: 2px solid var(--m-focus-ring);
   outline-offset: 1px;

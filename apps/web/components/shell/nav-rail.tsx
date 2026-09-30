@@ -119,8 +119,6 @@ const SECTION_ICONS: Record<string, () => React.JSX.Element> = {
   settings: SettingsIcon,
 };
 
-/** Active fill on the dark rail — preset-style 12% white wash (token-mixed). */
-const RAIL_ACTIVE_BG = "color-mix(in srgb, var(--m-text-dark) 12%, transparent)";
 
 function CollapseIcon({ collapsed }: { collapsed: boolean }) {
   return (
@@ -206,7 +204,10 @@ export function NavRail({
         data-collapsed={collapsed}
         className="relative z-40 flex shrink-0 flex-col items-center justify-between border-r py-2 transition-none"
         style={{
-          width: collapsed ? 36 : 188,
+          // The pack's two rail widths (S1): 64px collapsed, 188px expanded.
+          // The collapsed rail was 36px, which is narrower than the pack's
+          // 64px tile and gave the active item nowhere to sit.
+          width: collapsed ? 64 : 188,
           background: "var(--m-overlay-dark)",
           borderColor: "var(--m-border-dark)",
         }}
@@ -234,10 +235,9 @@ export function NavRail({
                       data-testid={`rail-${section.id}`}
                       onFocus={() => cancelClose(section.id)}
                       onClick={() => setOpenSection(null)}
-                      className={`m-rail-item relative flex h-9 ${collapsed ? "w-9 justify-center" : "min-w-0 flex-1 items-center gap-2.5 px-1.5"} rounded-lg no-underline`}
+                      className={`m-rail-item relative flex h-9 ${collapsed ? "w-14 justify-center" : "min-w-0 flex-1 items-center gap-2.5 px-1.5"} rounded-lg no-underline`}
                       style={{
                         color: sectionActive ? "var(--m-text-dark)" : "var(--m-mist)",
-                        background: sectionActive ? RAIL_ACTIVE_BG : "transparent",
                       }}
                     >
                       <span className="grid shrink-0 place-items-center">
@@ -296,7 +296,6 @@ export function NavRail({
                           className="block px-3 py-1.5 text-[13px] no-underline"
                           style={{
                             color: linkActive ? "var(--m-text-dark)" : "var(--m-mist)",
-                            background: linkActive ? RAIL_ACTIVE_BG : "transparent",
                             fontWeight: linkActive ? 600 : 400,
                           }}
                         >

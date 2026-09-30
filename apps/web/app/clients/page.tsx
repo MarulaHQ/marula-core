@@ -51,6 +51,7 @@ import {
   Input,
   Label,
   Spinner,
+  SurfaceHeader,
   Table,
   Td,
   Th,
@@ -432,85 +433,88 @@ export default function ClientsPage() {
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
       {/* ---- page header: title, the two shortcut pills, one primary ---- */}
-      <header className="flex flex-wrap items-center gap-4">
-        <h1 className="text-[26px] font-semibold leading-none tracking-[-0.01em]">Clients</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <ShortcutPill
-            label="Renewing in 90 days"
-            count={counts.renewing}
-            active={onlyRenewing}
-            dot="var(--m-blush)"
-            onToggle={() => {
-              setOnlyRenewing((v) => !v);
-              setOnlyNoContract(false);
+      <SurfaceHeader
+        title="Clients"
+        meta={
+          <>
+            <ShortcutPill
+              label="Renewing in 90 days"
+              count={counts.renewing}
+              active={onlyRenewing}
+              dot="var(--m-blush)"
+              onToggle={() => {
+                setOnlyRenewing((v) => !v);
+                setOnlyNoContract(false);
+              }}
+            />
+            <ShortcutPill
+              label="No contract"
+              count={counts.noContract}
+              active={onlyNoContract}
+              dot="var(--m-input)"
+              onToggle={() => {
+                setOnlyNoContract((v) => !v);
+                setOnlyRenewing(false);
+              }}
+            />
+          </>
+        }
+        actions={
+          <Dialog
+            open={createOpen}
+            onOpenChange={(open) => {
+              setCreateOpen(open);
+              if (!open) setCreateError(null);
             }}
-          />
-          <ShortcutPill
-            label="No contract"
-            count={counts.noContract}
-            active={onlyNoContract}
-            dot="var(--m-input)"
-            onToggle={() => {
-              setOnlyNoContract((v) => !v);
-              setOnlyRenewing(false);
-            }}
-          />
-        </div>
-        <span className="flex-1" />
-        <Dialog
-          open={createOpen}
-          onOpenChange={(open) => {
-            setCreateOpen(open);
-            if (!open) setCreateError(null);
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button variant="primary" data-testid="new-client">
-              <PlusIcon />
-              New client
-            </Button>
-          </DialogTrigger>
-          <DialogContent
-            title="New client"
-            description="Create the client record, then add its contact, contract and sites on its page. Nothing here blocks the client arriving by import."
           >
-            <div className="grid gap-3 p-4">
-              <div>
-                <Label htmlFor="client-name">Name</Label>
-                <Input
-                  id="client-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Acme Corporation"
-                />
+            <DialogTrigger asChild>
+              <Button variant="primary" data-testid="new-client">
+                <PlusIcon />
+                New client
+              </Button>
+            </DialogTrigger>
+            <DialogContent
+              title="New client"
+              description="Create the client record, then add its contact, contract and sites on its page. Nothing here blocks the client arriving by import."
+            >
+              <div className="grid gap-3 p-4">
+                <div>
+                  <Label htmlFor="client-name">Name</Label>
+                  <Input
+                    id="client-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Acme Corporation"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="client-notes">Notes</Label>
+                  <Input
+                    id="client-notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Optional"
+                  />
+                  <FieldHint>Internal notes; never shown to portal users.</FieldHint>
+                </div>
+                {createError !== null ? (
+                  <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                    {createError}
+                  </p>
+                ) : null}
+                <DialogActions>
+                  <Button variant="ghost" onClick={() => setCreateOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={() => void createClient()} disabled={creating || name.trim() === ""}>
+                    {creating ? <Spinner /> : null} Create client
+                  </Button>
+                </DialogActions>
               </div>
-              <div>
-                <Label htmlFor="client-notes">Notes</Label>
-                <Input
-                  id="client-notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Optional"
-                />
-                <FieldHint>Internal notes; never shown to portal users.</FieldHint>
-              </div>
-              {createError !== null ? (
-                <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                  {createError}
-                </p>
-              ) : null}
-              <DialogActions>
-                <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={() => void createClient()} disabled={creating || name.trim() === ""}>
-                  {creating ? <Spinner /> : null} Create client
-                </Button>
-              </DialogActions>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </header>
+            </DialogContent>
+          </Dialog>
+        }
+      />
 
       {/* ---- the one toolbar row: views left, columns/filter/export right ---- */}
       {/* The toolbar's vertical padding is `var(--m-card-padding)`, and the

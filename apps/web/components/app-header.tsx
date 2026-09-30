@@ -224,7 +224,7 @@ export function AppHeader() {
   return (
     <header
       data-testid="top-bar"
-      className="flex h-12 shrink-0 items-center gap-2 border-b px-3 md:px-4"
+      className="flex h-14 shrink-0 items-center gap-2 border-b px-3 md:px-4"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
     >
       <div className="flex shrink-0 items-center gap-2">

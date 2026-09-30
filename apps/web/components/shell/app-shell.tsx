@@ -108,9 +108,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      setCollapsed(window.localStorage.getItem(RAIL_COLLAPSE_KEY) === "1");
+      // The pack draws a surface on the 64px collapsed rail (S1, and every
+      // `web/*/states` sheet), so that is what a session with no saved choice
+      // lands on. An explicit `"0"` still wins: a user who widened the rail
+      // keeps their widened rail.
+      setCollapsed(window.localStorage.getItem(RAIL_COLLAPSE_KEY) !== "0");
     } catch {
-      // storage unavailable — default expanded
+      // storage unavailable — default collapsed, matching the pack
     }
   }, []);
 
