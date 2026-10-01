@@ -53,7 +53,6 @@ struct Org {
 ///
 /// `from_address`, `reply_to` and `smtp_host` are NOT globally unique and stay
 /// fixed literals.
-
 async fn test_state() -> (AppState, Router) {
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::WARN)
