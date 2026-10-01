@@ -17,6 +17,7 @@
 "use client";
 
 import { StatusTag } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -37,38 +38,10 @@ import { requestWrapUp } from "./workbench-v2/wrap-up-bridge";
 
 type Ticket = components["schemas"]["Ticket"];
 
-function PauseIcon() {
-  return (
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M4 2.5v7M8 2.5v7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
 
-function PlayIcon() {
-  return (
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M3.5 2.2v7.6L9.5 6 3.5 2.2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
-function SwitchIcon() {
-  return (
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M2 4h6.5L7 2.5M10 8H3.5L5 9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 /** Up-arrow trigger icon (the notepad opener), house stroke weight. */
-function PanelIcon() {
-  return (
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M6 9.5V2.5M6 2.5 3.2 5.2M6 2.5l2.7 2.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 export function TimerDock() {
   const auth = useAuth();
@@ -276,7 +249,7 @@ export function TimerDock() {
             setPanelOpen(true);
           }}
         >
-          <PanelIcon />
+          <Icon name="up" size={12} />
         </button>
         <button
           type="button"
@@ -284,7 +257,7 @@ export function TimerDock() {
           aria-label={live ? "Pause timer" : "Resume timer"}
           className="m-workbar-ghost flex h-[var(--m-density-control)] w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0"
         >
-          {live ? <PauseIcon /> : <PlayIcon />}
+          {live ? <Icon name="pause" size={12} /> : <Icon name="play" size={12} />}
         </button>
         <button
           type="button"
@@ -292,7 +265,7 @@ export function TimerDock() {
           aria-label="Switch ticket (opens Today)"
           className="m-workbar-ghost flex h-[var(--m-density-control)] w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0"
         >
-          <SwitchIcon />
+          <Icon name="refresh" size={12} />
         </button>
         <button
           type="button"
@@ -302,9 +275,7 @@ export function TimerDock() {
           className="m-workbar-wrapup flex h-[var(--m-density-control)] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3 text-[12.5px] font-semibold"
           style={{ background: "var(--m-accent)", color: "var(--m-on-accent)" }}
         >
-          <svg aria-hidden="true" width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <path d="M2 6.5 4.8 9 10 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <Icon name="check" size={11} />
           Wrap up
         </button>
       </div>

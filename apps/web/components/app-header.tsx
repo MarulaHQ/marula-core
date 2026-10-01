@@ -12,7 +12,7 @@
 "use client";
 
 import { useTheme } from "@marula-core/ui";
-import { TopBar } from "@marula-core/ui/kit";
+import { Icon, TopBar } from "@marula-core/ui/kit";
 import type { Theme } from "@marula-core/ui";
 import { Button, Kbd } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
@@ -38,24 +38,9 @@ function ThemeToggle() {
       className="px-2"
     >
       {dark ? (
-        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="3.1" stroke="currentColor" strokeWidth="1.4" />
-          <path
-            d="M8 1.2v1.4M8 13.4v1.4M1.2 8h1.4M13.4 8h1.4M3.3 3.3l1 1M11.7 11.7l1 1M12.7 3.3l-1 1M4.3 11.7l-1 1"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
-        </svg>
+        <Icon name="sun" size={15} />
       ) : (
-        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 16 16" fill="none">
-          <path
-            d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8 5.6 5.6 0 1 0 13.2 9.6Z"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <Icon name="moon" size={15} />
       )}
     </Button>
   );
@@ -78,10 +63,7 @@ function SearchLauncher() {
       className="m-top-search flex h-[var(--m-density-control)] min-w-0 max-w-[420px] flex-1 cursor-pointer items-center gap-2 rounded-lg border px-3 text-left"
       style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)" }}
     >
-      <svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" className="shrink-0">
-        <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
-        <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      </svg>
+      <Icon name="search" size={13} className="shrink-0" />
       <span
         className="min-w-0 flex-1 truncate text-[12.5px] max-md:hidden"
         style={{ color: "var(--m-text-muted)" }}
@@ -186,9 +168,7 @@ function UserMenu() {
         >
           {me?.display_name ?? ""}
         </span>
-        <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
+        <Icon name="down" size={10} />
       </button>
       {open && (
         <div
