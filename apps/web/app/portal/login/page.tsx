@@ -31,6 +31,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { Icon } from "@marula-core/ui/kit";
 import { friendlyMutationText } from "../../../lib/error-copy";
 import { portalApi, usePortalAuth } from "../../../lib/portal-api";
 import { DESK_NAME } from "../../../components/portal/portal-shell";
@@ -335,21 +336,7 @@ function PortalLoginInner(): ReactNode {
 
 /** The small note glyph, so the two note blocks match. */
 function PortalNoteIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      aria-hidden
-    >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 11v5M12 8h.01" />
-    </svg>
-  );
+  return <Icon name="info" size={16} />;
 }
 
 export default function PortalLoginPage(): ReactNode {

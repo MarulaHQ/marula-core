@@ -34,6 +34,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, EmptyState } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import { api } from "../../../lib/api";
 import { resultErrorText } from "../../../lib/error-copy";
 import type { components } from "@marula-core/sdk";
@@ -1146,55 +1147,13 @@ const COLUMNS = "44px 28px minmax(160px, 1.4fr) 120px 120px 150px 90px 56px";
 const COLUMN_HEADERS = ["Status", "Kind", "Pauses SLA", "Visible to client", "Tickets"];
 
 function PlusIcon(): React.JSX.Element {
-  return (
-    <svg
-      aria-hidden="true"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-    >
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
+  return <Icon name="plus" size={16} />;
 }
 
 function GripIcon(): React.JSX.Element {
-  return (
-    <svg
-      aria-hidden="true"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      stroke="none"
-    >
-      <circle cx="9" cy="6" r="1.6" />
-      <circle cx="15" cy="6" r="1.6" />
-      <circle cx="9" cy="12" r="1.6" />
-      <circle cx="15" cy="12" r="1.6" />
-      <circle cx="9" cy="18" r="1.6" />
-      <circle cx="15" cy="18" r="1.6" />
-    </svg>
-  );
+  return <Icon name="grip" size={16} />;
 }
 
 function MoreIcon(): React.JSX.Element {
-  return (
-    <svg
-      aria-hidden="true"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      stroke="none"
-    >
-      <circle cx="5" cy="12" r="1.7" />
-      <circle cx="12" cy="12" r="1.7" />
-      <circle cx="19" cy="12" r="1.7" />
-    </svg>
-  );
+  return <Icon name="more" size={16} />;
 }

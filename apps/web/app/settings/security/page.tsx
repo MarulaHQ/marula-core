@@ -11,6 +11,7 @@
 
 import { friendlyMutationText } from "../../../lib/error-copy";
 import { Button, Card, FieldHint, Input, Label, Tag } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { resolveApiBaseUrl, useAuth, useRequireAuth } from "../../../lib/api";
@@ -428,20 +429,7 @@ export default function SecuritySettingsPage() {
                 className="absolute inset-y-0 right-0 flex w-9 items-center justify-center transition-opacity duration-100 hover:opacity-70"
                 style={{ color: "var(--m-text-muted)" }}
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  {showPassword ? (
-                    <>
-                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
-                      <circle cx="12" cy="12" r="2.5" />
-                      <path d="M4 4l16 16" strokeLinecap="round" />
-                    </>
-                  ) : (
-                    <>
-                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
-                      <circle cx="12" cy="12" r="2.5" />
-                    </>
-                  )}
-                </svg>
+                <Icon name="eye" size={15} />
               </button>
             </div>
           </label>

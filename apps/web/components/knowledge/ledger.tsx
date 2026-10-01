@@ -16,10 +16,38 @@
 // uses only the ones it needs.
 import type { ReactNode } from "react";
 import { EmptyState, Tag } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 
-/* ---------- icons (the pack's own geometry, 18px, 1.75 stroke) ---------- */
+/* ---------- icons (the kit's one door, at the ledger's sizes) ---------- */
 
-function Glyph({ children, size = 18 }: { children: ReactNode; size?: number }): ReactNode {
+export function SparkIcon({ size = 18 }: { size?: number }): ReactNode {
+  return <Icon name="spark" size={size} className="shrink-0" />;
+}
+
+export function AlertIcon({ size = 18 }: { size?: number }): ReactNode {
+  return <Icon name="alert" size={size} className="shrink-0" />;
+}
+
+export function ClockIcon({ size = 18 }: { size?: number }): ReactNode {
+  return <Icon name="clock" size={size} className="shrink-0" />;
+}
+
+export function ColumnsIcon({ size = 18 }: { size?: number }): ReactNode {
+  return <Icon name="columns" size={size} className="shrink-0" />;
+}
+
+export function FunnelIcon({ size = 18 }: { size?: number }): ReactNode {
+  return <Icon name="funnel" size={size} className="shrink-0" />;
+}
+
+export function DownloadIcon({ size = 18 }: { size?: number }): ReactNode {
+  return <Icon name="download" size={size} className="shrink-0" />;
+}
+
+/** The kit's sprite has download but not its mirror yet; `upload` is queued
+ * in the lane's ICON-GAPS brief, and this stays the pack's geometry until
+ * then. */
+export function UploadIcon({ size = 18 }: { size?: number }): ReactNode {
   return (
     <svg
       aria-hidden="true"
@@ -33,147 +61,45 @@ function Glyph({ children, size = 18 }: { children: ReactNode; size?: number }):
       strokeLinejoin="round"
       style={{ flexShrink: 0 }}
     >
-      {children}
+      <path d="M12 19V8M7 12l5-5 5 5M5 20h14" />
     </svg>
   );
 }
 
-export function SparkIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" />
-    </Glyph>
-  );
-}
-
-export function AlertIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v6M12 16h.01" />
-    </Glyph>
-  );
-}
-
-export function ClockIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <circle cx="12" cy="12" r="8" />
-      <path d="M12 8v4l3 2" />
-    </Glyph>
-  );
-}
-
-export function ColumnsIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M9 4v16M15 4v16" />
-    </Glyph>
-  );
-}
-
-export function FunnelIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <path d="M3 5h18l-7 8v6l-4-2v-4z" />
-    </Glyph>
-  );
-}
-
-export function DownloadIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <path d="M12 4v11M7 11l5 5 5-5M5 20h14" />
-    </Glyph>
-  );
-}
-
-export function UploadIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <path d="M12 19V8M7 12l5-5 5 5M5 20h14" />
-    </Glyph>
-  );
-}
-
 export function PlusIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <path d="M12 5v14M5 12h14" />
-    </Glyph>
-  );
+  return <Icon name="plus" size={size} className="shrink-0" />;
 }
 
 export function XIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <path d="M6 6l12 12M18 6L6 18" />
-    </Glyph>
-  );
+  return <Icon name="x" size={size} className="shrink-0" />;
 }
 
 export function CheckIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <path d="M5 12l5 5L20 7" />
-    </Glyph>
-  );
+  return <Icon name="check" size={size} className="shrink-0" />;
 }
 
 export function ChevronIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <path d="M9 6l6 6-6 6" />
-    </Glyph>
-  );
+  return <Icon name="chev" size={size} className="shrink-0" />;
 }
 
 export function PenIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <path d="M4 20h4L19 9l-4-4L4 16z" />
-    </Glyph>
-  );
+  return <Icon name="pen" size={size} className="shrink-0" />;
 }
 
 export function LockIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <rect x="5" y="11" width="14" height="9" rx="2" />
-      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-    </Glyph>
-  );
+  return <Icon name="lock" size={size} className="shrink-0" />;
 }
 
 export function FileIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <path d="M6 3h9l4 4v14H6z" />
-      <path d="M14 3v5h5M9 13h6M9 17h6" />
-    </Glyph>
-  );
+  return <Icon name="file" size={size} className="shrink-0" />;
 }
 
 export function BookIcon({ size = 18 }: { size?: number }): ReactNode {
-  return (
-    <Glyph size={size}>
-      <path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z" />
-      <path d="M4 19V5" />
-    </Glyph>
-  );
+  return <Icon name="book" size={size} className="shrink-0" />;
 }
 
 export function SortIcon({ dir }: { dir: "asc" | "desc" }): ReactNode {
-  return dir === "asc" ? (
-    <Glyph size={14}>
-      <path d="M12 19V6M7 11l5-5 5 5" />
-    </Glyph>
-  ) : (
-    <Glyph size={14}>
-      <path d="M12 5v13M7 13l5 5 5-5" />
-    </Glyph>
-  );
+  return <Icon name={dir === "asc" ? "sort-up" : "sort-down"} size={14} className="shrink-0" />;
 }
 
 /* ---------- export ---------- */

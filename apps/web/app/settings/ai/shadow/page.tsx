@@ -24,6 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, Spinner } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import { api } from "../../../../lib/api";
 import { resultErrorText } from "../../../../lib/error-copy";
@@ -459,21 +460,9 @@ export default function ShadowRunsPage(): React.JSX.Element {
 
 function ShieldIcon(): React.JSX.Element {
   return (
-    <svg
-      aria-hidden="true"
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ flexShrink: 0, color: "var(--m-text-secondary)" }}
-    >
-      <path d="M12 3 5 6v6c0 4 3 7 7 8 4-1 7-4 7-8V6l-7-3Z" />
-      <path d="M9 12h6" />
-    </svg>
+    <span style={{ display: "inline-flex", flexShrink: 0, color: "var(--m-text-secondary)" }}>
+      <Icon name="shield" size={18} />
+    </span>
   );
 }
 

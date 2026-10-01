@@ -946,10 +946,7 @@ export default function DispatchBoardPage() {
         </>
       ) : null}
       <button type="button" className="dp-ib" aria-label="Dispatch settings" onClick={() => setSettings(true)}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
-        </svg>
+        <Icon name="settings" size={18} />
       </button>
     </div>
   );
@@ -1156,10 +1153,7 @@ export default function DispatchBoardPage() {
             <span className="dp-idc">#{q.tk}</span>
             {q.sla !== null && q.sla <= 60 ? (
               <span className="dp-pill dp-pill-bad" style={{ marginLeft: "auto" }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
-                  <circle cx="12" cy="12" r="8" />
-                  <path d="M12 8v4l3 2" />
-                </svg>
+                <Icon name="clock" size={14} />
                 {dur(q.sla)} left
               </span>
             ) : q.sla !== null ? (
@@ -1183,14 +1177,7 @@ export default function DispatchBoardPage() {
           )}
         </div>
         <span className="grip" aria-hidden="true">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <circle cx="9" cy="6" r="1" />
-            <circle cx="15" cy="6" r="1" />
-            <circle cx="9" cy="12" r="1" />
-            <circle cx="15" cy="12" r="1" />
-            <circle cx="9" cy="18" r="1" />
-            <circle cx="15" cy="18" r="1" />
-          </svg>
+          <Icon name="grip" size={16} />
         </span>
       </div>
     );
@@ -1273,10 +1260,7 @@ export default function DispatchBoardPage() {
           {absencesHere.map((a) => (
             <div key={a.jid} className="dp-blk abs" style={{ left: `${pct(a.s)}%`, width: `${(a.d / (D1 - D0)) * 100}%` }}>
               <div className="dp-bt">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
-                  <rect x="5" y="11" width="14" height="9" rx="2" />
-                  <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-                </svg>
+                <Icon name="lock" size={14} />
                 {a.title}
               </div>
               <div className="dp-mt">
@@ -1319,9 +1303,7 @@ export default function DispatchBoardPage() {
       <div key={j.jid}>
         {travel > 0 && (
           <div className="dp-trv" style={{ left: `${pct(j.s - travel)}%`, width: `${(travel / (D1 - D0)) * 100}%` }} title={`Travel ${travel} min`}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
-              <path d="M5 16V11l2-5h10l2 5v5M3 16h18v3H3zM7 19v2M17 19v2" />
-            </svg>
+            <Icon name="car" size={12} />
             <span>{travel}m</span>
           </div>
         )}
@@ -1411,17 +1393,12 @@ export default function DispatchBoardPage() {
               </span>
             )}
             <button type="button" onClick={() => splitJob(sel)}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
-                <path d="M12 4v6M12 10l-6 6v4M12 10l6 6v4" />
-              </svg>
+              <Icon name="split" size={16} />
               Split
             </button>
             {!jb.prop && (
               <button type="button" onClick={() => unassignJob(sel)}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
-                  <circle cx="9" cy="8" r="3" />
-                  <path d="M3 20c0-3 3-5 6-5s6 2 6 5M16 9l5 5M21 9l-5 5" />
-                </svg>
+                <Icon name="userx" size={16} />
                 Unassign
               </button>
             )}
@@ -1784,10 +1761,7 @@ export default function DispatchBoardPage() {
             <span className="dp-hint2">No SLA</span>
           ) : q.sla <= 60 ? (
             <span className="dp-pill dp-pill-bad">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
-                <circle cx="12" cy="12" r="8" />
-                <path d="M12 8v4l3 2" />
-              </svg>
+              <Icon name="clock" size={14} />
               {dur(q.sla)} left
             </span>
           ) : (

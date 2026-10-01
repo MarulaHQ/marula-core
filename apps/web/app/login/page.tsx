@@ -19,6 +19,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { FieldError, FieldHint } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, Input, Label, Spinner } from "@marula-core/ui";
 import { api, resolveApiBaseUrl, saveTokens, useAuth } from "../../lib/api";
@@ -261,20 +262,7 @@ export default function LoginPage() {
                   color: "var(--m-text-secondary)",
                 }}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-                  {showPassword ? (
-                    <>
-                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
-                      <circle cx="12" cy="12" r="2.5" />
-                      <path d="M4 4l16 16" strokeLinecap="round" />
-                    </>
-                  ) : (
-                    <>
-                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
-                      <circle cx="12" cy="12" r="2.5" />
-                    </>
-                  )}
-                </svg>
+                <Icon name="eye" size={16} />
               </button>
             </div>
             {/* Blush, with an icon and words. Never red. */}

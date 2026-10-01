@@ -14,6 +14,7 @@
  * tokens, so the drawing and the app agree by construction.
  */
 import { SurfaceHeader } from "@marula-core/ui";
+import { Icon as KitIcon } from "@marula-core/ui/kit";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
@@ -29,27 +30,7 @@ import {
 // ---------------------------------------------------------------- icons ----
 
 function Icon({ name }: { name: "check" | "clock" | "alert" | "info" }) {
-  const path = {
-    check: "M5 12l5 5L20 7",
-    clock: "M12 8v4l3 2",
-    alert: "M12 7v6M12 16h.01",
-    info: "M12 11v5M12 8h.01",
-  }[name];
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className="m-money-ico"
-    >
-      {name === "clock" ? <circle cx="12" cy="12" r="8" /> : null}
-      <path d={path} />
-    </svg>
-  );
+  return <KitIcon name={name} size={14} className="m-money-ico" />;
 }
 
 // ---------------------------------------------------------------- header ----

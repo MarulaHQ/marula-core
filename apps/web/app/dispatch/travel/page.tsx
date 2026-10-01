@@ -14,6 +14,7 @@
 
 import "../dispatch.css";
 import { Spinner } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -54,23 +55,7 @@ type ReconciliationView = {
 };
 
 function AlertIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      style={{ flexShrink: 0 }}
-    >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v6M12 16h.01" />
-    </svg>
-  );
+  return <Icon name="alert" size={size} />;
 }
 
 /** Planned-vs-logged minutes per day for the last fourteen days, newest last.

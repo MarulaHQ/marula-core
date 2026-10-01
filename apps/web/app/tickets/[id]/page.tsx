@@ -25,6 +25,7 @@
 import type { components } from "@marula-core/sdk";
 import { snapshotOf } from "@marula-core/sdk";
 import { Spinner, StatusTag, Button, Badge, StatusStepper } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import { TranscribeControl } from "../../../components/attachments/transcribe-control";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -1325,9 +1326,7 @@ async function changeStatus(statusId: string): Promise<void> {
               ) : (
                 (model?.attachments ?? []).map((a) => (
                   <div key={a.id} className="flex items-center gap-2 text-xs" style={{ color: "var(--m-text-secondary)" }}>
-                    <svg aria-hidden width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                    </svg>
+                    <Icon name="clip" size={12} />
                     {a.filename} · {Math.max(1, Math.round(a.size_bytes / 1024))} KB
                     <TranscribeControl attachmentId={a.id} contentType={a.content_type} />
                   </div>

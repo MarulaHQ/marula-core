@@ -20,25 +20,15 @@ import { useRequireAuth } from "../../lib/api";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
+import { Icon } from "@marula-core/ui/kit";
 import { SETTINGS_GROUPS, SETTINGS_RAIL, groupForPathname } from "../../lib/settings/ia";
 import { SETTINGS_COLUMN, SHELL_GAP } from "../../components/settings/settings-forms";
 
 function Chevron({ open }: { open: boolean }): React.JSX.Element {
   return (
-    <svg
-      aria-hidden="true"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ color: "var(--m-text-secondary)" }}
-    >
-      {open ? <path d="m6 9 6 6 6-6" /> : <path d="m9 6 6 6-6 6" />}
-    </svg>
+    <span style={{ display: "inline-flex", color: "var(--m-text-secondary)" }}>
+      <Icon name={open ? "down" : "chev"} size={16} />
+    </span>
   );
 }
 

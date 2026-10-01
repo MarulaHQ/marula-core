@@ -28,6 +28,7 @@ import type { components } from "@marula-core/sdk";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Spinner } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import { applyEntryTheme } from "../../../lib/entry-theme";
 import { api } from "../../../lib/api";
 import { portalOrgName } from "../../../lib/portal-branding";
@@ -217,9 +218,7 @@ export default function PublicBookingPage(): ReactNode {
               color: "var(--m-status-success-fg)",
             }}
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
+            <Icon name="check" size={22} />
           </span>
           <h1 className="share-card__h">Booked.</h1>
           <p className="share-card__p">
