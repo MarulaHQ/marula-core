@@ -36,9 +36,24 @@ Both embed code in the workflow document, which is disqualifying on its own — 
 3. **One document, two editors, plus a third authoring path.** The existing rule builder is the simple tier and stays first-class. The canvas is the power tier and edits **the same JSON** — opening a rule in the canvas is a view toggle, never a migration. The LLM path emits that same JSON. Three surfaces, one artefact.
 4. **No code in the document.** A workflow is declarative data: a trigger, conditions, actions, and a branch structure. Never an embedded script, expression string, or eval. Arbitrary logic is a plugin action whose `params` validate against its `params_schema`, which `AutomationAction::PluginAction` (`crates/core-domain/src/automations.rs:286`) already enforces at execution time. This is the security boundary *and* the correctness boundary for LLM authoring: models hallucinate inside code strings and never inside a closed enum.
 5. **The node registry is the schema source of truth, in Rust, and it derives everything.** Each node type declares its id, label, an agent-oriented description, an `idempotent` flag, a JSON Schema for its inputs, and an output schema. Those declarations generate the canvas palette, the properties panel, the API types, the plugin-action picker, and the LLM tool catalogue from one source. No second registry in TypeScript.
-6. **Node schemas are exposed to the LLM on demand, not inlined into the prompt.** A tool returns one node's schema when asked. This is Windmill's `get_runnable_details` pattern and it is the difference between cheap authoring and a prompt that grows with the catalogue. Each node also carries a short agent-oriented description and an `idempotent` flag so the model can decide whether repeating a step is safe — Activepieces' `aiMetadata`, which is what makes its MCP catalogue work and is cheap to replicate.
-7. **Every run is recorded, step by step, and any failed run is retryable from the UI.** A `workflow_runs` and `workflow_run_steps` ledger with per-step status, timing, input and error. This is the one genuinely new backend piece, and it is also what makes decision 3's AI tier trustworthy: a user cannot accept an LLM-authored workflow they cannot inspect afterwards.
-8. **Non-goals, binding.** No n8n clone. No DAG editor for its own sake. No script/code step. No third-party marketplace of nodes in the core — plugin-contributed actions only, under the existing ADR 0009 consent lifecycle.
+6. **The Decision Engine is exposed as one node with a batch of questions and a batch of
+   answers, not a single question.** `crates/core-decision` already takes
+   `DecisionRequest { state, questions: Vec<Question> }` and returns
+   `DecisionResponse { answers: Vec<Answer> }` in a single provider call, and
+   ADR 0011 §4 requires atomic questions that combine in code. The workflow node
+   preserves that: arbitrary composed context in, a named question set in,
+   every answer out as an addressable output with its distribution, confidence
+   and per-question verdict. Chaining single-question nodes instead would cost
+   more, wait longer, and lose the correlation between answers that is the whole
+   capability. Full node spec in `docs/reference/workflow-node-catalogue.md`.
+7. **Plugins contribute nodes under [ADR 0017](0017-plugin-node-surface.md).**
+   First-party and marketplace connectors get the same capability, with the org
+   withholding per install through the existing `granted_capabilities`, and a
+   connector declaring an event type it can also produce is refused a `waitFor`
+   on that type.
+8. **Node schemas are exposed to the LLM on demand, not inlined into the prompt.** A tool returns one node's schema when asked. This is Windmill's `get_runnable_details` pattern and it is the difference between cheap authoring and a prompt that grows with the catalogue. Each node also carries a short agent-oriented description and an `idempotent` flag so the model can decide whether repeating a step is safe — Activepieces' `aiMetadata`, which is what makes its MCP catalogue work and is cheap to replicate.
+9. **Every run is recorded, step by step, and any failed run is retryable from the UI.** A `workflow_runs` and `workflow_run_steps` ledger with per-step status, timing, input and error. This is the one genuinely new backend piece, and it is also what makes decision 3's AI tier trustworthy: a user cannot accept an LLM-authored workflow they cannot inspect afterwards.
+10. **Non-goals, binding.** No n8n clone. No DAG editor for its own sake. No script/code step. No third-party marketplace of nodes in the core — plugin-contributed actions only, under the existing ADR 0009 consent lifecycle.
 
 ## Consequences
 
@@ -52,4 +67,4 @@ Both embed code in the workflow document, which is disqualifying on its own — 
 
 Wave 43 track 1 supplies the trigger half: lane 1 makes external systems emit real envelopes and lane 2 makes those types subscribable, so the trigger node's catalogue is the event-type registry rather than a hardcoded list. Lane 3 makes ticket-less events able to fire rules, which is what lets a workflow start from something other than a ticket. Lane 4's `automation_trigger` surface kind is how a plugin contributes its own trigger.
 
-Lane 12 (`p43-signature-pad`) and lane 13 (`p43-sign-off-actions`) are the first multi-step consumer of this foundation: a signature is captured, filed against the time entry, and the ticket closed, with the customer optionally notified. That flow is the honest test of whether three steps and a branch are enough, or whether the node vocabulary was designed too thin.
+Lane 12 (`p43-signature-pad`) and lane 19 (`p43-sign-off-actions`) are the first multi-step consumer of this foundation: a signature is captured, filed against the time entry, and the ticket closed, with the customer optionally notified. That flow is the honest test of whether three steps and a branch are enough, or whether the node vocabulary was designed too thin.
