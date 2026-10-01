@@ -96,11 +96,7 @@ pub async fn insert_ticket_pick(
     Ok(id)
 }
 
-pub async fn delete_ticket_pick(
-    conn: &mut PgConnection,
-    org_id: Uuid,
-    id: Uuid,
-) -> DbResult<bool> {
+pub async fn delete_ticket_pick(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> DbResult<bool> {
     let result = sqlx::query!(
         r#"DELETE FROM ticket_stock_picks WHERE org_id = $1 AND id = $2"#,
         org_id,

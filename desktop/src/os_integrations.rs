@@ -53,15 +53,18 @@ pub fn parse_deep_link(raw: &str) -> DeepLinkTarget {
     // Drop any query; take the path segments.
     let path = rest.split('?').next().unwrap_or("");
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    let uuid = |s: &str| {
-        s.len() == 36 && s.chars().filter(|c| *c == '-').count() == 4
-    };
+    let uuid = |s: &str| s.len() == 36 && s.chars().filter(|c| *c == '-').count() == 4;
     match segments.as_slice() {
         ["ticket", id] if uuid(id) => DeepLinkTarget::Ticket((*id).to_string()),
         ["notifications"] => DeepLinkTarget::Notifications,
         ["board", id] if uuid(id) => DeepLinkTarget::Board((*id).to_string()),
-        ["stock-item", id] | ["stock-location", id] | ["stock-serial", id]
-        | ["device-asset", id] | ["tool-kit", id] if uuid(id) => {
+        ["stock-item", id]
+        | ["stock-location", id]
+        | ["stock-serial", id]
+        | ["device-asset", id]
+        | ["tool-kit", id]
+            if uuid(id) =>
+        {
             DeepLinkTarget::Entity(segments[0].to_string(), (*id).to_string())
         }
         _ => DeepLinkTarget::Unrecognized(raw.to_string()),
@@ -247,15 +250,35 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
 /// `on_tray_event` in main.rs; keeping ids stringly makes the mapping
 /// reviewable next to the actions themselves.
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let new_ticket = MenuItem::with_id(app, "tray-new-ticket", "New ticket window", true, None::<&str>)?;
-    let dispatch = MenuItem::with_id(app, "tray-dispatch", "Open dispatch board", true, None::<&str>)?;
+    let new_ticket = MenuItem::with_id(
+        app,
+        "tray-new-ticket",
+        "New ticket window",
+        true,
+        None::<&str>,
+    )?;
+    let dispatch = MenuItem::with_id(
+        app,
+        "tray-dispatch",
+        "Open dispatch board",
+        true,
+        None::<&str>,
+    )?;
     let stock = MenuItem::with_id(app, "tray-stock", "Open stock lookup", true, None::<&str>)?;
     let show_main = MenuItem::with_id(app, "tray-show-main", "Show Marula", true, None::<&str>)?;
     let sep = tauri::menu::PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "tray-quit", "Quit Marula", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&show_main, &sep, &new_ticket, &dispatch, &stock, &sep, &quit],
+        &[
+            &show_main,
+            &sep,
+            &new_ticket,
+            &dispatch,
+            &stock,
+            &sep,
+            &quit,
+        ],
     )?;
     TrayIconBuilder::with_id("marula-tray")
         .icon(app.default_window_icon().expect("bundled app icon").clone())
@@ -283,8 +306,7 @@ pub fn dispatch_tray_action(app: &AppHandle, id: &str) {
         let role = role.to_string();
         let path = path.to_string();
         tauri::async_runtime::spawn(async move {
-            if let Err(e) =
-                super::window_manager::open_native_window(app.clone(), role, path).await
+            if let Err(e) = super::window_manager::open_native_window(app.clone(), role, path).await
             {
                 tracing::warn!("tray window action failed: {e}");
             }

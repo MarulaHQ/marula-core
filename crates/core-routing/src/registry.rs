@@ -127,8 +127,9 @@ impl RoutingRegistry {
     /// the configured id — the callers' one call site.
     pub fn require_active(&self) -> Result<Arc<dyn RoutingProvider>, RoutingError> {
         let configured = self.configured_id().ok_or(RoutingError::NoProvider)?;
-        self.get(&configured)
-            .ok_or(RoutingError::NotConfigured { provider: configured })
+        self.get(&configured).ok_or(RoutingError::NotConfigured {
+            provider: configured,
+        })
     }
 
     #[must_use]
@@ -163,7 +164,11 @@ impl RoutingRegistry {
                 provider_id: info.id,
                 provider_label: info.label,
                 quality: info.quality,
-                capabilities: info.capabilities.iter().map(|c| c.as_str().into()).collect(),
+                capabilities: info
+                    .capabilities
+                    .iter()
+                    .map(|c| c.as_str().into())
+                    .collect(),
                 modes: info.modes.iter().map(|m| m.as_str().into()).collect(),
                 suggestions_available: info.quality == RoutingQuality::Measured,
                 reason: None,

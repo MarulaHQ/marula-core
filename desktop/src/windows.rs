@@ -143,10 +143,7 @@ pub fn scale_for_frame(monitors: &[MonitorBounds], frame: &WindowGeometry) -> f6
 /// Clamp a remembered frame into the union of the currently visible
 /// monitors (physical pixels): windows come back on-screen after
 /// display changes, never stranded on a hotplugged monitor.
-fn clamp_to_visible(
-    frame: &WindowGeometry,
-    monitors: &[MonitorBounds],
-) -> (i32, i32, u32, u32) {
+fn clamp_to_visible(frame: &WindowGeometry, monitors: &[MonitorBounds]) -> (i32, i32, u32, u32) {
     // Fallback: if no monitors report (paranoid), trust the saved frame.
     if monitors.is_empty() {
         return (frame.x, frame.y, frame.width, frame.height);
@@ -167,8 +164,16 @@ fn clamp_to_visible(
     // Awarded size: at most the largest single monitor (a window can't
     // meaningfully exceed its display; keeps a stray giant remembered
     // frame from covering the union of two).
-    let max_w = monitors.iter().map(|m| m.width).max().unwrap_or(frame.width);
-    let max_h = monitors.iter().map(|m| m.height).max().unwrap_or(frame.height);
+    let max_w = monitors
+        .iter()
+        .map(|m| m.width)
+        .max()
+        .unwrap_or(frame.width);
+    let max_h = monitors
+        .iter()
+        .map(|m| m.height)
+        .max()
+        .unwrap_or(frame.height);
     let width = frame.width.min(max_w).max(400);
     let height = frame.height.min(max_h).max(300);
     // Keep at least a 60px sliver visible horizontally and the title bar
@@ -188,7 +193,10 @@ pub fn restore_frame(
     monitors: &[MonitorBounds],
 ) -> Option<(i32, i32, u32, u32)> {
     let role_state = state.roles.get(role)?;
-    let frame = role_state.windows.get(index).or_else(|| role_state.windows.last())?;
+    let frame = role_state
+        .windows
+        .get(index)
+        .or_else(|| role_state.windows.last())?;
     Some(clamp_to_visible(frame, monitors))
 }
 
@@ -397,7 +405,10 @@ mod tests {
         let monitors = vec![monitor_scaled(0, 0, 1920, 1080, 1.0)];
         let scale = scale_for_frame(&monitors, &frame);
         assert_eq!(scale, 1.0);
-        assert_eq!((frame.width as f64 / scale, frame.height as f64 / scale), (900.0, 640.0));
+        assert_eq!(
+            (frame.width as f64 / scale, frame.height as f64 / scale),
+            (900.0, 640.0)
+        );
     }
 
     #[test]

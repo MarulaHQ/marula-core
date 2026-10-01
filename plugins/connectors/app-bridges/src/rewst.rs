@@ -4,7 +4,7 @@
 //! surface (one algorithm, one constant-time verification posture).
 //! The payload carries the requested notification → workflow contract:
 //! `{ org, event, invoice_id?, ticket_id?, text, link_url? }` etc.
-use crate::{BridgeError};
+use crate::BridgeError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]

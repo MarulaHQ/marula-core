@@ -417,8 +417,9 @@ impl Availability {
             candidates.sort_by_key(|(id, _, kind, _)| {
                 (vehicle_rank(*id, &self.vehicles), location_rank(kind))
             });
-            let source = candidates.first().map(|(id, name, kind, count)| {
-                DayPackSourceView {
+            let source = candidates
+                .first()
+                .map(|(id, name, kind, count)| DayPackSourceView {
                     location_id: *id,
                     name: if name.is_empty() {
                         kind.clone()
@@ -428,8 +429,7 @@ impl Availability {
                     kind: kind.clone(),
                     available_units: *count,
                     is_tech_vehicle: self.vehicles.contains(id),
-                }
-            });
+                });
             let status = if available >= required {
                 "available"
             } else if available > 0 {
@@ -488,7 +488,8 @@ impl Availability {
             let levels = self.levels.get(&item.id).cloned().unwrap_or_default();
             let available: i64 = levels.iter().map(|l| l.qty_milli).sum();
             let required = qty_milli;
-            let mut candidates: Vec<&core_db::day_pack::ConsumableLevelRow> = levels.iter().collect();
+            let mut candidates: Vec<&core_db::day_pack::ConsumableLevelRow> =
+                levels.iter().collect();
             candidates.sort_by_key(|l| {
                 (
                     vehicle_rank(l.location_id, &self.vehicles),
@@ -715,9 +716,14 @@ async fn compose_day_pack(
     let tomorrow_to = tomorrow_from + Duration::days(1);
 
     let stops = core_db::day_pack::scheduled_stops_between(conn, org_id, user_id, from, to).await?;
-    let tomorrow_stops =
-        core_db::day_pack::scheduled_stops_between(conn, org_id, user_id, tomorrow_from, tomorrow_to)
-            .await?;
+    let tomorrow_stops = core_db::day_pack::scheduled_stops_between(
+        conn,
+        org_id,
+        user_id,
+        tomorrow_from,
+        tomorrow_to,
+    )
+    .await?;
 
     let start_point = crate::routing::resolve_start_point(conn, org_id, user_id, day).await?;
     let tomorrow_start =
@@ -742,7 +748,8 @@ async fn compose_day_pack(
     let catalog = if reminders.is_empty() {
         Vec::new()
     } else {
-        core_db::stock::list_stock_items(&mut *conn, org_id, None, true, CATALOG_LIMIT).await?
+        core_db::stock::list_stock_items(&mut *conn, org_id, None, true, CATALOG_LIMIT)
+            .await?
             .into_iter()
             .map(|item| core_db::day_pack::PackItemRow {
                 id: item.id,
@@ -929,7 +936,10 @@ async fn compose_day_pack(
                 .map(str::to_string),
         })
         .collect();
-    let segments = pack::trip_segments(start_point.as_ref().map(|s| s.place.kind.as_str()), &trip_stops);
+    let segments = pack::trip_segments(
+        start_point.as_ref().map(|s| s.place.kind.as_str()),
+        &trip_stops,
+    );
 
     let mut lines_total = 0i64;
     let mut collected_total = 0i64;
@@ -1020,9 +1030,7 @@ async fn compose_day_pack(
             date: tomorrow,
             reason: reason.to_string(),
             start_point_kind: tomorrow_start.as_ref().map(|s| s.place.kind.clone()),
-            start_point_label: tomorrow_start
-                .as_ref()
-                .and_then(|s| s.place.label.clone()),
+            start_point_label: tomorrow_start.as_ref().and_then(|s| s.place.label.clone()),
             stops: tomorrow_stops.iter().map(stop_view).collect(),
             lines,
             kits,
@@ -1234,8 +1242,7 @@ pub async fn create_pick(
         }
         // Both anchors must exist in this org before an intent row lands.
         let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, req.ticket_id).await?;
-        let item =
-            core_db::stock::get_stock_item(&mut *ctx.tx, org_id, req.stock_item_id).await?;
+        let item = core_db::stock::get_stock_item(&mut *ctx.tx, org_id, req.stock_item_id).await?;
         let seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -1542,15 +1549,10 @@ pub async fn delete_tick(
     let user_id = authed.principal.user.id;
     let line_key = q.line_key.trim().to_string();
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let existing = core_db::day_pack::find_tick(
-            &mut ctx.tx,
-            org_id,
-            user_id,
-            q.date,
-            &line_key,
-        )
-        .await?
-        .ok_or(ApiError::NotFound)?;
+        let existing =
+            core_db::day_pack::find_tick(&mut ctx.tx, org_id, user_id, q.date, &line_key)
+                .await?
+                .ok_or(ApiError::NotFound)?;
         let seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -1702,9 +1704,10 @@ async fn enrich_rules(
     let names: HashMap<Uuid, String> = items.into_iter().map(|i| (i.id, i.name)).collect();
     let mut views = Vec::with_capacity(rules.len());
     for rule in rules {
-        let scope_name = core_db::day_pack::scope_name(conn, org_id, &rule.scope_kind, rule.scope_id)
-            .await?
-            .unwrap_or_else(|| "missing scope".to_string());
+        let scope_name =
+            core_db::day_pack::scope_name(conn, org_id, &rule.scope_kind, rule.scope_id)
+                .await?
+                .unwrap_or_else(|| "missing scope".to_string());
         let kit_name = match rule.kit_id {
             Some(kit_id) => core_db::tools::get_kit(&mut *conn, org_id, kit_id)
                 .await
@@ -1821,14 +1824,10 @@ pub async fn create_rule(
             Some(user_id),
         )
         .await?;
-        let scope_name = core_db::day_pack::scope_name(
-            &mut ctx.tx,
-            org_id,
-            req.scope_kind.trim(),
-            req.scope_id,
-        )
-        .await?
-        .unwrap_or_else(|| "missing scope".to_string());
+        let scope_name =
+            core_db::day_pack::scope_name(&mut ctx.tx, org_id, req.scope_kind.trim(), req.scope_id)
+                .await?
+                .unwrap_or_else(|| "missing scope".to_string());
         let item_name = match req.stock_item_id {
             Some(item_id) => core_db::stock::get_stock_item(&mut *ctx.tx, org_id, item_id)
                 .await

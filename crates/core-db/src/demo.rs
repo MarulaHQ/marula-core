@@ -728,7 +728,13 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         // next_ticket_number returns (prefix, sequence); the human ticket
         // number is the concatenation ("DEMO1001", ...).
         let (prefix, seq) = crate::orgs::next_ticket_number(&mut *tx, DEMO_ORG_ID).await?;
-        let number = format!("{prefix}{seq}");
+        // The hyphen is the app's ticket-number format everywhere else
+        // (core-api's create/import paths, and every DB test fixture), so the
+        // seeded org was the one place producing `DEMO1014` beside the API's
+        // `DEMO-1065`. In a ledger that reads as two different numbering
+        // schemes in a single column, and the seeded rows sit directly beside
+        // API-created ones.
+        let number = format!("{prefix}-{seq}");
         let id = demo_uuid(100 + spec.index);
         crate::tickets::insert_ticket(
             &mut tx,
@@ -821,7 +827,13 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         let days_ago = (i % 21) as i64;
         let resolved = i % 9 == 0;
         let (prefix, seq) = crate::orgs::next_ticket_number(&mut *tx, DEMO_ORG_ID).await?;
-        let number = format!("{prefix}{seq}");
+        // The hyphen is the app's ticket-number format everywhere else
+        // (core-api's create/import paths, and every DB test fixture), so the
+        // seeded org was the one place producing `DEMO1014` beside the API's
+        // `DEMO-1065`. In a ledger that reads as two different numbering
+        // schemes in a single column, and the seeded rows sit directly beside
+        // API-created ones.
+        let number = format!("{prefix}-{seq}");
         let id = demo_uuid(200 + i);
         crate::tickets::insert_ticket(
             &mut tx,
@@ -1089,14 +1101,14 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     // Once per FIELD seat (the two people who open the app on site): whichever
     // one signs in sees a breached row, a due-soon row, and calm ones.
     for seat in [dispatcher, tech] {
-    let mut sla_seeded = 0usize;
-    for i in 0..24u64 {
-        if sla_seeded == SLA_PATTERN.len() {
-            break;
-        }
-        let due_minutes = SLA_PATTERN[sla_seeded];
-        let inserted = sqlx::query(
-            "INSERT INTO ticket_sla_state (ticket_id, org_id, policy_id,
+        let mut sla_seeded = 0usize;
+        for i in 0..24u64 {
+            if sla_seeded == SLA_PATTERN.len() {
+                break;
+            }
+            let due_minutes = SLA_PATTERN[sla_seeded];
+            let inserted = sqlx::query(
+                "INSERT INTO ticket_sla_state (ticket_id, org_id, policy_id,
                                            first_response_due, resolution_due,
                                            first_responded_at, breached)
              SELECT t.id, $1, $2,
@@ -1108,19 +1120,19 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
              JOIN board_statuses st ON st.id = t.status_id
              WHERE t.id = $3 AND st.category <> 'closed' AND t.assignee_id = $6
              ON CONFLICT (ticket_id) DO NOTHING",
-        )
-        .bind(DEMO_ORG_ID)
-        .bind(sla_policy_id)
-        .bind(demo_uuid(200 + i))
-        .bind(now)
-        .bind(due_minutes)
-        .bind(seat)
-        .execute(&mut *tx)
-        .await?;
-        if inserted.rows_affected() == 1 {
-            sla_seeded += 1;
+            )
+            .bind(DEMO_ORG_ID)
+            .bind(sla_policy_id)
+            .bind(demo_uuid(200 + i))
+            .bind(now)
+            .bind(due_minutes)
+            .bind(seat)
+            .execute(&mut *tx)
+            .await?;
+            if inserted.rows_affected() == 1 {
+                sla_seeded += 1;
+            }
         }
-    }
     }
 
     // --- stock: locations, items, serials, on-hand -------------------------
@@ -1137,8 +1149,22 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     for (id, name, kind, code, parent, assignee) in [
         (LOC_WAREHOUSE, "Warehouse", "warehouse", "WH-A", None, None),
         (LOC_VAN, "Van 2", "van", "VAN-2", None, Some(tech)),
-        (LOC_SHELF, "Shelf B", "shelf", "SHELF-B", Some(LOC_WAREHOUSE), None),
-        (LOC_RETURNS, "Shelf B (returns)", "shelf", "SHELF-B", Some(LOC_WAREHOUSE), None),
+        (
+            LOC_SHELF,
+            "Shelf B",
+            "shelf",
+            "SHELF-B",
+            Some(LOC_WAREHOUSE),
+            None,
+        ),
+        (
+            LOC_RETURNS,
+            "Shelf B (returns)",
+            "shelf",
+            "SHELF-B",
+            Some(LOC_WAREHOUSE),
+            None,
+        ),
     ] {
         sqlx::query(
             "INSERT INTO stock_locations (id, org_id, name, kind, code, parent_id, assigned_user_id)
@@ -1160,12 +1186,60 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     // carry the SAME part number on purpose: scanning the part resolves to two
     // candidates, which is the ambiguity picker's whole reason to exist.
     let stock_specs: [(u64, &str, &str, &str, &str, &str, &str); 6] = [
-        (910, "Torque wrench set", "TL-0142", "TL-0142", "serialized", "each", "USD"),
-        (911, "Cable tester", "TL-0088", "TL-0088", "serialized", "each", "USD"),
-        (912, "Thermal paste", "TP-220", "TP-220", "consumable", "each", "USD"),
-        (913, "Cat6 patch lead 2m", "NET-2M", "NET-2M", "consumable", "each", "USD"),
-        (914, "USB-C dock", "DOCK-01", "DOCK-01", "consumable", "each", "USD"),
-        (915, "USB-C dock (spare)", "DOCK-02", "DOCK-01", "consumable", "each", "USD"),
+        (
+            910,
+            "Torque wrench set",
+            "TL-0142",
+            "TL-0142",
+            "serialized",
+            "each",
+            "USD",
+        ),
+        (
+            911,
+            "Cable tester",
+            "TL-0088",
+            "TL-0088",
+            "serialized",
+            "each",
+            "USD",
+        ),
+        (
+            912,
+            "Thermal paste",
+            "TP-220",
+            "TP-220",
+            "consumable",
+            "each",
+            "USD",
+        ),
+        (
+            913,
+            "Cat6 patch lead 2m",
+            "NET-2M",
+            "NET-2M",
+            "consumable",
+            "each",
+            "USD",
+        ),
+        (
+            914,
+            "USB-C dock",
+            "DOCK-01",
+            "DOCK-01",
+            "consumable",
+            "each",
+            "USD",
+        ),
+        (
+            915,
+            "USB-C dock (spare)",
+            "DOCK-02",
+            "DOCK-01",
+            "consumable",
+            "each",
+            "USD",
+        ),
     ];
     for (id, name, sku, part, kind, unit, currency) in stock_specs {
         sqlx::query(
@@ -1209,7 +1283,14 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
 
     // TP-220 in the van sits under its reorder point: the LOW pill is real.
     for (id, item, location, qty, min, reorder) in [
-        (940u64, 912u64, LOC_WAREHOUSE, 24_000i64, 10_000i64, 10_000i64),
+        (
+            940u64,
+            912u64,
+            LOC_WAREHOUSE,
+            24_000i64,
+            10_000i64,
+            10_000i64,
+        ),
         (941, 912, LOC_VAN, 1_500, 2_000, 2_000),
         (942, 913, LOC_SHELF, 40_000, 10_000, 12_000),
         (943, 914, LOC_WAREHOUSE, 6_000, 2_000, 2_000),
@@ -1237,8 +1318,24 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     // Safe to reseed: migration 0119 gives the dev reset an explicit bypass
     // for the append-only guard, which the app itself never sets.
     for (id, item, kind, to, qty, ticket, note) in [
-        (960u64, 912u64, "receive", LOC_WAREHOUSE, 24_000i64, None, "Opening stock"),
-        (961, 912, "consume", LOC_WAREHOUSE, -1_500, Some(demo_uuid(202)), "Reseated two ports"),
+        (
+            960u64,
+            912u64,
+            "receive",
+            LOC_WAREHOUSE,
+            24_000i64,
+            None,
+            "Opening stock",
+        ),
+        (
+            961,
+            912,
+            "consume",
+            LOC_WAREHOUSE,
+            -1_500,
+            Some(demo_uuid(202)),
+            "Reseated two ports",
+        ),
         (962, 913, "receive", LOC_SHELF, 40_000, None, "Van restock"),
     ] {
         sqlx::query(
@@ -1272,8 +1369,22 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .await?;
 
     for (id, serial, item, location, due_hours, note) in [
-        (971u64, 920u64, 910u64, LOC_VAN, 26i64, "VPN troubleshooting"),
-        (972, 923, 913, LOC_SHELF, -20, "Switch firmware — still out, due back yesterday"),
+        (
+            971u64,
+            920u64,
+            910u64,
+            LOC_VAN,
+            26i64,
+            "VPN troubleshooting",
+        ),
+        (
+            972,
+            923,
+            913,
+            LOC_SHELF,
+            -20,
+            "Switch firmware — still out, due back yesterday",
+        ),
     ] {
         sqlx::query(
             "INSERT INTO tool_checkouts (id, org_id, holder_user_id, kit_id,

@@ -1532,7 +1532,10 @@ pub async fn list_orders(
         let lines = core_db::purchasing::list_po_lines_for_orders(&mut tx, org_id, &ids).await?;
         let mut grouped: HashMap<Uuid, Vec<PurchaseOrderLine>> = HashMap::new();
         for line in lines {
-            grouped.entry(line.purchase_order_id).or_default().push(line);
+            grouped
+                .entry(line.purchase_order_id)
+                .or_default()
+                .push(line);
         }
         grouped
             .into_iter()

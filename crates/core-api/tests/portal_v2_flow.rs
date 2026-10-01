@@ -1262,7 +1262,14 @@ async fn portal_quotes_scoped_view_and_decide_lifecycle() {
         "idempotency_key": Uuid::now_v7().to_string(),
     });
     let created: Value = body_json(
-        send(&app, axum::http::Method::POST, "/api/quotes", Some(&org.token), Some(create_sent.clone())).await,
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/quotes",
+            Some(&org.token),
+            Some(create_sent.clone()),
+        )
+        .await,
     )
     .await;
     assert_eq!(created["status"], "draft");
@@ -1319,21 +1326,40 @@ async fn portal_quotes_scoped_view_and_decide_lifecycle() {
     // Staff tokens never pass the portal gate; portal tokens never pass
     // the staff one.
     assert_eq!(
-        send(&app, axum::http::Method::GET, "/api/portal/quotes", Some(&org.token), None)
-            .await
-            .status(),
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/portal/quotes",
+            Some(&org.token),
+            None
+        )
+        .await
+        .status(),
         401
     );
     assert_eq!(
-        send(&app, axum::http::Method::GET, "/api/quotes", Some(&token_a), None)
-            .await
-            .status(),
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/quotes",
+            Some(&token_a),
+            None
+        )
+        .await
+        .status(),
         401
     );
 
     // Scoped list: A sees exactly the sent quote (draft hidden); B sees none.
     let list_a = body_json(
-        send(&app, axum::http::Method::GET, "/api/portal/quotes", Some(&token_a), None).await,
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/portal/quotes",
+            Some(&token_a),
+            None,
+        )
+        .await,
     )
     .await;
     let rows_a = list_a.as_array().unwrap();
@@ -1345,10 +1371,20 @@ async fn portal_quotes_scoped_view_and_decide_lifecycle() {
         "conversion seam ids stay staff-internal"
     );
     let list_b = body_json(
-        send(&app, axum::http::Method::GET, "/api/portal/quotes", Some(&token_b), None).await,
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/portal/quotes",
+            Some(&token_b),
+            None,
+        )
+        .await,
     )
     .await;
-    assert!(list_b.as_array().unwrap().is_empty(), "client B sees nothing");
+    assert!(
+        list_b.as_array().unwrap().is_empty(),
+        "client B sees nothing"
+    );
 
     // Detail: lines + rollup money math visible to the scoped client.
     let detail = body_json(
@@ -1367,9 +1403,15 @@ async fn portal_quotes_scoped_view_and_decide_lifecycle() {
 
     // Cross-client reads and decisions are bare 404s (no existence leak).
     assert_eq!(
-        send(&app, axum::http::Method::GET, &format!("/api/portal/quotes/{quote_id}"), Some(&token_b), None)
-            .await
-            .status(),
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/portal/quotes/{quote_id}"),
+            Some(&token_b),
+            None
+        )
+        .await
+        .status(),
         404
     );
     assert_eq!(
@@ -1413,7 +1455,10 @@ async fn portal_quotes_scoped_view_and_decide_lifecycle() {
         .await,
     )
     .await;
-    assert_eq!(replayed["status"], "accepted", "IF1 replay is byte-faithful");
+    assert_eq!(
+        replayed["status"], "accepted",
+        "IF1 replay is byte-faithful"
+    );
 
     // A decided quote is decided: the decline leg is a typed 409.
     assert_eq!(

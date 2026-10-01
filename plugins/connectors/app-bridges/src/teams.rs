@@ -64,7 +64,10 @@ impl TeamsConnector {
         // {"code":"ActionableMessageTokenValidationFailure"} style
         // bodies on broken cards — treat non-"1" success bodies as a
         // typed refusal.
-        if !text.trim().is_empty() && !text.trim().contains('1') && !text.to_ascii_lowercase().contains("message") {
+        if !text.trim().is_empty()
+            && !text.trim().contains('1')
+            && !text.to_ascii_lowercase().contains("message")
+        {
             return Err(BridgeError::Refused("teams", text.clone()));
         }
         Ok(())

@@ -53,7 +53,11 @@ async fn org_entries(
     org_id: Uuid,
     surface: &str,
 ) -> ApiResult<Vec<SurfaceEntryRow>> {
-    let mut tx = state.pool.begin().await.map_err(crate::error::ApiError::from)?;
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(crate::error::ApiError::from)?;
     core_db::set_org(&mut tx, org_id).await?;
     let rows = core_db::plugin_surface::list_entries(&mut *tx, org_id, surface).await?;
     tx.commit().await.map_err(crate::error::ApiError::from)?;

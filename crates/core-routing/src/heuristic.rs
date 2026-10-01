@@ -164,12 +164,7 @@ impl RoutingProvider for HeuristicRoutingProvider {
                     // is an honest hole.
                     _ => (None, None),
                 };
-                cells.push(cell_from_values(
-                    i,
-                    j,
-                    duration_seconds,
-                    distance_meters,
-                ));
+                cells.push(cell_from_values(i, j, duration_seconds, distance_meters));
             }
         }
         Ok(MatrixResponse {
@@ -183,11 +178,7 @@ impl RoutingProvider for HeuristicRoutingProvider {
 /// Convenience alias so callers can build "the none-mode matrix" for one
 /// test or one off-line path without importing cell types.
 #[must_use]
-pub fn heuristic_cell(
-    config: &HeuristicConfig,
-    from: &GeoPoint,
-    to: &GeoPoint,
-) -> MatrixCell {
+pub fn heuristic_cell(config: &HeuristicConfig, from: &GeoPoint, to: &GeoPoint) -> MatrixCell {
     let (duration_seconds, distance_meters) = config
         .minutes_for_points(from, to)
         .map(|(s, m)| (Some(s as f64), Some(m as f64)))

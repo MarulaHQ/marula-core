@@ -47,10 +47,7 @@ impl DerivedSurface {
 /// namespace). Grants must already be a subset of the manifest's
 /// declared capabilities — enforced by the caller (`authorize` first);
 /// this fn re-checks the subset defensively.
-pub fn derive_surface(
-    install: &PluginInstall,
-    manifest: &PluginManifestV2,
-) -> DerivedSurface {
+pub fn derive_surface(install: &PluginInstall, manifest: &PluginManifestV2) -> DerivedSurface {
     let granted: Vec<PluginCapability> = install
         .granted_capabilities
         .iter()
@@ -145,7 +142,8 @@ pub async fn sync_derived(
     install_id: Uuid,
     derived: &DerivedSurface,
 ) -> Result<(), core_db::DbError> {
-    plugin_surface::sync_surface_section(tx, org_id, install_id, "widget", &derived.widgets).await?;
+    plugin_surface::sync_surface_section(tx, org_id, install_id, "widget", &derived.widgets)
+        .await?;
     plugin_surface::sync_surface_section(
         tx,
         org_id,
@@ -241,10 +239,7 @@ mod tests {
     #[test]
     fn derive_should_key_entries_by_install_slug_and_carry_definitions() {
         let derived = derive_profile("csat-widget", &profile(), all_granted);
-        assert_eq!(
-            derived.widgets[0].0,
-            "plugin.csat-widget.csat_today"
-        );
+        assert_eq!(derived.widgets[0].0, "plugin.csat-widget.csat_today");
         assert_eq!(derived.widgets[0].1, "CSAT today");
         assert_eq!(derived.widgets[0].2["kind"], "stat");
         assert_eq!(derived.widgets[0].2["slot"], "dashboard");

@@ -254,7 +254,11 @@ mod tests {
 
     #[test]
     fn a_run_of_office_legs_stays_one_trip_pack() {
-        let stops = vec![stop(Some("office")), stop(Some("office")), stop(Some("office"))];
+        let stops = vec![
+            stop(Some("office")),
+            stop(Some("office")),
+            stop(Some("office")),
+        ];
         let segments = trip_segments(Some("office"), &stops);
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0].start, 0);
@@ -324,7 +328,10 @@ mod tests {
 
     #[test]
     fn tomorrow_preview_reasons_are_typed() {
-        assert_eq!(tomorrow_preview_reason(false, Some("home")), TOMORROW_NO_STOPS);
+        assert_eq!(
+            tomorrow_preview_reason(false, Some("home")),
+            TOMORROW_NO_STOPS
+        );
         assert_eq!(
             tomorrow_preview_reason(true, Some("office")),
             TOMORROW_OFFICE_START
@@ -337,10 +344,7 @@ mod tests {
             tomorrow_preview_reason(true, Some("home")),
             TOMORROW_DIRECT_TO_SITE
         );
-        assert_eq!(
-            tomorrow_preview_reason(true, None),
-            TOMORROW_START_UNKNOWN
-        );
+        assert_eq!(tomorrow_preview_reason(true, None), TOMORROW_START_UNKNOWN);
         assert!(tomorrow_preview_shows(TOMORROW_DIRECT_TO_SITE));
         assert!(tomorrow_preview_shows(TOMORROW_START_UNKNOWN));
         assert!(!tomorrow_preview_shows(TOMORROW_OFFICE_START));

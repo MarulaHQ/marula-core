@@ -49,10 +49,7 @@ pub fn build_registry(config: &Config) -> Arc<RoutingRegistry> {
             );
             "osrm".into()
         }
-        RoutingChoice::Ors {
-            base_url,
-            api_key,
-        } => {
+        RoutingChoice::Ors { base_url, api_key } => {
             let mut osrm = OsrmConfig::new(
                 base_url.clone(),
                 OsrmDialect::OpenRouteService,
@@ -81,7 +78,11 @@ pub fn build_registry(config: &Config) -> Arc<RoutingRegistry> {
             );
             "mapbox".into()
         }
-        RoutingChoice::Contract { id, base_url, token } => {
+        RoutingChoice::Contract {
+            id,
+            base_url,
+            token,
+        } => {
             let mut contract = ContractConfig::new(
                 format!("contract:{id}"),
                 format!("{id} routing pack"),
@@ -131,10 +132,7 @@ pub async fn travel_policy_for(
 }
 
 /// The org's reporting currency (expenses and reimbursement rollups).
-pub async fn base_currency(
-    conn: &mut sqlx::PgConnection,
-    org_id: Uuid,
-) -> ApiResult<String> {
+pub async fn base_currency(conn: &mut sqlx::PgConnection, org_id: Uuid) -> ApiResult<String> {
     let org = core_db::orgs::get_org(&mut *conn, org_id).await?;
     Ok(org.base_currency)
 }
@@ -275,14 +273,9 @@ pub async fn resolve_start_point(
         .expect("midnight is valid")
         .and_utc();
     let to = from + chrono::Duration::days(1);
-    let appointments = core_db::scheduling::list_appointments_between(
-        &mut *conn,
-        org_id,
-        &[user_id],
-        from,
-        to,
-    )
-    .await?;
+    let appointments =
+        core_db::scheduling::list_appointments_between(&mut *conn, org_id, &[user_id], from, to)
+            .await?;
     let last_site_id = appointments
         .iter()
         .rev()
@@ -374,9 +367,8 @@ pub async fn estimate_leg(
         .await
         .map_err(|e| TravelSkip::Provider(e.label().to_string()))?,
         None => {
-            let heuristic = heuristic_provider(policy).map_err(|_| {
-                TravelSkip::Provider("provider_unavailable".to_string())
-            })?;
+            let heuristic = heuristic_provider(policy)
+                .map_err(|_| TravelSkip::Provider("provider_unavailable".to_string()))?;
             core_routing::estimate_travel(
                 &heuristic,
                 &place_from_travel_place(from),

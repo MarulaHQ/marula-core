@@ -553,10 +553,7 @@ async fn scan_resolution_is_typed_deterministic_and_never_a_guess() {
     assert_eq!(hit["is_tool"], true);
     assert_eq!(hit["item_kind"], "serialized");
     assert_eq!(hit["serial_status"], "in_stock");
-    assert_eq!(
-        hit["deep_link"],
-        format!("marula://stock-serial/{serial}")
-    );
+    assert_eq!(hit["deep_link"], format!("marula://stock-serial/{serial}"));
 
     // 4. Location code.
     let hit = resolve_scan(&app, &token, "A-3").await;

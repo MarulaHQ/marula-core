@@ -7,8 +7,8 @@
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{
-    Contract, ContractBlock, ContractCap, ContractChangeOrder, ContractEscalator,
-    ContractFixedFee, ContractRate, ContractSlaCredit, ContractType, UnitBasis,
+    Contract, ContractBlock, ContractCap, ContractChangeOrder, ContractEscalator, ContractFixedFee,
+    ContractRate, ContractSlaCredit, ContractType, UnitBasis,
 };
 use sqlx::Postgres;
 use std::str::FromStr;
@@ -265,9 +265,7 @@ pub async fn replace_rates(
         let normalized =
             crate::time_categories::resolve_work_type_slug(&mut *executor, org_id, &r.work_type)
                 .await?;
-        work_types.push(
-            normalized.unwrap_or_else(|| r.work_type.trim().to_string()),
-        );
+        work_types.push(normalized.unwrap_or_else(|| r.work_type.trim().to_string()));
     }
     let rate_minors: Vec<i64> = rates.iter().map(|r| r.rate_minor).collect();
     sqlx::query!(
@@ -841,10 +839,7 @@ pub async fn set_escalator(
 
 /// Change orders: lifecycle entities, insert + transition — never
 /// replaced wholesale.
-pub async fn insert_change_order<'e, E>(
-    executor: E,
-    order: &ContractChangeOrder,
-) -> DbResult<()>
+pub async fn insert_change_order<'e, E>(executor: E, order: &ContractChangeOrder) -> DbResult<()>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
@@ -959,10 +954,7 @@ where
     Ok(())
 }
 
-pub async fn insert_sla_credit<'e, E>(
-    executor: E,
-    credit: &ContractSlaCredit,
-) -> DbResult<()>
+pub async fn insert_sla_credit<'e, E>(executor: E, credit: &ContractSlaCredit) -> DbResult<()>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {

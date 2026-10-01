@@ -170,7 +170,14 @@ pub async fn scan_freshness<'e, E>(executor: E, org_id: Uuid) -> DbResult<ScanFr
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let row = sqlx::query_as::<_, (Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>, i64)>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            Option<chrono::DateTime<chrono::Utc>>,
+            Option<chrono::DateTime<chrono::Utc>>,
+            i64,
+        ),
+    >(
         r#"SELECT
              max(created_at) FILTER (WHERE direction = 'inbound'),
              max(created_at) FILTER (WHERE direction = 'inbound' AND scan_status = 'infected'),
@@ -644,13 +651,12 @@ pub async fn set_board_identity_field(
     value: Option<&str>,
     updated_by: Uuid,
 ) -> DbResult<()> {
-    let exists: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM boards WHERE org_id = $1 AND id = $2",
-    )
-    .bind(org_id)
-    .bind(board_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let exists: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM boards WHERE org_id = $1 AND id = $2")
+            .bind(org_id)
+            .bind(board_id)
+            .fetch_optional(&mut *tx)
+            .await?;
     if exists.is_none() {
         return Err(DbError::NotFound);
     }
@@ -707,17 +713,12 @@ pub async fn resolved_reply_to(
     org_id: Uuid,
     from_address: &str,
 ) -> DbResult<Option<String>> {
-    if let Some(board) =
-        board_reply_to_for_from_address(&mut *conn, org_id, from_address).await?
-    {
+    if let Some(board) = board_reply_to_for_from_address(&mut *conn, org_id, from_address).await? {
         return Ok(Some(board));
     }
-    let org = crate::settings::get_org_value(
-        &mut *conn,
-        org_id,
-        core_domain::settings::EMAIL_REPLY_TO,
-    )
-    .await?;
+    let org =
+        crate::settings::get_org_value(&mut *conn, org_id, core_domain::settings::EMAIL_REPLY_TO)
+            .await?;
     Ok(org
         .and_then(|v| v.as_str().map(str::to_string))
         .filter(|v| !v.trim().is_empty()))

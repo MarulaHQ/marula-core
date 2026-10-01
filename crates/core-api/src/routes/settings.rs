@@ -361,7 +361,8 @@ pub async fn user_email_envelope_get(
             .await?,
     );
     let user_signature = stored_text(
-        core_db::settings::get_user_value(&mut *tx, org_id, user_id, registry::EMAIL_SIGNOFF).await?,
+        core_db::settings::get_user_value(&mut *tx, org_id, user_id, registry::EMAIL_SIGNOFF)
+            .await?,
     );
 
     // Rendered against the CALLER's own row, which is the whole point of a

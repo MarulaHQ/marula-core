@@ -164,10 +164,7 @@ pub async fn estimate_travel(
         }
         let response = provider.route(&request).await?;
         let seconds = response.total_duration_seconds.ok_or_else(|| {
-            RoutingError::Unavailable(format!(
-                "provider `{}` returned no route duration",
-                info.id
-            ))
+            RoutingError::Unavailable(format!("provider `{}` returned no route duration", info.id))
         })?;
         return Ok(TravelEstimate {
             minutes: estimate_minutes(seconds),

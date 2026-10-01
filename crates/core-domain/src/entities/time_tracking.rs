@@ -624,7 +624,10 @@ impl DispositionStatus {
     /// mandatory (V3), validated in the domain + API, not the DB CHECK —
     /// legacy rows predate it.
     pub const fn requires_unbillable_reason(self) -> bool {
-        matches!(self, DispositionStatus::Rejected | DispositionStatus::NonBillable)
+        matches!(
+            self,
+            DispositionStatus::Rejected | DispositionStatus::NonBillable
+        )
     }
 }
 
@@ -843,7 +846,8 @@ mod tests {
         let (t0, org, user, ticket) = base();
         let mut s = TimerSession::start(org, user, ticket, t0);
         s.stop(t0 + Duration::seconds(61), None).unwrap();
-        let e = TimeEntry::from_session(&s, t0 + Duration::seconds(61), None, true, None, None).unwrap();
+        let e = TimeEntry::from_session(&s, t0 + Duration::seconds(61), None, true, None, None)
+            .unwrap();
         assert_eq!(e.minutes, 2);
     }
 
@@ -852,7 +856,8 @@ mod tests {
         let (t0, org, user, ticket) = base();
         let mut s = TimerSession::start(org, user, ticket, t0);
         s.stop(t0 + Duration::minutes(30), None).unwrap();
-        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(30), None, true, None, None).unwrap();
+        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(30), None, true, None, None)
+            .unwrap();
         assert_eq!(e.approval(), ApprovalStatus::Draft);
         e.apply_approval_action(ApprovalAction::Submit, None)
             .unwrap();
@@ -877,7 +882,8 @@ mod tests {
         let (t0, org, user, ticket) = base();
         let mut s = TimerSession::start(org, user, ticket, t0);
         s.stop(t0 + Duration::minutes(10), None).unwrap();
-        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(10), None, true, None, None).unwrap();
+        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(10), None, true, None, None)
+            .unwrap();
         e.apply_approval_action(ApprovalAction::Submit, None)
             .unwrap();
         // A rejection without a typed reason code is refused.
@@ -906,7 +912,8 @@ mod tests {
         let (t0, org, user, ticket) = base();
         let mut s = TimerSession::start(org, user, ticket, t0);
         s.stop(t0 + Duration::minutes(5), None).unwrap();
-        let mut e = TimeEntry::from_session(&s, t0 + Duration::minutes(5), None, true, None, None).unwrap();
+        let mut e =
+            TimeEntry::from_session(&s, t0 + Duration::minutes(5), None, true, None, None).unwrap();
         e.apply_approval_action(ApprovalAction::Submit, None)
             .unwrap();
         e.apply_approval_action(

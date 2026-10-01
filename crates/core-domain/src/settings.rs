@@ -429,7 +429,6 @@ pub const EMAIL_SES_REGION: &str = "email.ses_region";
 /// private-link deployment. Empty means the public regional endpoint.
 pub const EMAIL_SES_ENDPOINT: &str = "email.ses_endpoint";
 
-
 /// Transport selections the settings UI and worker resolver accept.
 /// `ses` is the third hosted option (Wave 34 claims close-out, claim 10);
 /// the ordering is the order the settings UI renders them in, so the two
@@ -1886,7 +1885,9 @@ mod tests {
                 other => panic!("{key} is not text: {other:?}"),
             };
             assert!(d.validate(&SettingValue::Text("x".repeat(max_len))).is_ok());
-            assert!(d.validate(&SettingValue::Text("x".repeat(max_len + 1))).is_err());
+            assert!(d
+                .validate(&SettingValue::Text("x".repeat(max_len + 1)))
+                .is_err());
         }
         // Defaults are empty: untouched users keep the composer defaults.
         assert_eq!(

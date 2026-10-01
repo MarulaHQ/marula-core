@@ -282,7 +282,10 @@ async fn governing_def(
 
 /// §4.6: shape-checks a validator registry key and returns the config
 /// json with the key set (or removed when `key` is None).
-fn config_with_validator(base: &serde_json::Value, key: Option<&String>) -> ApiResult<serde_json::Value> {
+fn config_with_validator(
+    base: &serde_json::Value,
+    key: Option<&String>,
+) -> ApiResult<serde_json::Value> {
     let mut config = base.clone();
     match key {
         Some(key) => {
@@ -454,8 +457,7 @@ pub async fn create_def(
         custom_fields::validate_def(&req.name, kind, &config).map_err(def_error)?;
     let mut config_json = config.to_json();
     if req.validator_entry_key.is_some() {
-        config_json =
-            config_with_validator(&config_json, req.validator_entry_key.as_ref())?;
+        config_json = config_with_validator(&config_json, req.validator_entry_key.as_ref())?;
     }
 
     let def = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
@@ -703,9 +705,8 @@ pub async fn set_ticket_value(
                     "field validator {key} is not currently available"
                 )));
             };
-            let schema =
-                core_domain::entities::plugins::SettingsSchema::new(schema_value.clone())
-                    .map_err(|e| ApiError::Validation(e.to_string()))?;
+            let schema = core_domain::entities::plugins::SettingsSchema::new(schema_value.clone())
+                .map_err(|e| ApiError::Validation(e.to_string()))?;
             let wrapped = serde_json::json!({ "value": canonical });
             schema
                 .validate_config(&wrapped)

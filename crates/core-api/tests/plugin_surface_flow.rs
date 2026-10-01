@@ -263,7 +263,11 @@ async fn plugin_surface_registry_flow() {
     .await;
     assert_eq!(response.status(), 200, "grant widening must succeed");
     let actions = get_entries(&app, &owner, "/api/plugins/surface/automation-actions").await;
-    assert_eq!(actions.len(), 1, "the action section registers after widening");
+    assert_eq!(
+        actions.len(),
+        1,
+        "the action section registers after widening"
+    );
     assert_eq!(
         actions[0]["definition"]["effect"],
         json!("add_internal_comment")

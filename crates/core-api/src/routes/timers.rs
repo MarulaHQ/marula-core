@@ -444,14 +444,12 @@ pub async fn stop(
         // not billable (V3) — free text is rejected at the domain edge.
         let billable = req.billable.unwrap_or(true);
         let unbillable_reason = match req.unbillable_reason.as_deref() {
-            Some(r) => Some(
-                UnbillableReason::parse(r).ok_or_else(|| {
-                    ApiError::Validation(format!(
-                        "unknown unbillable_reason '{r}' — use one of \
+            Some(r) => Some(UnbillableReason::parse(r).ok_or_else(|| {
+                ApiError::Validation(format!(
+                    "unknown unbillable_reason '{r}' — use one of \
                          warranty, courtesy, in_retainer_block, sla_covered, internal, mistake"
-                    ))
-                })?,
-            ),
+                ))
+            })?),
             None => None,
         };
         if !billable && unbillable_reason.is_none() {

@@ -763,7 +763,11 @@ async fn entity_batch_defers_and_rejects_are_bound_by_the_same_laws() {
         .await,
     )
     .await;
-    assert_eq!(batch2["accepted"].as_u64().unwrap_or(0), 0, "no silent accepts anywhere");
+    assert_eq!(
+        batch2["accepted"].as_u64().unwrap_or(0),
+        0,
+        "no silent accepts anywhere"
+    );
     assert_eq!(batch2["failed"], 0);
     let _ = batch;
     assert!(

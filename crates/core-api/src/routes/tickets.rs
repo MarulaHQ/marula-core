@@ -1521,11 +1521,7 @@ pub async fn add_comment(
                     .as_deref()
                     .is_some_and(|text| !text.trim().is_empty())
                 {
-                    let policy = crate::email::signature_policy(
-                        &mut ctx.tx,
-                        org_id,
-                    )
-                    .await?;
+                    let policy = crate::email::signature_policy(&mut ctx.tx, org_id).await?;
                     if !policy.allows_personal() {
                         return Err(ApiError::Validation(
                             "This workspace locks email signatures to its own, so a \

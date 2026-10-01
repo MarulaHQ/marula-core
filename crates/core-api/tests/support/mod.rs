@@ -34,8 +34,8 @@ static BOOTSTRAP: tokio::sync::OnceCell<Bootstrap> = tokio::sync::OnceCell::cons
 async fn bootstrap() -> &'static Bootstrap {
     BOOTSTRAP
         .get_or_init(|| async {
-            if let Ok(url) = std::env::var("MARULA_TEST_DATABASE_URL")
-                .or_else(|_| std::env::var("DATABASE_URL"))
+            if let Ok(url) =
+                std::env::var("MARULA_TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"))
             {
                 let admin = connect_with_retry(&url).await;
                 reset_schema(&admin).await;

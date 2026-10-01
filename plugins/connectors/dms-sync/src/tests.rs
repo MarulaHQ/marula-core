@@ -36,7 +36,6 @@ use crate::sync::{SyncConfig, SyncEngine, SOURCE_REF_KEY};
 
 // ---- fixtures -------------------------------------------------------------------
 
-
 fn hudu_fixture() -> Value {
     serde_json::from_str(include_str!("../tests/fixtures/hudu_export.json")).expect("hudu fixture")
 }

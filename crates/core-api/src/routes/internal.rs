@@ -1004,10 +1004,7 @@ pub async fn effects(
                         .await?;
                     }
                 }
-                core_domain::automations::AutomationAction::PluginAction {
-                    entry_key,
-                    params,
-                } => {
+                core_domain::automations::AutomationAction::PluginAction { entry_key, params } => {
                     // The registry row is the WHOLE authorization: it
                     // exists only while the install is enabled, the grant
                     // stands, and the entry is enabled. A missing entry
@@ -1033,12 +1030,14 @@ pub async fn effects(
                     }
                     // Typed params: validated against the entry's own
                     // declared JSON-Schema subset at execution time.
-                    if let Some(schema_value) =
-                        entry.definition.get("params_schema").filter(|v| !v.is_null())
+                    if let Some(schema_value) = entry
+                        .definition
+                        .get("params_schema")
+                        .filter(|v| !v.is_null())
                     {
-                        let Ok(schema) =
-                            core_domain::entities::plugins::SettingsSchema::new(schema_value.clone())
-                        else {
+                        let Ok(schema) = core_domain::entities::plugins::SettingsSchema::new(
+                            schema_value.clone(),
+                        ) else {
                             continue;
                         };
                         if schema.validate_config(params).is_err() {

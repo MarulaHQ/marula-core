@@ -81,11 +81,7 @@ where
     Ok(out)
 }
 
-pub async fn get_category<'e, E>(
-    executor: E,
-    org_id: Uuid,
-    id: Uuid,
-) -> DbResult<TimeCategory>
+pub async fn get_category<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<TimeCategory>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
@@ -128,10 +124,7 @@ where
     }
 }
 
-pub async fn insert_category<'e, E>(
-    executor: E,
-    c: &NewTimeCategory<'_>,
-) -> DbResult<()>
+pub async fn insert_category<'e, E>(executor: E, c: &NewTimeCategory<'_>) -> DbResult<()>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
@@ -270,25 +263,97 @@ where
 /// orgs that exist at migration time; this function seeds them for
 /// orgs created afterward (demo seeder, sign-up provisioning) — same
 /// vocabulary, idempotent via the (org_id, slug) unique index.
-pub const STANDARD_TIME_CATEGORIES: &[(
-    &str,
-    &str,
-    &str,
-    bool,
-    bool,
-    bool,
-    i32,
-)] = &[
-    ("remote", "Remote", "Work done remotely (phone, email, remote tools)", true, false, true, 0),
-    ("on_site", "On-site", "Work at the client location", true, false, true, 10),
-    ("depot", "Depot", "Bench / workshop repair work", true, false, true, 20),
-    ("travel", "Travel", "Travel time to or from client sites", true, false, false, 30),
-    ("incident", "Incident", "Time against incident response or emergencies", true, false, true, 40),
-    ("project", "Project", "Time against project phases rather than tickets", true, false, true, 50),
-    ("internal", "Internal", "Internal admin, meetings, and own-system work", false, false, false, 60),
-    ("warranty", "Warranty", "Work covered by warranty — not billable to the client", false, true, false, 70),
-    ("training", "Training", "Training and enablement time", false, false, false, 80),
-    ("admin", "Admin", "Administrative time not attributable to client work", false, false, false, 90),
+pub const STANDARD_TIME_CATEGORIES: &[(&str, &str, &str, bool, bool, bool, i32)] = &[
+    (
+        "remote",
+        "Remote",
+        "Work done remotely (phone, email, remote tools)",
+        true,
+        false,
+        true,
+        0,
+    ),
+    (
+        "on_site",
+        "On-site",
+        "Work at the client location",
+        true,
+        false,
+        true,
+        10,
+    ),
+    (
+        "depot",
+        "Depot",
+        "Bench / workshop repair work",
+        true,
+        false,
+        true,
+        20,
+    ),
+    (
+        "travel",
+        "Travel",
+        "Travel time to or from client sites",
+        true,
+        false,
+        false,
+        30,
+    ),
+    (
+        "incident",
+        "Incident",
+        "Time against incident response or emergencies",
+        true,
+        false,
+        true,
+        40,
+    ),
+    (
+        "project",
+        "Project",
+        "Time against project phases rather than tickets",
+        true,
+        false,
+        true,
+        50,
+    ),
+    (
+        "internal",
+        "Internal",
+        "Internal admin, meetings, and own-system work",
+        false,
+        false,
+        false,
+        60,
+    ),
+    (
+        "warranty",
+        "Warranty",
+        "Work covered by warranty — not billable to the client",
+        false,
+        true,
+        false,
+        70,
+    ),
+    (
+        "training",
+        "Training",
+        "Training and enablement time",
+        false,
+        false,
+        false,
+        80,
+    ),
+    (
+        "admin",
+        "Admin",
+        "Administrative time not attributable to client work",
+        false,
+        false,
+        false,
+        90,
+    ),
 ];
 
 /// Legacy free-text values the one-time backfill normalizes, seeded per
@@ -318,10 +383,7 @@ pub const STANDARD_WORK_TYPE_ALIASES: &[(&str, &str)] = &[
 /// Seeds [`STANDARD_TIME_CATEGORIES`] plus their standard legacy aliases
 /// for one org. Idempotent: existing (org_id, slug) rows are left
 /// untouched, so admin edits survive.
-pub async fn seed_default_time_categories(
-    conn: &mut PgConnection,
-    org_id: Uuid,
-) -> DbResult<()> {
+pub async fn seed_default_time_categories(conn: &mut PgConnection, org_id: Uuid) -> DbResult<()> {
     for (slug, label, description, default_billable, requires_reason, affinity, position) in
         STANDARD_TIME_CATEGORIES
     {
@@ -420,10 +482,7 @@ pub struct WorkTypeMapRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-pub async fn list_work_type_map<'e, E>(
-    executor: E,
-    org_id: Uuid,
-) -> DbResult<Vec<WorkTypeMapRow>>
+pub async fn list_work_type_map<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<WorkTypeMapRow>>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {

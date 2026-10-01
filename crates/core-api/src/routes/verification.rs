@@ -43,7 +43,8 @@ use axum::{
 };
 use core_db::verification::VerificationEntryRow;
 use core_domain::entities::{
-    Actor, AuditEvent, DispositionStatus, TimeEntryAdjustment, TimeRejectionReason, UnbillableReason,
+    Actor, AuditEvent, DispositionStatus, TimeEntryAdjustment, TimeRejectionReason,
+    UnbillableReason,
 };
 use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
@@ -60,10 +61,7 @@ const NOTE_MAX: usize = 1000;
 pub fn routes(gen: crate::routes::ApiGeneration) -> Router<AppState> {
     let base = gen.base();
     Router::new()
-        .route(
-            &format!("{base}/billing/verification"),
-            get(workspace),
-        )
+        .route(&format!("{base}/billing/verification"), get(workspace))
         .route(
             &format!("{base}/billing/verification/entries/{{id}}/action"),
             post(entry_action),
@@ -365,9 +363,7 @@ fn parse_window(from: chrono::NaiveDate, to: chrono::NaiveDate) -> ApiResult<()>
 fn require_reason(reason: Option<&str>, action: &str) -> ApiResult<String> {
     let reason = reason.unwrap_or_default().trim().to_string();
     if reason.is_empty() {
-        return Err(ApiError::Validation(format!(
-            "{action} requires a reason"
-        )));
+        return Err(ApiError::Validation(format!("{action} requires a reason")));
     }
     if reason.chars().count() > REASON_MAX {
         return Err(ApiError::Validation(format!(
@@ -425,28 +421,18 @@ async fn build_workspace(
             .map_err(ApiError::from)?;
     let rates = core_db::contracts::list_rates(&mut *tx, org_id, contract_id).await?;
     let fees = core_db::contracts::list_fees(&mut *tx, org_id, contract_id).await?;
-    let rows = core_db::verification::list_client_entries(
-        &mut *tx,
-        org_id,
-        contract.client_id,
-        from,
-        to,
-    )
-    .await?;
+    let rows =
+        core_db::verification::list_client_entries(&mut *tx, org_id, contract.client_id, from, to)
+            .await?;
 
     // The engine's own evaluation: block consumption, and the total the
     // run would produce. Shares `load_eval_inputs` with the preview and
     // the run, so a preview agrees with the run it mirrors.
     let eval_inputs =
         crate::routes::billing::load_eval_inputs(&mut *tx, org_id, &contract, from, to).await?;
-    let billable_rows = core_db::contracts::list_billable_entries(
-        &mut *tx,
-        org_id,
-        contract.client_id,
-        from,
-        to,
-    )
-    .await?;
+    let billable_rows =
+        core_db::contracts::list_billable_entries(&mut *tx, org_id, contract.client_id, from, to)
+            .await?;
     let engine_entries: Vec<core_billing::BillableEntry> = billable_rows
         .into_iter()
         .map(|e| core_billing::BillableEntry {
@@ -576,23 +562,17 @@ async fn build_workspace(
     }
 
     let blocks = block_panel(&eval_inputs, &evaluation, from, to);
-    let signoff = core_db::verification::get_run_signoff(
-        &mut *tx,
-        org_id,
-        contract_id,
-        from,
-        to,
-    )
-    .await?
-    .map(|s| SignoffView {
-        entries_dispositioned: s.entries_dispositioned,
-        zero_unclassified: s.zero_unclassified,
-        preview_seen: s.preview_seen,
-        reviewer_id: s.reviewer_id,
-        reviewer_note: s.reviewer_note,
-        signed_at: s.signed_at,
-        run_id: s.run_id,
-    });
+    let signoff = core_db::verification::get_run_signoff(&mut *tx, org_id, contract_id, from, to)
+        .await?
+        .map(|s| SignoffView {
+            entries_dispositioned: s.entries_dispositioned,
+            zero_unclassified: s.zero_unclassified,
+            preview_seen: s.preview_seen,
+            reviewer_id: s.reviewer_id,
+            reviewer_note: s.reviewer_note,
+            signed_at: s.signed_at,
+            run_id: s.run_id,
+        });
     let overlapping_runs = overlapping_windows(&mut *tx, org_id, from, to).await?;
 
     // A read is not a mutation: the caller is authenticated, not
@@ -801,15 +781,7 @@ pub async fn workspace(
     core_db::set_org_and_user(&mut tx, org_id, user_id)
         .await
         .map_err(ApiError::from)?;
-    let workspace = build_workspace(
-        &mut tx,
-        org_id,
-        user_id,
-        q.contract_id,
-        q.from,
-        q.to,
-    )
-    .await?;
+    let workspace = build_workspace(&mut tx, org_id, user_id, q.contract_id, q.from, q.to).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(workspace))
 }
@@ -1359,4 +1331,3 @@ pub async fn signoff(
 
     Ok(Json(outcome.into_response()?))
 }
-

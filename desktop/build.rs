@@ -10,17 +10,15 @@ fn main() {
     // what makes the app commands reachable from the web app at all.
     // Wave 38 lane 2 adds the native multi-window commands (open/focus
     // role windows, self-capture geometry, route marula:// links).
-    tauri_build::try_build(
-        tauri_build::Attributes::new().app_manifest(
-            tauri_build::AppManifest::new().commands(&[
-                "print_raw_zpl",
-                "check_desktop_update",
-                "install_desktop_update",
-                "open_native_window",
-                "focus_native_window",
-                "route_marula_link",
-            ]),
-        ),
-    )
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
+        tauri_build::AppManifest::new().commands(&[
+            "print_raw_zpl",
+            "check_desktop_update",
+            "install_desktop_update",
+            "open_native_window",
+            "focus_native_window",
+            "route_marula_link",
+        ]),
+    ))
     .expect("failed to run tauri-build");
 }

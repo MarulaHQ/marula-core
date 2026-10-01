@@ -42,7 +42,11 @@ pub enum TimeVerdictKind {
 }
 
 impl TimeVerdictKind {
-    pub const ALL: [Self; 3] = [Self::VagueDescription, Self::Overlaps, Self::LongerThanUsual];
+    pub const ALL: [Self; 3] = [
+        Self::VagueDescription,
+        Self::Overlaps,
+        Self::LongerThanUsual,
+    ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -259,7 +263,11 @@ pub fn verdicts_for(input: &VerdictInput<'_>) -> Vec<TimeVerdict> {
         if input.minutes > floor {
             out.push(TimeVerdict {
                 kind: TimeVerdictKind::LongerThanUsual,
-                label: format!("Longer than usual, {} vs {}", hms(input.minutes), hms(usual)),
+                label: format!(
+                    "Longer than usual, {} vs {}",
+                    hms(input.minutes),
+                    hms(usual)
+                ),
                 // There is no honest mechanical trim here: the person may have
                 // done twice the work. The fix is to ask them.
                 fix: Some(TimeVerdictFix {
@@ -301,18 +309,33 @@ mod tests {
             suggested_description(Some("No print from the front desk"), Some("On-site")),
             Some("No print from the front desk — On-site".to_string())
         );
-        assert_eq!(suggested_description(Some("Only a title"), None), Some("Only a title".into()));
+        assert_eq!(
+            suggested_description(Some("Only a title"), None),
+            Some("Only a title".into())
+        );
         assert_eq!(suggested_description(None, None), None);
         assert_eq!(suggested_description(Some("   "), None), None);
     }
 
     #[test]
     fn back_to_back_entries_do_not_overlap() {
-        assert_eq!(overlap_minutes(at(9, 0), at(11, 0), at(11, 0), at(12, 0)), 0);
-        assert_eq!(overlap_minutes(at(9, 0), at(11, 0), at(10, 30), at(12, 0)), 30);
-        assert_eq!(overlap_minutes(at(9, 0), at(11, 0), at(8, 0), at(9, 30)), 30);
+        assert_eq!(
+            overlap_minutes(at(9, 0), at(11, 0), at(11, 0), at(12, 0)),
+            0
+        );
+        assert_eq!(
+            overlap_minutes(at(9, 0), at(11, 0), at(10, 30), at(12, 0)),
+            30
+        );
+        assert_eq!(
+            overlap_minutes(at(9, 0), at(11, 0), at(8, 0), at(9, 30)),
+            30
+        );
         // A nested entry is fully overlapped.
-        assert_eq!(overlap_minutes(at(9, 0), at(11, 0), at(9, 30), at(10, 0)), 30);
+        assert_eq!(
+            overlap_minutes(at(9, 0), at(11, 0), at(9, 30), at(10, 0)),
+            30
+        );
     }
 
     #[test]
@@ -382,7 +405,10 @@ mod tests {
             overlap_minutes: 0,
         });
         assert_eq!(out.len(), 1);
-        assert!(out[0].fix.is_none(), "no parts, no button — never a bare offer");
+        assert!(
+            out[0].fix.is_none(),
+            "no parts, no button — never a bare offer"
+        );
     }
 
     #[test]

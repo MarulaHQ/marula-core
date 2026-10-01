@@ -732,7 +732,10 @@ async fn verdict_fix_applies_to_a_queued_entry_and_stays_in_the_queue() {
         .collect();
     assert_eq!(fixed.len(), 2, "{trail}");
     assert!(
-        fixed[0]["note"].as_str().unwrap_or("").contains("description:"),
+        fixed[0]["note"]
+            .as_str()
+            .unwrap_or("")
+            .contains("description:"),
         "the trail says what changed: {fixed:?}"
     );
     assert!(

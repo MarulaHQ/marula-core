@@ -21,9 +21,9 @@
 /// Brand values resolved by the caller from settings (org/board identity).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Brand<'a> {
-/// Header wordmark; callers fall back to the organization name, and this
-/// module falls back to the Marula wordmark when both are empty.
-pub brand_name: &'a str,
+    /// Header wordmark; callers fall back to the organization name, and this
+    /// module falls back to the Marula wordmark when both are empty.
+    pub brand_name: &'a str,
     /// Optional https logo URL. Callers validate the scheme; this module
     /// only escapes it into the HTML attribute.
     pub logo_url: Option<&'a str>,
@@ -283,7 +283,11 @@ mod tests {
 
     #[test]
     fn notification_renders_both_parts_with_greeting_and_signoff() {
-        let mail = render_notification(&brand(), "Ticket MAR-42 was assigned to you", Some("Due today."));
+        let mail = render_notification(
+            &brand(),
+            "Ticket MAR-42 was assigned to you",
+            Some("Due today."),
+        );
         assert_eq!(mail.subject, "Ticket MAR-42 was assigned to you");
         assert!(mail.text_body.starts_with("Hi Dana,"));
         assert!(mail.text_body.contains("Due today."));
@@ -411,7 +415,9 @@ mod tests {
             signoff: None,
         };
         let mail = render_notification(&with_logo, "x", None);
-        assert!(mail.html_body.contains("<img src=\"https://cdn.acme.test/logo.png\""));
+        assert!(mail
+            .html_body
+            .contains("<img src=\"https://cdn.acme.test/logo.png\""));
         assert!(!mail.html_body.contains("letter-spacing:-0.01em"));
     }
 

@@ -428,7 +428,9 @@ impl GeocodeRequest {
 
     pub fn validate(&self) -> Result<(), crate::RoutingError> {
         if self.query.trim().is_empty() {
-            return Err(crate::RoutingError::Invalid("geocode query is empty".into()));
+            return Err(crate::RoutingError::Invalid(
+                "geocode query is empty".into(),
+            ));
         }
         if self.limit == 0 {
             return Err(crate::RoutingError::Invalid(

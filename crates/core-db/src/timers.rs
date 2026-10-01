@@ -266,8 +266,7 @@ where
 fn row_to_entry(row: sqlx::postgres::PgRow) -> TimeEntry {
     use sqlx::Row;
     let approval_status: Option<String> = row.try_get("approval_status").unwrap_or(None);
-    let unbillable_reason: Option<String> =
-        row.try_get("unbillable_reason").unwrap_or(None);
+    let unbillable_reason: Option<String> = row.try_get("unbillable_reason").unwrap_or(None);
     TimeEntry {
         id: row.get("id"),
         org_id: row.get("org_id"),

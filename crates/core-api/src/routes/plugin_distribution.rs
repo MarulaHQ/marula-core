@@ -1490,13 +1490,10 @@ pub async fn consent_update(
         let updated = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
         // §4.6: the re-consented manifest rewrites the surface
         // registrations to the NEW pinned profile under the same grants.
-        let target_manifest = core_db::plugins::get_version(
-            &mut tx.tx,
-            updated.catalog_id,
-            &updated.version,
-        )
-        .await?
-        .manifest;
+        let target_manifest =
+            core_db::plugins::get_version(&mut tx.tx, updated.catalog_id, &updated.version)
+                .await?
+                .manifest;
         plugin_host::surface::sync_install_surface(&mut tx.tx, &updated, &target_manifest)
             .await
             .map_err(anyhow::Error::msg)?;

@@ -40,11 +40,7 @@ pub struct WsClaims {
 /// `None` for any invalid or expired token. The algorithm is pinned per
 /// attempt (`Validation::new`), so an EdDSA token can never verify as
 /// HS256 or the reverse.
-pub fn verify_token(
-    secret: &str,
-    eddsa_public_pem: Option<&str>,
-    token: &str,
-) -> Option<WsClaims> {
+pub fn verify_token(secret: &str, eddsa_public_pem: Option<&str>, token: &str) -> Option<WsClaims> {
     if let Some(pem) = eddsa_public_pem {
         if let Ok(key) = DecodingKey::from_ed_pem(pem.as_bytes()) {
             if let Ok(data) = decode::<WsClaims>(token, &key, &Validation::new(Algorithm::EdDSA)) {

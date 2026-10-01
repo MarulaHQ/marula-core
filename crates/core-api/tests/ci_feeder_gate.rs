@@ -334,7 +334,14 @@ async fn second_sync_updates_its_own_link_and_never_a_twin() {
         None,
         Some("10.0.5.1"),
     );
-    let auvix = auvik_device("auv-777", "acme-switch-01", None, None, None, Some("10.0.1.1"));
+    let auvix = auvik_device(
+        "auv-777",
+        "acme-switch-01",
+        None,
+        None,
+        None,
+        Some("10.0.1.1"),
+    );
 
     // First sync per feeder: three distinct records with no shared
     // signals — three distinct canonical items, one link each.
@@ -361,8 +368,14 @@ async fn second_sync_updates_its_own_link_and_never_a_twin() {
         None,
         Some("10.0.5.9"),
     );
-    let auvix_v2 =
-        auvik_device("auv-777", "acme-switch-01", None, None, None, Some("10.0.1.2"));
+    let auvix_v2 = auvik_device(
+        "auv-777",
+        "acme-switch-01",
+        None,
+        None,
+        None,
+        Some("10.0.1.2"),
+    );
 
     let report2 = FeederSync::run(
         &SyncConfig::new(org.client_id),

@@ -308,7 +308,10 @@ pub async fn list_categories(
     Query(q): Query<std::collections::HashMap<String, String>>,
 ) -> ApiResult<Json<TimeCategoryListResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, time_perm(core_domain::policy::Action::View))?;
+    require_permission(
+        &authed.principal,
+        time_perm(core_domain::policy::Action::View),
+    )?;
     let org_id = authed.principal.user.org_id;
     let include_retired = q
         .get("include_retired")
@@ -318,8 +321,8 @@ pub async fn list_categories(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let categories = core_db::time_categories::list_categories(&mut *tx, org_id, include_retired)
-        .await?;
+    let categories =
+        core_db::time_categories::list_categories(&mut *tx, org_id, include_retired).await?;
     let counts = core_db::time_categories::entry_counts_by_slug(&mut *tx, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(TimeCategoryListResponse {
@@ -392,10 +395,17 @@ pub async fn create_category(
             other => other.into(),
         })?;
         let category = core_db::time_categories::get_category(&mut *ctx.tx, org_id, id).await?;
-        audit_category(&mut ctx, org_id, user_id, "time_category.created", &category, serde_json::json!({
-            "slug": category.slug,
-            "label": category.label,
-        }))
+        audit_category(
+            &mut ctx,
+            org_id,
+            user_id,
+            "time_category.created",
+            &category,
+            serde_json::json!({
+                "slug": category.slug,
+                "label": category.label,
+            }),
+        )
         .await?;
         ctx.emit(
             types::TIME_CATEGORY_CREATED,
@@ -470,12 +480,20 @@ pub async fn update_category(
         )
         .await?;
         if let Some(retired) = req.retired {
-            core_db::time_categories::set_category_retired(&mut *ctx.tx, org_id, id, retired).await?;
+            core_db::time_categories::set_category_retired(&mut *ctx.tx, org_id, id, retired)
+                .await?;
         }
         let category = core_db::time_categories::get_category(&mut *ctx.tx, org_id, id).await?;
-        audit_category(&mut ctx, org_id, user_id, "time_category.updated", &category, serde_json::json!({
-            "slug": category.slug,
-        }))
+        audit_category(
+            &mut ctx,
+            org_id,
+            user_id,
+            "time_category.updated",
+            &category,
+            serde_json::json!({
+                "slug": category.slug,
+            }),
+        )
         .await?;
         ctx.emit(
             types::TIME_CATEGORY_UPDATED,
@@ -513,10 +531,17 @@ pub async fn delete_category(
         let before = core_db::time_categories::get_category(&mut *ctx.tx, org_id, id).await?;
         core_db::time_categories::set_category_retired(&mut *ctx.tx, org_id, id, retired).await?;
         let category = core_db::time_categories::get_category(&mut *ctx.tx, org_id, id).await?;
-        audit_category(&mut ctx, org_id, user_id, "time_category.retired", &category, serde_json::json!({
-            "slug": category.slug,
-            "was_retired": before.retired,
-        }))
+        audit_category(
+            &mut ctx,
+            org_id,
+            user_id,
+            "time_category.retired",
+            &category,
+            serde_json::json!({
+                "slug": category.slug,
+                "was_retired": before.retired,
+            }),
+        )
         .await?;
         ctx.emit(
             types::TIME_CATEGORY_UPDATED,
@@ -566,8 +591,7 @@ pub async fn reorder_categories(
             // Reorder replays as a fresh read of the (already reordered)
             // list — the idempotent result IS the new order.
         }
-        core_db::time_categories::reorder_categories(&mut ctx.tx, org_id, &req.ordered_ids)
-            .await?;
+        core_db::time_categories::reorder_categories(&mut ctx.tx, org_id, &req.ordered_ids).await?;
         audit_category(
             &mut ctx,
             org_id,
@@ -598,8 +622,8 @@ pub async fn reorder_categories(
             &serde_json::json!({ "reordered": req.ordered_ids }),
         )
         .await?;
-        let categories = core_db::time_categories::list_categories(&mut *ctx.tx, org_id, true)
-            .await?;
+        let categories =
+            core_db::time_categories::list_categories(&mut *ctx.tx, org_id, true).await?;
         let counts = core_db::time_categories::entry_counts_by_slug(&mut *ctx.tx, org_id).await?;
         let views: Vec<TimeCategoryView> = categories
             .into_iter()
@@ -611,7 +635,9 @@ pub async fn reorder_categories(
         Ok((ctx, views))
     })
     .await?;
-    Ok(Json(TimeCategoryListResponse { categories: outcome }))
+    Ok(Json(TimeCategoryListResponse {
+        categories: outcome,
+    }))
 }
 
 /// GET /api/time-categories/capture-defaults — the picker read for the
@@ -624,7 +650,10 @@ pub async fn capture_defaults(
     extensions: Extensions,
 ) -> ApiResult<Json<CaptureDefaultsResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, time_perm(core_domain::policy::Action::View))?;
+    require_permission(
+        &authed.principal,
+        time_perm(core_domain::policy::Action::View),
+    )?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
@@ -721,10 +750,7 @@ pub async fn upsert_work_type_map(
         )
         .await?;
         let rows = core_db::time_categories::list_work_type_map(&mut *ctx.tx, org_id).await?;
-        Ok((
-            ctx,
-            rows.into_iter().map(wire_map_row).collect::<Vec<_>>(),
-        ))
+        Ok((ctx, rows.into_iter().map(wire_map_row).collect::<Vec<_>>()))
     })
     .await?;
     Ok(Json(outcome))
@@ -757,9 +783,13 @@ pub async fn apply_work_type_map(
         core_db::time_categories::get_category_by_slug(&mut *ctx.tx, org_id, &slug)
             .await?
             .ok_or(ApiError::NotFound)?;
-        let updated =
-            core_db::time_categories::apply_work_type_map(&mut *ctx.tx, org_id, &legacy_value, &slug)
-                .await?;
+        let updated = core_db::time_categories::apply_work_type_map(
+            &mut *ctx.tx,
+            org_id,
+            &legacy_value,
+            &slug,
+        )
+        .await?;
         audit_category(
             &mut ctx,
             org_id,
@@ -819,7 +849,10 @@ pub async fn entry_suggestions(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<EntrySuggestionsResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, time_perm(core_domain::policy::Action::View))?;
+    require_permission(
+        &authed.principal,
+        time_perm(core_domain::policy::Action::View),
+    )?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
@@ -827,9 +860,14 @@ pub async fn entry_suggestions(
         .map_err(ApiError::from)?;
     // RLS proves visibility: an invisible entry reads as no answers.
     let _ = core_db::timers::get_time_entry(&mut *tx, org_id, id).await?;
-    let row =
-        core_db::decision::latest_answers_for_entity(&mut *tx, org_id, "decision_billing_audit", "time_entry", id)
-            .await?;
+    let row = core_db::decision::latest_answers_for_entity(
+        &mut *tx,
+        org_id,
+        "decision_billing_audit",
+        "time_entry",
+        id,
+    )
+    .await?;
     let inputs = core_db::approvals::verdict_inputs(&mut tx, org_id, &[id]).await?;
     let verdicts = inputs.first().map(build_verdicts).unwrap_or_default();
     tx.commit().await.map_err(ApiError::from)?;
@@ -867,7 +905,10 @@ pub async fn bulk_entry_suggestions(
     Query(q): Query<BulkSuggestionsQuery>,
 ) -> ApiResult<Json<BulkEntrySuggestionsResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, time_perm(core_domain::policy::Action::View))?;
+    require_permission(
+        &authed.principal,
+        time_perm(core_domain::policy::Action::View),
+    )?;
     let org_id = authed.principal.user.org_id;
     let ids: Vec<Uuid> = q
         .ids
@@ -931,11 +972,8 @@ pub async fn bulk_entry_suggestions(
 /// that is certainly wrong, and trimming it is the one fix that needs no
 /// judgement from the person pressing it.
 pub fn build_verdicts(input: &core_db::approvals::VerdictEntry) -> Vec<TimeVerdict> {
-    use core_domain::entities::{VerdictInput, verdicts_for};
-    let overlap = input
-        .overlaps
-        .iter()
-        .max_by_key(|(_, _, minutes)| *minutes);
+    use core_domain::entities::{verdicts_for, VerdictInput};
+    let overlap = input.overlaps.iter().max_by_key(|(_, _, minutes)| *minutes);
     let (overlap_number, overlap_minutes) = match overlap {
         Some((_, number, minutes)) => (number.as_deref(), *minutes),
         None => (None, 0),
@@ -958,32 +996,20 @@ pub fn build_verdicts(input: &core_db::approvals::VerdictEntry) -> Vec<TimeVerdi
     verdicts
 }
 
-fn build_chips(
-    row: Option<&core_db::decision::DecisionAnswersRow>,
-) -> Vec<EntrySuggestion> {
+fn build_chips(row: Option<&core_db::decision::DecisionAnswersRow>) -> Vec<EntrySuggestion> {
     let Some(row) = row else { return vec![] };
     let Some(answers) = row.answers.as_object() else {
         return vec![];
     };
     let mut chips = Vec::new();
     if let Some(billable) = answers.get("billable") {
-        let probability = billable
-            .get("probability")
-            .and_then(|v| v.as_f64());
+        let probability = billable.get("probability").and_then(|v| v.as_f64());
         // Threshold gate per the billing-audit starter (act 0.8, review
         // 0.6): ≥ 0.8 confident billable, 0.6..0.8 looks-billable
         // pending, < 0.6 looks non-billable.
         let (chip, label, state) = match probability {
-            Some(p) if p >= 0.8 => (
-                "billable_true",
-                "Looks billable",
-                Some("act"),
-            ),
-            Some(p) if p >= 0.6 => (
-                "billable_true",
-                "Probably billable",
-                Some("pending"),
-            ),
+            Some(p) if p >= 0.8 => ("billable_true", "Looks billable", Some("act")),
+            Some(p) if p >= 0.6 => ("billable_true", "Probably billable", Some("pending")),
             Some(_) => (
                 "billable_false",
                 "Looks non-billable — add a reason?",
@@ -1052,10 +1078,9 @@ async fn finish_category_mutation(
     org_tx::OrgTx<'static>,
     MutationOutcome<TimeCategoryMutationResponse>,
 )> {
-    let count =
-        core_db::time_categories::entry_counts_by_slug(&mut *ctx.tx, ctx.org_id)
-            .await
-            .unwrap_or_default();
+    let count = core_db::time_categories::entry_counts_by_slug(&mut *ctx.tx, ctx.org_id)
+        .await
+        .unwrap_or_default();
     let view = TimeCategoryView {
         entry_count: count.get(&category.slug).copied().unwrap_or(0),
         category: category.clone(),

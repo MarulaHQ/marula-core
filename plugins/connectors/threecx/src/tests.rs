@@ -16,8 +16,8 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::{
-    map_call, CallLogSink, MarulaCallLogConfig, MarulaCallLogSink, NoneCallLogSink,
-    ThreecxClient, ThreecxSync,
+    map_call, CallLogSink, MarulaCallLogConfig, MarulaCallLogSink, NoneCallLogSink, ThreecxClient,
+    ThreecxSync,
 };
 
 async fn spawn(app: Router) -> String {

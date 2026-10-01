@@ -188,7 +188,10 @@ pub struct Resolved {
 
 impl Resolved {
     fn pick(candidate: Option<&String>, source: SignatureSource) -> Self {
-        match candidate.map(|text| text.trim()).filter(|text| !text.is_empty()) {
+        match candidate
+            .map(|text| text.trim())
+            .filter(|text| !text.is_empty())
+        {
             Some(text) => Resolved {
                 text: Some(text.to_string()),
                 source,
@@ -411,7 +414,10 @@ mod tests {
         // DATABASE constraint makes every other value unreachable.
         assert_eq!(SignaturePolicy::parse("nonsense"), SignaturePolicy::Allowed);
         assert_eq!(SignaturePolicy::parse(""), SignaturePolicy::Allowed);
-        assert_eq!(SignaturePolicy::parse("  ALLOWED "), SignaturePolicy::Allowed);
+        assert_eq!(
+            SignaturePolicy::parse("  ALLOWED "),
+            SignaturePolicy::Allowed
+        );
         assert_eq!(
             SignaturePolicy::parse("org_locked"),
             SignaturePolicy::OrgLocked

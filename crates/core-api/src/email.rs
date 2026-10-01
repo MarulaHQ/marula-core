@@ -139,8 +139,8 @@ pub async fn resolve_mail_identity(
     }
     if let Some(ticket_id) = ticket_id {
         if let Ok(ticket) = core_db::tickets::get_ticket(&mut *conn, org_id, ticket_id).await {
-            let board = core_db::emails::get_board_identity(&mut *conn, org_id, ticket.board_id)
-                .await?;
+            let board =
+                core_db::emails::get_board_identity(&mut *conn, org_id, ticket.board_id).await?;
             if let Some(value) = board.from_address {
                 identity.from_address = value;
             }
@@ -211,10 +211,7 @@ pub struct EnvelopeOverrides {
 
 /// The org's signature policy, read on its own so a route that only needs
 /// to ASK may lock can without resolving a whole envelope.
-pub async fn signature_policy(
-    conn: &mut PgConnection,
-    org_id: Uuid,
-) -> ApiResult<SignaturePolicy> {
+pub async fn signature_policy(conn: &mut PgConnection, org_id: Uuid) -> ApiResult<SignaturePolicy> {
     Ok(SignaturePolicy::parse(
         &stored_text(conn, org_id, registry::EMAIL_SIGNATURE_POLICY)
             .await?
@@ -249,9 +246,11 @@ pub async fn resolve_envelope(
     // default is the honest fallback, and the ledger records it.
     let board_signature = match ticket_id {
         Some(id) => match core_db::tickets::get_ticket(&mut *conn, org_id, id).await {
-            Ok(ticket) => core_db::emails::get_board_identity(&mut *conn, org_id, ticket.board_id)
-                .await?
-                .signature,
+            Ok(ticket) => {
+                core_db::emails::get_board_identity(&mut *conn, org_id, ticket.board_id)
+                    .await?
+                    .signature
+            }
             Err(_) => None,
         },
         None => None,
@@ -262,16 +261,13 @@ pub async fn resolve_envelope(
     // in the row the moment the lock is lifted, which is a state the admin
     // never agreed to: they locked it, they meant it.
     let user_default = match (signer, policy.allows_personal()) {
-        (Some(user_id), true) => core_db::settings::get_user_value(
-            &mut *conn,
-            org_id,
-            user_id,
-            registry::EMAIL_SIGNOFF,
-        )
-        .await?
-        .as_ref()
-        .and_then(|value| value.as_str())
-        .map(str::to_string),
+        (Some(user_id), true) => {
+            core_db::settings::get_user_value(&mut *conn, org_id, user_id, registry::EMAIL_SIGNOFF)
+                .await?
+                .as_ref()
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        }
         _ => None,
     };
 
@@ -811,13 +807,9 @@ async fn notify_quarantine(
     );
     let kind = core_domain::entities::NotificationKind::ScanDetection;
     for user_id in recipients {
-        let pref = core_db::notifications::effective_preference(
-            &mut **tx,
-            org_id,
-            user_id,
-            kind.as_str(),
-        )
-        .await?;
+        let pref =
+            core_db::notifications::effective_preference(&mut **tx, org_id, user_id, kind.as_str())
+                .await?;
         if !pref.in_app {
             continue;
         }
@@ -1021,14 +1013,8 @@ pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResul
         return Ok(());
     }
     let identity = resolve_mail_identity(tx, req.org_id, req.ticket_id, req.mail).await?;
-    let envelope = resolve_envelope(
-        tx,
-        req.org_id,
-        req.ticket_id,
-        req.signer,
-        &req.overrides,
-    )
-    .await?;
+    let envelope =
+        resolve_envelope(tx, req.org_id, req.ticket_id, req.signer, &req.overrides).await?;
     let body = assemble_body(&envelope, &req.kind.body());
     let message_id = emails::enqueue_outbound(
         tx,

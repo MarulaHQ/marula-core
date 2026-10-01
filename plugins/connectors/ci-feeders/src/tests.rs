@@ -14,9 +14,7 @@ use uuid::Uuid;
 
 use crate::identity::{fingerprint, IdentityKeysBuilder};
 use crate::model::FeederRecord;
-use crate::sink::{
-    FeederSink, MarulaFeederConfig, MarulaFeederSink, NoneFeederSink, SinkError,
-};
+use crate::sink::{FeederSink, MarulaFeederConfig, MarulaFeederSink, NoneFeederSink, SinkError};
 use crate::sync::{ApplyMode, FeederSync, SyncConfig};
 use crate::vendors;
 
@@ -245,8 +243,10 @@ async fn dry_run_never_touches_the_sink() {
 
 #[tokio::test]
 async fn per_record_failure_never_aborts_the_batch() {
-    let failing = vendors::map_ninjaone_device(&json!({"id": 9001, "displayName": "Fails"})).unwrap();
-    let passing = vendors::map_ninjaone_device(&json!({"id": 9002, "displayName": "Passes"})).unwrap();
+    let failing =
+        vendors::map_ninjaone_device(&json!({"id": 9001, "displayName": "Fails"})).unwrap();
+    let passing =
+        vendors::map_ninjaone_device(&json!({"id": 9002, "displayName": "Passes"})).unwrap();
     let seen = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let seen_route = seen.clone();
     struct RouteSink(Arc<std::sync::atomic::AtomicUsize>);

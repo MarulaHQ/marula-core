@@ -181,7 +181,10 @@ async fn create_entry(
     )
     .await;
     assert_eq!(response.status(), 200, "entry create must succeed");
-    body_json(response).await["id"].as_str().unwrap().to_string()
+    body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 async fn submit_and_approve(app: &Router, bearer: &str, entry_id: &str) {
@@ -218,9 +221,7 @@ async fn verify(
     let response = send(
         app,
         axum::http::Method::GET,
-        &format!(
-            "/api/billing/verification?contract_id={contract_id}&from={from}&to={to}"
-        ),
+        &format!("/api/billing/verification?contract_id={contract_id}&from={from}&to={to}"),
         Some(bearer),
         None,
     )
@@ -245,7 +246,8 @@ async fn act(app: &Router, bearer: &str, entry_id: &str, payload: Value) -> (u16
 /// Seeds org → client → T&M contract with a 150.00/h default rate, and
 /// returns (org_id, user_id, client_id, contract_id).
 async fn seed_contract(app: &Router, state: &AppState, bearer: &str) -> (Uuid, Uuid, Uuid, Uuid) {
-    let me = body_json(send(app, axum::http::Method::GET, "/api/me", Some(bearer), None).await).await;
+    let me =
+        body_json(send(app, axum::http::Method::GET, "/api/me", Some(bearer), None).await).await;
     let org_id: Uuid = me["org_id"].as_str().unwrap().parse().unwrap();
     let user_id: Uuid = me["user_id"].as_str().unwrap().parse().unwrap();
     let client_id = Uuid::now_v7();
@@ -301,7 +303,11 @@ async fn workspace_groups_by_ticket_with_badges_counters_and_totals() {
     let (status, ws) = verify(&app, &bearer, &contract_id.to_string(), &from, &to).await;
     assert_eq!(status, 200, "{ws}");
     assert_eq!(ws["total_minor"], ws["preview_total_minor"], "foots: {ws}");
-    assert_eq!(ws["counters"]["draft"], json!(1), "the draft is counted: {ws}");
+    assert_eq!(
+        ws["counters"]["draft"],
+        json!(1),
+        "the draft is counted: {ws}"
+    );
     let draft_row = ws["groups"]
         .as_array()
         .unwrap()
@@ -335,13 +341,16 @@ async fn workspace_groups_by_ticket_with_badges_counters_and_totals() {
     assert_eq!(ws["counters"]["entries"], json!(4), "{ws}");
     assert_eq!(ws["counters"]["unclassified"], json!(1), "{ws}");
     assert_eq!(ws["counters"]["undispositioned"], json!(4), "{ws}");
-    assert_eq!(ws["total_minor"], json!(52_500), "running total, draft excluded: {ws}");
+    assert_eq!(
+        ws["total_minor"],
+        json!(52_500),
+        "running total, draft excluded: {ws}"
+    );
 
     // The workspace's own sum and the engine's preview agree — the
     // invariant that makes the workspace trustworthy.
     assert_eq!(
-        ws["total_minor"],
-        ws["preview_total_minor"],
+        ws["total_minor"], ws["preview_total_minor"],
         "workspace entry sum must foot to the engine total: {ws}"
     );
 }
@@ -384,7 +393,11 @@ async fn adjust_minutes_requires_reason_writes_audit_and_changes_pricing() {
     assert_eq!(body["effective_minutes"], json!(30), "{body}");
     assert_eq!(body["disposition"], json!("approved"), "{body}");
     assert_eq!(body["adjustment"]["delta_minutes"], json!(-90), "{body}");
-    assert_eq!(body["audit_action"], json!("billing_verification.adjust_minutes"), "{body}");
+    assert_eq!(
+        body["audit_action"],
+        json!("billing_verification.adjust_minutes"),
+        "{body}"
+    );
 
     // Raising minutes is not a verification action.
     let (status, body) = act(
@@ -406,7 +419,10 @@ async fn adjust_minutes_requires_reason_writes_audit_and_changes_pricing() {
     .fetch_all(&state.pool)
     .await
     .unwrap();
-    assert_eq!(audit, vec!["billing_verification.adjust_minutes".to_string()]);
+    assert_eq!(
+        audit,
+        vec!["billing_verification.adjust_minutes".to_string()]
+    );
 
     // The ENGINE prices the adjusted minutes: 30 min at 150.00/h =
     // 75.00 = 7_500 minor, where the raw 120 would have been 300.00.
@@ -420,7 +436,11 @@ async fn adjust_minutes_requires_reason_writes_audit_and_changes_pricing() {
     assert_eq!(ws["counters"]["adjusted"], json!(1), "{ws}");
 
     let entry_view = &ws["groups"][0]["entries"][0];
-    assert_eq!(entry_view["minutes"], json!(120), "raw minutes kept: {entry_view}");
+    assert_eq!(
+        entry_view["minutes"],
+        json!(120),
+        "raw minutes kept: {entry_view}"
+    );
     assert_eq!(entry_view["effective_minutes"], json!(30), "{entry_view}");
 }
 
@@ -499,8 +519,16 @@ async fn flip_billable_requires_typed_reason_and_recategorize_rides_the_taxonomy
     assert_eq!(status, 200, "{ws}");
     let view = &ws["groups"][0]["entries"][0];
     assert_eq!(view["work_type"], json!("travel"), "{view}");
-    assert_eq!(view["unbillable_reason"], json!("in_retainer_block"), "{view}");
-    assert_eq!(view["cost_minor"], json!(0), "non-billable prices at zero: {view}");
+    assert_eq!(
+        view["unbillable_reason"],
+        json!("in_retainer_block"),
+        "{view}"
+    );
+    assert_eq!(
+        view["cost_minor"],
+        json!(0),
+        "non-billable prices at zero: {view}"
+    );
     assert_eq!(ws["counters"]["non_billable"], json!(1), "{ws}");
 }
 
@@ -559,7 +587,11 @@ async fn invoiced_entries_are_locked_against_every_verification_action() {
     let (status, ws) = verify(&app, &bearer, &contract_id.to_string(), &from, &to).await;
     assert_eq!(status, 200, "{ws}");
     assert_eq!(ws["counters"]["invoiced"], json!(1), "{ws}");
-    assert_eq!(ws["groups"][0]["entries"][0]["invoiced"], json!(true), "{ws}");
+    assert_eq!(
+        ws["groups"][0]["entries"][0]["invoiced"],
+        json!(true),
+        "{ws}"
+    );
 }
 
 #[tokio::test]
@@ -666,8 +698,16 @@ async fn signoff_reverifies_the_checklist_and_warns_on_run_overlap() {
     let status_code = response.status().as_u16();
     let body = body_json(response).await;
     assert_eq!(status_code, 200, "{body}");
-    assert_eq!(body["signoff"]["entries_dispositioned"], json!(true), "{body}");
-    assert_eq!(body["signoff"]["reviewer_note"], json!("March looks right"), "{body}");
+    assert_eq!(
+        body["signoff"]["entries_dispositioned"],
+        json!(true),
+        "{body}"
+    );
+    assert_eq!(
+        body["signoff"]["reviewer_note"],
+        json!("March looks right"),
+        "{body}"
+    );
 
     // The recorded sign-off rides the workspace read back.
     let (status, ws) = verify(&app, &bearer, &contract, &from, &to).await;
@@ -705,7 +745,9 @@ async fn signoff_reverifies_the_checklist_and_warns_on_run_overlap() {
     // The same window now overlaps that run, so the warning names it.
     let overlaps = ws["overlapping_runs"].as_array().expect("overlaps");
     assert!(
-        overlaps.iter().any(|o| o["run_id"] == json!(run_id.to_string())),
+        overlaps
+            .iter()
+            .any(|o| o["run_id"] == json!(run_id.to_string())),
         "the claimed run appears in the overlap warning: {ws}"
     );
 
@@ -771,5 +813,8 @@ async fn idempotent_action_replays_the_stored_result() {
         first["effective_minutes"], second["effective_minutes"],
         "a replay returns the stored result"
     );
-    assert_eq!(first["adjustment"]["id"], second["adjustment"]["id"], "{second}");
+    assert_eq!(
+        first["adjustment"]["id"], second["adjustment"]["id"],
+        "{second}"
+    );
 }

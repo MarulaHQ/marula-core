@@ -92,9 +92,8 @@ pub async fn insert_adjustment(
             "entry is invoiced and locked; verification actions are pre-run only".into(),
         ));
     }
-    TimeEntryAdjustment::validate(original_minutes, delta_minutes).map_err(|e| {
-        DbError::Conflict(format!("invalid adjustment: {e}"))
-    })?;
+    TimeEntryAdjustment::validate(original_minutes, delta_minutes)
+        .map_err(|e| DbError::Conflict(format!("invalid adjustment: {e}")))?;
     let row = sqlx::query!(
         r#"INSERT INTO time_entry_adjustments
              (id, org_id, time_entry_id, run_id, original_minutes, delta_minutes, reason, created_by)
@@ -295,11 +294,7 @@ where
 /// invoiced that carried a sign-off. Runs that invoice without one still
 /// work (the ritual is a warning surface, not a hard gate — see the
 /// overlap warning) but the evidence is linked when it exists.
-pub async fn attach_signoffs_to_run<'e, E>(
-    executor: E,
-    org_id: Uuid,
-    run_id: Uuid,
-) -> DbResult<u64>
+pub async fn attach_signoffs_to_run<'e, E>(executor: E, org_id: Uuid, run_id: Uuid) -> DbResult<u64>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {

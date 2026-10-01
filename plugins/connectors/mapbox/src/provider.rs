@@ -13,9 +13,9 @@
 use async_trait::async_trait;
 use core_routing::{
     cell_from_values, GeoPoint, GeocodeHit, GeocodeRequest, IsochroneContour, IsochroneRequest,
-    IsochroneResponse, MatrixCell, MatrixRequest, MatrixResponse, Place, ProviderInfo,
-    RouteLeg, RouteRequest, RouteResponse, RoutingCapability, RoutingError, RoutingProvider,
-    RoutingQuality, TimeControl, TravelMode,
+    IsochroneResponse, MatrixCell, MatrixRequest, MatrixResponse, Place, ProviderInfo, RouteLeg,
+    RouteRequest, RouteResponse, RoutingCapability, RoutingError, RoutingProvider, RoutingQuality,
+    TimeControl, TravelMode,
 };
 use serde::Deserialize;
 use std::fmt;
@@ -78,7 +78,9 @@ impl MapboxRoutingProvider {
             ));
         }
         if config.profile.trim().is_empty() {
-            return Err(RoutingError::Invalid("Mapbox profile must not be empty".into()));
+            return Err(RoutingError::Invalid(
+                "Mapbox profile must not be empty".into(),
+            ));
         }
         let client = reqwest::Client::builder()
             .timeout(config.timeout)
@@ -124,8 +126,7 @@ impl MapboxRoutingProvider {
             .map(|p| (p.longitude, p.latitude))
             .ok_or_else(|| {
                 RoutingError::Invalid(
-                    "Mapbox matrix/route need resolved coordinates; geocode the place first"
-                        .into(),
+                    "Mapbox matrix/route need resolved coordinates; geocode the place first".into(),
                 )
             })
     }

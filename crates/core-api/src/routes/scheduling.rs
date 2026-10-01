@@ -209,14 +209,7 @@ pub async fn create_appointment(
             // Wave 32 lane 7: site selection computes travel into the
             // booking at save time (best-effort; explicit minutes win).
             let policy = crate::routing::travel_policy_for(&mut tx.tx, org_id).await?;
-            apply_auto_travel(
-                &travel_state,
-                &mut tx.tx,
-                org_id,
-                &mut appointment,
-                &policy,
-            )
-            .await;
+            apply_auto_travel(&travel_state, &mut tx.tx, org_id, &mut appointment, &policy).await;
             core_db::scheduling::create_appointment(&mut *tx.tx, &appointment).await?;
             tx.emit(
                 types::APPOINTMENT_CREATED,
@@ -535,14 +528,9 @@ async fn apply_auto_travel(
     if !start.place.has_coordinates() {
         return;
     }
-    let Ok(estimate) = crate::routing::estimate_leg(
-        state,
-        policy,
-        &start.place,
-        &destination,
-        appt.starts_at,
-    )
-    .await
+    let Ok(estimate) =
+        crate::routing::estimate_leg(state, policy, &start.place, &destination, appt.starts_at)
+            .await
     else {
         return;
     };

@@ -240,7 +240,8 @@ where
 }
 
 pub async fn insert_expense<'e, E>(executor: E, e: &TicketExpense) -> DbResult<()>
-where    E: sqlx::Executor<'e, Database = Postgres>,
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
 {
     sqlx::query!(
         r#"INSERT INTO ticket_expenses

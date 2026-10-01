@@ -72,8 +72,7 @@ mod tests {
     fn test_state(with_secret: bool) -> AppState {
         let mut config = Config::from_env_allow_dev_fallback().expect("test config");
         config.email_inbound_hmac_secret = with_secret.then(|| "test-secret".to_string());
-        config.database_url =
-            "postgres://marula_app:marula_app@localhost:1/never_connected".into();
+        config.database_url = "postgres://marula_app:marula_app@localhost:1/never_connected".into();
         AppState {
             // Lazy pool: never dialed because HMAC rejects first.
             pool: sqlx::postgres::PgPoolOptions::new()

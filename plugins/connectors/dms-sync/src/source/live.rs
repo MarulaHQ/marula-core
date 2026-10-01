@@ -250,7 +250,6 @@ impl crate::source::DmsSource for HuduLive {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

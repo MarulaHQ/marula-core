@@ -414,8 +414,7 @@ async fn resolve_by_code(
     }
 
     // 5. Toolbox short code (the Code128 band on a toolbox tag).
-    let kits =
-        core_db::tools::find_kits_by_code(&mut *conn, org_id, text, CANDIDATE_LIMIT).await?;
+    let kits = core_db::tools::find_kits_by_code(&mut *conn, org_id, text, CANDIDATE_LIMIT).await?;
     if kits.len() == 1 {
         let kit = &kits[0];
         return Ok(ScanResolutionView {

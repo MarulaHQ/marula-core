@@ -162,7 +162,10 @@ async fn create_role_window(
     let mut builder = WebviewWindowBuilder::new(
         app,
         &label,
-        WebviewUrl::External(url.parse().map_err(|e| format!("invalid window URL: {e}"))?),
+        WebviewUrl::External(
+            url.parse()
+                .map_err(|e| format!("invalid window URL: {e}"))?,
+        ),
     )
     .title(role_title(role))
     .min_inner_size(640.0, 420.0)
@@ -359,8 +362,14 @@ mod tests {
         // Seed two live entries with a hole at index 1.
         {
             let mut live = registry.live.lock().unwrap();
-            live.insert(String::from("subwindow::ticket-detail::0"), (String::from("ticket-detail"), 0));
-            live.insert(String::from("subwindow::ticket-detail::2"), (String::from("ticket-detail"), 2));
+            live.insert(
+                String::from("subwindow::ticket-detail::0"),
+                (String::from("ticket-detail"), 0),
+            );
+            live.insert(
+                String::from("subwindow::ticket-detail::2"),
+                (String::from("ticket-detail"), 2),
+            );
         }
         assert!(load_state(&path).roles.is_empty());
         // A fresh registry over the same file loads nothing bad.

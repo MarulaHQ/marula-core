@@ -535,7 +535,11 @@ pub async fn fix_entry(
     let org_id = authed.principal.user.org_id;
     let now = chrono::Utc::now();
 
-    let description = req.description.as_deref().map(str::trim).filter(|d| !d.is_empty());
+    let description = req
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty());
     let minutes = req.minutes;
     if description.is_none() && minutes.is_none() {
         return Err(ApiError::Validation(
@@ -545,10 +549,10 @@ pub async fn fix_entry(
     if let Some(minutes) = minutes {
         if minutes <= 0 {
             return Err(ApiError::Validation(
-                "an entry's minutes cannot be trimmed to zero — reject it with a reason instead".into(),
+                "an entry's minutes cannot be trimmed to zero — reject it with a reason instead"
+                    .into(),
             ));
         }
-
     }
 
     let note = req.note.clone();

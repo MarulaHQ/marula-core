@@ -45,10 +45,7 @@ fn with_unknown_fields(payload: &Value) -> Value {
         .as_object()
         .cloned()
         .expect("golden payload is an object");
-    obj.insert(
-        "marula_future_field".into(),
-        json!({ "nested": [1, 2, 3] }),
-    );
+    obj.insert("marula_future_field".into(), json!({ "nested": [1, 2, 3] }));
     obj.insert("also_unknown".into(), json!(null));
     Value::Object(obj)
 }

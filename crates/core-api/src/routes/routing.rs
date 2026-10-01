@@ -280,14 +280,9 @@ pub async fn routing_day(
         .filter(|u| u.is_active)
         .map(|u| u.id)
         .collect();
-    let appointments = core_db::scheduling::list_dispatch_appointments_between(
-        &mut *tx,
-        org_id,
-        &techs,
-        from,
-        to,
-    )
-    .await?;
+    let appointments =
+        core_db::scheduling::list_dispatch_appointments_between(&mut *tx, org_id, &techs, from, to)
+            .await?;
     let mut site_ids: Vec<Uuid> = appointments.iter().filter_map(|a| a.site_id).collect();
     site_ids.sort_unstable();
     site_ids.dedup();
@@ -373,15 +368,13 @@ pub async fn routing_day(
                 Some(stop_node - 1)
             };
             let (minutes, error) = match (previous, matrix.as_ref()) {
-                (Some(previous), Some(matrix)) => {
-                    match matrix.cell(previous, stop_node) {
-                        Some(cell) => match cell.duration_seconds {
-                            Some(seconds) => (Some(estimate_minutes(seconds)), None),
-                            None => (None, Some("leg_unreachable".to_string())),
-                        },
+                (Some(previous), Some(matrix)) => match matrix.cell(previous, stop_node) {
+                    Some(cell) => match cell.duration_seconds {
+                        Some(seconds) => (Some(estimate_minutes(seconds)), None),
                         None => (None, Some("leg_unreachable".to_string())),
-                    }
-                }
+                    },
+                    None => (None, Some("leg_unreachable".to_string())),
+                },
                 (Some(_), None) => (None, Some("provider_unavailable".to_string())),
                 (None, _) => (None, None),
             };
@@ -476,12 +469,7 @@ pub async fn routing_day(
                 journey
                     .stops
                     .get(k - 1)
-                    .map(|previous| {
-                        (
-                            "stop".to_string(),
-                            previous.label.clone(),
-                        )
-                    })
+                    .map(|previous| ("stop".to_string(), previous.label.clone()))
                     .unwrap_or_else(|| ("unknown".into(), None))
             };
             let matrix_cell = journey.matrix.as_ref().and_then(|matrix| {
@@ -528,12 +516,13 @@ pub async fn routing_day(
                 }),
             });
         }
-        let warnings = core_domain::routing::journey_warnings(&core_domain::routing::JourneyInput {
-            stops: &journey.stops,
-            leg_minutes: &journey.leg_minutes,
-            leg_errors: &journey.leg_errors,
-            has_start_point: journey.has_start,
-        });
+        let warnings =
+            core_domain::routing::journey_warnings(&core_domain::routing::JourneyInput {
+                stops: &journey.stops,
+                leg_minutes: &journey.leg_minutes,
+                leg_errors: &journey.leg_errors,
+                has_start_point: journey.has_start,
+            });
         technician_views.push(TechnicianJourneyView {
             user_id: journey.user_id,
             display_name: journey.display_name.clone(),
@@ -721,7 +710,8 @@ pub async fn journey_start_get(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let explicit = core_db::routing::get_journey_start_point(&mut *tx, org_id, user_id, date).await?;
+    let explicit =
+        core_db::routing::get_journey_start_point(&mut *tx, org_id, user_id, date).await?;
     let resolved = svc::resolve_start_point(&mut tx, org_id, user_id, date).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(JourneyStartView {
@@ -824,7 +814,10 @@ pub async fn journey_start_set(
         let existing =
             core_db::routing::get_journey_start_point(&mut *ctx.tx, org_id, user_id, req.date)
                 .await?;
-        let row_id = existing.as_ref().map(|row| row.id).unwrap_or_else(Uuid::now_v7);
+        let row_id = existing
+            .as_ref()
+            .map(|row| row.id)
+            .unwrap_or_else(Uuid::now_v7);
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
             instant::ClaimSpec {
@@ -1028,11 +1021,7 @@ pub async fn reconciliation(
     let policy = svc::travel_policy_for(&mut tx, org_id).await?;
     let currency = svc::base_currency(&mut tx, org_id).await?;
     let drafts = core_db::dispatch::list_travel_drafts_for_reconciliation(
-        &mut *tx,
-        org_id,
-        q.user_id,
-        from,
-        to,
+        &mut *tx, org_id, q.user_id, from, to,
     )
     .await?;
     let expense_ids: Vec<Uuid> = drafts.iter().filter_map(|d| d.expense_id).collect();
@@ -1040,8 +1029,7 @@ pub async fn reconciliation(
     let members = core_db::users::list_users(&mut *tx, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
 
-    let expense_map: HashMap<Uuid, &TicketExpense> =
-        expenses.iter().map(|e| (e.id, e)).collect();
+    let expense_map: HashMap<Uuid, &TicketExpense> = expenses.iter().map(|e| (e.id, e)).collect();
     let name_map: HashMap<Uuid, String> = members
         .iter()
         .map(|u| (u.id, u.display_name.clone()))
@@ -1119,8 +1107,7 @@ fn rollup_row(
             submitted += 1;
         }
         if policy.reimburse_techs {
-            reimbursement_minor +=
-                (normalized * policy.mileage_rate_minor as f64).round() as i64;
+            reimbursement_minor += (normalized * policy.mileage_rate_minor as f64).round() as i64;
         }
         if let Some(expense_id) = draft.expense_id {
             if let Some(expense) = expenses.get(&expense_id) {

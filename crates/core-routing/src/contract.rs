@@ -50,7 +50,11 @@ pub struct ContractConfig {
 
 impl ContractConfig {
     #[must_use]
-    pub fn new(id: impl Into<String>, label: impl Into<String>, base_url: impl Into<String>) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        label: impl Into<String>,
+        base_url: impl Into<String>,
+    ) -> Self {
         Self {
             id: id.into(),
             label: label.into(),
@@ -139,7 +143,9 @@ struct ContractContour {
 impl ContractRoutingProvider {
     pub fn new(config: ContractConfig) -> Result<Self, RoutingError> {
         if config.id.trim().is_empty() {
-            return Err(RoutingError::Invalid("contract provider id is empty".into()));
+            return Err(RoutingError::Invalid(
+                "contract provider id is empty".into(),
+            ));
         }
         if config.base_url.trim().is_empty() {
             return Err(RoutingError::Invalid(
@@ -198,7 +204,11 @@ impl ContractRoutingProvider {
         }
     }
 
-    async fn post(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, RoutingError> {
+    async fn post(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, RoutingError> {
         let url = format!("{}{}", self.config.base_url.trim_end_matches('/'), path);
         let mut request = self.client.post(url).json(body);
         if let Some(token) = &self.config.token {

@@ -17,9 +17,13 @@ pub struct SlackConnector {
 pub fn validate_webhook_url(raw: &str, kind: &'static str) -> Result<String, BridgeError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(BridgeError::BadConfig(kind, "the webhook URL is required".into()));
+        return Err(BridgeError::BadConfig(
+            kind,
+            "the webhook URL is required".into(),
+        ));
     }
-    let loopback = trimmed.starts_with("http://127.0.0.1") || trimmed.starts_with("http://localhost");
+    let loopback =
+        trimmed.starts_with("http://127.0.0.1") || trimmed.starts_with("http://localhost");
     if !trimmed.starts_with("https://") && !loopback {
         return Err(BridgeError::BadConfig(
             kind,
@@ -75,5 +79,3 @@ impl SlackConnector {
         Ok(())
     }
 }
-
-

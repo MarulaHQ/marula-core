@@ -150,8 +150,7 @@ pub fn journey_warnings(input: &JourneyInput<'_>) -> Vec<TravelWarning> {
         warnings.push(TravelWarning::new(
             TravelWarningKind::MissingStartPoint,
             None,
-            "No journey start point for this day — set one to estimate the first leg."
-                .into(),
+            "No journey start point for this day — set one to estimate the first leg.".into(),
         ));
     }
     for (index, stop) in input.stops.iter().enumerate() {
@@ -164,16 +163,14 @@ pub fn journey_warnings(input: &JourneyInput<'_>) -> Vec<TravelWarning> {
             warnings.push(TravelWarning::new(
                 TravelWarningKind::MissingCoordinates,
                 Some(stop.appointment_id),
-                "This stop has no coordinates, so travel into it cannot be estimated."
-                    .into(),
+                "This stop has no coordinates, so travel into it cannot be estimated.".into(),
             ));
         }
         if let Some(Some(reason)) = input.leg_errors.get(index) {
             let mut warning = TravelWarning::new(
                 TravelWarningKind::ProviderError,
                 Some(stop.appointment_id),
-                "The travel estimate for this stop failed; the provider reason is recorded."
-                    .into(),
+                "The travel estimate for this stop failed; the provider reason is recorded.".into(),
             );
             warning.provider_reason = Some(reason.clone());
             warnings.push(warning);
@@ -196,8 +193,7 @@ pub fn journey_warnings(input: &JourneyInput<'_>) -> Vec<TravelWarning> {
             let mut warning = TravelWarning::new(
                 TravelWarningKind::ZeroTransfer,
                 Some(stop.appointment_id),
-                "Back-to-back bookings with no transfer time for a route that needs some."
-                    .into(),
+                "Back-to-back bookings with no transfer time for a route that needs some.".into(),
             );
             warning.required_minutes = Some(required);
             warning.gap_minutes = Some(gap_minutes);
@@ -207,8 +203,7 @@ pub fn journey_warnings(input: &JourneyInput<'_>) -> Vec<TravelWarning> {
             let mut warning = TravelWarning::new(
                 TravelWarningKind::InsufficientTransfer,
                 Some(stop.appointment_id),
-                "The gap between these bookings is shorter than the required travel."
-                    .into(),
+                "The gap between these bookings is shorter than the required travel.".into(),
             );
             warning.required_minutes = Some(required);
             warning.gap_minutes = Some(gap_minutes);
@@ -336,8 +331,7 @@ mod tests {
     use chrono::TimeZone;
 
     fn at(hour: u32, minute: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 5, 18, hour, minute, 0)
-            .unwrap()
+        Utc.with_ymd_and_hms(2026, 5, 18, hour, minute, 0).unwrap()
     }
 
     fn stop(id: u8, start: DateTime<Utc>, end: DateTime<Utc>) -> TravelStop {
@@ -419,13 +413,13 @@ mod tests {
         ];
         let lookup = |a: usize, b: usize| -> Option<i64> {
             match (a, b) {
-                (3, 0) => Some(10),   // start -> A
-                (0, 1) => Some(5),    // A -> B
-                (1, 2) => Some(40),   // B -> C
-                (3, 1) => Some(5),    // start -> B
-                (1, 0) => Some(5),    // B -> A
-                (0, 2) => Some(10),   // A -> C
-                (2, 1) => Some(10),   // C -> B
+                (3, 0) => Some(10), // start -> A
+                (0, 1) => Some(5),  // A -> B
+                (1, 2) => Some(40), // B -> C
+                (3, 1) => Some(5),  // start -> B
+                (1, 0) => Some(5),  // B -> A
+                (0, 2) => Some(10), // A -> C
+                (2, 1) => Some(10), // C -> B
                 _ => None,
             }
         };

@@ -28,8 +28,8 @@ static BOOTSTRAP: tokio::sync::OnceCell<Bootstrap> = tokio::sync::OnceCell::cons
 async fn bootstrap() -> &'static Bootstrap {
     BOOTSTRAP
         .get_or_init(|| async {
-            if let Ok(url) = std::env::var("MARULA_TEST_DATABASE_URL")
-                .or_else(|_| std::env::var("DATABASE_URL"))
+            if let Ok(url) =
+                std::env::var("MARULA_TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"))
             {
                 let admin = connect_with_retry(&url).await;
                 reset_schema(&admin).await;
@@ -61,8 +61,7 @@ async fn bootstrap() -> &'static Bootstrap {
                 .expect("starting postgres testcontainer requires Docker");
             let host = container.get_host().await.expect("container host");
             let port = container.get_host_port_ipv4(5432_u16).await.expect("port");
-            let admin_url =
-                format!("postgres://marula:marula@{host}:{port}/marula_projects_test");
+            let admin_url = format!("postgres://marula:marula@{host}:{port}/marula_projects_test");
             let admin = connect_with_retry(&admin_url).await;
             reset_schema(&admin).await;
             core_db::run_migrations(&admin)

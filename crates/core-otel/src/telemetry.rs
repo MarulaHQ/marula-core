@@ -180,10 +180,7 @@ pub fn init(service_name: &'static str) -> TelemetryGuard {
 fn build_resource(service_name: &'static str) -> Resource {
     Resource::builder()
         .with_service_name(service_name)
-        .with_attribute(opentelemetry::KeyValue::new(
-            "service.namespace",
-            "marula",
-        ))
+        .with_attribute(opentelemetry::KeyValue::new("service.namespace", "marula"))
         .build()
 }
 

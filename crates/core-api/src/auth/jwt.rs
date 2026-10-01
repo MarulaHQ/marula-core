@@ -429,7 +429,10 @@ MCowBQYDK2VwAyEACifTR92KS0nfpnia/3uCznrkBrmzfHxV+nqX3Xhxw0w=
         let claims = verify_access_token(&cfg, &token).expect("access verifies");
         assert_eq!((claims.sub, claims.org, claims.sid), (u, o, s));
         let portal = issue_portal_access_token(&cfg, u, o, u, s).unwrap();
-        assert_eq!(verify_portal_access_token(&cfg, &portal), Some((u, o, u, s)));
+        assert_eq!(
+            verify_portal_access_token(&cfg, &portal),
+            Some((u, o, u, s))
+        );
         let scoped = issue_mfa_pending_token(&cfg, u, o).unwrap();
         assert_eq!(verify_mfa_pending_token(&cfg, &scoped), Some((u, o)));
     }
@@ -468,7 +471,8 @@ MCowBQYDK2VwAyEACifTR92KS0nfpnia/3uCznrkBrmzfHxV+nqX3Xhxw0w=
             }),
             ..test_config()
         };
-        let token = issue_access_token(&cfg, Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()).unwrap();
+        let token =
+            issue_access_token(&cfg, Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()).unwrap();
         assert!(verify_access_token(&wrong, &token).is_none());
         // HS256 fallback must not accept an EdDSA token either: the secret
         // is the same in both configs, but the algorithm is pinned per

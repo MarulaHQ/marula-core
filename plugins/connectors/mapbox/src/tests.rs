@@ -24,11 +24,12 @@ fn token_of(query: &HashMap<String, String>) -> Option<String> {
     query.get("access_token").cloned()
 }
 
-async fn matrix(
-    Query(query): Query<HashMap<String, String>>,
-) -> Json<serde_json::Value> {
+async fn matrix(Query(query): Query<HashMap<String, String>>) -> Json<serde_json::Value> {
     assert_eq!(token_of(&query).as_deref(), Some("pk.fixture"));
-    assert_eq!(query.get("annotations").map(String::as_str), Some("duration,distance"));
+    assert_eq!(
+        query.get("annotations").map(String::as_str),
+        Some("duration,distance")
+    );
     Json(serde_json::json!({
         "code": "Ok",
         "durations": [[600.0]],
@@ -36,9 +37,7 @@ async fn matrix(
     }))
 }
 
-async fn directions(
-    Query(query): Query<HashMap<String, String>>,
-) -> Json<serde_json::Value> {
+async fn directions(Query(query): Query<HashMap<String, String>>) -> Json<serde_json::Value> {
     assert_eq!(token_of(&query).as_deref(), Some("pk.fixture"));
     Json(serde_json::json!({
         "code": "Ok",
@@ -50,11 +49,12 @@ async fn directions(
     }))
 }
 
-async fn geocode(
-    Query(query): Query<HashMap<String, String>>,
-) -> Json<serde_json::Value> {
+async fn geocode(Query(query): Query<HashMap<String, String>>) -> Json<serde_json::Value> {
     assert_eq!(token_of(&query).as_deref(), Some("pk.fixture"));
-    assert_eq!(query.get("q").map(String::as_str), Some("Unter den Linden 1"));
+    assert_eq!(
+        query.get("q").map(String::as_str),
+        Some("Unter den Linden 1")
+    );
     Json(serde_json::json!({
         "features": [{
             "properties": {
@@ -65,11 +65,12 @@ async fn geocode(
     }))
 }
 
-async fn isochrone(
-    Query(query): Query<HashMap<String, String>>,
-) -> Json<serde_json::Value> {
+async fn isochrone(Query(query): Query<HashMap<String, String>>) -> Json<serde_json::Value> {
     assert_eq!(token_of(&query).as_deref(), Some("pk.fixture"));
-    assert_eq!(query.get("contours_minutes").map(String::as_str), Some("10,20"));
+    assert_eq!(
+        query.get("contours_minutes").map(String::as_str),
+        Some("10,20")
+    );
     Json(serde_json::json!({
         "features": [
             { "properties": { "contour": 10 }, "geometry": { "type": "Polygon", "coordinates": [] } },
@@ -99,7 +100,10 @@ async fn mapbox_matrix_route_geocode_isochrone_against_fixtures() {
     let base = spawn(app).await;
     let provider = provider_for(base, "driving");
     assert_eq!(provider.info().id, "mapbox");
-    assert_eq!(provider.info().quality, core_routing::RoutingQuality::Measured);
+    assert_eq!(
+        provider.info().quality,
+        core_routing::RoutingQuality::Measured
+    );
 
     let response = provider
         .matrix(&MatrixRequest::new(

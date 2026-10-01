@@ -1429,13 +1429,9 @@ pub async fn get_quote(
     core_db::set_org_and_user(&mut tx, authed.user.org_id, authed.user.id)
         .await
         .map_err(ApiError::from)?;
-    let quote = core_db::quotes::get_client_quote(
-        &mut *tx,
-        authed.user.org_id,
-        authed.user.client_id,
-        id,
-    )
-    .await?;
+    let quote =
+        core_db::quotes::get_client_quote(&mut *tx, authed.user.org_id, authed.user.client_id, id)
+            .await?;
     let lines = core_db::quotes::list_lines(&mut *tx, authed.user.org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(PortalQuoteDetail {

@@ -594,10 +594,11 @@ async fn send_zpl_to(host: &str, port: u16, zpl: &[u8]) -> anyhow::Result<()> {
         bail!("printer host is empty");
     }
     let addr = format!("{}:{}", host.trim(), port);
-    let mut stream = tokio::time::timeout(ZPL_CONNECT_TIMEOUT, tokio::net::TcpStream::connect(&addr))
-        .await
-        .map_err(|_| anyhow::anyhow!("connecting to {addr} timed out"))?
-        .with_context(|| format!("connecting to {addr}"))?;
+    let mut stream =
+        tokio::time::timeout(ZPL_CONNECT_TIMEOUT, tokio::net::TcpStream::connect(&addr))
+            .await
+            .map_err(|_| anyhow::anyhow!("connecting to {addr} timed out"))?
+            .with_context(|| format!("connecting to {addr}"))?;
     tokio::time::timeout(ZPL_CONNECT_TIMEOUT, stream.write_all(zpl))
         .await
         .map_err(|_| anyhow::anyhow!("writing to {addr} timed out"))?
@@ -686,7 +687,6 @@ async fn install_desktop_update(
     // macOS/Linux need an explicit relaunch into the installed version.
     app.restart()
 }
-
 
 fn main() {
     tracing_subscriber::fmt()

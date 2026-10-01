@@ -117,8 +117,8 @@ pub mod types {
     /// emitted from the same transaction as the state change.
     pub const TIME_ENTRY_APPROVAL_SUBMITTED: &str = "time_entry.approval_submitted";
     pub const TIME_ENTRY_APPROVAL_APPROVED: &str = "time_entry.approval_approved";
-/// An approver applied a verdict fix to a queued entry (Wave 41 lane 8).
-pub const TIME_ENTRY_FIXED: &str = "time_entry.fixed";
+    /// An approver applied a verdict fix to a queued entry (Wave 41 lane 8).
+    pub const TIME_ENTRY_FIXED: &str = "time_entry.fixed";
     pub const TIME_ENTRY_APPROVAL_REJECTED: &str = "time_entry.approval_rejected";
     pub const NOTIFICATION_CREATED: &str = "notification.created";
     /// Emitted when a user marks notifications read (single, bulk, or all).

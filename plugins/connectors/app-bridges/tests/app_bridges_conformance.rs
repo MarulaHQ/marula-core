@@ -31,30 +31,37 @@ async fn spawn_mock(status: axum::http::StatusCode, resp_body: &'static str) -> 
     let writer = captured.clone();
     let router = axum::Router::new().route(
         "/",
-        axum::routing::post(move |headers: axum::http::HeaderMap, body: String| async move {
-            if let Ok(mut store) = writer.lock() {
-                *store = Captured {
-                    last_body: body.clone(),
-                    #[allow(unused_assignments)]
-                    last_content_type: headers
-                        .get(reqwest::header::CONTENT_TYPE.as_str())
-                        .and_then(|v| v.to_str().map(str::to_owned).ok())
-                        .unwrap_or_default(),
-                    last_signature: headers
-                        .get("x-marula-signature")
-                        .and_then(|v| v.to_str().map(str::to_owned).ok())
-                        .unwrap_or_default(),
-                };
-            }
-            (status, resp_body)
-        }),
+        axum::routing::post(
+            move |headers: axum::http::HeaderMap, body: String| async move {
+                if let Ok(mut store) = writer.lock() {
+                    *store = Captured {
+                        last_body: body.clone(),
+                        #[allow(unused_assignments)]
+                        last_content_type: headers
+                            .get(reqwest::header::CONTENT_TYPE.as_str())
+                            .and_then(|v| v.to_str().map(str::to_owned).ok())
+                            .unwrap_or_default(),
+                        last_signature: headers
+                            .get("x-marula-signature")
+                            .and_then(|v| v.to_str().map(str::to_owned).ok())
+                            .unwrap_or_default(),
+                    };
+                }
+                (status, resp_body)
+            },
+        ),
     );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind loopback mock");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind loopback mock");
     let addr = listener.local_addr().expect("local addr");
     tokio::spawn(async move {
         let _ = axum::serve(listener, router).await;
     });
-    Mock { base_url: format!("http://{addr}/"), captured }
+    Mock {
+        base_url: format!("http://{addr}/"),
+        captured,
+    }
 }
 
 fn sample_payload() -> NotificationPayload {
@@ -71,8 +78,14 @@ async fn slack_delivers_and_canary_rejects_are_typed() {
     let slack = SlackConnector::new(mock.base_url.clone());
     slack.send(&sample_payload()).await.expect("delivers");
     let captured = mock.captured();
-    assert!(captured.last_body.contains("\"text\""), "the Slack body is chat.post-shaped");
-    assert!(captured.last_body.contains("SLA breach"), "the title rides the rich text");
+    assert!(
+        captured.last_body.contains("\"text\""),
+        "the Slack body is chat.post-shaped"
+    );
+    assert!(
+        captured.last_body.contains("SLA breach"),
+        "the title rides the rich text"
+    );
     assert!(captured.last_content_type.starts_with("application/json"));
 
     // A Slack "success" that actually rejects the payload shape is a
@@ -87,8 +100,14 @@ async fn slack_delivers_and_canary_rejects_are_typed() {
 
     // A plain https URL; the boundary refuses non-https config.
     let bad = SlackConnector::new("http://example.com/hook");
-    assert!(matches!(bad.send(&sample_payload()).await, Err(BridgeError::BadConfig("slack", _))));
-    assert!(matches!(bad.validate(), Err(BridgeError::BadConfig("slack", _))));
+    assert!(matches!(
+        bad.send(&sample_payload()).await,
+        Err(BridgeError::BadConfig("slack", _))
+    ));
+    assert!(matches!(
+        bad.validate(),
+        Err(BridgeError::BadConfig("slack", _))
+    ));
 }
 
 #[tokio::test]
@@ -97,10 +116,13 @@ async fn teams_delivers_one_adaptive_card_with_the_deep_link() {
     let teams = TeamsConnector::new(mock.base_url.clone());
     teams.send(&sample_payload()).await.expect("delivers");
     let captured = mock.captured();
-    let card: serde_json::Value = serde_json::from_str(&captured.last_body).expect("the body is JSON");
+    let card: serde_json::Value =
+        serde_json::from_str(&captured.last_body).expect("the body is JSON");
     let content = &card["attachments"][0]["content"];
     assert_eq!(card["type"], "message");
-    assert!(content["body"][0]["text"].as_str().is_some_and(|t| t.contains("**SLA breach**")));
+    assert!(content["body"][0]["text"]
+        .as_str()
+        .is_some_and(|t| t.contains("**SLA breach**")));
     assert_eq!(
         content["actions"][0]["url"],
         serde_json::json!("https://app.example.com/tickets/42")
@@ -122,15 +144,27 @@ async fn rewst_signs_the_trigger_and_the_url_carries_the_secret_headers() {
         .await
         .expect("triggers");
     let captured = mock.captured();
-    assert!(!captured.last_signature.is_empty(), "the signature header is present");
+    assert!(
+        !captured.last_signature.is_empty(),
+        "the signature header is present"
+    );
     // The secret NEVER rides the wire (header or body).
-    assert!(!captured.last_body.contains("secret-material"), "the secret stays off the wire");
+    assert!(
+        !captured.last_body.contains("secret-material"),
+        "the secret stays off the wire"
+    );
 }
 
 #[tokio::test]
 async fn bad_config_never_reaches_a_socket() {
     let empty = SlackConnector::new("");
-    assert!(matches!(empty.validate(), Err(BridgeError::BadConfig("slack", _))));
+    assert!(matches!(
+        empty.validate(),
+        Err(BridgeError::BadConfig("slack", _))
+    ));
     let rewst_blank = RewstBridge::new("https://ok.rewst.io/x", "  ");
-    assert!(matches!(rewst_blank.validate(), Err(BridgeError::BadConfig("rewst", _))));
+    assert!(matches!(
+        rewst_blank.validate(),
+        Err(BridgeError::BadConfig("rewst", _))
+    ));
 }

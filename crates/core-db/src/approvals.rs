@@ -624,12 +624,14 @@ where
             let ticket_id: Option<Uuid> = row.get("ticket_id");
             let entry = map_row(row);
             let ticket = match (ticket_id, ticket_number, ticket_title) {
-                (Some(id), Some(number), Some(title)) => Some(core_domain::entities::TimeEntryTicketRef {
-                    id,
-                    number,
-                    title,
-                    client_name,
-                }),
+                (Some(id), Some(number), Some(title)) => {
+                    Some(core_domain::entities::TimeEntryTicketRef {
+                        id,
+                        number,
+                        title,
+                        client_name,
+                    })
+                }
                 _ => None,
             };
             TimeEntryQueueItem {

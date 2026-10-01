@@ -66,7 +66,9 @@ pub enum AutomationCondition {
     /// (strictly less — threshold 3 fires on 1 and 2). Evaluated against
     /// the event payload score, not the ticket snapshot; on any other
     /// trigger event the condition is a no-match.
-    CsatScoreBelow { threshold: i16 },
+    CsatScoreBelow {
+        threshold: i16,
+    },
     /// Semantic condition answered by the decision model (ADR 0010 §3
     /// #2): references (surface, question, operator, threshold,
     /// confidence-path) and is evaluated by the worker AGAINST THE
@@ -405,9 +407,13 @@ pub fn validate_actions(actions: &[AutomationAction]) -> Result<(), crate::Domai
                 // enabled install + grant) is re-verified at execution
                 // time against the surface registry.
                 let ok = entry_key.starts_with("plugin.")
-                    && entry_key
-                        .chars()
-                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '_' || c == '-');
+                    && entry_key.chars().all(|c| {
+                        c.is_ascii_lowercase()
+                            || c.is_ascii_digit()
+                            || c == '.'
+                            || c == '_'
+                            || c == '-'
+                    });
                 if !ok {
                     return Err(DomainError::Validation(
                         "plugin action entry_key must be a plugin.<slug>.<id> registry key".into(),

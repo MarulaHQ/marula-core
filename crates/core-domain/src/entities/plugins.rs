@@ -866,7 +866,8 @@ impl PluginSurfaceProfile {
         for a in &self.actions {
             Self::validate_id(&a.id, "action")?;
             Self::validate_label(&a.label, "action")?;
-            if a.description.trim().is_empty() || a.description.len() > MAX_SURFACE_DESCRIPTION_BYTES
+            if a.description.trim().is_empty()
+                || a.description.len() > MAX_SURFACE_DESCRIPTION_BYTES
             {
                 return err(format!(
                     "action {:?} description must be 1..={MAX_SURFACE_DESCRIPTION_BYTES} bytes",
@@ -1873,7 +1874,12 @@ mod tests {
 
     #[test]
     fn surface_capabilities_should_round_trip_and_resolve_onto_existing_gates() {
-        for key in ["ui.widgets", "automation.actions", "reports.render", "fields.validate"] {
+        for key in [
+            "ui.widgets",
+            "automation.actions",
+            "reports.render",
+            "fields.validate",
+        ] {
             let parsed = PluginCapability::parse(key).expect("surface capability parses");
             assert_eq!(parsed.as_str(), key);
         }
@@ -2202,7 +2208,12 @@ mod tests {
 
         // Every routing capability maps onto the scheduling VIEW gate —
         // a routing grant never confers scheduling edits.
-        for key in ["routing.matrix", "routing.route", "routing.geocode", "routing.isochrone"] {
+        for key in [
+            "routing.matrix",
+            "routing.route",
+            "routing.geocode",
+            "routing.isochrone",
+        ] {
             let capability = PluginCapability::parse(key).expect("closed vocabulary");
             assert_eq!(
                 capability.permission(),

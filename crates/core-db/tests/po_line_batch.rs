@@ -151,7 +151,9 @@ async fn batch_read_returns_every_line_attributed_to_its_own_order() {
     }
 
     // And the rollup the list folds this into agrees with the single-order path.
-    let first_single = list_po_lines(&mut conn, org_id, first).await.expect("first");
+    let first_single = list_po_lines(&mut conn, org_id, first)
+        .await
+        .expect("first");
     let first_batched: Vec<_> = batched
         .iter()
         .filter(|line| line.purchase_order_id == first)

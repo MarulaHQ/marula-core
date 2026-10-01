@@ -10,7 +10,9 @@ use crate::registry::{RoutingRegistry, RoutingStatus};
 use crate::types::{
     GeoPoint, MatrixRequest, Place, RoutingCapability, RoutingQuality, TimeControl, TravelMode,
 };
-use axum::{extract::Path, extract::Query, http::HeaderMap, routing::get, routing::post, Json, Router};
+use axum::{
+    extract::Path, extract::Query, http::HeaderMap, routing::get, routing::post, Json, Router,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -172,7 +174,11 @@ async fn osrm_route(Path((profile, coords)): Path<(String, String)>) -> Json<ser
     }))
 }
 
-async fn osrm_rate_limited() -> (axum::http::StatusCode, [(&'static str, &'static str); 1], &'static str) {
+async fn osrm_rate_limited() -> (
+    axum::http::StatusCode,
+    [(&'static str, &'static str); 1],
+    &'static str,
+) {
     (
         axum::http::StatusCode::TOO_MANY_REQUESTS,
         [("retry-after", "7")],

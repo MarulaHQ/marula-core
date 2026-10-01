@@ -193,7 +193,10 @@ async fn wave39_line_kinds_map_with_sign_preserved() {
     );
     assert!(
         lines[4]["Amount"].as_f64().unwrap() < 0.0
-            || lines[4]["SalesItemLineDetail"]["UnitPrice"].as_f64().unwrap() < 0.0,
+            || lines[4]["SalesItemLineDetail"]["UnitPrice"]
+                .as_f64()
+                .unwrap()
+                < 0.0,
         "the credit reads back negative somewhere on the line (sign never lost)"
     );
     assert!(

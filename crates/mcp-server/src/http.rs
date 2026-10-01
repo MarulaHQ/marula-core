@@ -28,8 +28,8 @@ async fn post_message<S: Backend>(
 
 /// Builds the HTTP server from env wiring (same contract as stdio).
 pub async fn router_from_env() -> anyhow::Result<axum::Router> {
-    let base = std::env::var("MARULA_API_BASE")
-        .unwrap_or_else(|_| crate::tools::DEFAULT_API_BASE.into());
+    let base =
+        std::env::var("MARULA_API_BASE").unwrap_or_else(|_| crate::tools::DEFAULT_API_BASE.into());
     let backend = crate::tools::CoreApiBackend::new(&base);
     let spec: serde_json::Value = match std::env::var("MARULA_OPENAPI") {
         Ok(path) => serde_json::from_str(&std::fs::read_to_string(&path)?)?,

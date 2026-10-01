@@ -74,9 +74,7 @@ async fn send(
     token: Option<&str>,
     body: Option<Value>,
 ) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder()
-        .method(method)
-        .uri(path);
+    let mut builder = axum::http::Request::builder().method(method).uri(path);
     if let Some(t) = token {
         builder = builder.header("authorization", format!("Bearer {t}"));
     }
@@ -183,7 +181,12 @@ async fn put_outbound(app: &Router, org: &Org, body: Value) -> Value {
 
 /// Sets one of the caller's own user-scope settings; returns the status so a
 /// test can assert on a REFUSAL as easily as on an acceptance.
-async fn put_user_setting(app: &Router, org: &Org, key: &str, value: &str) -> axum::http::StatusCode {
+async fn put_user_setting(
+    app: &Router,
+    org: &Org,
+    key: &str,
+    value: &str,
+) -> axum::http::StatusCode {
     send(
         app,
         axum::http::Method::PUT,
@@ -209,7 +212,6 @@ async fn envelope(app: &Router, org: &Org) -> Value {
     assert_eq!(response.status(), 200, "envelope read");
     body_json(response).await
 }
-
 
 /// A second, roleless user in the org, returned as (id, email). The
 /// client-visible notification only goes to a ticket's REQUESTER and never
@@ -281,7 +283,11 @@ async fn post_client_note(
 
 /// The most recent outbound row for a ticket, with the body and the two
 /// provenance labels the ledger now carries.
-async fn last_outbound(state: &AppState, org_id: Uuid, ticket: Uuid) -> (String, Option<String>, Option<String>) {
+async fn last_outbound(
+    state: &AppState,
+    org_id: Uuid,
+    ticket: Uuid,
+) -> (String, Option<String>, Option<String>) {
     let mut tx = state.pool.begin().await.unwrap();
     core_db::set_org(&mut tx, org_id).await.unwrap();
     let row: (String, Option<String>, Option<String>) = sqlx::query_as(
@@ -426,7 +432,10 @@ async fn the_chain_runs_message_override_then_user_then_board_then_org() {
     );
     post_client_note(&app, &org, ticket, "My own block now.", None).await;
     let (body, _, signature_source) = last_outbound(&state, org.org_id, ticket).await;
-    assert!(body.contains("Owner Person"), "the sender's own block: {body}");
+    assert!(
+        body.contains("Owner Person"),
+        "the sender's own block: {body}"
+    );
     assert!(
         !body.contains("Acme Projects"),
         "a personal default outranks the board's: {body}"

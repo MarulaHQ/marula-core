@@ -459,7 +459,10 @@ impl RoutingProvider for OsrmRoutingProvider {
                 let summary = properties.summary;
                 (
                     legs,
-                    summary.as_ref().and_then(|s| s.duration).map(|d| d.round() as i64),
+                    summary
+                        .as_ref()
+                        .and_then(|s| s.duration)
+                        .map(|d| d.round() as i64),
                     summary
                         .as_ref()
                         .and_then(|s| s.distance)
