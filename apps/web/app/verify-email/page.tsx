@@ -16,7 +16,8 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { applyTheme, Spinner } from "@marula-core/ui";
+import { Spinner } from "@marula-core/ui";
+import { applyEntryTheme } from "../../lib/entry-theme";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { api } from "../../lib/api";
 import {
@@ -40,7 +41,7 @@ function VerifyEmailInner(): ReactNode {
   useEffect(() => {
     // Public page: always render in the light theme, never inherit a staff
     // member's persisted preference on a shared device.
-    applyTheme("light");
+    applyEntryTheme();
   }, []);
 
   const confirmToken = async () => {

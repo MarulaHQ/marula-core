@@ -22,8 +22,9 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
-import { applyTheme, Spinner } from "@marula-core/ui";
+import { Spinner } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
+import { applyEntryTheme } from "../../lib/entry-theme";
 import { api, useRequireAuth } from "../../lib/api";
 import "../share.css";
 
@@ -45,7 +46,7 @@ function ClaimInner() {
   useEffect(() => {
     // Public page: always render in the light theme, never inherit a staff
     // member's persisted preference on a shared device.
-    applyTheme("light");
+    applyEntryTheme();
   }, []);
 
   const claim = useCallback(async () => {

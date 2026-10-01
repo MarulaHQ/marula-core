@@ -21,8 +21,9 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { applyTheme, Spinner } from "@marula-core/ui";
+import { Spinner } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
+import { applyEntryTheme } from "../../lib/entry-theme";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { api, saveTokens } from "../../lib/api";
 import {
@@ -53,7 +54,7 @@ function AcceptInviteInner(): ReactNode {
   useEffect(() => {
     // Public page: always render in the light theme, never inherit a staff
     // member's persisted preference on a shared device.
-    applyTheme("light");
+    applyEntryTheme();
   }, []);
 
   const redeem = async (e: React.FormEvent) => {

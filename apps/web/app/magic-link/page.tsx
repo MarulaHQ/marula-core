@@ -33,6 +33,7 @@ import {
   EntryNote,
   EntryShell,
 } from "../../components/auth/entry";
+import { applyEntryTheme } from "../../lib/entry-theme";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { api, resolveApiBaseUrl, saveTokens } from "../../lib/api";
 
@@ -74,7 +75,7 @@ function MagicLinkInner(): ReactNode {
   useEffect(() => {
     // Public page: always render in the light theme, never inherit a staff
     // member's persisted preference on a shared device.
-    applyTheme("light");
+    applyEntryTheme();
   }, []);
 
   // The resend cool-down. The pack freezes its digits for the screenshot; the

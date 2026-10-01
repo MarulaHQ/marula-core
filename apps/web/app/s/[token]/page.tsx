@@ -27,7 +27,8 @@
 import type { components } from "@marula-core/sdk";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { applyTheme, Spinner } from "@marula-core/ui";
+import { Spinner } from "@marula-core/ui";
+import { applyEntryTheme } from "../../../lib/entry-theme";
 import { api } from "../../../lib/api";
 import { portalOrgName } from "../../../lib/portal-branding";
 
@@ -100,7 +101,7 @@ export default function PublicBookingPage(): ReactNode {
   useEffect(() => {
     // Public page: always render in the light theme, never inherit a staff
     // member's persisted preference on a shared device.
-    applyTheme("light");
+    applyEntryTheme();
   }, []);
 
   const [view, setView] = useState<PublicLinkView | null>(null);

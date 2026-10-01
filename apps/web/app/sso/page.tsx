@@ -18,7 +18,8 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { applyTheme, Spinner } from "@marula-core/ui";
+import { Spinner } from "@marula-core/ui";
+import { applyEntryTheme } from "../../lib/entry-theme";
 import { resolveApiBaseUrl, saveTokens } from "../../lib/api";
 import {
   EntryCard,
@@ -44,7 +45,7 @@ function SsoInner() {
   const [message, setMessage] = useState("Completing sign-in…");
 
   useEffect(() => {
-    applyTheme("light");
+    applyEntryTheme();
   }, []);
 
   useEffect(() => {
@@ -174,7 +175,7 @@ function SsoPicker() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    applyTheme("light");
+    applyEntryTheme();
     let cancelled = false;
     fetch(`${API_BASE}/api/v1/auth/oidc/providers/public`)
       .then((r) => (r.ok ? r.json() : []))
