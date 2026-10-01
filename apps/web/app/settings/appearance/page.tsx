@@ -215,6 +215,8 @@ export default function AppearanceSettingsPage() {
           value={prefs.density}
           onChange={(step) => void prefs.setDensity(step)}
           disabled={!prefs.ready}
+          variant="described"
+          label="Step"
         />
         <FieldHint>
           Tap targets stay at 44px on every step, including Dense, so the same
