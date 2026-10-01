@@ -707,7 +707,7 @@ export default function AutomationsPage() {
                           </StatusPill>
                         ) : null}
                         {c.key === "trigger" ? (
-                          <code className="font-mono text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                          <code className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                             {r.trigger_event}
                           </code>
                         ) : null}
@@ -846,7 +846,7 @@ export default function AutomationsPage() {
               word="WHEN"
               summary={
                 <>
-                  <code className="font-mono">{triggerEvent}</code> fires on{" "}
+                  <code className="">{triggerEvent}</code> fires on{" "}
                   {boardId === "" || boardId === "all"
                     ? "every board"
                     : (boards.find((b) => b.id === boardId)?.name ?? "one board")}

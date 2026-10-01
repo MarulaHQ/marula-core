@@ -372,7 +372,7 @@ function Stat({ label, value }: { label: string; value: string }) {
       >
         {label}
       </span>
-      <span className="font-mono text-lg font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>
+ <span className="text-lg font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>
         {value}
       </span>
     </div>
@@ -414,9 +414,9 @@ function RollupDataTable({
                 {r.label !== "" ? r.label : r.group_id.slice(0, 8)}
               </a>
             </Td>
-            <Td className="text-right font-mono tabular-nums">{formatMinutes(r.metric)}</Td>
-            <Td className="text-right font-mono tabular-nums">{formatMinutes(r.billable_minutes)}</Td>
-            <Td className="text-right font-mono tabular-nums">{r.entry_count}</Td>
+ <Td className="text-right tabular-nums">{formatMinutes(r.metric)}</Td>
+ <Td className="text-right tabular-nums">{formatMinutes(r.billable_minutes)}</Td>
+ <Td className="text-right tabular-nums">{r.entry_count}</Td>
           </Tr>
         ))}
       </tbody>
@@ -452,8 +452,8 @@ function ThroughputDataTable({
                 {r.day}
               </a>
             </Td>
-            <Td className="text-right font-mono tabular-nums">{r.created_count}</Td>
-            <Td className="text-right font-mono tabular-nums">{r.resolved_count}</Td>
+ <Td className="text-right tabular-nums">{r.created_count}</Td>
+ <Td className="text-right tabular-nums">{r.resolved_count}</Td>
           </Tr>
         ))}
       </tbody>
@@ -482,9 +482,9 @@ function AgingDataTable({
           .map((r) => (
             <Tr key={r.bucket}>
               <Td>{AGING_BUCKET_LABELS[r.bucket] ?? r.bucket}</Td>
-              <Td className="text-right font-mono tabular-nums">{r.open_count}</Td>
-              <Td className="text-right font-mono tabular-nums">{r.avg_age_days}d</Td>
-              <Td className="text-right font-mono tabular-nums">{r.oldest_age_days}d</Td>
+ <Td className="text-right tabular-nums">{r.open_count}</Td>
+ <Td className="text-right tabular-nums">{r.avg_age_days}d</Td>
+ <Td className="text-right tabular-nums">{r.oldest_age_days}d</Td>
             </Tr>
           ))}
       </tbody>
@@ -521,8 +521,8 @@ function AttainmentDataTable({
                 {r.label !== "" ? r.label : r.group_id.slice(0, 8)}
               </a>
             </Td>
-            <Td className="text-right font-mono tabular-nums">{r.attainment_pct}%</Td>
-            <Td className="text-right font-mono tabular-nums">{r.resolutions_met}</Td>
+ <Td className="text-right tabular-nums">{r.attainment_pct}%</Td>
+ <Td className="text-right tabular-nums">{r.resolutions_met}</Td>
           </Tr>
         ))}
       </tbody>
@@ -566,7 +566,7 @@ function UnansweredStatPanel({
             </span>
             <span className="flex items-baseline gap-1">
               <span
-                className="font-mono text-lg font-semibold tabular-nums hover:underline"
+ className="text-lg font-semibold tabular-nums hover:underline"
                 style={{
                   color:
                     summary.unanswered_count > 0
@@ -623,7 +623,7 @@ function UnansweredTicketsTable({
               <Td>
                 <a
                   href={`/tickets/${r.ticket_id}`}
-                  className="font-mono hover:underline"
+                  className="hover:underline"
                   style={{ color: "var(--m-accent)" }}
                 >
                   {r.ticket_number}

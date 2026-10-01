@@ -561,8 +561,8 @@ export default function VendorsPage(): ReactNode {
                   {vendor.website != null && vendor.website !== "" ? <Tag tone="outline">web</Tag> : null}
                 </span>
               ),
-              code: <span className="font-mono text-xs">{vendor.code ?? "—"}</span>,
-              currency: <span className="font-mono text-xs">{vendor.default_currency}</span>,
+              code: <span className="text-xs">{vendor.code ?? "—"}</span>,
+              currency: <span className="text-xs">{vendor.default_currency}</span>,
               contact: vendor.email ?? vendor.phone ?? "—",
               state: vendor.active ? (
                 <ReturnedMark label="Active" testId={`purchasing-vendor-state-${vendor.id}`} />

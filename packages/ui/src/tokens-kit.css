@@ -1,0 +1,226 @@
+/* Marula tokens. Generated from tokens.json: do not edit by hand.
+ *
+ * Contract: the shadcn/ui variable names (--background, --primary, ...) carry our values, so every shadcn
+ * component themes itself. Everything shadcn has no slot for is a --mc-* variable.
+ *
+ * Two mappings that surprise people:
+ *   --accent        is our HOVER SURFACE (our "muted"), because shadcn uses accent for hover. It is not gold.
+ *   --mc-act        is our GOLD TINT ("where you act"): selected chips, pressed filters, the current step.
+ * Themes: neutral (staff app default), dark, light (the warm cream theme: mobile light, the client portal's "sand",
+ * and the marketing site's "cream"). Switch with data-theme on any ancestor.
+ */
+:root,
+:root[data-theme="neutral"]{
+  color-scheme:light;
+  --background:#F8F7F4;
+  --foreground:#2B2A33;
+  --card:#FFFFFF;
+  --primary:#2B2A33;
+  --primary-foreground:#E8B83A;
+  --muted:#EFEEEA;
+  --muted-foreground:#5F584F;
+  --destructive:#B42318;
+  --destructive-foreground:#FFFFFF;
+  --border:#E2E0DA;
+  --input:#8C877C;
+  --mc-surface-2:#EFEEEA;
+  --mc-side:#EFEEEA;
+  --mc-nav:#FFFFFF;
+  --mc-bar:#2B2A33;
+  --mc-act:#F7E3A8;
+  --mc-act-fg:#6B4308;
+  --mc-tab-active:#6B4308;
+  --mc-gold-text:#9A5B0F;
+  --mc-note:#EFECE6;
+  --mc-note-fg:#4A443D;
+  --mc-entry-client:#FFFFFF;
+  --mc-entry-system:#F8F7F4;
+  --mc-entry-time:#FBEBBF;
+  --mc-entry-time-fg:#6B4308;
+  --mc-entry-agent:#F7F3E8;
+  --mc-assist:#2B2A33;
+  --mc-assist-fg:#F6EFD9;
+  --mc-assist-btn:#E8B83A;
+  --mc-assist-btn-fg:#2B2A33;
+  --mc-assist-line:#5F584F;
+  --mc-green:#5E7F3A;
+  --mc-green-soft:#E4EDCB;
+  --mc-green-text:#3B5222;
+  --mc-progress:#FBEBBF;
+  --mc-progress-fg:#6B4308;
+  --mc-attn:#F8DCC0;
+  --mc-attn-fg:#7A3F0C;
+  --mc-off:#EFECE6;
+  --mc-off-fg:#5C4631;
+  --mc-p2:#D9822B;
+  --mc-leaf:#5E7F3A;
+  --mc-stem:#7C746A;
+  --mc-shadow:0 16px 40px rgba(43,42,51,.18);
+  --mc-scrim:rgba(34,33,41,.55);
+  --mc-st-new:#ECE7DF;
+  --mc-st-new-fg:#4A443D;
+  --mc-st-wait:#F3EAD2;
+  --mc-st-wait-fg:#5C4631;
+  --mc-st-sched:#FFFFFF;
+  --mc-st-sched-fg:#4A443D;
+  --mc-st-sched-border:#CDB38B;
+  --mc-st-resolved:#D5E3C5;
+  --mc-st-resolved-fg:#2F4A1E;
+  --mc-st-breach:#FBE1DE;
+  --mc-st-breach-fg:#8F1C13;
+  --card-foreground:#2B2A33;
+  --popover:#FFFFFF;
+  --popover-foreground:#2B2A33;
+  --secondary:#EFEEEA;
+  --secondary-foreground:#2B2A33;
+  --accent:#EFEEEA;
+  --accent-foreground:#2B2A33;
+  --ring:#2B2A33;
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --background:#2B2A33;
+  --foreground:#F6EFD9;
+  --card:#34333D;
+  --primary:#E8B83A;
+  --primary-foreground:#2B2A33;
+  --muted:#3A3944;
+  --muted-foreground:#BEB5A2;
+  --destructive:#FB8A80;
+  --destructive-foreground:#2B2A33;
+  --border:#43424D;
+  --input:#8A8378;
+  --mc-surface-2:#3A3944;
+  --mc-side:#222129;
+  --mc-nav:#222129;
+  --mc-bar:#222129;
+  --mc-act:#3A3944;
+  --mc-act-fg:#E8B83A;
+  --mc-tab-active:#E8B83A;
+  --mc-gold-text:#E8B83A;
+  --mc-note:#3A342A;
+  --mc-note-fg:#E2CFA9;
+  --mc-entry-client:#34333D;
+  --mc-entry-system:#2F2E37;
+  --mc-entry-time:#4A3A1A;
+  --mc-entry-time-fg:#F2CD6B;
+  --mc-entry-agent:#33302A;
+  --mc-assist:#F6EFD9;
+  --mc-assist-fg:#2B2A33;
+  --mc-assist-btn:#2B2A33;
+  --mc-assist-btn-fg:#E8B83A;
+  --mc-assist-line:#CDB38B;
+  --mc-green:#A9C25D;
+  --mc-green-soft:#2E3A25;
+  --mc-green-text:#D6E5A8;
+  --mc-progress:#4A3A1A;
+  --mc-progress-fg:#F2CD6B;
+  --mc-attn:#4D2F14;
+  --mc-attn-fg:#F0B27A;
+  --mc-off:#3A342A;
+  --mc-off-fg:#E2CFA9;
+  --mc-p2:#D9822B;
+  --mc-leaf:#A9C25D;
+  --mc-stem:#CDB38B;
+  --mc-shadow:0 16px 40px rgba(0,0,0,.4);
+  --mc-scrim:rgba(0,0,0,.6);
+  --mc-st-new:#3F3D45;
+  --mc-st-new-fg:#D8CFBA;
+  --mc-st-wait:#3A342A;
+  --mc-st-wait-fg:#E2CFA9;
+  --mc-st-sched:#2B2A33;
+  --mc-st-sched-fg:#D8CFBA;
+  --mc-st-sched-border:#5F584F;
+  --mc-st-resolved:#26361A;
+  --mc-st-resolved-fg:#BFD99A;
+  --mc-st-breach:#4A1A18;
+  --mc-st-breach-fg:#F9A097;
+  --card-foreground:#F6EFD9;
+  --popover:#34333D;
+  --popover-foreground:#F6EFD9;
+  --secondary:#3A3944;
+  --secondary-foreground:#F6EFD9;
+  --accent:#3A3944;
+  --accent-foreground:#F6EFD9;
+  --ring:#E8B83A;
+}
+:root[data-theme="light"],
+:root[data-theme="sand"],
+:root[data-theme="cream"]{
+  color-scheme:light;
+  --background:#FBF7EC;
+  --foreground:#2B2A33;
+  --card:#FFFFFF;
+  --primary:#2B2A33;
+  --primary-foreground:#E8B83A;
+  --muted:#F3EAD2;
+  --muted-foreground:#5F584F;
+  --destructive:#B42318;
+  --destructive-foreground:#FFFFFF;
+  --border:#E6DCC2;
+  --input:#857A66;
+  --mc-surface-2:#F3EAD2;
+  --mc-side:#F3EAD2;
+  --mc-nav:#FFFFFF;
+  --mc-bar:#2B2A33;
+  --mc-act:#F7E3A8;
+  --mc-act-fg:#6B4308;
+  --mc-tab-active:#6B4308;
+  --mc-gold-text:#9A5B0F;
+  --mc-note:#F3EAD2;
+  --mc-note-fg:#4A443D;
+  --mc-entry-client:#FFFFFF;
+  --mc-entry-system:#FBF7EC;
+  --mc-entry-time:#FBEBBF;
+  --mc-entry-time-fg:#6B4308;
+  --mc-entry-agent:#FBF3DC;
+  --mc-assist:#2B2A33;
+  --mc-assist-fg:#F6EFD9;
+  --mc-assist-btn:#E8B83A;
+  --mc-assist-btn-fg:#2B2A33;
+  --mc-assist-line:#5F584F;
+  --mc-green:#5E7F3A;
+  --mc-green-soft:#E4EDCB;
+  --mc-green-text:#3B5222;
+  --mc-progress:#FBEBBF;
+  --mc-progress-fg:#6B4308;
+  --mc-attn:#F8DCC0;
+  --mc-attn-fg:#7A3F0C;
+  --mc-off:#F3EAD2;
+  --mc-off-fg:#5C4631;
+  --mc-p2:#D9822B;
+  --mc-leaf:#5E7F3A;
+  --mc-stem:#7C746A;
+  --mc-shadow:0 16px 40px rgba(43,42,51,.18);
+  --mc-scrim:rgba(34,33,41,.55);
+  --mc-st-new:#ECE7DF;
+  --mc-st-new-fg:#4A443D;
+  --mc-st-wait:#F3EAD2;
+  --mc-st-wait-fg:#5C4631;
+  --mc-st-sched:#FFFFFF;
+  --mc-st-sched-fg:#4A443D;
+  --mc-st-sched-border:#CDB38B;
+  --mc-st-resolved:#D5E3C5;
+  --mc-st-resolved-fg:#2F4A1E;
+  --mc-st-breach:#FBE1DE;
+  --mc-st-breach-fg:#8F1C13;
+  --card-foreground:#2B2A33;
+  --popover:#FFFFFF;
+  --popover-foreground:#2B2A33;
+  --secondary:#F3EAD2;
+  --secondary-foreground:#2B2A33;
+  --accent:#F3EAD2;
+  --accent-foreground:#2B2A33;
+  --ring:#2B2A33;
+}
+
+/* Brand colours that never change with the theme (logo, avatars, the timer clock, fixed accents) */
+:root{
+  --mc-gold:#E8B83A; --mc-blush:#D9822B; --mc-cream:#F6EFD9; --mc-canopy:#5E7F3A; --mc-lime:#A9C25D;
+  --mc-sand:#CDB38B; --mc-bark:#7C746A; --mc-ink:#2B2A33; --mc-avatar:#4A6A2A; --mc-avatar-fg:#F6EFD9;
+  --mc-radius-ctl:12px; --mc-radius-field:10px; --mc-radius-card:16px; --mc-radius-modal:20px; --radius:12px;
+}
+/* Density: set data-density on the app root. Every table, toolbar and control reads these. */
+:root,:root[data-density="comfortable"]{--mc-ctl:44px;--mc-row:48px;--mc-fs:14px;--mc-px:12px;--mc-hdr:44px;--mc-av:26px;--mc-pill:24px}
+:root[data-density="compact"]{--mc-ctl:36px;--mc-row:40px;--mc-fs:14px;--mc-px:12px;--mc-hdr:40px;--mc-av:24px;--mc-pill:22px}
+:root[data-density="dense"]{--mc-ctl:32px;--mc-row:32px;--mc-fs:13px;--mc-px:10px;--mc-hdr:32px;--mc-av:20px;--mc-pill:20px}

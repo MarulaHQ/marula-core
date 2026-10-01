@@ -164,6 +164,8 @@ function renderFragments(): { table: string; banner: string; fields: string } {
       sort: { field: "updated_at", dir: "desc" },
       sla: SLA,
       people: { [MINE]: "Thabo Mokoena" },
+      clients: {},
+
       numbersById: Object.fromEntries(ROWS.map((r) => [r.id, r.number])),
       myId: null,
       selected: new Set(["00000000-0000-4000-8000-0000000000a2"]),

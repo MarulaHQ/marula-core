@@ -60,10 +60,13 @@ export function clearTokens(): void {
 
 /** Desktop shell (ADR 0005) injects the embedded API base before page scripts run. */
 export function resolveApiBaseUrl(): string {
-  if (typeof window !== "undefined" && window.__MARULA_API_URL__) {
-    return window.__MARULA_API_URL__;
-  }
-  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+  const raw =
+    (typeof window !== "undefined" && window.__MARULA_API_URL__) ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    "http://localhost:8080";
+  // The env value can carry a trailing slash; every caller appends "/api/...",
+  // so strip it or the request goes to "//api/..." and fails.
+  return raw.replace(/\/+$/, "");
 }
 
 function createClient(): MarulaClient {

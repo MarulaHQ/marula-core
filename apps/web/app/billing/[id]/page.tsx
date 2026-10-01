@@ -619,7 +619,7 @@ export default function InvoiceDetailPage() {
                         <Tag>{p.provider === "none" ? "EFT" : p.provider}</Tag>
                       </Td>
                       <Td>{p.notes ?? "—"}</Td>
-                      <Td className="text-right font-mono text-[12px] tabular-nums">
+ <Td className="text-right text-[12px] tabular-nums">
                         {money(p.amount_minor, p.currency)}
                       </Td>
                     </Tr>

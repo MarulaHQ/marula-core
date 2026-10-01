@@ -421,12 +421,12 @@ export default function AssetsPage() {
                   />
                 ),
                 site: (
-                  <span className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
+                  <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                     {asset.site_id ?? "—"}
                   </span>
                 ),
                 tag: (
-                  <span className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
+                  <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                     {asset.tag}
                   </span>
                 ),

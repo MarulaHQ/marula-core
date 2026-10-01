@@ -571,7 +571,7 @@ export default function StockToolsPage(): ReactNode {
                         {kit.name}
                       </span>
                     </Td>
-                    <Td className="font-mono text-xs">{kit.code ?? "—"}</Td>
+                    <Td className="text-xs">{kit.code ?? "—"}</Td>
                     <Td className="text-xs">{kit.note ?? "—"}</Td>
                     <Td>
                       <StatusTag tone={kit.active ? "success" : "neutral"}>
@@ -621,7 +621,7 @@ export default function StockToolsPage(): ReactNode {
               selectLabel={`Select tool unit ${row.serial_number}`}
               testId={`tools-row-${row.id}`}
               cells={{
-                serial: <span className="font-mono text-xs">{row.serial_number}</span>,
+                serial: <span className="text-xs">{row.serial_number}</span>,
                 tool: (
                   <span style={{ color: "var(--m-text)" }}>{row.item_name}</span>
                 ),
@@ -679,7 +679,7 @@ export default function StockToolsPage(): ReactNode {
                     {kit.name}
                   </span>
                 </Td>
-                <Td className="font-mono text-xs">{kit.code ?? "—"}</Td>
+                <Td className="text-xs">{kit.code ?? "—"}</Td>
                 <Td className="text-xs">{kit.note ?? "—"}</Td>
                 <Td>
                   <StatusTag tone={kit.active ? "success" : "neutral"}>

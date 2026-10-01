@@ -393,7 +393,7 @@ export default function TodayPage() {
                         >
                           <a
                             href={`/tickets/${t.id}`}
-                            className="font-mono tabular-nums"
+ className="tabular-nums"
                             style={{ color: "var(--m-text-muted)" }}
                           >
                             {t.number}
@@ -419,7 +419,7 @@ export default function TodayPage() {
                             {t.category === "in_progress" && <Tag tone="neutral">{t.status_name}</Tag>}
                           </span>
                           <span
-                            className="text-right font-mono tabular-nums"
+ className="text-right tabular-nums"
                             style={{
                               color:
                                 due?.overdue === true
@@ -501,7 +501,7 @@ function AttentionCard({
       >
         {label}
       </span>
-      <span className="font-mono text-xl font-semibold tabular-nums" style={{ color: fg }}>
+ <span className="text-xl font-semibold tabular-nums" style={{ color: fg }}>
         {format !== undefined ? format(value) : value}
         {suffix}
       </span>
@@ -590,7 +590,7 @@ function FocusStrip({
           style={{ color: "var(--m-text)" }}
         >
           {ticket?.number !== undefined && (
-            <span className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
+            <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
               {ticket.number}
             </span>
           )}
@@ -598,7 +598,7 @@ function FocusStrip({
         </a>
       </div>
       <span
-        className="ml-auto font-mono text-sm font-semibold tabular-nums"
+ className="ml-auto text-sm font-semibold tabular-nums"
         style={{ color: "var(--m-accent)" }}
       >
         {formatElapsed(elapsed)}

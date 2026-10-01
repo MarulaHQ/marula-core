@@ -493,7 +493,7 @@ export default function AssetDetailPage() {
             {/* Loan-device label (Wave 32 lane 5): the QR encodes this asset's
                 canonical deep link, so a scan anywhere resolves back here. */}
             <div className="m-ledger-header-action">
-              <span className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
+              <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                 {asset.tag}
               </span>
               <LabelPrintButton purpose="device_asset" entityId={asset.id} entityLabel={asset.name} />
@@ -792,7 +792,7 @@ export default function AssetDetailPage() {
                   : "—"}
               </GlanceRow>
               <GlanceRow label="Tag">
-                <span className="font-mono">{asset.tag}</span>
+                <span className="">{asset.tag}</span>
               </GlanceRow>
               <GlanceRow label="Status">{asset.status}</GlanceRow>
               <GlanceRow label="Type">{layout?.name ?? "untyped"}</GlanceRow>
@@ -1006,7 +1006,7 @@ export default function AssetDetailPage() {
                     {new Date(e.occurred_at).toLocaleString()}
                   </span>
                 </div>
-                <p className="mt-1 break-all font-mono text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                <p className="mt-1 break-all text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                   {JSON.stringify(e.before ?? null)} → {JSON.stringify(e.after ?? null)}
                 </p>
               </div>
@@ -1027,7 +1027,7 @@ export default function AssetDetailPage() {
             <div className="grid gap-3 p-4">
               <div>
                 <Label htmlFor="reveal-secret">Secret</Label>
-                <Input id="reveal-secret" readOnly value={reveal.secret} className="font-mono" />
+                <Input id="reveal-secret" readOnly value={reveal.secret} className="" />
               </div>
               <DialogActions>
                 <Button

@@ -297,7 +297,7 @@ function EdgeGroup({
 function Stat({ label, value }: { label: string; value: string }): React.JSX.Element {
   return (
     <div className="m-rollup-stat">
-      <span className="m-rollup-value font-mono tabular-nums">{value}</span>
+ <span className="m-rollup-value tabular-nums">{value}</span>
       <span className="m-rollup-label">{label}</span>
     </div>
   );

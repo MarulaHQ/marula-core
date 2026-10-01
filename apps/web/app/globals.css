@@ -15,6 +15,10 @@
  */
 @import "tailwindcss";
 @import "@marula-core/ui/tokens.css";
+@import "@marula-core/ui/theme.css";
+/* Tailwind must scan the vendored kit's components, or the utilities they use
+   (bg-muted, text-muted-foreground, rounded-ctl, h-ctl) are never generated. */
+@source "../../../packages/ui/src/kit";
 @import "@marula-core/ui/components.css";
 @import "@marula-core/layout/styles.css";
 @import "./shell.css";
@@ -43,46 +47,29 @@
   /* Typography — next/font provides --font-sans/--font-heading/--font-mono
      (see app/layout.tsx); CSS-stack fallbacks live in tokens.css --m-font-*. */
 
-  /* Bridged shadcn variables — reference the --m-* token layer (no redeclared hexes) */
-  --background: var(--m-canvas);
-  --foreground: var(--m-text);
-  --card: var(--m-surface);
-  --card-foreground: var(--m-text);
-  --popover: var(--m-overlay-surface);
-  --popover-foreground: var(--m-text);
-  --primary: var(--m-accent);
-  --primary-foreground: var(--m-on-accent);
-  --destructive: var(--m-destructive);
-  --destructive-foreground: var(--m-paper);
-  --border: var(--m-border);
-  --input: var(--m-border);
-  --ring: var(--m-accent);
+  /* Bridged shadcn variables — the shared names (--background, --primary,
+     --input, --muted, --accent and the rest) now come from the kit's
+     tokens-kit.css, so they are NOT redeclared here. Only names the kit does
+     not carry stay, and each references the --m-* layer.
+
+     --primary stays the KIT's ink button. The app's own components never used
+     `bg-primary` for the gold tint (they use --m-accent directly), so the tint
+     is --m-accent / --mc-act and --primary is ink, which is what the kit
+     expects. */
   --radius: var(--m-radius-control);
   --sidebar: var(--m-surface);
   --sidebar-foreground: var(--m-text);
   --sidebar-primary: var(--m-accent);
   --sidebar-primary-foreground: var(--m-on-accent);
   --sidebar-ring: var(--m-accent);
-
-  /* Marula preset — light mode (verbatim from design/marula/marula.json) */
-  --secondary: oklch(0.9457 0.0096 93.5714);
-  --secondary-foreground: oklch(0.4642 0.0169 74.2434);
-  --muted: oklch(0.9520 0.0083 91.4843);
-  --muted-foreground: oklch(0.5204 0.0190 79.2616);
-  --accent: oklch(0.9182 0.0786 91.5480);
-  --accent-foreground: oklch(0.4198 0.0870 69.4306);
-  --input: oklch(0.6245 0.0172 86.4531);
-  --chart-1: oklch(0.5676 0.1203 61.9602);
-  --chart-2: oklch(0.5549 0.1041 130.3259);
-  --chart-3: oklch(0.6861 0.1435 60.4274);
-  --chart-4: oklch(0.5632 0.0180 73.5446);
-  --chart-5: oklch(0.7737 0.1309 121.0558);
-  --sidebar: oklch(0.9488 0.0054 95.1013);
-  --sidebar-accent: oklch(0.9182 0.0786 91.5480);
-  --sidebar-accent-foreground: oklch(0.4198 0.0870 69.4306);
-  --sidebar-border: oklch(0.9066 0.0084 91.4888);
-  --ring: var(--m-focus-ring);
-  --shadow: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 1px 2px -1px hsl(0 0% 0% / 0.10);
+  --sidebar-accent: var(--m-accent);
+  --sidebar-accent-foreground: var(--m-on-accent);
+  --sidebar-border: var(--m-border);
+  --chart-1: #a8641a;
+  --chart-2: #5e7f3a;
+  --chart-3: #d9822b;
+  --chart-4: #7c746a;
+  --chart-5: #a9c25d;
 
   /* Preset shadow scale (Tailwind v4 theme consumes these) */
   --shadow-color: hsl(0 0% 0%);
@@ -218,25 +205,18 @@ body {
  ---break---
  */
 [data-theme="dark"] {
-  /* Marula preset — dark mode (verbatim from design/marula/marula.json) */
-  --secondary: oklch(0.3499 0.0190 289.5487);
-  --secondary-foreground: oklch(0.9518 0.0299 92.3212);
-  --muted: oklch(0.3261 0.0176 289.9749);
-  --muted-foreground: oklch(0.7328 0.0295 88.7865);
-  --accent: oklch(0.3499 0.0190 289.5487);
-  --accent-foreground: oklch(0.8049 0.1464 86.8257);
-  --input: oklch(0.6129 0.0183 79.2978);
-  --chart-1: oklch(0.8049 0.1464 86.8257);
-  --chart-2: oklch(0.7737 0.1309 121.0558);
-  --chart-3: oklch(0.8090 0.1022 62.6777);
-  --chart-4: oklch(0.7753 0.0282 85.6691);
-  --chart-5: oklch(0.7793 0.0615 78.3365);
-  --sidebar: oklch(0.2523 0.0150 291.0154);
-  --sidebar-accent: oklch(0.3499 0.0190 289.5487);
-  --sidebar-accent-foreground: oklch(0.8049 0.1464 86.8257);
-  --sidebar-border: oklch(0.3843 0.0185 289.6678);
-  --ring: var(--m-focus-ring);
-  --shadow: 0px 1px 3px 0px hsl(0 0% 0% / 0.10), 0px 1px 2px -1px hsl(0 0% 0% / 0.10);
+  /* The kit's dark tokens (tokens-kit.css) define --secondary, --muted,
+     --accent, --input and --ring for this mode, so they are not repeated.
+     Only the app-only names stay. */
+  --sidebar: var(--m-sidebar);
+  --sidebar-accent: var(--m-accent);
+  --sidebar-accent-foreground: var(--m-on-accent);
+  --sidebar-border: var(--m-border);
+  --chart-1: #e8b83a;
+  --chart-2: #a9c25d;
+  --chart-3: #f0b27a;
+  --chart-4: #beb5a2;
+  --chart-5: #cdb38b;
 
   /* Preset shadow scale (Tailwind v4 theme consumes these) */
   --shadow-color: hsl(0 0% 0%);

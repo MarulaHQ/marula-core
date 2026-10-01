@@ -234,7 +234,7 @@ export default function ProvenancePage() {
         label: "Seq",
         sortValue: (r) => r.seq,
         render: (r) => (
-          <span className="text-right font-mono text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+ <span className="text-right text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
             {r.seq}
           </span>
         ),

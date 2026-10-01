@@ -1139,7 +1139,7 @@ function OpenWorkCard({ work }: { work: {
               <Badge priority={t.priority} className="shrink-0">
                 {t.priority.toUpperCase()}
               </Badge>
-              <span className="font-mono text-[13px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+ <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
                 {t.number}
               </span>
               <Link

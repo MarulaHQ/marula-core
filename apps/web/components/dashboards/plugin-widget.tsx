@@ -111,7 +111,7 @@ function PluginWidgetCard({ entry, entranceDelay }: { entry: SurfaceEntry; entra
           ) : null}
         </div>
       )}
-      <p className="font-mono text-[10px]" style={{ color: "var(--m-text-muted)" }}>
+      <p className="text-[10px]" style={{ color: "var(--m-text-muted)" }}>
         {entry.entry_key}
       </p>
     </Card>

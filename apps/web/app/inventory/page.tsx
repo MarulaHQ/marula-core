@@ -538,7 +538,7 @@ export default function InventoryPage(): ReactNode {
                     ) : null}
                   </span>
                 ),
-                tag: <span className="font-mono text-xs">{item.tag}</span>,
+                tag: <span className="text-xs">{item.tag}</span>,
                 status: <ItemStatusMark status={item.status} testId={`inventory-status-${item.id}`} />,
                 identity: (
                   <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
@@ -546,7 +546,7 @@ export default function InventoryPage(): ReactNode {
                   </span>
                 ),
                 updated: (
-                  <span className="font-mono text-xs tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+ <span className="text-xs tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                     {new Date(item.updated_at).toISOString().slice(0, 10)}
                   </span>
                 ),

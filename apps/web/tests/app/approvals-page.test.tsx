@@ -248,7 +248,7 @@ describe("/approvals", () => {
     await screen.findAllByText("1:30");
     expect(screen.queryByTestId("queue-bar")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("tab", { name: /Rejected/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Rejected/ }));
     const reopenBtn = await screen.findByTestId(`reopen-${E3}`);
     expect(screen.getByText("Rejected — Description is too vague")).toBeInTheDocument();
     fireEvent.click(reopenBtn);

@@ -28,6 +28,7 @@ import {
   sessionElapsedSecs,
   useTimer,
 } from "../lib/use-timer";
+import { selectWorkSession } from "../lib/work-session";
 import {
   WorkbarNotesPanel,
 } from "./notes/workbar-notes-panel";
@@ -79,18 +80,10 @@ export function TimerDock() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelFocusItem, setPanelFocusItem] = useState<string | null>(null);
   const panelTriggerRef = useRef<HTMLButtonElement | null>(null);
-  // The bar shows the current focus: the running session, or — when
-  // everything is paused — the most recently touched open session.
-  const current =
-    active ??
-    [...(sessions ?? [])]
-      .filter((s) => s.stopped_at === null)
-      .sort((a, b) => {
-        const la = (a.segments ?? []).slice(-1)[0]?.started_at ?? "";
-        const lb = (b.segments ?? []).slice(-1)[0]?.started_at ?? "";
-        return lb.localeCompare(la);
-      })[0] ??
-    null;
+  // The bar follows the ticket being worked: the running session, or, when
+  // everything is paused, the most recently touched open session. See
+  // lib/work-session.ts for the rule and its test.
+  const current = selectWorkSession(active, sessions);
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [note, setNote] = useState("");
   const [noteState, setNoteState] = useState<"idle" | "saving" | "saved">("idle");
@@ -222,7 +215,7 @@ export function TimerDock() {
         />
         <span
           data-testid="timer-elapsed"
-          className="m-workbar-timer font-mono text-2xl font-semibold tabular-nums leading-none"
+ className="m-workbar-timer text-2xl font-semibold tabular-nums leading-none"
         >
           {formatElapsed(elapsed)}
         </span>
@@ -239,12 +232,12 @@ export function TimerDock() {
         onClick={() => router.push(`/tickets/${current.ticket_id}`)}
         className="m-workbar-meta hidden min-w-0 max-w-[380px] flex-shrink items-baseline gap-2.5 overflow-hidden text-left md:flex"
       >
-        <span className="m-workbar-number truncate font-mono text-[13px] font-semibold">
+        <span className="m-workbar-number truncate text-[13px] font-semibold">
           {ticketNumber}
         </span>
         <span className="m-workbar-title min-w-0 truncate text-[13px]">{ticketTitle}</span>
       </button>
-      <span className="m-workbar-number shrink-0 font-mono text-[13px] font-semibold md:hidden">
+      <span className="m-workbar-number shrink-0 text-[13px] font-semibold md:hidden">
         {ticketNumber}
       </span>
 

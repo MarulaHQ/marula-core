@@ -940,7 +940,7 @@ async function changeStatus(statusId: string): Promise<void> {
             >
               <Link href="/tickets" className="no-underline" style={{ color: "var(--m-text-muted)" }}>‹ Tickets</Link>
               <span>/</span>
-              <strong className="font-mono" style={{ color: "var(--m-text-secondary)" }}>{ticket.number}</strong>
+              <strong className="" style={{ color: "var(--m-text-secondary)" }}>{ticket.number}</strong>
             </div>
             <div className="ml-auto flex flex-wrap justify-end gap-1.5">
               {takeItVisible && (
@@ -1096,7 +1096,7 @@ async function changeStatus(statusId: string): Promise<void> {
                   className="inline-flex items-center gap-1 rounded-[3px] border px-1.5 py-0.5"
                   style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
                 >
-                  <span className="font-mono tabular-nums">{qtyText(pick.qty_milli)}×</span>
+ <span className="tabular-nums">{qtyText(pick.qty_milli)}×</span>
                   <span>{pick.item_name ?? "Item"}</span>
                   {pick.is_tool && <span className="text-[10px]">tool</span>}
                   <button
@@ -1384,7 +1384,7 @@ async function changeStatus(statusId: string): Promise<void> {
                   (((partsReceipt.movement.carrier != null && partsReceipt.movement.carrier !== "") ||
                     (partsReceipt.movement.tracking_ref != null &&
                       partsReceipt.movement.tracking_ref !== "")) && (
-                    <span className="font-mono" style={{ color: "var(--m-text-secondary)" }}>
+                    <span className="" style={{ color: "var(--m-text-secondary)" }}>
                       {[partsReceipt.movement.carrier, partsReceipt.movement.tracking_ref]
                         .filter((part) => part != null && part !== "")
                         .join(" · ")}

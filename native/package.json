@@ -24,6 +24,7 @@
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo/vector-icons": "^15.1.1",
     "@marula-core/sdk": "workspace:*",
+    "@marula-core/ui-native": "workspace:*",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.25",
     "expo-camera": "~57.0.5",

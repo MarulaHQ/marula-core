@@ -1,25 +1,17 @@
 "use client";
 /**
- * EmptyState — one sentence, one action, and the fruit/leaf/canopy line
- * illustration (Wave 41 lane 2b).
+ * EmptyState — reimplemented (wave41 lane 20) over the handoff kit's
+ * `EmptyState` (the FruitLine mark, one heading, at most one action).
  *
- * Purpose: the state a surface shows when there is genuinely nothing to
- * show. The illustration is LINE work, not a picture: the fruit, a leaf and
- * a canopy arch in `currentColor` at low weight, so it inherits whatever
- * surface it lands on and needs no per-theme asset.
- *
- * Non-purpose: this is not a mascot and it does not narrate. An empty state
- * that explains why it is empty has two jobs and does neither well; the
- * sentence says what is missing and the action is the way out. `children`
- * replaces the illustration for a surface that has a better one to draw.
+ * The call sites pass a single `message` sentence, so it becomes the kit's
+ * heading. A caller that supplies its own `illustration` keeps the old
+ * free-form path.
  */
 import type { ReactNode } from "react";
+import { EmptyState as KitEmptyState } from "../kit";
 import { cn } from "../lib/cn";
 
-/**
- * The Marula mark in three strokes: the fruit, the leaf, the canopy arch.
- * `aria-hidden` because it carries no information the sentence does not.
- */
+/** The Marula mark in three strokes, kept for callers that draw it directly. */
 export function EmptyStateMark({ className }: { className?: string }): React.JSX.Element {
   return (
     <svg
@@ -57,11 +49,14 @@ export function EmptyState({
   illustration?: ReactNode;
   className?: string;
 }): React.JSX.Element {
-  return (
-    <div className={cn("m-empty", className)}>
-      {illustration === undefined ? <EmptyStateMark /> : illustration}
-      <p>{message}</p>
-      {action}
-    </div>
-  );
+  if (illustration !== undefined) {
+    return (
+      <div className={cn("flex flex-col items-center gap-2 px-6 py-7 text-center", className)}>
+        {illustration}
+        <p className="m-0 max-w-[360px] text-muted-foreground">{message}</p>
+        {action ? <div className="mt-2.5 flex gap-2.5">{action}</div> : null}
+      </div>
+    );
+  }
+  return <KitEmptyState title={message} action={action} className={className} />;
 }

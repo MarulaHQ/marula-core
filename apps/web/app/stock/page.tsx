@@ -582,7 +582,7 @@ export default function StockPage(): ReactNode {
                       {item.name}
                     </Link>
                     {item.is_tool ? <Tag tone="outline">tool</Tag> : null}
-                    <span className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
+                    <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                       {item.sku ?? item.part_number ?? ""}
                     </span>
                   </span>
@@ -591,12 +591,12 @@ export default function StockPage(): ReactNode {
                   <span className="tabular-nums">{total?.locations ?? 0}</span>
                 ),
                 "on-hand": (
-                  <span className="font-mono tabular-nums">
+ <span className="tabular-nums">
                     {formatQtyMilli(total?.qty ?? 0, item.unit)}
                   </span>
                 ),
                 reorder: (
-                  <span className="font-mono tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+ <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                     {reorderPointFor(item.id)}
                   </span>
                 ),

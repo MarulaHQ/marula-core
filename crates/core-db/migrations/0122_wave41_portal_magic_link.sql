@@ -1,4 +1,8 @@
--- 0119: portal magic-link sign-in (Wave 41 lane 13).
+-- 0122: portal magic-link sign-in (Wave 41 lane 13).
+--
+-- Renumbered from 0119 during Wave 41 lane 20: another branch had already
+-- taken 0119 (0119_dev_reset_append_only_bypass.sql) and the collision broke
+-- `migrate` on a fresh database.
 --
 -- WHY THIS TABLE EXISTS AT ALL, AND WHY IT IS NOT A COLUMN ON THE STAFF ONE.
 -- `auth_one_use_tokens.user_id` is `NOT NULL REFERENCES users(id) ON DELETE

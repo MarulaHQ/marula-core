@@ -475,7 +475,7 @@ export default function ContractDetailPage(): ReactNode {
             </RecordSection>
             <RecordSection label="Contract">
               <p className="text-[16px] font-semibold">{contract.name}</p>
-              <p className="font-mono text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+              <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
                 {contract.number}
               </p>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -517,7 +517,7 @@ export default function ContractDetailPage(): ReactNode {
           <Link href="/contracts" className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2" style={{ color: "var(--m-text-secondary)" }}>
             ← Contracts
           </Link>
-          <h1 className="font-mono text-lg font-semibold tabular-nums">{contract.number}</h1>
+ <h1 className="text-lg font-semibold tabular-nums">{contract.number}</h1>
           <Tag tone={contractStatusTone(contract.status)}>{contract.status}</Tag>
           <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
             {contract.contract_type.replaceAll("_", " ")} · {contract.currency}
@@ -1076,7 +1076,7 @@ export default function ContractDetailPage(): ReactNode {
             <tbody>
               {contract.change_orders.map((order) => (
                 <Tr key={order.id}>
-                  <Td className="font-mono text-[12px]">{order.number}</Td>
+                  <Td className="text-[12px]">{order.number}</Td>
                   <Td>
                     <div className="flex flex-col">
                       <span>{order.title}</span>

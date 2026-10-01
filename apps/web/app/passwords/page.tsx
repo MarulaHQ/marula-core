@@ -831,7 +831,7 @@ export default function VaultPage() {
                                   )
                                 ) : null}
                                 {c.key === "fields" ? (
-                                  <span className="font-mono text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                                  <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                                     {sealedFieldList(r)}
                                   </span>
                                 ) : null}
@@ -1001,7 +1001,7 @@ export default function VaultPage() {
               <div>
                 <Label htmlFor="reveal-secret">Secret</Label>
                 <div className="flex gap-2">
-                  <Input id="reveal-secret" readOnly value={legacyReveal.secret} className="font-mono" />
+                  <Input id="reveal-secret" readOnly value={legacyReveal.secret} className="" />
                   <Button
                     variant="secondary"
                     onClick={() => void navigator.clipboard.writeText(legacyReveal.secret)}
@@ -1692,10 +1692,10 @@ function DocumentFilePanel({
       </p>
       <dl className="grid gap-1 px-4 pb-2 text-[13px]">
         <MetaRow label="Object key">
-          <span className="font-mono">{record.object_key ?? "—"}</span>
+          <span className="">{record.object_key ?? "—"}</span>
         </MetaRow>
         <MetaRow label="SHA-256">
-          <span className="break-all font-mono text-[11px]">{record.file_sha256 ?? "—"}</span>
+          <span className="break-all text-[11px]">{record.file_sha256 ?? "—"}</span>
         </MetaRow>
         <MetaRow label="Bytes">
           <span className="tabular-nums">{record.file_bytes != null ? record.file_bytes.toLocaleString() : "—"}</span>

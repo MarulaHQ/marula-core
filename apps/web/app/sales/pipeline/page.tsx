@@ -419,7 +419,7 @@ export default function PipelinePage(): ReactNode {
                     {stage.name}
                   </h2>
                   <span
-                    className="rounded-full px-1.5 font-mono text-[10px] tabular-nums"
+ className="rounded-full px-1.5 text-[10px] tabular-nums"
                     style={{ background: "var(--m-bg-subtle)", color: "var(--m-text-secondary)" }}
                     data-testid={`pipeline-count-${stage.name}`}
                   >
@@ -429,7 +429,7 @@ export default function PipelinePage(): ReactNode {
                 <StatusTag tone={STAGE_HEADER_TINT[stage.stage_type]}>{stage.stage_type}</StatusTag>
               </div>
               {value !== null ? (
-                <p className="font-mono text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+ <p className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
                   {value}
                 </p>
               ) : null}
@@ -465,7 +465,7 @@ export default function PipelinePage(): ReactNode {
                       <div className="truncate font-medium" title={deal.name}>
                         {deal.name}
                       </div>
-                      <div className="font-mono text-[13px] tabular-nums" style={{ color: "var(--m-text)" }}>
+ <div className="text-[13px] tabular-nums" style={{ color: "var(--m-text)" }}>
                         {money(deal.amount_minor, deal.currency)}
                       </div>
                     </div>

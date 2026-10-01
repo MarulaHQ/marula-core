@@ -13,7 +13,7 @@
 // Non-purpose: no staff routes, no notification dock, no settings entry, no
 // internal status anywhere below (the client-facing words live in
 // lib/portal-copy.ts).
-import "../portal.css";
+import "./portal.css";
 import { PortalShell } from "../../components/portal/portal-shell";
 import { PortalAuthProvider } from "../../lib/portal-api";
 

@@ -396,7 +396,7 @@ export default function CatalogPage(): ReactNode {
                   <MoneyPillTag
                     pill={item.active ? { label: "active", family: "green" } : { label: "archived", family: "neutral" }}
                   />
-                  <span className="font-mono">{item.sku ?? "—"}</span>
+                  <span className="">{item.sku ?? "—"}</span>
                   <span>{item.taxable ? "taxable" : "exempt"}</span>
                   {item.group_name != null && item.group_name !== "" ? (
                     <span style={{ color: "var(--m-text-muted)" }}>{item.group_name}</span>
@@ -413,7 +413,7 @@ export default function CatalogPage(): ReactNode {
                   }}
                 >
                   <span
-                    className="font-mono"
+                    className=""
                     style={{ fontSize: 12, color: "var(--m-text-muted)" }}
                   >
                     {item.cost_minor == null

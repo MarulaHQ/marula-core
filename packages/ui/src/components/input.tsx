@@ -1,17 +1,20 @@
 "use client";
 /**
- * Input and Textarea — bordered, compact-height text controls with
- * `aria-invalid` styling handled in CSS.
+ * Input and Textarea — reimplemented (wave41 lane 20) over the handoff kit's
+ * text controls, so both are drawn the way the kit defines them (density
+ * height, the kit's field border, and the aria-invalid treatment) instead of
+ * the local `.m-input` / `.m-textarea` styles.
+ *
+ * The props are the native ones, unchanged, so call sites keep working.
  */
 import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
-import { cn } from "../lib/cn";
+import { Input as KitInput, Textarea as KitTextarea } from "../kit";
 
-export type InputProps = InputHTMLAttributes<HTMLInputElement>;
+// The kit's Input owns `size` (control height), so the native numeric size is omitted.
+export type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "size">;
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, ...props }, ref) => (
-    <input ref={ref} className={cn("m-input", className)} {...props} />
-  ),
+  ({ className, ...props }, ref) => <KitInput ref={ref} className={className} {...props} />,
 );
 
 Input.displayName = "Input";
@@ -19,9 +22,7 @@ Input.displayName = "Input";
 export type TextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement>;
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ className, ...props }, ref) => (
-    <textarea ref={ref} className={cn("m-textarea", className)} {...props} />
-  ),
+  ({ className, ...props }, ref) => <KitTextarea ref={ref} className={className} {...props} />,
 );
 
 Textarea.displayName = "Textarea";

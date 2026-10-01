@@ -585,7 +585,7 @@ export default function ImportsPage() {
               }
             }}
             rows={5}
-            className="w-full rounded-[12px] border bg-transparent p-2 font-mono text-[12px]"
+            className="w-full rounded-[12px] border bg-transparent p-2 text-[12px]"
             style={{ borderColor: "var(--m-border)" }}
           />
           <div className="flex flex-wrap items-center gap-2">

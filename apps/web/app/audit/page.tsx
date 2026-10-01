@@ -429,7 +429,7 @@ export default function AuditPage() {
                               <div className="grid gap-1 md:grid-cols-2">
                                 <span>
                                   <span className="font-semibold">Event id:</span>{" "}
-                                  <code className="font-mono">{r.id}</code>
+                                  <code className="">{r.id}</code>
                                 </span>
                                 <span>
                                   <span className="font-semibold">Actor:</span> {r.actorText ?? "—"}
@@ -444,7 +444,7 @@ export default function AuditPage() {
                               <div>
                                 <span className="mb-1 block font-semibold">Payload</span>
                                 <pre
-                                  className="overflow-x-auto rounded-md p-3 font-mono text-[11px]"
+                                  className="overflow-x-auto rounded-md p-3 text-[11px]"
                                   style={{
                                     background: "var(--m-surface-2)",
                                     border: "1px solid var(--m-border)",

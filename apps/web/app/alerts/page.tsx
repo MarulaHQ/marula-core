@@ -418,7 +418,7 @@ export default function AlertsPage() {
               Ingest endpoint: <code className="rounded bg-black/10 px-1 py-0.5 dark:bg-white/10">/api/v1/alerts/ingest/{revealedSecret.sourceRef}</code>
             </p>
             <code
-              className="select-all rounded-md p-2 font-mono text-[12px] break-all"
+              className="select-all rounded-md p-2 text-[12px] break-all"
               style={{
                 background: "var(--m-surface)",
                 color: "var(--m-text)",
@@ -788,7 +788,7 @@ export default function AlertsPage() {
                       <Td className="text-[13px] font-medium">{s.name}</Td>
                       <Td>
                         <code
-                          className="cursor-pointer rounded px-1 py-0.5 font-mono text-[12px]"
+                          className="cursor-pointer rounded px-1 py-0.5 text-[12px]"
                           style={{ background: "color-mix(in srgb, var(--m-accent) 8%, transparent)" }}
                           title="Click to copy the ingest path"
                           onClick={() => void navigator.clipboard?.writeText(`/api/v1/alerts/ingest/${s.source_ref}`)}

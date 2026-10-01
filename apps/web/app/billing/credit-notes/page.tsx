@@ -640,7 +640,7 @@ function CreditNotesInner() {
                       switch (column.key) {
                         case "number":
                           return (
-                            <Td key={column.key} className="text-[13px] font-mono font-medium tabular-nums">
+ <Td key={column.key} className="text-[13px] font-medium tabular-nums">
                               <button
                                 type="button"
                                 style={{
@@ -697,7 +697,7 @@ function CreditNotesInner() {
                           );
                         case "total":
                           return (
-                            <Td key={column.key} className="text-right font-mono text-[12px] tabular-nums">
+ <Td key={column.key} className="text-right text-[12px] tabular-nums">
                               {money(note.total_minor, note.currency)}
                             </Td>
                           );
@@ -719,7 +719,7 @@ function CreditNotesInner() {
                                 />
                               </div>
                               <span
-                                className="font-mono text-[11px] tabular-nums"
+ className="text-[11px] tabular-nums"
                                 style={{ color: "var(--m-text-muted)" }}
                               >
                                 applied {money(note.applied_minor, note.currency)} · refunded{" "}
@@ -731,7 +731,7 @@ function CreditNotesInner() {
                           return (
                             <Td
                               key={column.key}
-                              className="text-right font-mono text-[12px] font-medium tabular-nums"
+ className="text-right text-[12px] font-medium tabular-nums"
                             >
                               {money(remaining, note.currency)}
                             </Td>

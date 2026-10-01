@@ -1,0 +1,70 @@
+/* Tailwind 4 theme for Marula. Import after tokens.css:  @import "tailwindcss"; @import "./tokens.css"; @import "./theme.css"; */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  /* shadcn/ui contract */
+  --color-background:var(--background); --color-foreground:var(--foreground);
+  --color-card:var(--card); --color-card-foreground:var(--card-foreground);
+  --color-popover:var(--popover); --color-popover-foreground:var(--popover-foreground);
+  --color-primary:var(--primary); --color-primary-foreground:var(--primary-foreground);
+  --color-secondary:var(--secondary); --color-secondary-foreground:var(--secondary-foreground);
+  --color-muted:var(--muted); --color-muted-foreground:var(--muted-foreground);
+  --color-accent:var(--accent); --color-accent-foreground:var(--accent-foreground);
+  --color-destructive:var(--destructive); --color-destructive-foreground:var(--destructive-foreground);
+  --color-border:var(--border); --color-input:var(--input); --color-ring:var(--ring);
+  --color-mc-surface-2:var(--mc-surface-2);
+  --color-mc-side:var(--mc-side);
+  --color-mc-nav:var(--mc-nav);
+  --color-mc-bar:var(--mc-bar);
+  --color-mc-act:var(--mc-act);
+  --color-mc-act-fg:var(--mc-act-fg);
+  --color-mc-tab-active:var(--mc-tab-active);
+  --color-mc-gold-text:var(--mc-gold-text);
+  --color-mc-note:var(--mc-note);
+  --color-mc-note-fg:var(--mc-note-fg);
+  --color-mc-entry-client:var(--mc-entry-client);
+  --color-mc-entry-system:var(--mc-entry-system);
+  --color-mc-entry-time:var(--mc-entry-time);
+  --color-mc-entry-time-fg:var(--mc-entry-time-fg);
+  --color-mc-entry-agent:var(--mc-entry-agent);
+  --color-mc-assist:var(--mc-assist);
+  --color-mc-assist-fg:var(--mc-assist-fg);
+  --color-mc-assist-btn:var(--mc-assist-btn);
+  --color-mc-assist-btn-fg:var(--mc-assist-btn-fg);
+  --color-mc-assist-line:var(--mc-assist-line);
+  --color-mc-green:var(--mc-green);
+  --color-mc-green-soft:var(--mc-green-soft);
+  --color-mc-green-text:var(--mc-green-text);
+  --color-mc-progress:var(--mc-progress);
+  --color-mc-progress-fg:var(--mc-progress-fg);
+  --color-mc-attn:var(--mc-attn);
+  --color-mc-attn-fg:var(--mc-attn-fg);
+  --color-mc-off:var(--mc-off);
+  --color-mc-off-fg:var(--mc-off-fg);
+  --color-mc-p2:var(--mc-p2);
+  --color-mc-leaf:var(--mc-leaf);
+  --color-mc-stem:var(--mc-stem);
+  --color-mc-st-new:var(--mc-st-new);
+  --color-mc-st-new-fg:var(--mc-st-new-fg);
+  --color-mc-st-wait:var(--mc-st-wait);
+  --color-mc-st-wait-fg:var(--mc-st-wait-fg);
+  --color-mc-st-sched:var(--mc-st-sched);
+  --color-mc-st-sched-fg:var(--mc-st-sched-fg);
+  --color-mc-st-sched-border:var(--mc-st-sched-border);
+  --color-mc-st-resolved:var(--mc-st-resolved);
+  --color-mc-st-resolved-fg:var(--mc-st-resolved-fg);
+  --color-mc-st-breach:var(--mc-st-breach);
+  --color-mc-st-breach-fg:var(--mc-st-breach-fg);
+  /* brand */
+  --color-mc-avatar:var(--mc-avatar); --color-mc-avatar-fg:var(--mc-avatar-fg);
+  --color-mc-gold:var(--mc-gold); --color-mc-blush:var(--mc-blush); --color-mc-cream:var(--mc-cream); --color-mc-ink:var(--mc-ink);
+  /* sizes that follow density (use as h-ctl, h-row, size-av ...) */
+  --spacing-ctl:var(--mc-ctl); --spacing-row:var(--mc-row); --spacing-hdr:var(--mc-hdr); --spacing-av:var(--mc-av); --spacing-pill:var(--mc-pill);
+  /* shape */
+  --radius-ctl:12px; --radius-field:10px; --radius-card:16px; --radius-modal:20px; --radius-pill:999px;
+  --shadow-mc:var(--mc-shadow);
+  /* type: Figtree runs the interface, Fraunces is for the wordmark and marketing only */
+  --font-sans:"Figtree","Segoe UI",system-ui,sans-serif;
+  --font-display:"Fraunces",Georgia,serif;
+  --font-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}

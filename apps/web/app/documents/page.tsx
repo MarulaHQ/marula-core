@@ -712,7 +712,7 @@ function LayoutEditForm({
           rows={10}
           aria-invalid={!schemaState.ok}
           aria-describedby={!schemaState.ok ? "layout-schema-problem" : undefined}
-          className="mt-1 w-full rounded-[var(--m-radius-container)] border bg-transparent p-2 font-mono text-[12px]"
+          className="mt-1 w-full rounded-[var(--m-radius-container)] border bg-transparent p-2 text-[12px]"
           style={{ borderColor: "var(--m-border)" }}
         />
         {schemaState.ok ? null : (

@@ -1,5 +1,12 @@
+@import "./tokens-kit.css";
+
 /*
- * Marula design tokens — the single source of hex truth for Marula UI.
+ * Marula design tokens — the app's compatibility layer over the kit tokens.
+ *
+ * The hex source of truth is the generated ./tokens-kit.css (from tokens.json).
+ * Every token below with a kit equivalent ALIASES it; nothing restates a value.
+ * Tokens with no kit equivalent (meters, editions, charts, disabled, shadows)
+ * stay literal here.
  * Purpose: define every color, radius, spacing, and motion token for light and
  * dark modes, authored from the canonical Marula preset
  * (design/marula/marula.json — tweakcn) plus the rendered pack
@@ -35,36 +42,36 @@
 
 :root {
   /* ---- Brand primitive ramp (DESIGN-NOTES §7, design.md §4.1) ---- */
-  --m-gold: #e8b83a;            /* marula gold — primary in dark, "act here" */
+  --m-gold: var(--mc-gold);            /* marula gold — primary in dark, "act here" */
   --m-gold-soft: #f7e3a8;       /* the interactive TINT; gold-soft, not gold */
   --m-ink: #2b2a33;             /* dusk ink — text, primary in light, the bar */
   --m-ink-dark: #222129;        /* the bar in dark mode; still ink, never cream */
-  --m-cream: #f6efd9;           /* flesh cream — dark text, assistant surface */
-  --m-canopy: #5e7f3a;          /* canopy green — done, healthy, Core edition */
+  --m-cream: var(--mc-cream);           /* flesh cream — dark text, assistant surface */
+  --m-canopy: var(--mc-canopy);          /* canopy green — done, healthy, Core edition */
   --m-canopy-deep: #4a6a2a;     /* small text on a canopy fill (5.4:1) */
-  --m-lime: #a9c25d;            /* unripe lime — success on dark, leaf */
-  --m-blush: #d9822b;           /* ripe blush — due soon, P2 */
-  --m-sand: #cdb38b;            /* bushveld sand — borders, illustration */
-  --m-bark: #7c746a;            /* bark grey — neutral mid-tone, Cloud edition */
+  --m-lime: var(--mc-lime);            /* unripe lime — success on dark, leaf */
+  --m-blush: var(--mc-blush);           /* ripe blush — due soon, P2 */
+  --m-sand: var(--mc-sand);            /* bushveld sand — borders, illustration */
+  --m-bark: var(--mc-bark);            /* bark grey — neutral mid-tone, Cloud edition */
   --m-gold-text: #9a5b0f;       /* deep amber: gold-coloured TEXT on light */
   --m-ring-light: #a8641a;      /* design.md §4.3 ring — 2px focus ring on light */
 
   /* ---- Semantic: light mode (the `marula` preset, Neutral) ---- */
-  --m-canvas: #f8f7f4;          /* background */
-  --m-surface: #ffffff;         /* card */
-  --m-overlay-surface: #ffffff; /* popover / dialog */
-  --m-nav: #ffffff;             /* icon rail */
-  --m-sidebar: #efeeea;         /* context column */
-  --m-surface-2: #efeeea;       /* second surface: header rows, group panels */
-  --m-bar: #2b2a33;             /* NON-FLIPPING — the timer bar. Its digits use
+  --m-canvas: var(--background);          /* background */
+  --m-surface: var(--card);         /* card */
+  --m-overlay-surface: var(--popover); /* popover / dialog */
+  --m-nav: var(--mc-nav);             /* icon rail */
+  --m-sidebar: var(--mc-side);         /* context column */
+  --m-surface-2: var(--mc-surface-2);       /* second surface: header rows, group panels */
+  --m-bar: var(--mc-bar);             /* NON-FLIPPING — the timer bar. Its digits use
                                   --m-gold (7.7:1 on this ink), never
                                   --m-gold-text: deep amber is for light
                                   canvases and is 2.6:1 here. */
-  --m-text: #2b2a33;
-  --m-text-secondary: #5f584f;
+  --m-text: var(--foreground);
+  --m-text-secondary: var(--muted-foreground);
   --m-text-muted: #6f685d;      /* 4.6:1 on the Neutral canvas */
-  --m-border: #e2e0da;          /* decorative dividers ONLY */
-  --m-input: #8c877c;           /* form-control border, 3:1 on its background */
+  --m-border: var(--border);          /* decorative dividers ONLY */
+  --m-input: var(--input);           /* form-control border, 3:1 on its background */
   /* A border that must survive as a non-text indicator: presence dots, meters,
      chart strokes. Same 3:1 guarantee as --input, so one value serves both
      rather than a second ramp that can drift out of spec. */
@@ -78,16 +85,16 @@
   --m-disabled-fg: #8a8479;
 
   /* The flipping primary (rule 1 above). */
-  --m-primary: #2b2a33;
-  --m-on-primary: #e8b83a;
+  --m-primary: var(--primary);
+  --m-on-primary: var(--primary-foreground);
   --m-primary-hover: color-mix(in srgb, var(--m-ink) 92%, var(--m-cream));
   --m-primary-active: color-mix(in srgb, var(--m-ink) 84%, var(--m-cream));
 
   /* The ACCENT TINT axis — the only colour axis a theme preset may shift
      (wave41 D8). In light this is gold-soft, never gold: gold on this canvas
      is 1.7:1 and fails. */
-  --m-accent: #f7e3a8;          /* tint fill: active filter chip, selected row */
-  --m-on-accent: #6b4308;       /* text on the tint */
+  --m-accent: var(--mc-act);          /* tint fill: active filter chip, selected row */
+  --m-on-accent: var(--mc-act-fg);       /* text on the tint */
   --m-accent-soft: color-mix(in srgb, var(--m-accent) 18%, var(--m-surface));
   --m-accent-muted: color-mix(in srgb, var(--m-accent) 45%, var(--m-surface));
   --m-accent-hover: color-mix(in srgb, var(--m-accent) 78%, var(--m-surface));
@@ -95,16 +102,16 @@
 
   /* Interactive TEXT that wants to read gold. Deep amber on light, gold on
      dark. Gold itself is never text on a light background. */
-  --m-accent-text: #9a5b0f;
+  --m-accent-text: var(--mc-gold-text);
   --m-focus-ring: #a8641a;
 
   /* The one inverted surface on a screen (design.md §8) plus its three
      internals: the button, the button's text, and the divider inside. */
-  --m-asb: #2b2a33;             /* assistant background */
-  --m-asf: #f6efd9;             /* assistant foreground */
-  --m-asbtn: #e8b83a;           /* the action inside the assistant surface */
-  --m-asbtnf: #2b2a33;          /* that action's text */
-  --m-asline: #5f584f;          /* divider INSIDE the assistant card. The
+  --m-asb: var(--mc-assist);             /* assistant background */
+  --m-asf: var(--mc-assist-fg);             /* assistant foreground */
+  --m-asbtn: var(--mc-assist-btn);           /* the action inside the assistant surface */
+  --m-asbtnf: var(--mc-assist-btn-fg);          /* that action's text */
+  --m-asline: var(--mc-assist-line);          /* divider INSIDE the assistant card. The
                                   rendered pack's own value, kept verbatim: it
                                   measures 2.02:1 against the card and is
                                   DECORATIVE (WCAG 1.4.11 covers dividers that
@@ -127,37 +134,37 @@
   --m-meter-fill: #9a5b0f;
 
   /* ---- Timeline entry tints (DESIGN-NOTES §4, §7) ---- */
-  --m-client: #ffffff;          /* client-visible entry: surface box + border */
-  --m-note: #efece6;            /* internal note: tint, no border */
-  --m-note-fg: #4a443d;
-  --m-sys: #f8f7f4;             /* system entry: quiet tint */
-  --m-time: #fbebbf;            /* time entry: gold tint */
-  --m-time-fg: #6b4308;
-  --m-agent: #f7f3e8;           /* assistant entry: warm agent tint */
+  --m-client: var(--mc-entry-client);          /* client-visible entry: surface box + border */
+  --m-note: var(--mc-note);            /* internal note: tint, no border */
+  --m-note-fg: var(--mc-note-fg);
+  --m-sys: var(--mc-entry-system);             /* system entry: quiet tint */
+  --m-time: var(--mc-entry-time);            /* time entry: gold tint */
+  --m-time-fg: var(--mc-entry-time-fg);
+  --m-agent: var(--mc-entry-agent);           /* assistant entry: warm agent tint */
 
   /* ---- Semantic status (design.md §8) ---- */
-  --m-status-success-fg: #3b5222;
-  --m-status-success-bg: #e4edcb;
+  --m-status-success-fg: var(--mc-green-text);
+  --m-status-success-bg: var(--mc-green-soft);
   /* Text ON a canopy FILL. design.md §4.2: below 24px, cream on canopy needs
      deep canopy #4A6A2A (5.4:1), not #5E7F3A (3.99:1). The selected Wrap-up
      outcome and any chosen-state chip use this. */
   --m-on-success: #4a6a2a;
-  --m-status-warning-fg: #6b4308;
-  --m-status-warning-bg: #fbebbf;
-  --m-status-due-fg: #7a3f0c;   /* ripe blush family: due today, P2 */
-  --m-status-due-bg: #f8dcc0;
-  --m-status-danger-fg: #b42318;
+  --m-status-warning-fg: var(--mc-progress-fg);
+  --m-status-warning-bg: var(--mc-progress);
+  --m-status-due-fg: var(--mc-attn-fg);   /* ripe blush family: due today, P2 */
+  --m-status-due-bg: var(--mc-attn);
+  --m-status-danger-fg: var(--destructive);
   --m-status-danger-bg: #fde8e5;
   --m-status-danger-fg-hover: color-mix(in srgb, var(--m-status-danger-fg) 88%, var(--m-ink));
   --m-status-danger: var(--m-status-danger-fg);
-  --m-status-neutral-fg: #4a443d;
-  --m-status-neutral-bg: #efece6;
-  --m-status-offline-fg: #5c4631;
-  --m-status-offline-bg: #efece6;
+  --m-status-neutral-fg: var(--mc-note-fg);
+  --m-status-neutral-bg: var(--mc-note);
+  --m-status-offline-fg: var(--mc-off-fg);
+  --m-status-offline-bg: var(--mc-off);
 
   /* Destructive is FIXED across every preset (wave41 D8) — it is a brand
      semantic, not a theme choice. */
-  --m-destructive: #b42318;
+  --m-destructive: var(--destructive);
 
   /* ---- Edition cues (design.md §3.3) — identity, never product colour ---- */
   --m-edition-core: #5e7f3a;
@@ -181,8 +188,8 @@
   --m-surface-hover: color-mix(in srgb, var(--m-ink) 4%, var(--m-surface));
   --m-surface-raised: var(--m-surface);
 
-  /* Overlay scrim derived from ink */
-  --m-scrim: color-mix(in srgb, var(--m-ink) 44%, transparent);
+  /* Overlay scrim, the mockup's own value (kit tokens neutral.scrim) */
+  --m-scrim: var(--mc-scrim);
 
   /* Flat by default (design.md §6): separation is surface colour + 1px
      borders. Shadows exist only for floating layers. */
@@ -191,9 +198,9 @@
   --m-shadow-overlay: 0 8px 24px color-mix(in srgb, var(--m-ink) 12%, transparent);
 
   /* ---- Shape / density / motion (DESIGN-NOTES §6, design.md §6) ---- */
-  --m-radius-scale: 0.75rem;     /* 12px — the scale root, unchanged */
+  --m-radius-scale: var(--radius);     /* 12px — the scale root, unchanged */
   --m-radius-control: 10px;      /* rendered: buttons and inputs are 10px */
-  --m-radius-container: 1rem;    /* cards 16-18px */
+  --m-radius-container: var(--mc-radius-card);    /* cards 16-18px */
   --m-density-control: 44px;     /* comfortable (D7 default) */
   --m-density-control-sm: 40px;
   --m-density-row: 48px;
@@ -247,33 +254,33 @@
 
 /* ---- Semantic: dark mode overrides (the `marula` preset, Dark column) ---- */
 [data-theme="dark"] {
-  --m-canvas: #2b2a33;
-  --m-surface: #34333d;
-  --m-overlay-surface: #34333d;
-  --m-nav: #222129;
-  --m-sidebar: #222129;
-  --m-surface-2: #3a3944;
+  --m-canvas: var(--background);
+  --m-surface: var(--card);
+  --m-overlay-surface: var(--popover);
+  --m-nav: var(--mc-nav);
+  --m-sidebar: var(--mc-side);
+  --m-surface-2: var(--mc-surface-2);
   /* --m-bar is DELIBERATELY ABSENT. It stays #2B2A33 in :root — see rule 2
      in the file header. Dark mode is a darker ink, not a cream. */
-  --m-text: #f6efd9;
-  --m-text-secondary: #beb5a2;
+  --m-text: var(--foreground);
+  --m-text-secondary: var(--muted-foreground);
   --m-text-muted: #b0a894;
-  --m-border: #43424d;
-  --m-input: #8a8378;
+  --m-border: var(--border);
+  --m-input: var(--input);
 
   --m-disabled-bg: #3a3944;
   --m-disabled-fg: #9a9384;
 
   /* The primary flips (rule 1): gold button, ink text. */
-  --m-primary: #e8b83a;
-  --m-on-primary: #2b2a33;
+  --m-primary: var(--primary);
+  --m-on-primary: var(--primary-foreground);
   --m-primary-hover: color-mix(in srgb, var(--m-gold) 88%, var(--m-cream));
   --m-primary-active: color-mix(in srgb, var(--m-gold) 78%, var(--m-cream));
 
   /* Dark is gold-FORWARD, so the tint is a raised neutral and the
      interactive text is gold itself — gold on ink is 7.7:1. */
-  --m-accent: #3a3944;
-  --m-on-accent: #e8b83a;
+  --m-accent: var(--mc-act);
+  --m-on-accent: var(--mc-act-fg);
   --m-accent-soft: color-mix(in srgb, var(--m-accent) 30%, var(--m-surface));
   --m-accent-muted: color-mix(in srgb, var(--m-accent) 55%, var(--m-surface));
   /* Dark hovers go DARKER, not lighter. The dark accent is a neutral tint
@@ -282,43 +289,43 @@
      tint, and it holds gold above 6.5:1 at every step. */
   --m-accent-hover: color-mix(in srgb, var(--m-accent) 76%, var(--m-canvas));
   --m-accent-active: color-mix(in srgb, var(--m-accent) 58%, var(--m-canvas));
-  --m-accent-text: #e8b83a;
+  --m-accent-text: var(--mc-gold-text);
   --m-focus-ring: #e8b83a;
 
-  --m-asb: #f6efd9;             /* the inversion: cream on ink, not ink on cream */
-  --m-asf: #2b2a33;
-  --m-asbtn: #2b2a33;
-  --m-asbtnf: #e8b83a;
-  --m-asline: #cdb38b;
+  --m-asb: var(--mc-assist);             /* the inversion: cream on ink, not ink on cream */
+  --m-asf: var(--mc-assist-fg);
+  --m-asbtn: var(--mc-assist-btn);
+  --m-asbtnf: var(--mc-assist-btn-fg);
+  --m-asline: var(--mc-assist-line);
 
   --m-meter-track: #2b2a33;
   --m-meter-fill: #e8b83a;
 
-  --m-client: #34333d;
-  --m-note: #3a342a;
-  --m-note-fg: #e2cfa9;
-  --m-sys: #2f2e37;
-  --m-time: #4a3a1a;
-  --m-time-fg: #f2cd6b;
-  --m-agent: #33302a;
+  --m-client: var(--mc-entry-client);
+  --m-note: var(--mc-note);
+  --m-note-fg: var(--mc-note-fg);
+  --m-sys: var(--mc-entry-system);
+  --m-time: var(--mc-entry-time);
+  --m-time-fg: var(--mc-entry-time-fg);
+  --m-agent: var(--mc-entry-agent);
 
-  --m-status-success-fg: #d6e5a8;
-  --m-status-success-bg: #2e3a25;
+  --m-status-success-fg: var(--mc-green-text);
+  --m-status-success-bg: var(--mc-green-soft);
   /* Dark success fills are lime, so the text on them is ink, not cream. */
   --m-on-success: #2b2a33;
-  --m-status-warning-fg: #f2cd6b;
-  --m-status-warning-bg: #4a3a1a;
-  --m-status-due-fg: #f0b27a;
-  --m-status-due-bg: #4d2f14;
-  --m-status-danger-fg: #fb8a80;
+  --m-status-warning-fg: var(--mc-progress-fg);
+  --m-status-warning-bg: var(--mc-progress);
+  --m-status-due-fg: var(--mc-attn-fg);
+  --m-status-due-bg: var(--mc-attn);
+  --m-status-danger-fg: var(--destructive);
   --m-status-danger-bg: #3b1a18;
   --m-status-danger-fg-hover: color-mix(in srgb, var(--m-status-danger-fg) 88%, var(--m-canvas));
-  --m-status-neutral-fg: #e2cfa9;
-  --m-status-neutral-bg: #3a342a;
-  --m-status-offline-fg: #e2cfa9;
-  --m-status-offline-bg: #3a342a;
+  --m-status-neutral-fg: var(--mc-note-fg);
+  --m-status-neutral-bg: var(--mc-note);
+  --m-status-offline-fg: var(--mc-off-fg);
+  --m-status-offline-bg: var(--mc-off);
 
-  --m-destructive: #fb8a80;
+  --m-destructive: var(--destructive);
 
   --m-chart-1: #e8b83a;
   --m-chart-2: #a9c25d;
@@ -331,7 +338,7 @@
   --m-surface-hover: color-mix(in srgb, var(--m-cream) 6%, var(--m-surface));
   --m-surface-raised: #3a3944;
 
-  --m-scrim: color-mix(in srgb, #000000 60%, transparent);
+  --m-scrim: var(--mc-scrim);
   --m-shadow: 0 8px 24px color-mix(in srgb, #000000 40%, transparent);
   --m-shadow-strong: 0 8px 24px color-mix(in srgb, #000000 55%, transparent);
   --m-shadow-overlay: 0 8px 24px color-mix(in srgb, #000000 40%, transparent);

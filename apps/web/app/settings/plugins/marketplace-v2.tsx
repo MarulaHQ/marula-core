@@ -276,7 +276,7 @@ export function MarketplaceViewTab({ canManage, onFocus }: { canManage: boolean;
           <Card key={pub.id}>
             <div className="flex flex-wrap items-center gap-2 p-4" data-testid={`publisher-row-${pub.publisher}`}>
               <span className="text-[13px] font-semibold">{pub.display_name}</span>
-              <span className="font-mono text-[12px]" style={{ color: "var(--m-text-muted)" }}>{pub.publisher}</span>
+              <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>{pub.publisher}</span>
               <Tag tone={pub.status === "verified" ? "success" : "danger"}>{pub.status}</Tag>
               {pub.note !== "" ? (
                 <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>{pub.note}</span>

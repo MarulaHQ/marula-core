@@ -360,7 +360,7 @@ export function WbContextPanel({ clientId, contactId, ticketId, ticketNumber, ti
           {related !== null && related.length > 0 ? (
             related.map((t) => (
               <Link key={t.id} href={`/tickets/${t.id}`} className="m-wb-minirow flex items-center justify-between py-1 text-[12px]">
-                <strong className="font-mono" style={{ color: "var(--m-text)" }}>{t.number}</strong>
+                <strong className="" style={{ color: "var(--m-text)" }}>{t.number}</strong>
                 <span className="min-w-0 truncate pl-2" style={{ color: "var(--m-text-muted)" }}>{t.title}</span>
               </Link>
             ))

@@ -57,7 +57,7 @@ export const lightTokens: ThemeTokens = {
   mode: "light",
   background: "#FBF7EC",
   surface: "#FFFFFF",
-  surfaceHover: "#F7F3E8",
+  surfaceHover: "#F3EAD2",
   overlay: "#FFFFFF",
   text: "#2B2A33",
   textSecondary: "#5F584F",
@@ -72,7 +72,7 @@ export const lightTokens: ThemeTokens = {
   destructiveText: "#FFFFFF",
   success: { text: "#3B5222", background: "#E4EDCB" },
   warning: { text: "#6B4308", background: "#FBEBBF" },
-  danger: { text: "#B42318", background: "#FDE8E5" },
+  danger: { text: "#8F1C13", background: "#FBE1DE" },
   neutral: { text: "#5C4631", background: "#F3EAD2" },
 };
 
@@ -92,7 +92,7 @@ export const darkTokens: ThemeTokens = {
   destructiveText: "#2B2A33",
   success: { text: "#D6E5A8", background: "#2E3A25" },
   warning: { text: "#F2CD6B", background: "#4A3A1A" },
-  danger: { text: "#FB8A80", background: "#3B1A18" },
+  danger: { text: "#F9A097", background: "#4A1A18" },
   // One step above the card surface so the pill shape survives in dark
   // (vision review finding 9).
   neutral: { text: "#E2CFA9", background: "#3A342A" },

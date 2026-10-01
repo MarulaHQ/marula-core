@@ -367,7 +367,7 @@ export function CheckoutDialog({
                         data-testid={`tools-checkout-kit-member-${member.stock_item_id}`}
                       >
                         <span>{member.item_name}</span>
-                        <span className="font-mono tabular-nums">
+ <span className="tabular-nums">
                           {member.available_units} of {member.required_units}
                         </span>
                       </div>

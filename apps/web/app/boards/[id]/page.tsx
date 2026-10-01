@@ -357,7 +357,7 @@ function KanbanCard({
       />
       <div className="grid gap-1.5 px-3 py-2.5 pl-4">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+          <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
             {ticket.number}
           </span>
           <StatusTag tone={priorityTone(ticket.priority)}>

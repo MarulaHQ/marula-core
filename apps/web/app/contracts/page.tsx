@@ -535,7 +535,7 @@ export default function ContractsPage() {
                       <Td>
                         <Link
                           href={`/contracts/${contract.id}`}
-                          className="font-mono text-[13px] underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
+                          className="text-[13px] underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
                         >
                           {contract.number}
                         </Link>

@@ -390,7 +390,7 @@ export function WbTimeline({ ticketId, comments, attachments, namesByUser, reloa
                     </div>
                     {row.timeLabel !== null ? (
                       <div className="m-wb-bubble" data-variant="time">
-                        <strong className="font-mono">{row.timeLabel}</strong>
+                        <strong className="">{row.timeLabel}</strong>
                         {row.body !== null && row.body !== "" ? <span> · {row.body}</span> : null}
                         <span className="float-right text-[10px]" style={{ color: "var(--m-text-muted)" }}>
                           {row.billable === true ? "Billable" : row.billable === false ? "Non-billable" : ""}

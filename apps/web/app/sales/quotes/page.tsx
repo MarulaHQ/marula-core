@@ -660,7 +660,7 @@ export default function QuotesPage(): ReactNode {
               return (
                 <Tr key={q.id} className="row-hover" data-testid={`quotes-row-${q.id}`}>
                   <Td>
-                    <span className="font-mono text-[13px] font-medium">{q.number}</span>
+                    <span className="text-[13px] font-medium">{q.number}</span>
                   </Td>
                   <Td>
                     <Link
@@ -683,7 +683,7 @@ export default function QuotesPage(): ReactNode {
                       </Link>
                     ) : null}
                   </Td>
-                  <Td className="text-right font-mono text-[13px] tabular-nums">{money(q.total_minor, q.currency)}</Td>
+ <Td className="text-right text-[13px] tabular-nums">{money(q.total_minor, q.currency)}</Td>
                   <Td>
                     <span className="tabular-nums">{q.valid_until}</span>
                     {/* A quote past its date is a fact about money, not a

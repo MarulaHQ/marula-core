@@ -415,7 +415,7 @@ export default function ToolboxesSettingsPage(): React.ReactNode {
                       <span className="min-w-0 truncate">{kit.name}</span>
                       <span className="flex shrink-0 items-center gap-1.5">
                         {kit.code !== null && kit.code !== undefined && kit.code !== "" ? (
-                          <span className="font-mono text-[10px]" style={{ color: "var(--m-text-muted)" }}>
+                          <span className="text-[10px]" style={{ color: "var(--m-text-muted)" }}>
                             {kit.code}
                           </span>
                         ) : null}
@@ -506,13 +506,13 @@ export default function ToolboxesSettingsPage(): React.ReactNode {
                           <span className="flex min-w-0 items-baseline gap-1.5">
                             <span className="truncate">{member.item_name}</span>
                             {member.item_sku !== null && member.item_sku !== undefined ? (
-                              <span className="font-mono text-[10px]" style={{ color: "var(--m-text-muted)" }}>
+                              <span className="text-[10px]" style={{ color: "var(--m-text-muted)" }}>
                                 {member.item_sku}
                               </span>
                             ) : null}
                           </span>
                           <span className="flex shrink-0 items-center gap-2">
-                            <span className="font-mono text-[10px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+ <span className="text-[10px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                               {qtyText(member.qty_milli)}×
                             </span>
                             {state !== undefined ? (

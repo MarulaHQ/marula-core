@@ -741,7 +741,7 @@ export default function PurchaseOrderPage(): ReactNode {
     <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
       <header className="m-ledger-header">
         <div className="m-ledger-title-row">
-          <h1 className="m-ledger-title font-mono" data-testid="purchasing-order-number">
+          <h1 className="m-ledger-title" data-testid="purchasing-order-number">
             {order.number}
           </h1>
           <OrderStatusTag status={order.status} />
@@ -875,7 +875,7 @@ export default function PurchaseOrderPage(): ReactNode {
             <tbody>
               {lines.map((line) => (
                 <Tr key={line.id} className="row-hover" data-testid={`purchasing-line-row-${line.id}`}>
-                  <Td className="font-mono text-xs tabular-nums">{line.position + 1}</Td>
+ <Td className="text-xs tabular-nums">{line.position + 1}</Td>
                   <Td>
                     {line.description}
                     {isSerialized(line) && (
@@ -884,16 +884,16 @@ export default function PurchaseOrderPage(): ReactNode {
                       </span>
                     )}
                   </Td>
-                  <Td className="text-right font-mono text-xs tabular-nums">
+ <Td className="text-right text-xs tabular-nums">
                     {formatQtyMilli(line.qty_ordered_milli, lineUnit(line))}
                   </Td>
                   <Td
-                    className="text-right font-mono text-xs tabular-nums"
+ className="text-right text-xs tabular-nums"
                     data-testid={`purchasing-line-received-${line.id}`}
                   >
                     {formatQtyMilli(line.qty_received_milli, lineUnit(line))}
                   </Td>
-                  <Td className="text-right font-mono text-xs tabular-nums">
+ <Td className="text-right text-xs tabular-nums">
                     {line.unit_cost_minor == null
                       ? "—"
                       : money(line.unit_cost_minor, order.currency)}
@@ -976,7 +976,7 @@ export default function PurchaseOrderPage(): ReactNode {
                   <p className="text-[13px] font-medium" style={{ color: "var(--m-text)" }}>
                     {locationName.get(receipt.location_id) ?? "Unknown location"}
                   </p>
-                  <p className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
+                  <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                     {receipt.received_at.slice(0, 16).replace("T", " ")}
                   </p>
                 </div>
@@ -1002,7 +1002,7 @@ export default function PurchaseOrderPage(): ReactNode {
                         return (
                           <Tr key={receiptLine.id}>
                             <Td className="text-xs">{poLine?.description ?? "Removed line"}</Td>
-                            <Td className="text-right font-mono text-xs tabular-nums">
+ <Td className="text-right text-xs tabular-nums">
                               {formatQtyMilli(receiptLine.qty_milli, poLine === undefined ? "" : lineUnit(poLine))}
                             </Td>
                             <Td className="text-right">
@@ -1257,7 +1257,7 @@ export default function PurchaseOrderPage(): ReactNode {
                 <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
                   Amount
                 </span>
-                <span className="font-mono text-[13px] tabular-nums" style={{ color: "var(--m-text)" }} data-testid="purchasing-bill-amount">
+ <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text)" }} data-testid="purchasing-bill-amount">
                   {bill.amount_minor == null ? "—" : money(bill.amount_minor, bill.currency)}
                 </span>
               </div>
@@ -1273,7 +1273,7 @@ export default function PurchaseOrderPage(): ReactNode {
                 <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
                   Base amount
                 </span>
-                <span className="font-mono text-[13px] tabular-nums" style={{ color: "var(--m-text)" }}>
+ <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text)" }}>
                   {bill.posted_at !== null && bill.base_amount_minor == null
                     ? // A posted base-currency bill carries an all-NULL FX
                       // group (ADR 0002): the base fact is the bill itself.
@@ -1379,7 +1379,7 @@ export default function PurchaseOrderPage(): ReactNode {
                   <p className="text-[13px] font-medium" style={{ color: "var(--m-text)" }}>
                     {line.description}
                   </p>
-                  <p className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
+                  <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                     ordered {formatQtyMilli(line.qty_ordered_milli, lineUnit(line))} · received{" "}
                     {formatQtyMilli(line.qty_received_milli, lineUnit(line))}
                   </p>

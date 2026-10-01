@@ -17,12 +17,20 @@
     "./theme-tokens": {
       "types": "./dist/theme-tokens.d.ts",
       "import": "./dist/theme-tokens.js"
-    }
+    },
+    "./kit": {
+      "types": "./dist/kit/index.d.ts",
+      "import": "./dist/kit/index.js"
+    },
+    "./theme.css": "./dist/theme.css",
+    "./kit-tokens.css": "./dist/tokens-kit.css"
   },
   "files": [
     "dist"
   ],
   "scripts": {
+    "tokens": "node tokens/generate.mjs",
+    "tokens:check": "node tokens/generate.mjs --check",
     "build": "tsc -p tsconfig.build.json && cp src/*.css dist/",
     "lint": "eslint src tests",
     "typecheck": "tsc --noEmit",
@@ -33,6 +41,7 @@
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-checkbox": "^1.1.2",
     "@radix-ui/react-dialog": "^1.1.4",
     "@radix-ui/react-label": "^2.1.1",
@@ -42,6 +51,7 @@
     "@radix-ui/react-tooltip": "^1.1.6",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.2.6",
+    "radix-ui": "^1.6.0",
     "sonner": "^2.0.8"
   },
   "devDependencies": {

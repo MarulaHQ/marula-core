@@ -251,7 +251,7 @@ export function DayPackPanel({ date, meUserId, meName }: DayPackPanelProps): Rea
                     >
                       {kit.name}
                     </span>
-                    <span className="font-mono text-[10px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+ <span className="text-[10px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                       {kit.member_count} tools
                     </span>
                   </span>
@@ -265,7 +265,7 @@ export function DayPackPanel({ date, meUserId, meName }: DayPackPanelProps): Rea
                       </span>
                     )}
                     {kit.code !== null && kit.code !== undefined && kit.code !== "" && (
-                      <span className="font-mono">{kit.code}</span>
+                      <span className="">{kit.code}</span>
                     )}
                   </span>
                 </div>
@@ -373,7 +373,7 @@ export function DayPackPanel({ date, meUserId, meName }: DayPackPanelProps): Rea
               >
                 Trip {trip.index}
               </span>
-              <span className="font-mono text-[10px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+ <span className="text-[10px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                 {timeText(trip.opens_at)}
               </span>
               <Chip tone="muted" testid="day-pack-office-chip">
@@ -389,13 +389,13 @@ export function DayPackPanel({ date, meUserId, meName }: DayPackPanelProps): Rea
             <ol className="flex flex-wrap gap-x-3 gap-y-1" role="list">
               {trip.stops.map((stop) => (
                 <li key={stop.appointment_id} className="flex items-baseline gap-1.5 text-[11px]">
-                  <span className="font-mono tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+ <span className="tabular-nums" style={{ color: "var(--m-text-muted)" }}>
                     {timeText(stop.starts_at)}
                   </span>
                   {stop.ticket_id !== null && stop.ticket_id !== undefined && (
                     <a
                       href={`/tickets/${stop.ticket_id}`}
-                      className="whitespace-nowrap font-mono"
+                      className="whitespace-nowrap"
                       style={{ color: "var(--m-text-secondary)" }}
                     >
                       {stop.ticket_number ?? "ticket"}
@@ -650,12 +650,12 @@ function LineRow({
             {line.item_name}
           </span>
           {line.secondary !== null && line.secondary !== undefined && line.secondary !== "" && (
-            <span className="font-mono text-[10px]" style={{ color: "var(--m-text-muted)" }}>
+            <span className="text-[10px]" style={{ color: "var(--m-text-muted)" }}>
               {line.secondary}
             </span>
           )}
           <span
-            className="font-mono text-[10px] tabular-nums"
+ className="text-[10px] tabular-nums"
             style={{ color: "var(--m-text-secondary)" }}
           >
             {qtyText(line.qty_milli)} {line.unit}

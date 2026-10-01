@@ -697,7 +697,7 @@ export default function ProjectDetailPage() {
             data-testid="project-cost-rollup"
           >
             PO cost{" "}
-            <strong className="font-mono">{money(rollup.po_bill_base_minor, rollup.base_currency)}</strong>
+            <strong className="">{money(rollup.po_bill_base_minor, rollup.base_currency)}</strong>
             {rollup.budget_minor !== null && rollup.budget_minor !== undefined
               ? ` of ${money(rollup.budget_minor, rollup.budget_currency ?? rollup.base_currency)} budget`
               : ""}
@@ -747,7 +747,7 @@ export default function ProjectDetailPage() {
                 >
                   {bill.purchase_order_number}
                 </Link>
-                <span className="font-mono tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+ <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                   {money(bill.amount_minor, bill.currency)}
                   {bill.base_amount_minor !== null &&
                   bill.base_amount_minor !== undefined &&
@@ -818,7 +818,7 @@ export default function ProjectDetailPage() {
                         ) : null}
                         {row.phase_name}
                       </span>
-                      <span className="font-mono tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+ <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                         {money(row.consumed_minor, row.currency ?? "USD")}
                         {row.budget_minor !== null && row.budget_minor !== undefined
                           ? ` of ${money(row.budget_minor, row.currency ?? "USD")}`
@@ -864,7 +864,7 @@ export default function ProjectDetailPage() {
                         <span style={{ color: "var(--m-text-muted)" }}>{release.released_on}</span>
                       </span>
                       <span className="flex items-center gap-2">
-                        <span className="font-mono tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+ <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                           {money(release.amount_minor, release.currency)}
                         </span>
                         {release.invoice_id === null || release.invoice_id === undefined ? (

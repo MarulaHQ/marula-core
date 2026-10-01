@@ -75,7 +75,7 @@ export function CapRing({
         )}
       </svg>
       <span
-        className="absolute font-mono text-[10px]"
+        className="absolute text-[10px]"
         style={{ color: "var(--m-text-secondary)" }}
       >
         {pct === null ? "—" : `${Math.round(pct * 100)}%`}

@@ -12,6 +12,7 @@
 "use client";
 
 import { useTheme } from "@marula-core/ui";
+import { TopBar } from "@marula-core/ui/kit";
 import type { Theme } from "@marula-core/ui";
 import { Button, Kbd } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
@@ -222,11 +223,11 @@ export function AppHeader() {
   const pathname = usePathname();
   if (isHeaderlessPath(pathname)) return null;
   return (
-    <header
-      data-testid="top-bar"
-      className="flex h-14 shrink-0 items-center gap-2 border-b px-3 md:px-4"
-      style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
-    >
+    // Wave41 lane 20: the container is the kit's TopBar. The contents stay the
+    // app's: the canonical SVG lockup (no font dependency, unlike the kit's
+    // text logo), the search launcher that opens /search, and the dock
+    // cluster. TopBar supplies the height, border and surface.
+    <TopBar data-testid="top-bar">
       <div className="flex shrink-0 items-center gap-2">
         {/*
           The canonical lockup: gold fruit, green leaf, outlined lowercase
@@ -269,7 +270,7 @@ export function AppHeader() {
         <ThemeToggle />
         <UserMenu />
       </div>
-    </header>
+    </TopBar>
   );
 }
 

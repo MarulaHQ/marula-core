@@ -154,7 +154,7 @@ export function TicketStatusBar({
           background: `var(--m-status-${tone === "success" ? "success" : tone === "warning" ? "warning" : "neutral"}-fg)`,
         }}
       />
-      <span className="shrink-0 whitespace-nowrap font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
+      <span className="shrink-0 whitespace-nowrap text-xs" style={{ color: "var(--m-text-muted)" }}>
         {number}
       </span>
       <span

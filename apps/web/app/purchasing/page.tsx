@@ -100,7 +100,7 @@ function OrderValue({ order }: { order: OrderRow }): ReactNode {
       </span>
     );
   }
-  return <span className="font-mono tabular-nums">{money(order.totals.ordered_minor, order.currency)}</span>;
+ return <span className="tabular-nums">{money(order.totals.ordered_minor, order.currency)}</span>;
 }
 
 /**
@@ -115,7 +115,7 @@ function OrderExpected({ order }: { order: PurchaseOrder }): ReactNode {
   }
   const closed = order.status === "received" || order.status === "closed" || order.status === "cancelled";
   if (closed) {
-    return <span className="font-mono text-xs tabular-nums">{order.expected_at.slice(0, 10)}</span>;
+ return <span className="text-xs tabular-nums">{order.expected_at.slice(0, 10)}</span>;
   }
   const now = new Date();
   const at = new Date(`${order.expected_at.slice(0, 10)}T23:59:59`);
@@ -131,7 +131,7 @@ function OrderExpected({ order }: { order: PurchaseOrder }): ReactNode {
   if (days <= 3) {
     return <DueSoonMark label={days === 0 ? "Due today" : `In ${days}d`} testId={`purchasing-due-${order.id}`} />;
   }
-  return <span className="font-mono text-xs tabular-nums">{order.expected_at.slice(0, 10)}</span>;
+ return <span className="text-xs tabular-nums">{order.expected_at.slice(0, 10)}</span>;
 }
 
 const STATUS_FILTERS = [
@@ -541,7 +541,7 @@ export default function PurchasingPage(): ReactNode {
                 po: (
                   <Link
                     href={`/purchasing/${order.id}`}
-                    className="font-mono text-xs font-medium"
+                    className="text-xs font-medium"
                     style={{ color: "var(--m-text)" }}
                     data-testid={`purchasing-open-${order.id}`}
                   >
@@ -554,7 +554,7 @@ export default function PurchasingPage(): ReactNode {
                   <OrderValue order={order} />
                 ),
                 expected: <OrderExpected order={order} />,
-                currency: <span className="font-mono text-xs">{order.currency}</span>,
+                currency: <span className="text-xs">{order.currency}</span>,
                 reference: order.vendor_reference ?? "—",
                 actions: (
                   <span className="flex justify-end gap-1">

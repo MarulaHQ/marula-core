@@ -1,16 +1,19 @@
 "use client";
 /**
- * Kbd — inline keyboard shortcut chip (`⌘K`), mono font, squared.
+ * Kbd — reimplemented (wave41 lane 20) over the handoff kit's `Kbd`, so a
+ * keyboard hint is drawn the way the kit defines it everywhere. The kit draws
+ * it in Figtree (the mockups carry no monospace for app content), not the old
+ * mono, squared chip.
  */
-import { forwardRef, type HTMLAttributes } from "react";
-import { cn } from "../lib/cn";
+import type { HTMLAttributes } from "react";
+import { Kbd as KitKbd } from "../kit";
 
-export type KbdProps = HTMLAttributes<HTMLElement>;
+export type KbdProps = HTMLAttributes<HTMLElement> & { tone?: "muted" | "inherit" };
 
-export const Kbd = forwardRef<HTMLElement, KbdProps>(
-  ({ className, ...props }, ref) => (
-    <kbd ref={ref} className={cn("m-kbd", className)} {...props} />
-  ),
-);
-
-Kbd.displayName = "Kbd";
+export function Kbd({ className, tone, children, ...props }: KbdProps) {
+  return (
+    <KitKbd tone={tone} className={className} {...props}>
+      {children}
+    </KitKbd>
+  );
+}

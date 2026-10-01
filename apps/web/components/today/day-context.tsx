@@ -150,7 +150,7 @@ function ScheduleCard({ techs }: { techs: Tech[] }): React.JSX.Element {
           <ul className="m-day-list">
             {appointments.map(({ tech, appt }) => (
               <li className="m-day-row" key={appt.id}>
-                <span className="m-day-when font-mono tabular-nums">
+ <span className="m-day-when tabular-nums">
                   {new Date(appt.starts_at).toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",

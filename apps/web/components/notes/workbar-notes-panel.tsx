@@ -359,7 +359,7 @@ export function WorkbarNotesPanel({
               Notes &amp; tasks
             </h2>
             <span
-              className="rounded-md px-1.5 py-0.5 font-mono text-[10px]"
+              className="rounded-md px-1.5 py-0.5 text-[10px]"
               style={{ background: "var(--m-bg-subtle)", color: "var(--m-text-muted)" }}
             >
               {ticketNumber}

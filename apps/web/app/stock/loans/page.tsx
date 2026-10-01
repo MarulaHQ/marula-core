@@ -550,12 +550,12 @@ export default function StockLoansPage(): ReactNode {
               ),
               items: summaryOf(detail),
               out: (
-                <span className="font-mono text-xs tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+ <span className="text-xs tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                   {detail.loan.out_at.slice(0, 10)}
                 </span>
               ),
               expected: (
-                <span className="font-mono text-xs tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+ <span className="text-xs tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                   {detail.loan.expected_return_at.slice(0, 10)}
                 </span>
               ),

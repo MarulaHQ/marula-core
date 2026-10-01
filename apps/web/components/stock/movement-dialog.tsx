@@ -624,7 +624,7 @@ export function MovementDialog({
           {outbound && availableMilli !== null && !serialized && (
             <p className="text-xs" style={{ color: "var(--m-text-secondary)" }} data-testid="movement-available">
               On hand at that location:{" "}
-              <span className="font-mono tabular-nums">
+ <span className="tabular-nums">
                 {formatQtyMilli(availableMilli, item?.unit ?? "")}
               </span>
             </p>

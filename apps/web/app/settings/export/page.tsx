@@ -145,7 +145,7 @@ export default function ExportSettingsPage() {
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold">Export ready</h2>
             <span
-              className="text-[11px] font-mono px-2 py-0.5 rounded-full"
+              className="text-[11px] px-2 py-0.5 rounded-full"
               style={{
                 color: "var(--m-text-secondary)",
                 border: "1px solid var(--m-border)",
@@ -157,14 +157,14 @@ export default function ExportSettingsPage() {
           <dl className="grid gap-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
             <div className="flex justify-between gap-2">
               <dt>Size</dt>
-              <dd className="font-mono" style={{ color: "var(--m-text)" }}>
+              <dd className="" style={{ color: "var(--m-text)" }}>
                 {Number.isFinite(exported.size_bytes) ? formatSize(exported.size_bytes) : "—"}
               </dd>
             </div>
             <div className="flex justify-between gap-2">
               <dt>SHA-256</dt>
               <dd
-                className="font-mono text-[12px] max-w-[20ch] truncate"
+                className="text-[12px] max-w-[20ch] truncate"
                 style={{ color: "var(--m-text)" }}
                 title={exported.sha256}
               >
@@ -173,7 +173,7 @@ export default function ExportSettingsPage() {
             </div>
             <div className="flex justify-between gap-2">
               <dt>Link expires</dt>
-              <dd className="font-mono" style={{ color: "var(--m-text)" }}>
+              <dd className="" style={{ color: "var(--m-text)" }}>
                 {Number.isNaN(new Date(exported.expires_at).getTime())
                   ? "—"
                   : new Date(exported.expires_at).toLocaleTimeString()}
@@ -273,16 +273,16 @@ export default function ExportSettingsPage() {
                       : new Date(row.created_at).toLocaleDateString()}
                   </span>
                   <span
-                    className="text-[11px] font-mono px-2 py-0.5 rounded-full"
+                    className="text-[11px] px-2 py-0.5 rounded-full"
                     style={{ color: "var(--m-text-secondary)", border: "1px solid var(--m-border)" }}
                   >
                     bundle v{row.bundle_version}
                   </span>
-                  <span className="font-mono text-[12px]" data-testid={`export-size-${row.export_id}`}>
+                  <span className="text-[12px]" data-testid={`export-size-${row.export_id}`}>
                     {Number.isFinite(row.size_bytes) ? formatSize(row.size_bytes) : "—"}
                   </span>
                   <span
-                    className="font-mono text-[11px] max-w-[16ch] truncate"
+                    className="text-[11px] max-w-[16ch] truncate"
                     style={{ color: "var(--m-text-muted)" }}
                     title={row.sha256}
                   >

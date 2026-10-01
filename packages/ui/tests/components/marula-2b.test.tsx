@@ -106,11 +106,15 @@ describe("AssistantCard", () => {
 });
 
 describe("Badge", () => {
-  it("renders a status pill from the tone and a priority from the priority", () => {
+  it("renders the kit Pill for a tone and the kit PriorityChip for a priority", () => {
+    // Wave41 lane 20: Badge is now a thin wrapper over the handoff kit, so it
+    // carries the kit's slots and tones rather than the old .m-badge classes.
     const { rerender } = render(<Badge tone="success">Healthy</Badge>);
-    expect(screen.getByText("Healthy")).toHaveClass("m-badge-success");
+    expect(screen.getByText("Healthy")).toHaveAttribute("data-slot", "pill");
+    expect(screen.getByText("Healthy")).toHaveClass("bg-mc-green-soft");
     rerender(<Badge priority="p1">P1</Badge>);
-    expect(screen.getByText("P1")).toHaveClass("m-badge-p1");
+    expect(screen.getByText("P1")).toHaveAttribute("data-slot", "priority-chip");
+    expect(screen.getByText("P1")).toHaveClass("bg-destructive");
   });
 });
 
@@ -283,8 +287,11 @@ describe("ViewSwitch", () => {
         onChange={onChange}
       />,
     );
-    expect(screen.getByRole("tab", { name: "Open" })).toHaveAttribute("aria-selected", "true");
-    await userEvent.click(screen.getByRole("tab", { name: "Mine" }));
+    // Wave41 lane 20: ViewSwitch is the kit Segmented now, a ToggleGroup of
+    // radio items (aria-checked), not a tablist.
+    const open = screen.getByRole("radio", { name: "Open" });
+    expect(open).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(screen.getByRole("radio", { name: "Mine" }));
     expect(onChange).toHaveBeenCalledWith("mine");
   });
 });

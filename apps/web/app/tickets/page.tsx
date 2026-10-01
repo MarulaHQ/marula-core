@@ -32,12 +32,16 @@ import {
   ExportControl,
   FilterBar,
   Spinner,
-  ViewSwitch,
   type ChoosableColumn,
   type ExportRequest,
   type FilterClause,
   type ViewOption,
 } from "@marula-core/ui";
+import {
+  Segmented,
+  SegmentedCount,
+  SegmentedItem,
+} from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -57,7 +61,6 @@ import {
   slaReading,
   sortTickets,
   statusTone,
-  type TicketCategory,
   type TicketRow,
 } from "../../lib/ticket-ops";
 
@@ -67,12 +70,12 @@ const SURFACE = "tickets.list";
  *  surface cannot act on without walking every id first. */
 const PAGE_LIMIT = 50;
 
+/** The mockup's views are by ownership, not by category: the queue a person
+ *  works from is "mine", then "unassigned" for the dispatcher, then everything. */
 const VIEWS: ViewOption[] = [
-  { id: "open", label: "Open" },
-  { id: "in_progress", label: "In progress" },
-  { id: "waiting", label: "Waiting" },
-  { id: "closed", label: "Closed" },
-  { id: "all", label: "All" },
+  { id: "mine", label: "My queue" },
+  { id: "unassigned", label: "Unassigned" },
+  { id: "all", label: "All tickets" },
 ];
 
 type ColumnDef = ChoosableColumn & { sortable: boolean };
@@ -80,11 +83,12 @@ type ColumnDef = ChoosableColumn & { sortable: boolean };
 const COLUMN_DEFS: ColumnDef[] = [
   { key: "number", label: "Number", visible: true, required: true, width: 116, sortable: true },
   { key: "title", label: "Subject", visible: true, required: true, width: 320, sortable: true },
+  { key: "client", label: "Client", visible: true, width: 168, sortable: false },
   { key: "category", label: "Status", visible: true, width: 116, sortable: true },
   { key: "priority", label: "Priority", visible: true, width: 88, sortable: true },
   { key: "assignee", label: "Assignee", visible: true, width: 150, sortable: false },
-  { key: "sla", label: "SLA", visible: true, width: 116, sortable: false },
-  { key: "updated_at", label: "Updated", visible: true, width: 104, sortable: true },
+  { key: "sla", label: "SLA", visible: true, width: 116, sortable: true },
+  { key: "updated_at", label: "Last activity", visible: true, width: 104, sortable: true },
 ];
 
 const DEFAULT_COLUMNS: ChoosableColumn[] = COLUMN_DEFS.map((c) => ({
@@ -139,15 +143,21 @@ export default function TicketsListPage() {
   const prefs = useDataSurfacePrefs();
   const saved = prefs.view(SURFACE);
 
-  const [view, setView] = useState<string>(saved.view ?? "open");
+  const [view, setView] = useState<string>(() => {
+    const savedView = saved.view;
+    return savedView === "unassigned" || savedView === "all" ? savedView : "mine";
+  });
   const [rows, setRows] = useState<TicketRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [people, setPeople] = useState<Record<string, string>>({});
+  const [clients, setClients] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [bulkPriority, setBulkPriority] = useState<components["schemas"]["Priority"]>("p2");
   const [reloadKey, setReloadKey] = useState(0);
+  /** The attention shortcut the mockup puts in the title row: null, "risk" or "breach". */
+  const [attention, setAttention] = useState<null | "risk" | "breach">(null);
 
   const columns = useMemo(() => reconcileColumns(saved.columns), [saved.columns]);
   const clauses = useMemo(() => clausesFromSaved(saved.filters), [saved.filters]);
@@ -163,15 +173,16 @@ export default function TicketsListPage() {
   );
 
   // --- data ---------------------------------------------------------------
+  // One fetch for the whole ledger; the view (mine / unassigned / all) and the
+  // attention shortcut are applied to the loaded rows, so switching a view does
+  // not refetch. The list endpoint caps at PAGE_LIMIT rows either way.
   const refresh = useCallback(
-    async (activeView: string) => {
+    async () => {
       setRows(null);
       setError(null);
-      const query =
-        activeView === "all"
-          ? { limit: PAGE_LIMIT }
-          : { category: activeView as TicketCategory, limit: PAGE_LIMIT };
-      const result = await api.api.GET("/api/v1/tickets", { params: { query } });
+      const result = await api.api.GET("/api/v1/tickets", {
+        params: { query: { limit: PAGE_LIMIT } },
+      });
       if (result.error !== undefined || result.data === undefined) {
         setError("The ticket list did not load. Check your connection and retry.");
         setRows([]);
@@ -184,8 +195,8 @@ export default function TicketsListPage() {
   );
 
   useEffect(() => {
-    if (auth.status === "authed") void refresh(view);
-  }, [auth.status, view, refresh, reloadKey]);
+    if (auth.status === "authed") void refresh();
+  }, [auth.status, refresh, reloadKey]);
 
   // The SLA clock the customer is promised, per row. The read itself is shared
   // and cached by ticket id (lib/ticket-sla), so this page pays one capped
@@ -209,13 +220,21 @@ export default function TicketsListPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await api.api.GET("/api/v1/org/users", {
-          params: { query: { limit: 200 } },
-        });
-        if (cancelled || res.data === undefined) return;
-        const map: Record<string, string> = {};
-        for (const user of res.data.users) map[user.id] = user.display_name;
-        setPeople(map);
+        const [res, clientRes] = await Promise.all([
+          api.api.GET("/api/v1/org/users", { params: { query: { limit: 200 } } }),
+          api.api.GET("/api/v1/clients"),
+        ]);
+        if (cancelled) return;
+        if (res.data !== undefined) {
+          const map: Record<string, string> = {};
+          for (const user of res.data.users) map[user.id] = user.display_name;
+          setPeople(map);
+        }
+        if (clientRes.data !== undefined) {
+          const cmap: Record<string, string> = {};
+          for (const client of clientRes.data) cmap[client.id] = client.name;
+          setClients(cmap);
+        }
       } catch {
         if (!cancelled) setPeople({});
       }
@@ -226,10 +245,56 @@ export default function TicketsListPage() {
   }, [auth.status]);
 
   // --- derived rows -------------------------------------------------------
+  const myId = auth.status === "authed" ? auth.me?.user_id ?? null : null;
+
+  // Counts for the view switch, computed from the loaded rows.
+  const viewCounts = useMemo(() => {
+    const all = rows ?? [];
+    return {
+      mine: all.filter((r) => r.assignee_id === myId).length,
+      unassigned: all.filter((r) => !r.assignee_id).length,
+      all: all.length,
+    };
+  }, [rows, myId]);
+
+
+  // The two attention shortcuts the mockup puts in the title row. "Changed
+  // since you looked" needs an unread flag the list payload does not carry, so
+  // it is not built yet.
+  const attentionCounts = useMemo(() => {
+    let risk = 0;
+    let breach = 0;
+    for (const r of rows ?? []) {
+      const tone = slaReading(r, sla[r.id] ?? null)?.tone;
+      if (tone === "danger") breach += 1;
+      else if (tone === "warning") risk += 1;
+    }
+    return { risk, breach };
+  }, [rows, sla]);
+
   const filtered = useMemo(() => {
     if (rows === null) return null;
-    return sortTickets(rows.filter((r) => matchesClauses(r, clauses)), sort);
-  }, [rows, clauses, sort]);
+    let base = rows;
+    if (view === "mine") base = base.filter((r) => r.assignee_id === myId);
+    else if (view === "unassigned") base = base.filter((r) => !r.assignee_id);
+    if (attention !== null) {
+      base = base.filter((r) => {
+        const tone = slaReading(r, sla[r.id] ?? null)?.tone;
+        return attention === "breach" ? tone === "danger" : tone === "warning";
+      });
+    }
+    const ordered = sortTickets(base.filter((r) => matchesClauses(r, clauses)), sort);
+    // SLA is not a row field: it comes from the SLA map, so it sorts here.
+    // Soonest first by default, which is the mockup's order; a ticket with no
+    // policy sorts last rather than claiming first place.
+    if (sort?.field === "sla") {
+      const rank = (id: string) => sla[id]?.minutes_remaining ?? Number.POSITIVE_INFINITY;
+      return [...ordered].sort((a, b) =>
+        sort.dir === "asc" ? rank(a.id) - rank(b.id) : rank(b.id) - rank(a.id),
+      );
+    }
+    return ordered;
+  }, [rows, clauses, sort, view, myId, attention, sla]);
 
   const shown = filtered ?? [];
 
@@ -382,11 +447,48 @@ export default function TicketsListPage() {
           Everything you can reach, newest activity first. Open a row to work it in the
           workbench.
         </p>
+        {/* The mockup's attention shortcuts, doubling as filters. Blush for "at
+            risk", red for "breached"; the count is the number of rows that match. */}
+        <div className="mt-2 flex flex-wrap items-center gap-2" role="group" aria-label="Attention shortcuts">
+          {([
+            { id: "risk", label: "At risk", colour: "var(--m-blush)", count: attentionCounts.risk },
+            { id: "breach", label: "Breached", colour: "var(--m-status-danger-fg)", count: attentionCounts.breach },
+          ] as const).map((s) => {
+            const active = attention === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setAttention((a) => (a === s.id ? null : s.id))}
+                className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
+                style={{
+                  borderColor: active ? s.colour : "var(--m-border)",
+                  color: "var(--m-text-secondary)",
+                  background: active ? "var(--m-surface-2)" : "var(--m-surface)",
+                }}
+              >
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: s.colour }} aria-hidden="true" />
+                {s.label}
+                <span className="tabular-nums font-medium" style={{ color: "var(--m-text)" }}>{s.count}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <DataToolbar
         label="Ticket list controls"
-        views={<ViewSwitch views={VIEWS} activeId={view} onChange={onView} label="Ticket views" />}
+        views={
+          <Segmented type="single" value={view} onValueChange={(v) => v && onView(v)} aria-label="Ticket views">
+            {VIEWS.map((v) => (
+              <SegmentedItem key={v.id} value={v.id}>
+                {v.label}
+                <SegmentedCount>{viewCounts[v.id as keyof typeof viewCounts]}</SegmentedCount>
+              </SegmentedItem>
+            ))}
+          </Segmented>
+        }
         filters={
           <FilterBar
             fields={TICKET_FILTER_FIELDS}
@@ -480,7 +582,7 @@ export default function TicketsListPage() {
             <p role="alert" className="text-[13px]">
               {error}
             </p>
-            <Button variant="secondary" size="sm" onClick={() => void refresh(view)}>
+            <Button variant="secondary" size="sm" onClick={() => void refresh()}>
               Retry
             </Button>
           </div>
@@ -492,9 +594,15 @@ export default function TicketsListPage() {
               message={
                 clauses.length > 0
                   ? "No tickets match these filters. Remove one to widen the search."
-                  : view === "all"
-                    ? "There are no tickets yet."
-                    : `No ${CATEGORY_LABEL[view as TicketCategory]?.toLowerCase() ?? ""} tickets in this view.`
+                  : attention === "breach"
+                    ? "Nothing is breaching its SLA. Good."
+                    : attention === "risk"
+                      ? "Nothing is at risk right now."
+                      : view === "mine"
+                        ? "Nothing is assigned to you right now."
+                        : view === "unassigned"
+                          ? "Everything open has an owner."
+                          : "There are no tickets yet."
               }
               action={
                 clauses.length > 0 ? (
@@ -514,6 +622,7 @@ export default function TicketsListPage() {
             sort={sort}
             sla={sla}
             people={people}
+            clients={clients}
             numbersById={numbersById}
             myId={auth.me?.user_id ?? null}
             selected={selected}

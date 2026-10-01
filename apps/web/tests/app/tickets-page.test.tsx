@@ -44,7 +44,7 @@ function ticket(over: Record<string, unknown> = {}) {
     title: "Mail server rejecting inbound",
     body: null,
     priority: "p2",
-    assignee_id: null,
+    assignee_id: ME_FIXTURE.user_id,
     requester_id: null,
     client_id: null,
     contact_id: null,
@@ -93,6 +93,7 @@ function setupApi(rows: unknown[] = TICKETS): MockApi {
   mock.on("GET", "/api/v1/settings/user", () => ({ json: [] }));
   mock.on("PUT", "/api/v1/settings/user", () => ({ json: { key: "appearance.data_surfaces", value: "{}" } }));
   mock.on("GET", "/api/v1/org/users", () => ({ json: { users: [] } }));
+  mock.on("GET", "/api/v1/clients", () => ({ json: [] }));
   // MockApi matches literal pathnames, so the per-ticket routes are registered
   // by id. The SLA endpoint is a typed empty state, never a 404: no policy
   // applies to any of these fixtures, which is exactly the case the countdown
@@ -137,7 +138,7 @@ describe("/tickets ledger", () => {
     await screen.findByText("Switch uplink flapping", {}, { timeout: 5000 });
     // Named views, the filter builder, the column chooser and the export row
     // count all sit on the same strip.
-    expect(screen.getByRole("tablist", { name: "Ticket views" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Ticket views")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Add filter/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Columns/ })).toBeInTheDocument();
     expect(screen.getByText("3 rows")).toBeInTheDocument();
@@ -214,7 +215,7 @@ describe("/tickets ledger", () => {
     );
 
     expect(
-      await screen.findByText("No open tickets in this view.", {}, { timeout: 5000 }),
+      await screen.findByText("Nothing is assigned to you right now.", {}, { timeout: 5000 }),
     ).toBeInTheDocument();
     cleanup();
   });

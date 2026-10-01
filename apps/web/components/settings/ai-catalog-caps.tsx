@@ -195,7 +195,7 @@ export function CatalogCard({ onChanged }: { onChanged: () => void }) {
                 <Td>
                   <div className="flex flex-col">
                     <span className="text-[13px] font-medium">{e.label}</span>
-                    <span className="font-mono text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                    <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                       {e.provider}/{e.model} · weight {e.cost_weight}
                     </span>
                   </div>

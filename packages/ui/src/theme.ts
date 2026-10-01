@@ -12,6 +12,23 @@ export type Theme = "light" | "dark";
 const STORAGE_KEY = "marula-theme";
 const ATTRIBUTE = "data-theme";
 
+/**
+ * The DOM carries the KIT's theme names. The kit's default theme is `neutral`
+ * and its warm cream theme is `light`, so the app's historical `light` (the
+ * neutral canvas) must be written as `neutral` or the cream block would win.
+ * The app's own vocabulary stays `light` / `dark`; only the attribute value is
+ * translated, in one place.
+ */
+function toDomTheme(theme: Theme): string {
+  return theme === "light" ? "neutral" : "dark";
+}
+
+function fromDomTheme(value: string | null): Theme | null {
+  if (value === "dark") return "dark";
+  if (value === "neutral" || value === "light") return "light";
+  return null;
+}
+
 function isValidTheme(value: unknown): value is Theme {
   return value === "light" || value === "dark";
 }
@@ -19,7 +36,7 @@ function isValidTheme(value: unknown): value is Theme {
 /** Apply a theme to the document root and persist it. Safe without DOM (SSR). */
 export function applyTheme(theme: Theme): void {
   if (typeof document !== "undefined") {
-    document.documentElement.setAttribute(ATTRIBUTE, theme);
+    document.documentElement.setAttribute(ATTRIBUTE, toDomTheme(theme));
   }
   try {
     localStorage.setItem(STORAGE_KEY, theme);
@@ -63,8 +80,7 @@ function subscribe(callback: () => void): () => void {
 }
 
 function currentTheme(): Theme {
-  const attr = document.documentElement.getAttribute(ATTRIBUTE);
-  return isValidTheme(attr) ? attr : "light";
+  return fromDomTheme(document.documentElement.getAttribute(ATTRIBUTE)) ?? "light";
 }
 
 /**

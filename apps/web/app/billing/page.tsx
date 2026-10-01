@@ -279,7 +279,7 @@ export default function BillingPage() {
         return (
           <Link
             href={`/billing/${inv.id}`}
-            className="font-mono text-[13px]"
+            className="text-[13px]"
             style={{ textDecoration: "none" }}
           >
             {inv.number}
@@ -311,20 +311,20 @@ export default function BillingPage() {
         );
       case "amount":
         return (
-          <span className="text-right font-mono text-[13px] tabular-nums" style={{ display: "block" }}>
+ <span className="text-right text-[13px] tabular-nums" style={{ display: "block" }}>
             {money(inv.total_minor, inv.currency)}
           </span>
         );
       case "paid":
         return (
-          <span className="text-right font-mono text-[13px] tabular-nums" style={{ display: "block" }}>
+ <span className="text-right text-[13px] tabular-nums" style={{ display: "block" }}>
             {money(inv.total_paid_minor, inv.currency)}
           </span>
         );
       case "balance":
         return (
           <span
-            className="text-right font-mono text-[13px] font-semibold tabular-nums"
+ className="text-right text-[13px] font-semibold tabular-nums"
             style={{
               display: "block",
               color: bucket === "overdue" ? "var(--m-status-due-fg)" : "var(--m-text)",
@@ -540,7 +540,7 @@ export default function BillingPage() {
                     <ul className="mt-2 grid gap-1">
                       {preview.evaluations.map((e) => (
                         <li key={e.contract_id} className="flex justify-between gap-4 tabular-nums">
-                          <span className="font-mono">{e.contract_number}</span>
+                          <span className="">{e.contract_number}</span>
                           <span style={{ color: "var(--m-text-secondary)" }}>
                             {money(e.total_minor, e.currency)}
                           </span>
@@ -754,12 +754,12 @@ export default function BillingPage() {
               <tbody>
                 {runs.map((r) => (
                   <Tr key={r.id} className="row-hover">
-                    <Td className="font-mono text-[13px]">{r.number}</Td>
+                    <Td className="text-[13px]">{r.number}</Td>
                     <Td className="tabular-nums">
                       {r.period_from} → {r.period_to}
                     </Td>
                     <Td className="text-right tabular-nums">{r.invoice_count}</Td>
-                    <Td className="text-right font-mono text-[12px] tabular-nums">
+ <Td className="text-right text-[12px] tabular-nums">
                       {r.currency != null ? money(r.total_minor, r.currency) : "…"}
                     </Td>
                     <Td className="text-[12px]">
@@ -817,7 +817,7 @@ export default function BillingPage() {
                         #{c.ticket_number} {c.ticket_title}
                       </Link>
                     </Td>
-                    <Td className="text-right font-mono text-[12px] tabular-nums">
+ <Td className="text-right text-[12px] tabular-nums">
                       {money(c.amount_minor, c.currency)}
                     </Td>
                   </Tr>

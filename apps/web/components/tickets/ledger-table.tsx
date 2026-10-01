@@ -14,7 +14,6 @@
 "use client";
 
 import {
-  Badge,
   Checkbox,
   Table,
   Td,
@@ -22,15 +21,14 @@ import {
   Tr,
   type ChoosableColumn,
 } from "@marula-core/ui";
+import { Avatar, Pill, PriorityChip, type Priority } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { MergeBanner } from "./merge-banner";
 import {
   CATEGORY_LABEL,
-  priorityBadge,
   relativeTime,
   slaReading,
-  statusTone,
   type TicketRow,
 } from "../../lib/ticket-ops";
 
@@ -48,6 +46,7 @@ export function TicketTable({
   sort,
   sla,
   people,
+  clients,
   numbersById,
   myId,
   selected,
@@ -61,6 +60,8 @@ export function TicketTable({
   sort: { field: string; dir: "asc" | "desc" } | undefined;
   sla: Record<string, components["schemas"]["TicketSlaStatus"] | null>;
   people: Record<string, string>;
+  /** client id -> display name, for the Client column. */
+  clients: Record<string, string>;
   /** ticket id -> number, so a merged row can name its survivor. */
   numbersById: Record<string, string>;
   myId: string | null;
@@ -133,6 +134,7 @@ export function TicketTable({
               columns={columns}
               sla={sla[row.id] ?? null}
               people={people}
+              clients={clients}
               numbersById={numbersById}
               myId={myId}
               selected={selected.has(row.id)}
@@ -151,6 +153,7 @@ export function TicketRowView({
   columns,
   sla,
   people,
+  clients,
   numbersById,
   myId,
   selected,
@@ -161,6 +164,7 @@ export function TicketRowView({
   columns: ChoosableColumn[];
   sla: components["schemas"]["TicketSlaStatus"] | null;
   people: Record<string, string>;
+  clients: Record<string, string>;
   numbersById: Record<string, string>;
   myId: string | null;
   selected: boolean;
@@ -189,6 +193,7 @@ export function TicketRowView({
               row={row}
               sla={sla}
               people={people}
+              clients={clients}
               myId={myId}
             />
           </Td>
@@ -213,18 +218,20 @@ export function TicketCell({
   row,
   sla,
   people,
+  clients,
   myId,
 }: {
   columnKey: string;
   row: TicketRow;
   sla: components["schemas"]["TicketSlaStatus"] | null;
   people: Record<string, string>;
+  clients: Record<string, string>;
   myId: string | null;
 }): React.JSX.Element | null {
   switch (columnKey) {
     case "number":
       return (
-        <span className="font-mono text-[12.5px] font-semibold" style={{ color: "var(--m-text)" }}>
+        <span className="text-[12.5px] font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>
           {row.number}
         </span>
       );
@@ -240,20 +247,26 @@ export function TicketCell({
         </span>
       );
     case "category":
-      return <Badge tone={statusTone(row.category)}>{CATEGORY_LABEL[row.category] ?? row.category}</Badge>;
+      return <Pill tone={PILL_TONE[row.category] ?? "neutral"}>{CATEGORY_LABEL[row.category] ?? row.category}</Pill>;
     case "priority":
-      return <Badge priority={priorityBadge(row.priority)}>{row.priority.toUpperCase()}</Badge>;
+      return <PriorityChip level={row.priority.toUpperCase() as Priority} />;
     case "assignee": {
-      if (!row.assignee_id) {
-        return (
-          <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-            Unassigned
-          </span>
-        );
-      }
-      const name = people[row.assignee_id];
-      const label = name ?? (row.assignee_id === myId ? "You" : "Assigned");
-      return <span className="text-[13px]">{label}</span>;
+      if (!row.assignee_id) return <Avatar unassigned aria-label="Unassigned" />;
+      const name = people[row.assignee_id] ?? (row.assignee_id === myId ? "You" : "Assigned");
+      return (
+        <span className="flex min-w-0 items-center gap-2">
+          <Avatar initials={initialsOf(name)} />
+          <span className="truncate text-[13px]">{name}</span>
+        </span>
+      );
+    }
+    case "client": {
+      const name = row.client_id ? clients[row.client_id] : undefined;
+      return (
+        <span className="truncate text-[13px]" style={{ color: name ? "var(--m-text)" : "var(--m-text-muted)" }}>
+          {name ?? "\u2014"}
+        </span>
+      );
     }
     case "sla": {
       const reading = slaReading(row, sla);
@@ -266,7 +279,7 @@ export function TicketCell({
       }
       return (
         <span
-          className="font-mono text-[12.5px] tabular-nums"
+          className="text-[12.5px] tabular-nums"
           style={{
             color: reading.warn
               ? reading.tone === "danger"
@@ -289,4 +302,20 @@ export function TicketCell({
     default:
       return null;
   }
+}
+
+/** Status category -> the kit Pill tone. Colour is never the only signal: the word is always shown. */
+const PILL_TONE: Record<string, "new" | "progress" | "waiting" | "resolved"> = {
+  open: "new",
+  in_progress: "progress",
+  waiting: "waiting",
+  closed: "resolved",
+};
+
+/** "Fiona Owner" -> "FO". One token is not an initial; fall back to its first letter. */
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]!.slice(0, 1).toUpperCase();
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }

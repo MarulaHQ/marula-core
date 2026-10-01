@@ -14,17 +14,18 @@
  * nobody can retrieve afterwards is a bug in the caller.
  */
 import { Toaster as SonnerToaster, toast } from "sonner";
+import { TOAST_CLASS } from "../kit";
 
 export { toast };
 
-/** The Marula toast surface. Mounted once, near the root of the app shell. */
+/** The Marula toast surface. Mounted once, near the root of the app shell.
+ *  The look comes from the kit's `TOAST_CLASS`, not a local stylesheet. */
 export function Toaster(): React.JSX.Element {
   return (
     <SonnerToaster
-      className="m-toaster"
       position="bottom-center"
       closeButton
-      toastOptions={{ unstyled: true }}
+      toastOptions={{ classNames: { toast: TOAST_CLASS } }}
     />
   );
 }

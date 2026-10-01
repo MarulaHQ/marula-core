@@ -527,16 +527,16 @@ export default function StockItemDetailPage(): ReactNode {
                       {row.location_kind}
                     </span>
                   </Td>
-                  <Td className="text-right font-mono text-sm tabular-nums" data-testid={`stock-onhand-qty-${row.stock_location_id}`}>
+ <Td className="text-right text-sm tabular-nums" data-testid={`stock-onhand-qty-${row.stock_location_id}`}>
                     {formatQtyMilli(row.qty_milli, row.unit)}
                   </Td>
-                  <Td className="text-right font-mono text-sm tabular-nums" data-testid={`stock-onhand-min-${row.stock_location_id}`}>
+ <Td className="text-right text-sm tabular-nums" data-testid={`stock-onhand-min-${row.stock_location_id}`}>
                     {row.min_qty_milli == null ? "—" : formatQtyMilli(row.min_qty_milli, "")}
                   </Td>
-                  <Td className="text-right font-mono text-sm tabular-nums" data-testid={`stock-onhand-reorder-${row.stock_location_id}`}>
+ <Td className="text-right text-sm tabular-nums" data-testid={`stock-onhand-reorder-${row.stock_location_id}`}>
                     {row.reorder_point_milli == null ? "—" : formatQtyMilli(row.reorder_point_milli, "")}
                   </Td>
-                  <Td className="text-right font-mono text-sm tabular-nums">
+ <Td className="text-right text-sm tabular-nums">
                     {row.max_qty_milli == null ? "—" : formatQtyMilli(row.max_qty_milli, "")}
                   </Td>
                   <Td>
@@ -596,7 +596,7 @@ export default function StockItemDetailPage(): ReactNode {
                 const parts = serialWhereParts(serial);
                 return (
                   <Tr key={serial.id} className="row-hover" data-testid={`stock-serial-row-${serial.id}`}>
-                    <Td className="font-mono text-xs">{serial.serial_number}</Td>
+                    <Td className="text-xs">{serial.serial_number}</Td>
                     <Td>
                       <StatusTag tone={serialStatusTone(serial.status)}>{serialStatusLabel(serial.status)}</StatusTag>
                     </Td>
@@ -667,8 +667,8 @@ export default function StockItemDetailPage(): ReactNode {
                 const mine = row.lines.filter((line) => line.stock_item_id === itemValue.id);
                 return (
                   <Tr key={row.checkout.id} className="row-hover" data-testid={`stock-checkout-${row.checkout.id}`}>
-                    <Td className="font-mono text-xs">{idPrefix(row.checkout.holder_user_id)}</Td>
-                    <Td className="text-right font-mono text-sm tabular-nums">{mine.length}</Td>
+                    <Td className="text-xs">{idPrefix(row.checkout.holder_user_id)}</Td>
+ <Td className="text-right text-sm tabular-nums">{mine.length}</Td>
                     <Td className="text-xs">
                       <span className="flex items-center gap-1">
                         {duePhrase(row.checkout.due_at)}
@@ -727,7 +727,7 @@ export default function StockItemDetailPage(): ReactNode {
               <Tr key={movement.id} className="row-hover" data-testid={`stock-ledger-row-${movement.id}`}>
                 <Td className="whitespace-nowrap text-xs">{shortWhen(movement.created_at)}</Td>
                 <Td className="text-xs">{movementLabel(movement.kind)}</Td>
-                <Td className="text-right font-mono text-sm tabular-nums">
+ <Td className="text-right text-sm tabular-nums">
                   {formatSignedQty(movement.qty_milli, itemValue.unit)}
                 </Td>
                 <Td className="text-xs">
@@ -772,7 +772,7 @@ export default function StockItemDetailPage(): ReactNode {
                     )}
                   </span>
                 </Td>
-                <Td className="text-right font-mono text-xs tabular-nums">
+ <Td className="text-right text-xs tabular-nums">
                   {movement.cost_minor == null ? (
                     <span style={{ color: "var(--m-text-muted)" }}>—</span>
                   ) : (

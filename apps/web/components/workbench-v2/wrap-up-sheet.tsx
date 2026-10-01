@@ -295,7 +295,7 @@ function WrapUpSheetInner({
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           <div className="mb-4 flex gap-2.5">
             <div className="flex-1 rounded-lg border p-2.5" style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)" }}>
-              <div className="font-mono text-[15px] font-bold" style={{ color: "var(--m-text)" }}>
+              <div className="text-[15px] font-bold" style={{ color: "var(--m-text)" }}>
                 {captured !== null ? formatElapsed(captured).replace(/^00:/, "") : "—"}
               </div>
               <div className="mt-0.5 text-[10px]" style={{ color: "var(--m-text-muted)" }}>Captured work</div>

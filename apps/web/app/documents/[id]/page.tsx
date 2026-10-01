@@ -428,7 +428,7 @@ export default function DocumentDetailPage() {
                   .map((f, i) => (
                     <div key={f.key} className="contents">
                       <dt style={{ color: "var(--m-text-secondary)" }}>{f.label}</dt>
-                      <dd className="font-mono">{String(fieldsOf(doc)[f.key])}</dd>
+                      <dd className="">{String(fieldsOf(doc)[f.key])}</dd>
                     </div>
                   ))}
               </dl>
@@ -450,7 +450,7 @@ export default function DocumentDetailPage() {
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 rows={16}
-                className="w-full rounded-[var(--m-radius-container)] border bg-transparent p-2 font-mono text-[12px]"
+                className="w-full rounded-[var(--m-radius-container)] border bg-transparent p-2 text-[12px]"
                 style={{ borderColor: "var(--m-border)" }}
               />
             </div>
@@ -817,7 +817,7 @@ function DiffView({ left, right }: { left: DocumentVersion; right: DocumentVersi
     <div className="mt-3 grid grid-cols-2 gap-2">
       <div>
         <p className="mb-1 text-[12px] font-medium">v{left.version} — {left.title}</p>
-        <pre className="max-h-96 overflow-auto rounded-[0.5rem] border p-2 font-mono text-[11px]" style={{ borderColor: "var(--m-border)" }}>
+        <pre className="max-h-96 overflow-auto rounded-[0.5rem] border p-2 text-[11px]" style={{ borderColor: "var(--m-border)" }}>
           {rows.map((r) => (
             <div key={r.n} style={{ background: r.kind === "removed" ? "var(--m-status-danger-bg, transparent)" : undefined }}>
               {r.kind === "removed" ? "− " : "  "}
@@ -828,7 +828,7 @@ function DiffView({ left, right }: { left: DocumentVersion; right: DocumentVersi
       </div>
       <div>
         <p className="mb-1 text-[12px] font-medium">v{right.version} — {right.title}</p>
-        <pre className="max-h-96 overflow-auto rounded-[0.5rem] border p-2 font-mono text-[11px]" style={{ borderColor: "var(--m-border)" }}>
+        <pre className="max-h-96 overflow-auto rounded-[0.5rem] border p-2 text-[11px]" style={{ borderColor: "var(--m-border)" }}>
           {rows.map((r) => (
             <div key={r.n} style={{ background: r.kind === "added" ? "var(--m-status-success-bg, transparent)" : undefined }}>
               {r.kind === "added" ? "+ " : "  "}

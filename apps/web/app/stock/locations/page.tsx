@@ -514,7 +514,7 @@ export default function StockLocationsPage(): ReactNode {
                   <span style={{ color: "var(--m-text)" }}>{location.name}</span>
                 </span>
               ),
-              code: <span className="font-mono text-xs">{location.code ?? "—"}</span>,
+              code: <span className="text-xs">{location.code ?? "—"}</span>,
               kind: <Tag tone="outline">{location.kind}</Tag>,
               parent: <span>{nameOf(location.parent_id)}</span>,
               assignee: <span>{userLabel(location.assigned_user_id)}</span>,

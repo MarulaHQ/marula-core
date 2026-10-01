@@ -89,7 +89,7 @@ export function PopoutShell({
         className="flex h-9 shrink-0 items-center gap-2 border-b px-3"
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface-sunken, var(--m-surface))" }}
       >
-        <span className="font-mono text-xs uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+        <span className="text-xs uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
           {def?.title ?? "Marula"}
         </span>
         <span className="ml-auto flex items-center gap-2">

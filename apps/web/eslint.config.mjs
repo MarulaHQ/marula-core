@@ -152,4 +152,31 @@ export default defineConfig([
       "shadcn/require-static-classes": "off",
     },
   },
+
+  {
+    // Wave 41 lane 20 — the kit is the one door for primitives and icons
+    // (design/marula-handoff-kit/ui-package/eslint.snippet.mjs). The app
+    // imports components from @marula-core/ui or @marula-core/ui/kit, never
+    // Phosphor directly and never the design folder itself.
+    files: ["**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@phosphor-icons/react",
+              message: "Use the kit's Icon door: import { Icon } from '@marula-core/ui/kit'.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["**/design/marula-handoff-kit/**", "@marula-core/ui/src/kit/**"],
+              message: "Import the vendored kit from '@marula-core/ui/kit', not the design folder or a deep path.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);

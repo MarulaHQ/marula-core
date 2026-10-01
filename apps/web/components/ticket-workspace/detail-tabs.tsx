@@ -71,7 +71,7 @@ export function OriginalRequest({ ticket }: { ticket: Ticket }): ReactNode {
       aria-label="Original request"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-xs" style={{ color: "var(--m-text-muted)" }}>
+        <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
           {ticket.number}
         </span>
         <StatusTag tone="neutral">Original request</StatusTag>

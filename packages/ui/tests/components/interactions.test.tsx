@@ -130,10 +130,10 @@ describe("Dialog", () => {
     expect(
       within(dialog).getByRole("heading", { name: "Delete ticket" }),
     ).toBeInTheDocument();
-    expect(dialog).toHaveAttribute(
-      "aria-describedby",
-      expect.stringContaining("m-dialog-description"),
-    );
+    // Wave41 lane 20: the description id is Radix's now (the kit's
+    // DialogDescription), not the retired m-dialog-description.
+    expect(dialog.getAttribute("aria-describedby")).toBeTruthy();
+    expect(within(dialog).getByText("This cannot be undone.")).toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
   });

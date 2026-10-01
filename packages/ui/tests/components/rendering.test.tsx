@@ -32,11 +32,21 @@ describe("Field", () => {
 });
 
 describe("Tag", () => {
-  it("maps semantic tones to their token classes", () => {
-    const tones = ["success", "warning", "danger", "neutral", "outline"] as const;
-    for (const tone of tones) {
+  it("renders the kit Pill and maps each tone to its kit pair", () => {
+    // Wave41 lane 20: Tag wraps the kit Pill now, so it carries the pill slot
+    // and the kit's tone classes rather than the retired .m-tag-* classes.
+    const expected = {
+      success: "bg-mc-green-soft",
+      warning: "bg-mc-progress",
+      danger: "bg-mc-st-breach",
+      neutral: "bg-muted",
+      outline: "bg-muted",
+    } as const;
+    for (const tone of Object.keys(expected) as Array<keyof typeof expected>) {
       const { container } = render(<Tag tone={tone}>x</Tag>);
-      expect(container.firstElementChild).toHaveClass(`m-tag-${tone}`);
+      const el = container.firstElementChild!;
+      expect(el).toHaveAttribute("data-slot", "pill");
+      expect(el).toHaveClass(expected[tone]);
     }
   });
 
@@ -104,9 +114,11 @@ describe("misc primitives", () => {
     expect(screen.getByRole("button", { name: "Clear filters" })).toBeInTheDocument();
   });
 
-  it("Kbd renders shortcut chips", () => {
+  it("Kbd renders the kit's key cap", () => {
+    // Wave41 lane 20: Kbd wraps the kit, which draws the cap as a span (the
+    // mockups' own markup), in Figtree rather than the old squared mono chip.
     render(<Kbd>⌘K</Kbd>);
-    expect(screen.getByText("⌘K").tagName.toLowerCase()).toBe("kbd");
+    expect(screen.getByText("⌘K")).toHaveAttribute("data-slot", "kbd");
   });
 });
 

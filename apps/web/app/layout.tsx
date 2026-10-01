@@ -96,7 +96,7 @@ export const viewport: Viewport = {
   ],
 };
 
-const themeBootstrap =`(function(){try{var t=localStorage.getItem("marula-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.dataset.theme=t;var p=localStorage.getItem("marula-theme-preset");if(p){document.documentElement.dataset.preset=p;}var d=localStorage.getItem("marula-density");if(d==="compact"||d==="dense"||d==="comfortable"){document.documentElement.dataset.density=d;}else{document.documentElement.dataset.density="comfortable";}}catch(e){}})();`;
+const themeBootstrap =`(function(){try{var t=localStorage.getItem("marula-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.dataset.theme=(t==="light"?"neutral":"dark");var p=localStorage.getItem("marula-theme-preset");if(p){document.documentElement.dataset.preset=p;}var d=localStorage.getItem("marula-density");if(d==="compact"||d==="dense"||d==="comfortable"){document.documentElement.dataset.density=d;}else{document.documentElement.dataset.density="comfortable";}}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
