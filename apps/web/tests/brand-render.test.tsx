@@ -219,9 +219,9 @@ describe("ledger brand render", () => {
     // are matched loosely on purpose: the countdown reads the wall clock at
     // render, so a fixture sitting exactly on a minute boundary floors to a
     // different minute depending on how long the suite took to get here.
-    expect(table).toMatch(/1[12]m left/);   // at risk: inside the 30-minute window
-    expect(table).toMatch(/\d+h 0m over/); // breached
-    expect(table).toContain("—");           // no SLA policy and no due date
+    expect(table).toMatch(/1[12]m left/);  // at risk: inside the 30-minute window
+    expect(table).toMatch(/\d+h( \d+m)? over/); // breached
+    expect(table).toContain("—");          // no SLA policy and no due date
     // The four status tones.
     expect(table).toContain("In progress");
     expect(table).toContain("Open");

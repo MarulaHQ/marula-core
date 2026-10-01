@@ -225,7 +225,72 @@ for (const theme of THEMES) {
     await shot("07-workbench-related");
   }
 
-  // 8. A ticket with no due date and no policy — the honest "—" reading.
+  // ---- interactive states: the ones a static first paint cannot show ----
+
+  // 8a. Row HOVER. The ledger's row affordance, which no amount of static
+  //     rendering can reveal because it only exists under a pointer.
+  const hoverRow = page.locator('[data-testid="ticket-row"]').nth(1);
+  if (await hoverRow.count()) {
+    await hoverRow.hover();
+    await page.waitForTimeout(350);
+    await shot("09-tickets-row-hover", page.locator("table").first());
+  }
+
+  // 8b. The COLUMN CHOOSER open, with a column actually hidden — the state
+  //     after a real choice, not just the popover on arrival.
+  const colsBtn = page.getByRole("button", { name: /^Columns/ });
+  if (await colsBtn.count()) {
+    await colsBtn.first().click();
+    await page.waitForTimeout(500);
+    const assignee = page.getByRole("checkbox", { name: /Assignee/i }).first();
+    if (await assignee.count()) {
+      await assignee.click();
+      await page.waitForTimeout(900);
+      await shot("10-tickets-column-hidden", page.locator("table").first());
+    }
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(400);
+  }
+
+  // 8c. A SAVED FILTER applied — the clause chip sitting in the toolbar and the
+  //     ledger narrowed by it. This is the D12 state the whole surface exists
+  //     to prove, and it has never been looked at.
+  const addFilter = page.getByRole("button", { name: /Add filter/ });
+  if (await addFilter.count()) {
+    await addFilter.first().click();
+    await page.waitForTimeout(400);
+    const field = page.locator("select").filter({ hasText: "Priority" }).first();
+    if (await field.count()) {
+      await field.selectOption("p1").catch(() => {});
+      await page.waitForTimeout(300);
+    }
+    const op = page.locator("select").nth(1);
+    if (await op.count()) await op.selectOption({ label: /is any|equals|=/i }).catch(() => {});
+    await page.waitForTimeout(300);
+    const val = page.locator("input[type=text], input:not([type])").first();
+    if (await val.count()) await val.fill("p1").catch(() => {});
+    await page.waitForTimeout(1500);
+    await shot("11-tickets-filter-applied", page.locator("table").first());
+  }
+
+  // 8d. The EMPTY state a bad filter produces — one sentence and one action.
+  const removeChips = page.getByRole("button", { name: /Remove|×|✕/ });
+  const chipCount = await removeChips.count();
+  for (let i = 0; i < chipCount; i += 1) {
+    await removeChips.first().click().catch(() => {});
+    await page.waitForTimeout(400);
+  }
+  const addFilter2 = page.getByRole("button", { name: /Add filter/ });
+  if (await addFilter2.count()) {
+    await addFilter2.first().click();
+    await page.waitForTimeout(400);
+    const noMatch = page.locator("input[type=text], input:not([type])").first();
+    if (await noMatch.count()) await noMatch.fill("zzzz-no-such-ticket").catch(() => {});
+    await page.waitForTimeout(1500);
+    await shot("12-tickets-empty-state");
+  }
+
+  // 9. A ticket with no due date and no policy — the honest "—" reading.
   await page.goto(`${WEB}/tickets`, { waitUntil: "load" });
   await page.waitForTimeout(2500);
   const undated = page.getByText(`Ledger capture · docs cleanup ${STAMP}`).first();

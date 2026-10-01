@@ -111,16 +111,43 @@ export function slaReading(
   };
 }
 
+/** Past two days, hours stop being a unit a person reads. */
+const HOURS_VISIBLE = 48;
+/** Past a month the exact figure stops mattering, only the distance does. */
+const DAYS_VISIBLE = 30;
+
 function countdownLabel(remainingMs: number): string {
   if (remainingMs <= 0) {
     const over = Math.abs(remainingMs);
-    const h = Math.floor(over / 3_600_000);
-    const m = Math.floor((over % 3_600_000) / 60_000);
-    return h > 0 ? `${h}h ${m}m over` : `${m}m over`;
+    return within(over, "over");
   }
-  const h = Math.floor(remainingMs / 3_600_000);
-  const m = Math.floor((remainingMs % 3_600_000) / 60_000);
-  return h > 0 ? `${h}h ${m}m left` : `${m}m left`;
+  return within(remainingMs, "left");
+}
+
+/**
+ * The countdown, in the largest unit that still tells a reader something.
+ *
+ * The first live capture of this ledger printed "303h 28m left", which is
+ * twelve and a half days rendered as an hour count: technically true, useless
+ * to scan, and it made every far-off deadline the same visual weight as one
+ * that is due in an hour. A queue is read by exception, so the number has to
+ * shrink in significance as it grows in size, not the other way round. Past a
+ * month it stops pretending to be precise.
+ */
+function within(ms: number, suffix: "left" | "over"): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m ${suffix}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours <= HOURS_VISIBLE) {
+    const m = minutes % 60;
+    return m === 0 ? `${hours}h ${suffix}` : `${hours}h ${m}m ${suffix}`;
+  }
+  const days = Math.floor(hours / 24);
+  if (days <= DAYS_VISIBLE) {
+    const h = hours % 24;
+    return h === 0 ? `${days}d ${suffix}` : `${days}d ${h}h ${suffix}`;
+  }
+  return `${days}d ${suffix}`;
 }
 
 /** "2h ago", "just now". Absolute dates hide the recency that matters here. */
