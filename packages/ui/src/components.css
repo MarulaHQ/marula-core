@@ -829,7 +829,6 @@
   color: var(--m-text-muted);
   font: inherit;
   cursor: pointer;
-  transition: background-color 100ms ease, color 100ms ease;
 }
 
 .m-density-switch-item:last-child {
