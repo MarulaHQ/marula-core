@@ -43,11 +43,13 @@ import {
   type OnboardingSummary,
 } from "../../lib/onboarding";
 import {
+  BackButton,
   EntryFooter,
   EntryHeader,
   EntryNote,
   GuideMenu,
   NeverShowDialog,
+  OtpBoxes,
   SkipButton,
   SkipExplain,
   WizardRail,
@@ -94,6 +96,12 @@ export default function OnboardingPage() {
   const [mode, setMode] = useState("system");
   /** When the MFA grace period ends, so the card can name the date. */
   const [mfaAskAgain, setMfaAskAgain] = useState<string | null>(null);
+  /** The pending TOTP enrollment: the base32 secret and the otpauth URI. */
+  const [enroll, setEnroll] = useState<{ secret_base32: string; otpauth_url: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [enrollError, setEnrollError] = useState<string | null>(null);
+  /** Shown once, after the second factor is actually on. */
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
 
   const loadSummary = useCallback(async (): Promise<OnboardingSummary | null> => {
     const s = await fetchOnboardingSummary();
@@ -121,6 +129,63 @@ export default function OnboardingPage() {
     })();
   }, [auth.status, auth.me, loadSummary]);
 
+  /** Begin the enrollment when the step is opened. The secret is minted
+   *  server-side and is never shown anywhere else. */
+  useEffect(() => {
+    if (focus !== "mfa" || enroll !== null || recoveryCodes !== null) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error: apiError } = await api.api.POST("/api/v1/auth/mfa/totp/enroll-begin");
+      if (cancelled) return;
+      if (data === undefined || apiError !== undefined) {
+        setEnrollError(
+          friendlyMutationText(
+            apiError ?? null,
+            "We couldn't start the setup. You can skip this for now and try again later.",
+          ),
+        );
+        return;
+      }
+      setEnroll({ secret_base32: data.secret_base32, otpauth_url: data.otpauth_url });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [focus, enroll, recoveryCodes]);
+
+  /** Confirm the code and turn the second factor on. */
+  const verifyEnrollment = useCallback(
+    async (value: string) => {
+      if (busy) return;
+      setBusy(true);
+      setEnrollError(null);
+      try {
+        const { data, error: apiError } = await api.api.POST(
+          "/api/v1/auth/mfa/totp/enroll-verify",
+          { body: { code: value } },
+        );
+        if (data === undefined || apiError !== undefined) {
+          setCode("");
+          setEnrollError(
+            friendlyMutationText(
+              apiError ?? null,
+              "That code didn't match. Check the six digits in your app and try again.",
+            ),
+          );
+          return;
+        }
+        // Recovery codes are returned exactly once and are the only way back in
+        // if the phone is lost, so they are shown before anything else moves on.
+        setRecoveryCodes(data.recovery_codes);
+        setCode("");
+        await markComplete("mfa");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy],
+  );
+
   const selfSteps = summary?.members.find((m) => m.user_id === auth.me?.user_id)?.steps ?? [];
   const step = (k: string) => selfSteps.find((s) => s.step === k);
   const resolvedCount = selfSteps.filter((s) => s.resolved).length;
@@ -130,6 +195,14 @@ export default function OnboardingPage() {
     const idx = USER_STEP_ORDER.indexOf(target as (typeof USER_STEP_ORDER)[number]);
     const next = USER_STEP_ORDER[Math.min(idx + 1, USER_STEP_ORDER.length - 1)];
     return typeof next === "string" ? next : USER_STEP_ORDER[0];
+  };
+
+  /** The previous step in the rail. Navigation only; records nothing. */
+  const stepBack = (target: string): void => {
+    const idx = USER_STEP_ORDER.indexOf(target as (typeof USER_STEP_ORDER)[number]);
+    if (idx <= 0) return;
+    const previous = USER_STEP_ORDER[idx - 1];
+    if (typeof previous === "string") setFocus(previous);
   };
 
   const markComplete = async (target: string) => {
@@ -242,7 +315,7 @@ export default function OnboardingPage() {
     <div className="entry-root">
       <EntryHeader
         background="band"
-        right={<GuideMenu label="Setup guide" onNever={() => setNeverShow(true)} />}
+        right={<GuideMenu label="Your first week" onNever={() => setNeverShow(true)} />}
       />
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
@@ -258,6 +331,7 @@ export default function OnboardingPage() {
           doneCount={resolvedCount}
           total={USER_STEP_ORDER.length}
           skipped={skipCount}
+          variant="user"
         />
 
         <WizardStack>
@@ -331,35 +405,142 @@ export default function OnboardingPage() {
           )}
 
           {focus === "mfa" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <EntryNote>
-                An authenticator app or a passkey keeps this account yours even if your password
-                leaks somewhere. It takes about a minute.
-              </EntryNote>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* The pack does the whole ENROLLMENT here rather than sending
+                  somebody to Settings: a QR (or the key), the six boxes, and
+                  "Turn on". The endpoints exist and are unused by this lane
+                  until now — `mfa/totp/enroll-begin` returns the otpauth URI
+                  and the base32 secret, `enroll-verify` takes the code and
+                  returns the recovery codes.
+                  (auth/neutral/states/11-onboarding-second-step.png) */}
+              {recoveryCodes !== null ? (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                    border: "1px solid var(--m-border)",
+                    borderRadius: 12,
+                    background: "var(--m-surface-2)",
+                    padding: "14px 16px",
+                  }}
+                  data-testid="onboarding-mfa-recovery"
+                >
+                  <b style={{ fontSize: 14 }}>Your recovery codes</b>
+                  <p className="entry-hint" style={{ margin: 0 }}>
+                    Each one works once. This is the only time they are shown, so save them now.
+                  </p>
+                  <code
+                    style={{
+                      fontFamily: "var(--m-font-mono)",
+                      fontSize: 13,
+                      lineHeight: 1.7,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {recoveryCodes.join("  ")}
+                  </code>
+                </div>
+              ) : enroll === null ? (
+                <div style={{ display: "flex", justifyContent: "center", padding: "18px 0" }}>
+                  <Spinner label="Preparing your key" />
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+                    {/* The pack draws a QR here. No QR library is available to
+                        this app and adding one would mean editing the shared
+                        dependency set while other lanes are working, so the
+                        typed key below is the working path and the gap is
+                        recorded. It is the same secret either way. */}
+                    <ol
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 14,
+                        margin: 0,
+                        paddingLeft: 18,
+                        fontSize: 14,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      <li>
+                        <b>Add this key to your authenticator app</b>
+                        <div className="entry-hint" style={{ marginTop: 4 }}>
+                          Any app will do, such as Microsoft Authenticator or Google Authenticator.
+                        </div>
+                        <div
+                          style={{
+                            marginTop: 8,
+                            border: "1px solid var(--m-border)",
+                            borderRadius: 10,
+                            background: "var(--m-canvas)",
+                            padding: "8px 12px",
+                            fontFamily: "var(--m-font-mono)",
+                            fontSize: 14,
+                            letterSpacing: "0.08em",
+                            wordBreak: "break-all",
+                          }}
+                          data-testid="onboarding-mfa-key"
+                        >
+                          {enroll.secret_base32}
+                        </div>
+                      </li>
+                      <li>
+                        <b>Type the code it shows</b>
+                        <div style={{ marginTop: 10 }}>
+                          <OtpBoxes
+                            id="onboarding-mfa-code"
+                            label="The 6-digit code from your app"
+                            value={code}
+                            onChange={setCode}
+                            onComplete={(value) => void verifyEnrollment(value)}
+                          />
+                        </div>
+                      </li>
+                    </ol>
+                  </div>
+                  {enrollError !== null && (
+                    <p className="entry-error" role="alert" data-testid="onboarding-mfa-error">
+                      {enrollError}
+                    </p>
+                  )}
+                </>
+              )}
+
               {mfaAskAgain !== null && skipped.includes("mfa") && (
                 <p className="entry-hint" style={{ margin: 0 }}>
                   Skipped. We&apos;ll ask you again on {mfaAskAgain}.
                 </p>
               )}
+
               <div className="entry-actions">
+                <BackButton onClick={() => stepBack(focus)} disabled={stepIndex === 0} />
                 <span className="entry-actions__spacer" />
                 <SkipButton
                   onClick={() => void recordSkip("mfa", false)}
                   busy={busy}
-                  label="Skip for 7 days"
+                  label="Skip for now"
                 />
-                <button
-                  type="button"
-                  className="entry-btn"
-                  onClick={() => router.push("/settings/security")}
-                  data-testid="onboarding-mfa-open"
-                >
-                  Set it up now
-                </button>
+                {recoveryCodes === null && (
+                  <button
+                    type="button"
+                    className="entry-btn"
+                    disabled={busy || code.length !== 6 || recoveryCodes !== null}
+                    onClick={() => void verifyEnrollment(code)}
+                    data-testid="onboarding-mfa-turn-on"
+                  >
+                    {busy ? "Turning on…" : "Turn on"}
+                  </button>
+                )}
               </div>
-              <SkipExplain
-                extra={`Setup guide, Never show this setup again (this step will still ask again in ${MFA_GRACE_DAYS} days)`}
-              />
+              {/* The pack's sentence for this step's skip, and the reason it is
+                  not the same as every other step's. */}
+              <p className="entry-explain">
+                <b>Skip for now</b> is allowed for <b>{MFA_GRACE_DAYS} days</b>. You&apos;ll be
+                asked again at your next sign-in, and after that you&apos;ll need it to continue.
+                It can&apos;t be switched off for good.
+              </p>
             </div>
           )}
 

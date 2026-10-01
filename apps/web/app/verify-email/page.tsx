@@ -180,7 +180,7 @@ function VerifyEmailInner(): ReactNode {
             }}
             data-testid="verify-resend-again"
           >
-            Send it again
+            Resend the email
           </button>
         ) : (
           <form onSubmit={requestVerification} className="entry-field">
@@ -215,13 +215,12 @@ function VerifyEmailInner(): ReactNode {
             style={{ fontWeight: 500, color: "var(--m-text-secondary)" }}
             onClick={() => router.replace("/login")}
           >
-            Wrong address? Sign in with the one you used
+            Wrong address? Change it
           </button>
         </div>
 
         <EntryNote>
-          The link lasts 24 hours. You can close this page &mdash; it will carry on when you open
-          the link.
+          The link lasts 24 hours. You can close this page. It will carry on when you open the link.
         </EntryNote>
 
         {sentOnce && (

@@ -380,6 +380,7 @@ export function WizardRail({
   doneCount,
   total,
   skipped,
+  variant,
 }: {
   heading: string;
   steps: readonly string[];
@@ -389,6 +390,8 @@ export function WizardRail({
   doneCount: number;
   total: number;
   skipped: number;
+  /** Which wizard's rail this is. They word the progress line differently. */
+  variant: "org" | "user";
 }) {
   return (
     <div className="entry-steps">
@@ -415,16 +418,20 @@ export function WizardRail({
       <div className="entry-progress" aria-hidden>
         <i style={{ width: `${Math.round((doneCount / total) * 100)}%` }} />
       </div>
-      {/* The pack's exact line: the count, then what a skipped step means. It
-         answers the question the rail raises ("I skipped one — did that count?").
-         (auth/neutral/states/09-welcome-invite-people.png) */}
+      {/* The two wizards do NOT share this sentence. The org rail answers the
+          question its skipped rows raise ("did that count?"), and the per-person
+          rail promises something different: that leaving and coming back lands
+          in the same place.
+          (09-welcome-invite-people.png · 11-onboarding-second-step.png) */}
       <p className="entry-explain" style={{ marginTop: 8 }}>
         <b>
           {doneCount} of {total} done.
         </b>{" "}
-        {skipped > 0
-          ? "A skipped step stays on the list until you do it."
-          : "Every step can be skipped."}
+        {variant === "org"
+          ? skipped > 0
+            ? "A skipped step stays on the list until you do it."
+            : "Every step can be skipped."
+          : "It remembers where you stopped."}
       </p>
     </div>
   );

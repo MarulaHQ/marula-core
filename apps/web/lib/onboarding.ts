@@ -54,7 +54,9 @@ export const USER_STEP_ORDER = ["profile", "mfa", "orientation", "defaults"] as 
  * `resolved`), so these strings live here rather than coming from the server.
  *
  * The six short labels and the step-4 headline are verbatim from
- * `auth/neutral/states/09-welcome-invite-people.png`. The remaining card
+ * `auth/neutral/states/09-welcome-invite-people.png`; the four per-person
+ * labels and the MFA headline and blurb are verbatim from
+ * `auth/neutral/states/11-onboarding-second-step.png`. The remaining card
  * headlines are this lane's wording and are recorded as unverified in
  * `design/qa-p41-ui-portal-auth/PARITY-LEDGER.md` until those states are
  * opened.
@@ -107,22 +109,23 @@ export const USER_STEP_LABELS: Record<
   { short: string; title: string; blurb: string }
 > = {
   profile: {
-    short: "Your profile",
+    short: "Check your profile",
     title: "Check your profile",
     blurb: "Your name and timezone are what teammates and SLA calendars use.",
   },
   mfa: {
-    short: "Add a second step",
-    title: "Set a second factor",
-    blurb: "An authenticator or passkey keeps this account yours even if the password leaks.",
+    short: "Set a second step",
+    title: "Set a second step",
+    blurb:
+      "Your admin asks everyone for a code from an app on their phone when they sign in.",
   },
   orientation: {
-    short: "Orientation",
+    short: "A 60-second orientation",
     title: "60-second orientation",
     blurb: "What this product is and where the work lives.",
   },
   defaults: {
-    short: "Defaults",
+    short: "Your defaults",
     title: "Personal defaults",
     blurb: "Pick your theme and how you want to be notified.",
   },

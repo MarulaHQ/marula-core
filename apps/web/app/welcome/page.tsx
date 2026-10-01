@@ -486,6 +486,7 @@ export default function WelcomeWizardPage() {
           doneCount={resolvedCount}
           total={ORG_STEP_ORDER.length}
           skipped={skipCount}
+          variant="org"
         />
 
         <WizardStack>
