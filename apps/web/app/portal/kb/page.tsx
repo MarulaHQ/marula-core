@@ -25,6 +25,28 @@ import {
 import { DESK_NAME } from "../../../components/portal/portal-shell";
 import { PortalCard, PortalIcon, PortalRow } from "../../../components/portal/portal-ui";
 
+/**
+ * The one-line stand-in for an article summary.
+ *
+ * `PortalKbArticle` carries only a markdown body, no summary, and the pack's
+ * rows show a short purpose-written line. Cutting the body at a character count
+ * lands mid-word and mid-sentence, so this strips the markdown and cuts on the
+ * first sentence boundary that fits. It is an approximation of a field the
+ * model does not have, and recorded as a gap.
+ */
+function excerpt(body: string, limit = 110): string {
+  const plain = body
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/[*`_>]/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (plain.length <= limit) return plain;
+  const cut = plain.slice(0, limit);
+  const lastStop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  return lastStop > 40 ? cut.slice(0, lastStop + 1) : `${cut.trimEnd()}\u2026`;
+}
+
 export default function PortalKbPage() {
   useRequirePortalAuth();
   const [articles, setArticles] = useState<PortalKbArticle[] | null>(null);
@@ -79,29 +101,16 @@ export default function PortalKbPage() {
         <label htmlFor="portal-kb-search" className="sr-only">
           Search the help pages
         </label>
-        <div style={{ position: "relative" }}>
-          <span
-            aria-hidden
-            style={{
-              position: "absolute",
-              top: 15,
-              left: 14,
-              color: "var(--m-text-secondary)",
-            }}
-          >
-            <PortalIcon name="search" size={18} />
-          </span>
-          <input
-            id="portal-kb-search"
-            className="portal-input"
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search, for example VPN or password"
-            style={{ height: 52, paddingLeft: 42 }}
-            data-testid="portal-kb-search"
-          />
-        </div>
+        <input
+          id="portal-kb-search"
+          className="portal-input"
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search, for example VPN or password"
+          style={{ height: 52 }}
+          data-testid="portal-kb-search"
+        />
       </form>
 
       {error !== null && (
@@ -136,7 +145,7 @@ export default function PortalKbPage() {
             <PortalRow
               key={a.id}
               title={a.title}
-              meta={a.body.replace(/[#*`>]/g, "").slice(0, 120)}
+              meta={excerpt(a.body)}
               columns="minmax(0, 1fr) 24px"
               to={`/portal/kb/articles/${a.id}`}
               trailing={
