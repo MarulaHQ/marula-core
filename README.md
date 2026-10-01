@@ -90,6 +90,7 @@ One writer. Every mutation emits a versioned domain event. REST, WebSocket, webh
 | API reference | Generated from OpenAPI (`utoipa` → Scalar UI on `core-api`) |
 | Build plugins & connectors | [`packages/plugin-kit`](packages/plugin-kit/) · [`plugins/connectors/`](plugins/connectors/) reference implementations |
 | Architecture decisions | [`docs/adr/`](docs/adr/) |
+| Tech stack | [`docs/tech-stack.md`](docs/tech-stack.md) — every layer, with the versions the manifests pin |
 | Visual identity | [`docs/theme.md`](docs/theme.md) |
 
 ## Roadmap
