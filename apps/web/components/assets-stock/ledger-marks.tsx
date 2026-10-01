@@ -16,124 +16,37 @@
  * earns; this file only draws it the same way on every surface.
  */
 import type { ReactNode } from "react";
+import { Icon } from "@marula-core/ui/kit";
 import { cn } from "@marula-core/ui";
 
 export function AlertIcon({ className }: { className?: string }): React.JSX.Element {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-    >
-      <path
-        d="M6 1.5 11 10H1L6 1.5Z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-      <path d="M6 4.6v2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <circle cx="6" cy="8.8" r="0.55" fill="currentColor" />
-    </svg>
-  );
+  return <Icon name="alert" size={18} className={className} />;
 }
 
 export function ClockIcon({ className }: { className?: string }): React.JSX.Element {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-    >
-      <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M6 3.8V6l1.6 1.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
+  return <Icon name="clock" size={18} className={className} />;
 }
 
 export function CheckCircleIcon({ className }: { className?: string }): React.JSX.Element {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-    >
-      <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3" />
-      <path
-        d="m4.2 6.2 1.3 1.3 2.4-2.6"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+  return <Icon name="check" size={18} className={className} />;
 }
 
 export function OfflineDotIcon({ className }: { className?: string }): React.JSX.Element {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-    >
-      <circle cx="6" cy="6" r="2.4" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M2 2l8 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
+  return <Icon name="cloudoff" size={18} className={className} />;
 }
 
 export function MergeIcon({ className }: { className?: string }): React.JSX.Element {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-    >
-      <path
-        d="M3 1.5v2.2c0 1.6.9 2.5 2.4 3.1L8 8.1M9 1.5v2.2c0 1.2-.4 2-1.2 2.6M3 10.5V8.6M9 10.5V8.6"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-      />
-      <circle cx="3" cy="9.6" r="1.1" stroke="currentColor" strokeWidth="1.2" />
-      <circle cx="9" cy="9.6" r="1.1" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  );
+  return <Icon name="merge" size={18} className={className} />;
 }
 
 /** The marks a bulk action wears: the pack's bar is icon + label, never
  * label alone, so an action is recognisable before it is read. */
 export function OpenIcon(): React.JSX.Element {
-  return (
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M4.5 2.5h5v5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M9.5 2.5 3 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
+  return <Icon name="ext" size={12} />;
 }
 
 export function CopyIcon(): React.JSX.Element {
-  return (
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <rect x="4.2" y="4.2" width="5.6" height="5.6" rx="1.4" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M7.8 2.4H3.4a1.4 1.4 0 0 0-1.4 1.4v4.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
+  return <Icon name="copy" size={12} />;
 }
 
 export function ReturnIcon(): React.JSX.Element {
