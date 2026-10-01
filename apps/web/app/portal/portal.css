@@ -1,0 +1,1217 @@
+/*
+ * The client portal's own surface: its two themes and its own geometry.
+ *
+ * SCOPE. Every rule here hangs off `.portal-root` or a descendant, and the two
+ * theme columns hang off `data-portal-theme` on that same root. Nothing here
+ * touches `:root` or `[data-theme]`, so the staff app's Neutral/dark
+ * appearance cannot be moved by anything on this page. That is the promise
+ * the account menu makes in words: "This changes the portal for you only."
+ *
+ * SOURCES. The two columns are the pack's `tokens.json` `sand` and `dark`
+ * values, written as the landed `--m-*` semantic names (the pack's columns
+ * were verified to match `packages/ui/src/tokens.css` exactly, so this is a
+ * rename, not a re-invention). The geometry is `source/portal.html` at its
+ * real px values: a 56px header, a 768px centred column, 48px primary and 40px
+ * secondary buttons, 16px card radius, 26px page titles.
+ *
+ * RULES HELD HERE (DERIVATION-GUIDE.md, lines 59-69):
+ * 1. No inverted surface on this surface at all — the portal has no assistant,
+ *    so it has no inversion. (The one place the staff app inverts, the client
+ *    never sees.)
+ * 2. Red means breach. Overdue is blush with the number of days; a validation
+ *    error is blush with an icon and words. Red never appears here.
+ * 3. Gold is where you act: "Waiting for you" and "Waiting for your answer".
+ * 4. No gradients, glass or glow. Depth is flat colour plus a 1px border.
+ * 5. Figtree runs the interface. Fraunces is not used in the portal.
+ * 6. Colour is never alone: every pill carries a word, an icon or both.
+ * 7. No grant means no trace: no sparkle, no hint, no "ask AI" anywhere below.
+ * 8. Text never below 12px.
+ * 9. An overlap is a decision, not an error: the one decision here (accepting a
+ *    quote) is asked once and drawn neutral.
+ */
+
+/* ---- The two portal themes ------------------------------------------------ */
+
+.portal-root[data-portal-theme="sand"] {
+  --m-canvas: #fbf7ec;
+  --m-surface: #ffffff;
+  --m-overlay-surface: #ffffff;
+  --m-nav: #ffffff;
+  --m-sidebar: #f3ead2;
+  --m-surface-2: #f3ead2;
+  --m-text: #2b2a33;
+  --m-text-secondary: #5f584f;
+  --m-text-muted: #5f584f;
+  --m-border: #e6dcc2;
+  --m-input: #857a66;
+  --m-border-strong: var(--m-input);
+  --m-disabled-bg: #f3ead2;
+  --m-disabled-fg: #8a8479;
+  --m-primary: #2b2a33;
+  --m-on-primary: #e8b83a;
+  --m-accent: #f7e3a8;
+  --m-on-accent: #6b4308;
+  --m-accent-soft: color-mix(in srgb, var(--m-accent) 18%, var(--m-surface));
+  --m-accent-muted: color-mix(in srgb, var(--m-accent) 45%, var(--m-surface));
+  --m-accent-text: #9a5b0f;
+  --m-client: #ffffff;
+  --m-note: #f3ead2;
+  --m-note-fg: #4a443d;
+  --m-sys: #fbf7ec;
+  --m-time: #fbebbf;
+  --m-time-fg: #6b4308;
+  --m-agent: #fbf3dc;
+  --m-status-success-fg: #2f4a1e;
+  --m-status-success-bg: #d5e3c5;
+  --m-on-success: #2f4a1e;
+  --m-status-warning-fg: #6b4308;
+  --m-status-warning-bg: #fbebbf;
+  --m-status-due-fg: #7a3f0c;
+  --m-status-due-bg: #f8dcc0;
+  --m-status-danger-fg: #8f1c13;
+  --m-status-danger-bg: #fbe1de;
+  --m-status-neutral-fg: #4a443d;
+  --m-status-neutral-bg: #ece7df;
+  --m-status-offline-fg: #5c4631;
+  --m-status-offline-bg: #f3ead2;
+  --m-destructive: #b42318;
+  --m-shadow: 0 16px 40px rgb(43 42 51 / 0.18);
+  --m-shadow-overlay: 0 16px 40px rgb(43 42 51 / 0.18);
+  --m-scrim: rgb(34 33 41 / 0.55);
+}
+
+.portal-root[data-portal-theme="dark"] {
+  --m-canvas: #2b2a33;
+  --m-surface: #34333d;
+  --m-overlay-surface: #34333d;
+  --m-nav: #222129;
+  --m-sidebar: #222129;
+  --m-surface-2: #3a3944;
+  --m-text: #f6efd9;
+  --m-text-secondary: #beb5a2;
+  --m-text-muted: #b0a894;
+  --m-border: #43424d;
+  --m-input: #8a8378;
+  --m-border-strong: var(--m-input);
+  --m-disabled-bg: #3a3944;
+  --m-disabled-fg: #9a9384;
+  --m-primary: #e8b83a;
+  --m-on-primary: #2b2a33;
+  --m-accent: #3a3944;
+  --m-on-accent: #e8b83a;
+  --m-accent-soft: color-mix(in srgb, var(--m-accent) 30%, var(--m-surface));
+  --m-accent-muted: color-mix(in srgb, var(--m-accent) 55%, var(--m-surface));
+  --m-accent-text: #e8b83a;
+  --m-client: #34333d;
+  --m-note: #3a342a;
+  --m-note-fg: #e2cfa9;
+  --m-sys: #2f2e37;
+  --m-time: #4a3a1a;
+  --m-time-fg: #f2cd6b;
+  --m-agent: #33302a;
+  --m-status-success-fg: #bfd99a;
+  --m-status-success-bg: #26361a;
+  --m-on-success: #bfd99a;
+  --m-status-warning-fg: #f2cd6b;
+  --m-status-warning-bg: #4a3a1a;
+  --m-status-due-fg: #f0b27a;
+  --m-status-due-bg: #4d2f14;
+  --m-status-danger-fg: #f9a097;
+  --m-status-danger-bg: #4a1a18;
+  --m-status-neutral-fg: #d8cfba;
+  --m-status-neutral-bg: #3f3d45;
+  --m-status-offline-fg: #e2cfa9;
+  --m-status-offline-bg: #3a342a;
+  --m-destructive: #fb8a80;
+  --m-shadow: 0 16px 40px rgb(0 0 0 / 0.4);
+  --m-shadow-overlay: 0 16px 40px rgb(0 0 0 / 0.4);
+  --m-scrim: rgb(0 0 0 / 0.6);
+}
+
+/* ---- Shell: the 56px header, the 768px column, the crediting footer ------- */
+
+.portal-root {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  background: var(--m-canvas);
+  color: var(--m-text);
+}
+
+.portal-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: 56px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--m-border);
+  background: var(--m-surface);
+}
+
+.portal-header__in {
+  display: flex;
+  height: 100%;
+  max-width: 768px;
+  align-items: center;
+  gap: 6px;
+  margin: 0 auto;
+  padding: 0 4px;
+}
+
+.portal-desk {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  margin-right: 12px;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--m-text);
+  text-decoration: none;
+}
+
+/* The service desk's mark is theirs, not Marula's: a plain ink disc with a
+   gold core, sized to the wordmark lockup. The pack draws it as a CIRCLE, not
+   a rounded square — checked against portal/sand/states/01-login.png. */
+.portal-desk__mark {
+  position: relative;
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--m-primary);
+}
+
+.portal-desk__mark::after {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--m-on-primary);
+  content: "";
+}
+
+.portal-nav {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+  overflow-x: auto;
+}
+
+.portal-nav__link {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  border-radius: 10px;
+  padding: 0 12px;
+  color: var(--m-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.portal-nav__link:hover {
+  background: var(--m-surface-2);
+}
+
+/* The section the client is standing in, in the gold that means "here". The
+   pack's nav pill is the accent tint, not a grey fill — checked against
+   portal/sand/states/02-tickets.png. */
+.portal-nav__link[aria-current="page"] {
+  background: var(--m-accent);
+  color: var(--m-text);
+  font-weight: 600;
+}
+
+.portal-account {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.portal-account__button {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0 6px 0 4px;
+  color: var(--m-text);
+  font: inherit;
+  font-weight: 500;
+  transition: background-color 120ms ease;
+}
+
+.portal-account__button:hover {
+  background: var(--m-surface-2);
+}
+
+.portal-avatar {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #4a6a2a;
+  color: #f6efd9;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.portal-main {
+  width: 100%;
+  max-width: 768px;
+  flex: 1;
+  margin: 0 auto;
+  padding: 28px 4px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.portal-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--m-border);
+  background: var(--m-surface);
+}
+
+.portal-footer__in {
+  display: flex;
+  max-width: 768px;
+  align-items: center;
+  gap: 12px;
+  margin: 0 auto;
+  padding: 16px 4px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.portal-footer__in b {
+  color: var(--m-text);
+}
+
+/* ---- Page furniture ------------------------------------------------------- */
+
+.portal-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.portal-lead {
+  margin: 4px 0 0;
+  color: var(--m-text-secondary);
+}
+
+.portal-heading-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.portal-heading-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.portal-hint {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.portal-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--m-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.portal-back:hover {
+  color: var(--m-text);
+}
+
+.portal-card {
+  overflow: hidden;
+  border: 1px solid var(--m-border);
+  border-radius: 16px;
+  background: var(--m-surface);
+}
+
+.portal-card__hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--m-border);
+}
+
+.portal-card__hd h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.portal-card__hd > .portal-hint:last-child {
+  margin-left: auto;
+}
+
+.portal-card__body {
+  padding: 18px;
+}
+
+/* A row in a card list: the portal's only record shape. */
+.portal-row {
+  display: grid;
+  align-items: center;
+  gap: 14px;
+  min-height: 68px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--m-border);
+  color: inherit;
+  text-decoration: none;
+  transition: background-color 120ms ease;
+}
+
+.portal-row:first-of-type {
+  border-top: none;
+}
+
+a.portal-row:hover,
+button.portal-row:hover {
+  background: var(--m-surface-2);
+}
+
+.portal-row__title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.portal-row__title b {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal-row__title span {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+}
+
+.portal-row__amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-row__download {
+  color: var(--m-text-secondary);
+}
+
+/* "Waiting for you" is the one row that needs her. Gold tint with a gold edge
+   bar — the pack's `.pr.act`, and the only row in the list that carries it. */
+.portal-row--waiting {
+  background: var(--m-accent);
+  box-shadow: inset 4px 0 0 var(--m-gold);
+}
+
+.portal-row--waiting .portal-row__title span {
+  color: var(--m-on-accent);
+}
+
+/* ---- Buttons: 48px primary, 40px secondary (DESIGN-NOTES-portal §2) ------- */
+
+.portal-btn {
+  display: inline-flex;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: none;
+  border-radius: 12px;
+  background: var(--m-primary);
+  color: var(--m-on-primary);
+  padding: 0 20px;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: filter 120ms ease;
+}
+
+.portal-btn:hover {
+  filter: brightness(1.06);
+}
+
+.portal-btn:disabled {
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+  cursor: not-allowed;
+  filter: none;
+}
+
+.portal-btn--secondary {
+  border: 1px solid var(--m-input);
+  background: transparent;
+  color: var(--m-text);
+}
+
+.portal-btn--secondary:hover {
+  background: var(--m-surface-2);
+  filter: none;
+}
+
+.portal-btn--small {
+  height: 40px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+.portal-btn--full {
+  width: 100%;
+}
+
+.portal-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--m-text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* ---- Pills: every one carries a word, and most carry an icon -------------- */
+
+.portal-pill {
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.portal-pill svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Every pill carries a mark, and the KIND of mark carries the meaning: a plain
+   dot for the three informational words, a clock for the two that need her, a
+   check for done. The pack draws a dot on Received / We're on it / Scheduled —
+   checked against portal/sand/states/02-tickets.png. */
+.portal-pill__dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* The five words the client sees instead of our statuses. */
+.portal-pill--received {
+  background: var(--m-surface-2);
+  color: var(--m-text);
+}
+
+.portal-pill--working {
+  background: var(--m-status-warning-bg);
+  color: var(--m-status-warning-fg);
+}
+
+.portal-pill--waiting {
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+}
+
+.portal-pill--scheduled {
+  border: 1px solid var(--m-sand);
+  background: var(--m-surface);
+  color: var(--m-status-neutral-fg);
+}
+
+.portal-pill--resolved {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+}
+
+/* Money: overdue and due soon are BLUSH with the number of days. Never red. */
+.portal-pill--overdue {
+  background: var(--m-status-due-bg);
+  color: var(--m-status-due-fg);
+}
+
+.portal-pill--paid {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+}
+
+/* ---- Fields: a validation error is BLUSH, with an icon and words ---------- */
+
+.portal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* A label with a trailing qualifier on the same line ("Anything you'd like to
+   tell us?  Optional"). */
+.portal-field > .entry-label-like {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.portal-field__label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.portal-field__hint {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+}
+
+.portal-input,
+.portal-select {
+  width: 100%;
+  height: 48px;
+  border: 1px solid var(--m-input);
+  border-radius: 12px;
+  background: var(--m-surface);
+  padding: 0 14px;
+  color: var(--m-text);
+  font: inherit;
+}
+
+.portal-select {
+  height: 48px;
+}
+
+.portal-input:disabled {
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+}
+
+.portal-field--error .portal-input,
+.portal-field--error .portal-select {
+  border: 2px solid var(--m-blush);
+  padding: 0 13px;
+}
+
+.portal-field__error {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  color: var(--m-status-due-fg);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.portal-field__error svg {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+/* ---- Choice groups: day and time pickers, and the feedback scale ---------- */
+
+.portal-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.portal-choice {
+  height: 44px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-surface);
+  padding: 0 16px;
+  color: var(--m-text);
+  font: inherit;
+  font-weight: 600;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.portal-choice[aria-checked="true"] {
+  border: 2px solid var(--m-canopy);
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+  padding: 0 15px;
+}
+
+/* A time nobody is free for is struck through and disabled, with the reason
+   spelled out beneath. It is not a colour. */
+.portal-choice:disabled {
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+
+.portal-scale {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+
+.portal-scale button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--m-border);
+  border-radius: 14px;
+  background: var(--m-surface);
+  padding: 14px 8px;
+  color: var(--m-text);
+  font: inherit;
+  font-weight: 600;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.portal-scale button b {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-scale button[aria-checked="true"] {
+  border: 2px solid var(--m-canopy);
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+  padding: 13px 7px;
+}
+
+/* ---- The conversation ---------------------------------------------------- */
+
+.portal-msg {
+  display: flex;
+  gap: 12px;
+}
+
+.portal-msg__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.portal-msg__who {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.portal-msg__who b {
+  font-weight: 600;
+}
+
+.portal-msg__who span {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+}
+
+/* Her own message, so the thread reads as a conversation. */
+.portal-msg--mine .portal-msg__text {
+  border-color: transparent;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+}
+
+.portal-msg__text {
+  border: 1px solid var(--m-border);
+  border-radius: 14px;
+  background: var(--m-surface);
+  padding: 12px 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.portal-avatar--sm {
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
+}
+
+.portal-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--m-input);
+  border-radius: 16px;
+  background: var(--m-surface);
+  padding: 12px;
+}
+
+.portal-composer textarea {
+  width: 100%;
+  height: 76px;
+  border: none;
+  background: transparent;
+  color: var(--m-text);
+  font: inherit;
+  resize: none;
+  outline: none;
+}
+
+.portal-composer__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---- "Something always shows" ------------------------------------------- */
+
+/* A brand-new ticket with no reply still answers the only question she has.
+   Three steps: what has happened, what is happening, what comes next. */
+.portal-next {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--m-border);
+  border-radius: 16px;
+  background: var(--m-surface);
+  padding: 16px 18px;
+}
+
+.portal-next__lead {
+  font-size: 16px;
+}
+
+.portal-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.portal-step__n {
+  display: flex;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--m-input);
+  border-radius: 999px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.portal-step__n svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 3;
+}
+
+.portal-step--done .portal-step__n {
+  border-color: var(--m-canopy);
+  background: var(--m-canopy);
+  color: var(--m-surface);
+}
+
+/* The step happening right now, in the gold that means "here". */
+.portal-step--now .portal-step__n {
+  border-color: var(--m-gold);
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+}
+
+.portal-step b {
+  display: block;
+}
+
+.portal-step span {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+}
+
+/* ---- Empty: a drawing, one sentence, one action -------------------------- */
+
+.portal-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.portal-empty h2 {
+  margin: 6px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.portal-empty p {
+  max-width: 380px;
+  margin: 0;
+  color: var(--m-text-secondary);
+}
+
+/* ---- The account menu: where the portal's theme is picked ---------------- */
+
+.portal-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  width: 300px;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--m-border);
+  border-radius: 16px;
+  background: var(--m-surface);
+  box-shadow: var(--m-shadow-overlay);
+  padding: 14px;
+}
+
+.portal-menu__label {
+  margin-bottom: 8px;
+  color: var(--m-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.portal-menu__option {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-surface);
+  padding: 0 12px;
+  color: var(--m-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.portal-menu__option[aria-checked="true"] {
+  border: 2px solid var(--m-canopy);
+  background: var(--m-status-success-bg);
+  padding: 0 11px;
+}
+
+.portal-menu__option svg {
+  flex-shrink: 0;
+  color: var(--m-canopy);
+  stroke-width: 3;
+}
+
+/* Sign out: quiet centred text under the menu's content, not a bordered
+   button (portal/sand/states/12-appearance.png). */
+.portal-menu__signout {
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--m-border);
+  background: none;
+  padding: 12px 0 2px;
+  color: var(--m-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  text-align: center;
+  transition: color 120ms ease;
+}
+
+.portal-menu__signout:hover {
+  color: var(--m-text);
+}
+
+/* ---- The one decision the client makes: accepting a quote ---------------- */
+
+.portal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--m-scrim);
+  padding: 16px;
+}
+
+.portal-dialog {
+  width: 540px;
+  max-width: 100%;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border-radius: 20px;
+  background: var(--m-surface);
+  box-shadow: var(--m-shadow-overlay);
+  color: var(--m-text);
+}
+
+.portal-dialog__hd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 26px;
+  border-bottom: 1px solid var(--m-border);
+}
+
+.portal-dialog__hd h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* The dismiss affordance in a dialog header: a small bordered box holding an
+   ×, not a text button (portal/sand/states/07-accept-quote.png). */
+.portal-dialog__close {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--m-input);
+  border-radius: 10px;
+  background: var(--m-surface);
+  color: var(--m-text);
+  transition: background-color 120ms ease;
+}
+
+.portal-dialog__close:hover {
+  background: var(--m-surface-2);
+}
+
+.portal-dialog__hd p {
+  margin: 2px 0 0;
+  color: var(--m-text-secondary);
+}
+
+.portal-dialog__mb {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 26px;
+}
+
+.portal-dialog__mf {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 26px;
+  border-top: 1px solid var(--m-border);
+  background: var(--m-canvas);
+}
+
+.portal-dialog__mf .portal-hint {
+  margin-right: auto;
+}
+
+.portal-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--m-text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.portal-check input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  accent-color: var(--m-primary);
+}
+
+/* ---- The sign-in screen: no navigation, a card, the desk's name ---------- */
+
+.portal-login {
+  display: flex;
+  width: 100%;
+  max-width: 420px;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+}
+
+.portal-login__desk {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.portal-login__card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border: 1px solid var(--m-border);
+  border-radius: 20px;
+  background: var(--m-surface);
+  padding: 28px;
+}
+
+.portal-login__card h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.portal-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-surface-2);
+  padding: 12px 14px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.portal-note svg {
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.portal-owes {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+}
+
+/* The most important fact on the invoices page, in the most important size. */
+.portal-owes__amount {
+  font-size: 32px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Key/value lines (invoice and quote totals) ------------------------- */
+
+.portal-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 14px;
+}
+
+.portal-kv span:first-child {
+  color: var(--m-text-secondary);
+}
+
+.portal-kv span:last-child {
+  font-weight: 600;
+}
+
+.portal-total {
+  display: flex;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-top: 1px solid var(--m-border);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.portal-total span:last-child {
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-line-head,
+.portal-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px 110px;
+  gap: 12px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--m-border);
+}
+
+.portal-line-head {
+  background: var(--m-canvas);
+  color: var(--m-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.portal-line-head span:not(:first-child),
+.portal-line span:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-line span:first-child {
+  font-weight: 500;
+}
+
+/* ---- Reading page (a help article in the same column) -------------------- */
+
+.portal-article {
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.portal-article h2 {
+  margin: 28px 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.portal-article p {
+  margin: 0 0 12px;
+}
+
+.portal-article ul {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.portal-article li {
+  margin-bottom: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-nav__link,
+  .portal-account__button,
+  .portal-btn,
+  .portal-row,
+  .portal-choice,
+  .portal-scale button,
+  .portal-menu__option {
+    transition: none;
+  }
+}

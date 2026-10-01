@@ -37,10 +37,15 @@ fn validate_email(email: &str) -> ApiResult<()> {
 }
 
 fn validate_password(pw: &str) -> ApiResult<()> {
-    if pw.len() < 10 {
-        return Err(ApiError::Validation(
-            "password must be at least 10 characters".into(),
-        ));
+    // The SAME floor the staff validator enforces, cited rather than retyped:
+    // an account reached through the portal and one reached through /login are
+    // the same kind of account, and a rule that differed by entry point would
+    // be a way around it.
+    if pw.len() < crate::auth::handlers::MIN_PASSWORD_LEN {
+        return Err(ApiError::Validation(format!(
+            "password must be at least {} characters",
+            crate::auth::handlers::MIN_PASSWORD_LEN
+        )));
     }
     Ok(())
 }

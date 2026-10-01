@@ -10,7 +10,7 @@
 //! - Recovery codes are argon2id-hashed, single-use IN SQL, revealed once.
 //! - Disable/regenerate require password + a current second factor.
 
-use crate::auth::handlers::{audit_best_effort, issue_tokens};
+use crate::auth::handlers::{audit_best_effort, issue_tokens, issue_tokens_with_refresh_ttl};
 use crate::auth::hardening::{enforce_gate, record_failure, record_success, GateSubject};
 use crate::auth::{
     jwt, password, totp_service,
@@ -362,6 +362,14 @@ pub struct MfaVerifyRequest {
     pub mfa_token: String,
     /// TOTP code or recovery code.
     pub code: String,
+    /// "Trust this computer": keep this browser signed in for
+    /// `TRUSTED_DEVICE_TTL_SECS` instead of the default refresh window.
+    ///
+    /// `#[serde(default)]` so every existing client keeps working unchanged —
+    /// an absent field means "do not trust", which is the conservative answer
+    /// and the one a caller that never heard of the option should get.
+    #[serde(default)]
+    pub trust_device: bool,
 }
 
 /// POST /api/auth/mfa/verify — completes an MFA-gated login with a TOTP or
@@ -377,6 +385,14 @@ pub async fn mfa_verify(
 ) -> ApiResult<axum::response::Response> {
     let (user_id, org_id) = jwt::verify_mfa_pending_token(&state.config, &req.mfa_token)
         .ok_or_else(|| ApiError::Unauthorized("mfa session expired".into()))?;
+    // "Trust this computer" only ever LENGTHENS the refresh window. It is
+    // resolved once, here, so both success paths below (TOTP and recovery code)
+    // honour the same choice and neither can drift.
+    let refresh_ttl_secs = if req.trust_device {
+        crate::auth::handlers::TRUSTED_DEVICE_TTL_SECS
+    } else {
+        state.config.refresh_ttl_secs
+    };
 
     // Durable throttles keyed on the bridge identity + IP (typed 429 —
     // the caller proved possession of a live mfa_pending bridge, so the
@@ -405,7 +421,18 @@ pub async fn mfa_verify(
     )
     .await?
     {
-        Some(step) => finish_mfa_login(tx, &state, org_id, user_id, "totp", step).await,
+        Some(step) => {
+            finish_mfa_login(
+                tx,
+                &state,
+                org_id,
+                user_id,
+                "totp",
+                step,
+                refresh_ttl_secs,
+            )
+            .await
+        }
         None => match match_recovery_code(&mut tx, user_id, req.code.trim()).await? {
             Some(code_id) => {
                 // Single-use is enforced atomically in SQL.
@@ -432,7 +459,9 @@ pub async fn mfa_verify(
                     GateSubject::User(user_id),
                 )
                 .await;
-                let tokens = issue_tokens(&state, user_id, org_id, None).await?;
+                let tokens =
+                    issue_tokens_with_refresh_ttl(&state, user_id, org_id, None, refresh_ttl_secs)
+                        .await?;
                 Ok(mfa_tokens_response(&state, tokens))
             }
             None => {
@@ -457,6 +486,7 @@ async fn finish_mfa_login(
     user_id: Uuid,
     method: &str,
     matched_step: i64,
+    refresh_ttl_secs: i64,
 ) -> ApiResult<axum::response::Response> {
     let mut tx = tx;
     audit_in_tx(
@@ -470,7 +500,7 @@ async fn finish_mfa_login(
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
-    let tokens = issue_tokens(state, user_id, org_id, None).await?;
+    let tokens = issue_tokens_with_refresh_ttl(state, user_id, org_id, None, refresh_ttl_secs).await?;
     Ok(mfa_tokens_response(state, tokens))
 }
 

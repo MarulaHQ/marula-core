@@ -461,6 +461,104 @@ where
     Ok(())
 }
 
+// --- portal magic-link tokens (migration 0119) --------------------------------
+//
+// The portal's own one-use token table. It is SEPARATE from the staff
+// `auth_one_use_tokens` because that table's `user_id` is a hard foreign key to
+// `users(id)` and a portal identity lives in `portal_users`; see the migration
+// header for why that FK is not loosened instead.
+//
+// The claim goes through a SECURITY DEFINER bridge rather than a plain
+// UPDATE-then-SELECT, because the claim must be race-proof (the UPDATE is the
+// claim) and because the caller has no org scope set on a pre-auth request.
+
+/// What a claimed portal link resolves to: the identity, its org, and the
+/// client whose data the session may then read.
+#[derive(Debug, Clone, Copy)]
+pub struct PortalTokenResolution {
+    pub portal_user_id: Uuid,
+    pub org_id: Uuid,
+    pub client_id: Uuid,
+}
+
+/// A new one-use token row. `token_hash` is sha256 hex — the raw token never
+/// persists, matching the refresh-token and staff-link posture.
+pub struct PutPortalToken<'a> {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub portal_user_id: Uuid,
+    pub kind: &'a str,
+    pub token_hash: &'a str,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn put_portal_one_use_token<'e, E>(executor: E, t: PutPortalToken<'_>) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    // Plain INSERT: the caller sets the org GUC first, so RLS admits the write
+    // without the row bypassing the policy.
+    sqlx::query(
+        r#"INSERT INTO portal_auth_one_use_tokens
+             (id, org_id, portal_user_id, kind, token_hash, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6)"#,
+    )
+    .bind(t.id)
+    .bind(t.org_id)
+    .bind(t.portal_user_id)
+    .bind(t.kind)
+    .bind(t.token_hash)
+    .bind(t.expires_at)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Spends a token. Returns `None` for an unknown, already-used, expired, or
+/// disabled-identity token — the four cases are deliberately indistinguishable
+/// to the caller, so a probed token learns nothing.
+pub async fn consume_portal_one_use_token(
+    pool: &sqlx::PgPool,
+    kind: &str,
+    token_hash: &str,
+) -> DbResult<Option<PortalTokenResolution>> {
+    let row: Option<(Uuid, Uuid, Uuid)> = sqlx::query_as(
+        "SELECT portal_user_id, org_id, client_id FROM app_consume_portal_one_use_token($1, $2)",
+    )
+    .bind(kind)
+    .bind(token_hash)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(portal_user_id, org_id, client_id)| PortalTokenResolution {
+        portal_user_id,
+        org_id,
+        client_id,
+    }))
+}
+
+/// Retires every live token of one kind for one identity. Asking for a fresh
+/// link invalidates the previous one, so an older link in a forwarded thread
+/// stops working — the same rule the staff magic-link flow uses.
+pub async fn invalidate_portal_one_use_tokens<'e, E>(
+    executor: E,
+    portal_user_id: Uuid,
+    kind: &str,
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    sqlx::query(
+        r#"UPDATE portal_auth_one_use_tokens
+              SET used_at = now()
+            WHERE portal_user_id = $1 AND kind = $2 AND used_at IS NULL"#,
+    )
+    .bind(portal_user_id)
+    .bind(kind)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 // --- portal v2 appointment requests ---------------------------------------------
 //
 // The intent row between a client portal user and a staff calendar (see

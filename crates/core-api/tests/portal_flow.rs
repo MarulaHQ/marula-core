@@ -756,3 +756,258 @@ async fn portal_admin_can_disable_and_delete_portal_users() {
         "deleted identity's outstanding token is dead"
     );
 }
+
+// --- portal magic-link sign-in (Wave 41 lane 13) ------------------------------
+//
+// The link is the client's primary way in, so its guarantees are pinned here
+// rather than left to inspection:
+//
+//   1. the REQUEST half never reveals whether an address is a client contact
+//      (one answer for a real contact, an invited contact, an unknown address
+//      and a disabled contact alike);
+//   2. redemption is SINGLE-USE — a replay is the same 401 as a forgery;
+//   3. a link minted before a contact was DISABLED does not work, because the
+//      claim itself carries the standing check;
+//   4. an EXPIRED link does not work;
+//   5. a redeemed link issues PORTAL tokens, and they are the only kind: the
+//      bearer must pass `require_portal_auth` and must fail the staff guard.
+
+/// Seeds a live portal link with a known raw token, so redemption can be driven
+/// without reading the mail ledger. The server stores only sha256(token).
+async fn seed_portal_link(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    portal_user_id: Uuid,
+    kind: &str,
+    expires: &str,
+) -> String {
+    let raw: String = format!(
+        "{:064x}",
+        (Uuid::now_v7().as_u128() << 64) | Uuid::now_v7().as_u128()
+    );
+    use sha2::{Digest, Sha256};
+    let hash = hex::encode(Sha256::digest(raw.as_bytes()));
+    sqlx::query(
+        "INSERT INTO portal_auth_one_use_tokens \
+           (id, org_id, portal_user_id, kind, token_hash, expires_at) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(org_id)
+    .bind(portal_user_id)
+    .bind(kind)
+    .bind(&hash)
+    .bind(expires)
+    .execute(pool)
+    .await
+    .expect("portal link row");
+    raw
+}
+
+#[tokio::test]
+async fn portal_magic_link_is_single_use_portal_scoped_and_status_aware() {
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&admin_url)
+        .await
+        .expect("pool");
+    core_db::run_migrations(&pool).await.expect("migrations");
+
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
+    let org = seed_org(&app, &tag).await;
+    let contact =
+        invite_portal_user(&app, &org.token, &org.client_a, "link@a.test", "contact").await;
+    let portal_user_id: Uuid =
+        Uuid::parse_str(contact["portal_user"]["id"].as_str().unwrap()).expect("uuid");
+    // The org comes off the portal user row rather than a shared helper, so
+    // this test needs no change to `seed_org`.
+    let org_id: Uuid = sqlx::query_scalar("SELECT org_id FROM portal_users WHERE id = $1")
+        .bind(portal_user_id)
+        .fetch_one(&pool)
+        .await
+        .expect("org for the portal user");
+
+    // (1) ENUMERATION. Every address gets the same answer, whether or not it
+    //     belongs to a client of this service desk.
+    for address in ["link@a.test", "nobody@nowhere.test", "malformed"] {
+        let response = send(
+            &app,
+            axum::http::Method::POST,
+            "/api/portal/magic-link/request",
+            None,
+            Some(json!({ "email": address })),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            200,
+            "request must answer 200 for {address} — the answer cannot depend on the address"
+        );
+        assert_eq!(body_json(response).await["ok"], json!(true));
+    }
+    // A DISABLED contact is not a candidate for a link at all, and says so the
+    // same way.
+    sqlx::query("UPDATE portal_users SET status = 'disabled' WHERE id = $1")
+        .bind(portal_user_id)
+        .execute(&pool)
+        .await
+        .expect("disable");
+    let disabled = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/magic-link/request",
+        None,
+        Some(json!({ "email": "link@a.test" })),
+    )
+    .await;
+    assert_eq!(disabled.status(), 200);
+    let minted_for_disabled: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM portal_auth_one_use_tokens WHERE portal_user_id = $1",
+    )
+    .bind(portal_user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("count");
+    assert_eq!(
+        minted_for_disabled, 0,
+        "a disabled contact must never be sent a sign-in link"
+    );
+    sqlx::query("UPDATE portal_users SET status = 'invited' WHERE id = $1")
+        .bind(portal_user_id)
+        .execute(&pool)
+        .await
+        .expect("re-invite");
+
+    // A link minted BEFORE the disable must not work afterwards. This is the
+    // claim's own status check, not a pre-read, so there is no window.
+    let pre_disable = seed_portal_link(
+        &pool,
+        org_id,
+        portal_user_id,
+        "portal_magic_link",
+        "clock_timestamp() + interval '10 minutes'",
+    )
+    .await;
+    sqlx::query("UPDATE portal_users SET status = 'disabled' WHERE id = $1")
+        .bind(portal_user_id)
+        .execute(&pool)
+        .await
+        .expect("disable again");
+    let refused = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/magic-link/confirm",
+        None,
+        Some(json!({ "token": pre_disable })),
+    )
+    .await;
+    assert_eq!(
+        refused.status(),
+        axum::http::StatusCode::UNAUTHORIZED,
+        "a link minted before the account was disabled must not sign in"
+    );
+    sqlx::query("UPDATE portal_users SET status = 'invited' WHERE id = $1")
+        .bind(portal_user_id)
+        .execute(&pool)
+        .await
+        .expect("re-invite again");
+
+    // (4) An EXPIRED link is refused.
+    let expired = seed_portal_link(
+        &pool,
+        org_id,
+        portal_user_id,
+        "portal_magic_link",
+        "clock_timestamp() - interval '1 minute'",
+    )
+    .await;
+    let stale = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/magic-link/confirm",
+        None,
+        Some(json!({ "token": expired })),
+    )
+    .await;
+    assert_eq!(stale.status(), axum::http::StatusCode::UNAUTHORIZED);
+
+    // (2) + (5) Redemption works once and issues PORTAL tokens.
+    let live = seed_portal_link(
+        &pool,
+        org_id,
+        portal_user_id,
+        "portal_magic_link",
+        "clock_timestamp() + interval '10 minutes'",
+    )
+    .await;
+    let first = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/magic-link/confirm",
+        None,
+        Some(json!({ "token": live })),
+    )
+    .await;
+    assert_eq!(first.status(), axum::http::StatusCode::OK);
+    let body = body_json(first).await;
+    let access = body["access_token"].as_str().expect("access token").to_string();
+    assert_eq!(
+        body["portal_user"]["email"], json!("link@a.test"),
+        "the link resolves to the identity it was minted for"
+    );
+    // First sign-in through a link activates an invited contact, exactly as
+    // the password path does.
+    assert_eq!(body["portal_user"]["id"], json!(portal_user_id.to_string()));
+
+    // The minted token is PORTAL family: it passes the portal guard…
+    let me = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/portal/me",
+        Some(&access),
+        None,
+    )
+    .await;
+    assert_eq!(me.status(), 200, "a portal link must mint a portal session");
+    // …and fails the staff guard, so the two families stay crossed out.
+    let staff = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/v1/tickets",
+        Some(&access),
+        None,
+    )
+    .await;
+    assert_eq!(
+        staff.status(),
+        401,
+        "a portal token must never pass the staff guard"
+    );
+
+    // REPLAY: the same link again is the same 401 as a forgery.
+    let replay = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/magic-link/confirm",
+        None,
+        Some(json!({ "token": live })),
+    )
+    .await;
+    assert_eq!(replay.status(), axum::http::StatusCode::UNAUTHORIZED);
+
+    // A FORGED token (never stored) is indistinguishable from a used one.
+    let forged = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/magic-link/confirm",
+        None,
+        Some(json!({ "token": format!("{:064x}", Uuid::now_v7().as_u128()) })),
+    )
+    .await;
+    assert_eq!(forged.status(), axum::http::StatusCode::UNAUTHORIZED);
+}

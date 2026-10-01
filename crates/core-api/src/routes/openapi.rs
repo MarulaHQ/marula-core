@@ -471,6 +471,8 @@ use utoipa::OpenApi;
         crate::routes::integrations::apply_feed,
         crate::routes::portal::login,
         crate::routes::portal::refresh,
+        crate::routes::portal::magic_link_request,
+        crate::routes::portal::magic_link_confirm,
         crate::routes::portal::me,
         crate::routes::portal::list_tickets,
         crate::routes::portal::get_ticket,

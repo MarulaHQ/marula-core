@@ -657,6 +657,15 @@ pub struct AcceptInviteRequest {
     pub password: String,
     #[serde(default)]
     pub timezone: Option<String>,
+    /// What the invitee wants to be called.
+    ///
+    /// The invitation carries an ADDRESS, not a name, so this is the first
+    /// moment a person can state their own name for their own account. Absent
+    /// or blank leaves whatever the inviter recorded untouched, so an older
+    /// client (or a link opened by someone who did not fill the field in)
+    /// changes nothing rather than blanking a name somebody else set.
+    #[serde(default)]
+    pub display_name: Option<String>,
 }
 
 /// POST /api/org/users/accept-invite — public invite redemption: set the
@@ -688,6 +697,22 @@ pub async fn accept_invite(
     let password_hash = crate::auth::password::hash(&req.password)
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("password hashing failed: {e}")))?;
 
+    // A blank or absent name is "no opinion", not "clear it": the inviter may
+    // already have recorded a name, and an empty box must not erase it.
+    let display_name = req
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string);
+    if let Some(name) = display_name.as_deref() {
+        if name.chars().count() > 200 {
+            return Err(ApiError::Validation(
+                "display_name must be 200 characters or fewer".into(),
+            ));
+        }
+    }
+
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         // Re-verify single-use within the scoped tx (race-proof: the
         // UPDATE is the claim).
@@ -700,6 +725,16 @@ pub async fn accept_invite(
         core_db::org_users::complete_invite(&mut *ctx.tx, org_id, user_id, &password_hash)
             .await
             .map_err(ApiError::from)?;
+        // In the same transaction as the activation, so an account is never
+        // active under one name and then renamed by a second, separately
+        // failing write. `update_profile` leaves the timezone alone when it is
+        // None, and the account is already `is_active` by this point (set by
+        // `complete_invite` above), so its `is_active` filter matches.
+        if let Some(name) = display_name.as_deref() {
+            core_db::users::update_profile(&mut *ctx.tx, user_id, Some(name), None)
+                .await
+                .map_err(ApiError::from)?;
+        }
         core_db::audit::insert(
             &mut *ctx.tx,
             &AuditEvent {
@@ -709,7 +744,7 @@ pub async fn accept_invite(
                 action: "org_user.accept_invite".into(),
                 entity_type: Some("user".into()),
                 entity_id: Some(user_id.to_string()),
-                detail: serde_json::json!({}),
+                detail: serde_json::json!({ "display_name_set": display_name.is_some() }),
                 ip: None,
                 occurred_at: chrono::Utc::now(),
             },

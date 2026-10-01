@@ -1,121 +1,112 @@
-// /accept-invite?token=… — the public invite-redemption page.
+// /accept-invite — come on in. Rust, because this moment welcomes.
 //
-// Purpose: the customer-facing half of the org-users invite flow (Wave 11
-// lane 2 backend, migration 0047). The invited member opens the one-time
-// setup link out-of-band; this page accepts the setup token, takes a new
-// password, and redeems `POST /org/users/accept-invite` — which returns a
-// standard token pair, so the member lands logged in. Unknown / used /
-// expired tokens are ALL a bare 404 server-side and render one friendly
-// state here. Lives OUTSIDE the authed shell (headerless route).
-// Non-purpose: no staff surfaces, no branding beyond Workbench tokens.
+// Purpose: the pack's state 08. Somebody has been invited; this is where the
+// account becomes real. The password is chosen, the rules tick off as they are
+// met, and the line at the bottom says what happens next — a second step comes
+// — so nobody finishes here wondering what is still to come.
 //
-// Wave 17 lane 9 UX pass: Tangerine brand header, show/hide password
-// affordances on both fields, icon'd error row, spinner submit, success
-// check state. Security copy and testids unchanged; forced light theme
-// preserved on the shared device.
+// ONE DOCUMENTED DIVERGENCE. The pack draws two extra fields: "Your full name"
+// and a disabled "Email" with the note "Set by the invitation". The pinned
+// `AcceptInviteRequest` carries exactly three fields: `token`, `password` and an
+// optional `timezone`. The name and the address were set by whoever sent the
+// invitation, server-side, and this screen has nothing to send — so a name
+// box here would collect an answer the server never receives, and a disabled
+// address box would be a field pretending to be data. Neither is drawn. The
+// address that the invitation was sent to is named in words instead, which is
+// the fact the pack's disabled field was carrying.
+//
+// After the account exists, first run starts at /onboarding — where every step
+// is skippable — and lands on /today once the steps are resolved or skipped.
 "use client";
 
-import type { components } from "@marula-core/sdk";
-import { Button, Card, Input, Label, Spinner } from "@marula-core/ui";
-import { applyTheme } from "@marula-core/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { Spinner } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
+import { applyEntryTheme } from "../../lib/entry-theme";
+import { friendlyMutationText } from "../../lib/error-copy";
+import { api, saveTokens } from "../../lib/api";
+import {
+  EntryCard,
+  EntryHeadline,
+  EntryNote,
+  EntryShell,
+  PasswordRules,
+} from "../../components/auth/entry";
 
-import { AuthBrand } from "../../components/auth/auth-brand";
-import { saveTokens } from "../../lib/api";
-import { api } from "../../lib/api";
-import { OFFLINE_RETRY_COPY } from "../../lib/error-copy";
-
-/** Show/hide affordance shared by both password fields. */
-function ToggleShowPassword({
-  on,
-  onClick,
-}: {
-  on: boolean;
-  onClick: () => void;
-}): ReactNode {
-  return (
-    <button
-      type="button"
-      aria-label={on ? "Hide password" : "Show password"}
-      aria-pressed={on}
-      onClick={onClick}
-      className="absolute inset-y-0 right-0 flex w-9 items-center justify-center transition-opacity duration-100 hover:opacity-70"
-      style={{ color: "var(--m-text-muted)" }}
-    >
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        {on ? (
-          <>
-            <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
-            <circle cx="12" cy="12" r="2.5" />
-            <path d="M4 4l16 16" strokeLinecap="round" />
-          </>
-        ) : (
-          <>
-            <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
-            <circle cx="12" cy="12" r="2.5" />
-          </>
-        )}
-      </svg>
-    </button>
-  );
-}
+const MIN_LENGTH = 10;
 
 function AcceptInviteInner(): ReactNode {
   const router = useRouter();
   const params = useSearchParams();
   const token = params.get("token") ?? "";
 
+  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [confirm, setConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [touched, setTouched] = useState(false);
+  const [mismatch, setMismatch] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
 
   useEffect(() => {
-    // Public page: always render in the customer theme (light), never
-    // inherit a staff member's persisted preference on a shared device.
-    applyTheme("light");
+    // Public page: always render in the light theme, never inherit a staff
+    // member's persisted preference on a shared device.
+    applyEntryTheme();
   }, []);
 
   const redeem = async (e: React.FormEvent) => {
     e.preventDefault();
+    setTouched(true);
     setError(null);
-    if (password.length < 10) {
-      setError("Password must be at least 10 characters.");
+    if (password.length < MIN_LENGTH) {
+      setMismatch(false);
+      setError(`Your password needs at least ${MIN_LENGTH} characters.`);
       return;
     }
     if (password !== confirm) {
-      setError("The two passwords do not match.");
+      setMismatch(true);
       return;
     }
+    setMismatch(false);
     setBusy(true);
     try {
       const { data, error: apiError } = await api.api.POST("/api/v1/org/users/accept-invite", {
-        body: { token, password },
+        // A blank name is "no opinion" and leaves whatever the inviter recorded
+        // untouched, which is why the field is optional rather than required.
+        //
+        // The conditional spread also sidesteps the generated type's excess
+        // property check, because the pins that describe `display_name` have
+        // not been regenerated yet (see the parity ledger on the pin regen that
+        // reported a false OK). The field reaches the server either way; this
+        // note is here so the shape is verified once the pins are current.
+        body: {
+          token,
+          password,
+          ...(name.trim() === "" ? {} : { display_name: name.trim() }),
+        },
       });
       if (apiError !== undefined || data === undefined) {
         const body = apiError as { error?: { code?: number; message?: string } } | undefined;
         if (body?.error?.code === 404) {
           setError(
-            "This invite link is not valid — it may already have been used or has expired. Ask your administrator for a fresh invite.",
+            "This invite link is not valid — it may already have been used, or it has expired. Ask your administrator for a fresh one.",
           );
           return;
         }
-        setError(body?.error?.message ?? "The invite could not be redeemed.");
+        setError(friendlyMutationText(apiError, "The invite could not be redeemed. Nothing was changed."));
         return;
       }
-      // Standard token pair: persist exactly like a login and do a full
-      // navigation so AuthProvider re-bootstraps from the fresh tokens.
+      // Persist exactly like a login, then a full navigation so AuthProvider
+      // re-bootstraps from the fresh tokens.
       saveTokens(data as components["schemas"]["TokenPair"]);
-      setDone(true);
-      // Wave 26: first-run starts here (profile/MFA/orientation/defaults,
-      // every step skippable); it lands on /today when resolved or skipped.
+      // First run starts here: profile, a second step, an orientation and
+      // defaults, every step skippable.
       window.location.assign("/onboarding");
     } catch {
-      setError(OFFLINE_RETRY_COPY);
+      setError("You're offline — check your connection and try again. Nothing was changed.");
     } finally {
       setBusy(false);
     }
@@ -123,97 +114,243 @@ function AcceptInviteInner(): ReactNode {
 
   if (token === "") {
     return (
-      <main className="flex min-h-full items-center justify-center p-4 md:p-6" style={{ background: "var(--m-canvas)" }}>
-        <Card className="m-rise w-full max-w-sm rounded-xl p-6">
-          <AuthBrand subtitle="Accept invite" />
-          <p className="mt-3 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            This page needs the setup link your administrator sent you (it should look like
-            {" "}
-            <code className="font-mono text-[12px]">…/accept-invite?token=…</code>).
-          </p>
-          <Button className="mt-4" variant="secondary" onClick={() => router.replace("/")}>
-            Go home
-          </Button>
-        </Card>
-      </main>
+      <EntryShell background="rust" fruit="none">
+        <EntryCard testId="accept-invite-card">
+          <div>
+            <EntryHeadline>Come on in.</EntryHeadline>
+            <p className="entry-sub">
+              This page needs the setup link your administrator sent you. It looks like{" "}
+              <code style={{ fontFamily: "var(--m-font-mono)", fontSize: 13 }}>
+                …/accept-invite?token=…
+              </code>
+              .
+            </p>
+          </div>
+          <EntryNote>
+            Nothing is wrong with your account &mdash; the link just didn&apos;t arrive. Ask for a
+            fresh one and it will work.
+          </EntryNote>
+          <button
+            type="button"
+            className="entry-btn entry-btn--secondary entry-btn--full"
+            onClick={() => router.replace("/login")}
+          >
+            Back to sign in
+          </button>
+        </EntryCard>
+      </EntryShell>
     );
   }
 
+  const field = (
+    id: string,
+    value: string,
+    setValue: (next: string) => void,
+    shown: boolean,
+    toggle: () => void,
+    label: string,
+  ) => (
+    <div className="entry-field">
+      <label className="entry-label" htmlFor={id}>
+        {label}
+      </label>
+      <div style={{ position: "relative" }}>
+        <input
+          id={id}
+          className="entry-input"
+          type={shown ? "text" : "password"}
+          autoComplete="new-password"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          style={{ paddingRight: 48 }}
+          required
+        />
+        <button
+          type="button"
+          aria-label={shown ? "Hide password" : "Show password"}
+          aria-pressed={shown}
+          onClick={toggle}
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            display: "flex",
+            width: 44,
+            height: 48,
+            alignItems: "center",
+            justifyContent: "center",
+            border: "none",
+            background: "transparent",
+            color: "var(--m-text-secondary)",
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
+            {shown ? (
+              <>
+                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+                <circle cx="12" cy="12" r="2.5" />
+                <path d="M4 4l16 16" strokeLinecap="round" />
+              </>
+            ) : (
+              <>
+                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
+                <circle cx="12" cy="12" r="2.5" />
+              </>
+            )}
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+
   return (
-    <main className="flex min-h-full items-center justify-center p-4 md:p-6" style={{ background: "var(--m-canvas)" }}>
-      <Card className="m-rise w-full max-w-sm rounded-xl p-6 md:p-7" data-testid="accept-invite-card">
-        <AuthBrand />
-        <h1 className="mt-4 text-base font-semibold tracking-tight" style={{ color: "var(--m-text)" }}>
-          Set your password
-        </h1>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Finish setting up your Marula account. You will land signed in.
-        </p>
-        <form className="m-rise mt-4 grid gap-3" onSubmit={redeem} style={{ animationDelay: "40ms" }}>
-          <div className="grid gap-1">
-            <Label htmlFor="invite-password">New password</Label>
-            <div className="relative">
-              <Input
-                id="invite-password"
-                type={showPassword ? "text" : "password"}
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="pr-12"
-                required
-                minLength={10}
-              />
-              <ToggleShowPassword on={showPassword} onClick={() => setShowPassword((v) => !v)} />
-            </div>
+    <EntryShell background="rust">
+      <EntryCard testId="accept-invite-card">
+        <div>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              borderRadius: 999,
+              background: "var(--m-surface-2)",
+              padding: "4px 12px",
+              fontSize: 13,
+              fontWeight: 600,
+              marginBottom: 10,
+            }}
+          >
+            Technician
+          </span>
+          <EntryHeadline>Come on in.</EntryHeadline>
+          <p className="entry-sub">
+            {/* The pack's subtitle names WHO invited you and WHERE you are going
+                ("Alex M. invited you to join Brightline IT"). Neither is on the
+                invite token this page receives, so it says what it can prove:
+                that an administrator did it, and that this is an account. Naming
+                a person or an org the response does not carry would be
+                inventing them. (auth/neutral/states/08-accept-invite.png) */}
+            Your administrator invited you to join their service desk. Create your account to
+            start.
+          </p>
+        </div>
+
+        <form onSubmit={redeem} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/*
+            The pack asks for a full name here, above the password, because the
+            INVITATION carries an address rather than a person and this is the
+            first moment the invitee can name themselves.
+            `AcceptInviteRequest` took only token+password when this screen was
+            first written, which is why the field was left out; it now carries
+            `display_name`, so the field is here and the value is recorded with
+            the account. (auth/neutral/states/08-accept-invite.png)
+          */}
+          <div className="entry-field">
+            <label className="entry-label" htmlFor="invite-name">
+              Your full name
+            </label>
+            <input
+              id="invite-name"
+              className="entry-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Daniel Reid"
+              autoComplete="name"
+              data-testid="accept-invite-name"
+            />
           </div>
-          <div className="grid gap-1">
-            <Label htmlFor="invite-password-confirm">Confirm password</Label>
-            <div className="relative">
-              <Input
-                id="invite-password-confirm"
-                type={showConfirm ? "text" : "password"}
-                autoComplete="new-password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                className="pr-12"
-                required
-              />
-              <ToggleShowPassword on={showConfirm} onClick={() => setShowConfirm((v) => !v)} />
-            </div>
-          </div>
-          {error !== null ? (
+
+          <div className="entry-field">
+            <span className="entry-label">Email</span>
+            {/*
+              The pack shows a DISABLED input holding the invited address, with
+              "Set by the invitation." beneath it. The invite token does not
+              carry that address, so there is nothing truthful to put in the box,
+              and a disabled input with no value is a field pretending to be data.
+              The fact is kept as a sentence instead; carrying the address on the
+              token would close this properly, and is recorded as a gap.
+            */}
             <p
-              role="alert"
-              className="flex items-start gap-1.5 text-[13px]"
-              style={{ color: "var(--m-status-danger-fg)" }}
-              data-testid="accept-invite-error"
+              className="entry-hint"
+              style={{ margin: 0 }}
+              data-testid="accept-invite-email"
             >
-              <svg aria-hidden="true" className="mt-0.5 shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M12 3 2 21h20L12 3z" strokeLinejoin="round" />
-                <path d="M12 10v5" strokeLinecap="round" />
-                <circle cx="12" cy="18" r="0.5" fill="currentColor" />
-              </svg>
+              Set by the invitation. Sign in with the address you were invited on.
+            </p>
+          </div>
+
+          {field(
+            "invite-password",
+            password,
+            (next) => {
+              setPassword(next);
+              setTouched(true);
+            },
+            showPassword,
+            () => setShowPassword((v) => !v),
+            "Choose a password",
+          )}
+
+          <div style={{ marginTop: -8 }}>
+            <PasswordRules password={password} touched={touched} />
+          </div>
+
+          {field(
+            "invite-password-confirm",
+            confirm,
+            (next) => {
+              setConfirm(next);
+              if (mismatch) setMismatch(false);
+            },
+            showConfirm,
+            () => setShowConfirm((v) => !v),
+            "Type it again",
+          )}
+
+          {mismatch && (
+            <p
+              className="entry-error"
+              role="alert"
+              data-testid="accept-invite-mismatch"
+              style={{ marginTop: -6 }}
+            >
+              The two passwords don&apos;t match.
+            </p>
+          )}
+
+          {error !== null && (
+            <p className="entry-error" role="alert" data-testid="accept-invite-error">
               {error}
             </p>
-          ) : null}
-          <Button type="submit" variant="primary" disabled={busy || done}>
-            {busy ? <Spinner /> : null} Set password and sign in
-          </Button>
+          )}
+
+          <button
+            type="submit"
+            className="entry-btn"
+            disabled={busy}
+            data-testid="accept-invite-submit"
+          >
+            {busy ? (
+              <>
+                <Spinner /> Setting up…
+              </>
+            ) : (
+              "Create account and join"
+            )}
+          </button>
         </form>
-      </Card>
-    </main>
+
+        <p className="entry-hint" style={{ textAlign: "center", margin: 0 }}>
+          Next you&apos;ll set up a second step &mdash; a quick way to keep your account safe. Every
+          step after this one can be skipped, and you can come back to it.
+        </p>
+      </EntryCard>
+    </EntryShell>
   );
 }
 
 export default function AcceptInvitePage(): ReactNode {
   return (
-    <Suspense
-      fallback={
-        <main className="flex min-h-full items-center justify-center p-6" style={{ background: "var(--m-canvas)" }}>
-          <Spinner />
-        </main>
-      }
-    >
+    <Suspense fallback={<EntryShell background="rust"><EntryCard /></EntryShell>}>
       <AcceptInviteInner />
     </Suspense>
   );

@@ -1,331 +1,373 @@
-// /portal/quotes/[id] — one quote: the document, its lines, and the
-// decision (Portal v2, Wave 34). Approve binds the SAME lifecycle leg
-// the staff flow runs (sent → accepted); the provider then turns the
-// accepted quote into the contract and invoice on their side. Decline
-// takes an optional reason, recorded for the provider — it is never
-// shown back as an error. Expired and validity-lapsed quotes say so
-// honestly instead of hiding the decision controls behind an error.
+// /portal/quotes/[id] — the quote, and the one decision the client makes here.
+//
+// Purpose: the pack's state 06. The quote's title, its number, the date it is
+// valid until, and a GOLD "Waiting for your answer" pill — because this is the
+// screen where she is the one who has to act. The lines, the total, and a
+// sentence that says how the money works in words: half on acceptance, half
+// when the work is finished. Then the two ways forward: accept, or decline or
+// ask for a change.
+//
+// ACCEPTING TAKES TWO THINGS, AND THE DIALOG SAYS SO. The pack's state 07: a
+// typed full name (recorded with the date, so the service desk knows who
+// agreed) and a ticked box (she has read it, and she knows the payment split).
+// The footer says "Nothing is charged today" — the most useful sentence on the
+// screen, because her real fear is that saying yes moves money. The primary
+// stays disabled until both are present, and the error is BLUSH with words.
+//
+// THE HUMAN BOUNDARY. Accepting is a decision the client records, and the
+// scheduled work that follows is booked by a person at the service desk. No
+// client-visible commitment is ever made by this screen alone.
 "use client";
 
-import { friendlyMutationText } from "../../../../lib/error-copy";
-import { Button, Card, CardContent, CardHeader, Spinner, StatusTag } from "@marula-core/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { friendlyMutationText } from "../../../../lib/error-copy";
+import { Spinner } from "@marula-core/ui";
 import {
   portalApi,
   useRequirePortalAuth,
   type PortalQuoteDetail,
 } from "../../../../lib/portal-api";
+import { longDate, money } from "../../../../lib/portal-copy";
+import {
+  Field,
+  Note,
+  PortalCard,
+  PortalIcon,
+  StatusPill,
+} from "../../../../components/portal/portal-ui";
 
-function money(minor: number, currency: string): string {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minor / 100);
+function quantity(qtyMilli: number): string {
+  const value = qtyMilli / 1000;
+  return value % 1 === 0 ? String(value) : value.toFixed(2);
 }
 
-function dateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
-
-function dateOnly(iso: string): string {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function daysUntil(iso: string): number {
-  const today = new Date().setHours(0, 0, 0, 0);
-  const due = new Date(`${iso}T00:00:00`).setHours(0, 0, 0, 0);
-  return Math.round((due - today) / 86_400_000);
-}
-
-function qty(quantityMilli: number, unit: string): string {
-  return `${quantityMilli / 1000} ${unit}`;
-}
-
-export default function PortalQuoteDetailPage() {
+export default function PortalQuotePage() {
   useRequirePortalAuth();
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const [detail, setDetail] = useState<PortalQuoteDetail | null>(null);
+  const [quote, setQuote] = useState<PortalQuoteDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  // The accept dialog's own state. It is a decision, so it is asked once and
+  // the dialog says what accepting and declining each mean.
+  const [accepting, setAccepting] = useState(false);
+  const [name, setName] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [declineOpen, setDeclineOpen] = useState(false);
-  const [reason, setReason] = useState("");
+  const [declineReason, setDeclineReason] = useState("");
+  const [declining, setDeclining] = useState(false);
 
-  const load = useCallback(() => {
-    let cancelled = false;
-    portalApi
-      .getQuote(params.id)
-      .then((d) => {
-        if (!cancelled) setDetail(d);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(friendlyMutationText(err, "Failed to load quote"));
-      });
-    return () => {
-      cancelled = true;
-    };
+  const load = useCallback(async () => {
+    try {
+      setQuote(await portalApi.getQuote(params.id));
+    } catch (err) {
+      setError(friendlyMutationText(err, "We couldn't open this quote. Try again in a moment."));
+    }
   }, [params.id]);
 
-  useEffect(() => load(), [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  async function decide(kind: "approve" | "decline") {
-    if (detail === null) return;
+  async function accept(e: React.FormEvent) {
+    e.preventDefault();
+    if (quote === null) return;
+    if (name.trim().length === 0) {
+      // Blush, with the reason and the fix — never red, never a bare "invalid".
+      setNameError("Type your full name so we know who agreed.");
+      return;
+    }
+    if (!agreed) {
+      setNameError(null);
+      return;
+    }
     setBusy(true);
-    setNotice(null);
+    setNameError(null);
     try {
-      const next =
-        kind === "approve"
-          ? await portalApi.approveQuote(params.id, undefined)
-          : await portalApi.declineQuote(params.id, reason.trim() || undefined);
-      setDetail({ ...next, lines: detail.lines });
-      setDeclineOpen(false);
-      setNotice(
-        kind === "approve"
-          ? "Quote approved — your provider has been notified and will set up the contract and invoice on their side."
-          : "Quote declined — your provider has been notified" +
-              (reason.trim() ? " with your note." : "."),
+      await portalApi.approveQuote(quote.id);
+      setAccepting(false);
+      setName("");
+      setAgreed(false);
+      await load();
+    } catch (err) {
+      setNameError(
+        friendlyMutationText(
+          err,
+          "We couldn't record that yet. Nothing was accepted — try again in a moment.",
+        ),
       );
-      setReason("");
-    } catch (err: unknown) {
-      setNotice(friendlyMutationText(err, "Recording your decision failed; try again."));
     } finally {
       setBusy(false);
     }
   }
 
-  if (error !== null) {
-    return <p className="text-sm" style={{ color: "var(--m-status-danger)" }}>{error}</p>;
+  async function decline() {
+    if (quote === null) return;
+    setBusy(true);
+    try {
+      await portalApi.declineQuote(quote.id, declineReason.trim() === "" ? undefined : declineReason.trim());
+      setDeclining(false);
+      setDeclineReason("");
+      await load();
+    } catch (err) {
+      setError(friendlyMutationText(err, "We couldn't record that. Nothing was sent."));
+    } finally {
+      setBusy(false);
+    }
   }
-  if (detail === null) {
+
+  if (error !== null && quote === null) {
     return (
-      <div className="flex justify-center py-16">
-        <Spinner aria-label="Loading quote" />
+      <PortalCard>
+        <div className="portal-card__body">
+          <p className="portal-field__error" role="alert">
+            <PortalIcon name="alert" size={14} />
+            <span>{error}</span>
+          </p>
+          <p>
+            <button
+              type="button"
+              className="portal-link"
+              onClick={() => router.push("/portal/quotes")}
+            >
+              Back to your quotes
+            </button>
+          </p>
+        </div>
+      </PortalCard>
+    );
+  }
+
+  if (quote === null) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: "64px 0" }}>
+        <Spinner aria-label="Loading this quote" />
       </div>
     );
   }
 
-  const quote = detail;
-  const lapsed = quote.status === "sent" && daysUntil(quote.valid_until) < 0;
-  const decidable = quote.status === "sent" && !lapsed;
-  const dec =
-    quote.status === "accepted"
-      ? "success"
-      : quote.status === "declined"
-        ? "danger"
-        : quote.status === "sent"
-          ? "warning"
-          : "neutral";
-  const decLabel =
-    quote.status === "sent"
-      ? lapsed
-        ? "Valid until passed"
-        : "Awaiting your decision"
-      : quote.status === "accepted"
-        ? "Approved"
-        : quote.status === "declined"
-          ? "Declined"
-          : "Expired";
+  const title = quote.notes ?? `Quote ${quote.number}`;
+  const waiting = quote.status === "sent";
 
   return (
-    <section className="m-rise space-y-4">
+    <>
       <div>
         <button
           type="button"
+          className="portal-back"
           onClick={() => router.push("/portal/quotes")}
-          className="text-xs transition-colors duration-100 hover:underline"
-          style={{ color: "var(--m-text-muted)" }}
         >
-          ← Quotes
+          <PortalIcon name="back" size={14} />
+          Your quotes
         </button>
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold tracking-tight tabular-nums">{quote.number}</h1>
-          <StatusTag tone={dec}>{decLabel}</StatusTag>
-        </div>
-        <p className="mt-0.5 text-xs tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-          Issued {dateOnly(quote.issued_on)} · Valid until {dateOnly(quote.valid_until)}
-          {quote.sent_at !== null && <> · Sent {dateTime(quote.sent_at)}</>}
-          {quote.decided_at !== null && <> · Decided {dateTime(quote.decided_at)}</>}
-        </p>
       </div>
 
+      <div className="portal-heading-row">
+        <div>
+          <h1 className="portal-title">{title}</h1>
+          <p className="portal-lead">
+            {quote.number} · Valid until {longDate(quote.valid_until)}
+          </p>
+        </div>
+        {quote.status === "sent" ? (
+          <StatusPill status="waiting" note="Waiting for your answer" />
+        ) : quote.status === "accepted" ? (
+          <StatusPill status="resolved" note="Accepted" />
+        ) : (
+          <span className="portal-pill portal-pill--received">
+            {quote.status === "declined" ? "Declined" : "Expired"}
+          </span>
+        )}
+      </div>
+
+      <PortalCard testId="portal-quote-lines">
+        <div className="portal-line-head">
+          <span>What you get</span>
+          <span>Qty</span>
+          <span>Price</span>
+        </div>
+        {quote.lines.map((l, i) => (
+          <div className="portal-line" key={`${l.description}-${i}`}>
+            <span>{l.description}</span>
+            <span>{quantity(l.quantity_milli)}</span>
+            <span>{money(l.amount_minor, quote.currency)}</span>
+          </div>
+        ))}
+        {quote.tax_minor > 0 && (
+          <div className="portal-line">
+            <span>Tax</span>
+            <span>&mdash;</span>
+            <span>{money(quote.tax_minor, quote.currency)}</span>
+          </div>
+        )}
+        <div className="portal-total">
+          <span>Total</span>
+          <span>{money(quote.total_minor, quote.currency)}</span>
+        </div>
+      </PortalCard>
+
+      <p className="portal-hint" style={{ fontSize: 14, margin: 0 }}>
+        {quote.terms !== null && quote.terms !== "" ? `${quote.terms} ` : ""}
+        Payment: half on acceptance, half when the work is finished. Work starts once you accept,
+        and we&apos;ll book a date with you.
+      </p>
+
       {quote.status === "accepted" && (
-        <div
-          className="rounded-[0.5rem] px-3 py-2 text-sm"
-          style={{ background: "var(--m-status-success-bg)", color: "var(--m-status-success-fg)" }}
-          data-testid="quote-accepted-note"
-        >
-          You approved this quote. Your provider will create the contract and
-          invoice from it on their side — nothing is billed through this
-          portal.
-        </div>
+        <Note>
+          Accepted{quote.decided_at !== null ? ` on ${longDate(quote.decided_at)}` : ""}. Your
+          service desk will book a date with you, and it will appear under Schedule.
+        </Note>
       )}
-      {quote.status === "declined" && (
-        <div
-          className="rounded-[0.5rem] px-3 py-2 text-sm"
-          style={{ background: "var(--m-surface)", border: "1px solid var(--m-border)" }}
-        >
-          You declined this quote. If your provider revises it, a new quote
-          will appear in your list.
-        </div>
-      )}
-      {quote.status === "expired" && (
-        <div
-          className="rounded-[0.5rem] px-3 py-2 text-sm"
-          style={{ background: "var(--m-surface)", border: "1px solid var(--m-border)" }}
-        >
-          This quote expired before a decision was made. Ask your provider
-          for a fresh quote.
-        </div>
-      )}
-      {lapsed && (
-        <div
-          className="rounded-[0.5rem] px-3 py-2 text-sm"
-          style={{ background: "var(--m-status-warning-bg)", color: "var(--m-status-warning-fg)" }}
-        >
-          This quote's validity window has passed. Your provider can still
-          confirm it or send a fresh quote.
+
+      {waiting && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+<button
+              type="button"
+              className="portal-btn"
+              onClick={() => setAccepting(true)}
+              data-testid="portal-quote-accept"
+            >
+              {/* The decision carries a check, so the primary says what it does
+                 (portal/sand/states/07-accept-quote.png). */}
+              <PortalIcon name="check" size={16} />
+              Accept this quote
+            </button>
+          <button
+            type="button"
+            className="portal-btn portal-btn--secondary"
+            onClick={() => setDeclining((v) => !v)}
+            data-testid="portal-quote-decline"
+          >
+            Decline or ask for a change
+          </button>
         </div>
       )}
 
-      <Card>
-        <CardHeader>Line items</CardHeader>
-        <CardContent>
-          <table className="w-full text-sm" data-testid="quote-lines">
-            <thead>
-              <tr className="text-left text-xs" style={{ color: "var(--m-text-muted)" }}>
-                <th className="pb-1 font-medium">Description</th>
-                <th className="pb-1 text-right font-medium">Qty</th>
-                <th className="pb-1 text-right font-medium">Unit price</th>
-                <th className="pb-1 text-right font-medium">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.lines.map((line) => (
-                <tr key={line.position} className="border-t" style={{ borderColor: "var(--m-border)" }}>
-                  <td className="py-1.5 pr-3">
-                    {line.description}
-                    {line.taxable && (
-                      <span className="ml-2 text-xs" style={{ color: "var(--m-text-muted)" }}>
-                        taxable
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-1.5 text-right font-mono text-xs tabular-nums">
-                    {qty(line.quantity_milli, line.unit)}
-                  </td>
-                  <td className="py-1.5 text-right font-mono text-xs tabular-nums">
-                    {money(line.unit_amount_minor, quote.currency)}
-                  </td>
-                  <td className="py-1.5 text-right font-mono text-xs tabular-nums">
-                    {money(line.amount_minor, quote.currency)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <dl className="mt-3 ml-auto max-w-60 space-y-1 text-sm">
-            <div className="flex justify-between">
-              <dt style={{ color: "var(--m-text-muted)" }}>Subtotal</dt>
-              <dd className="font-mono tabular-nums">{money(quote.subtotal_minor, quote.currency)}</dd>
+      {declining && (
+        <PortalCard title="Tell your service desk why" testId="portal-quote-decline-form">
+          <div className="portal-card__body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Field
+              label="What would need to change?"
+              htmlFor="portal-decline-reason"
+              hint="A sentence is plenty. A person reads this and comes back to you."
+            >
+              <textarea
+                id="portal-decline-reason"
+                className="portal-composer"
+                style={{ height: 90, padding: 12 }}
+                value={declineReason}
+                onChange={(e) => setDeclineReason(e.target.value)}
+              />
+            </Field>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                className="portal-btn"
+                onClick={() => void decline()}
+                disabled={busy}
+              >
+                {busy ? "Sending…" : "Send this back"}
+              </button>
+              <button
+                type="button"
+                className="portal-btn portal-btn--secondary"
+                onClick={() => setDeclining(false)}
+              >
+                Keep thinking
+              </button>
             </div>
-            <div className="flex justify-between">
-              <dt style={{ color: "var(--m-text-muted)" }}>Tax ({quote.tax_rate_bps / 100}%)</dt>
-              <dd className="font-mono tabular-nums">{money(quote.tax_minor, quote.currency)}</dd>
-            </div>
-            <div className="flex justify-between border-t pt-1 font-semibold" style={{ borderColor: "var(--m-border)" }}>
-              <dt>Total</dt>
-              <dd className="font-mono tabular-nums" data-testid="quote-total">
-                {money(quote.total_minor, quote.currency)}
-              </dd>
-            </div>
-          </dl>
-        </CardContent>
-      </Card>
-
-      {(quote.notes !== null || quote.terms !== null) && (
-        <Card>
-          <CardHeader>Notes &amp; terms</CardHeader>
-          <CardContent>
-            <div className="space-y-2 text-sm">
-              {quote.notes !== null && <p style={{ color: "var(--m-text-secondary)" }}>{quote.notes}</p>}
-              {quote.terms !== null && <p style={{ color: "var(--m-text-muted)" }}>{quote.terms}</p>}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {decidable && (
-        <Card data-testid="quote-decision">
-          <CardHeader>Your decision</CardHeader>
-          <CardContent>
-            <p className="text-sm" style={{ color: "var(--m-text-secondary)" }}>
-              Approving accepts this quote as scoped and priced. Your
-              provider then creates the contract and invoice from it —
-              billing happens on their side, not here. Declining is final
-              for this quote; you can always ask for a revised one.
+            <p className="portal-hint" style={{ margin: 0 }}>
+              Declining costs nothing and sends no money. If you only want the price changed, say
+              so here and they&apos;ll re-quote.
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                disabled={busy}
-                onClick={() => decide("approve")}
-                data-testid="quote-approve"
-              >
-                Approve quote
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={busy}
-                onClick={() => setDeclineOpen((v) => !v)}
-                data-testid="quote-decline-toggle"
-              >
-                Decline…
-              </Button>
-            </div>
-            {declineOpen && (
-              <div className="m-rise mt-3">
-                <label htmlFor="quote-decline-reason" className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-                  Reason (optional, shared with your provider)
-                </label>
-                <textarea
-                  id="quote-decline-reason"
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  rows={3}
-                  maxLength={1000}
-                  className="mt-1 w-full rounded-[0.375rem] px-2 py-1.5 text-sm"
-                  style={{ background: "var(--m-bg)", border: "1px solid var(--m-border)", color: "var(--m-text)" }}
-                  data-testid="quote-decline-reason"
-                />
-                <div className="mt-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => decide("decline")}
-                    data-testid="quote-decline-confirm"
-                  >
-                    Decline quote
-                  </Button>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          </div>
+        </PortalCard>
       )}
 
-      {notice !== null && (
-        <p className="text-sm" style={{ color: "var(--m-text-secondary)" }} data-testid="quote-notice" role="status">
-          {notice}
-        </p>
+      {accepting && (
+        <div className="portal-scrim" role="presentation" onClick={() => setAccepting(false)}>
+          <form
+            className="portal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Accept quote ${quote.number}`}
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={accept}
+          >
+            <div className="portal-dialog__hd">
+              <div>
+                <h2>Accept quote {quote.number}</h2>
+                <p>
+                  {money(quote.total_minor, quote.currency)} · {title}
+                </p>
+              </div>
+              <span style={{ flex: 1 }} />
+              {/* A small bordered dismiss button, not a text "Close"
+                 (portal/sand/states/07-accept-quote.png). */}
+              <button
+                type="button"
+                className="portal-dialog__close"
+                onClick={() => setAccepting(false)}
+                aria-label="Close"
+              >
+                <PortalIcon name="x" size={16} />
+              </button>
+            </div>
+            <div className="portal-dialog__mb">
+              <Field
+                label="Type your full name to accept"
+                htmlFor="portal-accept-name"
+                error={nameError}
+                hint="It is recorded with today's date, so we know who agreed."
+              >
+                <input
+                  id="portal-accept-name"
+                  className="portal-input"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (nameError !== null) setNameError(null);
+                  }}
+                  placeholder="Your full name"
+                  autoComplete="name"
+                  aria-invalid={nameError !== null}
+                  aria-describedby={nameError ? "portal-accept-name-error" : "portal-accept-name-hint"}
+                />
+              </Field>
+              <label className="portal-check">
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                />
+                <span>
+                  I have read the quote and I&apos;m happy to go ahead. Payment is half now, half
+                  on completion.
+                </span>
+              </label>
+            </div>
+            <div className="portal-dialog__mf">
+              <span className="portal-hint">Nothing is charged today.</span>
+              <button
+                type="button"
+                className="portal-btn portal-btn--secondary portal-btn--small"
+                onClick={() => setAccepting(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="portal-btn portal-btn--small"
+                disabled={busy || name.trim().length === 0 || !agreed}
+                data-testid="portal-quote-accept-confirm"
+              >
+                {busy ? "Recording…" : "Accept the quote"}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
-    </section>
+    </>
   );
 }

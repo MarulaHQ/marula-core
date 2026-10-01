@@ -1,27 +1,32 @@
 // /share?token=… — the one-time share-link claim surface.
 //
-// Purpose (Wave 19 lane 3): the consumer half of the one-time share
-// links. A team member opens the link (composed by the sharer with
-// `link_path`), the page claims `POST /api/v1/secrets/share-links/claim`
-// with their own JWT — the same reveal ladder a normal reveal rides
-// (org membership, secrets/passwords edit permission, category-grant
-// gate) — and shows the material exactly once with a copy-once affordance.
-// Every lifecycle step is audited server-side; claiming consumes the
-// link permanently (409 thereafter).
+// Purpose (Wave 19 lane 3): the consumer half of a one-time share link. A team
+// member opens a link composed by the sharer, the page claims it with their own
+// JWT, and the material is shown exactly once with a copy-once affordance.
+// Claiming consumes the link permanently, server-side; every lifecycle step is
+// audited.
 //
-// Posture: light plain language, Workbench tokens only, honest states —
-// expired / revoked / already claimed / foreign org / unknown all read
-// as one friendly "not claimable" row plus the typed reason the server
-// returned. Not inside the authed shell; it renders its own authed
-// posture via the shared guard.
-
+// THE DERIVATION (DERIVATION-GUIDE.md lines 90-91). This route is DERIVED from
+// the KIT with no screen of its own, which leaves one instruction: no chrome, no
+// portal header, no staff nav — and, on these two surfaces, no inverted surface
+// and no red. So this is a plain card on the canvas with the material in it and
+// nothing else around it. This is a read-only view with a one-time copy, which
+// is the whole shape: nothing here can be edited, and nothing here stays.
+//
+// THE POSTURE IS THE POINT. A shared secret reveals only to members of the
+// sharing organization who hold reveal rights, and that is enforced on the claim
+// itself, not on this page. So the signed-out state says the truth about the
+// gate instead of pretending the link is broken, and a refused claim gives the
+// server's reason in plain words rather than a shrug.
 "use client";
 
-import { Button, Card, Spinner } from "@marula-core/ui";
-import type { components } from "@marula-core/sdk";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
+import { Spinner } from "@marula-core/ui";
+import type { components } from "@marula-core/sdk";
+import { applyEntryTheme } from "../../lib/entry-theme";
 import { api, useRequireAuth } from "../../lib/api";
+import "../share.css";
 
 type ShareClaimMaterial = components["schemas"]["ShareClaimMaterial"];
 
@@ -36,18 +41,21 @@ function ClaimInner() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [copied, setCopied] = useState<string | null>(null);
-  const token =
-    new URLSearchParams(typeof window === "undefined" ? "" : window.location.search)
-      .get("token") ?? "";
+  const token = useSearchParams().get("token") ?? "";
+
+  useEffect(() => {
+    // Public page: always render in the light theme, never inherit a staff
+    // member's persisted preference on a shared device.
+    applyEntryTheme();
+  }, []);
 
   const claim = useCallback(async () => {
     if (token === "") {
-      setPhase({ kind: "rejected", reason: "No claim token was provided." });
+      setPhase({ kind: "rejected", reason: "No claim token was in the link." });
       return;
     }
     setPhase({ kind: "loading" });
-    const path = "/api/v1/secrets/share-links/claim" as const;
-    const { data, error, response } = await api.api.POST(path, {
+    const { data, error, response } = await api.api.POST("/api/v1/secrets/share-links/claim", {
       body: { token },
     });
     if (data !== undefined && error === undefined) {
@@ -59,12 +67,12 @@ function ClaimInner() {
       kind: "rejected",
       reason:
         status === 409
-          ? "This link was already claimed once — or it was revoked — so the material is closed to claims."
+          ? "This link was already claimed once, or the sender withdrew it, so the material is closed to claims."
           : status === 403
-            ? "Your role cannot reveal this material — category edit access is required."
+            ? "Your role cannot reveal this material. It needs category edit access in the sharing organization."
             : status === 404
-              ? "This link is unknown to you, expired, or gone."
-              : "The claim was refused — ask the sharer to re-issue the link.",
+              ? "This link is unknown to you, or it has expired."
+              : "The claim was refused. Ask the person who shared it to send a new link.",
     });
   }, [token]);
 
@@ -76,102 +84,118 @@ function ClaimInner() {
 
   if (auth.status === "anonymous" || phase.kind === "signed-out") {
     return (
-      <Card className="m-auto max-w-md">
-        <div className="grid gap-3 p-6 text-center">
-          <p className="text-[13px]">Sign in to claim this share link.</p>
-          <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-            A shared secret reveals only to members of the sharing org who hold
-            reveal rights — that is the honest posture, and it is enforced on
-            the claim itself, not here.
+      <div className="share-root">
+        <div className="share-card" data-testid="share-signed-out">
+          <h1 className="share-card__h">Sign in to claim this link.</h1>
+          <p className="share-card__p">
+            A shared secret reveals only to members of the organization that shared it, and only to
+            people who hold reveal rights. That is checked when the link is claimed, not here.
           </p>
-          <Button variant="secondary" onClick={() => router.replace("/login")}>
+          <button
+            type="button"
+            className="entry-btn"
+            onClick={() => router.replace("/login")}
+          >
             Go to sign in
-          </Button>
+          </button>
         </div>
-      </Card>
+      </div>
     );
   }
 
   if (phase.kind === "loading") {
     return (
-      <Card className="m-auto max-w-md">
-        <div className="grid gap-3 p-6 text-center">
-          <Spinner />
-          <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-            Claiming the one-time link…
-          </p>
+      <div className="share-root">
+        <div className="share-card">
+          <Spinner aria-label="Claiming the one-time link" />
+          <p className="share-card__p">Claiming the one-time link…</p>
         </div>
-      </Card>
+      </div>
     );
   }
 
   if (phase.kind === "rejected") {
     return (
-      <Card className="m-auto max-w-md">
-        <div className="grid gap-3 p-6">
-          <p className="text-sm font-semibold">This link is not claimable.</p>
-          <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            {phase.reason}
-          </p>
+      <div className="share-root">
+        <div className="share-card" data-testid="share-rejected">
+          <h1 className="share-card__h">This link isn&apos;t claimable.</h1>
+          <p className="share-card__p">{phase.reason}</p>
         </div>
-      </Card>
+      </div>
     );
   }
 
   const { material } = phase;
   return (
-    <Card className="m-auto max-w-md">
-      <div className="grid gap-3 p-6">
+    <div className="share-root">
+      <div className="share-card" data-testid="share-claimed">
         <div>
-          <h1 className="text-sm font-semibold">{material.title}</h1>
-          <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-            {material.subject_kind === "password" ? "Credential" : "Secret record"} revealed by a
-            one-time link — the share is consumed; this link cannot claim again.
+          <span className="share-desk">
+            {material.subject_kind === "password" ? "Credential" : "Secret record"}
+          </span>
+          <h1 className="share-card__h">{material.title}</h1>
+          <p className="share-card__p">
+            Revealed by a one-time link. The share is consumed: this link cannot claim again, and
+            the server has recorded that it was used.
           </p>
         </div>
-        <ul className="grid gap-2">
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {material.fields.map((f) => (
-            <li key={f.field_key} className="grid gap-1">
-              <span className="text-[11px]" style={{ color: "var(--m-text-secondary)" }}>
-                {f.field_key.replaceAll("_", " ")}
-              </span>
-              <div className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 break-all rounded-[0.5rem] border px-3 py-2 font-mono text-[13px]" style={{ borderColor: "var(--m-border)" }}>
+            <div key={f.field_key} className="entry-field">
+              <span className="entry-label">{f.field_key.replaceAll("_", " ")}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <code
+                  style={{
+                    minWidth: 0,
+                    flex: 1,
+                    overflowWrap: "anywhere",
+                    border: "1px solid var(--m-border)",
+                    borderRadius: 12,
+                    padding: "10px 12px",
+                    fontFamily: "var(--m-font-mono)",
+                    fontSize: 13,
+                  }}
+                >
                   {f.value}
                 </code>
-                <Button
-                  variant="secondary"
-                  size="sm"
+                <button
+                  type="button"
+                  className="entry-btn entry-btn--secondary entry-btn--small"
                   onClick={() => {
                     void navigator.clipboard.writeText(f.value);
                     setCopied(f.field_key);
                   }}
+                  data-testid={`share-copy-${f.field_key}`}
                 >
                   {copied === f.field_key ? "Copied" : "Copy"}
-                </Button>
+                </button>
               </div>
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
+
+        <p className="share-card__p" style={{ color: "var(--m-text-secondary)" }}>
+          Copy what you need now. When you close this page, it is gone &mdash; and asking for
+          another copy means asking the person who shared it.
+        </p>
       </div>
-    </Card>
+    </div>
   );
 }
 
 export default function ShareClaimPage() {
   return (
-    <div className="grid min-h-screen place-items-center p-6" style={{ background: "var(--m-canvas)" }}>
-      <Suspense
-        fallback={
-          <Card className="m-auto max-w-md">
-            <div className="grid gap-3 p-6">
-              <Spinner />
-            </div>
-          </Card>
-        }
-      >
-        <ClaimInner />
-      </Suspense>
-    </div>
+    <Suspense
+      fallback={
+        <div className="share-root">
+          <div className="share-card">
+            <Spinner />
+          </div>
+        </div>
+      }
+    >
+      <ClaimInner />
+    </Suspense>
   );
 }

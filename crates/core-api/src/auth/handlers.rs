@@ -66,11 +66,21 @@ pub enum LoginResponse {
     },
 }
 
+/// The shortest password the product accepts.
+///
+/// 12, not 10: Wave 41 raised the floor to the length the brand's own entry
+/// screens promise, because a screen that says "at least 12 characters" and a
+/// server that accepts 10 is a promise the product does not keep. Both
+/// validators in the product (staff accounts here, portal contacts in
+/// `routes::portal_admin`) enforce the same number, and both cite this
+/// constant, so the two can never drift apart again.
+pub const MIN_PASSWORD_LEN: usize = 12;
+
 pub(crate) fn validate_password(pw: &str) -> ApiResult<()> {
-    if pw.len() < 10 {
-        return Err(ApiError::Validation(
-            "password must be at least 10 characters".into(),
-        ));
+    if pw.len() < MIN_PASSWORD_LEN {
+        return Err(ApiError::Validation(format!(
+            "password must be at least {MIN_PASSWORD_LEN} characters"
+        )));
     }
     Ok(())
 }
@@ -910,10 +920,33 @@ pub(crate) async fn issue_tokens(
     org_id: Uuid,
     user_agent: Option<&str>,
 ) -> ApiResult<TokenPair> {
+    issue_tokens_with_refresh_ttl(state, user_id, org_id, user_agent, state.config.refresh_ttl_secs)
+        .await
+}
+
+/// How long a session lives when a person explicitly asks the browser to be
+/// trusted (the MFA "Trust this computer" choice). 30 days.
+///
+/// This lengthens the REFRESH window only. The access token keeps the normal
+/// short TTL, so a stolen access token is still useless for long, and the
+/// session row is still revocable — trusting a device buys convenience, never
+/// an irrevocable grant.
+pub(crate) const TRUSTED_DEVICE_TTL_SECS: i64 = 30 * 24 * 60 * 60;
+
+/// `issue_tokens` with an explicit refresh lifetime, for the trusted-device
+/// path. Everything else about the session (the row, the hash, the access
+/// token) is identical.
+pub(crate) async fn issue_tokens_with_refresh_ttl(
+    state: &AppState,
+    user_id: Uuid,
+    org_id: Uuid,
+    user_agent: Option<&str>,
+    refresh_ttl_secs: i64,
+) -> ApiResult<TokenPair> {
     let session_id = Uuid::now_v7();
     let refresh = jwt::new_refresh_token();
     let refresh_hash = jwt::hash_refresh_token(&refresh);
-    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(state.config.refresh_ttl_secs);
+    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(refresh_ttl_secs);
     core_db::users::create_session(
         &state.pool,
         session_id,
@@ -977,3 +1010,45 @@ pub struct MeResponse {
 // Silence unused-import lint for AccessClaims (used by jwt module re-export).
 #[allow(unused)]
 fn _claims_type_check(_c: AccessClaims) {}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_password, MIN_PASSWORD_LEN};
+    use crate::error::ApiError;
+
+    /// The floor is 12 (Wave 41). This test exists to make the number itself
+    /// assertable: if somebody lowers the constant to make a fixture pass, this
+    /// fails and says why the number is not negotiable.
+    #[test]
+    fn password_floor_is_twelve_characters() {
+        assert_eq!(MIN_PASSWORD_LEN, 12);
+    }
+
+    /// 11 is refused, 12 is accepted — the boundary, both sides.
+    #[test]
+    fn password_floor_boundary_is_exact() {
+        let eleven = "a".repeat(MIN_PASSWORD_LEN - 1);
+        let twelve = "a".repeat(MIN_PASSWORD_LEN);
+        assert!(validate_password(&eleven).is_err(), "11 must be refused");
+        assert!(
+            validate_password(&twelve).is_ok(),
+            "12 must be accepted — the screen promises 12"
+        );
+    }
+
+    /// The refusal is a typed validation error whose message carries the number
+    /// the screen will quote, not a bare "invalid password".
+    #[test]
+    fn password_floor_error_quotes_the_number() {
+        let err = validate_password("short").expect_err("4 chars is refused");
+        match err {
+            ApiError::Validation(message) => {
+                assert!(
+                    message.contains("12"),
+                    "the message must name the floor, got {message:?}"
+                );
+            }
+            other => panic!("expected a validation error, got {other:?}"),
+        }
+    }
+}

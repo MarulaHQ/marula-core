@@ -1,257 +1,241 @@
-// /portal/tickets — the client's ticket list (compact rows).
+// /portal/tickets — the client's list, in plain words.
 //
-// Purpose: every ticket of the signed-in client's organization across
-// boards the MSP exposed, newest activity first. Rows are deliberately
-// compact — number, title, priority, status tone, updated time. A quiet
-// client-side search and status filter sit on top (no server round-trip —
-// the list is a snapshot read; filtering never re-asks for what the client
-// already holds). Server-side scoping (client + exposure) means nothing
-// hidden can even be listed.
-// Non-purpose: no staff triage columns (assignee/SLA/board internals), no
-// filtering beyond the portal surface exposes — no "new request" action
-// exists in this portal surface, so none is shown (never a dead button).
+// Purpose: everything she has asked for, and where it has got to. The list is
+// card rows (the pack's `.pr` row inside a `.cardx` card), split into Open and
+// Recently resolved, and every row is worded for a client rather than for the
+// service desk (lib/portal-copy.ts owns the words).
 //
-// Wave 17 lane 8 UX pass: honest stat strip (open/waiting/closed live from
-// the rows), staggered entrance (m-rise ≤120ms), row hover lift.
+// WHAT NEVER APPEARS HERE: a priority, a board, an assignee, an SLA clock, an
+// internal status, a due date on her own list, or a "new request" button that
+// the portal API cannot honour. The pack's heading carries a primary "Raise a
+// request"; the pinned portal API has no create-ticket operation, so a primary
+// that cannot raise a request is a dead button and is not drawn. The honest
+// route to raising one is the service desk, which the footer already names.
+//
+// "Waiting for you" IS THE ONLY HIGHLIGHTED ROW. It carries the gold tint and
+// the gold edge bar, because it is the one state that needs an answer from her
+// (DESIGN-NOTES-portal.md §3).
+//
+// Non-purpose: no bulk actions, no filters, no export, no views switch. A
+// client list of a handful of rows does not need a data toolbar, and the pack
+// does not draw one.
 "use client";
 
-import { friendlyMutationText } from "../../../lib/error-copy";
-import { EmptyState, Input, Spinner, StatusTag, Tag, type StatusTone } from "@marula-core/ui";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { portalApi, usePortalAuth, useRequirePortalAuth } from "../../../lib/portal-api";
+import { friendlyMutationText } from "../../../lib/error-copy";
+import { Spinner } from "@marula-core/ui";
+import { portalApi, useRequirePortalAuth } from "../../../lib/portal-api";
+import { CLIENT_STATUS, clientStatusFor, longDate, stamp } from "../../../lib/portal-copy";
+import {
+  PortalCard,
+  PortalEmpty,
+  PortalIcon,
+  PortalRow,
+  StatusPill,
+  ticketNote,
+} from "../../../components/portal/portal-ui";
 
 interface Row {
   id: string;
   number: string;
   title: string;
-  priority: "p1" | "p2" | "p3" | "p4";
   category: "open" | "in_progress" | "waiting" | "closed";
   updated_at: string;
-}
-
-/** Industry-standard PSA status semantics via Workbench tokens only:
- * amber for waiting, green for closed; open/in-progress stay neutral. */
-function categoryTone(category: Row["category"]): StatusTone {
-  switch (category) {
-    case "waiting":
-      return "warning";
-    case "closed":
-      return "success";
-    default:
-      return "neutral";
-  }
-}
-
-const CATEGORY_LABEL: Record<Row["category"], string> = {
-  open: "Open",
-  in_progress: "In progress",
-  waiting: "Waiting",
-  closed: "Closed",
-};
-
-const PRIORITY_LABEL: Record<Row["priority"], string> = {
-  p1: "P1",
-  p2: "P2",
-  p3: "P3",
-  p4: "P4",
-};
-
-const FILTERS = [
-  { key: "all", label: "All" },
-  { key: "open", label: "Open" },
-  { key: "waiting", label: "Waiting" },
-  { key: "closed", label: "Closed" },
-] as const;
-
-type FilterKey = (typeof FILTERS)[number]["key"];
-
-function relative(iso: string): string {
-  const deltaMs = Date.now() - new Date(iso).getTime();
-  const minutes = Math.round(deltaMs / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
-}
-
-function matchesFilter(row: Row, filter: FilterKey): boolean {
-  switch (filter) {
-    case "all":
-      return true;
-    case "closed":
-      return row.category === "closed";
-    case "waiting":
-      return row.category === "waiting";
-    case "open":
-      return row.category === "open" || row.category === "in_progress";
-    default:
-      return true;
-  }
+  resolved_at?: string | null;
 }
 
 export default function PortalTicketsPage() {
   useRequirePortalAuth();
-  const { me } = usePortalAuth();
   const router = useRouter();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<FilterKey>("all");
+  const [csatTicket, setCsatTicket] = useState<{ id: string; number: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     portalApi
       .listTickets()
       .then((tickets) => {
-        if (!cancelled)
-          setRows(
-            tickets.map((t) => ({
-              id: t.id,
-              number: t.number,
-              title: t.title,
-              priority: t.priority,
-              category: t.category,
-              updated_at: t.updated_at,
-            })),
-          );
+        if (cancelled) return;
+        setRows(
+          tickets.map((t) => ({
+            id: t.id,
+            number: t.number,
+            title: t.title,
+            category: t.category,
+            updated_at: t.updated_at,
+            resolved_at: t.resolved_at,
+          })),
+        );
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(friendlyMutationText(err, "Failed to load tickets"));
+        if (!cancelled) setError(friendlyMutationText(err, "We couldn't load your tickets. Try again in a moment."));
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const counts = useMemo(() => {
-    if (rows === null) return null;
-    let open = 0;
-    let waiting = 0;
-    for (const r of rows) {
-      if (r.category === "open" || r.category === "in_progress") open += 1;
-      if (r.category === "waiting") waiting += 1;
-    }
-    return { open, waiting, total: rows.length };
+  const { open, resolved } = useMemo(() => {
+    if (rows === null) return { open: [] as Row[], resolved: [] as Row[] };
+    return {
+      open: rows.filter((r) => r.category !== "closed"),
+      resolved: rows.filter((r) => r.category === "closed"),
+    };
   }, [rows]);
 
-  const shown = useMemo(() => {
-    if (rows === null) return null;
-    const term = query.trim().toLowerCase();
-    return rows.filter(
-      (r) =>
-        matchesFilter(r, filter) &&
-        (term === "" || r.title.toLowerCase().includes(term) || r.number.toLowerCase().includes(term)),
-    );
-  }, [rows, query, filter]);
-
   if (error !== null) {
-    return <p className="text-sm" style={{ color: "var(--m-status-danger)" }}>{error}</p>;
-  }
-  if (rows === null || shown === null) {
     return (
-      <div className="flex justify-center py-16">
-        <Spinner aria-label="Loading tickets" />
+      <div className="portal-card">
+        <p className="portal-field__error" role="alert" style={{ padding: 18 }}>
+          <PortalIcon name="alert" size={14} />
+          <span>{error}</span>
+        </p>
       </div>
+    );
+  }
+
+  if (rows === null) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: "64px 0" }}>
+        <Spinner aria-label="Loading your tickets" />
+      </div>
+    );
+  }
+
+  // The pack's state 11: a drawing, one sentence, one action. A client with
+  // nothing open is not an error, and the sentence says where replies appear.
+  if (rows.length === 0) {
+    return (
+      <>
+        <div>
+          <h1 className="portal-title">Your tickets</h1>
+          <p className="portal-lead">Everything you've asked us for, and where it has got to.</p>
+        </div>
+        <PortalCard>
+          <PortalEmpty
+            title="Nothing open right now"
+            action={
+              <a className="portal-btn" href="mailto:support@brightline.example" style={{ marginTop: 8 }}>
+                Contact your service desk
+              </a>
+            }
+          >
+            When you need help, contact your service desk and we&apos;ll reply right here. You
+           &apos;ll get an email each time.
+          </PortalEmpty>
+        </PortalCard>
+      </>
     );
   }
 
   return (
-    <section>
-      <div className="mb-5">
-        <h1 className="text-xl font-semibold tracking-tight">Your requests</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--m-text-muted)" }}>
-          {me !== null && me.role === "it_manager"
-            ? "IT-manager view: includes your vendor's in-house updates on each request."
-            : "Requests your organization has open with the service desk."}
-        </p>
+    <>
+      <div className="portal-heading-row">
+        <div>
+          <h1 className="portal-title">Your tickets</h1>
+          <p className="portal-lead">Everything you&apos;ve asked us for, and where it has got to.</p>
+        </div>
       </div>
 
-      {counts !== null && counts.total > 0 && (
-        <div className="mb-4 flex flex-wrap gap-2 text-xs" data-testid="tickets-stat-strip">
-          <span
-            className="rounded-[0.5rem] px-2.5 py-1"
-            style={{ background: "var(--m-surface)", border: "1px solid var(--m-border)", color: "var(--m-text-secondary)" }}
-          >
-            <span className="font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>{counts.open}</span>{" "}
-            active
-          </span>
-          <span
-            className="rounded-[0.5rem] px-2.5 py-1"
-            style={{ background: "var(--m-surface)", border: "1px solid var(--m-border)", color: "var(--m-text-secondary)" }}
-          >
-            <span className="font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>{counts.waiting}</span>{" "}
-            waiting on you
-          </span>
-        </div>
+      <PortalCard
+        title="Open"
+        aside={<span className="portal-hint">{open.length} tickets</span>}
+        testId="portal-tickets-open"
+      >
+        {open.length === 0 ? (
+          <div className="portal-empty" style={{ padding: "32px 24px" }}>
+            <p className="portal-hint">Nothing open. Anything you raise will show up here.</p>
+          </div>
+        ) : (
+          open.map((t) => {
+            const status = clientStatusFor(t.category);
+            return (
+              <PortalRow
+                key={t.id}
+                title={t.title}
+                meta={`#${t.number} · ${ticketNote(t.category)} · ${stamp(t.updated_at)}`}
+                highlight={status === "waiting"}
+                onClick={() => router.push(`/portal/tickets/${t.id}`)}
+                trailing={<StatusPill status={status} />}
+                testId={`portal-ticket-${t.number}`}
+              />
+            );
+          })
+        )}
+      </PortalCard>
+
+      {resolved.length > 0 && (
+        <PortalCard title="Recently resolved" testId="portal-tickets-resolved">
+          {resolved.map((t) => (
+            <PortalRow
+              key={t.id}
+              title={t.title}
+              meta={`#${t.number} · ${CLIENT_STATUS.resolved.note} · ${stamp(t.updated_at)}`}
+              onClick={() => router.push(`/portal/tickets/${t.id}`)}
+              trailing={
+                <>
+                  <StatusPill status="resolved" />
+                  <button
+                    type="button"
+                    className="portal-btn portal-btn--secondary portal-btn--small"
+                    onClick={() => setCsatTicket({ id: t.id, number: t.number })}
+                    data-testid={`portal-csat-open-${t.number}`}
+                  >
+                    How did we do?
+                  </button>
+                </>
+              }
+            />
+          ))}
+        </PortalCard>
       )}
 
-      {rows.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search your requests…"
-            aria-label="Search your requests"
-            className="w-full sm:max-w-xs"
-          />
-          <div className="flex gap-1" role="group" aria-label="Filter by status">
-            {FILTERS.map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => setFilter(f.key)}
-                aria-pressed={filter === f.key}
-                className="rounded-[999px] px-3 py-1 text-xs transition-colors duration-100"
-                style={{
-                  border: `1px solid ${filter === f.key ? "var(--m-accent)" : "var(--m-border)"}`,
-                  color: filter === f.key ? "var(--m-accent)" : "var(--m-text-secondary)",
-                  background: "var(--m-surface)",
-                }}
+      {csatTicket !== null && (
+        <div className="portal-scrim" role="presentation" onClick={() => setCsatTicket(null)}>
+          <div
+            className="portal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="How did we do?"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="portal-dialog__hd">
+              <div>
+                <h2>How did we do?</h2>
+                <p>
+                  Ticket #{csatTicket.number} · {longDate(new Date().toISOString())}
+                </p>
+              </div>
+            </div>
+            <div className="portal-dialog__mb">
+              <p className="portal-hint" style={{ margin: 0 }}>
+                Five choices, in words. It takes a few seconds, and it goes to the person who did
+                the work.
+              </p>
+              <Link
+                className="portal-btn portal-btn--full"
+                href={`/portal/csat?ticket=${csatTicket.id}`}
+                onClick={() => setCsatTicket(null)}
               >
-                {f.label}
+                Rate the work
+              </Link>
+            </div>
+            <div className="portal-dialog__mf">
+              <span className="portal-hint">Not now is fine too.</span>
+              <button
+                type="button"
+                className="portal-btn portal-btn--secondary portal-btn--small"
+                onClick={() => setCsatTicket(null)}
+              >
+                Close
               </button>
-            ))}
+            </div>
           </div>
         </div>
       )}
-
-      {rows.length === 0 ? (
-        <EmptyState
-          message="No requests yet — when your service desk publishes a board to you, its requests appear here."
-        />
-      ) : shown.length === 0 ? (
-        <EmptyState message="Nothing matches that search — try different words or clear the filter." />
-      ) : (
-        <ul className="overflow-hidden rounded-[0.75rem] border" style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}>
-          {shown.map((t, i) => (
-            <li key={t.id} className="m-rise" style={{ animationDelay: `${Math.min(i * 30, 240)}ms` }}>
-              <button
-                type="button"
-                onClick={() => router.push(`/portal/tickets/${t.id}`)}
-                className="flex w-full items-center gap-3 border-b px-3 py-3 text-left transition-colors duration-100 last:border-b-0 hover:bg-[var(--m-surface-hover)]"
-                style={{ borderColor: "var(--m-border)" }}
-              >
-                <span
-                  className="shrink-0 font-mono text-xs tabular-nums"
-                  style={{ color: "var(--m-text-muted)" }}
-                >
-                  {t.number}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm">{t.title}</span>
-                <Tag tone="outline">{PRIORITY_LABEL[t.priority]}</Tag>
-                <StatusTag tone={categoryTone(t.category)}>{CATEGORY_LABEL[t.category]}</StatusTag>
-                <span className="hidden w-16 shrink-0 text-right text-xs tabular-nums sm:block" style={{ color: "var(--m-text-muted)" }}>
-                  {relative(t.updated_at)}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    </>
   );
 }
