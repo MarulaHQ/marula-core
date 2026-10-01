@@ -16,6 +16,7 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
+import { Icon } from "@marula-core/ui/kit";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -358,9 +359,7 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
                 // reports what happened and stays visible so the person can
                 // see their own work in the timeline.
                 <span className="m-assistant-ran" data-testid="wb-agent-ran">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
-                    <path d="M4 12.5 9.5 18 20 6.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+                  <Icon name="check" size={12} />
                   Script ran
                 </span>
               ) : (
@@ -444,9 +443,9 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
       className="m-wb-agent flex min-h-0 shrink-0 flex-col overflow-hidden border-l"
     >
       <div className="flex items-center gap-2 border-b px-4" style={{ borderColor: "var(--m-border)", height: 49 }}>
-        <svg aria-hidden width="15" height="15" viewBox="0 0 18 18" fill="none" style={{ color: "var(--m-accent)" }}>
-          <path d="M9 2.5 10.6 7.4 15.5 9 10.6 10.6 9 15.5 7.4 10.6 2.5 9 7.4 7.4Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-        </svg>
+        <span aria-hidden style={{ display: "inline-flex", color: "var(--m-accent)" }}>
+          <Icon name="spark" size={15} />
+        </span>
         <span className="text-[14px] font-bold" style={{ color: "var(--m-text)" }}>Agent</span>
         <span className="text-[10px]" style={{ color: "var(--m-text-muted)" }}>context-aware</span>
         <button

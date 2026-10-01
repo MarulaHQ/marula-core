@@ -17,6 +17,7 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
+import { Icon } from "@marula-core/ui/kit";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api, uploadAttachment } from "../../lib/api";
@@ -469,9 +470,7 @@ export function WorkbarNotesPanel({
             />
             <div className="flex items-center gap-3 pb-1 text-[10px]" style={{ color: "var(--m-text-muted)" }}>
               <label className="flex cursor-pointer items-center gap-1" title="Attach files">
-                <svg aria-hidden width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                </svg>
+                <Icon name="clip" size={11} />
                 Attach
                 <input
                   type="file"

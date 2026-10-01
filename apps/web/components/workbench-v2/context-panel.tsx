@@ -15,6 +15,7 @@
 
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
+import { Icon } from "@marula-core/ui/kit";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { keywordsOf } from "./agent-panel";
@@ -340,10 +341,7 @@ export function WbContextPanel({ clientId, contactId, ticketId, ticketNumber, ti
           {articles !== null && articles.length > 0 ? (
             articles.map((a) => (
               <Link key={a.id} href={`/kb/${a.id}`} className="m-wb-linkrow flex items-center gap-1.5 py-1 text-[12px]">
-                <svg aria-hidden width="12" height="12" viewBox="0 0 18 18" fill="none" style={{ color: "var(--m-text-muted)" }}>
-                  <path d="M3 4.5c2-1 4-1 6 0v9c-2-1-4-1-6 0v-9Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-                  <path d="M15 4.5c-2-1-4-1-6 0v9c2-1 4-1 6 0v-9Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-                </svg>
+                <Icon name="book" size={12} className="shrink-0" />
                 <span className="truncate">{a.title}</span>
               </Link>
             ))

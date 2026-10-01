@@ -11,6 +11,7 @@
 
 import type { components } from "@marula-core/sdk";
 import { Button, StatusTag } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 type BoardStatus = components["schemas"]["BoardStatus"];
@@ -95,11 +96,7 @@ export interface TicketStatusBarProps {
 
 /** Chevron glyph for the transition trigger. */
 function ChevronIcon(): ReactNode {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
+  return <Icon name="down" size={12} />;
 }
 
 export function TicketStatusBar({

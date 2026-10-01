@@ -9,6 +9,7 @@
 "use client";
 
 import { Button } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { kindLabel, useNotifications, type NotificationItem } from "../lib/use-notifications";
@@ -38,16 +39,7 @@ function dayBucket(iso: string): string {
 const BUCKET_ORDER = ["Today", "Yesterday", "Earlier"];
 
 function BellIcon() {
-  return (
-    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path
-        d="M8 1.5a4.2 4.2 0 0 0-4.2 4.2c0 3.1-1.05 4.35-1.55 4.85a.6.6 0 0 0 .43 1.02h10.64a.6.6 0 0 0 .43-1.02c-.5-.5-1.55-1.75-1.55-4.85A4.2 4.2 0 0 0 8 1.5Z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-      />
-      <path d="M6.5 13.5a1.5 1.5 0 0 0 3 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  );
+  return <Icon name="bell" size={16} />;
 }
 
 function NotificationRow({

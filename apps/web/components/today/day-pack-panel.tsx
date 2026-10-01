@@ -16,6 +16,7 @@
 "use client";
 
 import { Button, Card, Spinner } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -604,15 +605,7 @@ function TickButton({
             }
       }
     >
-      <svg width="9" height="9" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-        <path
-          d="M1.5 5.2 4 7.6 8.5 2.4"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      <Icon name="check" size={9} />
     </button>
   );
 }

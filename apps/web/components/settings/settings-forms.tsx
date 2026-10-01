@@ -30,6 +30,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Button } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 
 /* --- geometry, straight from the pack ------------------------------------ */
 
@@ -323,41 +324,17 @@ export function SkippedNotice({ children }: { children: ReactNode }): React.JSX.
 
 export function AlertIcon(): React.JSX.Element {
   return (
-    <svg
-      aria-hidden="true"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ flexShrink: 0, marginTop: 1 }}
-    >
-      <path d="M12 4 2.5 20h19L12 4Z" />
-      <path d="M12 10v4" />
-      <path d="M12 17.5h.01" />
-    </svg>
+    <span style={{ display: "inline-flex", flexShrink: 0, marginTop: 1 }}>
+      <Icon name="alert" size={16} />
+    </span>
   );
 }
 
 export function CheckIcon({ color = "var(--m-status-success-fg)" }: { color?: string }): React.JSX.Element {
   return (
-    <svg
-      aria-hidden="true"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ flexShrink: 0 }}
-    >
-      <path d="m4 12.5 5 5 11-11" />
-    </svg>
+    <span style={{ display: "inline-flex", flexShrink: 0, color }}>
+      <Icon name="check" size={16} />
+    </span>
   );
 }
 
@@ -506,24 +483,7 @@ export function BulkDestructiveAction({
 }
 
 export function TrashIcon(): React.JSX.Element {
-  return (
-    <svg
-      aria-hidden="true"
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 7h16" />
-      <path d="M9 7V4h6v3" />
-      <path d="M6 7l1 13h10l1-13" />
-      <path d="M10 11v6M14 11v6" />
-    </svg>
-  );
+  return <Icon name="trash" size={15} />;
 }
 
 /* --- fields --------------------------------------------------------------- */
@@ -787,9 +747,7 @@ export function SettingsDrawer({
               cursor: "pointer",
             }}
           >
-            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
+            <Icon name="x" size={14} />
           </button>
         </div>
         <div

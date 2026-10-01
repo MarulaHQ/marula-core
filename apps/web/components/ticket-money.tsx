@@ -13,6 +13,7 @@
 "use client";
 
 import { rejectionText } from "../lib/error-copy";
+import { Icon as KitIcon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import {
   Button,
@@ -48,11 +49,8 @@ const KINDS: CostLineKind[] = ["parts", "flat", "other"];
 
 function BilledLock() {
   return (
-    <span title="Billed on an invoice — read-only" aria-label="Billed, read-only" style={{ color: "var(--m-text-muted)" }}>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-        <rect x="3" y="11" width="18" height="11" rx="2" />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-      </svg>
+    <span title="Billed on an invoice — read-only" aria-label="Billed, read-only" style={{ color: "var(--m-text-muted)", display: "inline-flex" }}>
+      <KitIcon name="lock" size={12} />
     </span>
   );
 }

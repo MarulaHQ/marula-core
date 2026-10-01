@@ -22,6 +22,7 @@
 
 import type { components } from "@marula-core/sdk";
 import { Button } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../../lib/api";
@@ -65,11 +66,7 @@ export interface ScanBarProps {
 let activeBarId = 0;
 
 function ScanGlyph() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M3 5v14M7 5v14M11 5v10M15 5v14M19 5v14" />
-    </svg>
-  );
+  return <Icon name="scan" size={14} />;
 }
 
 export function ScanBar({
