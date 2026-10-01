@@ -1479,6 +1479,16 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--m-text-secondary);
+  /* A column header is ONE line. Without this, a narrow sortable column
+     cannot fit its grip + label + sort mark, so the inline-block grip stays
+     on the first line and the inline-flex sort control wraps to the second:
+     measured, PRIORITY and UPDATED rendered their label 9.75px lower than
+     NUMBER and SUBJECT in the same row. The row height did not change, so it
+     read as a subtle baseline drift rather than an obvious break. `overflow`
+     keeps a pathologically long renamed column clipped instead of bleeding
+     into its neighbour. */
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .m-table td {

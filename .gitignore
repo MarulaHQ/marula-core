@@ -98,3 +98,7 @@ plugins/wasm/*/target-wasm/
 apps/web/.harness/*.css
 apps/web/.harness/measure.html
 apps/web/.harness/measure.mjs
+apps/web/.harness/probe-*.mjs
+apps/web/.harness/probe-*.html
+apps/web/.harness/fragments.json
+apps/web/.harness/in.css

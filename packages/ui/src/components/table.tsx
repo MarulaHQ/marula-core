@@ -210,6 +210,15 @@ export const Th = forwardRef<HTMLTableCellElement, ThProps>(
             role="separator"
             aria-orientation="vertical"
             aria-label={typeof props.children === "string" ? `Resize ${props.children}` : "Resize column"}
+            /* A FOCUSABLE separator is a widget, not a decorative divider, so it
+               owes the value attributes. axe-core reports the omission as a
+               critical `aria-required-attr` violation, which is how the ticket
+               ledger's first axe run failed. The bounds are read from the same
+               clampWidth the keydown handler uses, so the announced value can
+               never disagree with what the arrow keys actually do. */
+            aria-valuenow={clampWidth(width ?? MIN_COLUMN_WIDTH)}
+            aria-valuemin={MIN_COLUMN_WIDTH}
+            aria-valuemax={MAX_COLUMN_WIDTH}
             tabIndex={0}
             onPointerDown={onDividerPointerDown}
             onPointerMove={onDividerPointerMove}

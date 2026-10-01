@@ -272,6 +272,8 @@ describe("ledger brand render", () => {
     const css = readFileSync(CSS, "utf8");
     const { table, banner, fields } = renderFragments();
     mkdirSync(OUT, { recursive: true });
+    // Also drop the raw table markup for the geometry probe to measure.
+    writeFileSync(resolve(WEB, ".harness/fragments.json"), JSON.stringify({ table, banner, fields }));
 
     const { chromium } = await import("playwright");
     const browser = await chromium.launch({ args: ["--no-proxy-server"] });
