@@ -443,11 +443,14 @@ export default function TicketsListPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
-      <div className="min-w-0">
+      <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-lg font-semibold">Tickets</h1>
-        {/* The mockup's attention shortcuts, doubling as filters. Blush for "at
-            risk", red for "breached"; the count is the number of rows that match. */}
-        <div className="mt-2 flex flex-wrap items-center gap-2" role="group" aria-label="Attention shortcuts">
+        {/* The mockup's attention shortcuts ride the title row, doubling as
+            filters. Blush for "at risk", red for "breached"; the count is the
+            number of rows that match. "Changed since you looked" is the pack's
+            third shortcut and still unbuilt (the list payload carries no unread
+            flag). */}
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Attention shortcuts">
           {([
             { id: "risk", label: "At risk", colour: "var(--m-blush)", count: attentionCounts.risk },
             { id: "breach", label: "Breached", colour: "var(--m-status-danger-fg)", count: attentionCounts.breach },
