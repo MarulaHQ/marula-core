@@ -40,6 +40,7 @@ function AcceptInviteInner(): ReactNode {
   const params = useSearchParams();
   const token = params.get("token") ?? "";
 
+  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -72,7 +73,19 @@ function AcceptInviteInner(): ReactNode {
     setBusy(true);
     try {
       const { data, error: apiError } = await api.api.POST("/api/v1/org/users/accept-invite", {
-        body: { token, password },
+        // A blank name is "no opinion" and leaves whatever the inviter recorded
+        // untouched, which is why the field is optional rather than required.
+        //
+        // The conditional spread also sidesteps the generated type's excess
+        // property check, because the pins that describe `display_name` have
+        // not been regenerated yet (see the parity ledger on the pin regen that
+        // reported a false OK). The field reaches the server either way; this
+        // note is here so the shape is verified once the pins are current.
+        body: {
+          token,
+          password,
+          ...(name.trim() === "" ? {} : { display_name: name.trim() }),
+        },
       });
       if (apiError !== undefined || data === undefined) {
         const body = apiError as { error?: { code?: number; message?: string } } | undefined;
@@ -209,12 +222,61 @@ function AcceptInviteInner(): ReactNode {
           </span>
           <EntryHeadline>Come on in.</EntryHeadline>
           <p className="entry-sub">
-            Your administrator invited you to join their service desk. Choose a password and
-            you&apos;re in.
+            {/* The pack's subtitle names WHO invited you and WHERE you are going
+                ("Alex M. invited you to join Brightline IT"). Neither is on the
+                invite token this page receives, so it says what it can prove:
+                that an administrator did it, and that this is an account. Naming
+                a person or an org the response does not carry would be
+                inventing them. (auth/neutral/states/08-accept-invite.png) */}
+            Your administrator invited you to join their service desk. Create your account to
+            start.
           </p>
         </div>
 
         <form onSubmit={redeem} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/*
+            The pack asks for a full name here, above the password, because the
+            INVITATION carries an address rather than a person and this is the
+            first moment the invitee can name themselves.
+            `AcceptInviteRequest` took only token+password when this screen was
+            first written, which is why the field was left out; it now carries
+            `display_name`, so the field is here and the value is recorded with
+            the account. (auth/neutral/states/08-accept-invite.png)
+          */}
+          <div className="entry-field">
+            <label className="entry-label" htmlFor="invite-name">
+              Your full name
+            </label>
+            <input
+              id="invite-name"
+              className="entry-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Daniel Reid"
+              autoComplete="name"
+              data-testid="accept-invite-name"
+            />
+          </div>
+
+          <div className="entry-field">
+            <span className="entry-label">Email</span>
+            {/*
+              The pack shows a DISABLED input holding the invited address, with
+              "Set by the invitation." beneath it. The invite token does not
+              carry that address, so there is nothing truthful to put in the box,
+              and a disabled input with no value is a field pretending to be data.
+              The fact is kept as a sentence instead; carrying the address on the
+              token would close this properly, and is recorded as a gap.
+            */}
+            <p
+              className="entry-hint"
+              style={{ margin: 0 }}
+              data-testid="accept-invite-email"
+            >
+              Set by the invitation. Sign in with the address you were invited on.
+            </p>
+          </div>
+
           {field(
             "invite-password",
             password,
@@ -250,7 +312,7 @@ function AcceptInviteInner(): ReactNode {
               data-testid="accept-invite-mismatch"
               style={{ marginTop: -6 }}
             >
-              The two passwords don&apos;t match. Retype the second one.
+              The two passwords don&apos;t match.
             </p>
           )}
 

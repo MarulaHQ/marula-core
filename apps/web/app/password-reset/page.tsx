@@ -316,7 +316,7 @@ function PasswordResetInner(): ReactNode {
             />
             {mismatch && (
               <p className="entry-error" role="alert" data-testid="password-mismatch">
-                The two passwords don&apos;t match. Retype the second one.
+                The two passwords don&apos;t match.
               </p>
             )}
           </div>
