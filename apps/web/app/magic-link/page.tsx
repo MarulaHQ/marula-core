@@ -229,6 +229,9 @@ function MagicLinkInner(): ReactNode {
                 Use a different email
               </button>
             </div>
+            {/* The pack words this to the ADMIN, not the service desk: the
+                person who invited them is who can check the address.
+                (auth/neutral/states/04-magic-link.png) */}
             <EntryNote>
               Nothing in your inbox? Check spam, and make sure you used the address your admin
               invited.

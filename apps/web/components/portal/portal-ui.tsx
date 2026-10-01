@@ -295,29 +295,34 @@ export function PortalEmpty({
 }
 
 /**
- * The fruit line drawing the pack uses for the empty states and for the
- * "check your email" screens. It is a line drawing, not an illustration with
- * a fill, and it carries the brand's leaf and stem.
+ * The brand's line doodle: a round fruit with a leaf and two sparkles.
+ *
+ * It is the SAME drawing on the portal's empty states
+ * (`portal/sand/states/11-empty-tickets.png`) and on the auth family's
+ * "check your inbox" screens (`auth/neutral/states/04-magic-link.png`), which
+ * is why it lives here and is drawn once. Deliberately a LINE drawing with no
+ * fill: it sits on a cream canvas in the portal and on white cards in auth,
+ * and a filled fruit would carry a colour from one surface into the other.
  */
 export function MarulaDoodle() {
   return (
     <svg
-      width="96"
-      height="96"
+      width="72"
+      height="72"
       viewBox="0 0 64 64"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
       style={{ color: "var(--m-accent-text)" }}
     >
-      <path d="M32 17V10" />
-      <path d="M32 11c6-9 19-10 26-5-6 8-18 11-26 5Z" />
-      <circle cx="32" cy="38" r="22" />
-      <ellipse cx="24" cy="31" rx="6" ry="4" opacity=".7" />
-      <path d="M48 12l2 2m4 2 2 2m2-6 2 2" opacity=".8" />
+      <circle cx="30" cy="36" r="13" />
+      <path d="M30 23c0-4 3-7 7-7" />
+      <path d="M31 17c4-5 12-5 16-2-3 5-10 7-16 2Z" />
+      <path d="M52 20v6M49 23h6" />
+      <path d="M14 44v4M12 46h4" />
     </svg>
   );
 }

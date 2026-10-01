@@ -132,7 +132,7 @@ export default function MfaChallengePage() {
           <>
             {error !== null && (
               <p className="entry-error" role="alert" data-testid="mfa-error">
-                <EntryIcon name="alert" size={14} />
+                <EntryIcon name="info" size={14} />
                 <span>{error}</span>
               </p>
             )}

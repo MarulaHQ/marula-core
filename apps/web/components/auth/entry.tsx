@@ -42,13 +42,16 @@ function MarulaMark() {
   );
 }
 
-/** A flat fruit, with a cream sticker outline so it holds on either pattern. */
+/** A flat fruit, with a sticker outline so it holds on either pattern. The
+ *  large fruit wears the brand's CREAM outline, while the small cut fruit wears
+ *  the dark ink ring — the pack draws them differently on purpose
+ *  (auth/neutral/states/02-login-error.png), and matching one to the other
+ *  flattens a distinction that is doing work. */
 export function EntryFruit({ half = false }: { half?: boolean }) {
   return half ? (
     <svg className="entry-fruit entry-fruit--half" viewBox="0 0 64 64" aria-hidden>
-      <circle cx="32" cy="34" r="22" fill="var(--m-cream)" stroke="var(--m-ink)" strokeWidth="2.5" />
-      <circle cx="32" cy="34" r="11" fill="var(--m-blush)" />
-      <circle cx="32" cy="34" r="4" fill="var(--m-ink)" />
+      <circle cx="32" cy="34" r="22" fill="var(--m-gold)" stroke="var(--m-ink)" strokeWidth="3" />
+      <circle cx="32" cy="34" r="9" fill="var(--m-ink)" />
     </svg>
   ) : (
     <svg className="entry-fruit" viewBox="0 0 64 64" aria-hidden>
@@ -219,6 +222,17 @@ export function EntryIcon({ name, size = 18 }: { name: string; size?: number }) 
         <svg {...common}>
           <path d="M12 4 3 19h18L12 4Z" />
           <path d="M12 10v4M12 17h.01" />
+        </svg>
+      );
+    case "info":
+      /* The circled-i the pack uses for "here is what is going on", as
+         distinct from an alert. A wrong password is information about her
+         remaining attempts, not a hazard, and a triangle would say otherwise.
+         (auth/neutral/states/02-login-error.png) */
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v5M12 8h.01" />
         </svg>
       );
     case "mail":

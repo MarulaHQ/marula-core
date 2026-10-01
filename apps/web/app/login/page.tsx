@@ -280,12 +280,19 @@ export default function LoginPage() {
             {/* Blush, with an icon and words. Never red. */}
             {signInError !== null && (
               <p className="entry-error" role="alert" id="login-password-error" data-testid="login-error">
-                <EntryIcon name="alert" size={14} />
+                <EntryIcon name="info" size={14} />
                 <span>
                   {signInError}
-                  {tries !== null && tries > 0
-                    ? ` You have ${tries} ${tries === 1 ? "try" : "tries"} left before a short wait.`
-                    : ""}
+                  {tries !== null && tries > 0 ? (
+                    <>
+                      {" "}
+                      You have{" "}
+                      <b>
+                        {tries} {tries === 1 ? "try" : "tries"} left
+                      </b>{" "}
+                      before a short wait.
+                    </>
+                  ) : null}
                 </span>
               </p>
             )}
