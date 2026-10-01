@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use core_domain::entities::{
     BusinessCalendar, EscalationStep, SlaCalendar, SlaPolicy, SlaTargets, TicketSlaState,
 };
-use sqlx::Postgres;
+use sqlx::{PgConnection, Postgres};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -737,4 +737,105 @@ fn policy_record_from(
         calendar,
         calendar_id,
     })
+}
+
+// --- Wave 41 lane 12: bulk status reassignment -------------------------------
+
+/// One open SLA pause among the tickets that just moved out of a status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenPause {
+    pub ticket_id: Uuid,
+    pub policy_id: Uuid,
+    pub paused_since: DateTime<Utc>,
+}
+
+/// Every open pause among the moved tickets.
+///
+/// The bulk path needs the pause instants because closing a pause costs
+/// BUSINESS seconds, and business seconds are calendar arithmetic that SQL
+/// cannot do. The caller resolves each distinct policy's calendar once (a
+/// board has a handful of policies), computes the elapsed seconds per ticket
+/// in Rust, and hands them back to [`apply_resume_bulk`].
+pub async fn open_pauses_for_tickets<'e, E>(
+    executor: E,
+    ticket_ids: &[Uuid],
+) -> DbResult<Vec<OpenPause>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    if ticket_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = sqlx::query(
+        r#"SELECT ticket_id, policy_id, paused_since FROM ticket_sla_state
+           WHERE ticket_id = ANY($1) AND paused_since IS NOT NULL"#,
+    )
+    .bind(ticket_ids)
+    .fetch_all(executor)
+    .await?;
+    use sqlx::Row;
+    Ok(rows
+        .into_iter()
+        .map(|row| OpenPause {
+            ticket_id: row.get("ticket_id"),
+            policy_id: row.get("policy_id"),
+            paused_since: row.get("paused_since"),
+        })
+        .collect())
+}
+
+/// Opens a pause on every moved ticket that has none. Set-based, and exact:
+/// opening a pause records the instant, so no calendar is needed.
+pub async fn apply_pause_bulk(
+    conn: &mut PgConnection,
+    ticket_ids: &[Uuid],
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    if ticket_ids.is_empty() {
+        return Ok(0);
+    }
+    let affected = sqlx::query(
+        r#"UPDATE ticket_sla_state SET paused_since = $2, updated_at = now()
+           WHERE ticket_id = ANY($1) AND paused_since IS NULL"#,
+    )
+    .bind(ticket_ids)
+    .bind(now)
+    .execute(&mut *conn)
+    .await?
+    .rows_affected();
+    Ok(affected)
+}
+
+/// Closes a pause on the listed tickets, adding each ticket's already-computed
+/// elapsed BUSINESS seconds.
+///
+/// The seconds arrive from the caller because they depend on each policy's
+/// calendar; this function only writes. One statement per chunk keeps the bind
+/// count under Postgres' 65535-parameter ceiling for a status holding tens of
+/// thousands of tickets.
+pub async fn apply_resume_bulk(
+    conn: &mut PgConnection,
+    elapsed_by_ticket: &[(Uuid, i64)],
+) -> DbResult<u64> {
+    let mut changed = 0;
+    // Two binds per row, so 20_000 rows is 40_000 parameters: comfortably
+    // inside the ceiling and still one round trip for any realistic board.
+    for chunk in elapsed_by_ticket.chunks(20_000) {
+        let ids: Vec<Uuid> = chunk.iter().map(|(id, _)| *id).collect();
+        let rows = sqlx::query(
+            r#"UPDATE ticket_sla_state s
+               SET paused_business_secs = s.paused_business_secs + v.elapsed,
+                   paused_since = NULL,
+                   updated_at = now()
+               FROM (SELECT * FROM unnest($1::uuid[], $2::bigint[]) AS t(ticket_id, elapsed)) AS v
+               WHERE s.ticket_id = v.ticket_id AND s.paused_since IS NOT NULL"#,
+        )
+        .bind(&ids)
+        .bind(chunk.iter().map(|(_, secs)| *secs).collect::<Vec<i64>>())
+        .execute(&mut *conn)
+        .await?
+        .rows_affected();
+        changed += rows;
+    }
+    Ok(changed)
 }

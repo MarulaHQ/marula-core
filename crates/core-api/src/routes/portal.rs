@@ -679,16 +679,34 @@ fn default_limit() -> i64 {
     50
 }
 
+/// A ticket as a CLIENT sees it (Wave 41 lane 12).
+///
+/// The ticket fields are flattened exactly as they were, so the portal client
+/// keeps reading the same keys; two status fields are added. `status_label`
+/// is `None` when the status is not client-visible, and the client shows the
+/// category word instead — which is the whole point of the per-status switch
+/// in Settings: it changes what a client is told, in words, without hiding
+/// where the ticket stands.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct PortalTicketView {
+    #[serde(flatten)]
+    pub ticket: core_domain::entities::Ticket,
+    /// The status's own label, when the org allows clients to see it.
+    pub status_label: Option<String>,
+    /// The status id, so a client-side filter can group without guessing.
+    pub status_id: uuid::Uuid,
+}
+
 /// GET /api/portal/tickets — the caller's client's tickets across EXPOSED
 /// boards only. Unexposed boards are invisible, not empty-filtered.
 #[utoipa::path(operation_id = "portal_list_tickets", get, path = "/api/portal/tickets", tag = "portal",
     security(("bearer" = [])), params(PortalTicketListQuery),
-    responses((status = 200, body = [core_domain::entities::Ticket])))]
+    responses((status = 200, body = [PortalTicketView])))]
 pub async fn list_tickets(
     State(state): State<AppState>,
     extensions: Extensions,
     Query(q): Query<PortalTicketListQuery>,
-) -> ApiResult<Json<Vec<core_domain::entities::Ticket>>> {
+) -> ApiResult<Json<Vec<PortalTicketView>>> {
     let authed = portal_authed(&extensions)?;
     check_portal(
         authed.user.role,
@@ -701,7 +719,7 @@ pub async fn list_tickets(
     core_db::set_org_and_user(&mut tx, authed.user.org_id, authed.user.id)
         .await
         .map_err(ApiError::from)?;
-    let tickets = core_db::portal::list_client_tickets(
+    let views = core_db::portal::list_client_ticket_views(
         &mut *tx,
         authed.user.org_id,
         authed.user.client_id,
@@ -714,7 +732,7 @@ pub async fn list_tickets(
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(tickets))
+    Ok(Json(views.into_iter().map(to_view).collect()))
 }
 
 /// GET /api/portal/tickets/{id} — detail plus comments through the
@@ -1177,4 +1195,14 @@ pub async fn csat_submit(
     })
     .await?;
     Ok(Json(view))
+}
+
+/// Client-facing view of one ticket: the staff label only when the org allows
+/// it, otherwise nothing (the client falls back to the category word).
+fn to_view(view: core_db::portal::ClientTicketView) -> PortalTicketView {
+    PortalTicketView {
+        status_id: view.ticket.status_id,
+        status_label: view.status_client_visible.then_some(view.status_name),
+        ticket: view.ticket,
+    }
 }

@@ -4888,6 +4888,7 @@ fn sample_status(name: &str) -> BoardStatus {
         is_entry: false,
         color: Some("#3b82f6".into()),
         wip_limit: None,
+        client_visible: true,
     }
 }
 

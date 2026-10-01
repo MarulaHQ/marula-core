@@ -6,6 +6,8 @@
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{Board, BoardFavorite, BoardGroup, BoardMember, BoardStatus};
+use serde_json::Value;
+use std::collections::HashMap;
 use core_domain::policy::BoardRole;
 use core_domain::status::TicketStatusCategory;
 use core_domain::workflow::TransitionEdge;
@@ -179,11 +181,11 @@ fn status_from_row(row: sqlx::postgres::PgRow) -> DbResult<BoardStatus> {
         is_entry: row.get("is_entry"),
         color: row.get("color"),
         wip_limit: row.get("wip_limit"),
+        client_visible: row.get("client_visible"),
     })
 }
 
-const STATUS_COLS: &str =
-    "id, board_id, org_id, name, category, sort_order, is_entry, color, wip_limit";
+const STATUS_COLS: &str = "id, board_id, org_id, name, category, sort_order, is_entry, color, wip_limit, client_visible";
 
 pub async fn list_statuses<'e, E>(executor: E, board_id: Uuid) -> DbResult<Vec<BoardStatus>>
 where
@@ -234,6 +236,8 @@ pub struct StatusPatch<'a> {
     pub sort_order: Option<i32>,
     pub is_entry: Option<bool>,
     pub wip_limit: Option<Option<i32>>,
+    /// Wave 41 lane 12: the portal label toggle. `None` = unchanged.
+    pub client_visible: Option<bool>,
 }
 
 /// Updates one status's presentation/binding metadata in place.
@@ -242,43 +246,48 @@ pub async fn update_status(
     status_id: Uuid,
     patch: StatusPatch<'_>,
 ) -> DbResult<BoardStatus> {
-    let affected = if let Some(limit) = patch.wip_limit {
-        sqlx::query!(
+    // Runtime queries, like the reads above: this UPDATE is a COALESCE soup
+    // whose only output is `rows_affected`, so the macro's column checking
+    // buys nothing and would tie a schema change to an offline-cache regen.
+    // `client_visible` rides both branches so one patch can set any subset.
+    // `cap` is the DOUBLE option flattened for the bind: `Some(n)` sets the
+    // cap, and the row only appears in this branch when the caller sent a
+    // wip_limit at all, so a NULL bind is the "clear the cap" case.
+    let (sql, cap): (&str, Option<i32>) = if patch.wip_limit.is_some() {
+        (
             r#"UPDATE board_statuses SET
                  name = COALESCE($2, name),
                  category = COALESCE($3, category),
                  sort_order = COALESCE($4, sort_order),
                  is_entry = COALESCE($5, is_entry),
-                 wip_limit = $6
+                 client_visible = COALESCE($6, client_visible),
+                 wip_limit = $7
                WHERE id = $1"#,
-            status_id,
-            patch.name,
-            patch.category.map(|c| c.as_str()),
-            patch.sort_order,
-            patch.is_entry,
-            limit,
+            patch.wip_limit.flatten(),
         )
-        .execute(&mut *conn)
-        .await?
-        .rows_affected()
     } else {
-        sqlx::query!(
+        (
             r#"UPDATE board_statuses SET
                  name = COALESCE($2, name),
                  category = COALESCE($3, category),
                  sort_order = COALESCE($4, sort_order),
-                 is_entry = COALESCE($5, is_entry)
+                 is_entry = COALESCE($5, is_entry),
+                 client_visible = COALESCE($6, client_visible)
                WHERE id = $1"#,
-            status_id,
-            patch.name,
-            patch.category.map(|c| c.as_str()),
-            patch.sort_order,
-            patch.is_entry,
+            None,
         )
+    };
+    let affected = sqlx::query(sql)
+        .bind(status_id)
+        .bind(patch.name)
+        .bind(patch.category.map(|c| c.as_str()))
+        .bind(patch.sort_order)
+        .bind(patch.is_entry)
+        .bind(patch.client_visible)
+        .bind(cap)
         .execute(&mut *conn)
         .await?
-        .rows_affected()
-    };
+        .rows_affected();
     if affected == 0 {
         return Err(DbError::NotFound);
     }
@@ -768,4 +777,144 @@ where
             })
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Wave 41 lane 12: the numbers the settings statuses table draws.
+//
+// The pack (state 02) draws a TICKETS count per row and the delete confirm
+// (state 06) draws "12 tickets use this status. Where should they go?" plus
+// "2 automations mention this status." One read serves both, so the table and
+// its confirm can never disagree about the same number.
+// ---------------------------------------------------------------------------
+
+/// What one status column costs and what refers to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatusUsage {
+    pub status_id: Uuid,
+    /// Tickets currently in this status. Includes closed ones: the column is
+    /// a ledger of where work has been, not a live queue.
+    pub ticket_count: i64,
+    /// Automation rules whose conditions/actions name this status id. They
+    /// are paused (never silently repointed) when the status goes away, so
+    /// the confirm can say so before anyone clicks.
+    pub automation_count: i64,
+}
+
+/// Per-status ticket counts and automation references for one board.
+///
+/// Ticket counts are one grouped aggregate. Automation mentions are matched in
+/// Rust rather than in SQL: the rules table is a handful of rows per org, and
+/// a plain substring test over the two jsonb documents is easier to read,
+/// easier to test and impossible to get subtly wrong. The match is on the
+/// status uuid's text form, which is unique enough that a false positive only
+/// pauses a rule, while a false negative would leave a rule firing against a
+/// status that no longer exists.
+pub async fn status_usage(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    board_id: Uuid,
+) -> DbResult<Vec<StatusUsage>> {
+    use sqlx::Row;
+    let count_rows = sqlx::query(
+        "SELECT status_id, count(*)::bigint AS ticket_count \
+         FROM tickets WHERE org_id = $1 AND board_id = $2 GROUP BY status_id",
+    )
+    .bind(org_id)
+    .bind(board_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut counts: HashMap<Uuid, i64> = HashMap::new();
+    for row in count_rows {
+        counts.insert(row.get("status_id"), row.get("ticket_count"));
+    }
+
+    let rule_rows = sqlx::query(
+        "SELECT actions, conditions FROM automation_rules WHERE org_id = $1 AND board_id = $2",
+    )
+    .bind(org_id)
+    .bind(board_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let rule_text: Vec<String> = rule_rows
+        .into_iter()
+        .map(|row| {
+            let actions: Value = row.get("actions");
+            let conditions: Value = row.get("conditions");
+            format!("{actions}{conditions}")
+        })
+        .collect();
+
+    let status_rows = sqlx::query(
+        "SELECT id FROM board_statuses WHERE org_id = $1 AND board_id = $2 ORDER BY sort_order",
+    )
+    .bind(org_id)
+    .bind(board_id)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(status_rows
+        .into_iter()
+        .map(|row| {
+            let status_id: Uuid = row.get("id");
+            let needle = status_id.to_string();
+            StatusUsage {
+                status_id,
+                ticket_count: counts.get(&status_id).copied().unwrap_or(0),
+                automation_count: rule_text.iter().filter(|text| text.contains(&needle)).count()
+                    as i64,
+            }
+        })
+        .collect())
+}
+
+/// Pauses every automation rule that names `status_id`, and returns how many
+/// were paused.
+///
+/// Pause, never repoint: an automation's conditions are the org's own logic,
+/// and silently rewriting them to a different status would change what the
+/// org does without anyone deciding it. A paused rule keeps its name and its
+/// conditions and waits for a person — which is exactly what the drawn delete
+/// confirm (state 06) tells the admin will happen.
+pub async fn pause_automations_mentioning(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    status_id: Uuid,
+) -> DbResult<i64> {
+    let needle = status_id.to_string();
+    let affected = sqlx::query(
+        r#"UPDATE automation_rules SET enabled = false, updated_at = now()
+           WHERE org_id = $1 AND enabled
+             AND (actions::text LIKE '%' || $2 || '%'
+                  OR conditions::text LIKE '%' || $2 || '%')"#,
+    )
+    .bind(org_id)
+    .bind(&needle)
+    .execute(&mut *conn)
+    .await?
+    .rows_affected();
+    Ok(affected as i64)
+}
+
+/// Ids of the tickets sitting in one status, in creation order.
+///
+/// The delete-with-reassign path needs the ids to write one timeline entry
+/// each, so this is a read rather than a bare `rows_affected`.
+pub async fn ticket_ids_in_status<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    status_id: Uuid,
+) -> DbResult<Vec<Uuid>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query(
+        "SELECT id FROM tickets WHERE org_id = $1 AND status_id = $2 ORDER BY created_at",
+    )
+    .bind(org_id)
+    .bind(status_id)
+    .fetch_all(executor)
+    .await?;
+    use sqlx::Row;
+    Ok(rows.into_iter().map(|row| row.get("id")).collect())
 }

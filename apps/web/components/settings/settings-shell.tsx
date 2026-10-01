@@ -25,8 +25,10 @@ import type { ReactNode } from "react";
  * Standard settings page header: title + one-line description, plus a
  * right-aligned meta/actions slot.
  *
- * The `compact` title is the pack's settings/utility shape; a settings page
- * that wants the large data-surface title passes `<SurfaceHeader>` directly.
+ * `size="surface"` is deliberate: the settings pack draws `.sh h1` at 26px
+ * with a -0.01em track, and that is exactly the `surface` size
+ * (Wave 41 lane `p41-ui-chrome` owns the frame; this alias owns the opt-in
+ * for this cluster).
  */
 export function SettingsHeader({
   title,
@@ -41,14 +43,15 @@ export function SettingsHeader({
 }) {
   return (
     <SurfaceHeader
-      size="compact"
+      size="surface"
       title={title}
       description={description}
       actions={children}
-      // The alias keeps the settings area's historical 16px under the header;
-      // `SurfaceHeader` itself is spacing-neutral so a new surface can drop it
-      // into a grid or a flex column without fighting for the gap.
-      className="mb-4"
+      // The settings pack measures its description at 560px; the shared frame
+      // allows 72ch, which is wider on a settings line. The gap under the
+      // header is this cluster's, since the frame is spacing-neutral so a new
+      // surface can drop it into a grid or a flex column unchanged.
+      className="mb-4 [&_.m-surface-header-description]:max-w-[560px]"
     />
   );
 }

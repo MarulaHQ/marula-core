@@ -43,6 +43,11 @@ pub struct BoardStatus {
     /// Per-column WIP cap (0089): occupancy of this column is enforced
     /// server-side at ticket status change. `None` = no limit.
     pub wip_limit: Option<i32>,
+    /// Wave 41 lane 12: whether the portal shows this status's own label to
+    /// a client. `false` shows the semantic category word instead, so an
+    /// internal label ("Escalated to L2") never reaches a client while the
+    /// ticket still reports where it stands.
+    pub client_visible: bool,
 }
 
 /// A user's favorite marking of a board (drives board groups + my-work).

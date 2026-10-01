@@ -1,181 +1,171 @@
-// /settings — configuration hub shell.
+// /settings — the settings shell: an accordion section rail and the page.
 //
-// Purpose: the IA wrapper for every settings surface: product header on
-// top, section nav as a left rail inside the content pane (a horizontal
-// strip above the content below `lg` — the lane-10 narrow-viewport fix:
-// the always-side-rail row clipped page content at 768/480), pages render
-// to its right. Nav items whose backends land in later waves render a
-// disabled "coming from another wave" state instead of dead links.
-// Wave 17 lane 7: sections are grouped into labeled bands so 19 sections
-// scan as five IAs instead of one long list; groups flatten on mobile.
+// Purpose: the IA wrapper every settings surface renders into, built to
+// `brand/marula-mockups/marula-surface-pack/web/settings/neutral/states/
+// 01-settings-shell.png` and DESIGN-NOTES-settings.md §2: a centred column of
+// about 1152px, a 232px section rail, a 32px gap, then the page. The rail is
+// an ACCORDION — the eight groups are always visible, only the current group
+// is open, so 28 pages never need a scroll. Below `lg` the rail becomes a
+// horizontal strip so the page gets the full width (the lane-10 fix, kept).
 //
-// Non-purpose: no settings logic here — pages own their data; this file
-// never reads or writes configuration.
+// The rail lists every real page in `SETTINGS_RAIL`; the index page draws the
+// pack's card list. Both read the same eight groups from `lib/settings/ia.ts`.
+//
+// Non-purpose: no settings logic, no permission filtering (a page a user may
+// not open guards itself), no data fetching.
+
 "use client";
 
 import { useRequireAuth } from "../../lib/api";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { SETTINGS_GROUPS, SETTINGS_RAIL, groupForPathname } from "../../lib/settings/ia";
+import { SETTINGS_COLUMN, SHELL_GAP } from "../../components/settings/settings-forms";
 
-interface NavItem {
-  href: string;
-  label: string;
-  /** Placeholder sections are rendered but not yet backed by a wave. */
-  pending?: boolean;
-}
-
-interface NavGroup {
-  label: string;
-  items: NavItem[];
-}
-
-const GROUPS: NavGroup[] = [
-  {
-    label: "Workspace",
-    items: [
-      { href: "/settings/general", label: "General" },
-      { href: "/settings/preferences", label: "Preferences" },
-      { href: "/settings/notifications", label: "Notifications" },
-      { href: "/settings/onboarding", label: "Onboarding" },
-      { href: "/settings/shortcuts", label: "Shortcuts" },
-    ],
-  },
-  {
-    label: "People & access",
-    items: [
-      { href: "/settings/team", label: "Team" },
-      { href: "/settings/security", label: "Security" },
-      { href: "/settings/api-keys", label: "API keys" },
-    ],
-  },
-  {
-    label: "Delivery",
-    items: [
-      { href: "/settings/boards", label: "Boards" },
-      { href: "/settings/taxonomy", label: "Taxonomy" },
-      { href: "/settings/tags", label: "Tags" },
-      { href: "/settings/time-categories", label: "Time categories" },
-      { href: "/settings/workflow", label: "Workflow" },
-      { href: "/settings/sla", label: "SLA" },
-      { href: "/settings/portal", label: "Portal" },
-      { href: "/settings/reply-snippets", label: "Reply snippets" },
-      { href: "/settings/pm-schedules", label: "PM schedules" },
-    ],
-  },
-  {
-    label: "Systems",
-    items: [
-      { href: "/settings/email", label: "Email" },
-      { href: "/settings/surveys", label: "Surveys" },
-      { href: "/settings/integrations", label: "Integrations" },
-      { href: "/settings/plugins", label: "Plugins" },
-      { href: "/settings/agent-platform", label: "Agent platform" },
-      { href: "/settings/ai", label: "AI & connectors" },
-      { href: "/settings/inventory", label: "Inventory & merge" },
-      { href: "/settings/labels", label: "Labels & scanning" },
-      { href: "/settings/toolboxes", label: "Toolboxes & day pack" },
-      { href: "/settings/self-host", label: "Self-host services" },
-    ],
-  },
-  {
-    label: "Data",
-    items: [{ href: "/settings/export", label: "Export" }],
-  },
-];
-
-function NavLink({
-  href,
-  label,
-  pending,
-  active,
-}: NavItem & { active: boolean }) {
-  if (pending) {
-    return (
-      <span
-        aria-disabled="true"
-        title="Coming from another wave"
-        className="block rounded px-2 py-1.5 text-[13px] cursor-not-allowed whitespace-nowrap lg:whitespace-normal"
-        style={{ color: "var(--m-text-muted)" }}
-      >
-        {label}
-        <span className="ml-1 text-[10px] uppercase tracking-wide">soon</span>
-      </span>
-    );
-  }
-  const activeStyle = active
-    ? {
-        background: "var(--m-surface)",
-        fontWeight: 600,
-        color: "var(--m-text)",
-        boxShadow: "inset 2px 0 0 0 var(--m-accent)",
-      }
-    : { color: "var(--m-text-secondary)" };
+function Chevron({ open }: { open: boolean }): React.JSX.Element {
   return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      className="block rounded px-2 py-1.5 text-[13px] whitespace-nowrap lg:whitespace-normal"
-      style={{
-        transition: "background-color 100ms ease, opacity 100ms ease",
-        ...activeStyle,
-      }}
+    <svg
+      aria-hidden="true"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ color: "var(--m-text-secondary)" }}
     >
-      {label}
-    </Link>
+      {open ? <path d="m6 9 6 6 6-6" /> : <path d="m9 6 6 6-6 6" />}
+    </svg>
   );
 }
 
-export default function SettingsLayout({ children }: { children: ReactNode }) {
+export default function SettingsLayout({ children }: { children: ReactNode }): React.JSX.Element {
   const auth = useRequireAuth();
   const pathname = usePathname();
+  const current = groupForPathname(pathname);
+  // The current group is the one open on first paint; an admin can open others.
+  const [open, setOpen] = useState<string[]>(current ? [current.group.id] : []);
 
   return (
     <div
       className="min-h-full flex flex-col"
       style={{ background: "var(--m-canvas)" }}
     >
-      {/* Narrow-viewport fix (lane-10): below `lg` the section rail
-          collapses into a horizontal strip ABOVE the content, so pages
-          get the full pane width — the old always-side-rail flex row
-          clipped content at 768/480 on EVERY settings page (pane
-          scrollWidth == viewport, content unreachable). Wide viewports
-          keep the side rail unchanged. */}
-      <div className="flex-1 w-full max-w-6xl mx-auto flex flex-col lg:flex-row gap-4 lg:gap-8 px-4 py-6 lg:px-6 lg:py-8">
+      <div
+        className="flex-1 w-full mx-auto flex flex-col lg:flex-row"
+        style={{
+          maxWidth: SETTINGS_COLUMN,
+          gap: SHELL_GAP,
+          paddingTop: 24,
+          paddingBottom: 24,
+          paddingLeft: 24,
+          paddingRight: 24,
+        }}
+      >
         <nav
           aria-label="Settings sections"
-          className="lg:w-44 shrink-0 overflow-x-auto"
+          data-testid="settings-rail"
+          className="w-full lg:shrink-0 lg:w-[232px] overflow-x-auto"
         >
-          <div className="flex flex-row lg:flex-col gap-4 lg:gap-5 w-max lg:w-auto">
-            {GROUPS.map((group) => (
-              <div
-                key={group.label}
-                data-testid={`settings-nav-group-${group.label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
-                className="flex flex-row lg:flex-col gap-1"
+          <div
+            className="flex flex-row lg:flex-col"
+            style={{ gap: 2, width: "max-content" }}
+          >
+            <div className="lg:w-full" style={{ marginBottom: 2 }}>
+              <Link
+                href="/settings"
+                aria-current={pathname === "/settings" ? "page" : undefined}
+                className="flex items-center"
+                style={{
+                  height: 36,
+                  padding: "0 12px",
+                  borderRadius: 10,
+                  fontWeight: 500,
+                  textDecoration: "none",
+                  background: pathname === "/settings" ? "var(--m-accent)" : "transparent",
+                  color: pathname === "/settings" ? "var(--m-accent-text)" : "var(--m-text)",
+                }}
               >
-                <p
-                  className="text-[10px] uppercase tracking-wider pt-1 lg:pb-0 pb-1 pr-2 shrink-0 self-center lg:self-auto"
-                  style={{ color: "var(--m-text-muted)" }}
-                >
-                  {group.label}
-                </p>
-                <ul className="flex flex-row lg:grid flex-row gap-1 w-max lg:w-auto">
-                  {group.items.map((section) => (
-                    <li key={section.href}>
-                      <NavLink
-                        href={section.href}
-                        label={section.label}
-                        pending={section.pending}
-                        active={pathname.startsWith(section.href)}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+                All settings
+              </Link>
+            </div>
+            {SETTINGS_GROUPS.map((group) => {
+              const isOpen = open.includes(group.id);
+              const pages = SETTINGS_RAIL[group.id] ?? [];
+              return (
+                <div key={group.id} data-testid={`settings-group-${group.id}`} style={{ marginBottom: 2 }}>
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    onClick={() =>
+                      setOpen((prev) =>
+                        prev.includes(group.id)
+                          ? prev.filter((id) => id !== group.id)
+                          : [...prev, group.id],
+                      )
+                    }
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      height: 36,
+                      padding: "0 12px",
+                      border: "none",
+                      borderRadius: 10,
+                      background: "transparent",
+                      color: "var(--m-text)",
+                      fontWeight: 600,
+                      fontSize: 14,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span>{group.label}</span>
+                    <Chevron open={isOpen} />
+                  </button>
+                  {isOpen ? (
+                    <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                      {pages.map((page) => {
+                        const active =
+                          pathname === page.href || pathname.startsWith(`${page.href}/`);
+                        return (
+                          <li key={`${group.id}-${page.href}-${page.label}`}>
+                            <Link
+                              href={page.href}
+                              aria-current={active ? "page" : undefined}
+                              className="flex items-center"
+                              style={{
+                                height: 36,
+                                padding: "0 12px",
+                                borderRadius: 10,
+                                textDecoration: "none",
+                                fontWeight: active ? 600 : 500,
+                                color: active ? "var(--m-accent-text)" : "var(--m-text)",
+                                background: active ? "var(--m-accent)" : "transparent",
+                                transition: "background-color 120ms ease, color 120ms ease",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {page.label}
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         </nav>
-        <main className="flex-1 min-w-0">
+        <main
+          className="flex-1 min-w-0 relative"
+          style={{ paddingBottom: 24 }}
+          data-testid="settings-main"
+        >
           {auth.status === "authed" ? children : null}
         </main>
       </div>

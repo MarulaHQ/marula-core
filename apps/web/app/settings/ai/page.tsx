@@ -12,10 +12,11 @@
 //   never surfaces secret bytes), org usage progress.
 // - personal keys for the current admin / user (same credential slot,
 //   gated by `ai.personal_credentials_enabled`).
-// - The decision-harness leg: per-surface enable/grant/config editors
-//   riding the DecisionSurfaceEditor component (state_template JSON
-//   editor + live preview + thresholds + fork provenance + shadow
-//   fire + shadow→live).
+// - The decision-harness leg: the DRAWN surface (Wave 41 lane 12) — the
+//   seven decision surfaces as a table with Access / Mode / Enabled, and a
+//   480px configure drawer carrying the DecisionSurfaceEditor (state_template
+//   JSON editor, live preview, thresholds, fork provenance, shadow fire,
+//   shadow→live). Shadow mode is visible HERE and nowhere else.
 // - BYOK provider keys remain here (the Ollama/custom completion
 //   posture previously shipped), now the "Byok providers" section.
 //
@@ -24,6 +25,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  Badge,
   Button,
   Card,
   Input,
@@ -45,7 +47,8 @@ import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 import { rejectionText, resultErrorText } from "../../../lib/error-copy";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
-import { DecisionSurfaceEditor } from "../../../components/settings/decision-surface-editor";
+import { DecisionSurfaces } from "./decision-surfaces";
+import { ToggleRow, ToggleSwitch } from "../../../components/settings/settings-forms";
 import { CatalogCard, CapsCard } from "../../../components/settings/ai-catalog-caps";
 import { ByokLegacyCard } from "../../../components/settings/byok-legacy-card";
 import { MyUsageCard, OrgUsageCard } from "../../../components/settings/ai-usage-cards";
@@ -127,6 +130,23 @@ export default function AiSettingsPage() {
         }
       />
 
+      <DecisionSurfaces
+        surfaces={decision?.surfaces ?? []}
+        featuresEnabled={decision?.features_enabled ?? false}
+        onChanged={(key, next) =>
+          setDecision((prev) =>
+            prev === null
+              ? prev
+              : {
+                  ...prev,
+                  surfaces: prev.surfaces.map((s) =>
+                    s.surface_key === key ? next : s,
+                  ),
+                },
+          )
+        }
+      />
+
       <SurfacesMatrixCard
         matrix={matrix}
         decision={decision}
@@ -139,20 +159,6 @@ export default function AiSettingsPage() {
       <CatalogCard onChanged={() => void refresh()} />
 
       <CapsCard caps={matrix?.caps ?? []} users={users} onChanged={() => void refresh()} />
-
-      <DecisionHarnessCard
-        surfaces={decision?.surfaces ?? []}
-        onChanged={(key, next) =>
-          setDecision((prev) =>
-            prev === null
-              ? prev
-              : {
-                  ...prev,
-                  surfaces: prev.surfaces.map((s) => (s.surface_key === key ? next : s)),
-                },
-          )
-        }
-      />
 
       <TerminalCredentialCard matrix={matrix} users={users} />
 
@@ -175,39 +181,50 @@ function MasterSwitchCard({
   onChanged: (v: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const on = featuresEnabled === true;
   return (
-    <Card className="mb-4">
-      <div className="p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold">AI features</h2>
-            <p className="mt-1 max-w-prose text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-              The org-wide master switch, default OFF. OFF keeps the exact pre-AI product — every
-              AI surface (completion, tools and the decision harness) answers quiet with zero
-              ledger rows; flipping ON lets the per-surface grants and configs below decide what is
-              actually audible.
-            </p>
-          </div>
-          <Button
-            size="sm"
-            variant={featuresEnabled ? "secondary" : "primary"}
-            data-testid="ai-features-switch"
-            disabled={busy || featuresEnabled === undefined}
-            onClick={async () => {
-              setBusy(true);
-              const { error } = await api.api.PUT("/api/v1/settings/ai/decision/features", {
-                body: { enabled: !featuresEnabled, idempotency_key: `features:${Date.now()}` } as never,
-              });
-              setBusy(false);
-              if (error !== undefined) return;
-              onChanged(!featuresEnabled);
-            }}
-          >
-            {busy ? <Spinner /> : featuresEnabled ? "Turn AI features off" : "Turn AI features on"}
-          </Button>
-        </div>
-      </div>
-    </Card>
+    <section
+      data-testid="ai-master-card"
+      style={{
+        border: "1px solid var(--m-border)",
+        borderRadius: 16,
+        background: "var(--m-surface)",
+        overflow: "hidden",
+      }}
+    >
+      <ToggleRow
+        first
+        title="Allow AI in this organisation"
+        description="Off by default. While it is off, no surface can call a model and nothing about AI appears anywhere in the product."
+        badge={
+          on ? (
+            <Badge tone="success" data-testid="ai-master-pill">
+              On
+            </Badge>
+          ) : (
+            <Badge tone="neutral" data-testid="ai-master-pill">
+              Off
+            </Badge>
+          )
+        }
+      >
+        <ToggleSwitch
+          on={on}
+          disabled={busy || featuresEnabled === undefined}
+          label="Allow AI in this organisation"
+          testId="ai-features-switch"
+          onChange={async (next) => {
+            setBusy(true);
+            const { error } = await api.api.PUT("/api/v1/settings/ai/decision/features", {
+              body: { enabled: next, idempotency_key: `features:${Date.now()}` } as never,
+            });
+            setBusy(false);
+            if (error !== undefined) return;
+            onChanged(next);
+          }}
+        />
+      </ToggleRow>
+    </section>
   );
 }
 
@@ -420,37 +437,6 @@ function GrantEditor({
 
 function setGrant(next: "role" | "user") {
   return next;
-}
-
-function DecisionHarnessCard({
-  surfaces,
-  onChanged,
-}: {
-  surfaces: DecisionSurfaceOverview[];
-  onChanged: (key: string, next: DecisionSurfaceOverview) => void;
-}) {
-  if (surfaces.length === 0) return null;
-  return (
-    <Card className="mb-4">
-      <div className="p-4">
-        <h2 className="text-sm font-semibold">Decision harness</h2>
-        <p className="mt-1 max-w-prose text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-          Every decision surface lands SHADOW and quiet until deliberately configured — an
-          unconfigured surface shows no cards and offers no dead buttons (ADR 0011 §3); what each
-          activates is stated on the card.
-        </p>
-        <div className="mt-3 flex flex-col gap-4" data-testid="decision-surface-editors">
-          {surfaces.map((s) => (
-            <DecisionSurfaceEditor
-              key={s.surface_key}
-              surface={s}
-              onSaved={(next) => onChanged(s.surface_key, next)}
-            />
-          ))}
-        </div>
-      </div>
-    </Card>
-  );
 }
 
 function TerminalCredentialCard({ matrix, users }: { matrix: AiMatrixResponse | null; users: { id: string; name: string }[] }) {

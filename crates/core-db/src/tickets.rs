@@ -444,6 +444,46 @@ where
     Ok(())
 }
 
+/// Moves EVERY ticket in one status to another status, set-based.
+///
+/// This is the bulk sibling of [`update_status`] and mirrors its column
+/// invariants exactly, because those are the denormalisation contract:
+/// `status_id`, the `category` copy that filtering and sorting read, and the
+/// one-shot `resolved_at` stamp when crossing into a closed category. A
+/// caller that used a plain `UPDATE ... SET status_id` would leave `category`
+/// stale and quietly break SLA and board arithmetic for every moved ticket.
+///
+/// Returns the ids that moved, newest last, so the caller can write one
+/// timeline entry each. Set-based because a status may hold tens of thousands
+/// of tickets and a per-ticket loop would hold the transaction open for
+/// minutes.
+pub async fn reassign_status_bulk(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    from_status_id: Uuid,
+    to_status_id: Uuid,
+) -> DbResult<Vec<Uuid>> {
+    let rows = sqlx::query(
+        r#"UPDATE tickets SET
+             status_id = $3,
+             category = (SELECT category FROM board_statuses WHERE id = $3),
+             resolved_at = CASE
+               WHEN (SELECT category FROM board_statuses WHERE id = $3) = 'closed'
+                 AND resolved_at IS NULL THEN now()
+               ELSE resolved_at END,
+             updated_at = now()
+           WHERE org_id = $1 AND status_id = $2
+           RETURNING id"#,
+    )
+    .bind(org_id)
+    .bind(from_status_id)
+    .bind(to_status_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    use sqlx::Row;
+    Ok(rows.into_iter().map(|row| row.get("id")).collect())
+}
+
 /// Move a ticket to a different board with an explicit target status
 /// (Wave 11 lane 3). The category re-derives from the TARGET board's
 /// status row — the semantic-category binding lives on board_statuses,

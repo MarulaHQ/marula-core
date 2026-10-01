@@ -1,7 +1,12 @@
 // Integration test: /settings/workflow against the real SDK client over a
-// mocked fetch router — board picking, status chips, transition matrix
-// editing PUTting an SDK-typed SetTransitionsRequest, checklist render,
-// inline validation gating.
+// mocked fetch router — board picking, the DRAWN statuses list (Wave 41 lane
+// 12), transition matrix editing PUTting an SDK-typed SetTransitionsRequest,
+// the checklist render, and submit-time validation in the drawer.
+//
+// The statuses list replaced the old inline name inputs in lane 12, so the
+// two tests that drove those inputs now drive the drawer and the staged
+// save bar instead. The promises are the same: an admin can rename a status
+// and a blank name never reaches the API.
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -80,7 +85,6 @@ describe("/settings/workflow integration", () => {
     await screen.findAllByText("Working");
     // …and category chips are visible (prominent), not select-only.
     expect((await screen.findAllByText("In progress")).length).toBeGreaterThan(0);
-    expect(screen.getByLabelText(/Status 1 name/i)).toHaveValue("New");
     expect(await screen.findByLabelText("Template name")).toHaveValue("Standard close");
     expect(screen.getByLabelText("Step 1")).toHaveValue("Backups verified");
     cleanup();
@@ -119,8 +123,12 @@ describe("/settings/workflow integration", () => {
     // Await the statuses commit too: the read-only banner renders before the
     // statuses fetch settles, so a synchronous query here races it in full
     // suite runs (leaked DOM then duplicated buttons downstream).
-    expect(await screen.findByLabelText(/Status 1 name/i)).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Save statuses" })).not.toBeInTheDocument();
+    // A read-only member gets no write affordance at all: no New status, no
+    // save bar, and the staged switches are disabled.
+    expect((await screen.findAllByText("New")).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("statuses-new")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("settings-staged-bar")).not.toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Pauses SLA for New" })).toBeDisabled();
     cleanup();
   });
 
@@ -140,7 +148,7 @@ describe("/settings/workflow integration", () => {
     // transitions fetch resolves and its dirty gate flips enabled→disabled
     // one render later in full-suite runs (same class of race as the
     // read-only test above).
-    await screen.findByLabelText(/Status 1 name/i);
+    await screen.findAllByText("Working");
     const saveButton = await screen.findByRole("button", { name: "Save transitions" });
     await waitFor(() => expect(saveButton).toBeDisabled());
 
@@ -166,7 +174,7 @@ describe("/settings/workflow integration", () => {
     cleanup();
   });
 
-  it("inline validation blocks saving statuses with blank names", async () => {
+  it("a blank name in the drawer never reaches the API, and the field says why", async () => {
     const user = userEvent.setup();
     const mock = setupApi();
 
@@ -175,12 +183,22 @@ describe("/settings/workflow integration", () => {
         <WorkflowSettingsPage />
       </AuthProvider>,
     );
-    const firstInput = await screen.findByLabelText(/Status 1 name/i);
-    await user.clear(firstInput);
-    expect(await screen.findByText(/Name is required/)).toBeInTheDocument();
-    const save = screen.getByRole("button", { name: "Save statuses" });
-    expect(save).toBeDisabled();
+    await screen.findAllByText("Working");
+    await user.click(screen.getByTestId("statuses-new"));
+    const name = await screen.findByTestId("status-name-input");
+    // No error before the submit: validation is a submit-time event, and the
+    // primary is never disabled to hint at one.
+    expect(screen.queryByTestId("status-name-field-error")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save status" }));
+    expect(await screen.findByTestId("status-name-field-error")).toHaveTextContent(
+      "Give the status a name.",
+    );
+    // The primary is still enabled, so a retry is one click.
+    expect(screen.getByRole("button", { name: "Save status" })).toBeEnabled();
+    expect(mock.callsTo("POST", `/api/v1/boards/${BOARD_ID}/statuses`).length).toBe(0);
     expect(mock.callsTo("PATCH", `/api/v1/boards/${BOARD_ID}/statuses/${S1}`).length).toBe(0);
+    // The drawer is still open with the work in it.
+    expect((screen.getByTestId("status-name-input") as HTMLInputElement).value).toBe("");
     cleanup();
   });
 });

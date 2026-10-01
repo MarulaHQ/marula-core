@@ -2000,6 +2000,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/boards/{id}/statuses/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["boards_status_usage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/boards/{id}/statuses/{status_id}": {
         parameters: {
             query?: never;
@@ -2011,9 +2027,14 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * DELETE /api/boards/{id}/statuses/{status_id} — removes an UNUSED custom
-         *     status. Tickets referencing it force a 409; the last entry status of a
-         *     board is protected so ticket creation can never break.
+         * DELETE /api/boards/{id}/statuses/{status_id} — removes a custom status.
+         * @description Without `reassign_to` a status holding tickets is refused (409), as before.
+         *     With it, every ticket moves first — set-based, mirroring the per-ticket
+         *     status-change invariants exactly (denormalised category, one-shot
+         *     `resolved_at`, SLA pause bookkeeping) — and each moved ticket gets its own
+         *     `ticket.status_changed` outbox row, so a bulk move is as auditable as a
+         *     single one. Automations naming the status are paused, never repointed.
+         *     Emits `board.status_removed`.
          */
         delete: operations["boards_delete_status"];
         options?: never;
@@ -9900,6 +9921,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/ai/decision/{surface_key}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/settings/ai/decision/{surface_key}/runs — the shadow run log. */
+        get: operations["settings_ai_decision_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/ai/grants": {
         parameters: {
             query?: never;
@@ -13830,6 +13868,13 @@ export interface components {
             /** Format: uuid */
             board_id: string;
             category: components["schemas"]["TicketStatusCategory"];
+            /**
+             * @description Wave 41 lane 12: whether the portal shows this status's own label to
+             *     a client. `false` shows the semantic category word instead, so an
+             *     internal label ("Escalated to L2") never reaches a client while the
+             *     ticket still reports where it stands.
+             */
+            client_visible: boolean;
             color?: string | null;
             /** Format: uuid */
             id: string;
@@ -13846,6 +13891,31 @@ export interface components {
              *     server-side at ticket status change. `None` = no limit.
              */
             wip_limit?: number | null;
+        };
+        /**
+         * @description GET /api/boards/{id}/statuses/usage — per-status ticket counts and
+         *     automation references (Wave 41 lane 12).
+         *
+         *     One read serves both the settings table's TICKETS column and the delete
+         *     confirm's "12 tickets use this status" and "2 automations mention this
+         *     status", so the table and the confirm can never quote different numbers for
+         *     the same status.
+         */
+        BoardStatusUsage: {
+            /**
+             * Format: int64
+             * @description Automation rules naming this status. They are PAUSED, never silently
+             *     repointed, if the status is deleted.
+             */
+            automation_count: number;
+            /** Format: uuid */
+            status_id: string;
+            /**
+             * Format: int64
+             * @description Tickets currently in this status, closed ones included: the column is
+             *     where work has been, not a live queue.
+             */
+            ticket_count: number;
         };
         /**
          * @description GET response for a board's workflow: either its explicit matrix or the
@@ -17221,6 +17291,109 @@ export interface components {
              */
             fire?: boolean | null;
         };
+        DecisionRunAnswer: {
+            /** @description True when this answer cleared the question's own `act` threshold. */
+            above_threshold: boolean;
+            /** Format: double */
+            confidence?: number | null;
+            kind: string;
+            /** @description The label the model would have used, in words. Never an index. */
+            label: string;
+            question_id: string;
+        };
+        /** @description The four figures the run log leads with. */
+        DecisionRunSummary: {
+            /**
+             * Format: int64
+             * @description Runs with at least one answer above its `act` threshold.
+             */
+            above_threshold: number;
+            /**
+             * Format: int64
+             * @description Runs whose proposal matches the status the ticket actually reached.
+             */
+            agreed: number;
+            /**
+             * Format: int64
+             * @description Runs that could be compared at all (a ticket that still exists).
+             */
+            comparable: number;
+            /**
+             * @description False when the product has never recorded a run for this surface, so
+             *     the page can say "no evidence yet" rather than showing zeros.
+             */
+            has_evidence: boolean;
+            /**
+             * Format: double
+             * @description The loosest `act` threshold in force. A surface that mixes question
+             *     kinds has one line PER QUESTION (ADR 0010 §5), so the pair is the
+             *     honest headline: a surface whose questions share one line reports both
+             *     as the same number.
+             */
+            lowest_threshold: number;
+            /**
+             * Format: int64
+             * @description Runs recorded in the window.
+             */
+            runs: number;
+            /**
+             * Format: double
+             * @description The strictest `act` threshold in force, so the log and the drawer
+             *     agree on the number that gates the most.
+             */
+            threshold: number;
+            /**
+             * @description How many questions carry a line, so the figure is never read as "the"
+             *     line when there are several.
+             */
+            threshold_questions: number;
+        };
+        /** @description One answered run, in the words the run log draws. */
+        DecisionRunView: {
+            /** @description True when any answer cleared the surface's `act` threshold. */
+            above_threshold: boolean;
+            /**
+             * @description True when a picked label matches the status the ticket actually
+             *     reached. False when the run disagreed, None when the ticket moved on
+             *     before its status could be compared.
+             */
+            agreed?: boolean | null;
+            /**
+             * @description What it would have said: the picked label per question, with the
+             *     confidence that decided it.
+             */
+            answers: components["schemas"]["DecisionRunAnswer"][];
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * @description The status the ticket sits in now — the human's answer, and the only
+             *     thing agreement can be measured against.
+             */
+            current_status?: string | null;
+            /** Format: uuid */
+            id: string;
+            mode: string;
+            model: string;
+            /**
+             * Format: uuid
+             * @description The ticket the run was about, when it was about one.
+             */
+            ticket_id?: string | null;
+            ticket_number?: string | null;
+            ticket_title?: string | null;
+            /**
+             * Format: double
+             * @description The highest confidence in the run, for the log's meter.
+             */
+            top_confidence?: number | null;
+        };
+        DecisionRunsResponse: {
+            /** Format: int32 */
+            days: number;
+            runs: components["schemas"]["DecisionRunView"][];
+            summary: components["schemas"]["DecisionRunSummary"];
+            surface_key: string;
+        };
         DecisionSuggestionsResponse: {
             suggestions: components["schemas"]["SuggestionSurface"][];
             /** Format: uuid */
@@ -17417,6 +17590,30 @@ export interface components {
          */
         DefinitionScope: "org" | "self";
         DeleteOrderLineRequest: components["schemas"]["MutationParams"];
+        /**
+         * @description What a delete with reassignment actually did (Wave 41 lane 12).
+         *
+         *     Returned instead of a bare 204 because the confirm has to say what
+         *     happened, and the admin is the one who has to believe it.
+         */
+        DeleteStatusResult: {
+            /**
+             * Format: int64
+             * @description Tickets moved to the replacement status before the delete.
+             */
+            moved_tickets: number;
+            /**
+             * Format: int64
+             * @description Automation rules that named this status and were PAUSED. Never
+             *     repointed: an automation's conditions are the org's own logic.
+             */
+            paused_automations: number;
+            /**
+             * Format: int64
+             * @description SLA pause states opened or closed by the move.
+             */
+            sla_pauses_changed: number;
+        };
         DeleteTickQuery: {
             /** Format: date */
             date: string;
@@ -22366,6 +22563,25 @@ export interface components {
             limit?: number;
             /** Format: int64 */
             offset?: number;
+        };
+        /**
+         * @description A ticket as a CLIENT sees it (Wave 41 lane 12).
+         *
+         *     The ticket fields are flattened exactly as they were, so the portal client
+         *     keeps reading the same keys; two status fields are added. `status_label`
+         *     is `None` when the status is not client-visible, and the client shows the
+         *     category word instead — which is the whole point of the per-status switch
+         *     in Settings: it changes what a client is told, in words, without hiding
+         *     where the ticket stands.
+         */
+        PortalTicketView: components["schemas"]["Ticket"] & {
+            /**
+             * Format: uuid
+             * @description The status id, so a client-side filter can group without guessing.
+             */
+            status_id: string;
+            /** @description The status's own label, when the org allows clients to see it. */
+            status_label?: string | null;
         };
         /**
          * @description One portal tier in the preset roster (RB1). Portal authorization is
@@ -28104,6 +28320,11 @@ export interface components {
         };
         UpdateStatusRequest: {
             category?: null | components["schemas"]["TicketStatusCategory"];
+            /**
+             * @description Wave 41 lane 12: whether the portal shows this status's own label to a
+             *     client. Absent = unchanged.
+             */
+            client_visible?: boolean | null;
             is_entry?: boolean | null;
             name?: string | null;
             /** Format: int32 */
@@ -32356,9 +32577,37 @@ export interface operations {
             };
         };
     };
-    boards_delete_status: {
+    boards_status_usage: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardStatusUsage"][];
+                };
+            };
+        };
+    };
+    boards_delete_status: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Move every ticket in this status to `reassign_to` and then delete it.
+                 *     Must be another status on the same board. Absent, a status holding
+                 *     tickets is refused with 409 and nothing changes.
+                 */
+                reassign_to?: string | null;
+            };
             header?: never;
             path: {
                 id: string;
@@ -32368,7 +32617,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            204: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteStatusResult"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -43239,7 +43496,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Ticket"][];
+                    "application/json": components["schemas"]["PortalTicketView"][];
                 };
             };
         };
@@ -48340,6 +48597,37 @@ export interface operations {
                 };
             };
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settings_ai_decision_runs: {
+        parameters: {
+            query?: {
+                /** @description Window in days, 1..=90. Default 7 — the log's own window. */
+                days?: number | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                surface_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionRunsResponse"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

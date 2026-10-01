@@ -54,6 +54,7 @@ import {
   validateStatusRow,
 } from "../../../lib/admin/workflow";
 import { canConfigureBoard } from "../../../lib/admin/board-access";
+import { StatusesSection } from "./statuses-section";
 
 type BoardNavEntry = components["schemas"]["BoardNavEntry"];
 type BoardStatus = components["schemas"]["BoardStatus"];
@@ -353,168 +354,14 @@ export default function WorkflowSettingsPage() {
       {selectedBoard && (
         <>
           {/* --- Statuses ------------------------------------------------ */}
-          <Card className="p-5 grid gap-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Statuses</h2>
-              <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                order defines list position
-              </span>
-            </div>
-            <div className="grid gap-1">
-              {STATUS_CATEGORIES.map((cat) => (
-                <span key={cat} className="inline-flex items-center gap-2">
-                  <Tag tone={categoryTone(cat)}>{CATEGORY_LABELS[cat]}</Tag>
-                  <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                    {CATEGORY_HINTS[cat]}
-                  </span>
-                </span>
-              ))}
-            </div>
-
-            {loading ? (
-              <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                Loading…
-              </p>
-            ) : (
-              <div role="table" aria-label="Status list" className="grid gap-2">
-                {statusDraft.rows.map((row, index) => (
-                  <div key={row.id ?? `draft-${index}`} role="row" className="grid gap-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Input
-                        aria-label={`Status ${index + 1} name`}
-                        value={row.name}
-                        disabled={!canEdit}
-                        onChange={(e) =>
-                          dispatchStatus({ type: "update", index, patch: { name: e.target.value } })
-                        }
-                        className="w-48"
-                      />
-                      <Tag tone={categoryTone(row.category)}>{CATEGORY_LABELS[row.category]}</Tag>
-                      <Select
-                        value={row.category}
-                        onValueChange={(v) =>
-                          dispatchStatus({
-                            type: "update",
-                            index,
-                            patch: { category: v as BoardStatus["category"] },
-                          })
-                        }
-                        disabled={!canEdit}
-                      >
-                        <SelectTrigger className="w-36" aria-label={`Category for ${row.name}`}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUS_CATEGORIES.map((cat) => (
-                            <SelectItem key={cat} value={cat}>
-                              {CATEGORY_LABELS[cat]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <label className="inline-flex items-center gap-1.5 text-[12px]">
-                        <Checkbox
-                          checked={row.isEntry}
-                          disabled={!canEdit}
-                          onCheckedChange={(v) =>
-                            dispatchStatus({ type: "update", index, patch: { isEntry: v === true } })
-                          }
-                          aria-label={`${row.name} accepts new tickets`}
-                        />
-                        entry
-                      </label>
-                      {canEdit && (
-                        <span className="ml-auto flex gap-1">
-                          <Button
-                            variant="ghost"
-                            aria-label={`Move ${row.name} up`}
-                            disabled={index === 0}
-                            onClick={() => dispatchStatus({ type: "move", index, direction: -1 })}
-                          >
-                            ↑
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            aria-label={`Move ${row.name} down`}
-                            disabled={index === statusDraft.rows.length - 1}
-                            onClick={() => dispatchStatus({ type: "move", index, direction: 1 })}
-                          >
-                            ↓
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            aria-label={`Remove ${row.name}`}
-                            onClick={() => dispatchStatus({ type: "remove", index })}
-                          >
-                            ✕
-                          </Button>
-                        </span>
-                      )}
-                    </div>
-                    {rowErrors[index] !== null && rowErrors[index] !== undefined && (
-                      <p role="alert" className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
-                        {rowErrors[index]}
-                      </p>
-                    )}
-                  </div>
-                ))}
-                {statusDraft.rows.length === 0 && (
-                  <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                    No statuses yet — add at least one Open entry status.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {canEdit && (
-              <form
-                className="flex items-center gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const name = newStatusName.trim();
-                  if (name.length === 0) return;
-                  dispatchStatus({ type: "add", name });
-                  setNewStatusName("");
-                }}
-              >
-                <Input
-                  aria-label="New status name"
-                  placeholder="New status name…"
-                  value={newStatusName}
-                  maxLength={64}
-                  onChange={(e) => setNewStatusName(e.target.value)}
-                  className="w-56"
-                />
-                <Button type="submit" variant="secondary" disabled={newStatusName.trim().length === 0}>
-                  Add status
-                </Button>
-              </form>
-            )}
-
-            {canEdit && (
-              <SaveBar
-                dirty={statusDirty && !anyRowError}
-                saving={savingSection === "statuses"}
-                saved={savedSection === "statuses" && !sectionError["statuses"]}
-                error={sectionError["statuses"] ?? null}
-                onSave={() => void saveStatuses()}
-                onRevert={
-                  statusDirty
-                    ? () =>
-                        dispatchStatus({
-                          type: "replace",
-                          rows: statusRowsFromServer(statuses),
-                        })
-                    : undefined
-                }
-                saveLabel="Save statuses"
-              />
-            )}
-            <FieldHint>
-              Deleting fails politely while tickets reference a status; the last entry status of a
-              board is always protected.
-            </FieldHint>
-          </Card>
+          {/* The list itself is the pack's drawn surface (states 02-08); the
+              transitions matrix and the checklist below still ride this
+              page's own snapshot, so a save here re-syncs both. */}
+          <StatusesSection
+            boardId={boardId}
+            canEdit={canEdit}
+            onChanged={() => void saveStatuses()}
+          />
 
           {/* --- Transition matrix --------------------------------------- */}
           <Card className="p-5 grid gap-3">

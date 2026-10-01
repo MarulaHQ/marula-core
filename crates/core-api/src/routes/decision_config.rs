@@ -34,7 +34,7 @@ use crate::instant::{self, InstantClaim, MutationOutcome, MutationParams};
 use crate::org_tx;
 use crate::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::Extensions,
     Json,
 };
@@ -44,7 +44,7 @@ use core_domain::events::types;
 use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 const DECISION_ENTITY: &str = "ai_decision_surface_config";
@@ -941,4 +941,255 @@ fn within_sla_window(
     now: chrono::DateTime<chrono::Utc>,
 ) -> bool {
     due_at.is_some_and(|due| due > now)
+}
+
+// ---------------------------------------------------------------------------
+// Wave 41 lane 12: the shadow run log (pack state 11 + 12)
+//
+// Recording already happened: every answered run — shadow or live — has been
+// in the append-only `decision_answers` store since migration 0090. This is
+// the READ the settings pack asks for, and the two numbers it shows are
+// measured, not narrated:
+//
+//   ABOVE THRESHOLD — the run's answer confidence against the surface's own
+//     `act` threshold (ADR 0010 §5), so moving a threshold in the drawer
+//     visibly moves this count.
+//   AGREEMENT — a shadow run proposes a label; the label the ticket actually
+//     reached is the human's answer. Comparing them is the only agreement
+//     signal the product has, and it is a real measurement rather than a guess.
+// ---------------------------------------------------------------------------
+
+/// One answered run, in the words the run log draws.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DecisionRunView {
+    pub id: uuid::Uuid,
+    pub mode: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub model: String,
+    /// The ticket the run was about, when it was about one.
+    pub ticket_id: Option<uuid::Uuid>,
+    pub ticket_number: Option<String>,
+    pub ticket_title: Option<String>,
+    /// What it would have said: the picked label per question, with the
+    /// confidence that decided it.
+    pub answers: Vec<DecisionRunAnswer>,
+    /// True when any answer cleared the surface's `act` threshold.
+    pub above_threshold: bool,
+    /// The highest confidence in the run, for the log's meter.
+    pub top_confidence: Option<f64>,
+    /// The status the ticket sits in now — the human's answer, and the only
+    /// thing agreement can be measured against.
+    pub current_status: Option<String>,
+    /// True when a picked label matches the status the ticket actually
+    /// reached. False when the run disagreed, None when the ticket moved on
+    /// before its status could be compared.
+    pub agreed: Option<bool>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DecisionRunAnswer {
+    pub question_id: String,
+    pub kind: String,
+    /// The label the model would have used, in words. Never an index.
+    pub label: String,
+    pub confidence: Option<f64>,
+    /// True when this answer cleared the question's own `act` threshold.
+    pub above_threshold: bool,
+}
+
+/// The four figures the run log leads with.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DecisionRunSummary {
+    /// Runs recorded in the window.
+    pub runs: i64,
+    /// Runs with at least one answer above its `act` threshold.
+    pub above_threshold: i64,
+    /// Runs whose proposal matches the status the ticket actually reached.
+    pub agreed: i64,
+    /// Runs that could be compared at all (a ticket that still exists).
+    pub comparable: i64,
+    /// The strictest `act` threshold in force, so the log and the drawer
+    /// agree on the number that gates the most.
+    pub threshold: f64,
+    /// The loosest `act` threshold in force. A surface that mixes question
+    /// kinds has one line PER QUESTION (ADR 0010 §5), so the pair is the
+    /// honest headline: a surface whose questions share one line reports both
+    /// as the same number.
+    pub lowest_threshold: f64,
+    /// How many questions carry a line, so the figure is never read as "the"
+    /// line when there are several.
+    pub threshold_questions: usize,
+    /// False when the product has never recorded a run for this surface, so
+    /// the page can say "no evidence yet" rather than showing zeros.
+    pub has_evidence: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DecisionRunsResponse {
+    pub surface_key: String,
+    pub days: i32,
+    pub summary: DecisionRunSummary,
+    pub runs: Vec<DecisionRunView>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct DecisionRunsQuery {
+    /// Window in days, 1..=90. Default 7 — the log's own window.
+    pub days: Option<i32>,
+    pub limit: Option<i64>,
+}
+
+/// Compares a proposed label with a status name the way a person reads them:
+/// case, spacing, hyphens and underscores are one word written two ways, so a
+/// status called "InProgress" is the same word as "In Progress".
+fn normalise_label(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// GET /api/settings/ai/decision/{surface_key}/runs — the shadow run log.
+#[utoipa::path(
+    operation_id = "settings_ai_decision_runs",
+    get,
+    path = "/api/settings/ai/decision/{surface_key}/runs",
+    tag = "settings",
+    security(("bearer" = [])),
+    params(("surface_key" = String, Path), DecisionRunsQuery),
+    responses((status = 200, body = DecisionRunsResponse), (status = 404))
+)]
+pub async fn get_decision_runs(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(surface_key): Path<String>,
+    Query(q): Query<DecisionRunsQuery>,
+) -> ApiResult<Json<DecisionRunsResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_ai_admin(&authed.principal, Action::View)?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let days = q.days.unwrap_or(7).clamp(1, 90);
+    let limit = q.limit.unwrap_or(50).clamp(1, 500);
+    // The closure takes the key by move, so the envelope keeps the original.
+    let surface = surface_key.clone();
+
+    let payload = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // Thresholds come from the org's own config, so the log's "above
+        // threshold" is the same rule the consumers act on. `effective_config`
+        // is the one resolver (forked questions when the org edited them, the
+        // curated starter set otherwise) and the edge already uses it, so the
+        // log and the edge can never read different thresholds.
+        let config = core_db::decision::get_surface_config(&mut *ctx.tx, org_id, &surface)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+        let effective = super::decision_edge::effective_config(&mut ctx.tx, &surface, &config)
+            .await
+            .map_err(|quiet| ApiError::Conflict(quiet.reason()))?;
+        let rows =
+            core_db::decision::list_runs(&mut *ctx.tx, org_id, &surface, days, limit).await?;
+        Ok((ctx, (effective, rows)))
+    })
+    .await?;
+
+    let (effective, rows) = payload;
+    let mut runs = Vec::with_capacity(rows.len());
+    let mut above_threshold = 0i64;
+    let mut agreed = 0i64;
+    let mut comparable = 0i64;
+    for row in &rows {
+        let mut answers: Vec<DecisionRunAnswer> = Vec::new();
+        let mut run_above = false;
+        let mut top: Option<f64> = None;
+        if let Some(map) = row.answers.as_object() {
+            for (question_id, entry) in map {
+                let Some(entry) = entry.as_object() else {
+                    continue;
+                };
+                let kind = entry
+                    .get("kind")
+                    .and_then(|k| k.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let label = entry
+                    .get("picked_label")
+                    .and_then(|l| l.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let confidence = entry.get("confidence").and_then(|c| c.as_f64());
+                let threshold = effective
+                    .questions
+                    .iter()
+                    .find(|q| q.id == *question_id)
+                    .map(|q| q.thresholds.act);
+                let question_above = match (confidence, threshold) {
+                    (Some(c), Some(t)) => c >= t,
+                    _ => false,
+                };
+                if let Some(c) = confidence {
+                    top = Some(top.map_or(c, |prev: f64| prev.max(c)));
+                }
+                run_above |= question_above;
+                answers.push(DecisionRunAnswer {
+                    question_id: question_id.clone(),
+                    kind,
+                    label,
+                    confidence,
+                    above_threshold: question_above,
+                });
+            }
+        }
+        answers.sort_by(|a, b| a.question_id.cmp(&b.question_id));
+        if run_above {
+            above_threshold += 1;
+        }
+        // Agreement compares a proposed label against where the ticket
+        // actually is. A ticket that has been deleted cannot be compared, and
+        // saying so beats a silent zero.
+        let comparison = row.current_status.as_ref().map(|current| {
+            let needle = normalise_label(current);
+            answers
+                .iter()
+                .any(|a| !a.label.is_empty() && normalise_label(&a.label) == needle)
+        });
+        if row.current_status.is_some() {
+            comparable += 1;
+        }
+        if comparison == Some(true) {
+            agreed += 1;
+        }
+        runs.push(DecisionRunView {
+            id: row.id,
+            mode: row.mode.clone(),
+            created_at: row.created_at,
+            model: row.model.clone(),
+            ticket_id: row.entity_id,
+            ticket_number: row.ticket_number.clone(),
+            ticket_title: row.ticket_title.clone(),
+            answers,
+            above_threshold: run_above,
+            top_confidence: top,
+            current_status: row.current_status.clone(),
+            agreed: comparison,
+        });
+    }
+
+    let acts: Vec<f64> = effective.questions.iter().map(|q| q.thresholds.act).collect();
+    let threshold = acts.iter().copied().fold(0.0f64, f64::max);
+    let lowest_act = acts.iter().copied().fold(f64::INFINITY, f64::min);
+    Ok(Json(DecisionRunsResponse {
+        surface_key,
+        days,
+        summary: DecisionRunSummary {
+            runs: rows.len() as i64,
+            above_threshold,
+            agreed,
+            comparable,
+            threshold,
+            lowest_threshold: if lowest_act.is_finite() { lowest_act } else { threshold },
+            threshold_questions: acts.len(),
+            has_evidence: !rows.is_empty(),
+        },
+        runs,
+    }))
 }

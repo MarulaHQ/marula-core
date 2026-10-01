@@ -142,6 +142,7 @@ mod tests {
             name: name.into(),
             category,
             sort_order: 0,
+            client_visible: true,
             is_entry: false,
             color: None,
             wip_limit: None,

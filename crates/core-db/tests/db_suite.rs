@@ -1702,6 +1702,7 @@ async fn status_patch_updates_binding_metadata() {
             sort_order: Some(42),
             is_entry: None,
             wip_limit: None,
+            client_visible: None,
         },
     )
     .await

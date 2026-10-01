@@ -30,10 +30,10 @@ const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0
 
 function serverStatuses(): BoardStatus[] {
   return [
-    { id: uuid(1), board_id: "b", org_id: "o", name: "New", category: "open", is_entry: true, sort_order: 0, color: null },
-    { id: uuid(2), board_id: "b", org_id: "o", name: "Working", category: "in_progress", is_entry: false, sort_order: 1, color: null },
-    { id: uuid(3), board_id: "b", org_id: "o", name: "Client wait", category: "waiting", is_entry: false, sort_order: 2, color: null },
-    { id: uuid(4), board_id: "b", org_id: "o", name: "Done", category: "closed", is_entry: false, sort_order: 3, color: null },
+    { id: uuid(1), board_id: "b", org_id: "o", name: "New", category: "open", is_entry: true, client_visible: true, sort_order: 0, color: null },
+    { id: uuid(2), board_id: "b", org_id: "o", name: "Working", category: "in_progress", is_entry: false, client_visible: true, sort_order: 1, color: null },
+    { id: uuid(3), board_id: "b", org_id: "o", name: "Client wait", category: "waiting", is_entry: false, client_visible: true, sort_order: 2, color: null },
+    { id: uuid(4), board_id: "b", org_id: "o", name: "Done", category: "closed", is_entry: false, client_visible: true, sort_order: 3, color: null },
   ];
 }
 

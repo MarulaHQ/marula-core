@@ -138,6 +138,7 @@ mod tests {
             name: "Done".into(),
             category: cat,
             sort_order: 0,
+            client_visible: true,
             is_entry: false,
             color: None,
             wip_limit: None,
