@@ -16,6 +16,7 @@
 
 import type { components } from "@marula-core/sdk";
 import { Spinner } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api, downloadAttachment } from "../../lib/api";
@@ -63,50 +64,21 @@ const FILTERS: { value: WbFilter; label: string }[] = [
 
 function kindIcon(kind: WbKind): ReactNode {
   if (kind === "client") {
-    return (
-      <svg aria-hidden width="12" height="12" viewBox="0 0 18 18" fill="none">
-        <circle cx="9" cy="6" r="2.75" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M3.5 14.5c.6-2.6 2.9-4 5.5-4s4.9 1.4 5.5 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    );
+    return <Icon name="user" size={12} />;
   }
   if (kind === "system") {
-    return (
-      <svg aria-hidden width="12" height="12" viewBox="0 0 18 18" fill="none">
-        <circle cx="9" cy="9" r="2.4" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M9 2.6v2M9 13.4v2M2.6 9h2M13.4 9h2M4.4 4.4l1.4 1.4M12.2 12.2l1.4 1.4M13.6 4.4l-1.4 1.4M5.8 12.2 4.4 13.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      </svg>
-    );
+    return <Icon name="settings" size={12} />;
   }
   if (kind === "time") {
-    return (
-      <svg aria-hidden width="12" height="12" viewBox="0 0 18 18" fill="none">
-        <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M9 5.5V9l2.4 1.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    );
+    return <Icon name="clock" size={12} />;
   }
   if (kind === "parts") {
-    return (
-      <svg aria-hidden width="12" height="12" viewBox="0 0 18 18" fill="none">
-        <path d="M3 6.5 9 3.2l6 3.3v5L9 14.8l-6-3.3v-5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-        <path d="M3 6.5 9 9.8l6-3.3M9 9.8v5" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-      </svg>
-    );
+    return <Icon name="box" size={12} />;
   }
   if (kind === "agent") {
-    return (
-      <svg aria-hidden width="12" height="12" viewBox="0 0 18 18" fill="none">
-        <path d="M9 2.5 10.6 7.4 15.5 9 10.6 10.6 9 15.5 7.4 10.6 2.5 9 7.4 7.4Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-      </svg>
-    );
+    return <Icon name="spark" size={12} />;
   }
-  return (
-    <svg aria-hidden width="12" height="12" viewBox="0 0 18 18" fill="none">
-      <path d="M5.5 7h7M5.5 10h4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <rect x="2.5" y="3.5" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
+  return <Icon name="file" size={12} />;
 }
 
 function timeLabel(at: string): string {
@@ -412,9 +384,7 @@ export function WbTimeline({ ticketId, comments, attachments, namesByUser, reloa
                                 onClick={() => void downloadAttachment(a.id, a.filename)}
                                 title={`${a.filename} · ${Math.max(1, Math.round(a.size_bytes / 1024))} KB`}
                               >
-                                <svg aria-hidden width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                                </svg>
+                                <Icon name="clip" size={10} />
                                 {a.filename}
                                 <span style={{ color: "var(--m-text-muted)" }}>{Math.max(1, Math.round(a.size_bytes / 1024))} KB</span>
                               </button>
