@@ -18848,9 +18848,11 @@ export interface components {
             description?: string | null;
             /**
              * Format: int32
-             * @description The entry's NEW total minutes, not a delta. Only ever lower than what
-             *     the entry holds — an approver tidies a double-claim, and raising a
-             *     billable value is not theirs to do from a queue.
+             * @description Whole minutes to take off the END of the entry's window, not a new
+             *     total and not a delta on the duration. An overlap is a fact about when
+             *     the work happened, so the fix shortens the window and the duration
+             *     follows it. A trim only ever shortens: lengthening what a client is
+             *     billed is not an approver's call from a queue.
              */
             minutes?: number | null;
             /** @description Free-text context recorded on the decision trail. */
@@ -19230,6 +19232,9 @@ export interface components {
             source: string;
             /** Format: uuid */
             ticket_id: string;
+            /** @description The ticket's human number and title. Present so the ledger can name it. */
+            ticket_number: string;
+            ticket_title: string;
         };
         /** @description The invoice aggregate: document, lines, and payment receipts. */
         InvoiceDetail: components["schemas"]["Invoice"] & {
@@ -27177,6 +27182,20 @@ export interface components {
             submitted_at?: string | null;
             /** Format: uuid */
             submitted_by?: string | null;
+            ticket?: null | components["schemas"]["TimeEntryTicketRef"];
+        };
+        /** @description The ticket an entry bills through, named for a human reader. */
+        TimeEntryTicketRef: {
+            /**
+             * @description The client the ticket belongs to, when it is known. `None` for a
+             *     ticket with no client yet — the row then shows no client rather than
+             *     an empty one.
+             */
+            client_name?: string | null;
+            /** Format: uuid */
+            id: string;
+            number: string;
+            title: string;
         };
         /**
          * @description Closed rejection vocabulary (Wave 14 lane 1): approvers reject with a

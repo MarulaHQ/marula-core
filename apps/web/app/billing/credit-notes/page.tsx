@@ -483,29 +483,10 @@ function CreditNotesInner() {
               onClick={() => setLifecycle(lifecycle === "used" ? "all" : "used")}
               testId="credit-stat-used"
             />
-            <span style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>
-              Remaining credit <b style={{ fontVariantNumeric: "tabular-nums" }}>{remainingTotal.value}</b>{" "}
-              <span style={{ color: "var(--m-text-muted)" }}>
-                {remainingTotal.currency ?? "single-currency roll-up only"}
-              </span>
-            </span>
           </div>
         }
         actions={
           <div className="flex items-center gap-2">
-          <Select value={clientFilter} onValueChange={setClientFilter}>
-            <SelectTrigger style={{ width: 192 }} aria-label="Filter by client">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All clients</SelectItem>
-              {clients.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <Button
             onClick={() => {
               setIssueOpen(true);
@@ -535,17 +516,35 @@ function CreditNotesInner() {
           />
         }
         filters={
-          <FilterBar
-            fields={CREDIT_FILTER_FIELDS}
-            clauses={clauses}
-            onChange={(next) => {
-              setClauses(next);
-              void prefs.save("credit-notes", {
-                columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
-                filters: next,
-              });
-            }}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            {/* The client pick is a filter, so it lives on the filter row. In
+                the header's action slot it pushed the primary action onto its
+                own line, four pixels past the row's width. */}
+            <Select value={clientFilter} onValueChange={setClientFilter}>
+              <SelectTrigger style={{ width: 192 }} aria-label="Filter by client">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All clients</SelectItem>
+                {clients.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FilterBar
+              fields={CREDIT_FILTER_FIELDS}
+              clauses={clauses}
+              onChange={(next) => {
+                setClauses(next);
+                void prefs.save("credit-notes", {
+                  columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
+                  filters: next,
+                });
+              }}
+            />
+          </div>
         }
         columns={
           <ColumnChooser
@@ -603,7 +602,11 @@ function CreditNotesInner() {
         <MoneyCard testId="credit-ledger">
           <div className="m-money-bar">
             <span>
-              <b>{filteredNotes.length}</b> notes · <b>{remainingTotal.value}</b> remaining
+              <b>{filteredNotes.length}</b> {filteredNotes.length === 1 ? "note" : "notes"} ·{" "}
+              <b>{remainingTotal.value}</b> remaining{" "}
+              <span style={{ color: "var(--m-text-muted)" }}>
+                {remainingTotal.currency ?? "single-currency roll-up only"}
+              </span>
             </span>
           </div>
           <div style={{ overflowX: "auto" }}>

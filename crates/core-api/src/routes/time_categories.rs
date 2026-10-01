@@ -947,7 +947,7 @@ pub fn build_verdicts(input: &core_db::approvals::VerdictEntry) -> Vec<TimeVerdi
         ticket_title: input.ticket_title.as_deref(),
         work_type_label: input.entry.work_type.as_deref(),
         peer_minutes: &input.peer_minutes,
-        overlap_with_ticket_number: overlap_number.as_deref(),
+        overlap_with_ticket_number: overlap_number,
         overlap_minutes,
     });
     if verdicts.len() > 1 {

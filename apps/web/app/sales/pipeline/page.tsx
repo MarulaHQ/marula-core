@@ -45,17 +45,12 @@ import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
 import { DEAL_STATUS_TONE, perCurrencySum } from "../../../lib/money-summary";
-import { dealPill } from "../../../lib/money-ui";
 import {
   DensitySwitch,
   applyDensity,
 } from "@marula-core/ui";
 import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
-import {
-  MoneyHeader,
-  MoneyPillTag,
-  MoneyStatPill,
-} from "../../../components/money";
+import { MoneyHeader, MoneyStatPill } from "../../../components/money";
 
 type PipelineDeal = components["schemas"]["PipelineDeal"];
 type PipelineStage = components["schemas"]["PipelineStage"];
@@ -356,7 +351,11 @@ export default function PipelinePage(): ReactNode {
       {/* Kanban columns (lane-3 pattern): status-tint headers, count chips,
           drag-to-move with drop highlight, keyboard Move select per card. */}
       <div
-        className="grid w-full gap-3 overflow-x-auto md:grid-flow-col md:auto-cols-min"
+        // `auto-cols-min` sized every column to its content's min-content, and
+        // a card's `<Select>` is ~360px at its floor — so the board ran 77px
+        // past its container and clipped the last stage. Capped columns keep
+        // five stages inside one viewport; the select shrinks inside the card.
+        className="grid w-full gap-3 overflow-x-auto md:grid-flow-col md:auto-cols-[minmax(0,240px)]"
         style={{ gridTemplateColumns: undefined }}
         data-testid="pipeline-board"
       >
@@ -374,11 +373,14 @@ export default function PipelinePage(): ReactNode {
           return (
             <section
               key={stage.id}
-              className="m-rise grid content-start gap-2 rounded-[var(--m-radius-control)] border p-2"
+              // No min-width: the grid track owns it (`auto-cols-[minmax(0,240px)]`).
+              // A `minWidth: 240` here fought the track and let the card's select
+              // spill over the next column. `overflow-hidden` stops anything
+              // inside from painting outside its frame.
+              className="m-rise grid min-w-0 content-start gap-2 overflow-hidden rounded-[var(--m-radius-control)] border p-2"
               style={{
                 borderColor: "var(--m-border)",
                 background: "var(--m-surface)",
-                minWidth: 240,
                 animationDelay: `${Math.min(ci, 6) * 40}ms`,
               }}
               data-testid={`pipeline-stage-${stage.name}`}
@@ -455,22 +457,26 @@ export default function PipelinePage(): ReactNode {
                     }}
                     data-testid={`pipeline-deal-${deal.id}`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 flex-1 truncate font-medium" title={deal.name}>
+                    {/* Name and amount stacked, not side by side. In a 240px
+                        column they competed for one line and both were cut —
+                        the amount is the number a pipeline is read for, so it
+                        gets a line to itself. */}
+                    <div className="min-w-0">
+                      <div className="truncate font-medium" title={deal.name}>
                         {deal.name}
-                      </span>
-                      <span className="font-mono tabular-nums" style={{ color: "var(--m-text)" }}>
+                      </div>
+                      <div className="font-mono text-[13px] tabular-nums" style={{ color: "var(--m-text)" }}>
                         {money(deal.amount_minor, deal.currency)}
-                      </span>
+                      </div>
                     </div>
                     {deal.expected_close_on != null ? (
                       <p className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
                         close {deal.expected_close_on}
                       </p>
                     ) : null}
-                    {deal.status !== "open" ? (
-                      <MoneyPillTag pill={dealPill(deal.status)} />
-                    ) : null}
+                    {/* No status pill here: the stage select below already says
+                        Won or Lost, and stating it twice reads as two facts. */}
+
                     <div className="flex items-center gap-1">
                       <Select
                         value={deal.stage_id}

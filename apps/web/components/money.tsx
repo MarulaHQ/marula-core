@@ -13,6 +13,7 @@
  * --m-* token — the pack's own pairs (--acc, --due, --gsoft, --note) ARE these
  * tokens, so the drawing and the app agree by construction.
  */
+import { SurfaceHeader } from "@marula-core/ui";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
@@ -126,14 +127,22 @@ export interface MoneyHeaderProps {
 }
 
 export function MoneyHeader({ title, stats, actions, nav = true }: MoneyHeaderProps): React.JSX.Element {
+  // The frame is the shared one (`SurfaceHeader`, the chrome lane's), so the
+  // title size is decided in one place for the whole app rather than spelled
+  // here a fifth time. The money sub-navigation rides in `meta`, beside the
+  // title on its baseline, which is where the pack draws it.
   return (
-    <header className="m-money-head">
-      <h1>{title}</h1>
-      {nav ? <MoneySubnav /> : null}
-      <span className="m-money-bar-sp" />
-      {stats}
-      {actions}
-    </header>
+    <SurfaceHeader
+      title={title}
+      meta={
+        <>
+          {nav ? <MoneySubnav /> : null}
+          {stats}
+        </>
+      }
+      actions={actions}
+      className="m-money-head"
+    />
   );
 }
 

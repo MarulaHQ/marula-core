@@ -342,6 +342,11 @@ pub async fn remove_expense(
 #[derive(Debug, Clone)]
 pub struct InvoiceCandidateLine {
     pub ticket_id: Uuid,
+    /// The ticket's human number and title, so a ledger can name the ticket a
+    /// candidate belongs to instead of printing an id prefix. A person reads
+    /// `#18402`; they do not read `6d657269…`.
+    pub ticket_number: String,
+    pub ticket_title: String,
     pub client_id: Option<Uuid>,
     pub source: &'static str,
     pub line_id: Uuid,
@@ -361,7 +366,8 @@ pub async fn list_invoice_candidates(
     // checker conservatively NULLs every UNION output column, and the
     // candidate contract is non-nullable by construction.
     let cost_rows = sqlx::query!(
-        r#"SELECT t.id AS ticket_id, t.client_id, c.id AS line_id, c.description,
+        r#"SELECT t.id AS ticket_id, t.number AS ticket_number, t.title AS ticket_title,
+                  t.client_id, c.id AS line_id, c.description,
                   round(c.quantity * c.unit_cost_minor)::bigint AS amount_minor, c.currency
            FROM ticket_cost_lines c JOIN tickets t ON t.org_id = c.org_id AND t.id = c.ticket_id
            WHERE c.org_id = $1 AND c.billable AND c.invoice_line_id IS NULL"#,
@@ -370,7 +376,8 @@ pub async fn list_invoice_candidates(
     .fetch_all(&mut *executor)
     .await?;
     let expense_rows = sqlx::query!(
-        r#"SELECT t.id AS ticket_id, t.client_id, e.id AS line_id, e.description,
+        r#"SELECT t.id AS ticket_id, t.number AS ticket_number, t.title AS ticket_title,
+                  t.client_id, e.id AS line_id, e.description,
                   e.amount_minor, e.currency
            FROM ticket_expenses e JOIN tickets t ON t.org_id = e.org_id AND t.id = e.ticket_id
            WHERE e.org_id = $1 AND e.billable AND e.invoice_line_id IS NULL"#,
@@ -382,6 +389,8 @@ pub async fn list_invoice_candidates(
         .into_iter()
         .map(|r| InvoiceCandidateLine {
             ticket_id: r.ticket_id,
+            ticket_number: r.ticket_number,
+            ticket_title: r.ticket_title,
             client_id: r.client_id,
             source: "cost",
             line_id: r.line_id,
@@ -392,6 +401,8 @@ pub async fn list_invoice_candidates(
         .collect();
     out.extend(expense_rows.into_iter().map(|r| InvoiceCandidateLine {
         ticket_id: r.ticket_id,
+        ticket_number: r.ticket_number,
+        ticket_title: r.ticket_title,
         client_id: r.client_id,
         source: "expense",
         line_id: r.line_id,

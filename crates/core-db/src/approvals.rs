@@ -388,7 +388,7 @@ pub async fn fix(
         TimeApprovalAction::Fixed,
         actor_id,
         None,
-        change.note.as_deref(),
+        change.note,
         now,
     )
     .await?;

@@ -362,18 +362,11 @@ body {
 }
 
 /* The header row: title, the money sub-navigation, then the shortcut pills. */
-.m-money-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.m-money-head h1 {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--m-text);
+/* The frame is the shared `.m-surface-header`; all this block adds is where
+   the money sub-navigation sits inside it (beside the title, on its baseline,
+   which is where the pack draws it). */
+.m-money-head .m-surface-header-meta {
+  gap: 8px 14px;
 }
 .m-money-subnav {
   display: flex;

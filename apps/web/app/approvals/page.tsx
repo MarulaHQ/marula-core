@@ -196,10 +196,13 @@ const COLUMNS: readonly ColumnDef[] = [
   // units have to survive a narrower card. Requires the fixed layout in
   // `globals.css` (`.m-money-scroll table`), since `fr` is auto-only.
   { key: "person", label: "Person", required: true, width: "15%" },
-  { key: "ticket", label: "Ticket and client", width: "25%" },
-  { key: "when", label: "When", width: "7%" },
+  { key: "ticket", label: "Ticket and client", width: "23%" },
+  // 10%, not 7%: "Yesterday" is the longest day label and 7% clipped it to
+  // "Yesterda", 8% still clipped it — measured with a real yesterday-dated
+  // entry, not assumed. A day label with no ellipsis reads as a broken cell.
+  { key: "when", label: "When", width: "10%" },
   { key: "time", label: "Time", width: "6%" },
-  { key: "billable", label: "Billable", width: "10%" },
+  { key: "billable", label: "Billable", width: "9%" },
   { key: "note", label: "What they wrote", width: "33%" },
 ];
 
@@ -1427,7 +1430,20 @@ function QueueRow({
         ) : (
           <span style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start" }}>
             <MoneyPillTag pill={{ label: "Non-billable", family: "neutral" }} />
-            <span style={{ fontSize: 11, color: "var(--m-text-muted)" }} data-testid={`approval-category-${e.id}`}>
+            <span
+              // The reason ellipsises in a 9% column, so the full words have to
+              // be reachable on hover rather than only in the pane.
+              title={UNBILLABLE_REASON_LABELS[e.unbillable_reason ?? ""] ?? e.unbillable_reason ?? undefined}
+              style={{
+                fontSize: 11,
+                color: "var(--m-text-muted)",
+                maxWidth: "100%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              data-testid={`approval-category-${e.id}`}
+            >
               {UNBILLABLE_REASON_LABELS[e.unbillable_reason ?? ""] ?? e.unbillable_reason ?? "reason pending"}
             </span>
           </span>

@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.id AS ticket_id, t.number AS ticket_number, t.title AS ticket_title,\n                  t.client_id, e.id AS line_id, e.description,\n                  e.amount_minor, e.currency\n           FROM ticket_expenses e JOIN tickets t ON t.org_id = e.org_id AND t.id = e.ticket_id\n           WHERE e.org_id = $1 AND e.billable AND e.invoice_line_id IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "ticket_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "ticket_title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "line_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "currency",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "aa04597ec49120b4caa4cc0de9f30695d7d59dcb3c7f59cb5c53cea4f791580e"
+}

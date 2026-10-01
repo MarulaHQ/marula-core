@@ -801,11 +801,20 @@ export default function BillingPage() {
                     </Td>
                     <Td>{c.description}</Td>
                     <Td>
+                      {/* The ticket named for a human reader: `#18402 Cable
+                          drop`, not an id prefix. */}
                       <Link
                         href={`/tickets/${c.ticket_id}`}
-                        style={{ color: "var(--m-accent-text)" }}
+                        title={c.ticket_title}
+                        style={{
+                          color: "var(--m-accent-text)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          display: "block",
+                        }}
                       >
-                        {c.ticket_id.slice(0, 8)}…
+                        #{c.ticket_number} {c.ticket_title}
                       </Link>
                     </Td>
                     <Td className="text-right font-mono text-[12px] tabular-nums">

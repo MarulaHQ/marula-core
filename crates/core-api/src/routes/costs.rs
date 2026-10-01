@@ -904,6 +904,9 @@ pub async fn list_candidates(
 pub struct InvoiceCandidateView {
     #[schema(value_type = uuid::Uuid)]
     pub ticket_id: uuid::Uuid,
+    /// The ticket's human number and title. Present so the ledger can name it.
+    pub ticket_number: String,
+    pub ticket_title: String,
     #[schema(value_type = Option<uuid::Uuid>, nullable = true)]
     pub client_id: Option<uuid::Uuid>,
     /// "cost" | "expense"
@@ -919,6 +922,8 @@ impl From<core_db::costs::InvoiceCandidateLine> for InvoiceCandidateView {
     fn from(c: core_db::costs::InvoiceCandidateLine) -> Self {
         Self {
             ticket_id: c.ticket_id,
+            ticket_number: c.ticket_number,
+            ticket_title: c.ticket_title,
             client_id: c.client_id,
             source: c.source.to_string(),
             line_id: c.line_id,
