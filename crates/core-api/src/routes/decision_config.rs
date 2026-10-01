@@ -1067,8 +1067,8 @@ pub async fn get_decision_runs(
         let effective = super::decision_edge::effective_config(&mut ctx.tx, &surface, &config)
             .await
             .map_err(|quiet| ApiError::Conflict(quiet.reason()))?;
-        let rows = core_db::decision::list_runs(&mut *ctx.tx, org_id, &surface, days, limit)
-        .await?;
+        let rows =
+            core_db::decision::list_runs(&mut *ctx.tx, org_id, &surface, days, limit).await?;
         Ok((ctx, (effective, rows)))
     })
     .await?;
@@ -1084,7 +1084,9 @@ pub async fn get_decision_runs(
         let mut top: Option<f64> = None;
         if let Some(map) = row.answers.as_object() {
             for (question_id, entry) in map {
-                let Some(entry) = entry.as_object() else { continue };
+                let Some(entry) = entry.as_object() else {
+                    continue;
+                };
                 let kind = entry
                     .get("kind")
                     .and_then(|k| k.as_str())

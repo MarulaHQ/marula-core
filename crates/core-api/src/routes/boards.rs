@@ -213,7 +213,11 @@ pub async fn status_usage(
 
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         authorize_board_op(&mut ctx.tx, &authed.principal, id, BoardOp::View).await?;
-        let usage = core_db::boards::status_usage(&mut *ctx.tx, org_id, id).await?;
+        // One binding for the helpers below: they take `&mut PgConnection`, and
+        // clippy's auto-deref suggestion does not compile for a Transaction, so
+        // the coercion is done once here instead of at each call site.
+        let tx = &mut *ctx.tx;
+        let usage = core_db::boards::status_usage(tx, org_id, id).await?;
         Ok((ctx, usage))
     })
     .await
@@ -471,57 +475,86 @@ pub async fn delete_status(
                     .iter()
                     .find(|s| s.id == reassign_to)
                     .ok_or_else(|| {
-                        ApiError::Validation(
-                            "the replacement status is not on this board".into(),
-                        )
+                        ApiError::Validation("the replacement status is not on this board".into())
                     })?;
                 Some(row.clone())
             }
         };
 
         let now = chrono::Utc::now();
-        let mut moved = 0i64;
-        let mut sla_pauses_changed = 0u64;
-        if let Some(to) = replacement.as_ref() {
-            // 1. Tickets first: a bulk move that mirrors `update_status`.
-            let moved_ids =
-                core_db::tickets::reassign_status_bulk(&mut *ctx.tx, org_id, status_id, to.id)
-                    .await?;
-            moved = moved_ids.len() as i64;
+        // Every database write this delete makes happens inside one block, so
+        // the borrow of the transaction ends before the emits below take the
+        // whole context again. The helpers take `&mut PgConnection` and
+        // clippy's auto-deref suggestion does not compile for a Transaction,
+        // so the coercion is done once here rather than at each call site.
+        let (moved_ids, sla_pauses_changed, paused_automations) = {
+            let tx = &mut *ctx.tx;
+            let mut moved_ids: Vec<Uuid> = Vec::new();
+            let mut sla_pauses_changed = 0i64;
+            if let Some(to) = replacement.as_ref() {
+                // 1. Tickets first: a bulk move that mirrors `update_status`.
+                moved_ids =
+                    core_db::tickets::reassign_status_bulk(&mut *tx, org_id, status_id, to.id)
+                        .await?;
 
-            // 2. SLA pause bookkeeping, the same category rule the per-ticket
-            //    path applies, set-based. Closing an open pause costs business
-            //    seconds, so the seconds are computed per policy in Rust.
-            if to.category.pauses_sla() {
-                sla_pauses_changed +=
-                    core_db::sla::apply_pause_bulk(&mut *ctx.tx, &moved_ids, now).await?;
-            } else {
-                let pauses =
-                    core_db::sla::open_pauses_for_tickets(&mut *ctx.tx, &moved_ids).await?;
-                let mut elapsed: Vec<(Uuid, i64)> = Vec::with_capacity(pauses.len());
-                for pause in pauses {
-                    let calendar =
-                        match core_db::sla::get_policy_record(&mut *ctx.tx, org_id, pause.policy_id)
-                            .await
+                // 2. SLA pause bookkeeping, the same category rule the per-ticket
+                //    path applies, set-based. Closing an open pause costs business
+                //    seconds, so the seconds are computed per policy in Rust.
+                if to.category.pauses_sla() {
+                    sla_pauses_changed +=
+                        core_db::sla::apply_pause_bulk(&mut *tx, &moved_ids, now).await? as i64;
+                } else {
+                    let pauses =
+                        core_db::sla::open_pauses_for_tickets(&mut *tx, &moved_ids).await?;
+                    let mut elapsed: Vec<(Uuid, i64)> = Vec::with_capacity(pauses.len());
+                    for pause in pauses {
+                        let calendar = match core_db::sla::get_policy_record(
+                            &mut *tx,
+                            org_id,
+                            pause.policy_id,
+                        )
+                        .await
                         {
-                            Ok(record) => core_db::sla::resolve_policy_calendar(
-                                &mut *ctx.tx,
-                                &record,
-                            )
-                            .await
-                            .unwrap_or_else(|_| record.calendar.clone()),
+                            Ok(record) => core_db::sla::resolve_policy_calendar(&mut *tx, &record)
+                                .await
+                                .unwrap_or_else(|_| record.calendar.clone()),
                             Err(_) => continue,
                         };
-                    elapsed.push((
-                        pause.ticket_id,
-                        calendar.elapsed_business_secs(pause.paused_since, now),
-                    ));
+                        elapsed.push((
+                            pause.ticket_id,
+                            calendar.elapsed_business_secs(pause.paused_since, now),
+                        ));
+                    }
+                    sla_pauses_changed +=
+                        core_db::sla::apply_resume_bulk(&mut *tx, &elapsed).await? as i64;
                 }
-                sla_pauses_changed += core_db::sla::apply_resume_bulk(&mut *ctx.tx, &elapsed).await?;
             }
 
-            // 3. One timeline row per moved ticket. A bulk move that wrote no
-            //    events would be the one status change an admin cannot audit.
+            // 4. Automations that named the status are paused, so none is
+            //    left pointing at something that no longer exists.
+            let paused_automations =
+                core_db::boards::pause_automations_mentioning(&mut *tx, org_id, status_id).await?;
+
+            // 5. The delete itself. Still RESTRICT-guarded: anything the bulk
+            //    move did not cover is refused rather than silently orphaned.
+            match core_db::boards::delete_status(&mut *tx, status_id).await {
+                Ok(()) => {}
+                Err(core_db::DbError::Sql(sqlx::Error::Database(db)))
+                    if db.constraint().is_some() =>
+                {
+                    return Err(ApiError::Conflict(
+                        "status is referenced by tickets and cannot be deleted".into(),
+                    ));
+                }
+                Err(e) => return Err(e.into()),
+            }
+            (moved_ids, sla_pauses_changed, paused_automations)
+        };
+        let moved = moved_ids.len() as i64;
+
+        // 3. One timeline row per moved ticket. A bulk move that wrote no
+        //    events would be the one status change an admin cannot audit.
+        if let Some(to) = replacement.as_ref() {
             for ticket_id in &moved_ids {
                 ctx.emit(
                     types::TICKET_STATUS_CHANGED,
@@ -533,7 +566,7 @@ pub async fn delete_status(
                         assignee_id: None,
                         from_status: name.clone(),
                         to_status: to.name.clone(),
-                        from_category: from_category,
+                        from_category,
                         to_category: to.category,
                         changed_by: Some(user_id),
                         occurred_at: now,
@@ -544,23 +577,6 @@ pub async fn delete_status(
             }
         }
 
-        // 4. Automations that named the status are paused, so none is left
-        //    pointing at something that no longer exists.
-        let paused_automations =
-            core_db::boards::pause_automations_mentioning(&mut *ctx.tx, org_id, status_id).await?;
-
-        // 5. The delete itself. Still RESTRICT-guarded: anything the bulk move
-        //    did not cover (a status in another board, say) is refused rather
-        //    than silently orphaned.
-        match core_db::boards::delete_status(&mut *ctx.tx, status_id).await {
-            Ok(()) => {}
-            Err(core_db::DbError::Sql(sqlx::Error::Database(db))) if db.constraint().is_some() => {
-                return Err(ApiError::Conflict(
-                    "status is referenced by tickets and cannot be deleted".into(),
-                ));
-            }
-            Err(e) => return Err(e.into()),
-        }
         ctx.emit(
             types::BOARD_STATUS_REMOVED,
             "board_status",
@@ -578,7 +594,7 @@ pub async fn delete_status(
             DeleteStatusResult {
                 moved_tickets: moved,
                 paused_automations,
-                sla_pauses_changed: sla_pauses_changed as i64,
+                sla_pauses_changed,
             },
         ))
     })

@@ -1202,9 +1202,7 @@ pub async fn csat_submit(
 fn to_view(view: core_db::portal::ClientTicketView) -> PortalTicketView {
     PortalTicketView {
         status_id: view.ticket.status_id,
-        status_label: view
-            .status_client_visible
-            .then_some(view.status_name),
+        status_label: view.status_client_visible.then_some(view.status_name),
         ticket: view.ticket,
     }
 }

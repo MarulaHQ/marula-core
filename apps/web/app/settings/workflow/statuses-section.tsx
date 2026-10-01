@@ -33,7 +33,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, EmptyState } from "@marula-core/ui";
+import { Button, EmptyState, SurfaceHeader } from "@marula-core/ui";
 import { api } from "../../../lib/api";
 import { resultErrorText } from "../../../lib/error-copy";
 import type { components } from "@marula-core/sdk";
@@ -511,43 +511,43 @@ export function StatusesSection({
         overflow: "hidden",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "14px 16px 10px",
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "var(--m-text)" }}>
-          Statuses
-        </h2>
-        <span style={{ flex: 1 }} />
-        {canEdit ? (
-          <>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setImporting(true);
-                setImportRows([]);
-                setImportName("");
-                setImportError(null);
-              }}
-              data-testid="statuses-import"
-            >
-              Import
-            </Button>
-            <Button
-              variant="primary"
-              onClick={openNew}
-              data-testid="statuses-new"
-              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-            >
-              <PlusIcon />
-              New status
-            </Button>
-          </>
-        ) : null}
+      {/* The pack's page header, on the shared frame: the title, the one
+          line about what the list governs, and the two actions at the right.
+          The board picker sits above it because this product's statuses are
+          per board; the pack's are org-wide and it has nothing to pick. */}
+      <div style={{ padding: "4px 0 12px" }}>
+        <SurfaceHeader
+          size="surface"
+          title="Statuses"
+          description="What a ticket can be, and what that does. Order here is the order in every picker."
+          actions={
+            canEdit ? (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setImporting(true);
+                    setImportRows([]);
+                    setImportName("");
+                    setImportError(null);
+                  }}
+                  data-testid="statuses-import"
+                >
+                  Import
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={openNew}
+                  data-testid="statuses-new"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                >
+                  <PlusIcon />
+                  New status
+                </Button>
+              </>
+            ) : null
+          }
+        />
       </div>
 
       {loadError !== null ? (

@@ -83,7 +83,9 @@ async fn send(
     let request = match body {
         Some(json_body) => builder
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&json_body).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json_body).unwrap(),
+            ))
             .unwrap(),
         None => builder.body(axum::body::Body::empty()).unwrap(),
     };
@@ -110,7 +112,10 @@ async fn scaffold(app: &Router, label: &str) -> (String, String) {
     .await;
     assert_eq!(response.status(), 200, "register must succeed");
     let body = body_json(response).await;
-    let token = body["access_token"].as_str().expect("access token").to_string();
+    let token = body["access_token"]
+        .as_str()
+        .expect("access token")
+        .to_string();
     // The register response carries no org id, and the portal/RLS-scoped
     // inserts below need one: the provisioned default board carries it.
     let boards = send(
@@ -207,7 +212,10 @@ async fn add_status(
     )
     .await;
     assert_eq!(response.status(), 200, "status {name} must be created");
-    body_json(response).await["id"].as_str().unwrap().to_string()
+    body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 /// A ticket is created in the board's entry status — the API seats it, and
@@ -228,7 +236,10 @@ async fn create_ticket(app: &Router, token: &str, board_id: &str, title: &str) -
     )
     .await;
     assert_eq!(response.status(), 200, "ticket {title}");
-    body_json(response).await["id"].as_str().unwrap().to_string()
+    body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 async fn move_ticket(app: &Router, token: &str, ticket_id: &str, status_id: &str) {
@@ -273,7 +284,10 @@ async fn create_client(app: &Router, token: &str, name: &str) -> String {
     )
     .await;
     assert_eq!(response.status(), 200, "client create");
-    body_json(response).await["id"].as_str().unwrap().to_string()
+    body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 fn usage_for(rows: &[Value], status_id: &str) -> (i64, i64) {
@@ -329,8 +343,15 @@ async fn a_hidden_status_never_shows_its_label_to_a_client() {
     let app = core_api::routes::build_router(test_state().await);
     let (token, org_id) = scaffold(&app, "client-visible").await;
     let board = create_board(&app, &token, "Portal board").await;
-    let seeded = statuses(&app, &token, &board).await;
-    let internal = add_status(&app, &token, &board, "Escalated to L2", "in_progress", false).await;
+    let internal = add_status(
+        &app,
+        &token,
+        &board,
+        "Escalated to L2",
+        "in_progress",
+        false,
+    )
+    .await;
 
     // Default is visible: the label is the client's to read. A ticket only
     // reaches a client through its client, so the flow creates one.
@@ -448,7 +469,11 @@ async fn deleting_with_reassignment_moves_the_tickets_and_says_so() {
         None,
     )
     .await;
-    assert_eq!(refused.status(), 409, "a used status is not silently dropped");
+    assert_eq!(
+        refused.status(),
+        409,
+        "a used status is not silently dropped"
+    );
     assert_eq!(usage_for(&usage(&app, &token, &board).await, &waiting).0, 2);
 
     let deleted = send(
@@ -559,8 +584,6 @@ async fn the_run_log_reads_the_real_store_and_gates_on_the_surfaces_own_threshol
     let app = core_api::routes::build_router(test_state().await);
     let (token, org_id) = scaffold(&app, "runs").await;
     let board = create_board(&app, &token, "Run log board").await;
-    let seeded = statuses(&app, &token, &board).await;
-    let home = seeded[0]["id"].as_str().unwrap().to_string();
     let ticket = create_ticket(&app, &token, &board, "Shadow subject").await;
 
     // Grant a surface and pin a model, the way the settings drawer does.
@@ -633,13 +656,17 @@ async fn the_run_log_reads_the_real_store_and_gates_on_the_surfaces_own_threshol
     let log = body_json(response).await;
 
     assert_eq!(log["summary"]["runs"], json!(2), "two recorded runs");
-    assert_eq!(log["summary"]["threshold"], json!(0.9), "the org's own act threshold");
+    assert_eq!(
+        log["summary"]["threshold"],
+        json!(0.9),
+        "the org's own act threshold"
+    );
     assert_eq!(
         log["summary"]["above_threshold"],
         json!(1),
         "0.97 clears 0.9 and 0.42 does not, so exactly one is above"
     );
-    assert_eq!(log["summary"]["has_evidence"], json!(true));
+    assert!(log["summary"]["has_evidence"] == json!(true));
 
     // Newest first, and each run carries the word, never an index.
     let runs = log["runs"].as_array().expect("run rows");
@@ -649,7 +676,7 @@ async fn the_run_log_reads_the_real_store_and_gates_on_the_surfaces_own_threshol
         .expect("the confident run");
     assert_eq!(above["answers"][0]["label"], json!("High"));
     assert_eq!(above["mode"], json!("shadow"));
-    assert_eq!(above["ticket_number"].is_string(), true, "the ticket is named");
+    assert!(above["ticket_number"].is_string(), "the ticket is named");
     let below = runs
         .iter()
         .find(|r| r["above_threshold"] == json!(false))
@@ -663,9 +690,8 @@ async fn the_run_log_reads_the_real_store_and_gates_on_the_surfaces_own_threshol
     // Agreement is measured against where the ticket actually sits: the run
     // said "Low" and the ticket is in a status called something else, so the
     // product says "did not agree" rather than guessing.
-    assert_eq!(
+    assert!(
         run["current_status"].is_string(),
-        true,
         "the ticket still exists, so it is comparable"
     );
     assert_eq!(log["summary"]["comparable"], json!(2));
