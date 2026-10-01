@@ -52,6 +52,7 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -1772,10 +1773,5 @@ function billingDay(anchor: string | null | undefined): string {
 /** The clock that pairs with every renewal word. Colour is never alone, so
  * the pill carries an icon and the number as well as the tone. */
 function ClockGlyph() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
+  return <Icon name="clock" size={13} />;
 }

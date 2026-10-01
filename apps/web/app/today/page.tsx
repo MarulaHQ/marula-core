@@ -17,6 +17,7 @@
 import { friendlyMutationText } from "../../lib/error-copy";
 import type { components } from "@marula-core/sdk";
 import { Button, Card, EmptyState, Spinner, Tag } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { BoardNav } from "../../components/board-nav";
@@ -76,11 +77,7 @@ function ClientTag({ name }: { name: string }) {
 }
 
 function PlayIcon() {
-  return (
-    <svg aria-hidden="true" width="11" height="11" viewBox="0 0 12 12" fill="none">
-      <path d="M3.5 2.2v7.6L9.5 6 3.5 2.2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-    </svg>
-  );
+  return <Icon name="play" size={11} />;
 }
 
 /** The local calendar day as YYYY-MM-DD — the day pack's anchor. */

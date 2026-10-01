@@ -60,6 +60,7 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -1797,43 +1798,21 @@ function poOrTerms(poNumber: string | null | undefined): string {
 }
 
 function ClockIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
+  return <Icon name="clock" size={13} />;
 }
 
 function CheckIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M4 12.5 9.5 18 20 6.5" />
-    </svg>
-  );
+  return <Icon name="check" size={15} />;
 }
 
 function ChevronIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <path d="M9 6l6 6-6 6" />
-    </svg>
-  );
+  return <Icon name="chev" size={14} />;
 }
 
 function PlusIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
+  return <Icon name="plus" size={16} />;
 }
 
 function ExternalIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
-      <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
-    </svg>
-  );
+  return <Icon name="link" size={16} />;
 }

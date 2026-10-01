@@ -64,6 +64,7 @@ import {
   Spinner,
   Tag,
 } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -1209,12 +1210,7 @@ function BudgetBar({ pct }: { pct: number | null }) {
 }
 
 function AlertGlyph() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 8v5M12 16.5v.01" />
-    </svg>
-  );
+  return <Icon name="alert" size={13} />;
 }
 
 function RollUp({ label, done, total, pct }: { label: string; done: number; total: number; pct: number }) {
