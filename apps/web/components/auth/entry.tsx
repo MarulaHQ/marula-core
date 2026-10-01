@@ -16,6 +16,7 @@
 //   rust   — a link on its way, a verification, an invitation
 //   band   — the two wizards wear indigo as a 72px header, plain body
 "use client";
+import { Icon, type IconName } from "@marula-core/ui/kit";
 
 import "./entry.css";
 import { useEffect, useRef, useState } from "react";
@@ -186,91 +187,21 @@ export function EntryNote({ children }: { children: React.ReactNode }) {
 }
 
 export function EntryIcon({ name, size = 18 }: { name: string; size?: number }) {
-  const common = {
-    width: size,
-    height: size,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.75,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true,
+  // Wave41 lane 20: the entry screens draw from the kit's one icon door, the
+  // mockups' own set, instead of a local switch of hand-drawn SVGs.
+  const MAP: Record<string, IconName> = {
+    check: "check",
+    x: "x",
+    clock: "clock",
+    alert: "alert",
+    info: "info",
+    mail: "mail",
+    shield: "shield",
+    plus: "plus",
+    down: "down",
+    qr: "scan",
   };
-  switch (name) {
-    case "check":
-      return (
-        <svg {...common} strokeWidth={2.5}>
-          <path d="M20 6 9 17l-5-5" />
-        </svg>
-      );
-    case "x":
-      return (
-        <svg {...common}>
-          <path d="M18 6 6 18M6 6l12 12" />
-        </svg>
-      );
-    case "clock":
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7v5l3 2" />
-        </svg>
-      );
-    case "alert":
-      return (
-        <svg {...common}>
-          <path d="M12 4 3 19h18L12 4Z" />
-          <path d="M12 10v4M12 17h.01" />
-        </svg>
-      );
-    case "info":
-      /* The circled-i the pack uses for "here is what is going on", as
-         distinct from an alert. A wrong password is information about her
-         remaining attempts, not a hazard, and a triangle would say otherwise.
-         (auth/neutral/states/02-login-error.png) */
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 11v5M12 8h.01" />
-        </svg>
-      );
-    case "mail":
-      return (
-        <svg {...common}>
-          <rect x="3" y="5" width="18" height="14" rx="2" />
-          <path d="m3 7 9 6 9-6" />
-        </svg>
-      );
-    case "shield":
-      return (
-        <svg {...common}>
-          <path d="M12 3 5 6v6c0 4.5 3 8 7 9 4-1 7-4.5 7-9V6l-7-3Z" />
-        </svg>
-      );
-    case "plus":
-      return (
-        <svg {...common}>
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      );
-    case "down":
-      return (
-        <svg {...common}>
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      );
-    case "qr":
-      return (
-        <svg {...common}>
-          <rect x="4" y="4" width="6" height="6" />
-          <rect x="14" y="4" width="6" height="6" />
-          <rect x="4" y="14" width="6" height="6" />
-        </svg>
-      );
-    default:
-      return null;
-  }
+  return <Icon name={MAP[name] ?? "info"} size={size} />;
 }
 
 /**

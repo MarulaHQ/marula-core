@@ -15,6 +15,7 @@
 // 4. An error always says what to do next, never just that something is wrong.
 "use client";
 
+import { Icon, type IconName } from "@marula-core/ui/kit";
 import {
   CLIENT_STATUS,
   clientStatusFor,
@@ -24,106 +25,23 @@ import {
 
 /** The icons the portal needs. Stroke-based, 1.75px, sized in px. */
 export function PortalIcon({ name, size = 18 }: { name: string; size?: number }) {
-  const common = {
-    width: size,
-    height: size,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.75,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true,
+  // Wave41 lane 20: the portal draws from the kit's one icon door.
+  const MAP: Record<string, IconName> = {
+    clock: "clock",
+    check: "check",
+    plus: "plus",
+    down: "down",
+    back: "back",
+    chev: "chev",
+    x: "x",
+    download: "download",
+    info: "info",
+    alert: "alert",
+    search: "search",
+    mail: "mail",
+    file: "file",
   };
-  switch (name) {
-    case "clock":
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7v5l3 2" />
-        </svg>
-      );
-    case "check":
-      return (
-        <svg {...common}>
-          <path d="M20 6 9 17l-5-5" />
-        </svg>
-      );
-    case "plus":
-      return (
-        <svg {...common}>
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      );
-    case "down":
-      return (
-        <svg {...common}>
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      );
-    case "back":
-      return (
-        <svg {...common}>
-          <path d="M19 12H5m6-7-7 7 7 7" />
-        </svg>
-      );
-    case "chev":
-      return (
-        <svg {...common}>
-          <path d="m9 18 6-6-6-6" />
-        </svg>
-      );
-    case "x":
-      return (
-        <svg {...common}>
-          <path d="M18 6 6 18M6 6l12 12" />
-        </svg>
-      );
-    case "download":
-      return (
-        <svg {...common}>
-          <path d="M12 3v12m0 0 4-4m-4 4-4-4" />
-          <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-        </svg>
-      );
-    case "info":
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 11v5M12 8h.01" />
-        </svg>
-      );
-    case "alert":
-      return (
-        <svg {...common}>
-          <path d="M12 4 3 19h18L12 4Z" />
-          <path d="M12 10v4M12 17h.01" />
-        </svg>
-      );
-    case "search":
-      return (
-        <svg {...common}>
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-3.5-3.5" />
-        </svg>
-      );
-    case "mail":
-      return (
-        <svg {...common}>
-          <rect x="3" y="5" width="18" height="14" rx="2" />
-          <path d="m3 7 9 6 9-6" />
-        </svg>
-      );
-    case "file":
-      return (
-        <svg {...common}>
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
-          <path d="M14 3v5h5" />
-        </svg>
-      );
-    default:
-      return null;
-  }
+  return <Icon name={MAP[name] ?? "info"} size={size} />;
 }
 
 /** A pill in one of the client's five words. Never red. */

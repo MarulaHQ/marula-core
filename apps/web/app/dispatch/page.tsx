@@ -19,6 +19,7 @@
 
 import "./dispatch.css";
 import { Badge, ColumnChooser, ExportControl, type ChoosableColumn as ChooserColumn } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import {
@@ -140,39 +141,22 @@ function PriChip({ p }: { p: Pri }) {
   return <span className={`dp-pri dp-pri-${p.toLowerCase()}`}>{p}</span>;
 }
 
+// Wave41 lane 20: the dispatch board draws its named glyphs from the kit's
+// one icon door (the mockups' own set) instead of local copies.
 function AlertIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v6M12 16h.01" />
-    </svg>
-  );
+  return <Icon name="alert" size={size} className="shrink-0" />;
 }
 
 function StackIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5" />
-    </svg>
-  );
+  return <Icon name="layers" size={size} className="shrink-0" />;
 }
 
 function LocationIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path d="M12 21s-6-6-6-11a6 6 0 0 1 12 0c0 5-6 11-6 11z" />
-      <circle cx="12" cy="10" r="2" />
-    </svg>
-  );
+  return <Icon name="pin" size={size} className="shrink-0" />;
 }
 
 function MonitorIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <rect x="3" y="4" width="18" height="12" rx="2" />
-      <path d="M8 20h8M12 16v4" />
-    </svg>
-  );
+  return <Icon name="monitor" size={size} className="shrink-0" />;
 }
 
 export default function DispatchBoardPage() {
