@@ -65,6 +65,7 @@ import { WbAgentPanel } from "../../../components/workbench-v2/agent-panel";
 import { DecisionSuggestionsCard } from "../../../components/workbench-v2/decision-card";
 import { WbComposer } from "../../../components/workbench-v2/composer";
 import { MergeBanner } from "../../../components/tickets/merge-banner";
+import { useTabCounts } from "../../../components/ticket-workspace/tab-counts";
 import {
   CustomFieldsPanel,
   TagsPanel,
@@ -311,6 +312,19 @@ export default function TicketWorkbenchPage() {
 
   // Tabs + writes.
   const [activeTab, setActiveTab] = useState<WbTab>("activity");
+
+  // The pack's tab row carries figures, and Time carries a DURATION rather than
+  // a count. Activity and Files are already on the read model; Time and Related
+  // cost one small request each, issued once here rather than per tab open.
+  const tabCounts = useTabCounts(
+    ticket?.id ?? null,
+    model === undefined || model === null
+      ? null
+      : {
+          comments: Array.isArray(model.comments) ? model.comments.length : 0,
+          attachments: Array.isArray(model.attachments) ? model.attachments.length : 0,
+        },
+  );
   const [commentBusy, setCommentBusy] = useState(false);
   const [wrapUpOpen, setWrapUpOpen] = useState(false);
   // Wave 17 close gate (typed 409 tasks_unassigned): the centered decision
@@ -1192,6 +1206,9 @@ async function changeStatus(statusId: string): Promise<void> {
                 onClick={() => setActiveTab(tab.id)}
               >
                 {tab.label}
+                {tabCounts[tab.id] !== undefined ? (
+                  <span className="m-wb-tab-count">{tabCounts[tab.id]}</span>
+                ) : null}
               </button>
             );
           })}

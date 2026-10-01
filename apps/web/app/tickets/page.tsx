@@ -423,9 +423,16 @@ export default function TicketsListPage() {
                 <option value="p3">P3</option>
                 <option value="p4">P4</option>
               </select>
+              {/* The two actions are a PAIR: the picker sets a value and this
+                  button applies it, so the button the picker feeds is the one
+                  that carries the primary treatment. It previously did not,
+                  which left "Assign to me" as the loudest control on a row it
+                  has nothing to do with. Two bulk writes are also two
+                  destructive-ish acts, so neither earns the solid destructive
+                  pair; primary says "this is the one you are here for". */}
               <Button
                 size="sm"
-                variant="secondary"
+                variant="primary"
                 disabled={bulkBusy}
                 onClick={() => void runBulk({ priority: bulkPriority }, `Set ${bulkPriority.toUpperCase()}`)}
               >
