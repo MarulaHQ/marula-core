@@ -955,9 +955,13 @@ async fn portal_magic_link_is_single_use_portal_scoped_and_status_aware() {
     .await;
     assert_eq!(first.status(), axum::http::StatusCode::OK);
     let body = body_json(first).await;
-    let access = body["access_token"].as_str().expect("access token").to_string();
+    let access = body["access_token"]
+        .as_str()
+        .expect("access token")
+        .to_string();
     assert_eq!(
-        body["portal_user"]["email"], json!("link@a.test"),
+        body["portal_user"]["email"],
+        json!("link@a.test"),
         "the link resolves to the identity it was minted for"
     );
     // First sign-in through a link activates an invited contact, exactly as

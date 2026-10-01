@@ -920,8 +920,14 @@ pub(crate) async fn issue_tokens(
     org_id: Uuid,
     user_agent: Option<&str>,
 ) -> ApiResult<TokenPair> {
-    issue_tokens_with_refresh_ttl(state, user_id, org_id, user_agent, state.config.refresh_ttl_secs)
-        .await
+    issue_tokens_with_refresh_ttl(
+        state,
+        user_id,
+        org_id,
+        user_agent,
+        state.config.refresh_ttl_secs,
+    )
+    .await
 }
 
 /// How long a session lives when a person explicitly asks the browser to be

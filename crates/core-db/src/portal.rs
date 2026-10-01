@@ -529,11 +529,13 @@ pub async fn consume_portal_one_use_token(
     .bind(token_hash)
     .fetch_optional(pool)
     .await?;
-    Ok(row.map(|(portal_user_id, org_id, client_id)| PortalTokenResolution {
-        portal_user_id,
-        org_id,
-        client_id,
-    }))
+    Ok(row.map(
+        |(portal_user_id, org_id, client_id)| PortalTokenResolution {
+            portal_user_id,
+            org_id,
+            client_id,
+        },
+    ))
 }
 
 /// Retires every live token of one kind for one identity. Asking for a fresh

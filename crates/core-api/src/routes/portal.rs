@@ -124,7 +124,8 @@ pub struct PortalProfile {
         (status = 200, body = PortalLoginResponse),
         (status = 401, description = "bad credentials")
 ))]
-pub async fn login(    State(state): State<AppState>,
+pub async fn login(
+    State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     Json(req): Json<PortalLoginRequest>,
 ) -> ApiResult<axum::response::Response> {
@@ -475,12 +476,9 @@ pub async fn magic_link_confirm(
         resolution.portal_user_id,
     )
     .await?;
-    let user = core_db::portal::get_portal_user(
-        &mut *tx,
-        resolution.org_id,
-        resolution.portal_user_id,
-    )
-    .await?;
+    let user =
+        core_db::portal::get_portal_user(&mut *tx, resolution.org_id, resolution.portal_user_id)
+            .await?;
     tx.commit().await.map_err(ApiError::from)?;
 
     let identity = PortalIdentity {

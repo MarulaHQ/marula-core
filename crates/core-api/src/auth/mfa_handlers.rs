@@ -422,16 +422,7 @@ pub async fn mfa_verify(
     .await?
     {
         Some(step) => {
-            finish_mfa_login(
-                tx,
-                &state,
-                org_id,
-                user_id,
-                "totp",
-                step,
-                refresh_ttl_secs,
-            )
-            .await
+            finish_mfa_login(tx, &state, org_id, user_id, "totp", step, refresh_ttl_secs).await
         }
         None => match match_recovery_code(&mut tx, user_id, req.code.trim()).await? {
             Some(code_id) => {
@@ -500,7 +491,8 @@ async fn finish_mfa_login(
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
-    let tokens = issue_tokens_with_refresh_ttl(state, user_id, org_id, None, refresh_ttl_secs).await?;
+    let tokens =
+        issue_tokens_with_refresh_ttl(state, user_id, org_id, None, refresh_ttl_secs).await?;
     Ok(mfa_tokens_response(state, tokens))
 }
 
