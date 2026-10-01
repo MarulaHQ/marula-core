@@ -523,20 +523,7 @@ export default function AlertsPage() {
             </div>
           ) : null}
 
-          {/* The stub is the pack's AI-ladder state 2: a 40px strip down the
-              right edge of the feed, spark at the top, a count only while
-              there is something to count. Clicking it narrows to the unrouted
-              facet, which is the work an assistant pass would do. */}
           <div className="flex min-h-0 flex-1 gap-3">
-            {/* AI ladder state 2: the resting stub, docked beside the feed.
-                The count is the unrouted alerts, and null when there are none,
-                because there is nothing to count. The Unrouted pill in the
-                header is the way to act on it. */}
-            <AssistantColumn
-              count={counts.unrouted === 0 ? null : counts.unrouted}
-              spark={<SparkIcon size={16} />}
-              label={`${counts.unrouted} alerts have not been routed to a ticket`}
-            />
             <TableCard label="Alert feed">
             {loadingAlerts ? (
               <SkeletonRows sentence="Loading the alert feed." columns={4} />
@@ -649,6 +636,15 @@ export default function AlertsPage() {
               </Table>
             )}
             </TableCard>
+            {/* AI ladder state 2: the resting stub, docked to the feed's RIGHT
+                edge — the pack puts the assistant column on the right, and the
+                stub is that column collapsed. The count is the unrouted alerts,
+                and null when there is nothing to count. */}
+            <AssistantColumn
+              count={counts.unrouted === 0 ? null : counts.unrouted}
+              spark={<SparkIcon size={16} />}
+              label={`${counts.unrouted} alerts have not been routed to a ticket`}
+            />
           </div>
 
           <LedgerFooter
