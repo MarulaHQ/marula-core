@@ -360,7 +360,11 @@ export default function ShadowRunsPage(): React.JSX.Element {
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <ThresholdBar value={log.summary.threshold} threshold={log.summary.threshold} width={64} />
+                      <ThresholdBar
+                        value={log.summary.threshold}
+                        threshold={log.summary.lowest_threshold}
+                        width={64}
+                      />
                       <b
                         style={{
                           fontSize: 20,
@@ -369,11 +373,13 @@ export default function ShadowRunsPage(): React.JSX.Element {
                           fontVariantNumeric: "tabular-nums",
                         }}
                       >
-                        {log.summary.threshold.toFixed(2)}
+                        {log.summary.lowest_threshold === log.summary.threshold
+                          ? log.summary.threshold.toFixed(2)
+                          : `${log.summary.lowest_threshold.toFixed(2)}–${log.summary.threshold.toFixed(2)}`}
                       </b>
                     </div>
                     <div style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>
-                      the line in force
+                      the {log.summary.threshold_questions === 1 ? "line" : "lines"} in force
                     </div>
                   </div>
                 </div>

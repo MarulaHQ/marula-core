@@ -95,14 +95,19 @@ export function DecisionSurfaces({
           marginTop: 16,
         }}
       >
+        {/* The label sits inside the bordered card, so it needs its own
+            inset: without it the cap-height of the uppercase text is clipped
+            by the card's overflow. */}
         <div
           style={{
             fontSize: 12,
+            lineHeight: 1.4,
             letterSpacing: "0.08em",
             textTransform: "uppercase",
             fontWeight: 600,
             color: "var(--m-text-secondary)",
-            margin: "0 0 8px",
+            margin: 0,
+            padding: "14px 16px 10px",
           }}
         >
           Decision surfaces

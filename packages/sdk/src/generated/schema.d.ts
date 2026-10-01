@@ -17324,15 +17324,29 @@ export interface components {
              */
             has_evidence: boolean;
             /**
+             * Format: double
+             * @description The loosest `act` threshold in force. A surface that mixes question
+             *     kinds has one line PER QUESTION (ADR 0010 §5), so the pair is the
+             *     honest headline: a surface whose questions share one line reports both
+             *     as the same number.
+             */
+            lowest_threshold: number;
+            /**
              * Format: int64
              * @description Runs recorded in the window.
              */
             runs: number;
             /**
              * Format: double
-             * @description The `act` threshold in force, so the log and the drawer agree.
+             * @description The strictest `act` threshold in force, so the log and the drawer
+             *     agree on the number that gates the most.
              */
             threshold: number;
+            /**
+             * @description How many questions carry a line, so the figure is never read as "the"
+             *     line when there are several.
+             */
+            threshold_questions: number;
         };
         /** @description One answered run, in the words the run log draws. */
         DecisionRunView: {

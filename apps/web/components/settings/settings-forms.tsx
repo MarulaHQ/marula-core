@@ -33,6 +33,10 @@ import { Button } from "@marula-core/ui";
 
 /* --- geometry, straight from the pack ------------------------------------ */
 
+/** The app bar's height (chrome lane, 56px). An overlay anchored below it
+ * leaves the bar usable and keeps the layer out of the page's own scroller. */
+export const APP_BAR = 56;
+
 export const DRAWER_WIDTH = 480;
 export const CONFIRM_WIDTH = 520;
 export const SETTINGS_COLUMN = 1152;
@@ -630,12 +634,17 @@ export function SegmentedChoice<T extends string>({
   onChange,
   label,
   testId,
+  labelFor,
 }: {
   value: T;
   options: readonly T[];
   onChange: (next: T) => void;
   label: string;
   testId?: string;
+  /** What each option says. A stored value is not a word a person reads, so
+   * a caller whose values are slugs (`in_progress`) passes the drawn words
+   * here rather than shipping the slug to the screen. */
+  labelFor?: (option: T) => string;
 }): React.JSX.Element {
   return (
     <div
@@ -708,7 +717,7 @@ export function SettingsDrawer({
   }, [onClose]);
 
   return (
-    <div style={{ position: "absolute", inset: 0, zIndex: 61 }}>
+    <div style={{ position: "fixed", top: APP_BAR, right: 0, bottom: 0, left: 0, zIndex: 61 }}>
       <button
         type="button"
         aria-label="Close"
@@ -734,6 +743,7 @@ export function SettingsDrawer({
           top: 0,
           bottom: 0,
           width: DRAWER_WIDTH,
+          maxHeight: "100%",
           maxWidth: "100%",
           background: "var(--m-surface)",
           borderLeft: "1px solid var(--m-border)",
@@ -884,12 +894,16 @@ export function ConfirmRemap({
   return (
     <div
       style={{
-        position: "absolute",
-        inset: 0,
+        position: "fixed",
+        top: APP_BAR,
+        right: 0,
+        bottom: 0,
+        left: 0,
         zIndex: 70,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        padding: 24,
       }}
     >
       <div

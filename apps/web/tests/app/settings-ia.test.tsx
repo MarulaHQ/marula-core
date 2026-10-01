@@ -86,6 +86,8 @@ beforeEach(() => {
           agreed: 1,
           comparable: 2,
           threshold: 0.9,
+          lowest_threshold: 0.9,
+          threshold_questions: 1,
           has_evidence: true,
         },
         runs: [

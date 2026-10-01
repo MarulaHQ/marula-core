@@ -33,7 +33,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, EmptyState, SurfaceHeader } from "@marula-core/ui";
+import { Button, EmptyState } from "@marula-core/ui";
 import { api } from "../../../lib/api";
 import { resultErrorText } from "../../../lib/error-copy";
 import type { components } from "@marula-core/sdk";
@@ -511,17 +511,42 @@ export function StatusesSection({
         overflow: "hidden",
       }}
     >
-      {/* The pack's page header, on the shared frame: the title, the one
+      {/* The pack's page header, in a section's heading: the title, the one
           line about what the list governs, and the two actions at the right.
+          It is an h2, not the shared `SurfaceHeader`, because the PAGE's h1 is
+          the page's and two h1s on one page is a defect. The type is the
+          pack's own 26px/600/-0.01em.
           The board picker sits above it because this product's statuses are
           per board; the pack's are org-wide and it has nothing to pick. */}
       <div style={{ padding: "4px 0 12px" }}>
-        <SurfaceHeader
-          size="surface"
-          title="Statuses"
-          description="What a ticket can be, and what that does. Order here is the order in every picker."
-          actions={
-            canEdit ? (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+          <div>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 26,
+                fontWeight: 600,
+                letterSpacing: "-0.01em",
+                lineHeight: 1.2,
+                color: "var(--m-text)",
+              }}
+            >
+              Statuses
+            </h2>
+            <p
+              style={{
+                margin: "4px 0 0",
+                fontSize: 13,
+                color: "var(--m-text-secondary)",
+                maxWidth: 560,
+              }}
+            >
+              What a ticket can be, and what that does. Order here is the order in every picker.
+            </p>
+          </div>
+          <span style={{ flex: 1 }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {canEdit ? (
               <>
                 <Button
                   variant="secondary"
@@ -545,9 +570,9 @@ export function StatusesSection({
                   New status
                 </Button>
               </>
-            ) : null
-          }
-        />
+            ) : null}
+          </div>
+        </div>
       </div>
 
       {loadError !== null ? (
@@ -915,6 +940,9 @@ export function StatusesSection({
               testId="status-kind"
               value={draft.kind}
               options={KIND_OPTIONS}
+              // The pack's words, not the stored slugs: a person choosing a
+              // kind is choosing "In progress", not "in_progress".
+              labelFor={(option) => KIND_LABEL[option]}
               onChange={(next) =>
                 setDraft((prev) => ({
                   ...prev,

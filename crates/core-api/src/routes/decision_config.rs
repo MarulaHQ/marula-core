@@ -1008,8 +1008,17 @@ pub struct DecisionRunSummary {
     pub agreed: i64,
     /// Runs that could be compared at all (a ticket that still exists).
     pub comparable: i64,
-    /// The `act` threshold in force, so the log and the drawer agree.
+    /// The strictest `act` threshold in force, so the log and the drawer
+    /// agree on the number that gates the most.
     pub threshold: f64,
+    /// The loosest `act` threshold in force. A surface that mixes question
+    /// kinds has one line PER QUESTION (ADR 0010 §5), so the pair is the
+    /// honest headline: a surface whose questions share one line reports both
+    /// as the same number.
+    pub lowest_threshold: f64,
+    /// How many questions carry a line, so the figure is never read as "the"
+    /// line when there are several.
+    pub threshold_questions: usize,
     /// False when the product has never recorded a run for this surface, so
     /// the page can say "no evidence yet" rather than showing zeros.
     pub has_evidence: bool,
@@ -1028,6 +1037,16 @@ pub struct DecisionRunsQuery {
     /// Window in days, 1..=90. Default 7 — the log's own window.
     pub days: Option<i32>,
     pub limit: Option<i64>,
+}
+
+/// Compares a proposed label with a status name the way a person reads them:
+/// case, spacing, hyphens and underscores are one word written two ways, so a
+/// status called "InProgress" is the same word as "In Progress".
+fn normalise_label(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// GET /api/settings/ai/decision/{surface_key}/runs — the shadow run log.
@@ -1128,10 +1147,10 @@ pub async fn get_decision_runs(
         // actually is. A ticket that has been deleted cannot be compared, and
         // saying so beats a silent zero.
         let comparison = row.current_status.as_ref().map(|current| {
-            let needle = current.trim().to_lowercase();
+            let needle = normalise_label(current);
             answers
                 .iter()
-                .any(|a| !a.label.is_empty() && a.label.trim().to_lowercase() == needle)
+                .any(|a| !a.label.is_empty() && normalise_label(&a.label) == needle)
         });
         if row.current_status.is_some() {
             comparable += 1;
@@ -1155,11 +1174,9 @@ pub async fn get_decision_runs(
         });
     }
 
-    let threshold = effective
-        .questions
-        .iter()
-        .map(|q| q.thresholds.act)
-        .fold(0.0f64, f64::max);
+    let acts: Vec<f64> = effective.questions.iter().map(|q| q.thresholds.act).collect();
+    let threshold = acts.iter().copied().fold(0.0f64, f64::max);
+    let lowest_act = acts.iter().copied().fold(f64::INFINITY, f64::min);
     Ok(Json(DecisionRunsResponse {
         surface_key,
         days,
@@ -1169,6 +1186,8 @@ pub async fn get_decision_runs(
             agreed,
             comparable,
             threshold,
+            lowest_threshold: if lowest_act.is_finite() { lowest_act } else { threshold },
+            threshold_questions: acts.len(),
             has_evidence: !rows.is_empty(),
         },
         runs,
