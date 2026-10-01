@@ -81,13 +81,13 @@ const VIEWS: ViewOption[] = [
 type ColumnDef = ChoosableColumn & { sortable: boolean };
 
 const COLUMN_DEFS: ColumnDef[] = [
-  { key: "number", label: "Number", visible: true, required: true, width: 116, sortable: true },
-  { key: "title", label: "Subject", visible: true, required: true, width: 320, sortable: true },
+  { key: "priority", label: "P", visible: true, width: 64, sortable: true },
+  { key: "number", label: "ID", visible: true, required: true, width: 88, sortable: true },
+  { key: "title", label: "Ticket", visible: true, required: true, width: 320, sortable: true },
   { key: "client", label: "Client", visible: true, width: 168, sortable: false },
   { key: "category", label: "Status", visible: true, width: 116, sortable: true },
-  { key: "priority", label: "Priority", visible: true, width: 88, sortable: true },
-  { key: "assignee", label: "Assignee", visible: true, width: 150, sortable: false },
   { key: "sla", label: "SLA", visible: true, width: 116, sortable: true },
+  { key: "assignee", label: "Assignee", visible: true, width: 150, sortable: false },
   { key: "updated_at", label: "Last activity", visible: true, width: 104, sortable: true },
 ];
 
@@ -161,7 +161,9 @@ export default function TicketsListPage() {
 
   const columns = useMemo(() => reconcileColumns(saved.columns), [saved.columns]);
   const clauses = useMemo(() => clausesFromSaved(saved.filters), [saved.filters]);
-  const sort = saved.sort;
+  // A user who never saved a view still gets the pack's default: the queue reads
+  // in SLA order, breach first.
+  const sort = saved.sort ?? { field: "sla", dir: "asc" };
   const visible = useMemo(() => columns.filter((c) => c.visible), [columns]);
   const visibleDefs = useMemo<LedgerColumnDef[]>(
     () =>
@@ -443,10 +445,6 @@ export default function TicketsListPage() {
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
       <div className="min-w-0">
         <h1 className="text-lg font-semibold">Tickets</h1>
-        <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Everything you can reach, newest activity first. Open a row to work it in the
-          workbench.
-        </p>
         {/* The mockup's attention shortcuts, doubling as filters. Blush for "at
             risk", red for "breached"; the count is the number of rows that match. */}
         <div className="mt-2 flex flex-wrap items-center gap-2" role="group" aria-label="Attention shortcuts">

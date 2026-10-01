@@ -16,8 +16,9 @@
  * Non-purpose: this builds no file. It reports the request and renders the
  * two states a caller must handle — ready, and working.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
+import { Icon } from "../kit";
 
 export type ExportFormat = "csv" | "xlsx";
 
@@ -60,7 +61,25 @@ export function ExportControl({
 }: ExportControlProps): React.JSX.Element {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
   const isAsync = rowCount > asyncThreshold;
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onPointer = (e: MouseEvent): void => {
+      if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointer);
+    };
+  }, [open]);
 
   const run = useCallback(
     async (format: ExportFormat) => {
@@ -76,37 +95,57 @@ export function ExportControl({
         setError(e instanceof Error ? e.message : "The export did not finish.");
       } finally {
         setWorking(false);
+        setOpen(false);
       }
     },
     [columns, filters, onExport, rowCount, sort],
   );
 
   return (
-    <div className={cn("m-export", className)}>
-      <span className="m-export-count">
-        {rowCount.toLocaleString()} {rowCount === 1 ? "row" : "rows"}
-      </span>
-      {formats.map((format) => (
-        <button
-          key={format}
-          type="button"
-          className="m-toolbar-button"
-          disabled={working}
-          onClick={() => void run(format)}
-        >
-          {working ? "Working…" : `${label} ${format.toUpperCase()}`}
-        </button>
-      ))}
-      {isAsync ? (
-        <span className="m-export-note">
-          Over {asyncThreshold.toLocaleString()} rows, so this runs in the
-          background and lands in your notifications.
+    <div className={cn("m-export", className)} ref={root}>
+      <button
+        type="button"
+        className="m-toolbar-button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        disabled={working}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Icon name="download" size={14} />
+        {working ? "Working…" : label}
+        <span className="m-toolbar-count" aria-hidden="true">
+          {rowCount.toLocaleString()}
         </span>
-      ) : null}
-      {error ? (
-        <p className="m-export-error" role="alert">
-          {error}
-        </p>
+      </button>
+      {open ? (
+        <div className="m-export-menu" role="menu" aria-label={`${label} to a file`}>
+          <p className="m-export-count" role="note">
+            {rowCount.toLocaleString()} {rowCount === 1 ? "row" : "rows"}, exactly what is on screen.
+          </p>
+          {formats.map((format) => (
+            <button
+              key={format}
+              type="button"
+              role="menuitem"
+              className="m-export-item"
+              disabled={working}
+              onClick={() => void run(format)}
+            >
+              {working ? "Working…" : `${format.toUpperCase()}`}
+            </button>
+          ))}
+          {isAsync ? (
+            <p className="m-export-note">
+              Over {asyncThreshold.toLocaleString()} rows, so this runs in the background and lands
+              in your notifications.
+            </p>
+          ) : null}
+          {error ? (
+            <p className="m-export-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

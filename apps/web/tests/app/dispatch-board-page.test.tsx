@@ -145,10 +145,12 @@ describe("/dispatch board", () => {
     await user.click(screen.getByRole("button", { name: /^Unassigned/ }));
     // Columns / Export only exist on the data-surface view.
     expect(screen.getByRole("button", { name: /Columns/ })).toBeInTheDocument();
-    // The core kit's ExportControl puts the row count on the control and one
-    // button per format (D12).
-    expect(screen.getByText("6 rows")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Export CSV/ })).toBeInTheDocument();
+    // The core kit's ExportControl puts the row count on its trigger and the
+    // formats in the menu (the pack's single-Export anatomy).
+    const trigger = screen.getByRole("button", { name: /Export/ });
+    expect(trigger).toHaveTextContent("6");
+    await user.click(trigger);
+    expect(screen.getByRole("menuitem", { name: "CSV" })).toBeInTheDocument();
     cleanup();
   });
 

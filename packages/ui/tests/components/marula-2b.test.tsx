@@ -202,11 +202,14 @@ describe("FilterBar", () => {
 });
 
 describe("ExportControl", () => {
-  it("states the row count before the user asks for the file", () => {
+  it("states the row count on the trigger before the user asks for the file", async () => {
     render(<ExportControl columns={["ref", "title"]} rowCount={1284} onExport={() => {}} />);
     // A row count discovered after the fact is how a ledger goes to the wrong
-    // person.
-    expect(screen.getByText("1,284 rows")).toBeInTheDocument();
+    // person. The count sits on the control, and repeats inside the menu.
+    const trigger = screen.getByRole("button", { name: /Export/ });
+    expect(trigger).toHaveTextContent("1,284");
+    await userEvent.click(trigger);
+    expect(screen.getByRole("menu", { name: /Export to a file/ })).toHaveTextContent("1,284 rows");
   });
 
   it("exports the visible columns in the order the table is showing them", async () => {
@@ -220,7 +223,8 @@ describe("ExportControl", () => {
         sort={{ field: "title", dir: "asc" }}
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: /Export CSV/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Export/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "CSV" }));
     expect(onExport).toHaveBeenCalledWith(
       expect.objectContaining({ format: "csv", columns: ["title", "ref"], rowCount: 2 }),
     );
@@ -229,13 +233,15 @@ describe("ExportControl", () => {
   it("will not export nothing", async () => {
     const onExport = vi.fn();
     render(<ExportControl columns={[]} rowCount={0} onExport={onExport} formats={["csv"]} />);
-    await userEvent.click(screen.getByRole("button", { name: /Export CSV/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Export/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "CSV" }));
     expect(onExport).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
-  it("says a large export runs in the background rather than pretending", () => {
+  it("says a large export runs in the background rather than pretending", async () => {
     render(<ExportControl columns={["ref"]} rowCount={40000} onExport={() => {}} asyncThreshold={5000} />);
+    await userEvent.click(screen.getByRole("button", { name: /Export/ }));
     expect(screen.getByText(/runs in the background/)).toBeInTheDocument();
   });
 });
