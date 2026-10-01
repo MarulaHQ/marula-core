@@ -688,13 +688,15 @@
   border-bottom: 1px solid var(--m-border);
 }
 
-.entry-resume__hd h1 {
+/* The resumed heading is SANS, unlike every other headline on the entry
+   surfaces. This screen is a list of facts, and the serif would keep reading as
+   an invitation.
+   (auth/neutral/states/13-skipped-and-resumed.png) */
+.entry-resume__title {
   margin: 0;
-  font-family: var(--m-font-heading);
-  font-size: 34px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .entry-resume__hd p {

@@ -347,11 +347,14 @@ export default function WelcomeWizardPage() {
 
   const meta = labelFor(focus);
   const stepIndex = ORG_STEP_ORDER.indexOf(focus as (typeof ORG_STEP_ORDER)[number]);
-  const remaining = ORG_STEP_ORDER.length - resolvedCount;
   const states = ORG_STEP_ORDER.map(
     (key) => railState(stepView(key), skipped.includes(key)),
   );
   const skipCount = skipped.length;
+
+  // Set during the resumed list's render: the first row that is not done
+  // carries the dark primary, so the screen names a starting point.
+  let nextKeyFound = false;
 
   // The pack's state 14: a person who comes back gets the list of what is done
   // and what is left, with a way straight back in. It is the same page, so the
@@ -366,56 +369,80 @@ export default function WelcomeWizardPage() {
         <main className="entry-main">
           <div className="entry-resume" data-testid="wizard-resumed">
             <div className="entry-resume__hd">
-              <h1>Welcome back.</h1>
+              {/* SANS here, not the serif the entry screens wear. The pattern
+                 and the fruit are still there, but this is a list of facts
+                 rather than an invitation, and the serif would keep claiming
+                 otherwise. (auth/neutral/states/13-skipped-and-resumed.png) */}
+              <h1 className="entry-resume__title">Welcome back</h1>
               <p>
-                {resolvedCount} of {ORG_STEP_ORDER.length} steps are done
-                {skipCount > 0 ? `, and ${skipCount} ${skipCount === 1 ? "was" : "were"} skipped` : ""}.
+                Your setup is {resolvedCount} of {ORG_STEP_ORDER.length} done
+                {skipCount > 0
+                  ? `. ${skipCount === 1 ? "One step is" : `${skipCount} steps are`} skipped, and ${skipCount === 1 ? "it is" : "they are"} exactly where you left ${skipCount === 1 ? "it" : "them"}.`
+                  : "."}
               </p>
-            </div>
-            {ORG_STEP_ORDER.map((key, i) => (
-              <div className={`entry-rrow${states[i] === "done" ? " entry-rrow--done" : ""}`} key={key}>
-                <span className="entry-step__n" style={{ pointerEvents: "none" }}>
-                  {states[i] === "done" ? "✓" : i + 1}
-                </span>
-                <span className="entry-rrow__t">
-                  <b>{labelFor(key).title}</b>
-                  <span>
-                    {states[i] === "done"
-                      ? "Done"
-                      : states[i] === "skipped"
-                        ? "Skipped. Still here when you want it."
-                        : labelFor(key).blurb}
-                  </span>
-                </span>
-                {states[i] === "done" ? (
-                  <span className="portal-pill portal-pill--resolved">Done</span>
-                ) : (
-                  <button
-                    type="button"
-                    className="entry-btn entry-btn--secondary entry-btn--small"
-                    onClick={() => {
-                      setFocus(key);
-                      setReturning(false);
-                    }}
-                    data-testid={`wizard-resume-${key}`}
-                  >
-                    {states[i] === "skipped" ? "Do it now" : "Start"}
-                  </button>
-                )}
+              {/* The progress bar belongs on this card, not only in the rail:
+                  this screen has no rail, so the count above it would otherwise
+                  be the only measure of how far along somebody is. */}
+              <div className="entry-progress" aria-hidden>
+                <i style={{ width: `${Math.round((resolvedCount / ORG_STEP_ORDER.length) * 100)}%` }} />
               </div>
-            ))}
+            </div>
+            {ORG_STEP_ORDER.map((key, i) => {
+              // The first step still to do carries the dark primary, so the
+              // screen says where to start instead of presenting six equal
+              // buttons. The pack picks one ("Pick up here") and leaves the rest
+              // outlined.
+              const isNext = states[i] !== "done" && !nextKeyFound;
+              if (isNext) nextKeyFound = true;
+              return (
+                <div
+                  className={`entry-rrow${states[i] === "done" ? " entry-rrow--done" : ""}`}
+                  key={key}
+                >
+                  <span className="entry-step__n" style={{ pointerEvents: "none" }}>
+                    {states[i] === "done" ? "✓" : i + 1}
+                  </span>
+                  <span className="entry-rrow__t">
+                    <b>{labelFor(key).short}</b>
+                    <span>
+                      {states[i] === "done"
+                        ? "Done"
+                        : states[i] === "skipped"
+                          ? "Skipped. Nothing was recorded, and it is still here."
+                          : "Not started"}
+                    </span>
+                  </span>
+                  {states[i] === "done" ? null : (
+                    <button
+                      type="button"
+                      className={`entry-btn entry-btn--small${isNext ? "" : " entry-btn--secondary"}`}
+                      onClick={() => {
+                        setFocus(key);
+                        setReturning(false);
+                      }}
+                      data-testid={`wizard-resume-${key}`}
+                    >
+                      {isNext ? "Pick up here" : states[i] === "skipped" ? "Do it now" : "Start"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
             <div className="entry-resume__ft">
-              <span className="entry-hint" style={{ flex: 1 }}>
-                {remaining === 0
-                  ? "Everything is done. Nothing is waiting."
-                  : `${remaining} ${remaining === 1 ? "step" : "steps"} left, and every one of them can be skipped.`}
-              </span>
+              {/* The pack puts the Never-show-again choice HERE as well as in
+                  the header, because this is the screen where somebody is
+                  deciding whether they still want the list at all. */}
+              <p className="entry-explain" style={{ flex: 1, margin: 0 }}>
+                <b>Skipped</b> steps stay on this list until you do them. <b>Never show this setup
+                again</b> removes the whole list, and can be undone from Settings.
+              </p>
               <button
                 type="button"
                 className="entry-btn entry-btn--secondary"
-                onClick={() => router.replace("/today")}
+                onClick={() => setNeverShow(true)}
+                data-testid="wizard-never-show-again"
               >
-                Go to Today
+                Never show again
               </button>
             </div>
           </div>
