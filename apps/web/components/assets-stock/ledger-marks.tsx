@@ -2,15 +2,14 @@
 /**
  * Ledger severity marks — lane 9, derived from the surface-pack rules.
  *
- * Purpose: one inline-SVG icon set plus the two severity pills the pack
- * makes a contract for the loans and tools surfaces:
+ * Purpose: the two severity pills the pack makes a contract for the loans
+ * and tools surfaces:
  *
  * - OVERDUE IS RED (breach class), DUE SOON IS BLUSH (attention class), and
  *   NEITHER IS EVER COLOUR ALONE — each pill carries a word and an icon
  *   (DESIGN-NOTES-tickets §9 rule "colour is never alone", stated twice in
  *   the pack for loans and once in the derivation guide).
- * - The icons are inline SVG paths in the repo's 18px stroke style, matching
- *   the nav-rail icon set — no icon font, no dependency.
+ * - The icons draw from the kit's Icon door at the sizes the bar uses.
  *
  * Non-purpose: no status logic lives here. Callers decide which mark a row
  * earns; this file only draws it the same way on every surface.
@@ -50,32 +49,15 @@ export function CopyIcon(): React.JSX.Element {
 }
 
 export function ReturnIcon(): React.JSX.Element {
-  return (
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M7.4 2.6 3.2 6l4.2 3.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3.4 6h5.2a2.6 2.6 0 0 1 0 5.2H7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
+  return <Icon name="undo" size={12} />;
 }
 
 export function ReceiveIcon(): React.JSX.Element {
-  return (
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M6 1.8v5.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <path d="M3.6 4.8 6 7.2l2.4-2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M2.2 8.4v1.2a1.4 1.4 0 0 0 1.4 1.4h4.8a1.4 1.4 0 0 0 1.4-1.4V8.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
+  return <Icon name="download" size={12} />;
 }
 
 export function MoveIcon(): React.JSX.Element {
-  return (
-    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M6 1.8v8.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <path d="M3.4 7.6 6 10.2l2.6-2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M2.4 3.6h7.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
+  return <Icon name="down" size={12} />;
 }
 
 /** Raised-severity pill shell: icon + words, tinted by tone. */
