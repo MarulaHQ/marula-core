@@ -1,6 +1,12 @@
-# ADR 0012: PostgreSQL 18 adoption — per-feature notes for new tables
+# ADR 0018: PostgreSQL 18 adoption — per-feature notes for new tables
 
 **Status:** Draft (p36-infra-transition) · 2026-09-24
+**Renumbered 2026-10-01.** Written as `0012-postgresql-18-adoption.md`. The p36
+lane had recorded the number as provisional, in its own words "number TBD by lane;
+draft", and it then collided with `0012-internal-org-asset-scope.md`, which is
+Accepted and already cited by that number. So the Draft took the next free slot,
+**0018**, and the Accepted ADR kept 0012. No decision content changed, only the
+identifier.
 **Scope:** which PG18 features new tables and the audit write-trail path
 should adopt, and which stay off-limits. Doctrine: **no retrofits** —
 existing tables keep their shape; these notes bind only new migrations.

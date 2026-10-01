@@ -1,6 +1,12 @@
-# ADR 0008 — Tenancy boundary: multi-tenant foundation, single-tenant surface
+# ADR 0019 — Tenancy boundary: multi-tenant foundation, single-tenant surface
 
 **Status:** Accepted (user directive) · 2026-09-16
+**Renumbered 2026-10-01.** Written as `0008-tenancy-boundary.md`, where it
+collided with `0008-ai-availability-matrix-and-agent-runner.md`. The AI ADR is the
+heavily-cited 0008, named by migration 0081, `ai_policy.rs`, `chat_runner.rs`, and
+ADRs 0010 and 0011. It kept the number, because migrations are append-only
+historical records and rewriting their citations is not a repair. This one moved to
+the next free slot, **0019**. No decision content changed, only the identifier.
 **Scope:** data model, RLS doctrine, API surface, deployment posture of the open
 core; relationship to commercially operated deployments of the core
 
