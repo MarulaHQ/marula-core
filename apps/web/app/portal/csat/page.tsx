@@ -21,7 +21,6 @@ import { friendlyMutationText } from "../../../lib/error-copy";
 import { Spinner } from "@marula-core/ui";
 import { portalApi, useRequirePortalAuth, type PortalCsatView } from "../../../lib/portal-api";
 import {
-  Field,
   PortalCard,
   PortalEmpty,
   PortalIcon,
@@ -169,11 +168,16 @@ function CsatInner() {
         ))}
       </div>
 
-      <Field
-        label="Anything you'd like to tell us?"
-        htmlFor="portal-csat-comment"
-        hint="Optional. What went well, or what didn't."
-      >
+      {/* "Optional" rides the label line in the pack rather than sitting in the
+          hint underneath, so the field reads as asked-for-but-not-required
+          (portal/sand/states/08-feedback.png). */}
+      <div className="portal-field">
+        <div className="entry-label-like">
+          <label className="portal-field__label" htmlFor="portal-csat-comment">
+            Anything you&apos;d like to tell us?
+          </label>
+          <span className="portal-hint">Optional</span>
+        </div>
         <input
           id="portal-csat-comment"
           className="portal-input"
@@ -181,7 +185,7 @@ function CsatInner() {
           onChange={(e) => setComment(e.target.value)}
           placeholder="What went well, or what didn't"
         />
-      </Field>
+      </div>
 
       {error !== null && (
         <p className="portal-field__error" role="alert">

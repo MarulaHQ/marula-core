@@ -30,7 +30,6 @@ import { clockTime, longDate, timeRange } from "../../../lib/portal-copy";
 import {
   ConfirmedPill,
   Field,
-  Note,
   PortalCard,
   PortalIcon,
   RequestedPill,
@@ -48,6 +47,18 @@ function dayLabel(iso: string): string {
   if (delta === 0) return "Today";
   if (delta === 1) return "Tomorrow";
   return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+
+/** The day-chip label: "Wed 30 Sep", or "Today"/"Tomorrow" when that is
+ *  nearer than the date. */
+function dayChip(iso: string): string {
+  const label = dayLabel(iso);
+  if (label === "Today" || label === "Tomorrow") return label;
+  return new Date(iso).toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }
 
 const REASONS = [
@@ -68,6 +79,9 @@ export default function PortalSchedulePage() {
   const [slots, setSlots] = useState<PortalStaffSlots[] | null>(null);
   const [requests, setRequests] = useState<PortalAppointmentRequest[] | null>(null);
   const [picked, setPicked] = useState<Slot | null>(null);
+  // The day is chosen first and separately from the time, so the time row only
+  // ever offers the hours that are actually open on the day in hand.
+  const [pickedDay, setPickedDay] = useState<string | null>(null);
   const [reason, setReason] = useState<string>(REASONS[0]);
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -125,7 +139,14 @@ export default function PortalSchedulePage() {
       .map(([day, group]) => [day, group.sort((a, b) => (a.starts < b.starts ? -1 : 1))] as const)
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .slice(0, 6)
-      .map(([day, list]) => ({ day, label: dayLabel(list[0]?.starts ?? day), slots: list }));
+      .map(([day, list]) => ({
+        day,
+        label: dayLabel(list[0]?.starts ?? day),
+        // The chip label the rail of days shows: "Wed 30 Sep", or
+        // "Today"/"Tomorrow" when that is nearer than the date.
+        chip: dayChip(list[0]?.starts ?? day),
+        slots: list,
+      }));
   }, [slots]);
 
   const confirmed = useMemo(
@@ -139,16 +160,15 @@ export default function PortalSchedulePage() {
 
   async function submit() {
     if (picked === null || busy) return;
-    if (title.trim() === "") {
-      setError("Give the request a short title, so we know what it's about.");
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
       await portalApi.createAppointmentRequest({
         user_id: picked.userId,
-        title: title.trim(),
+        // Derived from the reason, with the optional description appended when
+        // she typed one. The API requires a title; the pack does not ask her to
+        // write one.
+        title: title.trim() === "" ? reason : `${reason} — ${title.trim()}`,
         starts_at: picked.starts,
         ends_at: picked.ends,
         kind: "remote",
@@ -255,45 +275,65 @@ export default function PortalSchedulePage() {
           </Field>
 
           <div className="portal-field" style={{ gap: 8 }}>
-            <span className="portal-field__label">Which day and time?</span>
+            <span className="portal-field__label">Which day?</span>
             {days.length === 0 ? (
               <p className="portal-hint" style={{ margin: 0 }}>
                 No times are open in the next two weeks. Contact your service desk and they will
                 find you a slot.
               </p>
             ) : (
-              days.map((d) => (
-                <div key={d.day} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <span
-                    className="portal-hint"
-                    style={{ alignSelf: "center", minWidth: 92, fontWeight: 600 }}
+              /* The pack picks the DAY from chips first, then the TIME for that
+                 day (portal/sand/states/09-schedule.png). Times grouped under
+                 day headings read as a longer form and make it harder to see
+                 which days are open at all. */
+              <div className="portal-choices" role="radiogroup" aria-label="Which day?">
+                {days.map((d) => (
+                  <button
+                    key={d.day}
+                    type="button"
+                    role="radio"
+                    aria-checked={pickedDay === d.day}
+                    className="portal-choice"
+                    onClick={() => setPickedDay(d.day)}
+                    data-testid={`portal-day-${d.day}`}
                   >
-                    {d.label}
-                  </span>
-                  <div className="portal-choices" role="radiogroup" aria-label={d.label}>
-                    {d.slots.map((s) => (
-                      <button
-                        key={`${s.starts}-${s.userId}`}
-                        type="button"
-                        role="radio"
-                        aria-checked={picked?.starts === s.starts && picked.userId === s.userId}
-                        className="portal-choice"
-                        onClick={() => setPicked(s)}
-                        data-testid={`portal-slot-${s.starts}`}
-                      >
-                        {clockTime(s.starts)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))
+                    {d.chip}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
 
+          {pickedDay !== null && (
+            <div className="portal-field" style={{ gap: 8 }}>
+              <span className="portal-field__label">What time?</span>
+              <div className="portal-choices" role="radiogroup" aria-label="What time?">
+                {(days.find((d) => d.day === pickedDay)?.slots ?? []).map((s) => (
+                  <button
+                    key={`${s.starts}-${s.userId}`}
+                    type="button"
+                    role="radio"
+                    aria-checked={picked?.starts === s.starts && picked.userId === s.userId}
+                    className="portal-choice"
+                    onClick={() => setPicked(s)}
+                    data-testid={`portal-slot-${s.starts}`}
+                  >
+                    {clockTime(s.starts)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* The pack shows no free-text box here: the reason select and the
+              day/time carry the request, and the primary is never blocked by
+              typing. `createAppointmentRequest` still requires a `title`, so
+              the title is DERIVED from the reason, and this description stays
+              optional for the case where a sentence is genuinely needed. */}
           <Field
-            label="What should we know?"
+            label="Anything else we should know?"
             htmlFor="portal-visit-title"
-            hint="One line. Who it affects and what they need."
+            hint="Optional. Who it affects, or what they need."
           >
             <input
               id="portal-visit-title"
@@ -311,7 +351,9 @@ export default function PortalSchedulePage() {
             </p>
           )}
 
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+          {/* The reassurance sits BESIDE the primary, on one line, the way the
+              pack sets it — not as a note block underneath. */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center" }}>
             <button
               type="button"
               className="portal-btn"
@@ -321,17 +363,10 @@ export default function PortalSchedulePage() {
             >
               {busy ? "Sending…" : "Request this time"}
             </button>
-            {picked !== null && (
-              <span className="portal-hint">
-                {picked.name} · {dayLabel(picked.starts)} at {clockTime(picked.starts)}
-              </span>
-            )}
+            <span className="portal-hint">
+              This is a request. A person confirms it, so you&apos;re never left guessing.
+            </span>
           </div>
-
-          <Note>
-            This is a request. A person confirms it, so you&apos;re never left guessing &mdash;
-            nothing is booked until you see a Confirmed pill.
-          </Note>
         </div>
       </PortalCard>
     </>

@@ -207,12 +207,8 @@ export default function PortalQuotePage() {
         </div>
       </PortalCard>
 
-      {quote.terms !== null && (
-        <p className="portal-hint" style={{ fontSize: 14, margin: 0 }}>
-          {quote.terms}
-        </p>
-      )}
       <p className="portal-hint" style={{ fontSize: 14, margin: 0 }}>
+        {quote.terms !== null && quote.terms !== "" ? `${quote.terms} ` : ""}
         Payment: half on acceptance, half when the work is finished. Work starts once you accept,
         and we&apos;ll book a date with you.
       </p>
