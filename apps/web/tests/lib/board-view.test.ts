@@ -21,6 +21,7 @@ const S1: BoardStatus = {
   category: "open",
   sort_order: 1,
   is_entry: true,
+  client_visible: true,
 };
 const S2: BoardStatus = {
   id: "s2",
@@ -30,6 +31,7 @@ const S2: BoardStatus = {
   category: "in_progress",
   sort_order: 0,
   is_entry: false,
+  client_visible: true,
 };
 const S3: BoardStatus = {
   id: "s3",
@@ -39,6 +41,7 @@ const S3: BoardStatus = {
   category: "closed",
   sort_order: 2,
   is_entry: false,
+  client_visible: true,
 };
 
 function ticket(overrides: Record<string, unknown>): BoardTicket {

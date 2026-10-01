@@ -42,6 +42,10 @@ interface Row {
   number: string;
   title: string;
   category: "open" | "in_progress" | "waiting" | "closed";
+  /** The status's own words when the org allows clients to see them; null
+   * when the status is client-hidden, and the client reads the category note
+   * instead (Wave 41 lane 12). */
+  statusLabel?: string | null;
   updated_at: string;
   resolved_at?: string | null;
 }
@@ -65,6 +69,7 @@ export default function PortalTicketsPage() {
             number: t.number,
             title: t.title,
             category: t.category,
+            statusLabel: t.status_label ?? null,
             updated_at: t.updated_at,
             resolved_at: t.resolved_at,
           })),
@@ -156,7 +161,7 @@ export default function PortalTicketsPage() {
               <PortalRow
                 key={t.id}
                 title={t.title}
-                meta={`#${t.number} · ${ticketNote(t.category)} · ${stamp(t.updated_at)}`}
+                meta={`#${t.number} · ${t.statusLabel ?? ticketNote(t.category)} · ${stamp(t.updated_at)}`}
                 highlight={status === "waiting"}
                 onClick={() => router.push(`/portal/tickets/${t.id}`)}
                 trailing={<StatusPill status={status} />}

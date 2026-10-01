@@ -46,6 +46,10 @@ interface PortalTicket {
   title: string;
   status_id: string;
   category: "open" | "in_progress" | "waiting" | "closed";
+  /** The status's own words when the org allows clients to see them; null
+   * when the status is client-hidden, and the client shows the category word
+   * instead (Wave 41 lane 12). */
+  status_label?: string | null;
   priority: "p1" | "p2" | "p3" | "p4";
   board_id: string;
   created_at: string;

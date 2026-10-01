@@ -29,12 +29,17 @@ import { api } from "../../../../lib/api";
 import { resultErrorText } from "../../../../lib/error-copy";
 import { SettingsHeader } from "../../../../components/settings/settings-shell";
 import {
+  Kpi,
   Note,
   PromoteCard,
   ThresholdBar,
 } from "../../../../components/settings/settings-forms";
 
 type DecisionSurfaceOverview = components["schemas"]["DecisionSurfaceOverview"];
+type DecisionRunsResponse = NonNullable<
+  components["schemas"]["DecisionRunsResponse"]
+>;
+type DecisionRunView = components["schemas"]["DecisionRunView"];
 
 const THRESHOLD = 0.8;
 
@@ -46,6 +51,11 @@ export default function ShadowRunsPage(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The run log is a READ over the append-only decision_answers store, which
+  // has recorded every answered run since migration 0090. Nothing here is
+  // narrated: the four figures and each row are what the product recorded.
+  const [log, setLog] = useState<DecisionRunsResponse | null>(null);
+  const [logLoading, setLogLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,6 +84,25 @@ export default function ShadowRunsPage(): React.JSX.Element {
     () => surfaces.find((s) => s.surface_key === selected) ?? null,
     [surfaces, selected],
   );
+
+  // The log is read per surface, and only when the surface can have runs: a
+  // surface with no grant has nothing recorded, which the page says in words.
+  const loadLog = useCallback(async () => {
+    if (selected === "") {
+      setLog(null);
+      return;
+    }
+    setLogLoading(true);
+    const res = await api.api.GET("/api/v1/settings/ai/decision/{surface_key}/runs", {
+      params: { path: { surface_key: selected }, query: { days: 7, limit: 50 } },
+    });
+    setLogLoading(false);
+    setLog(res.error === undefined && res.data !== undefined ? res.data : null);
+  }, [selected]);
+
+  useEffect(() => {
+    void loadLog();
+  }, [loadLog]);
 
   const setMode = async (mode: "shadow" | "live"): Promise<void> => {
     if (surface === null) return;
@@ -268,36 +297,89 @@ export default function ShadowRunsPage(): React.JSX.Element {
               border: "1px solid var(--m-border)",
               borderRadius: 16,
               background: "var(--m-surface)",
-              padding: "18px 20px",
+              overflow: "hidden",
             }}
           >
-            <h2 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 600, color: "var(--m-text)" }}>
-              No run log to summarise
-            </h2>
-            <p
-              style={{
-                margin: 0,
-                fontSize: 13,
-                lineHeight: 1.5,
-                color: "var(--m-text-secondary)",
-                maxWidth: 560,
-              }}
-            >
-              Agreement, disagreement and the count above the threshold are all read from a run log
-              the product does not write yet, so the four figures and the table below are not
-              invented here. Until it lands, the honest position is that there is no evidence to
-              promote on, and this surface should stay in shadow.
-            </p>
-            <div style={{ display: "flex", gap: 12, marginTop: 14, alignItems: "center" }}>
-              <span style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>
-                Threshold in force
-              </span>
-              <ThresholdBar value={THRESHOLD} threshold={THRESHOLD} width={120} />
-              <b style={{ fontSize: 13, fontVariantNumeric: "tabular-nums" }}>{THRESHOLD.toFixed(2)}</b>
-              <span style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>
-                — set per question in the surface drawer
-              </span>
-            </div>
+            {logLoading ? (
+              <p style={{ padding: 20, fontSize: 13, color: "var(--m-text-secondary)" }}>
+                Reading the run log…
+              </p>
+            ) : log === null ? (
+              <p style={{ padding: 20, fontSize: 13, color: "var(--m-text-secondary)" }}>
+                The run log could not be read for this surface.
+              </p>
+            ) : !log.summary.has_evidence ? (
+              <div style={{ padding: "18px 20px" }}>
+                <h2
+                  style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 600, color: "var(--m-text)" }}
+                >
+                  No runs in the last {log.days} days
+                </h2>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                    color: "var(--m-text-secondary)",
+                    maxWidth: 560,
+                  }}
+                >
+                  Nothing has been decided for this surface in this window, so there is no evidence
+                  to read and nothing to promote on. Fire a decision from the surface editor to see
+                  the real answers, the distribution and the confidence the harness computes.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* The four figures, all measured: the count, the count that
+                    cleared the surface's own act threshold, the agreement
+                    against where the ticket actually went, and how many runs
+                    could be compared at all. */}
+                <div
+                  data-testid="ai-shadow-kpis"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                    gap: 10,
+                    padding: "14px 16px",
+                    borderBottom: "1px solid var(--m-border)",
+                  }}
+                >
+                  <Kpi value={String(log.summary.runs)} label="runs, last 7 days" />
+                  <Kpi value={String(log.summary.above_threshold)} label="proposed above the line" />
+                  <Kpi
+                    value={`${log.summary.agreed} / ${log.summary.comparable}`}
+                    label="matched what the agent did"
+                  />
+                  <div
+                    style={{
+                      border: "1px solid var(--m-border)",
+                      borderRadius: 14,
+                      background: "var(--m-surface)",
+                      padding: "14px 16px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <ThresholdBar value={log.summary.threshold} threshold={log.summary.threshold} width={64} />
+                      <b
+                        style={{
+                          fontSize: 20,
+                          fontWeight: 600,
+                          color: "var(--m-text)",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {log.summary.threshold.toFixed(2)}
+                      </b>
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>
+                      the line in force
+                    </div>
+                  </div>
+                </div>
+                <RunTable runs={log.runs} />
+              </>
+            )}
           </div>
 
           {surface !== null && surface.configured ? (
@@ -387,4 +469,163 @@ function ShieldIcon(): React.JSX.Element {
       <path d="M9 12h6" />
     </svg>
   );
+}
+
+/**
+ * One row per recorded run: when, which ticket, what it would have said in
+ * words, how sure it was against the line, and whether the human agreed.
+ *
+ * The last column is the honest part. Agreement is measured by comparing the
+ * proposed label with the status the ticket actually reached, so a run whose
+ * ticket has since been deleted says "not comparable" rather than counting as
+ * a disagreement.
+ */
+function RunTable({ runs }: { runs: DecisionRunView[] }): React.JSX.Element {
+  return (
+    <div role="table" aria-label="Decision runs" data-testid="ai-shadow-run-table">
+      <div
+        role="row"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "150px minmax(180px, 1.4fr) minmax(160px, 1fr) 120px 130px",
+          alignItems: "center",
+          minHeight: 40,
+          background: "var(--m-canvas)",
+          borderBottom: "1px solid var(--m-border)",
+        }}
+      >
+        {["When", "Ticket", "What it would have said", "Confidence", "The agent did"].map((header) => (
+          <span
+            key={header}
+            style={{
+              fontSize: 12,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              fontWeight: 600,
+              color: "var(--m-text-secondary)",
+              paddingLeft: 12,
+            }}
+          >
+            {header}
+          </span>
+        ))}
+      </div>
+      {runs.map((run) => (
+        <div
+          key={run.id}
+          role="row"
+          data-testid={`ai-shadow-run-${run.id}`}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "150px minmax(180px, 1.4fr) minmax(160px, 1fr) 120px 130px",
+            alignItems: "center",
+            minHeight: 56,
+            padding: "8px 0",
+            borderBottom: "1px solid var(--m-border)",
+          }}
+        >
+          <span
+            style={{
+              paddingLeft: 12,
+              fontSize: 13,
+              color: "var(--m-text-secondary)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {new Date(run.created_at).toLocaleString(undefined, {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+          <span
+            style={{
+              paddingLeft: 12,
+              fontSize: 13,
+              color: "var(--m-text)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {run.ticket_number ?? "—"}
+            {run.ticket_title === null || run.ticket_title === undefined ? null : (
+              <span style={{ color: "var(--m-text-secondary)" }}> · {run.ticket_title}</span>
+            )}
+          </span>
+          <span style={{ paddingLeft: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {run.answers.length === 0 ? (
+              <span style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>no answer</span>
+            ) : (
+              run.answers.map((answer) => (
+                <span
+                  key={answer.question_id}
+                  title={`${answer.question_id} · ${answer.above_threshold ? "above" : "below"} the line`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    height: 24,
+                    padding: "0 10px",
+                    borderRadius: 999,
+                    background: answer.above_threshold
+                      ? "var(--m-status-warning-bg)"
+                      : "var(--m-surface-2)",
+                    color: answer.above_threshold
+                      ? "var(--m-status-warning-fg)"
+                      : "var(--m-text-secondary)",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {answer.label}
+                </span>
+              ))
+            )}
+          </span>
+          <span style={{ paddingLeft: 12, display: "flex", alignItems: "center", gap: 8 }}>
+            {run.top_confidence === null || run.top_confidence === undefined ? (
+              <span style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>—</span>
+            ) : (
+              <>
+                <ThresholdBar
+                  value={run.top_confidence}
+                  threshold={log_threshold(run.top_confidence)}
+                  width={48}
+                />
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: "var(--m-text)",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {run.top_confidence.toFixed(2)}
+                </span>
+              </>
+            )}
+          </span>
+          <span style={{ paddingLeft: 12 }}>
+            {run.agreed === null || run.agreed === undefined ? (
+              <span style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>
+                not comparable
+              </span>
+            ) : run.agreed ? (
+              <Badge tone="success">agreed</Badge>
+            ) : (
+              <Badge tone="warning">differed</Badge>
+            )}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The run's own confidence against a 0..1 bar; the line itself is the
+ * surface's threshold, drawn once in the figures above. */
+function log_threshold(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }

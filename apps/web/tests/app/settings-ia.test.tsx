@@ -48,6 +48,7 @@ function status(over: Record<string, unknown>) {
     is_entry: true,
     sort_order: 0,
     wip_limit: null,
+    client_visible: true,
     ...over,
   };
 }
@@ -68,6 +69,73 @@ beforeEach(() => {
     .on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }))
     .on("GET", "/api/v1/boards/nav", () => ({ json: [] }))
     .on("GET", `/api/v1/boards/${BOARD}/statuses`, () => ({ json: STATUSES }))
+    .on("GET", `/api/v1/boards/${BOARD}/statuses/usage`, () => ({
+      json: [
+        { status_id: S_NEW, ticket_count: 9, automation_count: 0 },
+        { status_id: S_WAIT, ticket_count: 12, automation_count: 2 },
+        { status_id: S_DONE, ticket_count: 40166, automation_count: 0 },
+      ],
+    }))
+    .on("GET", "/api/v1/settings/ai/decision/decision_dispatch/runs", () => ({
+      json: {
+        surface_key: "decision_dispatch",
+        days: 7,
+        summary: {
+          runs: 2,
+          above_threshold: 1,
+          agreed: 1,
+          comparable: 2,
+          threshold: 0.9,
+          has_evidence: true,
+        },
+        runs: [
+          {
+            id: "50000000-0000-4000-8000-000000000001",
+            mode: "shadow",
+            created_at: "2026-09-30T10:00:00Z",
+            model: "claude-sonnet-4-6",
+            ticket_id: "60000000-0000-4000-8000-000000000001",
+            ticket_number: "MAR-1",
+            ticket_title: "Printer is offline",
+            answers: [
+              {
+                question_id: "urgency",
+                kind: "choice",
+                label: "High",
+                confidence: 0.97,
+                above_threshold: true,
+              },
+            ],
+            above_threshold: true,
+            top_confidence: 0.97,
+            current_status: "Waiting on client",
+            agreed: true,
+          },
+          {
+            id: "50000000-0000-4000-8000-000000000002",
+            mode: "shadow",
+            created_at: "2026-09-29T10:00:00Z",
+            model: "claude-sonnet-4-6",
+            ticket_id: "60000000-0000-4000-8000-000000000002",
+            ticket_number: "MAR-2",
+            ticket_title: "Vague request",
+            answers: [
+              {
+                question_id: "urgency",
+                kind: "choice",
+                label: "Low",
+                confidence: 0.42,
+                above_threshold: false,
+              },
+            ],
+            above_threshold: false,
+            top_confidence: 0.42,
+            current_status: "Resolved",
+            agreed: false,
+          },
+        ],
+      },
+    }))
     .on("GET", "/api/v1/settings/ai/decision", () => ({
       json: {
         features_enabled: true,
@@ -275,19 +343,46 @@ describe("the form family", () => {
 });
 
 describe("the Statuses surface", () => {
-  it("draws the list with kind pills and a disabled client-visibility switch", async () => {
+  it("draws the list with kind pills, the real ticket counts and a live visibility switch", async () => {
     render(<StatusesSection boardId={BOARD} canEdit onChanged={vi.fn()} />);
     await waitFor(() => expect(screen.getByText("Waiting on client")).toBeTruthy());
     // Kind is a word, never colour alone.
     expect(screen.getByText("Waiting")).toBeTruthy();
     expect(screen.getByText("Done")).toBeTruthy();
-    // The client-visibility column is drawn and honestly disabled.
+    // The TICKETS column carries the numbers the usage read returned, on the
+    // rows they belong to.
+    expect(screen.getByTestId(`status-tickets-${S_NEW}`).textContent).toBe("9");
+    expect(screen.getByTestId(`status-tickets-${S_WAIT}`).textContent).toBe("12");
+    expect(screen.getByTestId(`status-tickets-${S_DONE}`).textContent).toBe("40166");
+    // Client visibility is a REAL switch now, reading the server's field.
     const client = screen.getByRole("switch", { name: "Visible to clients: New" });
-    expect(client.hasAttribute("disabled")).toBe(true);
+    expect(client.getAttribute("aria-checked")).toBe("true");
+    expect(client.hasAttribute("disabled")).toBe(false);
     // A done status has no clock to pause.
     expect(
       screen.getByRole("switch", { name: "Pauses SLA for Resolved" }).hasAttribute("disabled"),
     ).toBe(true);
+  });
+
+  it("stages client visibility behind the same save bar and sends only what changed", async () => {
+    render(<StatusesSection boardId={BOARD} canEdit onChanged={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("Waiting on client")).toBeTruthy());
+    fireEvent.click(screen.getByRole("switch", { name: "Visible to clients: New" }));
+    const bar = screen.getByTestId("settings-staged-bar");
+    expect(bar.textContent).toContain("1 unsaved change");
+
+    api.on("PATCH", `/api/v1/boards/${BOARD}/statuses/${S_NEW}`, () => ({
+      json: status({ id: S_NEW, name: "New", category: "open", client_visible: false }),
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(api.callsTo("PATCH", `/api/v1/boards/${BOARD}/statuses/${S_NEW}`)).toHaveLength(1),
+    );
+    // Only the field the admin touched rides the PATCH: a staged toggle can
+    // never revert somebody else's change made in the meantime.
+    expect(
+      api.lastBody<Record<string, unknown>>("PATCH", `/api/v1/boards/${BOARD}/statuses/${S_NEW}`),
+    ).toEqual({ client_visible: false });
   });
 
   it("stages a toggle behind the save bar and applies it on save", async () => {
@@ -407,7 +502,7 @@ describe("the Statuses surface", () => {
     );
   });
 
-  it("asks before deleting and names the record in the confirm", async () => {
+  it("asks where the tickets go, names the automations, and says what it will do", async () => {
     render(<StatusesSection boardId={BOARD} canEdit onChanged={vi.fn()} />);
     await waitFor(() => expect(screen.getByText("Waiting on client")).toBeTruthy());
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Waiting on client" }));
@@ -417,7 +512,41 @@ describe("the Statuses surface", () => {
     expect(confirm.textContent).toContain("Delete Waiting on client?");
     expect(confirm.textContent).toContain("This can't be undone.");
     expect(confirm.textContent).toContain("History keeps the old name.");
-    expect(screen.getByRole("button", { name: "Delete Waiting on client" })).toBeTruthy();
+    // The count comes from the usage read, the remap is a real select of the
+    // board's other statuses, and the button states the consequence.
+    expect(confirm.textContent).toContain("12 tickets use this status");
+    expect(confirm.textContent).toContain("2 automations mention this status");
+    expect(confirm.textContent).toContain("will be paused until");
+    const remap = confirm.querySelector("select");
+    expect(remap).not.toBeNull();
+    expect(
+      Array.from(remap?.querySelectorAll("option") ?? []).map((o) => o.textContent),
+    ).toEqual(["New", "Resolved"]);
+    expect(
+      screen.getByRole("button", { name: "Move 12 tickets and delete" }),
+    ).toBeTruthy();
+  });
+
+  it("deletes with the reassignment the admin chose, and says what it moved", async () => {
+    render(<StatusesSection boardId={BOARD} canEdit onChanged={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("Waiting on client")).toBeTruthy());
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Waiting on client" }));
+    fireEvent.click(screen.getByTestId("statuses-bulk-delete"));
+    const remap = screen
+      .getByTestId("status-delete-confirm")
+      .querySelector("select") as HTMLSelectElement;
+    fireEvent.change(remap, { target: { value: S_NEW } });
+    api.on("DELETE", `/api/v1/boards/${BOARD}/statuses/${S_WAIT}`, () => ({
+      json: { moved_tickets: 12, paused_automations: 2, sla_pauses_changed: 12 },
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Move 12 tickets and delete" }));
+    await waitFor(() =>
+      expect(
+        api.callsTo("DELETE", `/api/v1/boards/${BOARD}/statuses/${S_WAIT}`).length,
+      ).toBeGreaterThan(0),
+    );
+    const call = api.callsTo("DELETE", `/api/v1/boards/${BOARD}/statuses/${S_WAIT}`).at(-1);
+    expect(call?.query.reassign_to).toBe(S_NEW);
   });
 });
 
@@ -488,16 +617,25 @@ describe("shadow runs", () => {
     );
   });
 
-  it("refuses to imply a run log that does not exist", async () => {
+  it("leads the run log with the four measured figures, not narration", async () => {
     render(
       <AuthProvider>
         <ShadowRunsPage />
       </AuthProvider>,
     );
     await waitFor(() => expect(screen.getByTestId("ai-shadow-page")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("ai-shadow-tab-log"));
-    const log = await screen.findByTestId("ai-shadow-log");
-    expect(log.textContent).toContain("No run log to summarise");
-    expect(log.textContent).toContain("are not invented here");
+    fireEvent.click(await screen.findByTestId("ai-shadow-tab-log"));
+
+    const kpis = await screen.findByTestId("ai-shadow-kpis");
+    expect(kpis.textContent).toContain("runs, last 7 days");
+    // The counts come from the store, and the line in force is the surface's
+    // own act threshold, so moving it in the drawer visibly moves this.
+    expect(screen.getByTestId("ai-shadow-run-table").textContent).toContain("MAR-1");
+    expect(screen.getByTestId("ai-shadow-run-table").textContent).toContain("High");
+    expect(screen.getByTestId("ai-shadow-run-table").textContent).toContain("agreed");
+    expect(screen.getByTestId("ai-shadow-run-table").textContent).toContain("differed");
+    // A label, never an index, and no invented figures.
+    expect(screen.queryByText(/No run log to summarise/)).toBeNull();
   });
+
 });

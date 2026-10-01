@@ -50,6 +50,7 @@ import {
   Note,
   SaveFailedBanner,
   SegmentedChoice,
+  SkippedNotice,
   SettingsDrawer,
   StagedSaveBar,
   ToggleRow,
@@ -59,6 +60,18 @@ import {
 
 type BoardStatus = components["schemas"]["BoardStatus"];
 type TicketStatusCategory = components["schemas"]["TicketStatusCategory"];
+
+/** The per-status fields the drawn list stages behind its save bar. */
+interface StatusPatch {
+  category?: TicketStatusCategory;
+  clientVisible?: boolean;
+}
+
+/** One status's numbers, from the single usage read. */
+interface StatusUsage {
+  ticketCount: number;
+  automationCount: number;
+}
 
 const KIND_OPTIONS: readonly TicketStatusCategory[] = [
   "open",
@@ -118,6 +131,7 @@ interface Draft {
   name: string;
   kind: TicketStatusCategory;
   pause: boolean;
+  clientVisible: boolean;
   isEntry: boolean;
   wipLimit: string;
 }
@@ -126,6 +140,7 @@ const EMPTY_DRAFT: Draft = {
   name: "",
   kind: "open",
   pause: false,
+  clientVisible: true,
   isEntry: true,
   wipLimit: "",
 };
@@ -147,7 +162,11 @@ export function StatusesSection({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
-  const [staged, setStaged] = useState<Record<string, TicketStatusCategory>>({});
+  const [staged, setStaged] = useState<Record<string, StatusPatch>>({});
+  // The usage read: the TICKETS column and the delete confirm's counts come
+  // from ONE endpoint, so the table and the confirm can never quote different
+  // numbers for the same status.
+  const [usage, setUsage] = useState<Record<string, StatusUsage>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -163,15 +182,26 @@ export function StatusesSection({
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await api.api.GET("/api/v1/boards/{id}/statuses", {
-      params: { path: { id: boardId } },
-    });
-    if (res.error !== undefined) {
+    const [statuses, counts] = await Promise.all([
+      api.api.GET("/api/v1/boards/{id}/statuses", { params: { path: { id: boardId } } }),
+      api.api.GET("/api/v1/boards/{id}/statuses/usage", { params: { path: { id: boardId } } }),
+    ]);
+    if (statuses.error !== undefined) {
       setLoadError("The board's statuses did not load.");
       setRows([]);
     } else {
       setLoadError(null);
-      setRows(res.data ?? []);
+      setRows(statuses.data ?? []);
+    }
+    if (counts.error === undefined) {
+      setUsage(
+        Object.fromEntries(
+          (counts.data ?? []).map((row) => [
+            row.status_id,
+            { ticketCount: row.ticket_count, automationCount: row.automation_count },
+          ]),
+        ),
+      );
     }
     setStaged({});
     setSelected([]);
@@ -182,23 +212,39 @@ export function StatusesSection({
     void load();
   }, [load]);
 
-  /** The row as it stands: staged category if one is staged, else the server's. */
+  /** The row as it stands: a staged field if one is staged, else the server's. */
   const categoryOf = useCallback(
-    (row: BoardStatus): TicketStatusCategory => staged[row.id] ?? row.category,
+    (row: BoardStatus): TicketStatusCategory => staged[row.id]?.category ?? row.category,
     [staged],
+  );
+
+  const clientVisibleOf = useCallback(
+    (row: BoardStatus): boolean => staged[row.id]?.clientVisible ?? row.client_visible,
+    [staged],
+  );
+
+  /** A staged field that differs from what the server holds. */
+  const isStaged = useCallback(
+    (row: BoardStatus, patch: StatusPatch): boolean =>
+      (patch.category !== undefined && patch.category !== row.category) ||
+      (patch.clientVisible !== undefined && patch.clientVisible !== row.client_visible),
+    [],
   );
 
   const stagedCount = useMemo(
     () =>
-      rows.filter((row) => staged[row.id] !== undefined && staged[row.id] !== row.category).length,
-    [rows, staged],
+      rows.filter((row) => {
+        const patch = staged[row.id];
+        return patch !== undefined && isStaged(row, patch);
+      }).length,
+    [rows, staged, isStaged],
   );
 
-  const stage = (ids: string[], category: TicketStatusCategory): void => {
+  const stage = (ids: string[], patch: StatusPatch): void => {
     setSaved(false);
     setStaged((prev) => {
       const next = { ...prev };
-      for (const id of ids) next[id] = category;
+      for (const id of ids) next[id] = { ...next[id], ...patch };
       return next;
     });
   };
@@ -206,14 +252,28 @@ export function StatusesSection({
   const save = async (): Promise<void> => {
     setSaving(true);
     setSaveError(null);
-    const changed = rows.filter((row) => staged[row.id] !== undefined);
+    const changed = rows.filter((row) => {
+      const patch = staged[row.id];
+      return patch !== undefined && isStaged(row, patch);
+    });
     try {
       for (const row of changed) {
-        const category = staged[row.id];
-        if (category === undefined || category === row.category) continue;
+        const patch = staged[row.id];
+        if (patch === undefined) continue;
+        // Only the fields this admin actually touched ride the PATCH, so a
+        // staged category can never silently revert someone else's visibility
+        // change made in the meantime.
+        const body: Record<string, unknown> = {};
+        if (patch.category !== undefined && patch.category !== row.category) {
+          body.category = patch.category;
+        }
+        if (patch.clientVisible !== undefined && patch.clientVisible !== row.client_visible) {
+          body.client_visible = patch.clientVisible;
+        }
+        if (Object.keys(body).length === 0) continue;
         const res = await api.api.PATCH("/api/v1/boards/{id}/statuses/{status_id}", {
           params: { path: { id: boardId, status_id: row.id } },
-          body: { category },
+          body: body as never,
         });
         if (res.error !== undefined) {
           throw new Error(resultErrorText(res, "The board refused that change."));
@@ -243,6 +303,7 @@ export function StatusesSection({
       name: row.name,
       kind: categoryOf(row),
       pause: categoryOf(row) === "waiting",
+      clientVisible: clientVisibleOf(row),
       isEntry: row.is_entry,
       wipLimit: row.wip_limit === null || row.wip_limit === undefined ? "" : String(row.wip_limit),
     });
@@ -284,6 +345,7 @@ export function StatusesSection({
             name,
             category,
             is_entry: draft.isEntry,
+            client_visible: draft.clientVisible,
             wip_limit: wip === null ? "Clear" : { Set: wip },
           },
         });
@@ -297,6 +359,7 @@ export function StatusesSection({
             name,
             category,
             is_entry: draft.isEntry,
+            client_visible: draft.clientVisible,
             sort_order: rows.length,
             ...(wip === null ? {} : { wip_limit: wip }),
           },
@@ -316,13 +379,18 @@ export function StatusesSection({
     }
   };
 
-  const confirmDelete = async (): Promise<void> => {
+  const confirmDelete = async (reassignTo: string | null): Promise<void> => {
     if (confirm === null) return;
     setConfirmBusy(true);
     try {
+      // The replacement rides the query string, so the request says what it
+      // will do to the tickets before it does it.
       const res = await api.api.DELETE("/api/v1/boards/{id}/statuses/{status_id}", {
-        params: { path: { id: boardId, status_id: confirm.id } },
-      });
+        params: {
+          path: { id: boardId, status_id: confirm.id },
+          ...(reassignTo === null ? {} : { query: { reassign_to: reassignTo } }),
+        },
+      } as never);
       if (res.error !== undefined) {
         throw new Error(
           resultErrorText(
@@ -406,6 +474,7 @@ export function StatusesSection({
           name: row.name,
           category: kind,
           is_entry: false,
+          client_visible: true,
           sort_order: rows.length + created,
         },
       });
@@ -520,7 +589,7 @@ export function StatusesSection({
                 variant="secondary"
                 disabled={!canEdit}
                 onClick={() => {
-                  stage(selected, "waiting");
+                  stage(selected, { category: "waiting" });
                   setSelected([]);
                 }}
                 style={{
@@ -536,7 +605,7 @@ export function StatusesSection({
                 variant="secondary"
                 disabled={!canEdit}
                 onClick={() => {
-                  stage(selected, "open");
+                  stage(selected, { category: "open" });
                   setSelected([]);
                 }}
                 style={{
@@ -547,6 +616,27 @@ export function StatusesSection({
                 }}
               >
                 Move to Open
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={!canEdit}
+                onClick={() => {
+                  // Turning the last visible status off would hide the ticket's
+                  // standing from every client, so the bulk action refuses
+                  // rather than doing it behind the admin's back.
+                  const remaining = rows.filter((row) => selected.includes(row.id));
+                  const hideAll = remaining.every((row) => clientVisibleOf(row));
+                  stage(selected, { clientVisible: !hideAll });
+                  setSelected([]);
+                }}
+                style={{
+                  height: 32,
+                  fontSize: 13,
+                  background: "var(--m-surface)",
+                  color: "var(--m-text)",
+                }}
+              >
+                Hide from clients
               </Button>
               {canEdit ? (
                 <BulkDestructiveAction
@@ -678,16 +768,28 @@ export function StatusesSection({
                     disabled={!canEdit || category === "closed"}
                     label={`Pauses SLA for ${row.name}`}
                     testId={`status-pause-${row.id}`}
-                    onChange={(next) => stage([row.id], next ? "waiting" : "open")}
+                    onChange={(next) => stage([row.id], { category: next ? "waiting" : "open" })}
                   />
                 </span>
                 <span style={{ paddingLeft: 8, display: "flex" }}>
                   <ToggleSwitch
-                    on={false}
-                    disabled
+                    on={clientVisibleOf(row)}
+                    disabled={!canEdit}
                     label={`Visible to clients: ${row.name}`}
                     testId={`status-client-visible-${row.id}`}
+                    onChange={(next) => stage([row.id], { clientVisible: next })}
                   />
+                </span>
+                <span
+                  data-testid={`status-tickets-${row.id}`}
+                  style={{
+                    paddingLeft: 8,
+                    textAlign: "right",
+                    fontVariantNumeric: "tabular-nums",
+                    color: "var(--m-text-secondary)",
+                  }}
+                >
+                  {usage[row.id]?.ticketCount ?? 0}
                 </span>
                 <span style={{ display: "flex", justifyContent: "flex-end" }}>
                   {canEdit ? (
@@ -724,9 +826,7 @@ export function StatusesSection({
             color: "var(--m-text-secondary)",
           }}
         >
-          Toggles apply when you save. Visible to client is not a per-status setting yet: the portal
-          shows a status through its own mapping, so the switch is drawn and disabled rather than
-          pretending to work.
+          Drag the grip to reorder. Toggles apply when you save.
         </p>
       ) : null}
 
@@ -842,6 +942,17 @@ export function StatusesSection({
             />
           </ToggleRow>
           <ToggleRow
+            title="Visible to the client"
+            description="Clients see this status on the portal, in words."
+          >
+            <ToggleSwitch
+              on={draft.clientVisible}
+              label="Visible to the client"
+              testId="status-drawer-client-visible"
+              onChange={(next) => setDraft((prev) => ({ ...prev, clientVisible: next }))}
+            />
+          </ToggleRow>
+          <ToggleRow
             title="Tickets can enter this status"
             description="New tickets may be created directly in this status."
           >
@@ -876,17 +987,41 @@ export function StatusesSection({
         open={confirm !== null}
         title={confirm === null ? "" : `Delete ${confirm.name}?`}
         footerNote="History keeps the old name."
-        confirmLabel={confirm === null ? "Delete" : `Delete ${confirm.name}`}
+        confirmLabel={
+          confirm === null
+            ? "Delete"
+            : (usage[confirm.id]?.ticketCount ?? 0) > 0
+              ? `Move ${usage[confirm.id]?.ticketCount ?? 0} tickets and delete`
+              : `Delete ${confirm.name}`
+        }
+        options={
+          confirm === null || (usage[confirm.id]?.ticketCount ?? 0) === 0
+            ? undefined
+            : rows
+                .filter((row) => row.id !== confirm.id)
+                .map((row) => ({ label: row.name, value: row.id }))
+        }
         busy={confirmBusy}
         testId="status-delete-confirm"
         onCancel={() => setConfirm(null)}
-        onConfirm={() => void confirmDelete()}
+        onConfirm={(reassignTo) => void confirmDelete(reassignTo)}
       >
         <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--m-text-secondary)" }}>
-          Tickets that still sit in this status keep it until they are moved, so the board refuses
-          the delete and names what is holding it. Nothing about the tickets or their history
-          changes either way.
+          {confirm === null
+            ? ""
+            : (usage[confirm.id]?.ticketCount ?? 0) === 0
+              ? "No ticket sits in this status, so nothing moves."
+              : `${usage[confirm.id]?.ticketCount ?? 0} ${(usage[confirm.id]?.ticketCount ?? 0) === 1 ? "ticket uses" : "tickets use"} this status. Where should they go?`}
         </p>
+        {confirm !== null && (usage[confirm.id]?.automationCount ?? 0) > 0 ? (
+          <SkippedNotice>
+            {usage[confirm.id]?.automationCount}{" "}
+            {(usage[confirm.id]?.automationCount ?? 0) === 1 ? "automation" : "automations"}{" "}
+            mention{((usage[confirm.id]?.automationCount ?? 0) === 1) ? "s" : ""} this status.{" "}
+            {((usage[confirm.id]?.automationCount ?? 0) === 1) ? "It" : "They"} will be paused until
+            you pick a new one.
+          </SkippedNotice>
+        ) : null}
       </ConfirmRemap>
 
       {/* --- the import drawer --- */}
@@ -978,9 +1113,9 @@ export function StatusesSection({
   );
 }
 
-const COLUMNS = "44px 28px minmax(180px, 1.4fr) 120px 120px 150px 56px";
+const COLUMNS = "44px 28px minmax(160px, 1.4fr) 120px 120px 150px 90px 56px";
 
-const COLUMN_HEADERS = ["Status", "Kind", "Pauses SLA", "Visible to client"];
+const COLUMN_HEADERS = ["Status", "Kind", "Pauses SLA", "Visible to client", "Tickets"];
 
 function PlusIcon(): React.JSX.Element {
   return (
