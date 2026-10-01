@@ -165,10 +165,7 @@ export function EntryHeadline({ children }: { children: React.ReactNode }) {
 export function EntryShield() {
   return (
     <span className="entry-shield">
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" aria-hidden>
-        <path d="M12 3 5 6v6c0 4.5 3 8 7 9 4-1 7-4.5 7-9V6l-7-3Z" />
-        <path d="m9 12 2 2 4-4" />
-      </svg>
+      <Icon name="shield" size={26} />
     </span>
   );
 }
@@ -177,10 +174,7 @@ export function EntryShield() {
 export function EntryNote({ children }: { children: React.ReactNode }) {
   return (
     <p className="entry-note">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden style={{ flexShrink: 0, marginTop: 1 }}>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 11v5M12 8h.01" />
-      </svg>
+      <Icon name="info" size={16} />
       <span>{children}</span>
     </p>
   );

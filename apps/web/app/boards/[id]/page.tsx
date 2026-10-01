@@ -33,6 +33,7 @@ import {
   Tag,
   Textarea,
 } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -277,11 +278,7 @@ function MembersPanel({ boardId }: { boardId: string }) {
 
 /** Chevron glyph for collapse triggers. */
 function ChevronIcon(): ReactNode {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
+  return <Icon name="down" size={12} />;
 }
 
 interface KanbanCardProps {

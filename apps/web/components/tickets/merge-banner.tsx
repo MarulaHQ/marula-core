@@ -11,6 +11,7 @@
 // only (DESIGN-NOTES §5).
 "use client";
 
+import { Icon } from "@marula-core/ui/kit";
 import { cn } from "@marula-core/ui";
 import Link from "next/link";
 
@@ -37,10 +38,7 @@ export function MergeBanner({
       data-testid="merge-banner"
     >
       <span className="m-merge-banner-icon" aria-hidden="true">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M6 3v6a4 4 0 0 0 4 4h8" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M15 10l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <Icon name="merge" size={13} />
       </span>
       <span className="m-merge-banner-text">
         This ticket was merged and is closed. Its history is kept.

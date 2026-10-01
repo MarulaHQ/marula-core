@@ -22,6 +22,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { Spinner } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import { applyEntryTheme } from "../../lib/entry-theme";
 import { friendlyMutationText } from "../../lib/error-copy";
@@ -184,20 +185,7 @@ function AcceptInviteInner(): ReactNode {
             color: "var(--m-text-secondary)",
           }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-            {shown ? (
-              <>
-                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
-                <circle cx="12" cy="12" r="2.5" />
-                <path d="M4 4l16 16" strokeLinecap="round" />
-              </>
-            ) : (
-              <>
-                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" strokeLinejoin="round" />
-                <circle cx="12" cy="12" r="2.5" />
-              </>
-            )}
-          </svg>
+          <Icon name="eye" size={16} />
         </button>
       </div>
     </div>
