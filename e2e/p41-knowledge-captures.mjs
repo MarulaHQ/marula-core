@@ -108,10 +108,12 @@ await api("/kb/articles", "POST", {
 });
 
 const folder = await api("/secrets/folders", "POST", {
+  slug: `capture-vault-${STAMP}`,
   label: `Capture vault ${STAMP}`,
   kind: "api_keys",
+  parent_id: null,
   restricted: false,
-  idempotency_key: crypto.randomUUID(),
+  client_id: null,
 });
 await api("/secrets/records", "POST", {
   folder_id: folder.id,
@@ -122,6 +124,7 @@ await api("/secrets/records", "POST", {
     { field_key: "username", value: "svc-billing" },
   ],
   expires_at: new Date(Date.now() + 45 * 86_400_000).toISOString(),
+  client_id: null,
   idempotency_key: crypto.randomUUID(),
 });
 await api("/secrets/records", "POST", {
@@ -130,6 +133,7 @@ await api("/secrets/records", "POST", {
   kind: "api_key",
   fields: [{ field_key: "secret", value: "tok-capture-expired" }],
   expires_at: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+  client_id: null,
   idempotency_key: crypto.randomUUID(),
 });
 
@@ -161,66 +165,35 @@ await api("/documents", "POST", {
   idempotency_key: crypto.randomUUID(),
 });
 
-await api("/automations/rules", "POST", {
+await api("/automation-rules", "POST", {
   name: `Capture escalate unassigned P1 ${STAMP}`,
-  enabled: true,
   board_id: null,
   trigger_event: "ticket.created",
   conditions: [{ type: "priority_is", priority: "p1" }],
   actions: [{ type: "set_priority", priority: "p1" }],
-  idempotency_key: crypto.randomUUID(),
 });
 // A rule with NO conditions on purpose: the row then carries the P3
 // suggested-condition mark, which is the state the review must see.
-await api("/automations/rules", "POST", {
+// A rule with NO conditions on purpose: the row then carries the P3
+// suggested-condition mark, which is the state the review must see.
+await api("/automation-rules", "POST", {
   name: `Capture untriaged arrivals ${STAMP}`,
-  enabled: true,
   board_id: null,
   trigger_event: "ticket.created",
   conditions: [],
-  actions: [{ type: "notify_users", user_ids: [], title: "New ticket", kind: "ticket_update" }],
-  idempotency_key: crypto.randomUUID(),
-}).catch(() => {
-  // An action with no users is rejected by the server's validation; that is
-  // itself honest — fall back to a valid one so the capture still runs.
-  return api("/automations/rules", "POST", {
-    name: `Capture untriaged arrivals ${STAMP}`,
-    enabled: true,
-    board_id: null,
-    trigger_event: "ticket.created",
-    conditions: [],
-    actions: [{ type: "set_priority", priority: "p3" }],
-    idempotency_key: crypto.randomUUID(),
-  });
+  actions: [{ type: "set_priority", priority: "p3" }],
 });
 
-const source = await api("/alert-sources", "POST", {
-  name: `Capture monitor ${STAMP}`,
-  source_ref: `capture-${STAMP}`,
-  correlation_window_secs: 900,
-  idempotency_key: crypto.randomUUID(),
-});
-// The ingest endpoint is HMAC-signed, so the alert is staged through the
-// signed path the product itself uses.
-const alertSecret = source.signing_secret ?? source.secret ?? null;
-if (alertSecret !== null) {
-  await api(
-    `/alerts/ingest/${source.source_ref}`,
-    "POST",
-    {
-      title: `Disk pressure on db-02 (${STAMP})`,
-      severity: "critical",
-      dedup_key: `capture-disk-${STAMP}`,
-      correlation_key: `capture-${STAMP}`,
-      payload: { host: "db-02", used_pct: 91 },
-    },
-  ).catch(() => {});
-}
+// The alert feed is shot from the seeded org: seed-demo creates one source,
+// five alerts and two incident tickets, which is exactly the mix the feed has
+// to cope with (open, acknowledged, routed and unrouted). Signing a fresh
+// ingest here would only reproduce it with less truth in it.
 
 let shotIndex = 0;
 const failures = [];
 
-for (const theme of THEMES) {
+for (const [themeIndex, theme] of THEMES.entries()) {
+  const themeStamp = `${STAMP}-${themeIndex}`;
   const browser = await chromium.launch({ args: ["--no-proxy-server"] });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   {
@@ -273,7 +246,7 @@ for (const theme of THEMES) {
     await page.keyboard.press("Escape");
     await page.getByTestId("kb-new-article").click();
     const titleInput = page.getByTestId("kb-new-title");
-    await titleInput.fill(`Capture publish-state walkthrough ${STAMP}`);
+    await titleInput.fill(`Capture publish-state walkthrough ${themeStamp}`);
     await page.getByTestId("kb-create-article").click();
     await page.getByTestId("kb-publish-row").waitFor({ timeout: 30_000 });
     await shot("kb-editor-publish-state");
@@ -312,7 +285,7 @@ for (const theme of THEMES) {
 
     // --- /passwords: the vault, both views, reveal confirmation -------
     await page.goto(`${WEB}/passwords`, { waitUntil: "load" });
-    await page.getByTestId("vault-tree").waitFor({ timeout: 30_000 });
+    await page.getByTestId("context-column").first().waitFor({ timeout: 30_000 });
     await shot("passwords-vault");
     await page.getByRole("tab", { name: /Credentials/ }).click();
     await page.getByTestId("vault-credentials-table").waitFor({ timeout: 30_000 });
@@ -329,7 +302,7 @@ for (const theme of THEMES) {
     await shot("imports-step-source");
     await page.getByRole("button", { name: "Next · upload" }).click();
     await page.getByLabel("Paste CSV").fill(
-      "name,email\nNorthwind,nw@example.com\nContoso,ct@example.com",
+      "external_key,name\nacme-corp,Northwind Traders\ncontoso-ltd,Contoso Ltd",
     );
     await shot("imports-step-upload");
     await page.getByTestId("imports-dry-run").click();
