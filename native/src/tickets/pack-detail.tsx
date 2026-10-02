@@ -27,7 +27,7 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { useAuth } from "@/auth/auth-context";
-import { API_URL } from "@/config";
+import { API_URL, DEV_TOOLS_ENABLED } from "@/config";
 import { REASON_COPY } from "@/core/errors";
 import {
   MODELS,
@@ -427,7 +427,7 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
         ) : null}
       </ScrollView>
 
-      <PinnedBar test-key="ticket-action-bar">
+      <PinnedBar testID="ticket-action-bar">
         <SecondaryButton
           label="Note"
           icon={PACK_ICONS.lock}
@@ -668,6 +668,14 @@ function ComposerSheet({
           testID="note-composer-attach"
           style={{ width: 52 }}
         />
+        {DEV_TOOLS_ENABLED && onSample ? (
+          <SecondaryButton
+            label="Sample (dev)"
+            onPress={onSample}
+            testID="note-attach-sample"
+            style={{ width: 116 }}
+          />
+        ) : null}
         <PrimaryButton
           label={note ? "Add note" : "Send reply"}
           disabled={!canSend}

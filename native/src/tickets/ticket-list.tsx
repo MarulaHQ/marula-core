@@ -64,7 +64,11 @@ export function TicketList({
             onPress={() => onSelect(item.id)}
             accessibilityRole="button"
             accessibilityState={{ selected }}
-            accessibilityLabel={`${item.number} ${item.title}`}
+            accessibilityLabel={
+              item.id === runningId
+                ? `${item.number} ${item.title} — Timer running`
+                : `${item.number} ${item.title}`
+            }
             style={({ pressed }) => [
               styles.row,
               { borderBottomColor: tokens.border },

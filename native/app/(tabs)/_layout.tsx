@@ -91,6 +91,10 @@ export default function TabsLayout() {
               fontFamily: type.sansSemiBold,
               fontSize: 12,
             },
+            // The pack hangs the tab's icon and label on the bar's bottom
+            // edge; RN's item centers the pair inside the pane, which left a
+            // dead band under the labels.
+            tabBarItemStyle: { justifyContent: "flex-end", paddingBottom: 4 },
             sceneStyle: { backgroundColor: tokens.background },
           }}
         >
@@ -120,6 +124,10 @@ export default function TabsLayout() {
             name="scan"
             options={{
               title: "",
+              // The mockup's scan FAB is icon-only, so the title stays empty;
+              // the a11y label carries the tab's name and the flows' regex
+              // ("Scan, tab.*") matches it.
+              tabBarAccessibilityLabel: "Scan, tab",
               tabBarIcon: ({ focused }) => (
                 <View
                   style={[

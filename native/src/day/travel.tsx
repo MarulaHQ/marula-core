@@ -9,7 +9,7 @@
 // it), no map or route editing.
 
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { TravelDraft } from "@/core/models";
 import { Button, Card, EmptyState, Field, Mono, Pill, SectionHeader, Toggle } from "@/ui/primitives";
@@ -157,6 +157,9 @@ export function TravelDraftForm({
   const [localError, setLocalError] = useState<string | null>(null);
 
   const submit = () => {
+    // The keyboard collapses on save; the draft row (and Submit) is what
+    // matters next, not the form.
+    Keyboard.dismiss();
     const start = parseClock(started);
     const end = parseClock(ended);
     const miles = Number.parseFloat(distance.replace(",", "."));

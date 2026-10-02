@@ -268,6 +268,9 @@ importers:
       '@types/react':
         specifier: ~19.2.0
         version: 19.2.18
+      babel-preset-expo:
+        specifier: ~57.0.13
+        version: 57.0.13(@babel/core@7.29.7)(@babel/runtime@7.29.7)(expo@57.0.25(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.16)(expo-router@57.0.23)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(typescript@6.0.3))(react-refresh@0.14.2)
       eslint:
         specifier: ^9.17.0
         version: 9.39.5(jiti@2.7.0)

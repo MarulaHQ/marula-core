@@ -44,6 +44,7 @@ import {
 import { useSecondTick } from "@/ui/time-pill";
 import { clockText, elapsedMs, roundUpTo, shortClock } from "@/ui/clock-format";
 import { isPaused } from "@/ui/timer-bar";
+import { Screen } from "@/ui/primitives";
 import { chrome, shape, type, useTheme } from "@/ui/tokens";
 
 const DAY_MINUTES = 8 * 60;
@@ -117,10 +118,14 @@ export default function TimeScreen() {
   const stopSheetSession =
     sheet?.kind === "stop" && session !== null ? session : null;
 
+  // The heading's date is today, always: the mockup's "Tue 29 Sep" is a
+  // fixture, not a contract.
+  const todayLine = dayLabel(new Date());
+
   return (
-    <View style={[styles.screen, { backgroundColor: tokens.background }]}>
+    <Screen scroll={false} padded={false} testID="time-screen">
       <View style={styles.header}>
-        <PackHeading title="Time" detail="Tue 29 Sep" />
+        <PackHeading title="Time" detail={todayLine} />
       </View>
       <View style={styles.scroll} testID="time-screen">
         {session !== null ? (
@@ -223,6 +228,7 @@ export default function TimeScreen() {
         <StopLogSheet
           session={stopSheetSession}
           runningMinutes={runningMinutes}
+          runningTicketLabel={runningTicketLabel}
           onClose={() => setSheet(null)}
           onLogged={(text) => {
             setSheet(null);
@@ -230,11 +236,9 @@ export default function TimeScreen() {
           }}
         />
       ) : null}
-    </View>
+    </Screen>
   );
 }
-
-const stopSheetSubtitle = "Ticket 18432 · VPN disconnects · ran for 00:25:05";
 
 /** The first stop with no logged time against it — the pack's blush gap card. */
 export function unloggedStop(
@@ -276,11 +280,13 @@ function clockOf(iso: string): string {
 function StopLogSheet({
   session,
   runningMinutes,
+  runningTicketLabel,
   onClose,
   onLogged,
 }: {
   session: { id: string; ticket_id: string };
   runningMinutes: number;
+  runningTicketLabel: string;
   onClose: () => void;
   onLogged: (text: string) => void;
 }) {
@@ -309,7 +315,13 @@ function StopLogSheet({
   };
 
   return (
-    <Sheet visible onClose={onClose} title="Stop and log" subtitle={stopSheetSubtitle} testID="stop-log-sheet">
+    <Sheet
+      visible
+      onClose={onClose}
+      title="Stop and log"
+      subtitle={`${runningTicketLabel} · ran for ${shortClock(runningMinutes)}`}
+      testID="stop-log-sheet"
+    >
       <View>
         <PackLabel style={{ marginBottom: 8 }}>Log this as</PackLabel>
         <Segment options={DURATIONS} value={duration} onChange={setDuration} testIDPrefix="stop-duration" />

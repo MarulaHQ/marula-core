@@ -11,7 +11,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 
 import { TicketList } from "@/tickets/ticket-list";
-import { useTopInset } from "@/ui/primitives";
 import { useAdaptiveLayout } from "@/ui/adaptive";
 import { PACK_ICONS, PackHeading, Segment, bottomReserve } from "@/ui/pack";
 import { type, useTheme } from "@/ui/tokens";
@@ -29,16 +28,18 @@ const QUEUE_OPTIONS = [
 export default function BoardIndex() {
   const { isRegular } = useAdaptiveLayout();
   const { tokens } = useTheme();
-  const topInset = useTopInset();
   const [queue, setQueue] = useState<Queue>("mine");
 
   if (isRegular) return <BoardPlaceholder />;
 
+  // The board layout's shell already clears the safe area for its children
+  // (the master pane and the pushed detail share the band), so this root
+  // adds no inset of its own: the header rides just below the band.
   return (
     <View
       style={[
         styles.screen,
-        { backgroundColor: tokens.background, paddingTop: topInset + 8 },
+        { backgroundColor: tokens.background, paddingTop: 8 },
       ]}
       testID="board-screen"
     >

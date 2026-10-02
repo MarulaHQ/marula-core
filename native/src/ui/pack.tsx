@@ -13,7 +13,9 @@
 
 import React, { useState, type ReactNode } from "react";
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -499,35 +501,39 @@ export function Sheet({
   const note = tint === "note";
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.sheetRoot}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-          onPress={onClose}
-          style={[styles.scrim, { backgroundColor: scrimFor(tokens.mode) }]}
-        />
-        <View
-          testID={testID}
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: note
-                ? tokens.neutral.background
-                : tokens.surface,
-              borderTopColor: tokens.border,
-            },
-          ]}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          pointerEvents="box-none"
+          style={styles.sheetRoot}
         >
-          <View style={[styles.grab, { backgroundColor: tokens.border }]} />
-          {title !== undefined ? (
-            <Text style={[styles.sheetTitle, { color: tokens.text }]}>{title}</Text>
-          ) : null}
-          {subtitle !== undefined ? (
-            <Text style={[styles.sheetSubtitle, { color: tokens.textSecondary }]}>{subtitle}</Text>
-          ) : null}
-          {children}
-        </View>
-      </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            onPress={onClose}
+            style={[styles.scrim, { backgroundColor: scrimFor(tokens.mode) }]}
+          />
+          <View
+            testID={testID}
+            style={[
+              styles.sheet,
+              {
+                backgroundColor: note
+                  ? tokens.neutral.background
+                  : tokens.surface,
+                borderTopColor: tokens.border,
+              },
+            ]}
+          >
+            <View style={[styles.grab, { backgroundColor: tokens.border }]} />
+            {title !== undefined ? (
+              <Text style={[styles.sheetTitle, { color: tokens.text }]}>{title}</Text>
+            ) : null}
+            {subtitle !== undefined ? (
+              <Text style={[styles.sheetSubtitle, { color: tokens.textSecondary }]}>{subtitle}</Text>
+            ) : null}
+            {children}
+          </View>
+        </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -897,10 +903,11 @@ const styles = StyleSheet.create({
 // Pinned footer container (action bar / camera bottom stack)
 // ---------------------------------------------------------------------------
 
-export function PinnedBar({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+export function PinnedBar({ children, style, testID }: { children: ReactNode; style?: StyleProp<ViewStyle>; testID?: string }) {
   const { tokens, mode } = useTheme();
   return (
     <View
+      testID={testID}
       style={[
         {
           position: "absolute" as const,

@@ -18,6 +18,9 @@ export default function QueueInspector() {
   const { tokens } = useTheme();
   const { pending, rejected, pendingCount } = useQueue();
   const engine = useEngine();
+  // Settled ops stay visible for the session: an op that reports "applied"
+  // while the server never saw it is exactly the failure the trail names.
+  const settled = engine?.queue.appliedThisSession() ?? [];
 
   return (
     <Screen testID="queue-screen">
@@ -49,6 +52,11 @@ export default function QueueInspector() {
       <SectionHeader title="Pending" />
       {pending.length === 0 ? <EmptyState message="No queued changes." /> : null}
       {pending.map((op) => (
+        <QueueOpCard key={op.id} op={op} />
+      ))}
+
+      {settled.length > 0 ? <SectionHeader title="Settled this session" /> : null}
+      {settled.map((op) => (
         <QueueOpCard key={op.id} op={op} />
       ))}
     </Screen>
