@@ -3,7 +3,7 @@
 
 **Marula Core API 0.1.0** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**605 paths · 812 operations · 1252 schemas.**
+**608 paths · 815 operations · 1267 schemas.**
 
 ## agent-proposals
 
@@ -212,8 +212,9 @@
 | `DELETE` | `/api/v1/boards/{id}/members/{user_id}` <a id="boards_remove_member"></a> | DELETE /api/boards/{id}/members/{user_id} — removes one membership; the user falls back to org-governed access. Emits `board.membership_removed`. | — |
 | `GET` | `/api/v1/boards/{id}/statuses` <a id="boards_list_statuses"></a> | GET /api/boards/{id}/statuses | — |
 | `POST` | `/api/v1/boards/{id}/statuses` <a id="boards_add_status"></a> | POST /api/boards/{id}/statuses — adds a custom status bound to a semantic category; emits `board.status_added`. | [CreateStatusRequest](#schema-createstatusrequest) |
-| `DELETE` | `/api/v1/boards/{id}/statuses/{status_id}` <a id="boards_delete_status"></a> | DELETE /api/boards/{id}/statuses/{status_id} — removes an UNUSED custom status. Tickets referencing it force a 409; the last entry status of a board is protected so ticket creation can never break. | — |
+| `DELETE` | `/api/v1/boards/{id}/statuses/{status_id}` <a id="boards_delete_status"></a> | DELETE /api/boards/{id}/statuses/{status_id} — removes a custom status. | — |
 | `PATCH` | `/api/v1/boards/{id}/statuses/{status_id}` <a id="boards_update_status"></a> | PATCH /api/boards/{id}/statuses/{status_id} — rebinds/reorders/renames a status; emits `board.status_updated`. | [UpdateStatusRequest](#schema-updatestatusrequest) |
+| `GET` | `/api/v1/boards/{id}/statuses/usage` <a id="boards_status_usage"></a> | boards_status_usage | — |
 | `GET` | `/api/v1/boards/{id}/transitions` <a id="boards_list_transitions"></a> | GET /api/boards/{id}/transitions — the board's effective workflow. | — |
 | `PUT` | `/api/v1/boards/{id}/transitions` <a id="boards_set_transitions"></a> | PUT /api/boards/{id}/transitions — atomically replaces the explicit transition matrix; emits `board.transitions_updated`. Endpoints must be statuses of THIS board and self-transitions are rejected. | [SetTransitionsRequest](#schema-settransitionsrequest) |
 | `POST` | `/api/v1/boards/favorite` <a id="boards_toggle_favorite"></a> | POST /api/boards/favorite — toggles a board favorite for the current user (user-scoped; any authenticated member may star boards they can see). Emits `board.favorite_toggled` in-tx. | [FavoriteRequest](#schema-favoriterequest) |
@@ -1064,6 +1065,7 @@
 | `GET` | `/api/v1/settings/ai/decision` <a id="settings_ai_decision_overview"></a> | settings_ai_decision_overview | — |
 | `PUT` | `/api/v1/settings/ai/decision/{surface_key}/config` <a id="settings_ai_decision_config_put"></a> | settings_ai_decision_config_put | [PutDecisionConfigRequest](#schema-putdecisionconfigrequest) |
 | `POST` | `/api/v1/settings/ai/decision/{surface_key}/preview` <a id="settings_ai_decision_preview"></a> | settings_ai_decision_preview | [DecisionPreviewRequest](#schema-decisionpreviewrequest) |
+| `GET` | `/api/v1/settings/ai/decision/{surface_key}/runs` <a id="settings_ai_decision_runs"></a> | GET /api/settings/ai/decision/{surface_key}/runs — the shadow run log. | — |
 | `PUT` | `/api/v1/settings/ai/decision/features` <a id="settings_ai_decision_features_put"></a> | settings_ai_decision_features_put | [PutDecisionFeaturesRequest](#schema-putdecisionfeaturesrequest) |
 | `PUT` | `/api/v1/settings/ai/grants` <a id="settings_ai_grant_put"></a> | PUT /settings/ai/grants — upsert one per-surface grant (audited). | [PutAiGrantRequest](#schema-putaigrantrequest) |
 | `DELETE` | `/api/v1/settings/ai/grants/{grant_id}` <a id="settings_ai_grant_delete"></a> | DELETE /settings/ai/grants/{grant_id} — revoke one grant (audited). | — |
@@ -1252,6 +1254,7 @@
 | `POST` | `/api/v1/time-entries` <a id="timers_create_entry"></a> | POST /api/time-entries — manual entry (no timer). | [CreateTimeEntryRequest](#schema-createtimeentryrequest) |
 | `GET` | `/api/v1/time-entries/{id}/approvals` <a id="time_entries_approval_history"></a> | GET /api/time-entries/:id/approvals — the append-only decision trail (`seq` ascending). Approvers and owner/admins read any trail; other users only their own entries'. | — |
 | `GET` | `/api/v1/time-entries/{id}/billing-suggestions` <a id="time_entry_billing_suggestions"></a> | GET /api/time-entries/{id}/billing-suggestions — the `decision_billing_audit` shadow answers for one entry, classified into suggestion chips. Read-only: chips never mutate anything. | — |
+| `POST` | `/api/v1/time-entries/{id}/fix` <a id="time_entry_fix"></a> | POST /api/time-entries/:id/fix — apply one verdict's fix to a queued entry (`special:approve_time`). | [FixEntryRequest](#schema-fixentryrequest) |
 | `POST` | `/api/v1/time-entries/{id}/reopen` <a id="time_entries_reopen"></a> | POST /api/time-entries/:id/reopen — move a rejected entry back to draft (owner or admin) so it can be corrected and resubmitted. | — |
 | `POST` | `/api/v1/time-entries/{id}/submit` <a id="time_entries_submit"></a> | POST /api/time-entries/:id/submit — the entry owner (or an admin) pushes a draft/rejected entry into the approver queue. | [SubmitEntryRequest](#schema-submitentryrequest) |
 | `POST` | `/api/v1/time-entries/approvals/decide` <a id="time_entries_decide"></a> | POST /api/time-entries/approvals/decide — bulk approve or bulk reject (`special:approve_time`). Only entries currently in the queue apply; every other id comes back with a per-item outcome. Emits one `time_entry.approval_*` event per applied entry. | [BulkDecisionRequest](#schema-bulkdecisionrequest) |
@@ -1460,6 +1463,7 @@
 | <a id="schema-boardrole"></a>`BoardRole` | string | Per-board role tier stored on `board_members` rows (migration 0019, TASKLIST 2.11). Board roles sit BESIDE the org matrix and can only narrow it — see `authorize_board_scoped`. |
 | <a id="schema-boardrouteview"></a>`BoardRouteView` | object |  |
 | <a id="schema-boardstatus"></a>`BoardStatus` | object | A per-board status. `category` is the binding contract — labels are presentation, category is behavior. |
+| <a id="schema-boardstatususage"></a>`BoardStatusUsage` | object | GET /api/boards/{id}/statuses/usage — per-status ticket counts and automation references (Wave 41 lane 12). One read serves both the settings table's TICKETS column and the delete confirm's "12 ticket |
 | <a id="schema-boardtransitionsresponse"></a>`BoardTransitionsResponse` | object | GET response for a board's workflow: either its explicit matrix or the marker that the semantic-category floor governs. |
 | <a id="schema-bookrequest"></a>`BookRequest` | composite |  |
 | <a id="schema-bookresponse"></a>`BookResponse` | object |  |
@@ -1706,6 +1710,10 @@
 | <a id="schema-decisionfeaturemutationresponse"></a>`DecisionFeatureMutationResponse` | object |  |
 | <a id="schema-decisionoverviewresponse"></a>`DecisionOverviewResponse` | object |  |
 | <a id="schema-decisionpreviewrequest"></a>`DecisionPreviewRequest` | object |  |
+| <a id="schema-decisionrunanswer"></a>`DecisionRunAnswer` | object |  |
+| <a id="schema-decisionrunsresponse"></a>`DecisionRunsResponse` | object |  |
+| <a id="schema-decisionrunsummary"></a>`DecisionRunSummary` | object | The four figures the run log leads with. |
+| <a id="schema-decisionrunview"></a>`DecisionRunView` | object | One answered run, in the words the run log draws. |
 | <a id="schema-decisionsuggestionsresponse"></a>`DecisionSuggestionsResponse` | object |  |
 | <a id="schema-decisionsurfaceoverview"></a>`DecisionSurfaceOverview` | object |  |
 | <a id="schema-declarationview"></a>`DeclarationView` | object | Wire shape of one declaration. Kinds/options are flattened so generated clients can render editors directly from this payload. |
@@ -1722,6 +1730,7 @@
 | <a id="schema-deeplinkvendor"></a>`DeeplinkVendor` | object |  |
 | <a id="schema-definitionscope"></a>`DefinitionScope` | string | Visibility scope of a stored definition: `org` (published org-wide, admins only) or `self` (private to the creator). |
 | <a id="schema-deleteorderlinerequest"></a>`DeleteOrderLineRequest` | composite |  |
+| <a id="schema-deletestatusresult"></a>`DeleteStatusResult` | object | What a delete with reassignment actually did (Wave 41 lane 12). Returned instead of a bare 204 because the confirm has to say what happened, and the admin is the one who has to believe it. |
 | <a id="schema-deletetickquery"></a>`DeleteTickQuery` | object |  |
 | <a id="schema-deliveryattemptview"></a>`DeliveryAttemptView` | object |  |
 | <a id="schema-deliverycounts"></a>`DeliveryCounts` | object |  |
@@ -1821,6 +1830,8 @@
 | <a id="schema-fieldresolution"></a>`FieldResolution` | string | Per-field resolution: which side's value wins when the tickets disagree. `"survivor"` (the default) keeps the survivor's value. |
 | <a id="schema-filterop"></a>`FilterOp` | string | Filter operators supported by the v1 compiled reports. Operand typing is enforced through [`ValueType`] matches in the builder, so e.g. a bool operand can never reach a timestamp column. The serde enc |
 | <a id="schema-filtervalue"></a>`FilterValue` | object | A typed filter operand. The variant must match the catalog [`ValueType`] of the filtered column (`Int` covers both Int and BigInt columns) — enforced by [`ReportSpec::validate`], so a mismatched opera |
+| <a id="schema-fixentryrequest"></a>`FixEntryRequest` | composite | POST /api/time-entries/:id/fix — an approver applies one verdict's fix to an entry that is still in the queue. At least one of `description` / `minutes` is required; the entry stays `submitted` afterw |
+| <a id="schema-fixentryresponse"></a>`FixEntryResponse` | composite | Instant-first mutation response (IF2): the entry as it now reads, plus the undo substrate. The client reconciles from the snapshot and never has to guess what the server did to the minutes. |
 | <a id="schema-forkreplysnippetrequest"></a>`ForkReplySnippetRequest` | composite |  |
 | <a id="schema-forkrolerequest"></a>`ForkRoleRequest` | composite |  |
 | <a id="schema-forksecretfolderrequest"></a>`ForkSecretFolderRequest` | object |  |
@@ -2089,6 +2100,7 @@
 | <a id="schema-portalstaffslots"></a>`PortalStaffSlots` | object | One staff member's published free slots over the query range. |
 | <a id="schema-portalticketdetail"></a>`PortalTicketDetail` | object |  |
 | <a id="schema-portalticketlistquery"></a>`PortalTicketListQuery` | object |  |
+| <a id="schema-portalticketview"></a>`PortalTicketView` | composite | A ticket as a CLIENT sees it (Wave 41 lane 12). The ticket fields are flattened exactly as they were, so the portal client keeps reading the same keys; two status fields are added. `status_label` is ` |
 | <a id="schema-portaltierview"></a>`PortalTierView` | object | One portal tier in the preset roster (RB1). Portal authorization is deliberately NOT the staff matrix (see `core_domain::policy`) — the tiers render here as data with their capability keys, but they a |
 | <a id="schema-portaluser"></a>`PortalUser` | object |  |
 | <a id="schema-portaluserstatus"></a>`PortalUserStatus` | string | Lifecycle of a portal identity. `invited` = admin-provisioned, has not logged in yet; first successful login flips to `active`. `disabled` blocks login AND every authenticated portal request (checked  |
@@ -2141,6 +2153,7 @@
 | <a id="schema-purchaseorderlineview"></a>`PurchaseOrderLineView` | object | Ledger-visible PO line (cost fields are `financial:read`-gated). |
 | <a id="schema-purchaseorderrollup"></a>`PurchaseOrderRollup` | object | The rolled-up money on a PO: ordered and received amounts in the PO currency, integer minor units. |
 | <a id="schema-purchaseorderstatus"></a>`PurchaseOrderStatus` | string |  |
+| <a id="schema-purchaseordersummary"></a>`PurchaseOrderSummary` | composite | One row of the order list: the order itself plus its own totals. The order fields are flattened, so this is the order's old wire shape plus a `totals` key — a client that ignores the new key keeps wor |
 | <a id="schema-purchasereceipt"></a>`PurchaseReceipt` | object | One receipt document: goods that landed at a location against a PO. |
 | <a id="schema-purchasereceiptline"></a>`PurchaseReceiptLine` | object | One receipt line: what moved, and the ledger row it posted. |
 | <a id="schema-purchasereceiptview"></a>`PurchaseReceiptView` | composite | A receipt document with its traceability lines (each stamps the lane-1 ledger `movement_id` it posted). |
@@ -2469,11 +2482,16 @@
 | <a id="schema-timeentryapprovalrecord"></a>`TimeEntryApprovalRecord` | object | One append-only approval decision (the audit row behind the queue's history view). `seq` is monotonic per entry — the client's ordering key. |
 | <a id="schema-timeentrymutationresponse"></a>`TimeEntryMutationResponse` | composite | Same additive envelope for the stop flow (time-entry body). |
 | <a id="schema-timeentryqueueitem"></a>`TimeEntryQueueItem` | object | A queue/history projection: the entry plus its approval metadata (who/when submitted, who/when decided). |
+| <a id="schema-timeentryticketref"></a>`TimeEntryTicketRef` | object | The ticket an entry bills through, named for a human reader. |
 | <a id="schema-timerejectionreason"></a>`TimeRejectionReason` | string | Closed rejection vocabulary (Wave 14 lane 1): approvers reject with a machine-readable reason code, never prose-only. `other` may carry the free-text explanation on the decision record. |
 | <a id="schema-timermutationresponse"></a>`TimerMutationResponse` | composite | Instant-first mutation response (IF2): session fields at the top level (unchanged shape) plus the additive `mutation` metadata. |
 | <a id="schema-timersegment"></a>`TimerSegment` | object | A contiguous running interval within a timer session. |
 | <a id="schema-timersession"></a>`TimerSession` | object | One user's timer against one ticket. At most one session per user is ever running — enforced by [`TimerSession::start_switch`]. |
 | <a id="schema-timesettingsresponse"></a>`TimeSettingsResponse` | object |  |
+| <a id="schema-timeverdict"></a>`TimeVerdict` | object | One verdict: what is odd, said in words, plus the fix beside it. |
+| <a id="schema-timeverdictfix"></a>`TimeVerdictFix` | object | A remedy, carrying the value it applies so the client never has to recompute it (and cannot apply a different one than the server meant). |
+| <a id="schema-timeverdictfixkind"></a>`TimeVerdictFixKind` | string | The one action that clears a verdict. |
+| <a id="schema-timeverdictkind"></a>`TimeVerdictKind` | string | What is wrong with an entry. A closed set: an open string here would put model prose on a money surface, which is exactly what the pack forbids. |
 | <a id="schema-tokenpair"></a>`TokenPair` | object | Token pair returned by all auth flows. |
 | <a id="schema-tokenrequest"></a>`TokenRequest` | object |  |
 | <a id="schema-toolavailabilityquery"></a>`ToolAvailabilityQuery` | object |  |
@@ -2604,4 +2622,4 @@
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1252 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 28 operation groups; schema count 1267 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

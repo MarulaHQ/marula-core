@@ -76,17 +76,17 @@ citation. Where it is code, the citation names the module or endpoint.
 | Quote builder + catalog | shipped | `/api/v1/quotes*` (send/accept/decline/expire/convert), `/api/v1/catalog-items*` |
 | Inventory & asset lifecycle (rental tracking, depreciation fields) | shipped | `DeviceAsset` rental fields (rental_vendor/start/end/cost) + depreciation method/rate (migration 0061), MSP-internal fleet scope (ADR 0012), Wave 32 stock/PO/tools/loans (`/api/v1/stock-items`, `purchase-orders`, `tool-checkouts`, `client-loans`) |
 | Sales pipeline | shipped | `/api/v1/pipeline/*` + `/sales` surface |
-| Projects (phases/tasks/views/dependencies/templates) | shipped | `/api/v1/projects*` incl. phases, tasks, dependencies, templates, `/projects/[id]` work surface. **Views**: List, phase/task groups, and a gantt-lite rail. Dated Gantt and a burn/budget view are typed NOT built (phases carry no dates, `apps/web/app/projects/[id]/page.tsx` non-purpose header). Claimed below |
+| Projects (phases/tasks/views/dependencies/templates) | shipped | `/api/v1/projects*` incl. phases, tasks, dependencies, templates, `/projects/[id]` work surface. **Views**: List, phase/task groups, a gantt-lite rail, and (since p34-verdicts-closeout) the dated Gantt + phase budget/burn view over the `phase_gantt`/`phase_burn` read models with nullable phase dates. The 2026-10-02 walk did not capture `/projects/[id]` (absent from the capture manifest), so this row cites the closeout lane's record rather than fresh screenshots |
 | Milestone billing feeding invoicing | shipped-with-honest-gap | `project.milestone_completed` event (0062 seam), `is_milestone` phases carry amount/currency, invoice-candidate feed `/api/v1/invoice-candidates` picks up billable lines. The dedicated milestone→invoice consumer with per-phase budget read models was not landed (Wave 39 lane 4 claims exactly this: project↔contract link, phase budgets + burn, fixed-fee phase emission) |
 | Unified calendar | shipped | `/api/v1/calendar/{day,week,team,deadlines}` + `/calendar` surface |
-| **Dispatch v2 `project` resource planning (tech allocation across project phases; capacity forecasting / utilization spanning service + project)** | shipped-with-honest-gap | `/dispatch/planning` ships a 7-day capacity horizon per technician (available/booked/free/utilization over availability windows + exclusions + appointments) with demand depth + skill catalog (`/api/v1/dispatch/capacity`), plus dispatch-connector schedule. The gap is real and named: allocation is against dispatch appointments only. No read model allocates technicians to project phases or forecasts capacity spanning service + project work (no `forecast`-shaped code anywhere, no phase-allocation entity). Claimed below as a follow-up lane |
+| **Dispatch v2 `project` resource planning (tech allocation across project phases; capacity forecasting / utilization spanning service + project)** | shipped | `/dispatch/planning` ships the 7-day capacity horizon per technician (available/booked/free/utilization over availability windows + exclusions + appointments) with demand depth + skill catalog (`/api/v1/dispatch/capacity`), plus dispatch-connector schedule. The claimed gap closed: `project_phase_allocations` (0116) plus the percent-days forecast engine and the planning UI (p34-verdicts-closeout). Walk-verified live on the seeded demo org (2026-10-02, `design/qa-p34-spec-verdict-sweep/captures/planning-*.png`): live percent-days committed load (560 pd, 1 phase), the dated Acme Network Refresh allocation, and the `curated` work-next queue with entries |
 | Dispatch connector API v1 (appointment/resource events, availability write API) | shipped | `crates/core-api/src/routes/dispatch_connector.rs`: `/api/v1/dispatch-connector/{technicians,schedule,appointments/{id}/status}` |
 | Recurring/scheduled tickets (PM schedules) | shipped | `/api/v1/pm-schedules*` + `worker/pm_sweep.rs` |
 | Per-client workflow overrides | shipped | `/api/v1/clients/{id}/workflow-overrides*` (migration 0063, Wave 12) |
 | Ticket costs & expenses + merge/parent-child/major-incident linking | shipped | `/api/v1/tickets/{id}/{cost-lines,expenses,links,merge}`, link kinds cover parent/child/dup/major-incident, guided merge workbench for entities (Wave 22 lane 2) |
 | Missing-time audits + travel/mileage entry drafts | shipped | gap-audit + `/api/v1/dispatch/travel-drafts*` (submit → expense) |
 | RMM alert dedup + generic webhook alert ingestor | shipped | `/api/v1/alerts/ingest/{source_ref}` (HMAC, raw-body verify), dedupe to one incident on alert storms (Wave 9 record) |
-| Portal v2 (invoice view + pay, quote approval, KB self-service, appointment requests) | shipped | `/api/v1/portal/invoices/{id}/pay` (PaymentProvider, Stripe adapter), quote approval `/portal/quotes/{id}/(approve\|decline)` (Wave 34 lane 1), `/portal/kb/*`, `/portal/appointment-requests*`, CSAT response route (Wave 34 lane 2) |
+| Portal v2 (invoice view + pay, quote approval, KB self-service, appointment requests) | shipped | `/api/v1/portal/invoices/{id}/pay` (PaymentProvider, Stripe adapter), quote approval `/portal/quotes/{id}/(approve\|decline)` (Wave 34 lane 1), `/portal/kb/*`, `/portal/appointment-requests*`, CSAT response route (Wave 34 lane 2). The 2026-10-02 walk could NOT reach these surfaces signed-in. The defect (the client never learns an in-page login succeeded, and the HttpOnly CSRF cookie kills the double-submit refresh) is claimed as follow-up 11. The API routes stand on the OpenAPI pin and lane evidence |
 | Native invoicing v1 (contract → run → PDF → payments → dunning) | shipped | `/api/v1/billing/invoice-runs`, `/api/v1/invoices/{id}/{document,payments,dunning}`, PDF documents, credit notes |
 | Native knowledge base v1 (FTS + client-facing flags) | shipped | `/api/v1/kb/*`, portal KB with `published`-only visibility and FTS in the unified search index |
 | Adapters QBO, Xero, M365 Graph, IT Glue, ImmyBot | shipped | `plugins/connectors/{qbo-export-sync,xero-export-sync,m365-graph,adapters-core}` (export/integration posture — never the system of record) |
@@ -105,7 +105,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | Plugin runtime v2 (WASM/Extism + capability-consent UI) | shipped | `crates/plugin-host` (Extism), consent surface, deny-by-default grants |
 | Marketplace registry v1 (static manifest + git tag, code-signed WASM) | shipped-with-honest-gap | `/api/v1/plugins/catalog` + staged distribution (zip/github/registry) + signing (`plugin_signing_keys` trust store). The static-registry-as-git-tag publishing flow and code-signed-artifact enforcement remain release-pipeline work claimed by Wave 38 |
 | Report builder v1 | shipped | `/api/v1/report-definitions*` (`run`, schedules, deliveries) + builder UI |
-| **Two-way calendar sync (Google Workspace + M365)** | shipped-with-honest-gap | iCal two-way sync shipped (`CalendarSyncProvider` seam, outbound token-scoped feed + inbound busy polling, migration 0074). Google/M365 adapter KINDs are not built: the provider seam admits only `ical` today, and the module header states the growth path. Claimed below |
+| **Two-way calendar sync (Google Workspace + M365)** | shipped | iCal two-way sync shipped (`CalendarSyncProvider` seam, outbound token-scoped feed + inbound busy polling, migration 0074). Google + M365 kinds landed by the p34-verdicts-closeout lane (0116 widens the provider CHECK, delegated-OAuth start/callback, sealed refresh tokens) and verified in the shipped connect form (walk detail capture `calendar-source-kinds.png` + `.json`, 2026-10-02) |
 | Time-entry approval workflows (manager queues, billing-period locking) | shipped | `/api/v1/time-entries/approvals/{queue,decide}`, submit/reopen, approve→locked-on-invoice |
 | **Optional client approvals on time entries** | shipped-with-honest-gap | **Not built as a product leg — documented decision.** The Stage-4 "optional" leg: portal-user approver tier exists and is behavior-ready (`PortalRole.Approver`, migration 0058-era modeling), but no portal approval flow over time entries ships and the TASKLIST ownership cleanup (2026-09-23) resolved to keep the shipped decision: manager-side approval only, with the gate decision documented here. The approver tier is the seam if this is ever built. No follow-up lane is claimed unless the user asks for it |
 | Tech coaching scorecards (private-by-default, opt-in gamification) | shipped | `/api/v1/scorecards*` (`me` private view + `me/settings` opt-in), CSAT rollups added by Wave 34 lane 2 |
@@ -137,9 +137,9 @@ citation. Where it is code, the citation names the module or endpoint.
 | --- | --- | --- |
 | Waitlist site Phase 1 + live marketing Phase 2 | shipped | Wave 20 lane 1 → Wave 28 rebuild → Wave 34 lane 7 phase-2 (14-route sitemap complete, `/features` folded into `/compare`) |
 | Mockup-first, public-safe, no app-code imports | shipped | `design/mockups/website-*` + `website/` package boundary (packages/ui primitives only) |
-| **Lighthouse ≥95** | shipped-with-honest-gap | Mobile perf 95–96, a11y/BP/SEO 100 and desktop perf 100 on all six phase-2 routes (`design/qa-p34-website-phase-2/REVIEW.md` Lighthouse tables + JSON evidence). Gap: evidence predates ~35 later commits (mostly non-website: 92524cd ADR docs touched the docs bundle only) and CI does not re-run Lighthouse — re-run at publishing time. No net-new page content has shipped since |
+| **Lighthouse ≥95** | shipped-with-honest-gap | Re-run 2026-10-02 on a fresh production build, 7 routes × mobile+desktop: mobile perf 95–96, desktop perf 100, a11y/BP/SEO 100 everywhere (`design/qa-p34-spec-verdict-sweep/lighthouse/`). The stale-evidence gap is closed; what remains is that CI does not run Lighthouse — re-run at publishing |
 | WCAG AA on the site | shipped | Lighthouse a11y 100 on all six routes, brief binding gates carried to every website lane |
-| **PostHog aggregate analytics only** | missing-with-owner | No analytics on the site today. `website/README.md` states phase-1 ships no analytics and bars third-party scripts, and no PostHog integration exists in `website/` (verified by search): no tracking, no aggregate. The §7 bar says "if analytics ever ship, PostHog aggregate-only". The site ships none, so the bar holds vacuously while the PostHog leg itself is unshipped. Claimed as a follow-up: a bounded lane to add PostHog aggregate-only (no cookies, no per-user identifiers) behind a config flag with an explicit off state, satisfying §7 literally |
+| **PostHog aggregate analytics only** | shipped-with-honest-gap | The aggregate-only leg shipped (`website/lib/analytics.ts` + `components/page-view.tsx`, p34-verdicts-closeout): off unless `NEXT_PUBLIC_POSTHOG_KEY` is set (the literal `off` counts as off), one cookie-free ping per pageview, no identity of any kind, DNT + GPC honored, no SDK dependency. Re-proven against a live browser on 2026-10-02 (`design/qa-p34-spec-verdict-sweep/captures/analytics-off/mode-off.json`, `analytics-on/mode-on.json`): off = zero third-party requests and empty cookies/storage, on = exactly one ping per page. Honest gap: it ships disabled by default — enabling is operator configuration, which is the documented posture |
 | The site never imports product app code | shipped | `website/` is a separate Next app with imports restricted to packages/ui primitives |
 
 ## §1 product-module bullets — the short list (each walked individually)
@@ -149,7 +149,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | Ticketing: `boards/groups/favorites`, `my-work`, lifecycle, custom statuses, custom fields/JSONB, SLA `calendar-aware`, automations, structured notes+checklists, `email-in/out` threading, `merge/parent/major-incident`, tags | shipped | as per Stage 2 table above |
 | Time: `multi-timer` `server-authoritative`, `per-segment` pause reasons, `single-active`, `missing-time` detection (activity gap + EOD nudges + manager gap reports), bulk review, manager approval queues + `billing-period` locking, cost vs bill rates, work roles/types as rate modifiers | shipped-with-honest-gap | everything shipped except: manager "gap reports" surface is the EOD strip + queue rather than a standalone report, and **work_type is free text** with no taxonomy until Wave 39 lane 1 (time categories, 0110) lands. Claimed in Wave 39 |
 | Clients: company→site→contact→asset hierarchy, per-client visibility, contextual external deep links | shipped | `/api/v1/clients/{id}/{sites,contacts,assets}`, `pod-visibility`, `assets/{id}/integration-links`, OAuth-style per-tenant integration links |
-| Scheduling & dispatch: personal/team/dispatch calendars, on-call, iCal feed, two-way sync, dispatch board (capacity, queue, DnD, conflicts, travel estimates, skill matching, **ghost placements**, **live presence**, `curated` per-tech `work-next` queues), **resource planning**, dispatch connector API | shipped-with-honest-gap | board DnD ships a real dashed **ghost placement** preview (drag state reducer + keyboard ghost seeding, `apps/web/app/dispatch/page.tsx`) and real-time presence (realtime hub presence events). Both shipped. The `curated per-tech work-next queues` bullet: NOT shipped. The board has the P1–P4-filterable unassigned QUEUE, skill-match (`/api/v1/dispatch/match`), and routing-grade suggestions (swap/reassign, requiring a measured provider), but no persisted per-technician ordering (no entity, no endpoint). Claimed below. Resource planning gap as per the Stage 3 table |
+| Scheduling & dispatch: personal/team/dispatch calendars, on-call, iCal feed, two-way sync, dispatch board (capacity, queue, DnD, conflicts, travel estimates, skill matching, **ghost placements**, **live presence**, `curated` per-tech `work-next` queues), **resource planning**, dispatch connector API | shipped | board DnD ships a real dashed **ghost placement** preview (drag state reducer + keyboard ghost seeding, `apps/web/app/dispatch/page.tsx`) and real-time presence (realtime hub presence events). The `curated per-tech work-next queues` bullet closed via `dispatch_work_next_queue` (0116) + the board panel — walk-verified live 2026-10-02 (the planning captures show the `curated` queue with entries). Resource planning shipped as per the Stage 3 row. Two-way sync kinds shipped as per the Stage 4 row |
 | Projects module | shipped-with-honest-gap | as per Stage 3 table (dated Gantt/budget view + milestone consumer open) |
 | Commercial module | shipped | Stage 3 table |
 | Invoicing module | shipped | Stage 3 table, QBO/Xero export posture correct |
@@ -172,10 +172,10 @@ citation. Where it is code, the citation names the module or endpoint.
 | AuthN/Z stack | shipped | Stage 1/2 rows, SAML/SCIM out of scope per §10 |
 | Plugins: Extism + TS SDK + capability consent + audit-logged invocations | shipped | Wave 14 lane 5 + Wave 34 lane 4 |
 | AI hooks: thin `CompletionProvider` + BYOK, bundled faster-whisper + bge-class in container, Ollama documented | shipped-with-honest-gap | provider seam + transcription edge shipped (network provider model, BYOK). The container-bundling leg is a deployment-layer choice: self-host docs document Ollama/whisper serving, no model binaries in the build. **Closed by the Wave 34 claims close-out (claim 9) as a recorded decision** — see `docs/site/reference/self-host-local-ai.md` for the reasoning and the shipped `ai` compose profile |
-| Mail: Postmark/SES/self-host, inbound → ClamAV → threading | shipped-with-honest-gap | Postmark + SMTP shipped, clamd scan wired. SES adapter not built (documented third choice behind the trait, none-mode posture) |
+| Mail: Postmark/SES/self-host, inbound → ClamAV → threading | shipped | Postmark + SMTP + SES all shipped (the closeout lane's SES v2 adapter with hand-rolled SigV4), clamd scan wired. The walk's detail captures show SES in the shipped transport select and its sealed-credential form (`settings-email-transport-open.png`, `settings-email-ses-form.png`, 2026-10-02) |
 | Storage: S3-compatible trait, Garage self-host, R2/S3 adapters | shipped | `core-store::ObjectStore`, Garage compose slot |
 | Routing/geocoding: RoutingProvider trait, OSRM/ORS default, Mapbox adapter | shipped | + TravelTime/Geoapify as relays (ADR 0014) |
-| Observability: OTel, Grafana/Loki/Tempo, GlitchTip, Uptime Kuma | shipped-with-honest-gap | OTel + Grafana/Loki/Tempo + GlitchTip all in compose and visible to the operator (Wave 36 lane 3). Uptime Kuma status page is not in the compose stack, claimed below |
+| Observability: OTel, Grafana/Loki/Tempo, GlitchTip, Uptime Kuma | shipped | OTel + Grafana/Loki/Tempo + GlitchTip all in compose and visible to the operator (Wave 36 lane 3). Uptime Kuma landed on the `observability` profile (p34-verdicts-closeout row 7: digest-pinned 2.5.5, verified with `docker compose --profile observability config`) |
 | Docs/API: Starlight in-repo, generated API docs → Scalar | shipped | Diátaxis `docs/site/` (68+ pages, check-docs gate), generated `reference/api.md`, Scalar UI |
 | Tooling: cargo workspace + pnpm + Turborepo, Changesets + conventional commits, GHCR digest-pinned + SBOM + provenance | shipped-with-honest-gap | cargo+pnpm+turbo live. Changesets is configured but unused (`changesets.yml.disabled`). GHCR+SBOM+provenance are `release.yml.disabled` definitions awaiting the user-gated trigger + Wave 38 hardening |
 
@@ -194,20 +194,27 @@ citation. Where it is code, the citation names the module or endpoint.
 
 1. **Dispatch resource-planning read models** (per-phase tech allocation
    across project phases + capacity forecasting spanning service+project).
+   **CLOSED (2026-09-30, p34-verdicts-closeout); walk-verified live
+   2026-10-02** — the planning captures show live percent-days load, a
+   dated phase allocation, and the forecast panels on the shipped app.
 2. **`Curated` per-tech work-next queues** on the dispatch board (the §1
    bullet: a persisted per-technician ordering, not today's filterable
-   unassigned queue).
+   unassigned queue). **CLOSED (2026-09-30); walk-verified live
+   2026-10-02** — the `curated` queue renders with entries on the walked
+   app.
 3. **PostHog aggregate analytics on the website** (aggregate-only, cookie-free,
    config-gated) behind the §7 quality bar. **CLOSED (2026-09-30).** Off
    unless `NEXT_PUBLIC_POSTHOG_KEY` is set (or literally `off`), one
-   cookie-free beacon per pageview, no identity of any kind: no cookies, no
+   cookie-free ping per pageview, no identity of any kind: no cookies, no
    localStorage/sessionStorage, a fresh random `distinct_id` per event,
    `$process_person_profile: false`, pathname only (no query string), no
    referrer, and DNT + GPC honored. No SDK dependency, so `website/` stays
    frozen per D10 and the shared bundle is unchanged at 102 kB. Proven
    against a live browser in both modes
    (`scripts/p34-website-analytics-capture.mjs`): off = zero third-party
-   requests, on = exactly one beacon per page with a 274-byte JSON body.
+   requests, on = exactly one ping per page with a 274-byte JSON body.
+   Re-proven 2026-10-02 (`design/qa-p34-spec-verdict-sweep/captures/`
+   `analytics-off/`, `analytics-on/`).
 4. **Preview-environment CI leg** — cannot be enabled from a lane (triggers
    are user-gated); the scaffold/compose work needed to make a preview env
    possible is claimed, activation stays with the user. **Scaffold + compose
@@ -223,14 +230,22 @@ citation. Where it is code, the citation names the module or endpoint.
    **Owner: user** for the rename, the host, and the wildcard DNS/TLS.
 5. **Calendar-sync Google Workspace + M365 provider kinds** on the shipped
    `CalendarSyncProvider` seam (ical is the only implemented kind today).
+   **CLOSED (2026-09-30); kinds verified in the shipped connect form
+   2026-10-02** (`calendar-source-kinds.png` + `.json`).
 6. **Projects dated-Gantt + phase-budget surfaces** — Wave 39 lane 4
    (`p39-project-billing`) already claims the milestone→invoice
    consumer; a UI lane owes the dated Gantt and phase budget/burn
-   view beyond it.
+   view beyond it. **CLOSED (2026-09-30)** — dated Gantt + burn shipped
+   by p34-verdicts-closeout; the walk did not capture `/projects/[id]`,
+   so the closeout record is the citation.
 7. **Uptime Kuma status page** in the self-host compose/observability
    profile (the one §2 observability row_item not shipped).
+   **CLOSED (2026-09-30)** — digest-pinned on the `observability`
+   profile, compose-config verified.
 8. **Reconciliation-report verification run** (QBO sandbox sync vs native
    side-by-side evidence artifact, the Stage-3 acceptance form).
+   **CLOSED as an acceptance artifact (2026-09-30), green, with the QBO
+   sandbox leg recorded as an operator gap.**
 9. **Bundled local whisper/embeddings container leg** — package the
    documented bundled-models path (or record a final operator-side-only
    decision) for the §2 AI-hooks row. **CLOSED as a decision (2026-09-30,
@@ -241,19 +256,32 @@ citation. Where it is code, the citation names the module or endpoint.
    the transcription seam (which already resolved `ollama` as a
    first-class provider) and `nomic-embed-text` is the model that meets
    the 768-dimension `SEARCH_EMBEDDING_DIM` contract natively. The
-   reasoning — a model is data rather than a dependency, weights are
+   reasoning (a model is data rather than a dependency, weights are
    per-architecture while this stack is multi-arch by construction, and
-   the seam already exists — is recorded with the trade-offs in
+   the seam already exists) is recorded with the trade-offs in
    `docs/site/reference/self-host-local-ai.md`, with the operator procedure
    in `docs/site/how-to/admin-local-ai-models.md`. **Owner: operator.**
    No model weights ship in any Marula image, before or after.
 10. **SES mail adapter** — the third `MailTransport` choice, documented
-    but not built (bounded one-adapter job).
+    but not built (bounded one-adapter job). **CLOSED (2026-09-30)** —
+    shipped with hand-rolled SigV4; verified in the shipped transport UI
+    2026-10-02 (`settings-email-transport-open.png`,
+    `settings-email-ses-form.png`).
+11. **Portal signed-in session hardening** — **UNCHECKED.** The 2026-10-02
+    walk found the portal's signed-in surfaces unreachable on the shipped
+    build: (a) an in-page `login()` never updates `PortalAuthProvider`
+    (restore runs once at mount), so `useRequirePortalAuth` bounces the
+    freshly authenticated session back to `/portal/login`; (b)
+    `marula_csrf` ships HttpOnly contrary to the double-submit design
+    comment (`crates/core-api/src/auth/cookies.rs`), so the cookie-driven
+    `POST /api/v1/portal/refresh` can never pass `double_submit_ok` and a
+    full page load cannot re-auth. Owner: a web + core-api lane. Evidence:
+    `design/qa-p34-spec-verdict-sweep/REVIEW.md` batch 5 (captures show
+    the sign-in gate; probes + code spans named).
 
 Deliberate documented decisions (NOT follow-ups): optional client
 approvals on time entries stay manager-only (owner decision recorded
-above). SES stays the documented third choice until item 10 is picked up
-or dropped by the user. GA-gates re-enable stays USER-GATED (below).
+above). GA-gates re-enable stays USER-GATED (below).
 
 ## `ga-gates.yml.disabled` re-enable list — USER-GATED
 
