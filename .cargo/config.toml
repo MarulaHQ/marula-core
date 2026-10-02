@@ -1,7 +1,7 @@
 # Shared build cache across main + all agent worktrees (disk guardrails DX6).
 # Machine-local; gitignored. See TASKLIST DX6 and .kilo/setup-script.
 [build]
-target-dir = "/Users/iordn/Documents/GitHub/meridian-open-psa-core/.kilo/target-shared"
+target-dir = "/Users/iordn/Documents/GitHub/Marula/marula-core/.kilo/target-shared"
 
 # DX6b disk guardrail (2026-09-17): cargo has no GC for incremental sessions —
 # every re-run of a test cycle left another full session behind (132 sessions,

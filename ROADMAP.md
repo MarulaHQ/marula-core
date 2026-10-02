@@ -61,6 +61,11 @@ the [changelog](CHANGELOG.md) records what changed.
 
 ## Later
 
+- **Commercial intelligence.** Describe a new quote or contract in plain
+  language, or drop in the meeting notes from the call, and the agent drafts
+  the document from the catalog, pricing and terms you already keep, under the
+  same per-surface gate as every other AI help. Drafts are proposals: edited
+  and approved by a person before anything reaches a client.
 - **Client-facing finishing holes.** Quote approval from the client portal,
   satisfaction surveys on resolution, canned replies for ticket work.
 - **More of the plugin surface.** UI widgets, automation steps, and report

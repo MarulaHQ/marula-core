@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-PACK = Path.home() / "Documents/GitHub/meridian-open-psa-core/brand/marula-mockups/marula-surface-pack/source/tickets-list.html"
+PACK = REPO / "brand/marula-mockups/marula-surface-pack/source/tickets-list.html"
 LEDGER = REPO / "apps/web/app/ledger.css"
 
 # (label, the pack's declared value, what the lane must resolve it to)

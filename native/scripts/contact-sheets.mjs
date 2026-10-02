@@ -17,7 +17,7 @@ const outDir = path.join(root, "design/qa-p41-ui-mobile/captures");
 const sheetsDir = path.join(root, "design/qa-p41-ui-mobile/sheets");
 
 /** The pack's own PNG for each state, when it has one. */
-const PACK = "/Users/iordn/Documents/GitHub/meridian-open-psa-core/brand/marula-mockups/marula-surface-pack/mobile";
+const PACK = path.join(root, "brand/marula-mockups/marula-surface-pack/mobile");
 const PACK_STATES = {
   "board-list": "01-board-list",
   "ticket-detail": "02-ticket-detail",
