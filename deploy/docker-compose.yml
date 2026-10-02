@@ -137,10 +137,14 @@ services:
     tmpfs:
       - /tmp
     # Fail writes loudly (noeviction) rather than silently evicting queue
-    # state; 192mb keeps the process inside its 384m ceiling.
-    command: ["valkey-server", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
+    # state; 192mb keeps the process inside its 384m ceiling. protected-mode
+    # is OFF because the dev stack reaches Valkey through the published port
+    # (Docker's proxy arrives from the gateway IP, which protected mode
+    # denies — the DHI image enables it by default); the loopback bind keeps
+    # that reachable only from this host.
+    command: ["valkey-server", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction", "--protected-mode", "no"]
     ports:
-      - "16379:6379"
+      - "127.0.0.1:16379:6379"
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 3s

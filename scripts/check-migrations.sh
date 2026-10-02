@@ -33,14 +33,16 @@ for f in "$migrations_dir"/*.sql; do
 
   hits=$(grep -inE \
     '^\s*(DROP\s+(TABLE|DATABASE|SCHEMA|INDEX|CONSTRAINT|POLICY)|TRUNCATE)|DROP\s+COLUMN|ALTER\s+COLUMN\s+\S+\s+TYPE' \
-    "$f" || true)
+    "$f" | grep -vE '^[0-9]+:[[:space:]]*--' || true)
+
+  # Comment lines are not statements: prose may name DROP safely.
 
   # Unfiltered UPDATE/DELETE (whole-table data loss): statement starts a line
   # and carries no WHERE on that line. Keyed off the statement keyword so
   # `ON DELETE CASCADE;` fragments inside ADD COLUMN lines never match.
   unfiltered=$(grep -inE \
     '^\s*(DELETE\s+FROM\s+\S+\s*;|UPDATE\s+\S+\s+SET\b[^;]*;)' \
-    "$f" | grep -ivE 'where' || true)
+    "$f" | grep -ivE 'where' | grep -vE '^[0-9]+:[[:space:]]*--' || true)
   hits="${hits}${unfiltered}"
 
   # Deliberate whole-table backfills in ALREADY-SHIPPED migrations. Shipped
@@ -54,9 +56,21 @@ for f in "$migrations_dir"/*.sql; do
     # becomes its own chain root (see the comment above the statement);
     # no data is lost.
     '0013_auth_hardening.sql:UPDATE auth_sessions SET chain_id = id;'
+
+    # 0112/0113: widening invoice_lines' kind vocabulary. PG CHECK constraints
+    # have no ON-UPDATE alter, so the kind check and the two unique indexes
+    # are dropped and recreated over the widened value list; rows untouched.
+    '0112_wave39_contract_types.sql:DROP INDEX IF EXISTS uq_invoice_lines_period;'
+    '0112_wave39_contract_types.sql:DROP INDEX IF EXISTS uq_invoice_lines_fixed_fee;'
+    '0113_wave39_project_billing.sql:DROP INDEX IF EXISTS uq_invoice_lines_fixed_fee;'
+
+    # 0116/0120: same drop-and-re-add of a named CHECK constraint when its
+    # value list widens (calendar providers; time-entry actions). No rows.
+    '0116_wave34_claims_fixes.sql:DROP CONSTRAINT IF EXISTS calendar_sync_connections_provider_check;'
+    '0120_wave41_time_entry_fixed_action.sql:DROP CONSTRAINT IF EXISTS time_entry_approvals_action_check;'
   )
   filtered="$hits"
-  for entry in $migration_backfill_allowlist; do
+  for entry in "${migration_backfill_allowlist[@]}"; do
     stmt="${entry#*:}"
     filtered="$(printf '%s\n' "$filtered" | grep -vF -- "$stmt" || true)"
   done

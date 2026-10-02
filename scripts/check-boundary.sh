@@ -134,11 +134,14 @@ dep_rc=$?
 [ "$dep_rc" -ne 0 ] && failed=1
 rm -f /tmp/boundary-manifests.$$
 
-# Symlinks that escape the repository.
+# Symlinks that escape the repository. macOS/runner spelling differs between
+# pwd's logical path and readlink -f's physical path for the same directory,
+# so both spellings of the root are accepted as "inside".
+root_phys="$(readlink -f "$ROOT" 2>/dev/null || true)"
 while IFS= read -r link; do
   target="$(readlink -f "$link" 2>/dev/null || true)"
   case "$target" in
-    "$ROOT"/*|"") ;;
+    "$ROOT"/*|"$root_phys"/*|"") ;;
     *) echo "::error file=$link::symlink escapes the repository: $target"; failed=1 ;;
   esac
 done < <(find . -type l \( -not -path './.git/*' -not -path '*node_modules/*' \
@@ -147,12 +150,15 @@ done < <(find . -type l \( -not -path './.git/*' -not -path '*node_modules/*' \
 # The Cargo workspace must actually resolve. A member that does not exist makes
 # every cargo invocation fail, which silently turns the Rust gate into a no-op.
 missing=""
-while IFS= read -r member; do
-  [ -n "$member" ] || continue
-  [ -d "$member" ] || missing="$missing $member"
-done < <(awk '/^members *= *\[/,/^\]/' Cargo.toml \
-             | grep -E '^[[:space:]]*"' | grep -oE '"[^"]+"' | tr -d '"')
-if [ -n "$missing" ]; then
+if [ -f Cargo.toml ]; then
+  missing=""
+  while IFS= read -r member; do
+    [ -n "$member" ] || continue
+    [ -d "$member" ] || missing="$missing $member"
+  done < <(awk '/^members *= *\[/,/^\]/' Cargo.toml \
+               | grep -E '^[[:space:]]*"' | grep -oE '"[^"]+"' | tr -d '"')
+fi
+if [ -n "${missing:-}" ]; then
   fail "Cargo.toml" "workspace members do not exist:$missing"
 fi
 

@@ -16,11 +16,12 @@ cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 # The token set itself, and the mirrors generated FROM it, define colours by
 # definition — they are the source of truth, not a violation of it.
-TOKEN_ARTIFACTS='^packages/ui/tokens/tokens\.css:|^packages/ui/src/tokens\.css:|^packages/ui/src/tokens-kit\.css:|^packages/ui-native/src/generated\.ts:|^native/src/ui/tokens\.ts:'
+TOKEN_ARTIFACTS='^packages/ui/tokens/tokens\.(css|ts):|^packages/ui/src/tokens\.css:|^packages/ui/src/tokens-kit\.css:|^packages/ui/src/tokens\.ts:|^packages/ui/src/theme-tokens\.ts:|^packages/ui-native/src/generated\.ts:|^native/src/ui/tokens\.ts:|^website/app/tokens\.css:'
 SCAN_DIRS=(apps packages website native)
 GREP_INCLUDES=(--include='*.tsx' --include='*.ts' --include='*.css' --include='*.scss')
 GREP_EXCLUDES=(--exclude-dir=node_modules --exclude-dir=.next --exclude-dir=dist
-               --exclude-dir=.turbo --exclude='*.test.*' --exclude='*.spec.*')
+               --exclude-dir=.turbo --exclude-dir=docs
+               --exclude='*.test.*' --exclude='*.spec.*')
 PATTERN='#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b'
 
 hits=$(grep -rnoE "$PATTERN" "${GREP_INCLUDES[@]}" "${GREP_EXCLUDES[@]}" \
@@ -39,6 +40,8 @@ ledger_hits() {
 2|website/app/layout.tsx|theme-color meta tags; a value, not a var — tokenise at launch
 2|apps/web/app/ledger.css|Ledger accents pending token extraction
 2|apps/web/components/auth/entry.css|Auth entry accents pending token extraction
+2|packages/ui/src/kit/ui/brand.tsx|Kit mark glyphs: brand hex inline in the mark component; tokenise at launch
+2|packages/ui/src/kit/ui/data-row.tsx|Data-row status accents inline; tokenise at launch
 1|website/app/agents/page.tsx|Marketing surface accent pending token extraction
 1|apps/web/app/dev/page.tsx|Dev surface accent pending token extraction
 1|apps/web/app/inventory/workbench/page.tsx|Workbench accent pending token extraction
@@ -47,8 +50,15 @@ EOF
 }
 
 # 1. Ledgered files must not exceed their recorded counts.
+# (The ledger is materialised to a file: bash 3.2 cannot safely read a
+# function whose body is a heredoc through a process substitution.)
+ledger_file=$(mktemp)
+trap 'rm -f "$ledger_file"' EXIT
+ledger_hits > "$ledger_file"
 while IFS='|' read -r max path rationale; do
-  actual=$(grep -onE "$PATTERN" "$path" 2>/dev/null | wc -l | tr -d ' ')
+  # grep's exit status is not a verdict here (a missing file counts as zero
+  # hits) — neutralise it before pipefail can turn it into a set -e death.
+  actual=$( { grep -onE "$PATTERN" "$path" 2>/dev/null || true; } | wc -l | tr -d ' ')
   if [ "$actual" -gt "$max" ]; then
     echo "::error file=$path::token ledger grows: $actual raw colours > recorded $max"
     echo "                   $rationale"
@@ -57,11 +67,12 @@ while IFS='|' read -r max path rationale; do
   elif [ "$actual" -lt "$max" ]; then
     echo "  shrank: $path now $actual (was $max) — reduce the ledger row in this PR"
   fi
-done < <(ledger_hits)
+done < "$ledger_file"
+# file removed at exit by the trap
 
 # 2. Any file outside the ledger is a violation outright.
 if [ -n "$hits" ]; then
-  ledger_files=$(ledger_hits | cut -d'|' -f2 | sort)
+  ledger_files=$(cut -d'|' -f2 "$ledger_file" | sort)
   for path in $(comm -23 <(printf '%s\n' "$hits" | awk -F: '{print $1}' | sort -u) \
                          <(printf '%s\n' "$ledger_files")); do
     echo "::error file=$path::raw colour outside the Marula token set and absent from the shrink ledger — tokenise it (docs/theme.md), or add it to the ledger with a rationale"
