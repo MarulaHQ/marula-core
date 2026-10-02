@@ -13,8 +13,13 @@ import { chromium } from "playwright";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
-const outDir = path.join(root, "design/qa-p41-ui-mobile/captures");
-const sheetsDir = path.join(root, "design/qa-p41-ui-mobile/sheets");
+/** The capture dir + sheet dir this run reads and writes. Defaults are the
+ * mobile lane's evidence dirs; a verification lane passes --out/--sheets to
+ * keep its own record (capture-pack.mjs takes the matching --out). */
+const argValue = (name, fallback) =>
+  process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
+const outDir = path.join(root, argValue("out", "design/qa-p41-ui-mobile/captures"));
+const sheetsDir = path.join(root, argValue("sheets", "design/qa-p41-ui-mobile/sheets"));
 
 /** The pack's own PNG for each state, when it has one. */
 const PACK = path.join(root, "brand/marula-mockups/marula-surface-pack/mobile");
@@ -54,8 +59,12 @@ const GROUPS = [
   ["01-chrome", ["board-list", "ticket-detail", "note-composer", "time-day"]],
   ["02-sheets", ["stop-and-log", "more", "notifications", "deep-linked-open"]],
   ["03-auth", ["locked", "login", "mfa", "scan-camera"]],
-  ["04-scan", ["scan-found", "scan-unknown", "camera-off", "stock-item"]],
+  ["04-scan", ["scan-found", "scan-ambiguous", "scan-unknown", "camera-off", "stock-item"]],
   ["05-fieldops", ["stock-location", "stock-serial", "tool-checkout", "tool-overdue", "move", "asset-record"]],
+  // Wave 43 lane 7: the offline-queue proof (no pack sheet — the pack's
+  // scan-10 draws a scan-side save the build doesn't have; see
+  // capture-pack.mjs). Sheets render a "no pack state" placeholder.
+  ["06-offline", ["offline-note", "offline-queue", "offline-replay"]],
 ];
 
 const THEMES = ["light", "dark"];

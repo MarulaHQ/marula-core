@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # Seed the states this lane's captures need (Wave 41 lane 9).
 #
+# 2026-10-02 (Wave 43 lane 7): these fixtures are PROMOTED into the demo
+# seed — `seed-demo --force` now carries the vendors, purchase orders,
+# client loans, loaned serials, stock locations, and the SLA spread, so the
+# mechanical reseed in scripts/e2e-stack.sh produces them on every boot.
+# This script stays only to reproduce the assets-stock lane's committed
+# evidence against an older tree; running it against today's seed would
+# duplicate rows rather than add states.
+#
 # Why this exists: `seed-demo` gives the app assets and config items but leaves
 # stock, locations, client loans and tools EMPTY. Without this, every stock-side
 # capture would be an empty state and would prove nothing about the one rule
