@@ -12,9 +12,16 @@
  *   scan-camera, scan-found, scan-ambiguous, scan-unknown, camera-off,
  *   stock-item, stock-location, stock-serial, tool-checkout, tool-overdue,
  *   move + asset record (derived legs).
+ * Wave 43 lane 7 (p43-demo-fixture-coverage) added the states the seed now
+ * proves: scan-ambiguous (the shared DOCK-01 part resolves to two
+ * candidates) and the offline trio (note queues while forced offline, the
+ * inspector shows the pending op, the replay settles it). The pack's
+ * scan-10-offline-saved sheet itself stays undrawn — the scan surface has
+ * no offline-save path; the queue trio is the honest equivalent.
  *
  * Usage: boot the stack, start expo web (see capture-web.mjs header), then
- *   node native/scripts/capture-pack.mjs
+ *   node native/scripts/capture-pack.mjs [--only=a,b] [--theme=light|dark]
+ *   [--out=design/qa-<lane>/captures]
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHmac } from "node:crypto";
@@ -25,7 +32,14 @@ import { chromium } from "playwright";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
-const outDir = path.join(root, "design/qa-p41-ui-mobile/captures");
+/** Where captures land. Defaults to the mobile lane's evidence dir; a
+ * verification lane passes --out to keep its own record without touching
+ * the committed one. */
+const outDir = path.join(
+  root,
+  process.argv.find((value) => value.startsWith("--out="))?.slice(6) ??
+    "design/qa-p41-ui-mobile/captures",
+);
 
 /** The stack's own env file — never hand-set ports (see serve-capture-web.sh). */
 async function stackEnv() {
@@ -96,7 +110,9 @@ async function writeTotpSecret(secret) {
 }
 
 /** RFC 6238 TOTP (SHA-1, 30s, 6 digits) — the real code the server expects. */
-function totp(base32Secret) {
+/** Same as [`totp`], but for an explicit 30s counter window — the disable
+ * call needs the NEXT window after verify consumed one (replay protection). */
+function totpAt(base32Secret, counter) {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = "";
   for (const char of base32Secret.replace(/=+$/, "").toUpperCase()) {
@@ -106,7 +122,6 @@ function totp(base32Secret) {
   }
   const bytes = [];
   for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(parseInt(bits.slice(i, i + 8), 2));
-  const counter = Math.floor(Date.now() / 1000 / 30);
   const buffer = Buffer.alloc(8);
   buffer.writeBigUInt64BE(BigInt(counter));
   const digest = createHmac("sha1", Buffer.from(bytes)).update(buffer).digest();
@@ -117,6 +132,10 @@ function totp(base32Secret) {
     ((digest[offset + 2] & 0xff) << 8) |
     (digest[offset + 3] & 0xff);
   return String(code % 1_000_000).padStart(6, "0");
+}
+
+function totp(base32Secret) {
+  return totpAt(base32Secret, Math.floor(Date.now() / 1000 / 30));
 }
 
 /**
@@ -244,6 +263,17 @@ const STATES = [
     await page.click('[data-testid="scan-resolve"]').catch(() => {});
     await page.waitForTimeout(2200);
   }],
+  ["scan-ambiguous", async (page) => {
+    // The seed carries TWO stock items sharing the DOCK-01 part number (and
+    // two locations sharing SHELF-B) — a scan of that code resolves to two
+    // candidates and the picker asks which one, exactly the pack's
+    // scan-03 sheet.
+    await page.goto(`${WEB_URL}/scan`, { waitUntil: "domcontentloaded" });
+    await settle(page, '[data-testid="scan-input"]', 800);
+    await page.fill('[data-testid="scan-input"]', "DOCK-01").catch(() => {});
+    await page.click('[data-testid="scan-resolve"]').catch(() => {});
+    await settle(page, '[data-testid="scan-pick-sheet"]', 2200);
+  }],
   ["camera-off", async (page) => {
     await page.locator('[data-testid="scan-camera"]').click().catch(() => {});
     await page.waitForTimeout(1200);
@@ -285,6 +315,103 @@ const STATES = [
   ["asset-record", async (page) => {
     await page.goto(`${WEB_URL}/notifications`, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(800);
+  }],
+  ["offline-note", async (page) => {
+    // The pack's offline-saved state, honestly equivalent: warm the models
+    // while online, force the app offline (the dev airplane toggle), then
+    // save an internal note — the write queues with the "Saved on this
+    // device" banner instead of a spinner, and nothing is lost. The scan
+    // surface itself has no offline-save path (see the header note), so the
+    // note is the write that proves the queue.
+    //
+    // NAVIGATION RULE: `forcedOffline` is in-memory state, so every move
+    // after the toggle must be IN-APP (clicks) — a page.goto would reload
+    // the shell and drop the flag.
+    await page.goto(`${WEB_URL}/notifications`, { waitUntil: "domcontentloaded" });
+    await settle(page, '[data-testid="notifications-screen"]', 1500);
+    const warmRow = page.locator('[data-testid^="notification-"]').first();
+    if ((await warmRow.count()) > 0) {
+      await warmRow.click();
+      await settle(page, '[data-testid="ticket-action-note"]', 1400, 120_000);
+    }
+    await page.goto(`${WEB_URL}/more`, { waitUntil: "domcontentloaded" });
+    await settle(page, '[data-testid="more-airplane-toggle"]', 1500);
+    await page.locator('[data-testid="more-airplane-toggle"]').click();
+    await settle(page, '[data-testid="banner-offline"]', 3000);
+    await page.locator('[data-testid="more-notifications"]').click();
+    await settle(page, '[data-testid="notifications-screen"]', 2000);
+    await page.locator('[data-testid^="notification-"]').first().click();
+    await settle(page, '[data-testid="ticket-action-note"]', 1500);
+    await page.locator('[data-testid="ticket-action-note"]').click();
+    await settle(page, '[data-testid="note-composer-sheet"]', 900);
+    await page
+      .locator('[data-testid="composer-kind-note"]')
+      .click({ force: true, timeout: 8_000 })
+      .catch(() => {});
+    await page
+      .fill(
+        '[data-testid="note-composer-input"]',
+        "Offline note — typed past the last mile; replays when the van is back in range.",
+      )
+      .catch(() => {});
+    await page.locator('[data-testid="note-composer-send"]').click().catch(() => {});
+    // The send closes the sheet itself; the banner clears after ~4s, so the
+    // frame is taken the moment the queueing is confirmed.
+    await page
+      .getByText("Saved on this device")
+      .first()
+      .waitFor({ timeout: 12_000 });
+  }],
+  ["offline-queue", async (page) => {
+    // The queued op itself: the inspector lists what the replay will send,
+    // with the per-op audit trail. CAUTION: expo-router web keeps tab
+    // screens MOUNTED under pushed routes — `[data-testid="more-screen"]`
+    // matches even while a ticket covers it, so a count check lies and the
+    // click times out on a covered element. Route by URL: pop real history
+    // until /more is the live route, then take the dev row in-app (the
+    // offline flag must never ride through a reload).
+    await page.locator('[data-testid="ticket-back"]').first().click();
+    await settle(page, '[data-testid="notifications-screen"]', 1500);
+    for (let i = 0; i < 4; i += 1) {
+      if (page.url().replace(/\/$/, "").endsWith("/more")) break;
+      await page.goBack({ timeout: 8_000 }).catch(() => {});
+      await page.waitForTimeout(700);
+    }
+    if (!page.url().replace(/\/$/, "").endsWith("/more")) {
+      throw new Error(`offline-queue never reached /more (at ${page.url()})`);
+    }
+    await page
+      .locator('[data-testid="more-screen"]')
+      .getByText("Offline queue inspector")
+      .first()
+      .click();
+    await settle(page, '[data-testid="queue-screen"]', 1600);
+    await page
+      .locator('[data-testid^="queue-op-"]')
+      .first()
+      .waitFor({ timeout: 8_000 });
+  }],
+  ["offline-replay", async (page) => {
+    // Back online WITHOUT a reload: toggling the airplane off flips the
+    // connectivity state in-session, the engine flushes the queued op, and
+    // the inspector moves it under "Settled this session" — same session,
+    // so the settled list still remembers the op (a reload would reset it).
+    await page.getByText("‹ Back").first().click();
+    await settle(page, '[data-testid="more-screen"]', 1500);
+    await page.locator('[data-testid="more-airplane-toggle"]').click();
+    await page
+      .locator('[data-testid="banner-offline"]')
+      .first()
+      .waitFor({ state: "hidden", timeout: 8_000 });
+    await page.waitForTimeout(1500);
+    await page
+      .locator('[data-testid="more-screen"]')
+      .getByText("Offline queue inspector")
+      .first()
+      .click();
+    await settle(page, '[data-testid="queue-screen"]', 1600);
+    await page.getByText("Settled this session").first().waitFor({ timeout: 12_000 });
+    await page.waitForTimeout(500);
   }],
   ["mfa", async (page) => {
     // The demo owner is TOTP-enrolled; a real gated sign-in lands on the code
@@ -382,24 +509,36 @@ async function unenrollTotpForMfaUser() {
   });
   if (!signIn.ok) return;
   let body = await signIn.json();
+  let usedCounter = null;
   if (typeof body.access_token !== "string") {
     // The owner is gated by the very factor we enrolled: spend the stored
     // secret to get a session, then turn the factor off.
-    const verified = await fetch(`${API_URL}/api/v1/auth/mfa/verify`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mfa_token: body.mfa_token, code: totp(secret) }),
-    });
-    if (!verified.ok) return;
+    const nowCounter = Math.floor(Date.now() / 1000 / 30);
+    let verified = null;
+    for (const counter of [nowCounter - 1, nowCounter, nowCounter + 1]) {
+      verified = await fetch(`${API_URL}/api/v1/auth/mfa/verify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mfa_token: body.mfa_token, code: totpAt(secret, counter) }),
+      });
+      if (verified.ok) {
+        usedCounter = counter;
+        break;
+      }
+    }
+    if (usedCounter === null) return;
     body = await verified.json();
   }
+  // Replay protection: the disable call must present a code from a window
+  // the verify did NOT consume — the next one.
+  const disableCounter = (usedCounter ?? Math.floor(Date.now() / 1000 / 30)) + 1;
   const response = await fetch(`${API_URL}/api/v1/auth/mfa/totp/disable`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${body.access_token}`,
     },
-    body: JSON.stringify({ password: PASSWORD, code: totp(secret) }),
+    body: JSON.stringify({ password: PASSWORD, code: totpAt(secret, disableCounter) }),
   });
   console.log(
     response.ok

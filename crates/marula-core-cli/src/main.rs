@@ -433,6 +433,13 @@ fn print_seed_summary(report: &core_db::demo::DemoSeedReport) {
                 report.pm_schedules, report.automation_rules, report.plugin_installs
             ),
         ),
+        (
+            "vendors / orders / client loans",
+            format!(
+                "{} / {} / {}",
+                report.vendors, report.purchase_orders, report.client_loans
+            ),
+        ),
     ];
     println!();
     println!("demo org seeded");

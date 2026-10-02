@@ -111,6 +111,39 @@ async fn reset_reseed_loop_converges_to_the_same_shape() {
     assert_eq!(count(&db, "SELECT count(*) FROM alert_incidents").await, 2);
     assert_eq!(count(&db, "SELECT count(*) FROM report_schedules").await, 1);
     assert_eq!(count(&db, "SELECT count(*) FROM webhooks").await, 1);
+    // Field-ops fixtures (promoted from the assets-stock lane's capture
+    // script): two vendors, three purchase orders (two ordered, one draft),
+    // three open client loans, and their loaned serials.
+    assert_eq!(second.vendors, 2);
+    assert_eq!(second.purchase_orders, 3);
+    assert_eq!(second.client_loans, 3);
+    assert_eq!(count(&db, "SELECT count(*) FROM vendors").await, 2);
+    assert_eq!(count(&db, "SELECT count(*) FROM purchase_orders").await, 3);
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM purchase_orders WHERE status = 'ordered'"
+        )
+        .await,
+        2
+    );
+    assert_eq!(count(&db, "SELECT count(*) FROM client_loans").await, 3);
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM stock_serials WHERE status = 'loaned'"
+        )
+        .await,
+        3
+    );
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM stock_movements WHERE kind = 'loan'"
+        )
+        .await,
+        3
+    );
 
     // Fixed ids survive the loop: the owner login exists, once.
     assert_eq!(
@@ -194,6 +227,55 @@ async fn time_travel_shifts_sla_windows_back() {
         demo::time_travel(&db.app, 0).await,
         Err(demo::DemoError::InvalidHours)
     ));
+}
+
+/// The two pill states the mobile pack draws — one breached, one still
+/// counting down — exist as seeded SLA rows, and the ambiguous-scan inputs
+/// resolve to more than one candidate. This is the seed-level pin for the
+/// pack states the board and the scan sheets render.
+#[tokio::test]
+async fn sla_spread_and_scan_ambiguity_survive_the_seed() {
+    let (db, _guard) = fresh_demo_db().await;
+
+    // At least one seeded SLA row is already past due and one is due within
+    // the hour — the "Breached" and "…m left" states.
+    let breached: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ticket_sla_state
+          WHERE breached = false AND resolution_due < now()",
+    )
+    .fetch_one(&db.admin)
+    .await
+    .unwrap();
+    let due_soon: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ticket_sla_state
+          WHERE resolution_due BETWEEN now() AND now() + interval '1 hour'",
+    )
+    .fetch_one(&db.admin)
+    .await
+    .unwrap();
+    assert!(breached >= 1, "a seeded row must already be breached");
+    assert!(due_soon >= 1, "a seeded row must be due within the hour");
+
+    // Scanning the shared part number and the shared location code each
+    // yield more than one candidate — the ambiguity picker's whole reason
+    // to exist.
+    let mut tx = db.app.begin().await.unwrap();
+    core_db::set_org(&mut tx, DEMO_ORG_ID).await.unwrap();
+    let items = core_db::labels::find_items_by_code(&mut *tx, DEMO_ORG_ID, "DOCK-01", 8)
+        .await
+        .unwrap();
+    assert!(
+        items.len() > 1,
+        "the shared DOCK-01 part number must resolve to two candidates"
+    );
+    let locations = core_db::labels::find_locations_by_code(&mut *tx, DEMO_ORG_ID, "SHELF-B", 8)
+        .await
+        .unwrap();
+    assert!(
+        locations.len() > 1,
+        "the shared SHELF-B location code must resolve to two candidates"
+    );
+    tx.commit().await.unwrap();
 }
 
 #[tokio::test]

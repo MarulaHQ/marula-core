@@ -130,6 +130,12 @@ pub struct DemoSeedReport {
     pub pm_schedules: usize,
     pub automation_rules: usize,
     pub plugin_installs: usize,
+    /// Field-ops fixtures promoted from the assets-stock lane's capture
+    /// script (Wave 43 lane 7): the stock cluster's loans and purchasing
+    /// legs carry real severity states.
+    pub vendors: usize,
+    pub purchase_orders: usize,
+    pub client_loans: usize,
     /// (email, role) login pairs, in summary-table order.
     pub logins: Vec<(&'static str, &'static str)>,
     pub password: &'static str,
@@ -1415,6 +1421,287 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         .bind(demo_uuid(if serial == 920 { 960 } else { 962 }))
         .execute(&mut *tx)
         .await?;
+    }
+
+    // --- field purchasing + client loans -----------------------------------
+    // Promoted from the assets-stock lane's capture fixtures
+    // (scripts/seed-lane9-capture-fixtures.sh): the web stock cluster's
+    // loans and purchasing legs, and the pack's overdue-red states, need
+    // this data and seed-demo had none of it. Issued through the REAL write
+    // paths (`issue_loan`, `insert_purchase_order` + `mark_ordered`) — the
+    // same invariants and ledger legs tenant traffic exercises — rather
+    // than hand-rolled rows. Deterministic shape (fixed ids, fixed offsets
+    // from `now`); the write paths generate their own v7 ids, which the
+    // reset-loop test tolerates by counting, not diffing.
+    struct DemoVendor {
+        id: u64,
+        name: &'static str,
+        currency: &'static str,
+        email: Option<&'static str>,
+        phone: Option<&'static str>,
+    }
+    let vendor_specs = [
+        DemoVendor {
+            id: 993,
+            name: "Meridian Cable Co",
+            currency: "USD",
+            email: Some("orders@meridiancable.test"),
+            phone: None,
+        },
+        DemoVendor {
+            id: 994,
+            name: "Kestrel Instrument",
+            currency: "GBP",
+            email: None,
+            phone: Some("+44 20 7946 0102"),
+        },
+    ];
+    let mut vendor_ids = Vec::with_capacity(vendor_specs.len());
+    for spec in &vendor_specs {
+        let vendor = core_domain::entities::purchasing::Vendor {
+            id: demo_uuid(spec.id),
+            org_id: DEMO_ORG_ID,
+            name: spec.name.to_string(),
+            code: None,
+            email: spec.email.map(str::to_string),
+            phone: spec.phone.map(str::to_string),
+            website: None,
+            account_number: None,
+            default_currency: spec.currency.to_string(),
+            notes: None,
+            active: true,
+            created_by: Some(owner),
+            created_at: now,
+            updated_at: now,
+        };
+        vendor
+            .validate()
+            .map_err(|e| DbError::Conflict(e.to_string()))?;
+        crate::purchasing::insert_vendor(&mut *tx, &vendor).await?;
+        trail_system_write(
+            &mut tx,
+            "vendor",
+            vendor.id,
+            serde_json::to_value(&vendor).unwrap_or_default(),
+        )
+        .await?;
+        vendor_ids.push(vendor.id);
+    }
+
+    /// (vendor index, expected offset in days from today, ordered, lines).
+    /// Two ordered orders — one inside its window, one past its expected
+    /// date (the red state) — plus one draft for ledger variety.
+    struct DemoOrder {
+        vendor: usize,
+        expected_days: i64,
+        ordered: bool,
+        lines: &'static [(&'static str, i64, i64)],
+    }
+    let order_specs = [
+        DemoOrder {
+            vendor: 0,
+            expected_days: 6,
+            ordered: true,
+            lines: &[
+                ("Cat6a patch cable, 2m", 2_000, 480),
+                ("24-port patch panel", 500, 18_500),
+            ],
+        },
+        DemoOrder {
+            vendor: 1,
+            expected_days: -9,
+            ordered: true,
+            lines: &[
+                ("Switch PSU 250W", 2_000, 4_200),
+                ("Thermal paste tube", 1_000, 1_250),
+            ],
+        },
+        DemoOrder {
+            vendor: 0,
+            expected_days: 21,
+            ordered: false,
+            lines: &[("USB-C dock, 10-pack", 300, 92_000)],
+        },
+    ];
+    let mut purchase_order_count = 0usize;
+    for spec in &order_specs {
+        let number = crate::purchasing::next_purchase_order_number(&mut *tx, DEMO_ORG_ID).await?;
+        let order = core_domain::entities::purchasing::PurchaseOrder {
+            id: Uuid::now_v7(),
+            org_id: DEMO_ORG_ID,
+            vendor_id: vendor_ids[spec.vendor],
+            number,
+            status: core_domain::entities::purchasing::PurchaseOrderStatus::Draft,
+            currency: "USD".into(),
+            vendor_reference: None,
+            project_id: None,
+            notes: None,
+            ordered_at: None,
+            expected_at: Some(today + Duration::days(spec.expected_days)),
+            closed_at: None,
+            close_kind: None,
+            cancelled_at: None,
+            cancel_reason: None,
+            created_by: Some(owner),
+            created_at: now,
+            updated_at: now,
+        };
+        order
+            .validate()
+            .map_err(|e| DbError::Conflict(e.to_string()))?;
+        crate::purchasing::insert_purchase_order(&mut *tx, &order).await?;
+        if spec.ordered {
+            crate::purchasing::mark_ordered(&mut *tx, DEMO_ORG_ID, order.id).await?;
+        }
+        for (position, (description, qty_milli, unit_cost_minor)) in spec.lines.iter().enumerate() {
+            let line = core_domain::entities::purchasing::PurchaseOrderLine {
+                id: Uuid::now_v7(),
+                org_id: DEMO_ORG_ID,
+                purchase_order_id: order.id,
+                stock_item_id: None,
+                catalog_item_id: None,
+                description: description.to_string(),
+                qty_ordered_milli: *qty_milli,
+                qty_received_milli: 0,
+                unit_cost_minor: *unit_cost_minor,
+                receipt_state: core_domain::entities::purchasing::ReceiptState::Pending,
+                position: position as i32,
+                created_at: now,
+                updated_at: now,
+            };
+            line.validate()
+                .map_err(|e| DbError::Conflict(e.to_string()))?;
+            crate::purchasing::insert_po_line(&mut *tx, &line).await?;
+        }
+        trail_system_write(
+            &mut tx,
+            "purchase_order",
+            order.id,
+            serde_json::to_value(&order).unwrap_or_default(),
+        )
+        .await?;
+        purchase_order_count += 1;
+    }
+
+    // Client loans: one OVERDUE (red), one due in two days (blush), one
+    // calm-but-open — the severity ladder the loans page and the pack draw.
+    // Each loan issues a serialized unit, so the seed carries three loanable
+    // items with one in-stock serial each; `issue_loan` flips the serial to
+    // `loaned`, appends the `loan` ledger leg, and instantiates the client's
+    // fleet asset exactly like the REST path does.
+    let loanable_specs: [(u64, u64, &str, &str); 3] = [
+        (930, 933, "Site survey kit", "SSK-2201"),
+        (931, 934, "Signal tester", "SIG-3301"),
+        (932, 935, "Borescope camera", "BOR-4402"),
+    ];
+    let mut loanable_ids = Vec::with_capacity(loanable_specs.len());
+    for (item_id, serial_id, name, serial_number) in loanable_specs {
+        let item = core_domain::entities::stock::StockItem {
+            id: demo_uuid(item_id),
+            org_id: DEMO_ORG_ID,
+            name: name.to_string(),
+            sku: Some(serial_number.to_string()),
+            catalog_item_id: None,
+            part_number: Some(serial_number.to_string()),
+            kind: "serialized".into(),
+            is_tool: false,
+            unit: "each".into(),
+            currency: "USD".into(),
+            last_unit_cost_minor: None,
+            active: true,
+            created_by: Some(tech),
+            created_at: now,
+            updated_at: now,
+        };
+        item.validate()
+            .map_err(|e| DbError::Conflict(e.to_string()))?;
+        crate::stock::insert_stock_item(&mut *tx, &item).await?;
+        let serial = core_domain::entities::stock::StockSerial {
+            id: demo_uuid(serial_id),
+            org_id: DEMO_ORG_ID,
+            stock_item_id: item.id,
+            serial_number: serial_number.to_string(),
+            location_id: Some(demo_uuid(LOC_SHELF)),
+            status: "in_stock".into(),
+            ticket_id: None,
+            client_id: None,
+            created_by: Some(tech),
+            created_at: now,
+            updated_at: now,
+        };
+        serial
+            .validate()
+            .map_err(|e| DbError::Conflict(e.to_string()))?;
+        crate::stock::upsert_serial(&mut *tx, &serial).await?;
+        // The receive that put the unit on the shelf: the loan's OUT leg
+        // decrements stock_levels through the real ledger guard, so the
+        // level row (and its receive movement) must exist first or the
+        // loan fails with "insufficient stock".
+        sqlx::query(
+            "INSERT INTO stock_levels (id, org_id, stock_item_id, stock_location_id, qty_milli)
+             VALUES ($1, $2, $3, $4, 1000)
+             ON CONFLICT (org_id, stock_item_id, stock_location_id) DO NOTHING",
+        )
+        .bind(demo_uuid(946 + (item_id - 930)))
+        .bind(DEMO_ORG_ID)
+        .bind(item.id)
+        .bind(demo_uuid(LOC_SHELF))
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO stock_movements (id, org_id, stock_item_id, kind, to_location_id,
+                                          qty_milli, serial_id, note, created_by)
+             VALUES ($1, $2, $3, 'receive', $4, 1000, $5, 'Opening stock', $6)",
+        )
+        .bind(demo_uuid(963 + (item_id - 930)))
+        .bind(DEMO_ORG_ID)
+        .bind(item.id)
+        .bind(demo_uuid(LOC_SHELF))
+        .bind(serial.id)
+        .bind(tech)
+        .execute(&mut *tx)
+        .await?;
+        loanable_ids.push((item.id, serial.id));
+    }
+    let loan_specs: [(usize, i64, i64, &str); 3] = [
+        // Acme borrowed the survey kit two weeks ago; it was due back
+        // yesterday-plus — the loans page's red row.
+        (0, -14, -9, "Loaner for the plant-2 wifi survey"),
+        // Northwind's tester is back Thursday — the blush row.
+        (1, -3, 2, "Bench tester for the comms-room audit"),
+        // Globex keeps the borescope for a week — open, not urgent.
+        (2, -1, 5, "Line-shutdown inspection at the cannery"),
+    ];
+    let client_ids = [demo_uuid(20), demo_uuid(21), demo_uuid(22)];
+    let mut client_loan_count = 0usize;
+    for (client_idx, out_days, due_days, note) in loan_specs {
+        let (item_id, serial_id) = loanable_ids[client_idx];
+        let request = crate::loans::LoanIssueRequest {
+            client_id: client_ids[client_idx],
+            contract_id: None,
+            agreement_ref: None,
+            out_at: Some(now + Duration::days(out_days)),
+            expected_return_at: today + Duration::days(due_days),
+            is_lease: false,
+            lease_cycle: None,
+            lease_cost_minor: None,
+            lease_currency: None,
+            notes: Some(note.to_string()),
+            items: vec![crate::loans::LoanIssueItem {
+                stock_item_id: Some(item_id),
+                serial_id: Some(serial_id),
+                device_asset_id: None,
+            }],
+        };
+        let outcome = crate::loans::issue_loan(&mut *tx, DEMO_ORG_ID, tech, &request).await?;
+        trail_system_write(
+            &mut tx,
+            "client_loan",
+            outcome.loan.id,
+            serde_json::to_value(&outcome.loan).unwrap_or_default(),
+        )
+        .await?;
+        client_loan_count += 1;
     }
 
     // --- notifications that point at tickets -------------------------------
@@ -3443,6 +3730,9 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         pm_schedules: 2,
         automation_rules: 2,
         plugin_installs: 1,
+        vendors: vendor_specs.len(),
+        purchase_orders: purchase_order_count,
+        client_loans: client_loan_count,
         logins: vec![
             ("owner@demo.local", "owner"),
             ("dispatcher@demo.local", "dispatcher"),
