@@ -112,14 +112,22 @@ if (readFileSync(join(site, "reference/upgrade-matrix.md"), "utf8") !== before2)
         );
         failed++;
       }
-      // Every claim must live as an unchecked row in the live TASKLIST.
-      const tasklistSrc = readFileSync(join(root, "TASKLIST.md"), "utf8");
-      const claimsSection = tasklistSrc.match(
-        /### Wave 34 verdict-sweep claims[\s\S]*?(?=\n### |\n## |$)/,
-      );
+      // Every claim must live as a checked-or-open row in a tasklist. The
+      // section may sit open in TASKLIST.md or, once its rows closed, move
+      // VERBATIM into TASKLIST_COMPLETED.md (the sweep pattern) — either is
+      // a valid anchor; what it may not do is vanish from both files.
+      const claimsSection = ["TASKLIST.md", "TASKLIST_COMPLETED.md"]
+        .map((name) => {
+          const p = join(root, name);
+          if (!existsSync(p)) return null;
+          return readFileSync(p, "utf8").match(
+            /### Wave 34 verdict-sweep claims[\s\S]*?(?=\n### |\n## |$)/,
+          );
+        })
+        .find(Boolean);
       if (!claimsSection) {
         console.error(
-          "TASKLIST the 'Wave 34 verdict-sweep claims' section is missing — claims cannot vanish",
+          "TASKLIST the 'Wave 34 verdict-sweep claims' section is missing from both TASKLIST.md and TASKLIST_COMPLETED.md — claims cannot vanish",
         );
         failed++;
       } else {
