@@ -1,35 +1,65 @@
-# Ticket detail: notes and timer are server-backed entities.
-# Opens a ticket from the board and exercises both mutations.
+# Ticket detail: the server-backed timer round trip and an internal note,
+# on the pack's anatomy. The preamble stops any timer a previous flow left
+# running.
 appId: org.marula.app
 ---
-- launchApp
-- extendedWaitUntil:
-    visible:
-      id: "today-screen"
-    timeout: 20000
+- runFlow: 00-clean-start.yaml
 - tapOn: "Board, tab.*"
 - tapOn:
     id: "ticket-row-.*"
-- assertVisible:
-    id: "ticket-parts"
-- tapOn:
-    id: "ticket-timer-start"
 - extendedWaitUntil:
     visible:
-      id: "timer-bar"
+      id: "ticket-action-bar"
     timeout: 15000
+- tapOn: "Start the clock"
 - tapOn:
-    id: "ticket-timer-stop"
+    id: "ticket-back"
+- extendedWaitUntil:
+    visible: ".*Timer running.*"
+    timeout: 20000
+- tapOn:
+    id: "ticket-row-.*"
+- extendedWaitUntil:
+    visible:
+      id: "ticket-action-bar"
+    timeout: 15000
+# The note: the pinned bar's Note opens the composer sheet.
+- tapOn:
+    id: "ticket-action-note"
+- extendedWaitUntil:
+    visible:
+      id: "note-composer-sheet"
+    timeout: 10000
+- tapOn:
+    id: "composer-kind-note"
+- tapOn:
+    id: "note-composer-input"
+- inputText: "Maestro site note"
+- tapOn:
+    id: "note-composer-send"
 - scrollUntilVisible:
     element:
-      id: "note-input"
+      text: ".*Maestro site note.*"
     direction: DOWN
     visibilityPercentage: 40
     centerElement: true
+- assertVisible: ".*Maestro site note.*"
+# The detail is a pushed stack route — back to the tabs first.
 - tapOn:
-    id: "note-input"
-- inputText: "Maestro site note"
-- hideKeyboard
+    id: "ticket-back"
+- waitForAnimationToEnd:
+    timeout: 3000
+# Stop the clock through the Time tab's stop-and-log sheet.
+- tapOn: "Today, tab.*"
+- tapOn: "Time, tab.*"
+- tapOn: "Stop and log"
+- extendedWaitUntil:
+    visible:
+      id: "stop-log-sheet"
+    timeout: 10000
 - tapOn:
-    id: "note-submit"
-- assertVisible: "Maestro site note"
+    id: "stop-log-commit"
+- extendedWaitUntil:
+    notVisible:
+      id: "timer-pill"
+    timeout: 10000

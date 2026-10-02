@@ -3,11 +3,7 @@
 # never touches OS-level network settings.
 appId: org.marula.app
 ---
-- launchApp
-- extendedWaitUntil:
-    visible:
-      id: "today-screen"
-    timeout: 20000
+- runFlow: 00-clean-start.yaml
 - tapOn: "More, tab.*"
 - tapOn:
     id: "more-airplane-toggle"
@@ -16,19 +12,28 @@ appId: org.marula.app
 - tapOn: "Board, tab.*"
 - tapOn:
     id: "ticket-row-.*"
-- scrollUntilVisible:
-    element:
-      id: "note-input"
-    direction: DOWN
-    visibilityPercentage: 40
-    centerElement: true
+- extendedWaitUntil:
+    visible:
+      id: "ticket-action-bar"
+    timeout: 15000
+# The note goes through the composer sheet; offline it queues and the
+# optimistic bubble renders immediately.
 - tapOn:
-    id: "note-input"
+    id: "ticket-action-note"
+- extendedWaitUntil:
+    visible:
+      id: "note-composer-sheet"
+    timeout: 10000
+- tapOn:
+    id: "note-composer-input"
 - inputText: "Offline Maestro note"
-- hideKeyboard
 - tapOn:
-    id: "note-submit"
-- assertVisible: "Offline Maestro note"
+    id: "note-composer-send"
+- assertVisible: ".*Offline Maestro note.*"
+- tapOn:
+    id: "ticket-back"
+- waitForAnimationToEnd:
+    timeout: 3000
 - tapOn: "More, tab.*"
 - assertVisible:
     id: "banner-offline"
@@ -39,12 +44,17 @@ appId: org.marula.app
       id: "banner-offline"
     timeout: 20000
 - tapOn: "Board, tab.*"
-- tapOn: "Board, tab.*"
+- waitForAnimationToEnd:
+    timeout: 2000
 - tapOn:
     id: "ticket-row-.*"
+- extendedWaitUntil:
+    visible:
+      id: "ticket-action-bar"
+    timeout: 15000
 - scrollUntilVisible:
     element:
-      text: "Offline Maestro note"
+      text: ".*Offline Maestro note.*"
     direction: DOWN
     visibilityPercentage: 40
     centerElement: true

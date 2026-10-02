@@ -1,11 +1,8 @@
 # Travel: log a draft from Today, submit it, and see the state flip.
+# Field order on the form: distance (top), vehicle (below the fold), save.
 appId: org.marula.app
 ---
-- launchApp
-- extendedWaitUntil:
-    visible:
-      id: "today-screen"
-    timeout: 20000
+- runFlow: 00-clean-start.yaml
 - tapOn:
     id: "travel-log"
 - extendedWaitUntil:
@@ -13,18 +10,37 @@ appId: org.marula.app
       id: "travel-form"
     timeout: 10000
 - tapOn:
-    id: "travel-vehicle"
-- inputText: "Lane test van"
-- tapOn:
     id: "travel-distance"
 - inputText: "12.5"
+# The decimal pad has no return key; the next scroll dismisses it.
+- scrollUntilVisible:
+    element:
+      id: "travel-vehicle"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
+- tapOn:
+    id: "travel-vehicle"
+- inputText: "Lane test van"
+- scrollUntilVisible:
+    element:
+      id: "travel-save"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
 - tapOn:
     id: "travel-save"
 - extendedWaitUntil:
-    visible: "DRAFT"
+    visible: ".*DRAFT.*"
     timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: "travel-submit-.*"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
 - tapOn:
     id: "travel-submit-.*"
 - extendedWaitUntil:
-    visible: "SUBMITTED"
+    visible: ".*SUBMITTED.*"
     timeout: 15000

@@ -1,30 +1,18 @@
-# Field ops — consume on a ticket + van↔shelf transfer (Wave 33 lane 2).
+# Field ops — consume + van↔shelf transfer (Wave 33 lane 2, now rides the
+# Today tab's Move stock tile, since the pack ticket screen has no parts card).
 #
 # The move screen runs the same minimum-switching grammar as the web panel:
-# scan or search → stage → pick context → human commits. The ticket anchor
-# rides the ticket screen; every commit is a public stock movement endpoint.
+# scan or search → stage → pick context → human commits. Each commit is a
+# public stock movement endpoint.
 # Fixtures come from native/e2e/seed-fieldops.mjs.
 appId: org.marula.app
 ---
-- launchApp
+- runFlow: 00-clean-start.yaml
+# Consume: TIE-100 leaves the van.
 - extendedWaitUntil:
-    visible:
-      id: "today-screen"
-    timeout: 20000
-# Open the first ticket and enter the consume flow from the Parts card.
-- tapOn: "Board, tab.*"
-- extendedWaitUntil:
-    visible:
-      id: "ticket-list"
-    timeout: 10000
-- tapOn:
-    id: "ticket-row-.*"
-- extendedWaitUntil:
-    visible:
-      id: "ticket-parts"
-    timeout: 10000
-- tapOn:
-    id: "ticket-use-part"
+    visible: "Move stock"
+    timeout: 15000
+- tapOn: "Move stock"
 - extendedWaitUntil:
     visible:
       id: "move-screen"
@@ -32,6 +20,8 @@ appId: org.marula.app
 - tapOn:
     id: "move-scan-input"
 - inputText: "TIE-100"
+# Return blurs the single-line input so the resolve button is reachable.
+- inputText: "\n"
 - tapOn:
     id: "move-scan-resolve"
 - extendedWaitUntil:
@@ -50,7 +40,7 @@ appId: org.marula.app
 - extendedWaitUntil:
     visible: ".*Consumed.*"
     timeout: 15000
-# Transfer a pack from the van to the shelf, scanning locations in order.
+# Transfer: the last TIE-100 goes from the van to shelf B-2.
 - scrollUntilVisible:
     element:
       id: "move-mode-transfer"
@@ -60,23 +50,23 @@ appId: org.marula.app
     id: "move-mode-transfer"
 - tapOn:
     id: "move-scan-input"
-- inputText: "VAN-7"
-- tapOn:
-    id: "move-scan-resolve"
-- tapOn:
-    id: "move-scan-input"
-- inputText: "B-2"
-- tapOn:
-    id: "move-scan-resolve"
-- tapOn:
-    id: "move-scan-input"
 - inputText: "TIE-100"
+- inputText: "\n"
 - tapOn:
     id: "move-scan-resolve"
 - extendedWaitUntil:
     visible:
       id: "move-scan-staged"
     timeout: 10000
+- tapOn: "Van 7.*"
+- scrollUntilVisible:
+    element:
+      id: "move-to-01a0f9e5-f619-7660-bec0-1e07f471d298"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
+- tapOn:
+    id: "move-to-01a0f9e5-f619-7660-bec0-1e07f471d298"
 - scrollUntilVisible:
     element:
       id: "move-commit"

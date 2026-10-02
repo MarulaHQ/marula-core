@@ -1,36 +1,31 @@
-# Field ops — live timer on the lock screen (Wave 33 lane 2).
+# Field ops — live timer on the lock screen (Wave 33 lane 2, re-hung on the
+# pack's ticket anatomy: the clock link, the board's gold "Timer running" row,
+# and the deep-linked dev status screen).
 #
-# The in-app timer bar drives the platform mirror from the same server
-# session: starting a ticket timer must surface the LIVE marker and the dev
-# status screen must report the bridge. This flow needs a build with the
-# native module (the CI Release build and a dev client); in Expo Go the
-# status screen honestly reports UNSUPPORTED instead.
+# The in-app timer drives the platform mirror from the same server session.
 appId: org.marula.app
 ---
-- launchApp
-- extendedWaitUntil:
-    visible:
-      id: "today-screen"
-    timeout: 20000
+- runFlow: 00-clean-start.yaml
 - tapOn: "Board, tab.*"
 - tapOn:
     id: "ticket-row-.*"
-- tapOn:
-    id: "ticket-timer-start"
 - extendedWaitUntil:
     visible:
-      id: "timer-bar"
+      id: "ticket-action-bar"
     timeout: 15000
-- assertVisible:
-    id: "timer-live"
-- tapOn: "More, tab.*"
-- scrollUntilVisible:
-    element:
-      text: "Live timer status.*"
-    direction: DOWN
-    visibilityPercentage: 40
-    centerElement: true
-- tapOn: "Live timer status.*"
+- tapOn: "Start the clock"
+- tapOn:
+    id: "ticket-back"
+- extendedWaitUntil:
+    visible: ".*Timer running.*"
+    timeout: 20000
+# The dev status screen: what the lock screen is showing, and why.
+- openLink: "marula:///dev/live"
+- runFlow:
+    when:
+      visible: "Open"
+    commands:
+      - tapOn: "Open"
 - extendedWaitUntil:
     visible:
       id: "dev-live-screen"
@@ -40,4 +35,19 @@ appId: org.marula.app
     id: "dev-live-update"
 - tapOn:
     id: "dev-live-end"
-
+# The dev screen is a pushed stack route — back to the tabs first.
+- tapOn: ".*Back.*"
+# Clean finish: stop the session on the Time tab.
+- tapOn: "Today, tab.*"
+- tapOn: "Time, tab.*"
+- tapOn: "Stop and log"
+- extendedWaitUntil:
+    visible:
+      id: "stop-log-sheet"
+    timeout: 10000
+- tapOn:
+    id: "stop-log-commit"
+- extendedWaitUntil:
+    notVisible:
+      id: "timer-pill"
+    timeout: 10000

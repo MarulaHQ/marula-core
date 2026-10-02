@@ -1,0 +1,58 @@
+# Shared precondition for every flow: relaunch from the root (the stop-sheet
+# can leave the app on the Time tab if the user did not restart), land on
+# Today, and stop any stray server-side timer from a previous flow — a running
+# session disables every Clock-in button, which reads to the next flow as a
+# missing element.
+appId: org.marula.app
+---
+- launchApp:
+    stopApp: true
+    clearState: false
+# A stale "Open in Marula?" system confirmation from a previous flow's deep
+# link re-presents at launch; dismiss it before asserting the Today screen.
+- runFlow:
+    when:
+      visible: ".*Open in.*"
+    commands:
+      - tapOn: "Cancel"
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+# A previous flow may have left forced-offline on; the Today banner toggles
+# it back (per the pack, tapping the banner switches the state).
+- runFlow:
+    when:
+      visible:
+        id: "banner-offline"
+    commands:
+      - tapOn:
+          id: "banner-offline"
+      - extendedWaitUntil:
+          notVisible:
+            id: "banner-offline"
+          timeout: 10000
+- runFlow:
+    when:
+      visible:
+        id: "timer-pill"
+    commands:
+      # The pill's stop disc navigates to the Time tab; the session actually
+      # stops inside the Stop-and-log sheet.
+      - tapOn:
+          id: "timer-pill-stop"
+      - extendedWaitUntil:
+          visible:
+            id: "time-running-card"
+          timeout: 10000
+      - tapOn: "Stop and log"
+      - extendedWaitUntil:
+          visible:
+            id: "stop-log-sheet"
+          timeout: 10000
+      - tapOn:
+          id: "stop-log-commit"
+      - extendedWaitUntil:
+          notVisible:
+            id: "timer-pill"
+          timeout: 10000

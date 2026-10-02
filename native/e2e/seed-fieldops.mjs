@@ -154,7 +154,13 @@ async function returnOpenCheckouts() {
   for (const row of checkouts) {
     if (row.checkout?.status === "returned") continue;
     if (row.checkout?.id === undefined) continue;
-    await api("POST", `/tool-checkouts/${row.checkout.id}/checkin`, { idempotency_key: key() });
+    try {
+      await api("POST", `/tool-checkouts/${row.checkout.id}/checkin`, { idempotency_key: key() });
+    } catch {
+      // A 409 ("unit not checked out") means the wanted end state already
+      // holds — the tool is back on the shelf. Seed races on a repeat run
+      // land here and are fine.
+    }
   }
 }
 

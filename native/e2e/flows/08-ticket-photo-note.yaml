@@ -1,33 +1,42 @@
 # Ticket detail: the time section renders, a sampled photo stages, and the
-# note carries it. The sample injector rides the same upload path the system
-# picker feeds, so the flow stays deterministic.
+# note carries it — on the pack's composer sheet. The sample injector rides
+# the same upload path the system picker feeds (dev builds opt in), so the
+# flow stays deterministic.
 appId: org.marula.app
 ---
-- launchApp
-- extendedWaitUntil:
-    visible:
-      id: "today-screen"
-    timeout: 20000
-- tapOn: "Board"
+- runFlow: 00-clean-start.yaml
+- tapOn: "Board, tab.*"
 - tapOn:
     id: "ticket-row-.*"
 - extendedWaitUntil:
     visible:
-      id: "note-input"
-    timeout: 20000
-- assertVisible: "Time"
+      id: "ticket-action-bar"
+    timeout: 15000
+- tapOn:
+    id: "ticket-action-note"
+- extendedWaitUntil:
+    visible:
+      id: "note-composer-sheet"
+    timeout: 10000
+- tapOn:
+    id: "composer-kind-note"
 - tapOn:
     id: "note-attach-sample"
 - extendedWaitUntil:
-    visible: "site-panel.png"
+    visible: "1 photo attached."
     timeout: 20000
 - tapOn:
-    id: "note-input"
+    id: "note-composer-input"
 - inputText: "Maestro photo note"
 - tapOn:
-    id: "note-submit"
-- assertVisible: "Maestro photo note"
+    id: "note-composer-send"
+- scrollUntilVisible:
+    element:
+      text: ".*Maestro photo note.*"
+    direction: DOWN
+    visibilityPercentage: 40
+    centerElement: true
+- assertVisible: ".*Maestro photo note.*"
 - extendedWaitUntil:
-    visible:
-      id: "comment-photo-.*"
+    visible: "site-panel.png"
     timeout: 30000

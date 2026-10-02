@@ -1,24 +1,29 @@
 # Scan injector: the deterministic scan path (no camera needed).
-# An unknown payload must land on the honest "Nothing matches" state, and a
+# An unknown payload must land on the honest "Not recognized" sheet, and a
 # deep-link payload must open the typed scan-result screen.
 appId: org.marula.app
 ---
-- launchApp
-- extendedWaitUntil:
-    visible:
-      id: "today-screen"
-    timeout: 20000
+- runFlow: 00-clean-start.yaml
 - tapOn: "Scan, tab.*"
 - tapOn:
     id: "scan-input"
 - inputText: "NOPE-NOPE-000"
-- tapOn:
-    id: "scan-resolve"
+# Return submits the go-keyboard (resolve) and blurs; the guarded tap covers
+# the case where the submit did not fire.
+- inputText: "\n"
+- runFlow:
+    when:
+      notVisible:
+        id: "scan-unknown-sheet"
+    commands:
+      - tapOn:
+          id: "scan-resolve"
 - extendedWaitUntil:
     visible:
-      id: "scan-resolution"
+      id: "scan-unknown-sheet"
     timeout: 10000
-- assertVisible: "No match"
+- assertVisible: ".*Nothing matches.*"
+- tapOn: "Close"
 - openLink: "marula://scan-result?text=NOPE-NOPE-000"
 # iOS asks once before handing a custom-scheme link to the app.
 - runFlow:
