@@ -1,5 +1,12 @@
 name: CI
 
+# Ported CI, disabled. On 2026-10-02 the boundary job (with
+# scripts/check-boundary.sh) and the token-conformance job (with
+# scripts/check-token-conformance.sh) were ported in from the org-home
+# scaffold work and merged with the trunk's own newer gates: pg18/valkey
+# services, the implemented rls-coverage test, the DX12 OpenAPI pins.
+# Enable at the public launch by renaming this file to ci.yml.
+
 on:
   pull_request:
   push:
@@ -9,7 +16,20 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  # The boundary rules this repository is published under. If this job is red,
+  # the open core is not open.
+  boundary:
+    name: Boundary — no proprietary code, no entitlement checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the open/closed boundary
+        run: ./scripts/check-boundary.sh
+
   rust:
     name: Rust — fmt · clippy · test
     runs-on: ubuntu-latest
@@ -125,21 +145,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p core-db --test rls_coverage
 
-  brand-distinctness:
-    name: Brand distinctness — Workbench tokens only
+  token-conformance:
+    name: Token conformance — no colours outside the Marula token set
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Scan UI source for off-palette brand hexes
-        run: |
-          if grep -riE '#(0A8C6A|2DD4BF|FBF8F3|E8E6DF|D64B0A|F4F5F7|E8EBEF|101216|171A1F|12161C)' \
-              --include='*.css' --include='*.scss' --include='*.tsx' --include='*.ts' \
-              apps packages \
-              --exclude-dir=node_modules; then
-            echo "::error::Off-palette brand colors found in UI code — use Tangerine tokens from packages/ui"
-            exit 1
-          fi
-          echo "Clean — all UI colors on the Tangerine token set."
+      # The one-brand doctrine (design spec §4.5): Core's theme is derived
+      # from Marula's brand, so no component may define a colour — it imports
+      # the token. The check is a shrink-only ratchet (same shape as
+      # shared-chrome above): the ledger inside the script records where raw
+      # hexes remain from before the token migration, may only SHRINK, and
+      # any file outside the ledger is a violation outright. Deliberately
+      # dependency-free: pure grep, no node, no rustup.
+      - run: ./scripts/check-token-conformance.sh
 
   deprecation-clock:
     name: Deprecation clock (removals honor removal_target — policy §8/U4)

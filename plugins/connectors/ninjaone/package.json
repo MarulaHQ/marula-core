@@ -11,7 +11,7 @@
     "listen": "node --experimental-strip-types src/index.ts listen"
   },
   "dependencies": {
-    "@marula-core/sdk": "file:../../packages/sdk"
+    "@marula-core/sdk": "file:../../../packages/sdk"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

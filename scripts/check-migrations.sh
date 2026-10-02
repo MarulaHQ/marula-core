@@ -1,7 +1,8 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 # Migration safety gate (BUILD-PROMPT §CI): destructive schema changes are
 # forward-only but must be flagged in the filename with `--breaking` and
 # documented, so operators can't upgrade past a data-losing step unnoticed.
+# (bash, not zsh: the CI runner guarantees bash, this file is CI-portable.)
 #
 # What counts as destructive:
 #   DROP TABLE / DATABASE / SCHEMA / INDEX / CONSTRAINT / POLICY

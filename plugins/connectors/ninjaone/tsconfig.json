@@ -19,7 +19,7 @@
     // published `@marula-core/sdk` package resolves normally — nothing here
     // may import Marula internals, only this specifier.
     "paths": {
-      "@marula-core/sdk": ["../../packages/sdk/src/index.ts"]
+      "@marula-core/sdk": ["../../../packages/sdk/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"]
