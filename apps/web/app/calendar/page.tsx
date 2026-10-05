@@ -14,6 +14,7 @@
 // surface owns its own board), the sync panel owns connection admin.
 "use client";
 
+import "./calendar.css";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { Button, Card, Dialog, DialogActions, DialogContent, FieldHint, Input, Label, Spinner, Tag } from "@marula-core/ui";
 import CalendarSyncPanel from "../../components/calendar-sync-panel";
@@ -30,6 +31,7 @@ import {
 } from "../../lib/use-instant";
 import {
   assignLanes,
+  countOverlaps,
   detectOverlaps,
   entryFromExclusion,
   entryFromItem,
@@ -401,19 +403,19 @@ async function moveAppointment(
 }
 
 function Legend() {
-  const chips: { kind: EntryKind; swatch: CSSProperties }[] = [
-    { kind: "appointment", swatch: { background: "var(--m-accent-soft)", borderLeft: "3px solid var(--m-accent)" } },
-    { kind: "on_call", swatch: { background: "var(--m-status-neutral-bg)", border: "1px dashed var(--m-border-strong)" } },
-    { kind: "synced_busy", swatch: { background: "var(--m-bg-subtle)", border: "1px dashed var(--m-accent-muted)" } },
-    { kind: "time_off", swatch: { background: "var(--m-bg-subtle)", border: "1px solid var(--m-border)" } },
-    { kind: "ticket_deadline", swatch: { background: "var(--m-status-warning-bg)", border: "1px solid var(--m-status-warning-fg)" } },
+  const chips: { kind: EntryKind; swatch: CSSProperties; hatch?: string }[] = [
+    { kind: "appointment", swatch: { backgroundColor: "var(--m-accent-soft)", borderLeft: "3px solid var(--m-accent)" } },
+    { kind: "on_call", swatch: { backgroundColor: "var(--m-status-neutral-bg)", border: "1px dashed var(--m-border-strong)" } },
+    { kind: "synced_busy", swatch: { backgroundColor: "var(--m-bg-subtle)", border: "1px dashed var(--m-accent-muted)" }, hatch: "cal-hatch-quiet" },
+    { kind: "time_off", swatch: { backgroundColor: "var(--m-bg-subtle)", border: "1px solid var(--m-border)" }, hatch: "cal-hatch-absence" },
+    { kind: "ticket_deadline", swatch: { backgroundColor: "var(--m-status-warning-bg)", border: "1px solid var(--m-status-warning-fg)" } },
   ];
   return (
     <div className="flex flex-wrap items-center gap-2" aria-label="Entry legend">
-      {chips.map(({ kind, swatch }) => (
+      {chips.map(({ kind, swatch, hatch }) => (
         <span
           key={kind}
-          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${hatch ?? ""}`}
           style={{ ...swatch, color: kind === "ticket_deadline" ? "var(--m-status-warning-fg)" : "var(--m-text-secondary)" }}
         >
           {kind === "ticket_deadline" ? "◆" : null} {CLASS_LABEL[kind]}
@@ -469,7 +471,7 @@ function WeekGrid({
           <div />
           {days.map((d) => {
             const dayEntries = entriesOnDay(entries, d);
-            const overlapCount = detectOverlaps(dayEntries).size / 2;
+            const overlapCount = countOverlaps(dayEntries);
             return (
               <div key={d.toISOString()} className="px-2 py-2 text-center">
                 <div className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
@@ -588,6 +590,8 @@ function useNowMinute(): Date {
 }
 
 function classVisual(entry: CalendarEntry, flagged: boolean): CSSProperties {
+  const breached =
+    entry.kind === "ticket_deadline" && new Date(entry.startsAt).getTime() < Date.now();
   const base: CSSProperties = {
     borderRadius: "var(--m-radius-control)",
     color: "var(--m-text)",
@@ -597,34 +601,39 @@ function classVisual(entry: CalendarEntry, flagged: boolean): CSSProperties {
       return {
         ...base,
         border: "1px dashed var(--m-border-strong)",
-        background: "var(--m-status-neutral-bg)",
+        backgroundColor: "var(--m-status-neutral-bg)",
       };
     case "synced_busy":
       return {
         ...base,
         border: flagged ? "1px solid var(--m-status-warning-fg)" : "1px dashed var(--m-accent-muted)",
-        background: "var(--m-bg-subtle)",
+        backgroundColor: "var(--m-bg-subtle)",
       };
     case "time_off":
       return {
         ...base,
         border: "1px solid var(--m-border)",
-        background: "var(--m-bg-subtle)",
+        backgroundColor: "var(--m-bg-subtle)",
         opacity: 0.75,
       };
     case "ticket_deadline":
       return {
         ...base,
-        border: "1px solid var(--m-status-warning-fg)",
-        background: "var(--m-status-warning-bg)",
-        color: "var(--m-status-warning-fg)",
+        border: `1px solid ${breached ? "var(--m-status-danger-fg)" : "var(--m-status-warning-fg)"}`,
+        backgroundColor: breached ? "var(--m-status-danger-bg)" : "var(--m-status-warning-bg)",
+        color: breached ? "var(--m-status-danger-fg)" : "var(--m-status-warning-fg)",
       };
     default:
+      // Flagged borders must survive React's longhand serialization: writing
+      // the `border` shorthand next to `borderLeft` empties every side
+      // longhand, so the warning border never paints. Spell the sides out.
       return {
         ...base,
-        border: flagged ? "1px solid var(--m-status-warning-fg)" : "1px solid var(--m-border-strong)",
-        borderLeft: "3px solid var(--m-accent)",
-        background: "var(--m-surface)",
+        borderLeft: flagged ? "3px solid var(--m-status-warning-fg)" : "3px solid var(--m-accent)",
+        borderTop: "1px solid var(--m-border-strong)",
+        borderRight: "1px solid var(--m-border-strong)",
+        borderBottom: "1px solid var(--m-border-strong)",
+        backgroundColor: "var(--m-surface)",
       };
   }
 }
@@ -666,6 +675,7 @@ function WeekBlock({
   const height = Math.min(durationMin, (HOUR_END - HOUR_START) * 60) * (ROW_PX / 60) - 2;
   const overlaps = detectOverlaps(dayEntries);
   const flagged = overlaps.has(entry.id);
+  const breached = entry.kind === "ticket_deadline" && start.getTime() < Date.now();
   const timeLabel = isInstant
     ? `due ${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
     : `${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}–${end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
@@ -688,13 +698,13 @@ function WeekBlock({
           aria-hidden="true"
           data-testid={`week-travel-${entry.id}`}
           title={`${travelMin} min travel to ${entry.title}`}
-          className="pointer-events-none absolute z-0 overflow-hidden rounded-[var(--m-radius-control)] px-1 text-[10px] leading-tight transition-opacity duration-100"
+          className="cal-hatch-quiet pointer-events-none absolute z-0 overflow-hidden rounded-[var(--m-radius-control)] px-1 text-[10px] leading-tight transition-opacity duration-100"
           style={{
             top: travelTop,
             height: travelHeight,
             left: `calc(${lane * laneWidth}% + 2px)`,
             width: `calc(${laneWidth}% - 4px)`,
-            background: "var(--m-bg-subtle)",
+            backgroundColor: "var(--m-bg-subtle)",
             border: "1px dashed var(--m-border)",
             color: "var(--m-text-muted)",
             opacity: dragging ? 0.6 : 1,
@@ -712,7 +722,7 @@ function WeekBlock({
         onDragEnd={onDragEnd}
         onClick={onOpen}
         data-testid={`week-block-${entry.id}`}
-        className={`absolute z-10 overflow-hidden px-1 py-0.5 text-left transition-transform duration-100 ${draggable ? "active:cursor-grabbing" : ""}`}
+        className={`absolute z-10 overflow-hidden px-1 py-0.5 text-left transition-transform duration-100 ${entry.kind === "time_off" ? "cal-hatch-absence" : entry.kind === "synced_busy" ? "cal-hatch-quiet" : ""} ${draggable ? "active:cursor-grabbing" : ""}`}
         style={{
           top,
           height,
@@ -728,7 +738,7 @@ function WeekBlock({
         {classPrefix}
         {entry.kind === "on_call" ? `On call · ${entry.title}` : entry.title}
       </div>
-      <div className="truncate text-[10px]" style={{ color: entry.kind === "ticket_deadline" ? "var(--m-status-warning-fg)" : "var(--m-text-secondary)" }}>
+      <div className="truncate text-[10px]" style={{ color: entry.kind === "ticket_deadline" ? (breached ? "var(--m-status-danger-fg)" : "var(--m-status-warning-fg)") : "var(--m-text-secondary)" }}>
         {timeLabel}
         {entry.kind === "appointment" && entry.itemKind === "on_site" ? " · on site" : ""}
         {entry.kind === "appointment" && entry.ticketId !== null ? " · ticket" : ""}
@@ -886,6 +896,8 @@ function AgendaList({
               const start = new Date(entry.startsAt);
               const end = new Date(entry.endsAt);
               const flagged = overlaps.has(entry.id);
+              const breached =
+                entry.kind === "ticket_deadline" && start.getTime() < Date.now();
               return (
                 <button
                   key={entry.id}
@@ -902,7 +914,9 @@ function AgendaList({
                   <Tag
                     tone={
                       entry.kind === "ticket_deadline"
-                        ? "warning"
+                        ? breached
+                          ? "danger"
+                          : "warning"
                         : entry.kind === "on_call"
                           ? "neutral"
                           : entry.kind === "synced_busy"
