@@ -152,6 +152,25 @@ export function detectOverlaps(entries: CalendarEntry[]): Set<string> {
   return flagged;
 }
 
+/**
+ * Number of distinct intersecting pairs on a day. The badge must count
+ * conflicts, not flagged ids — an intersecting chain (A×B, A×C) puts three
+ * ids in the flagged set, and size/2 would report "1.5 overlaps".
+ */
+export function countOverlaps(entries: CalendarEntry[]): number {
+  let count = 0;
+  for (let i = 0; i < entries.length; i += 1) {
+    const a = entries[i];
+    if (a === undefined) continue;
+    for (let j = i + 1; j < entries.length; j += 1) {
+      const b = entries[j];
+      if (b === undefined) continue;
+      if (intersects(a, b)) count += 1;
+    }
+  }
+  return count;
+}
+
 export function entriesOnDay(entries: CalendarEntry[], day: Date): CalendarEntry[] {
   return entries.filter((entry) => sameLocalDay(entry.startsAt, day));
 }

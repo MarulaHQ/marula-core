@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { components } from "@marula-core/sdk";
 import {
   assignLanes,
+  countOverlaps,
   detectOverlaps,
   entryFromExclusion,
   entryFromItem,
@@ -109,6 +110,14 @@ describe("mergeEntries + overlaps", () => {
   it("detectOverlaps flags exactly the intersecting pair", () => {
     expect(detectOverlaps([a, b, c])).toEqual(new Set(["a", "b"]));
     expect(detectOverlaps([a, c])).toEqual(new Set());
+  });
+  it("countOverlaps counts distinct intersecting pairs, not flagged ids", () => {
+    // a×b and a×overlapping — three ids in the flagged set, two conflicts.
+    const overlapping: CalendarEntry = { ...a, id: "b2", startsAt: "2026-09-17T08:45:00Z", endsAt: "2026-09-17T09:15:00Z" };
+    expect(detectOverlaps([a, b, overlapping])).toEqual(new Set(["a", "b", "b2"]));
+    expect(countOverlaps([a, b, overlapping])).toBe(2);
+    expect(countOverlaps([a, b, c])).toBe(1);
+    expect(countOverlaps([a, c])).toBe(0);
   });
   it("entriesOnDay filters by local calendar day", () => {
     expect(entriesOnDay([a], new Date(2026, 8, 17))).toHaveLength(1);
