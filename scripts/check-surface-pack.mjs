@@ -14,9 +14,10 @@
  *
  * Usage:
  *   node scripts/check-surface-pack.mjs [packRoot] [manifest]
- * Defaults to the external pack (gitignored) under brand/marula-mockups/…
- * when present, else design/mockups/marula-app-mockup-images (not this pack —
- * kept here only so the script is runnable in a clean worktree).
+ * Defaults to the canonical pack in the org home
+ * (../brand/packs/core-surface-pack, preferred) or a local gitignored copy
+ * under brand/marula-mockups/… when one exists (kept so the script is runnable
+ * in a clean worktree without the org home checked out).
  *
  * Exit 0 = all green; exit 1 = first failed invariant group.
  */
@@ -28,7 +29,21 @@ const args = process.argv.slice(2);
 const rootArg = args[0];
 const manifestArg = args[1];
 
-const root = resolve(process.cwd(), rootArg ?? "brand/marula-mockups/marula-surface-pack");
+// Default resolution: the canonical pack lives in the private org home
+// (`../brand/packs/core-surface-pack` relative to this repo). Fall back to a
+// local gitignored copy under brand/marula-mockups/… when one exists.
+function defaultPackRoot() {
+  const candidates = [
+    "../brand/packs/core-surface-pack",
+    "brand/marula-mockups/marula-surface-pack",
+  ];
+  for (const c of candidates) {
+    if (existsSync(resolve(process.cwd(), c, "manifest.json"))) return c;
+  }
+  return candidates[0];
+}
+
+const root = resolve(process.cwd(), rootArg ?? defaultPackRoot());
 const manifestPath = resolve(root, manifestArg ?? "manifest.json");
 
 const passes = [];
