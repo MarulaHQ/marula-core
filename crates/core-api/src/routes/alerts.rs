@@ -676,6 +676,12 @@ pub struct AlertSourceView {
     pub client_id: Option<Uuid>,
     pub correlation_window_secs: i32,
     pub enabled: bool,
+    /// When set, this source is a generic M2M webhook receiver: a signed
+    /// POST emits a domain-event envelope onto the outbox stream instead
+    /// of creating an alert row (Wave 43 lane 1). NULL = alert source (Wave 9).
+    pub event_type: Option<String>,
+    /// Payload contract pin; NULL defaults to `core-domain/v1` at ingest.
+    pub payload_schema_ref: Option<String>,
     #[schema(value_type = String)]
     pub created_at: chrono::DateTime<chrono::Utc>,
     #[schema(value_type = String)]
@@ -693,6 +699,8 @@ impl From<AlertSourceRow> for AlertSourceView {
             client_id: r.client_id,
             correlation_window_secs: r.correlation_window_secs,
             enabled: r.enabled,
+            event_type: r.event_type,
+            payload_schema_ref: r.payload_schema_ref,
             created_at: r.created_at,
             updated_at: r.updated_at,
         }
@@ -756,6 +764,14 @@ pub struct CreateAlertSourceRequest {
     pub client_id: Option<Uuid>,
     /// Storm window in seconds (10..=86400; default 900).
     pub correlation_window_secs: Option<i32>,
+    /// When set, this source is a generic M2M webhook receiver that emits
+    /// domain-event envelopes onto the outbox stream instead of creating
+    /// alert rows (Wave 43 lane 1). Leave NULL for the classic alert path.
+    pub event_type: Option<String>,
+    /// Payload contract pin (e.g. `"acme-io/webhook-v1"`); NULL defaults
+    /// to `core-domain/v1`. Advisory — the ingest envelope always carries
+    /// the resolved schema ref.
+    pub payload_schema_ref: Option<String>,
     /// Instant-first autosave parameters (IF1) — idempotency key.
     #[serde(flatten, default)]
     pub instant: instant::MutationParams,
@@ -771,6 +787,12 @@ pub struct PatchAlertSourceRequest {
     pub client_id: Option<Option<Uuid>>,
     pub correlation_window_secs: Option<i32>,
     pub enabled: Option<bool>,
+    /// Promote/demote a source between alert and generic M2M profiles.
+    /// `Some(None)` reverts to alert-source; `Some(Some(v))` sets the
+    /// emitted event type.
+    pub event_type: Option<Option<String>>,
+    /// Set/clear the payload contract pin the same way.
+    pub payload_schema_ref: Option<Option<String>>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
     /// version. Absent in legacy clients — purely additive.
     #[serde(flatten, default)]
@@ -821,6 +843,19 @@ pub async fn sources_create(
     if req.name.trim().is_empty() {
         return Err(ApiError::Validation("name is required".into()));
     }
+    // event_type: non-empty dot-path if provided (e.g. "my_event.received").
+    if let Some(et) = req.event_type.as_deref() {
+        let et = et.trim();
+        if et.is_empty() {
+            return Err(ApiError::Validation("event_type must not be empty".into()));
+        }
+        if et.len() > 100 || !et.split('.').all(|seg| !seg.is_empty()) {
+            return Err(ApiError::Validation(
+                "event_type must be a non-empty dot-path (<= 100 chars)".into(),
+            ));
+        }
+    }
+    let event_type = req.event_type.as_deref().filter(|s| !s.trim().is_empty());
     let source_ref = match req.source_ref.as_deref() {
         Some(custom) => {
             let custom = custom.trim();
@@ -891,6 +926,8 @@ pub async fn sources_create(
                 board_id: req.board_id,
                 client_id: req.client_id,
                 correlation_window_secs: window,
+                event_type: event_type,
+                payload_schema_ref: req.payload_schema_ref.as_deref(),
                 created_by: user_id,
             },
         )
@@ -917,6 +954,8 @@ pub async fn sources_create(
                     "source_ref": row.source_ref,
                     "board_id": row.board_id,
                     "correlation_window_secs": row.correlation_window_secs,
+                    "event_type": row.event_type,
+                    "payload_schema_ref": row.payload_schema_ref,
                 }),
                 ip: None,
                 occurred_at: chrono::Utc::now(),
@@ -988,6 +1027,18 @@ pub async fn sources_patch(
             ));
         }
     }
+    // Validate event_type when set (same dot-path rule as create).
+    if let Some(Some(et)) = &req.event_type {
+        let et = et.trim();
+        if et.is_empty() {
+            return Err(ApiError::Validation("event_type must not be empty".into()));
+        }
+        if et.len() > 100 || !et.split('.').all(|seg| !seg.is_empty()) {
+            return Err(ApiError::Validation(
+                "event_type must be a non-empty dot-path (<= 100 chars)".into(),
+            ));
+        }
+    }
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     // Validate a re-pointed board against THIS org before opening the
@@ -1033,6 +1084,14 @@ pub async fn sources_patch(
                 client_id: req.client_id,
                 correlation_window_secs: req.correlation_window_secs,
                 enabled: req.enabled,
+                event_type: req
+                    .event_type
+                    .as_ref()
+                    .map(|opt| opt.as_deref()),
+                payload_schema_ref: req
+                    .payload_schema_ref
+                    .as_ref()
+                    .map(|opt| opt.as_deref()),
             },
         )
         .await

@@ -34,15 +34,21 @@ pub struct AlertSourceRow {
     pub client_id: Option<Uuid>,
     pub correlation_window_secs: i32,
     pub enabled: bool,
+    /// When set, this source is a generic M2M webhook receiver that emits
+    /// domain-event envelopes (Wave 43 lane 1). NULL = alert source (Wave 9).
+    pub event_type: Option<String>,
+    /// Payload contract pin; NULL defaults to 'core-domain/v1' at ingest.
+    pub payload_schema_ref: Option<String>,
     pub created_by: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 const SOURCE_COLS: &str = "id, org_id, name, source_ref, secret_encrypted, board_id, client_id, \
-     correlation_window_secs, enabled, created_by, created_at, updated_at";
+     correlation_window_secs, enabled, event_type, payload_schema_ref, created_by, created_at, updated_at";
 const SOURCE_COLS_FOR_SELECT: &str = "SELECT id, org_id, name, source_ref, secret_encrypted, \
-     board_id, client_id, correlation_window_secs, enabled, created_by, created_at, updated_at";
+     board_id, client_id, correlation_window_secs, enabled, event_type, payload_schema_ref, \
+     created_by, created_at, updated_at";
 
 pub struct NewAlertSource<'a> {
     pub id: Uuid,
@@ -53,6 +59,8 @@ pub struct NewAlertSource<'a> {
     pub board_id: Uuid,
     pub client_id: Option<Uuid>,
     pub correlation_window_secs: i32,
+    pub event_type: Option<&'a str>,
+    pub payload_schema_ref: Option<&'a str>,
     pub created_by: Uuid,
 }
 
@@ -66,8 +74,8 @@ where
     let sql = format!(
         "INSERT INTO alert_sources \
              (id, org_id, name, source_ref, secret_encrypted, board_id, \
-              client_id, correlation_window_secs, created_by) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
+              client_id, correlation_window_secs, event_type, payload_schema_ref, created_by) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
          RETURNING {SOURCE_COLS}"
     );
     sqlx::query_as::<_, AlertSourceRow>(&sql)
@@ -79,6 +87,8 @@ where
         .bind(s.board_id)
         .bind(s.client_id)
         .bind(s.correlation_window_secs)
+        .bind(s.event_type)
+        .bind(s.payload_schema_ref)
         .bind(s.created_by)
         .fetch_one(executor)
         .await
@@ -126,6 +136,8 @@ pub struct AlertSourcePatch<'a> {
     pub client_id: Option<Option<Uuid>>,
     pub correlation_window_secs: Option<i32>,
     pub enabled: Option<bool>,
+    pub event_type: Option<Option<&'a str>>,
+    pub payload_schema_ref: Option<Option<&'a str>>,
 }
 
 pub async fn update_alert_source<'e, E>(
@@ -144,6 +156,8 @@ where
              client_id = COALESCE($5, client_id), \
              correlation_window_secs = COALESCE($6, correlation_window_secs), \
              enabled = COALESCE($7, enabled), \
+             event_type = COALESCE($8, event_type), \
+             payload_schema_ref = COALESCE($9, payload_schema_ref), \
              updated_at = now() \
          WHERE id = $1 AND org_id = $2 \
          RETURNING {SOURCE_COLS}"
@@ -156,6 +170,8 @@ where
         .bind(p.client_id)
         .bind(p.correlation_window_secs)
         .bind(p.enabled)
+        .bind(p.event_type)
+        .bind(p.payload_schema_ref)
         .fetch_optional(executor)
         .await?
         .ok_or(DbError::NotFound)
@@ -174,6 +190,8 @@ pub struct AlertSourceAuth {
     pub r_secret_encrypted: Vec<u8>,
     pub r_correlation_window_secs: i32,
     pub r_enabled: bool,
+    pub r_event_type: Option<String>,
+    pub r_payload_schema_ref: Option<String>,
 }
 
 pub async fn auth_lookup_source<'e, E>(
@@ -185,7 +203,7 @@ where
 {
     sqlx::query_as::<_, AlertSourceAuth>(
         "SELECT r_id, r_org_id, r_source_ref, r_board_id, r_client_id, r_secret_encrypted, \
-                r_correlation_window_secs, r_enabled \
+                r_correlation_window_secs, r_enabled, r_event_type, r_payload_schema_ref \
          FROM alert_source_auth_lookup($1)",
     )
     .bind(source_ref)
@@ -586,4 +604,54 @@ where
         .fetch_optional(executor)
         .await
         .map_err(Into::into)
+}
+
+// --- generic webhook ingest: replay gate + rate limit -------------------------
+
+/// Records one ingest delivery. `Ok(true)` = first time for this dedup_key;
+/// `Ok(false)` = the UNIQUE (org, source, dedup_key) fence caught a replay.
+/// The insert is idempotent so at-least-once callers can retry safely.
+pub async fn insert_webhook_dedup(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    org_id: Uuid,
+    source_id: Uuid,
+    dedup_key: &str,
+    occurred_at: chrono::DateTime<chrono::Utc>,
+) -> DbResult<bool> {
+    let res = sqlx::query!(
+        r#"INSERT INTO webhook_ingest_dedup (org_id, source_id, dedup_key, occurred_at)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (org_id, source_id, dedup_key) DO NOTHING"#,
+        org_id,
+        source_id,
+        dedup_key,
+        occurred_at,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+/// Counts ingestions for one source within the last `window_secs`. Used to
+/// enforce a per-source rate ceiling at ingest time.
+pub async fn count_recent_ingests<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    source_id: Uuid,
+    window_secs: i32,
+) -> DbResult<i64>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let row: (i64,) = sqlx::query_as(
+        r#"SELECT COUNT(*) FROM webhook_ingest_dedup
+           WHERE org_id = $1 AND source_id = $2
+             AND occurred_at > now() - ($3 || ' seconds')::interval"#,
+    )
+    .bind(org_id)
+    .bind(source_id)
+    .bind(window_secs)
+    .fetch_one(executor)
+    .await?;
+    Ok(row.0)
 }

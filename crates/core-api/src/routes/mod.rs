@@ -141,6 +141,7 @@ pub mod transcription;
 pub mod undo;
 pub mod verification;
 pub mod webhook_admin;
+pub mod webhook_receiver;
 pub mod webhooks;
 pub mod workflow_overrides;
 
@@ -481,6 +482,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // Alert ingestor (Wave 9): HMAC-signed machine surface; the source
         // ref resolves org + secret inside the handler (no JWT middleware).
         .merge(alerts::public_routes(gen))
+        .merge(webhook_receiver::public_routes(gen))
         // Scheduling links (Wave 11 lane 4): unauthenticated, token-
         // scoped public booking surface; the handler resolves the org
         // scope itself (alerts pattern).

@@ -45,6 +45,7 @@ const CANONICAL: &str = "/api/v1";
 const MACHINE_TAILS: &[&str] = &[
     "/health",
     "/webhooks/email-inbound",
+    "/webhooks/ingest/no-such-source",
     "/internal/email/outbound/claim",
     "/internal/email/outbound/results",
     "/internal/sla/verdict",

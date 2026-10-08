@@ -296,6 +296,11 @@ pub mod types {
     /// for `incident_created` and `collapsed` outcomes only — a replayed
     /// `duplicate` dedup_key writes nothing and emits nothing.
     pub const ALERT_INGESTED: &str = "alert.ingested";
+    /// Generic M2M webhook receiver (Wave 43 lane 1): a source with a
+    /// declared `event_type` delivered a signed envelope that was emitted
+    /// onto the stream. The envelope carries `board_id` so ticket-less
+    /// triggers (lane 3) can scope their rules.
+    pub const WEBHOOK_INGESTED: &str = "webhook.ingested";
     /// Alert triage (Wave 17 lane 13, migration 0089): a staff member
     /// acknowledged or resolved a stored alert through the /alerts
     /// surface. Forward-only through the API — the row carries the
