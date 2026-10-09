@@ -128,8 +128,7 @@ export default function PortalTicketsPage() {
               </a>
             }
           >
-            When you need help, contact your service desk and we&apos;ll reply right here. You
-           &apos;ll get an email each time.
+            When you need help, contact your service desk and we&apos;ll reply right here. You&apos;ll get an email each time.
           </PortalEmpty>
         </PortalCard>
       </>

@@ -320,6 +320,17 @@ export function PortalRow({
       </a>
     );
   }
+  // A row that carries its own action (the CSAT button on a resolved ticket)
+  // must not be a <button> itself: a button inside a button is invalid HTML
+  // and mis-nests for a screen reader. Only a row that is ITSELF clickable
+  // takes the button element.
+  if (onClick === undefined) {
+    return (
+      <div className={classes} style={style} data-testid={testId}>
+        {body}
+      </div>
+    );
+  }
   return (
     <button
       type="button"

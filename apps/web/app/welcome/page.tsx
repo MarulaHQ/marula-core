@@ -347,6 +347,11 @@ export default function WelcomeWizardPage() {
 
   const meta = labelFor(focus);
   const stepIndex = ORG_STEP_ORDER.indexOf(focus as (typeof ORG_STEP_ORDER)[number]);
+  // The pack's org rail is NAMED, not numbered: "Setting up Brightline IT"
+  // (auth/neutral/states/09-welcome-invite-people.png). The signed-in user's
+  // org carries no name on `Me`, so the honest fallback is the generic
+  // sentence — a name is never invented. Recorded in the parity ledger.
+  const orgRailHeading = "Setting up your organization";
   const states = ORG_STEP_ORDER.map(
     (key) => railState(stepView(key), skipped.includes(key)),
   );
@@ -475,8 +480,8 @@ export default function WelcomeWizardPage() {
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         <WizardRail
-          heading={`Step ${stepIndex + 1} of ${ORG_STEP_ORDER.length}`}
-          steps={ORG_STEP_ORDER.map((key) => labelFor(key).title)}
+          heading={orgRailHeading}
+          steps={ORG_STEP_ORDER.map((key) => labelFor(key).short)}
           states={states}
           current={meta.short}
           onSelect={(label) => {

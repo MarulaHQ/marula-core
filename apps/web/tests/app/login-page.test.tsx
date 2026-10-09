@@ -1,6 +1,8 @@
 // Integration test: /login register mode — the org_slug_taken 409 renders
 // friendly copy from the central reason map and offers one-click accept of
-// the envelope's `suggestion` (Wave 13 lane-1 follow-up, web leg).
+// the envelope's `suggestion` (Wave 13 lane-1 follow-up, web leg). Since the
+// p41 pack redesign there are no tabs: registration sits one quiet link below
+// the sign-in card, reached through `login-create-org`.
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -53,8 +55,9 @@ describe("/login — register mode slug collision", () => {
     const user = userEvent.setup();
     render(<LoginPage />);
 
-    // Switch to the Create org segment.
-    await user.click(screen.getByRole("tab", { name: "Create org" }));
+    // Registration is one quiet link below the card (no tabs since the p41
+    // pack redesign: parity ledger #9).
+    await user.click(screen.getByTestId("login-create-org"));
 
     await user.type(screen.getByPlaceholderText("Acme IT"), "Acme IT");
     await user.type(screen.getByPlaceholderText("acme-it"), "acme-it");

@@ -1,7 +1,8 @@
 // Integration test: /portal/tickets/[id] — detail thread + reply composer.
-// Covers the exact status bar (color+text), optimistic reply rendering with
-// typed failure preservation, and the attachments list over the pinned
-// portal endpoints (Wave 17 lane 8).
+// Pins the p41 pack redesign: the plain-worded status pill (never the internal
+// status, never a priority), the in-house update shown only when the tier
+// allows it, the optimistic reply with the pack's Send button, and the
+// attachments list over the pinned portal endpoints.
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import PortalTicketPage from "../../app/portal/tickets/[id]/page";
@@ -90,21 +91,23 @@ beforeEach(() => {
 });
 
 describe("/portal/tickets/[id]", () => {
-  it("renders the exact status bar, priority chip, and thread", async () => {
+  it("renders the client's words for the state, and never a priority", async () => {
     const mock = setupApi();
     render(
       <PortalAuthProvider>
         <PortalTicketPage />
       </PortalAuthProvider>,
     );
-    const bar = await screen.findByTestId("ticket-status-bar");
-    expect(bar.textContent).toContain("In progress");
-    expect(bar.textContent).toContain("desk is working on it");
+    // The plain word, with its mark — not the internal status.
+    expect(await screen.findByText("We're on it")).toBeInTheDocument();
+    expect(screen.queryByText(/In progress/i)).toBeNull();
+    // PRIORITY NEVER APPEARS, even though the API sends it.
+    expect(screen.queryByText(/P[1-4]/)).toBeNull();
 
-    // Role-based glance: portal it_manager sees the in-house update, labeled.
+    // Role-based glance: portal it_manager sees the in-house update, labelled
+    // as an update from the desk (never an internal note).
     expect(await screen.findByText("Vendor escalated to the provider.")).toBeInTheDocument();
-    expect(screen.getByText("Update from the team")).toBeInTheDocument();
-    expect(screen.getByText("P1")).toBeInTheDocument();
+    expect(screen.getByText("An update from your service desk")).toBeInTheDocument();
     expect(mock.calls.some((c) => c.path === "/api/v1/portal/tickets/t1/attachments")).toBe(true);
     cleanup();
   });
@@ -116,12 +119,13 @@ describe("/portal/tickets/[id]", () => {
         <PortalTicketPage />
       </PortalAuthProvider>,
     );
-    const box = await screen.findByLabelText("Reply");
+    const box = await screen.findByLabelText("Your reply");
     fireEvent.change(box, { target: { value: "Here are more details." } });
-    fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-    // Optimistic: pending reply appears before the API answers.
-    expect(screen.getByTestId("portal-pending-reply").textContent).toContain("Here are more details.");
+    // Optimistic: pending reply appears before the API answers, marked as hers.
+    const pending = await screen.findByTestId("portal-pending-reply");
+    expect(pending.textContent).toContain("Here are more details.");
 
     await waitFor(() => {
       expect(screen.queryByTestId("portal-pending-reply")).toBeNull();
@@ -135,19 +139,20 @@ describe("/portal/tickets/[id]", () => {
     const mock = setupApi();
     mock.on("POST", "/api/v1/portal/tickets/t1/reply", () => ({
       status: 409,
-      json: { error: { code: 409, message: "conflict: ticket is closed" } },
+      json: { error: { code: 409, message: "This ticket has closed since you opened it." } },
     }));
     render(
       <PortalAuthProvider>
         <PortalTicketPage />
       </PortalAuthProvider>,
     );
-    const box = await screen.findByLabelText("Reply");
+    const box = await screen.findByLabelText("Your reply");
     fireEvent.change(box, { target: { value: "Please reopen" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("delivered");
-    // Draft preserved for re-send.
+    // The typed rejection sentence, with the draft kept for a re-send.
+    expect(alert.textContent).toContain("Your reply didn't go through");
+    // Draft preserved for re-send, and the optimistic bubble is gone.
     expect((box as HTMLTextAreaElement).value).toBe("Please reopen");
     expect(screen.queryByTestId("portal-pending-reply")).toBeNull();
     cleanup();
@@ -160,10 +165,10 @@ describe("/portal/tickets/[id]", () => {
         <PortalTicketPage />
       </PortalAuthProvider>,
     );
-    const row = await screen.findByTestId("portal-attachment-0");
-    expect(row.textContent).toContain("smtp-log.txt");
-    expect(row.textContent).toContain("2 KB");
-    expect(screen.getByRole("button", { name: "Download" })).toBeInTheDocument();
+    const files = await screen.findByTestId("portal-attachments");
+    expect(files.textContent).toContain("smtp-log.txt");
+    expect(files.textContent).toContain("2 KB");
+    expect(screen.getAllByRole("button", { name: /Download/ }).length).toBeGreaterThan(0);
     cleanup();
   });
 });

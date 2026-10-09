@@ -1,6 +1,7 @@
-// Integration test: /portal/schedule — day-grouped slot picking + intent
-// semantics. Covers day grouping, the selected-time confirm card, the
-// create call's payload shape, and request status labels (Wave 17 lane 8).
+// Integration test: /portal/schedule — the pack's day-chips-then-times shape
+// plus the request semantics. The day is chosen first from chips, then the
+// times for that day (portal/sand/states/09-schedule.png); the confirm card
+// says REQUESTED, never booked, and the create call carries the typed slot.
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import PortalSchedulePage from "../../app/portal/schedule/page";
@@ -96,45 +97,69 @@ beforeEach(() => {
 });
 
 describe("/portal/schedule", () => {
-  it("groups published slots by day and lists requests with labels", async () => {
+  it("shows day chips first, then that day's times, and lists the pending request", async () => {
     const mock = setupApi();
     render(
       <PortalAuthProvider>
         <PortalSchedulePage />
       </PortalAuthProvider>,
     );
-    expect(await screen.findByText("Tomorrow")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /with Sam Weaver/ }).length).toBe(2);
-    expect(screen.getByText("Your requests")).toBeInTheDocument();
+    // Day chips carry the day; no times are offered until a day is picked.
+    expect(await screen.findByTestId(`portal-day-${DAY1}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`portal-day-${DAY1}`).textContent).toBe("Tomorrow");
+    expect(screen.queryByLabelText("What time?")).toBeNull();
+
+    // The pending request is listed with the honest pill, not as booked.
     expect(screen.getByText("Quarterly review")).toBeInTheDocument();
-    expect(screen.getAllByText("Pending").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Waiting to be confirmed").length).toBeGreaterThanOrEqual(1);
     expect(mock.calls.some((c) => c.path === "/api/v1/portal/schedule/slots")).toBe(true);
     cleanup();
   });
 
-  it("carries the selected slot straight into the typed create call", async () => {
+  it("carries the picked slot into the typed create call and says REQUESTED", async () => {
     const mock = setupApi();
     render(
       <PortalAuthProvider>
         <PortalSchedulePage />
       </PortalAuthProvider>,
     );
-    await screen.findByText("Tomorrow");
-    const pick = screen.getAllByRole("button", { name: /with Sam Weaver/ })[0];
-    fireEvent.click(pick as HTMLElement);
-    const summary = screen.getByTestId("picked-slot-summary");
-    expect(summary.textContent).toContain("Sam Weaver");
+    fireEvent.click(await screen.findByTestId(`portal-day-${DAY1}`));
+    const timeGroup = screen.getByLabelText("What time?");
+    expect(timeGroup).toBeInTheDocument();
 
+    // Times are the only thing on the time buttons — the day was already
+    // picked, so the button is not a sentence. The two fixture slots are
+    // 03:00Z and 05:00Z; the labels are the machine's local renderings.
+    const times = Array.from(
+      timeGroup.querySelectorAll('[data-testid^="portal-slot-"]'),
+    );
+    expect(times).toHaveLength(2);
+    const local = (iso: string) =>
+      new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+    expect(times.map((t) => t.textContent)).toEqual([
+      local(`${DAY1}T03:00:00.000Z`),
+      local(`${DAY1}T05:00:00.000Z`),
+    ]);
+    fireEvent.click(times[0] as HTMLElement);
+
+    // The primary is disabled until a slot is picked; the reason select and
+    // the optional description ride along.
+    const primary = screen.getByTestId("portal-schedule-request");
+    expect(primary).toBeEnabled();
     fireEvent.change(screen.getByLabelText("What is it about?"), {
-      target: { value: "Config change" },
+      target: { value: "A new starter or a leaver" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    fireEvent.click(primary);
     await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toContain("Request sent");
+      expect(screen.getByTestId("portal-schedule-requested").textContent).toContain(
+        "Requested. We'll confirm within the hour.",
+      );
     });
     const body = mock.lastBody<Record<string, unknown>>("POST", "/api/v1/portal/appointment-requests");
-    expect(body.title).toBe("Config change");
     expect(body.user_id).toBe("u9");
+    expect(body.title).toBe("A new starter or a leaver");
+    expect(body.starts_at).toBe(`${DAY1}T03:00:00.000Z`);
+    expect(body.kind).toBe("remote");
     expect((body.idempotency_key as string).startsWith("portal-req-")).toBe(true);
     cleanup();
   });

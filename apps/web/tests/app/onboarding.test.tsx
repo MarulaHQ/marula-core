@@ -1,18 +1,26 @@
-// Wave 26 onboarding integration tests — the SKIPPABILITY CONTRACT.
+// Onboarding integration tests — the SKIPPABILITY CONTRACT, against the p41
+// pack redesign's card stacks (WizardRail + SkipButton + GuideMenu).
 //
 // Purpose: the skip path is the happy path, first class. These tests pin
 // the recorded-state semantics of every surface:
 //   • org wizard (/welcome): "Skip for now" records NOTHING on the step
 //     (POST skip body never:false, no step mutation); "Never show this
-//     again" records the dismissed flag; completion is server-gated
-//     (POST complete only fires after the gate is satisfied).
+//     setup again" lives in the guide menu behind a confirm and records
+//     the dismissed flag; completion is server-gated (POST complete only
+//     fires after the gate is satisfied).
 //   • resume banner: a dismissal persists across a RELOAD (remount) —
 //     the read comes back dismissed server-side, so the banner stays
 //     silent. The record is the state.
-//   • user first-run (/onboarding): orientation completes; personal
-//     defaults persist through PUT /api/v1/settings/user.
+//   • user first-run (/onboarding): orientation completes; MFA enrollment
+//     runs inline (enroll-begin → enroll-verify); personal defaults
+//     persist through PUT /api/v1/settings/user.
 //   • Settings → Onboarding: org re-run (reset/org), org-wide disable
 //     toggle (disable), member re-trigger (reset/user).
+//
+// The Wave 26 welcome hero (theme picker card) was dropped from /onboarding
+// during the p41 card-stack rewrite and is NOT here — the defaults step
+// carries the theme pick. That removal is recorded in the lane's parity
+// ledger; if it returns, it returns behind the pack's wizard.
 //
 // Non-purpose: no backend bundling (the MockApi fabricates the same
 // wire shapes the real server serves; contract-level behavior is pinned
@@ -54,11 +62,13 @@ function orgSummary(orgFlags: Record<string, boolean>) {
     step,
     done: orgFlags[`onboarding.org_${step}_done`] === true,
     dismissed: orgFlags[`onboarding.org_${step}_dismissed`] === true,
-    satisfied: step === "board", // board artifact exists in every fixture
+    // Nothing is satisfied up front: with a resolved step behind them the
+    // page renders the resumed card instead of the wizard stack (the pack's
+    // state 13), and these tests pin the wizard itself.
+    satisfied: false,
     resolved:
       orgFlags[`onboarding.org_${step}_done`] === true ||
-      orgFlags[`onboarding.org_${step}_dismissed`] === true ||
-      step === "board",
+      orgFlags[`onboarding.org_${step}_dismissed`] === true,
   });
   return {
     org: {
@@ -78,7 +88,8 @@ function orgSummary(orgFlags: Record<string, boolean>) {
   };
 }
 
-/** Installs every real route the onboarding family reads/writes. */
+/** Installs every real route the onboarding family reads/writes, plus the
+ *  two TOTP enrollment routes the per-person MFA step calls inline. */
 function setupApi(orgFlags = serverState()) {
   const mock = new MockApi();
   const userFlags: Record<string, boolean> = {
@@ -111,7 +122,7 @@ function setupApi(orgFlags = serverState()) {
     Object.entries(orgFlags).map(([key, value]) => ({ key, value }));
   const allUserFlags = () =>
     Object.entries(userFlags).map(([key, value]) => ({ key, value }));
-  mock.on("GET", "/api/v1/settings/org", () => ({ json: allOrgFlags(orgFlags) }));
+  mock.on("GET", "/api/v1/settings/org", () => ({ json: allOrgSettings() }));
   mock.on("GET", "/api/v1/settings/user", () => ({ json: allUserFlags() }));
   mock.on("PUT", "/api/v1/settings/org", (ctx) => {
     const { key, value } = ctx.body as { key: string; value: boolean };
@@ -157,6 +168,16 @@ function setupApi(orgFlags = serverState()) {
       return { json: { step, done: false, dismissed: never, satisfied: false, resolved: never } };
     });
   }
+  // The MFA step does the whole enrollment inline (p41 parity fix #44).
+  mock.on("POST", "/api/v1/auth/mfa/totp/enroll-begin", () => ({
+    json: {
+      secret_base32: "K7QX2MVD9FTAR4LP",
+      otpauth_url: "otpauth://totp/Marula:ops?secret=K7QX2MVD9FTAR4LP",
+    },
+  }));
+  mock.on("POST", "/api/v1/auth/mfa/totp/enroll-verify", () => ({
+    json: { recovery_codes: ["1111-2222", "3333-4444"] },
+  }));
   mock.on("POST", "/api/v1/onboarding/disable", (ctx) => {
     orgFlags["onboarding.flows_disabled"] = (ctx.body as { disabled: boolean }).disabled;
     return { json: { disabled: orgFlags["onboarding.flows_disabled"] } };
@@ -190,10 +211,6 @@ function setupApi(orgFlags = serverState()) {
   return mock;
 }
 
-function allOrgFlags(orgFlags: Record<string, boolean>) {
-  return Object.entries(orgFlags).map(([key, value]) => ({ key, value }));
-}
-
 beforeEach(() => {
   window.localStorage.clear();
   seedAuthTokens();
@@ -208,18 +225,21 @@ function mountAuthed(node: React.ReactNode) {
 // --- org wizard ---------------------------------------------------------------
 
 describe("/welcome wizard — skip contract", () => {
-  it("satisfied steps never-nag: nothing is recorded when 'never' is false, everything is recorded when true", async () => {
+  it("skip for now records nothing; never show again (from the guide menu) records the dismissal", async () => {
     const mock = setupApi();
     render(
       <AuthProvider>
         <WelcomePage />
       </AuthProvider>,
     );
-    // clients is the first pending step
-    await screen.findByTestId("wizard-step-clients", {}, { timeout: 5000 });
+    // clients is the first pending step: the rail's step 1, labelled with the
+    // pack's short label.
+    const rail = await screen.findByTestId("wizard-step-1", {}, { timeout: 5000 });
+    expect(rail.textContent).toContain("Add clients");
+    expect(rail.getAttribute("aria-current")).toBe("step");
 
-    // SKIP FOR NOW — deliberately persists nothing on the step
-    fireEvent.click(screen.getByTestId("onboarding-skip-for-now"));
+    // SKIP FOR NOW — deliberately persists nothing on the step.
+    fireEvent.click(screen.getByTestId("wizard-skip-for-now"));
     await waitFor(() => {
       expect(
         mock.callsTo("POST", "/api/v1/onboarding/org/steps/clients/skip"),
@@ -231,11 +251,18 @@ describe("/welcome wizard — skip contract", () => {
     expect(
       mock.callsTo("POST", "/api/v1/onboarding/org/steps/clients/complete"),
     ).toHaveLength(0);
-    // advance to the next pending step (board, whose gate is satisfied)
-    await screen.findByTestId("wizard-step-board", {}, { timeout: 5000 });
 
-    // NEVER SHOW THIS AGAIN — recorded, sticks
-    fireEvent.click(screen.getByTestId("onboarding-never-show"));
+    // The wizard advances to the next pending step (board, whose gate is
+    // satisfied) and the rail lights IT as the current step.
+    const rail2 = await screen.findByTestId("wizard-step-2", {}, { timeout: 5000 });
+    expect(rail2.getAttribute("aria-current")).toBe("step");
+
+    // NEVER SHOW THIS SETUP AGAIN — it lives in the guide menu, behind a
+    // confirm, never on a step card. It records the choice, and it sticks.
+    fireEvent.click(screen.getByTestId("wizard-guide-menu"));
+    fireEvent.click(screen.getByTestId("wizard-never-show-again"));
+    await screen.findByTestId("never-show-dialog", {}, { timeout: 5000 });
+    fireEvent.click(screen.getByTestId("never-show-confirm"));
     await waitFor(() => {
       expect(mock.lastBody("POST", "/api/v1/onboarding/org/steps/board/skip")).toEqual({
         never: true,
@@ -251,11 +278,11 @@ describe("/welcome wizard — skip contract", () => {
         <WelcomePage />
       </AuthProvider>,
     );
-    await screen.findByTestId("wizard-step-clients", {}, { timeout: 5000 });
-    fireEvent.change(screen.getByPlaceholderText("Client name"), {
+    await screen.findByTestId("wizard-step-1", {}, { timeout: 5000 });
+    fireEvent.change(screen.getByTestId("wizard-client-name"), {
       target: { value: "Northwind IT" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create client" }));
+    fireEvent.click(screen.getByTestId("wizard-clients-create"));
     await waitFor(() => {
       expect(mock.callsTo("POST", "/api/v1/clients")).toHaveLength(1);
       expect(mock.callsTo("POST", "/api/v1/onboarding/org/steps/clients/complete")).toHaveLength(1);
@@ -270,7 +297,7 @@ describe("/welcome wizard — skip contract", () => {
         <WelcomePage />
       </AuthProvider>,
     );
-    await screen.findByTestId("wizard-step-clients", {}, { timeout: 5000 });
+    await screen.findByTestId("wizard-step-1", {}, { timeout: 5000 });
     // The wizard must NOT write onboarding.wizard_completed (superseded
     // by the per-step flags; the legacy key stays a read-only fallback).
     expect(
@@ -333,12 +360,15 @@ describe("/onboarding user flow", () => {
         <UserOnboardingPage />
       </AuthProvider>,
     );
-    // the first pending step is "mfa" (profile is satisfied in the fixture)
-    await screen.findByTestId("onboarding-step-mfa", {}, { timeout: 5000 });
+    // The rail names itself, not its position: "Getting you started", and the
+    // four pack labels.
+    const rail = await screen.findByTestId("wizard-step-1", {}, { timeout: 5000 });
+    expect(screen.getByTestId("wizard-step-2").textContent).toContain("Set a second step");
+    expect(screen.getByTestId("wizard-step-4").textContent).toContain("Your defaults");
 
-    // Orientation completes through the posted click.
-    fireEvent.click(screen.getByTestId("onboarding-rail-orientation"));
-    fireEvent.click(screen.getByRole("button", { name: /got it/i }));
+    // Orientation completes through its posted click.
+    fireEvent.click(screen.getByTestId("wizard-step-3"));
+    fireEvent.click(await screen.findByTestId("onboarding-orientation-done", {}, { timeout: 5000 }));
     await waitFor(() => {
       expect(
         mock.callsTo("POST", "/api/v1/onboarding/user/steps/orientation/complete"),
@@ -346,7 +376,8 @@ describe("/onboarding user flow", () => {
     });
 
     // Personal defaults ride the typed user settings (theme override + mode).
-    fireEvent.change(screen.getByTestId("onboarding-theme"), {
+    fireEvent.click(screen.getByTestId("wizard-step-4"));
+    fireEvent.change(await screen.findByTestId("onboarding-theme", {}, { timeout: 5000 }), {
       target: { value: "marula-warm" },
     });
     fireEvent.change(screen.getByTestId("onboarding-mode"), {
@@ -358,53 +389,25 @@ describe("/onboarding user flow", () => {
     });
     cleanup();
   });
-});
 
-
-// --- welcome hero: the first-open animated theme picker (user directive) -----
-
-describe("first-open welcome hero", () => {
-  it("renders the theme pick and completes the defaults step through it", async () => {
+  it("does the MFA enrollment inline: begin on open, verify by code, recovery codes once", async () => {
     const mock = setupApi();
-    // Install the theme-packs catalog route the hero reads.
-    mock.on("GET", "/api/v1/plugins/distribution/theme-packs", () => ({
-      json: { packs: [{ slug: "ember-dusk", manifest: { light: { "--m-accent": "#7C5CFF" } } }] },
-    }));
     render(
       <AuthProvider>
         <UserOnboardingPage />
       </AuthProvider>,
     );
-    // The hero is the first thing on the page while defaults are pending.
-    await screen.findByTestId("onboarding-welcome", {}, { timeout: 5000 });
-    expect(screen.getByTestId("welcome-mode-light")).toBeInTheDocument();
-    expect(screen.getByTestId("welcome-mode-dark")).toBeInTheDocument();
-    expect(screen.getByTestId("welcome-theme-marula")).toBeInTheDocument();
-    expect(screen.getByTestId("welcome-theme-marula-warm")).toBeInTheDocument();
-    // Admin-added theme packs render as extra preview cards.
-    await waitFor(() => {
-      expect(screen.getByTestId("welcome-pack-ember-dusk")).toBeInTheDocument();
-    });
-
-    // Choosing DARK persists both Wave 24 keys (mode + override default).
-    fireEvent.click(screen.getByTestId("welcome-mode-dark"));
-    await waitFor(() => {
-      const modeCall = mock.callsTo("PUT", "/api/v1/settings/user").find(
-        (c) => (c.body as { key?: string }).key === "appearance.mode",
-      );
-      expect((modeCall as { body?: { value?: string } }).body?.value).toBe("dark");
-    });
-    // Confirm completes the recorded defaults step (the settings PUTs already
-    // happened through the hero itself).
-    fireEvent.click(screen.getByTestId("welcome-confirm"));
-    await waitFor(() => {
-      expect(
-        mock.callsTo("POST", "/api/v1/onboarding/user/steps/defaults/complete"),
-      ).toHaveLength(1);
-    });
+    // The MFA step begins its enrollment the moment it is focused (p41
+    // parity fix #44: no linking away to /settings/security).
+    fireEvent.click(await screen.findByTestId("wizard-step-2", {}, { timeout: 5000 }));
+    expect(
+      await screen.findByTestId("onboarding-mfa-key", {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(mock.callsTo("POST", "/api/v1/auth/mfa/totp/enroll-begin")).toHaveLength(1);
     cleanup();
   });
 });
+
 // --- Settings → Onboarding ------------------------------------------------------
 
 describe("Settings → Onboarding", () => {
