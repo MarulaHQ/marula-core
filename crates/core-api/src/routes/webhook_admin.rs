@@ -32,24 +32,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-/// Event types a subscription may filter on. Empty = wildcard.
-pub const KNOWN_EVENT_TYPES: &[&str] = &[
-    "ticket.created",
-    "ticket.updated",
-    "ticket.status_changed",
-    "ticket.assigned",
-    "ticket.comment_added",
-    "ticket.closed",
-    "client.created",
-    "client.updated",
-    "timer.started",
-    "timer.stopped",
-    "time_entry.created",
-    "notification.created",
-    "sla.escalation_fired",
-    "webhook.test",
-];
-
 // --- wire shapes ---------------------------------------------------------------
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -174,14 +156,25 @@ fn validate_url(url: &str) -> ApiResult<()> {
     Ok(())
 }
 
-fn validate_event_types(event_types: &[String]) -> ApiResult<()> {
-    for t in event_types {
-        if !KNOWN_EVENT_TYPES.contains(&t.as_str()) {
-            return Err(ApiError::Validation(format!(
-                "unknown event type {t:?}; known: {}",
-                KNOWN_EVENT_TYPES.join(", ")
-            )));
-        }
+/// Validates that every event type in `event_types` is either a registered
+/// platform type (source='platform') or has an org-level grant. Empty
+/// vec = wildcard (no validation needed). Platform types need no grant;
+/// all others (plugin-contributed, external, or truly unknown) require
+/// a row in `event_type_grants`.
+async fn validate_event_types(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    org_id: Uuid,
+    event_types: &[String],
+) -> ApiResult<()> {
+    let ungranted = core_db::event_types::check_event_types(pool, org_id, event_types)
+        .await
+        .map_err(ApiError::from)?;
+    if !ungranted.is_empty() {
+        return Err(ApiError::Validation(format!(
+            "unknown or ungranted event types {:?}; either subscribe only to \
+             platform types, or obtain a grant for custom types",
+            ungranted
+        )));
     }
     Ok(())
 }
@@ -226,7 +219,7 @@ pub async fn create(
     let user_id = authed.principal.user.id;
     let org_id = authed.principal.user.org_id;
     validate_url(&req.url)?;
-    validate_event_types(&req.event_types)?;
+    validate_event_types(&state.pool, org_id, &req.event_types).await?;
 
     // Fresh 256-bit secret; sealed immediately, returned once.
     let raw_secret = format!("whsec_{}", uuid::Uuid::now_v7().simple());
@@ -288,7 +281,7 @@ pub async fn update(
         validate_url(url)?;
     }
     if let Some(types_) = &req.event_types {
-        validate_event_types(types_)?;
+        validate_event_types(&state.pool, org_id, types_).await?;
     }
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org(&mut tx, org_id).await?;
