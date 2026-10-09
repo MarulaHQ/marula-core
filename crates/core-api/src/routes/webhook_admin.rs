@@ -236,6 +236,7 @@ pub async fn create(
         &sealed,
         &req.event_types,
         user_id,
+        None,
     )
     .await?;
     core_db::audit::insert(

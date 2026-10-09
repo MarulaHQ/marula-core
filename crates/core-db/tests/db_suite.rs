@@ -4471,6 +4471,7 @@ async fn webhook_crud_and_rls_isolation() {
             &sealed,
             &["ticket.created".into(), "ticket.closed".into()],
             user_a,
+            None,
         )
         .await
         .expect("insert webhook");
@@ -4562,6 +4563,224 @@ async fn webhook_crud_and_rls_isolation() {
     }
 }
 
+/// Wave 43 lane 4 (A): a consented connector's declared endpoints seed
+/// real, install-attributed subscriptions — and the install's lifecycle
+/// governs them from there.
+#[tokio::test]
+async fn seeded_connector_endpoints_follow_the_install_lifecycle() {
+    use core_db::plugins;
+
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 96).await;
+    let admin = seed_user(&app, &s, 9060).await;
+
+    let entry = core_domain::entities::PluginCatalogEntry {
+        id: fixed_uuid(961),
+        slug: "rmm-connector".into(),
+        name: "RMM".into(),
+        description: "d".into(),
+        publisher: "p".into(),
+        latest_version: Some("1.0.0".into()),
+        interface_version: core_domain::entities::PLUGIN_RUNTIME_INTERFACE_VERSION,
+        revoked_at: None,
+        revoked_reason: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    let manifest = core_domain::entities::PluginManifestV2 {
+        name: "RMM".into(),
+        version: "1.0.0".into(),
+        interface_version: core_domain::entities::PLUGIN_RUNTIME_INTERFACE_VERSION,
+        description: "d".into(),
+        capabilities: vec!["automation.triggers".into()],
+        settings_schema: None,
+        artifact_kind: Some(core_domain::entities::plugins::PluginRuntimeKind::HttpConnector),
+        connector_profile: Some(core_domain::entities::ConnectorProfile {
+            webhook_endpoints: vec![
+                "https://hooks.rmm.test/one".into(),
+                "https://hooks.rmm.test/two".into(),
+            ],
+            scopes: vec![],
+            routing: None,
+        }),
+        surface_profile: None,
+    };
+    let install = core_domain::entities::PluginInstall {
+        id: fixed_uuid(962),
+        org_id: s.org,
+        catalog_id: entry.id,
+        slug: "rmm-connector".into(),
+        version: "1.0.0".into(),
+        // DISABLED is the created state — the seeded rows must be inert.
+        status: core_domain::entities::PluginInstallStatus::Disabled,
+        granted_capabilities: vec!["automation.triggers".to_string()],
+        installed_by: Some(admin),
+        installed_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        revoked_at: None,
+        revoked_by: None,
+    };
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        plugins::create_catalog_entry(
+            &mut tx,
+            &entry,
+            &core_domain::entities::PluginVersion {
+                id: fixed_uuid(963),
+                catalog_id: entry.id,
+                version: "1.0.0".into(),
+                manifest,
+                created_at: chrono::Utc::now(),
+            },
+        )
+        .await
+        .expect("entry");
+        plugins::create_install(&mut tx, &install)
+            .await
+            .expect("install");
+        tx.commit().await.expect("commit");
+    }
+
+    let sealed = sealed_secret(SUITE_AT_REST_KEY, "whsec_seeded");
+    let endpoints = [
+        "https://hooks.rmm.test/one".to_string(),
+        "https://hooks.rmm.test/two".to_string(),
+    ];
+
+    // 1) Seeding creates one attributed row per declared endpoint.
+    let seeded = {
+        let mut tx = org_tx(&app, s.org).await;
+        let n = wh::seed_install_webhooks(&mut *tx, s.org, install.id, &endpoints, &sealed, admin)
+            .await
+            .expect("seed");
+        tx.commit().await.expect("commit");
+        n
+    };
+    assert_eq!(seeded, 2, "one row per declared endpoint");
+
+    // A re-seed is idempotent, and a residue drop fires only for an
+    // endpoint the manifest no longer declares.
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        let again =
+            wh::seed_install_webhooks(&mut *tx, s.org, install.id, &endpoints, &sealed, admin)
+                .await
+                .expect("re-seed");
+        tx.commit().await.expect("commit");
+        assert_eq!(again, 0, "ON CONFLICT DO NOTHING creates nothing");
+    }
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        let after = wh::seed_install_webhooks(
+            &mut *tx,
+            s.org,
+            install.id,
+            &["https://hooks.rmm.test/one".to_string()],
+            &sealed,
+            admin,
+        )
+        .await
+        .expect("narrow");
+        tx.commit().await.expect("commit");
+        assert_eq!(after, 0);
+    }
+
+    let owned = {
+        let mut tx = org_tx(&app, s.org).await;
+        let rows = wh::list_webhooks(&mut *tx, s.org).await.expect("list");
+        tx.commit().await.expect("commit");
+        rows
+    };
+    assert_eq!(owned.len(), 1, "the undeclared endpoint is the residue");
+    assert_eq!(owned[0].owner_install_id, Some(install.id));
+    assert_eq!(owned[0].created_by, Some(admin));
+
+    // 2) While the install is DISABLED the seeded row matches nothing —
+    //    the liveness gate, which is what keeps `enabled = true` from
+    //    live-delivering before anyone enabled the connector.
+    let matched = wh::find_enabled_for_event(&db.admin, s.org, "ticket.created")
+        .await
+        .expect("match");
+    assert!(
+        matched.is_empty(),
+        "a disabled install's seeded rows must not deliver"
+    );
+
+    // 3) Enabling the install makes them live.
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        plugins::update_install(
+            &mut tx,
+            s.org,
+            install.id,
+            Some(core_domain::entities::PluginInstallStatus::Enabled),
+            None,
+            None,
+        )
+        .await
+        .expect("enable");
+        tx.commit().await.expect("commit");
+    }
+    let matched = wh::find_enabled_for_event(&db.admin, s.org, "ticket.created")
+        .await
+        .expect("match");
+    assert_eq!(matched.len(), 1, "an enabled install's rows deliver");
+    assert_eq!(matched[0].owner_install_id, Some(install.id));
+
+    // 4) Revoking tears them down outright, and the liveness predicate
+    //    independently makes any straggler inert.
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        plugins::revoke_catalog_entry(&mut tx, entry.id, "supply chain", chrono::Utc::now())
+            .await
+            .expect("revoke");
+        tx.commit().await.expect("commit");
+    }
+    let after = wh::list_webhooks(&db.admin, s.org).await.expect("list");
+    assert!(
+        after.is_empty(),
+        "revoke removes the install's subscriptions"
+    );
+    let matched = wh::find_enabled_for_event(&db.admin, s.org, "ticket.created")
+        .await
+        .expect("match");
+    assert!(matched.is_empty(), "and nothing delivers after revoke");
+}
+
+/// A human-created subscription carries no owner, so the liveness gate's
+/// LEFT JOIN must leave it untouched: it delivers whether or not any
+/// plugin install exists.
+#[tokio::test]
+async fn unowned_subscriptions_are_unaffected_by_the_liveness_gate() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 97).await;
+    let user = seed_user(&app, &s, 9070).await;
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        wh::insert_webhook(
+            &mut *tx,
+            fixed_uuid(971),
+            s.org,
+            "https://hooks.acme.test/human",
+            &sealed_secret(SUITE_AT_REST_KEY, "whsec_human"),
+            &[],
+            user,
+            None,
+        )
+        .await
+        .expect("insert");
+        tx.commit().await.expect("commit");
+    }
+    let matched = wh::find_enabled_for_event(&db.admin, s.org, "ticket.created")
+        .await
+        .expect("match");
+    assert_eq!(matched.len(), 1);
+    assert_eq!(matched[0].owner_install_id, None);
+    assert_eq!(matched[0].url, "https://hooks.acme.test/human");
+}
+
 #[tokio::test]
 async fn delivery_ledger_records_every_attempt_exactly_once_and_pages() {
     let db = test_db().await;
@@ -4579,6 +4798,7 @@ async fn delivery_ledger_records_every_attempt_exactly_once_and_pages() {
             &sealed_secret(SUITE_AT_REST_KEY, "whsec_x"),
             &[],
             user,
+            None,
         )
         .await
         .expect("insert");
@@ -4657,7 +4877,7 @@ async fn api_keys_hash_lifecycle_scopes_and_revocation() {
 
     let raw = "mrl_0123456789abcdef0123456789abcdef";
     let hash = format!("{:064x}", 0xbeef_u128); // hex(HMAC(...)) shape
-    let id = fixed_uuid(931);
+    let id = fixed_uuid(961);
 
     let key = {
         let mut tx = org_tx(&app, s.org).await;

@@ -524,6 +524,352 @@ async fn plugin_marketplace_lifecycle_flow() {
     let _ = catalog_id;
 }
 
+/// Wave 43 lane 4 (B)/(C)/(F): the executor surface kinds, route-level.
+///
+/// The catalog publish route carries `artifact_kind` (adjudicated in this
+/// lane: without it `build_manifest` read `artifact_kind: None` and EVERY
+/// published manifest was a WASM one, so a connector's `connector_profile`
+/// was refused on the product's primary distribution path and clause (A)
+/// was dead code). So the connector half is proven HERE, and the seeding
+/// lifecycle is proven again end-to-end below.
+#[tokio::test]
+async fn executor_surface_kinds_register_through_the_real_router() {
+    let (state, _router) = test_state().await;
+    let pool = state.pool.clone();
+    let app = core_api::routes::build_router(state);
+    let slug = format!("surface-flow-{}", Uuid::now_v7().simple());
+    let owner = register_org(&app, slug.clone()).await;
+
+    let entry_slug = format!("rmm-triggers-{}", Uuid::now_v7().simple());
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/plugins/catalog",
+        Some(&owner),
+        Some(json!({
+            "slug": entry_slug,
+            "name": "RMM Trigger Source",
+            "description": "Contributes a trigger and a read",
+            "publisher": "marula",
+            "version": "1.0.0",
+            "manifest": {
+                "description": "Contributes a trigger and a read",
+                "capabilities": ["automation.triggers", "automation.reads"],
+                "surface_profile": {
+                    "triggers": [{
+                        "id": "device_offline",
+                        "label": "Device offline",
+                        "description": "An RMM device stops reporting.",
+                        "emitted_event_type": "rmm.device_offline",
+                    }],
+                    "reads": [{
+                        "id": "site_devices",
+                        "label": "Site devices",
+                        "description": "Fetches a site's device list.",
+                        "guardrails": {
+                            "max_calls_per_run": 10,
+                            "min_interval_secs": 60,
+                            "max_output_bytes": 16384,
+                            "may_return_secrets": false,
+                        },
+                    }],
+                },
+            },
+        })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        201,
+        "an executor surface profile publishes"
+    );
+
+    // A read declaring vault-secret access is refused by the manifest.
+    let secret_slug = format!("rmm-secret-{}", Uuid::now_v7().simple());
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/plugins/catalog",
+        Some(&owner),
+        Some(json!({
+            "slug": secret_slug,
+            "name": "Bad Read",
+            "description": "Leaks a secret",
+            "publisher": "marula",
+            "version": "1.0.0",
+            "manifest": {
+                "description": "Leaks a secret",
+                "capabilities": ["automation.reads"],
+                "surface_profile": {
+                    "reads": [{
+                        "id": "leaky",
+                        "label": "Leaky",
+                        "description": "Returns a vault secret.",
+                        "guardrails": {
+                            "max_calls_per_run": 10,
+                            "min_interval_secs": 60,
+                            "max_output_bytes": 16384,
+                            "may_return_secrets": true,
+                        },
+                    }],
+                },
+            },
+        })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        422,
+        "a read may never return a vault secret"
+    );
+    let body = body_json(response).await;
+    assert_eq!(body["error"]["reason"], "validation_failed", "{body}");
+
+    // Counts are DELTAS: the shared test database is not reset between
+    // tests in this binary, so an absolute count would be whoever ran last.
+    let counts = || async {
+        let t: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM plugin_surface_entries WHERE surface = 'automation_trigger'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count triggers");
+        let r: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM plugin_surface_entries WHERE surface = 'read'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count reads");
+        (t, r)
+    };
+    let (before_trigger, before_read) = counts().await;
+
+    // Install with BOTH grants: both new kinds register.
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/plugins/installed",
+        Some(&owner),
+        Some(json!({
+            "slug": entry_slug,
+            "granted_capabilities": ["automation.triggers", "automation.reads"],
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 201, "install must succeed");
+
+    let (after_trigger, after_read) = counts().await;
+    assert_eq!(
+        after_trigger - before_trigger,
+        1,
+        "the granted trigger registers"
+    );
+    assert_eq!(after_read - before_read, 1, "the granted read registers");
+
+    // A second install of the same entry, granted NOTHING of the executor
+    // set, registers nothing: grants gate registration, deny-by-default,
+    // exactly as the UI kinds always did.
+    let entry2 = format!("rmm-triggers-2-{}", Uuid::now_v7().simple());
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/plugins/catalog",
+        Some(&owner),
+        Some(json!({
+            "slug": entry2,
+            "name": "Ungranted",
+            "description": "No grants",
+            "publisher": "marula",
+            "version": "1.0.0",
+            "manifest": {
+                "description": "No grants",
+                "capabilities": [],
+                "surface_profile": {
+                    "triggers": [{
+                        "id": "device_offline",
+                        "label": "Device offline",
+                        "description": "An RMM device stops reporting.",
+                        "emitted_event_type": "rmm.device_offline",
+                    }],
+                },
+            },
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/plugins/installed",
+        Some(&owner),
+        Some(json!({ "slug": entry2, "granted_capabilities": [] })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        201,
+        "an ungranted install lands disabled"
+    );
+
+    let (final_trigger, _) = counts().await;
+    assert_eq!(
+        final_trigger, after_trigger,
+        "an ungranted declaration registers nothing"
+    );
+}
+
+/// Wave 43 lane 4 (A): `connector_profile.webhook_endpoints` becomes REAL
+/// outbound configuration, and stays attributed to the install.
+///
+/// Publishes an `http_connector` through the catalog route the product
+/// actually uses, installs it, and asserts that (1) its declared endpoints
+/// seed live subscription rows carrying `owner_install_id`, (2) the
+/// wildcard event set is what a declaration means (WHERE, not WHAT), and
+/// (3) uninstalling the connector deletes them — the consent screen has
+/// promised "declared webhook endpoints seed the connector's outbound
+/// posture" since Wave 19 lane 2, and this is that promise kept.
+#[tokio::test]
+async fn connector_declared_endpoints_seed_outbound_subscriptions() {
+    let (state, _router) = test_state().await;
+    let pool = state.pool.clone();
+    let app = core_api::routes::build_router(state);
+    let slug = format!("conn-seed-{}", Uuid::now_v7().simple());
+    let owner = register_org(&app, slug).await;
+
+    let entry_slug = format!("rmm-connector-{}", Uuid::now_v7().simple());
+    let a = format!("https://hooks.example.com/{entry_slug}-a");
+    let b = format!("https://hooks.example.com/{entry_slug}-b");
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/plugins/catalog",
+        Some(&owner),
+        Some(json!({
+            "slug": entry_slug,
+            "name": "RMM Connector",
+            "description": "Pulls device posture",
+            "publisher": "marula",
+            "version": "1.0.0",
+            "manifest": {
+                "description": "Pulls device posture",
+                "capabilities": [],
+                "artifact_kind": "http_connector",
+                "connector_profile": {
+                    "webhook_endpoints": [a, b],
+                    "scopes": ["rmm.devices.read"],
+                },
+            },
+        })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        201,
+        "an http_connector publishes with its declared endpoints"
+    );
+
+    // Kind coherence still holds in BOTH directions: a wasm manifest
+    // refuses a connector_profile, and a connector still refuses the UI
+    // surface kinds (ADR 0017 §3).
+    for (name, manifest, expect_ok) in [
+        (
+            "wasm + connector profile",
+            json!({
+                "description": "Wrong kind",
+                "capabilities": [],
+                "connector_profile": { "webhook_endpoints": ["https://h.example.com/x"] },
+            }),
+            false,
+        ),
+        (
+            "connector + widget",
+            json!({
+                "description": "Wrong kind",
+                "capabilities": ["ui.widgets"],
+                "artifact_kind": "http_connector",
+                "surface_profile": {
+                    "widgets": [{
+                        "id": "w", "title": "W", "slot": "dashboard",
+                        "kind": "stat",
+                    }],
+                },
+            }),
+            false,
+        ),
+    ] {
+        let response = send(
+            &app,
+            axum::http::Method::POST,
+            "/api/plugins/catalog",
+            Some(&owner),
+            Some(json!({
+                "slug": format!("kind-coherent-{}-{}", name.len(), Uuid::now_v7().simple()),
+                "name": name,
+                "description": "Kind coherence",
+                "publisher": "marula",
+                "version": "1.0.0",
+                "manifest": manifest,
+            })),
+        )
+        .await;
+        let status = response.status();
+        if expect_ok {
+            assert_eq!(status, 201, "{name} should publish");
+        } else {
+            assert_eq!(status, 422, "{name} must be refused");
+        }
+    }
+
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/plugins/installed",
+        Some(&owner),
+        Some(json!({ "slug": entry_slug, "granted_capabilities": [] })),
+    )
+    .await;
+    assert_eq!(response.status(), 201, "install must succeed");
+    let body = body_json(response).await;
+    let install_id = body["id"].as_str().expect("install id").to_string();
+
+    // The seed is install-attributed, one row per declared endpoint, with
+    // the wildcard event set a declaration means.
+    let seeded: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT url, coalesce(array_length(event_types, 1), 0)::int8 \
+         FROM webhooks WHERE owner_install_id = $1::uuid",
+    )
+    .bind(uuid::Uuid::parse_str(&install_id).expect("uuid"))
+    .fetch_all(&pool)
+    .await
+    .expect("seeded rows");
+    let mut urls: Vec<String> = seeded.iter().map(|(u, _)| u.clone()).collect();
+    urls.sort();
+    let mut want = vec![a.clone(), b.clone()];
+    want.sort();
+    assert_eq!(urls, want, "each declared endpoint seeds one subscription");
+    for (_, event_count) in &seeded {
+        assert_eq!(*event_count, 0, "a declaration is a wildcard subscription");
+    }
+
+    // Uninstalling tears them down: `ON DELETE CASCADE` on the owner.
+    let response = send(
+        &app,
+        axum::http::Method::DELETE,
+        &format!("/api/plugins/installed/{install_id}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 204, "uninstall must succeed");
+    let left: i64 =
+        sqlx::query_scalar("SELECT count(*)::int8 FROM webhooks WHERE owner_install_id = $1::uuid")
+            .bind(uuid::Uuid::parse_str(&install_id).expect("uuid"))
+            .fetch_one(&pool)
+            .await
+            .expect("leftover count");
+    assert_eq!(left, 0, "an uninstalled connector's outbound rows are gone");
+}
+
 #[tokio::test]
 async fn sandbox_seam_denies_by_default() {
     // The seam-level deny-by-default matrix lives in plugin-host's unit

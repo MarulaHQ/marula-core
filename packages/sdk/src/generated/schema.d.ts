@@ -21973,7 +21973,7 @@ export interface components {
          *     no key for them).
          * @enum {string}
          */
-        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate";
+        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate" | "AutomationTriggers" | "AutomationReads" | "EventsEmit";
         /**
          * @description Install lifecycle. Deny-by-default: `Disabled` until an explicit
          *     admin enable; `Revoked` is terminal (registry revocation or explicit
@@ -21987,6 +21987,7 @@ export interface components {
          *     cannot publish an entry the runtime would refuse.
          */
         PluginManifestBody: {
+            artifact_kind?: null | components["schemas"]["PluginRuntimeKind"];
             capabilities: string[];
             connector_profile?: null | components["schemas"]["ConnectorProfile"];
             description?: string;
@@ -22236,8 +22237,21 @@ export interface components {
             actions?: components["schemas"]["SurfaceAction"][];
             /** @description JSON-Schema validators for board custom fields. */
             field_validators?: components["schemas"]["SurfaceFieldValidator"][];
+            /**
+             * @description Wave 43 lane 4 (ADR 0017 §3, §5): READ nodes, the only kind that
+             *     lets a workflow FETCH from an external system. Every entry carries
+             *     its own guardrails; there is no default that weakens them.
+             */
+            reads?: components["schemas"]["SurfaceRead"][];
             /** @description Render kinds contributed to the report builder. */
             render_kinds?: components["schemas"]["SurfaceRenderKind"][];
+            /**
+             * @description Wave 43 lane 4 (ADR 0017 §3): TRIGGER sources the plugin
+             *     contributes — the event type a rule can fire on. This is the half
+             *     of the `automation_action` symmetry that was missing: a plugin
+             *     could contribute an action but never a trigger.
+             */
+            triggers?: components["schemas"]["SurfaceTrigger"][];
             /** @description Widgets the plugin registers (dashboard or ticket-pane slots). */
             widgets?: components["schemas"]["SurfaceWidget"][];
         };
@@ -24160,6 +24174,38 @@ export interface components {
              */
             count: number;
             mine?: null | components["schemas"]["RatingMineView"];
+        };
+        /**
+         * @description The guardrails a declared read runs under (ADR 0017 §5).
+         *
+         *     Three of the four are ceilings a declaration may not exceed; the fourth
+         *     is a promise that may only be declared one way. Validation applies the
+         *     platform floors here so a manifest cannot write itself a weaker cap.
+         */
+        ReadGuardrails: {
+            /**
+             * Format: int32
+             * @description Calls this node may make in ONE workflow run. The per-run cap is
+             *     what stops a loop over a device list becoming a hammer.
+             */
+            max_calls_per_run: number;
+            /**
+             * Format: int32
+             * @description Hard ceiling on the returned payload's size.
+             */
+            max_output_bytes: number;
+            /**
+             * @description Must be `false`, and validation refuses anything else. A read node
+             *     may never return a vault secret, because the run ledger is a place
+             *     operators read.
+             */
+            may_return_secrets: boolean;
+            /**
+             * Format: int32
+             * @description Minimum seconds between this ORG's read-node invocations. The
+             *     per-org cap is what stops a schedule becoming a stream.
+             */
+            min_interval_secs: number;
         };
         ReceiptMutationResponse: {
             mutation: components["schemas"]["MutationMeta"];
@@ -26490,6 +26536,44 @@ export interface components {
             /** @description The JSON-Schema subset applied to the field's value on write. */
             schema: unknown;
         };
+        /**
+         * @description One declared READ node (Wave 43 lane 4, ADR 0017 §5).
+         *
+         *     `automation_action` is write-shaped, so before this kind a workflow
+         *     could not FETCH from an external system at all — which is exactly the
+         *     gap that stopped a workflow assembling Decision Engine context from an
+         *     RMM. A read is therefore the one kind whose guardrails are STRICTER
+         *     than a write's, and they are declared per entry rather than defaulted:
+         *     a loop over devices is a denial of service aimed at the customer's own
+         *     external system, and a device list of ten thousand must not grow the
+         *     run ledger by megabytes.
+         */
+        SurfaceRead: {
+            /** @description One-line description shown in the editor and on consent. */
+            description: string;
+            /**
+             * @description The caps this read runs under. Required — a read without declared
+             *     guardrails refuses, so there is no silent unbounded default.
+             */
+            guardrails: components["schemas"]["ReadGuardrails"];
+            /**
+             * @description Plugin-local id, `[a-z][a-z0-9_]{0,63}`. Registry key:
+             *     `plugin.<install-slug>.<id>`.
+             */
+            id: string;
+            /** @description Label shown in the automations editor's read picker. */
+            label: string;
+            /**
+             * @description Optional JSON-Schema subset describing what comes back, so a
+             *     downstream node can use it.
+             */
+            output_schema?: unknown;
+            /**
+             * @description Optional JSON-Schema subset for the read's parameters (what the
+             *     caller supplies — never credentials, which the host resolves).
+             */
+            params_schema?: unknown;
+        };
         /** @description One declared report render kind. */
         SurfaceRenderKind: {
             /** @description One-line description. */
@@ -26507,6 +26591,39 @@ export interface components {
          * @enum {string}
          */
         SurfaceSlot: "dashboard" | "ticket_pane";
+        /**
+         * @description One declared TRIGGER source (Wave 43 lane 4, ADR 0017 §3): the event
+         *     type a plugin emits, which a rule can then fire on.
+         *
+         *     The trigger is a DECLARATION, not a dispatcher. It names the type it
+         *     emits and the schema the emitted payload satisfies; the engine's
+         *     matching decides what fires. `emitted_event_type` is validated against
+         *     the event-type registry (migration 0124) at grant time, so a plugin
+         *     cannot declare a type the platform does not know and the org has not
+         *     admitted.
+         */
+        SurfaceTrigger: {
+            /** @description One-line description shown in the editor and on consent. */
+            description: string;
+            /**
+             * @description The event type this source publishes (`segment.segment`, the same
+             *     grammar the platform's own types use, e.g. `rmm.device_offline`).
+             *     Checked against the event-type registry at grant time.
+             */
+            emitted_event_type: string;
+            /**
+             * @description Plugin-local id, `[a-z][a-z0-9_]{0,63}`. Registry key:
+             *     `plugin.<install-slug>.<id>`.
+             */
+            id: string;
+            /** @description Label shown in the automations editor's trigger picker. */
+            label: string;
+            /**
+             * @description Optional JSON-Schema subset the emitted envelope's payload
+             *     satisfies, so a rule author knows what they can read.
+             */
+            payload_schema?: unknown;
+        };
         /** @description One declared widget. */
         SurfaceWidget: {
             /** @description Optional defaults applied under props_schema before render. */

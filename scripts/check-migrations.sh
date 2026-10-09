@@ -68,6 +68,11 @@ for f in "$migrations_dir"/*.sql; do
     # value list widens (calendar providers; time-entry actions). No rows.
     '0116_wave34_claims_fixes.sql:DROP CONSTRAINT IF EXISTS calendar_sync_connections_provider_check;'
     '0120_wave41_time_entry_fixed_action.sql:DROP CONSTRAINT IF EXISTS time_entry_approvals_action_check;'
+
+    # 0126: same drop-and-re-add when the plugin surface vocabulary gains the
+    # two executor kinds (automation_trigger, read) a connector may contribute.
+    # Every existing value stays admitted; no rows touched.
+    '0126_plugin_outbound_surface_kinds.sql:DROP CONSTRAINT IF EXISTS plugin_surface_entries_surface_check;'
   )
   filtered="$hits"
   for entry in "${migration_backfill_allowlist[@]}"; do
