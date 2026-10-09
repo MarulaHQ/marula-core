@@ -100,14 +100,16 @@ type Ticket = components["schemas"]["TicketWithFields"];
 type ActivityEntry = { at: string; text: string; href: string };
 type ClientCompletenessView = components["schemas"]["ClientCompletenessView"];
 type Contract = components["schemas"]["Contract"];
+type Invoice = components["schemas"]["Invoice"];
 
-type Tab = "overview" | "contacts" | "sites" | "contracts" | "assets" | "documents";
+type Tab = "overview" | "contacts" | "sites" | "contracts" | "tickets" | "assets" | "documents";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "contacts", label: "Contacts" },
   { id: "sites", label: "Sites and devices" },
   { id: "contracts", label: "Contracts and billing" },
+  { id: "tickets", label: "Tickets" },
   { id: "assets", label: "Assets" },
   { id: "documents", label: "Documents" },
 ];
