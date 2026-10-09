@@ -1,19 +1,28 @@
 //! worker/automations — event-triggered rule evaluation over the stream.
 //!
 //! Purpose: consume the single domain-event stream via a durable consumer
-//! group, match each ticket event against enabled automation rules (pure
-//! core-domain matching on a READ-ONLY ticket snapshot), and enqueue
+//! group, match each event against enabled automation rules (pure
+//! core-domain matching on a read-only SUBJECT), and enqueue
 //! `automation.effects` jobs. Delivery is at-least-once: a job is ACKed
 //! only after it is durably queued; retries belong to the queue.
 //!
+//! The subject is `(ticket_id: Option, board_id)` resolved from the
+//! envelope (Wave 43 lane 3). A ticket event carries the read-only ticket
+//! snapshot every deterministic condition reads; a ticket-less event
+//! (lane 1's inbound receiver emits those) carries only the board, and
+//! board-subject rules are the ones that may fire on it. Ticket-fact
+//! conditions degrade to no-match-with-warn there rather than pretending.
+//!
 //! Loop safety: events whose payload carries `via_automation: true` are
-//! skipped, so an effect can never re-trigger evaluation recursively.
+//! skipped, so an effect can never re-trigger evaluation recursively — the
+//! marker rides the payload, so both subject shapes are guarded alike.
 //!
 //! Non-purpose: no writes outside queue tables, no condition logic here
 //! (core-domain), no effect application (queue runner → core-api).
 
 use core_domain::automations::{
-    is_automation_echo, AutomationRule, AutomationRuleRow, TicketSnapshot,
+    is_automation_echo, AutomationRule, AutomationRuleRow, AutomationSubject,
+    AutomationSubjectKind, TicketSnapshot,
 };
 use core_events::{Envelope, EVENT_STREAM};
 use redis::streams::{StreamReadOptions, StreamReadReply};
@@ -29,19 +38,72 @@ const CONSUMER_NAME: &str = "worker";
 const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 50;
 
-/// Extracts the ticket id + board id an envelope refers to, when it has one.
-fn ticket_ids_of(envelope: &Envelope) -> Option<(uuid::Uuid, Option<uuid::Uuid>)> {
-    let ticket_id = envelope
-        .payload
-        .get("ticket_id")
-        .and_then(|v| v.as_str())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok())?;
-    let board_id = envelope
+/// What an envelope says about its ticket subject.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TicketRef {
+    /// No `ticket_id` key at all — a ticket-less envelope.
+    Absent,
+    /// A parseable id; the snapshot loader resolves it.
+    Present(uuid::Uuid),
+    /// A `ticket_id` that is not a uuid. Refused rather than reinterpreted
+    /// as "no ticket": a broken ticket reference is a data problem, and
+    /// silently widening the subject to the board would hide it.
+    Malformed,
+}
+
+fn ticket_ref_of(envelope: &Envelope) -> TicketRef {
+    match envelope.payload.get("ticket_id") {
+        None => TicketRef::Absent,
+        Some(value) => value
+            .as_str()
+            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+            .map_or(TicketRef::Malformed, TicketRef::Present),
+    }
+}
+
+/// The board id the envelope carries, when it carries one that parses.
+fn board_id_of(envelope: &Envelope) -> Option<uuid::Uuid> {
+    envelope
         .payload
         .get("board_id")
         .and_then(|v| v.as_str())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok());
-    Some((ticket_id, board_id))
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+}
+
+/// The subject one envelope resolves to inside one org: the ticket it names
+/// (with its read-only snapshot), or a ticket-less board scope.
+enum ResolvedSubject {
+    Ticket(TicketSnapshot),
+    /// A board-scoped envelope with no ticket. `board_id` may itself be
+    /// absent — an org-wide envelope.
+    Ticketless {
+        board_id: Option<uuid::Uuid>,
+    },
+}
+
+impl ResolvedSubject {
+    fn board_id(&self) -> Option<uuid::Uuid> {
+        match self {
+            Self::Ticket(snapshot) => Some(snapshot.board_id),
+            Self::Ticketless { board_id } => *board_id,
+        }
+    }
+
+    fn ticket_id(&self) -> Option<uuid::Uuid> {
+        match self {
+            Self::Ticket(snapshot) => Some(snapshot.ticket_id),
+            Self::Ticketless { .. } => None,
+        }
+    }
+
+    fn domain(&self) -> AutomationSubject<'_> {
+        match self {
+            Self::Ticket(snapshot) => AutomationSubject::Ticket(snapshot),
+            Self::Ticketless { board_id } => AutomationSubject::Ticketless {
+                board_id: *board_id,
+            },
+        }
+    }
 }
 
 /// Read-only snapshot of the ticket a rule would match against.
@@ -65,7 +127,7 @@ async fn load_snapshot(
         ),
     >(
         r#"SELECT id, board_id, number, title, priority, assignee_id, category
-           FROM tickets WHERE id = $1 AND org_id = $2"#,
+            FROM tickets WHERE id = $1 AND org_id = $2"#,
     )
     .bind(ticket_id)
     .bind(org_id)
@@ -86,12 +148,213 @@ async fn load_snapshot(
     })
 }
 
-/// One matched (rule, ticket) pair ready to become a durable job.
+/// True when the named board resolves inside this org. A ticket-less
+/// envelope whose board does NOT resolve is not a scope that widens to
+/// org-wide rules — it resolves to no subject at all, the same posture as a
+/// ticket whose snapshot failed to load.
+async fn board_resolves(pool: &PgPool, org_id: uuid::Uuid, board_id: uuid::Uuid) -> bool {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM boards WHERE id = $1 AND org_id = $2)",
+    )
+    .bind(board_id)
+    .bind(org_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(false)
+}
+
+/// Resolves the envelope's subject. Snapshot/board loading is deferred until
+/// at least one rule listens — the overwhelmingly common case is zero rules
+/// per event type.
+async fn resolve_subject(
+    pool: &PgPool,
+    org_id: uuid::Uuid,
+    envelope: &Envelope,
+) -> Option<ResolvedSubject> {
+    match ticket_ref_of(envelope) {
+        TicketRef::Present(ticket_id) => {
+            let snapshot = load_snapshot(pool, org_id, ticket_id).await;
+            if snapshot.is_none() {
+                tracing::warn!(
+                    ticket_id = %ticket_id,
+                    "ticket snapshot unreadable; rule evaluation skipped"
+                );
+            }
+            snapshot.map(ResolvedSubject::Ticket)
+        }
+        TicketRef::Malformed => {
+            tracing::warn!("payload carries an unparseable ticket_id; rule evaluation skipped");
+            None
+        }
+        TicketRef::Absent => match board_id_of(envelope) {
+            Some(board_id) if board_resolves(pool, org_id, board_id).await => {
+                Some(ResolvedSubject::Ticketless {
+                    board_id: Some(board_id),
+                })
+            }
+            Some(board_id) => {
+                tracing::warn!(
+                    board_id = %board_id,
+                    "ticket-less envelope names a board outside this org; rule evaluation skipped"
+                );
+                None
+            }
+            None => Some(ResolvedSubject::Ticketless { board_id: None }),
+        },
+    }
+}
+
+/// One matched (rule, subject) pair ready to become a durable job.
 pub struct MatchedRule {
     pub org_id: uuid::Uuid,
     pub rule_id: uuid::Uuid,
-    pub ticket_id: uuid::Uuid,
+    /// `None` for a board-subject match — there is no ticket to act on.
+    pub ticket_id: Option<uuid::Uuid>,
+    /// The board the match is scoped to, when the subject carried one.
+    pub board_id: Option<uuid::Uuid>,
     pub actions: serde_json::Value,
+}
+
+/// The `automation.effects` job payload for one match. `ticket_id` is null
+/// on a board-subject match; the effect applier branches on exactly that.
+fn effect_payload(match_: &MatchedRule) -> serde_json::Value {
+    serde_json::json!({
+        "org_id": match_.org_id,
+        "rule_id": match_.rule_id,
+        "ticket_id": match_.ticket_id,
+        "board_id": match_.board_id,
+        "actions": match_.actions,
+    })
+}
+
+/// Evaluates one rule's conditions against one subject. `true` when every
+/// condition holds.
+///
+/// Deterministic conditions are pure and cheap; the semantic `ai_decision`
+/// conditions evaluate ONLY when those all hold, against the NEWEST
+/// recorded decision answers for the ticket (stored-answers evaluation —
+/// the decision subsystem owns the one-fan-out-per-trigger dispatch;
+/// missing/malformed answers are no-match-with-warn, the same skip posture
+/// as a malformed deterministic rule).
+///
+/// CSAT score conditions evaluate against the EVENT PAYLOAD score (Wave 34
+/// lane 2); a `csat_score_below` condition on any other trigger event is a
+/// no-match by construction.
+///
+/// On a ticket-less subject every ticket-fact predicate degrades to
+/// no-match, and the rule says so: one warn names each degrading condition,
+/// so a board rule that can never fire is visible instead of silent.
+async fn conditions_hold(
+    pool: &PgPool,
+    rule: &AutomationRule,
+    subject: &ResolvedSubject,
+    envelope: &Envelope,
+) -> bool {
+    let score = envelope
+        .payload
+        .get("score")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i16);
+    if !core_domain::automations::csat_score_holds(&rule.conditions, score) {
+        return false;
+    }
+    let split = core_domain::automations::split_conditions(&rule.conditions);
+    let snapshot = match subject {
+        ResolvedSubject::Ticket(snapshot) => Some(snapshot),
+        ResolvedSubject::Ticketless { board_id } => {
+            for condition in split.deterministic.iter().filter(|c| c.requires_ticket()) {
+                tracing::warn!(
+                    rule = %rule.id,
+                    board_id = ?board_id,
+                    condition = ?condition,
+                    "ticket-less subject: condition needs a ticket, no-match"
+                );
+            }
+            if !split.semantic.is_empty() {
+                tracing::warn!(
+                    rule = %rule.id,
+                    board_id = ?board_id,
+                    "ai_decision condition no-match: ticket-less subject has no ticket"
+                );
+                return false;
+            }
+            None
+        }
+    };
+    if !core_domain::automations::matches_all(split.deterministic.iter().copied(), subject.domain())
+    {
+        return false;
+    }
+    if !split.semantic.is_empty() {
+        let snapshot = snapshot.expect("semantic path requires a ticket subject");
+        // One read per distinct referenced surface, newest answers row.
+        let mut surfaces: Vec<&str> = split.semantic.iter().map(|spec| spec.surface).collect();
+        surfaces.sort_unstable();
+        surfaces.dedup();
+        let mut answers = std::collections::HashMap::new();
+        let mut answers_ok = true;
+        for surface in &surfaces {
+            match core_db::decision::latest_answers_for_entity(
+                pool,
+                snapshot.org_id,
+                surface,
+                "ticket",
+                snapshot.ticket_id,
+            )
+            .await
+            {
+                Ok(Some(row)) => {
+                    answers.insert(*surface, row.answers);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        rule = %rule.id,
+                        surface,
+                        %error,
+                        "ai_decision answers read failed; rule skipped-with-warn"
+                    );
+                    answers_ok = false;
+                    break;
+                }
+            }
+        }
+        if !answers_ok {
+            return false;
+        }
+        let mut all_hold = true;
+        for spec in &split.semantic {
+            let surface = spec.surface;
+            let question = spec.question;
+            let Some(surface_answers) = answers.get(surface) else {
+                tracing::warn!(
+                    rule = %rule.id,
+                    surface,
+                    question,
+                    "ai_decision condition no-match: no recorded answers for surface"
+                );
+                all_hold = false;
+                break;
+            };
+            if !core_domain::automations::evaluate_ai_decision(
+                surface_answers,
+                surface,
+                question,
+                spec.operator,
+                spec.threshold,
+                spec.confidence_path,
+            ) {
+                all_hold = false;
+                break;
+            }
+        }
+        if !all_hold {
+            return false;
+        }
+    }
+    true
 }
 
 /// Matches rules for one envelope; returns jobs to enqueue.
@@ -109,12 +372,7 @@ pub async fn match_rules(pool: &PgPool, envelope: &Envelope) -> Vec<MatchedRule>
         Ok(rules) if !rules.is_empty() => rules,
         _ => return Vec::new(),
     };
-    // Snapshot loading is deferred until at least one rule listens —
-    // the overwhelmingly common case is zero rules per event type.
-    let Some((ticket_id, _board_hint)) = ticket_ids_of(envelope) else {
-        return Vec::new();
-    };
-    let Some(snapshot) = load_snapshot(pool, envelope.org_id, ticket_id).await else {
+    let Some(subject) = resolve_subject(pool, envelope.org_id, envelope).await else {
         return Vec::new();
     };
 
@@ -124,6 +382,7 @@ pub async fn match_rules(pool: &PgPool, envelope: &Envelope) -> Vec<MatchedRule>
             id: record.id,
             org_id: record.org_id,
             board_id: record.board_id,
+            subject_kind: record.subject_kind,
             name: record.name.clone(),
             trigger_event: record.trigger_event.clone(),
             conditions: record.conditions.clone(),
@@ -137,101 +396,30 @@ pub async fn match_rules(pool: &PgPool, envelope: &Envelope) -> Vec<MatchedRule>
                 continue;
             }
         };
-        if !rule.applies_to_board(snapshot.board_id) {
+        // Board scope is checked over the subject's board, which a
+        // ticket-less envelope may not carry at all.
+        if !rule.applies_to_board(subject.board_id()) {
             continue;
         }
-        // Deterministic conditions first (pure, cheap); semantic
-        // `ai_decision` conditions evaluate ONLY when those all hold,
-        // against the NEWEST recorded decision answers for the ticket
-        // (stored-answers evaluation — the decision subsystem owns the
-        // one-fan-out-per-trigger dispatch; missing/malformed answers
-        // are no-match-with-warn, the same skip posture as a malformed
-        // deterministic rule).
-        // CSAT score conditions evaluate against the EVENT PAYLOAD score
-        // (Wave 34 lane 2); a `csat_score_below` condition on any other
-        // trigger event is a no-match by construction.
-        let score = envelope
-            .payload
-            .get("score")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i16);
-        if !core_domain::automations::csat_score_holds(&rule.conditions, score) {
+        // Subject kind gates the envelope shape, symmetrically: a ticket
+        // rule fires only on an envelope that resolved a ticket, a board
+        // rule only on a ticket-less one. A rule's subject declares what it
+        // consumes, so nothing fires "by accident" on the other shape.
+        let subject_fits = match rule.subject_kind {
+            AutomationSubjectKind::Ticket => subject.ticket_id().is_some(),
+            AutomationSubjectKind::Board => subject.ticket_id().is_none(),
+        };
+        if !subject_fits {
             continue;
         }
-        let split = core_domain::automations::split_conditions(&rule.conditions);
-        if !core_domain::automations::matches_all(split.deterministic.iter().copied(), &snapshot) {
+        if !conditions_hold(pool, &rule, &subject, envelope).await {
             continue;
-        }
-        if !split.semantic.is_empty() {
-            // One read per distinct referenced surface, newest answers row.
-            let mut surfaces: Vec<&str> = split.semantic.iter().map(|spec| spec.surface).collect();
-            surfaces.sort_unstable();
-            surfaces.dedup();
-            let mut answers = std::collections::HashMap::new();
-            let mut answers_ok = true;
-            for surface in &surfaces {
-                match core_db::decision::latest_answers_for_entity(
-                    pool,
-                    snapshot.org_id,
-                    surface,
-                    "ticket",
-                    snapshot.ticket_id,
-                )
-                .await
-                {
-                    Ok(Some(row)) => {
-                        answers.insert(*surface, row.answers);
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        tracing::warn!(
-                            rule = %rule.id,
-                            surface,
-                            %error,
-                            "ai_decision answers read failed; rule skipped-with-warn"
-                        );
-                        answers_ok = false;
-                        break;
-                    }
-                }
-            }
-            if !answers_ok {
-                continue;
-            }
-            let mut all_hold = true;
-            for spec in &split.semantic {
-                let surface = spec.surface;
-                let question = spec.question;
-                let Some(surface_answers) = answers.get(surface) else {
-                    tracing::warn!(
-                        rule = %rule.id,
-                        surface,
-                        question,
-                        "ai_decision condition no-match: no recorded answers for surface"
-                    );
-                    all_hold = false;
-                    break;
-                };
-                if !core_domain::automations::evaluate_ai_decision(
-                    surface_answers,
-                    surface,
-                    question,
-                    spec.operator,
-                    spec.threshold,
-                    spec.confidence_path,
-                ) {
-                    all_hold = false;
-                    break;
-                }
-            }
-            if !all_hold {
-                continue;
-            }
         }
         out.push(MatchedRule {
             org_id: envelope.org_id,
             rule_id: rule.id,
-            ticket_id: snapshot.ticket_id,
+            ticket_id: subject.ticket_id(),
+            board_id: subject.board_id(),
             actions: serde_json::to_value(&rule.actions).unwrap_or_default(),
         });
     }
@@ -354,12 +542,7 @@ async fn handle_entry(
             let job = core_db::queue::NewJob {
                 org_id: m.org_id,
                 kind: "automation.effects".to_string(),
-                payload: serde_json::json!({
-                    "org_id": m.org_id,
-                    "rule_id": m.rule_id,
-                    "ticket_id": m.ticket_id,
-                    "actions": m.actions,
-                }),
+                payload: effect_payload(&m),
                 max_attempts: 5,
             };
             match core_db::queue::enqueue(pool, &job).await {
@@ -402,35 +585,104 @@ mod tests {
     }
 
     #[test]
-    fn ticket_ids_extract_from_canonical_payloads() {
+    fn ticket_ref_and_board_extract_from_canonical_payloads() {
         let id = uuid::Uuid::now_v7();
         let board = uuid::Uuid::now_v7();
-        let env = envelope(
+        let both = envelope(
             "ticket.created",
             serde_json::json!({ "ticket_id": id.to_string(), "board_id": board.to_string() }),
         );
-        let (t, b) = ticket_ids_of(&env).expect("ids");
-        assert_eq!(t, id);
-        assert_eq!(b, Some(board));
+        assert_eq!(ticket_ref_of(&both), TicketRef::Present(id));
+        assert_eq!(board_id_of(&both), Some(board));
 
         let bare = envelope(
             "ticket.updated",
             serde_json::json!({ "ticket_id": id.to_string() }),
         );
-        assert_eq!(ticket_ids_of(&bare).unwrap().1, None);
+        assert_eq!(ticket_ref_of(&bare), TicketRef::Present(id));
+        assert_eq!(board_id_of(&bare), None);
+
+        // Lane 1's inbound receiver emits exactly this shape: a board and
+        // no ticket at all.
+        let ticketless = envelope(
+            "webhook.received",
+            serde_json::json!({ "board_id": board.to_string(), "data": {} }),
+        );
+        assert_eq!(ticket_ref_of(&ticketless), TicketRef::Absent);
+        assert_eq!(board_id_of(&ticketless), Some(board));
 
         let none = envelope("org.created", serde_json::json!({}));
-        assert!(ticket_ids_of(&none).is_none());
+        assert_eq!(ticket_ref_of(&none), TicketRef::Absent);
+        assert_eq!(board_id_of(&none), None);
+
+        // A broken ticket reference is refused, never read as "no ticket".
+        let broken = envelope(
+            "ticket.created",
+            serde_json::json!({ "ticket_id": "not-a-uuid", "board_id": board.to_string() }),
+        );
+        assert_eq!(ticket_ref_of(&broken), TicketRef::Malformed);
     }
 
     /// The loop guard is enforced BEFORE any DB work in match_rules; this
-    /// pins the predicate the guard relies on.
+    /// pins the predicate the guard relies on, on BOTH subject shapes.
     #[test]
     fn automation_echoes_are_detectable() {
         let echoed = envelope(
             "ticket.updated",
-            serde_json::json!({ "ticket_id": uuid::Uuid::now_v7().to_string(), "via_automation": true }),
+            serde_json::json!({
+                "ticket_id": uuid::Uuid::now_v7().to_string(),
+                "via_automation": true,
+            }),
         );
         assert!(is_automation_echo(&echoed.payload));
+
+        // The ticket-less path is guarded identically: an effect emitted by
+        // a board-subject rule carries the marker, so it cannot re-trigger
+        // its own rule. The marker rides the payload, not the subject, so
+        // the guard needs no branch for the new path.
+        let ticketless_echo = envelope(
+            "webhook.received",
+            serde_json::json!({
+                "board_id": uuid::Uuid::now_v7().to_string(),
+                "via_automation": true,
+            }),
+        );
+        assert!(is_automation_echo(&ticketless_echo.payload));
+        assert_eq!(ticket_ref_of(&ticketless_echo), TicketRef::Absent);
+
+        // A genuine inbound delivery is NOT an echo and must still match.
+        let inbound = envelope(
+            "webhook.received",
+            serde_json::json!({ "board_id": uuid::Uuid::now_v7().to_string(), "data": {} }),
+        );
+        assert!(!is_automation_echo(&inbound.payload));
+    }
+
+    /// The job payload carries the subject: a null `ticket_id` plus the
+    /// board on a ticket-less match, and the ticket on a ticket match.
+    #[test]
+    fn effect_payload_carries_the_subject() {
+        let org = uuid::Uuid::now_v7();
+        let board = uuid::Uuid::now_v7();
+        let ticketless = MatchedRule {
+            org_id: org,
+            rule_id: uuid::Uuid::now_v7(),
+            ticket_id: None,
+            board_id: Some(board),
+            actions: serde_json::json!([{ "type": "notify_users" }]),
+        };
+        let payload = effect_payload(&ticketless);
+        assert!(payload["ticket_id"].is_null(), "no ticket to act on");
+        assert_eq!(payload["board_id"], serde_json::json!(board.to_string()));
+        assert_eq!(payload["org_id"], serde_json::json!(org.to_string()));
+
+        let ticket = uuid::Uuid::now_v7();
+        let ticketed = MatchedRule {
+            ticket_id: Some(ticket),
+            board_id: Some(board),
+            ..ticketless
+        };
+        let payload = effect_payload(&ticketed);
+        assert_eq!(payload["ticket_id"], serde_json::json!(ticket.to_string()));
     }
 }

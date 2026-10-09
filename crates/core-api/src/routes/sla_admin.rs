@@ -18,6 +18,7 @@ use axum::{
     http::Extensions,
     Json,
 };
+use core_domain::automations::{AutomationSubject, AutomationSubjectKind};
 use core_domain::events::types;
 use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
@@ -366,6 +367,7 @@ fn rule_row(rec: core_db::automations::AutomationRuleRecord) -> serde_json::Valu
         "id": rec.id,
         "org_id": rec.org_id,
         "board_id": rec.board_id,
+        "subject_kind": rec.subject_kind.as_str(),
         "name": rec.name,
         "trigger_event": rec.trigger_event,
         "conditions": rec.conditions,
@@ -433,6 +435,7 @@ pub async fn test_run_rule(
         id: record.id,
         org_id: record.org_id,
         board_id: record.board_id,
+        subject_kind: record.subject_kind,
         name: record.name.clone(),
         trigger_event: record.trigger_event.clone(),
         conditions: record.conditions.clone(),
@@ -444,22 +447,29 @@ pub async fn test_run_rule(
     // Sample the org's recent tickets bounded by the sample cap; when the
     // rule binds a board, the sample IS board-live (matching the live
     // matcher's board gate) instead of padding the sample off-board.
-    let rows = core_db::tickets::list_tickets(
-        &mut *tx,
-        org_id,
-        core_db::tickets::TicketFilter {
-            board_id: record.board_id,
-            assignee_id: None,
-            client_id: None,
-            category: None,
-            priority: None,
-            tag_ids: None,
-            limit: TEST_RUN_SAMPLE,
-            offset: 0,
-            cursor: None,
-        },
-    )
-    .await?;
+    // A board-subject rule has no ticket to sample, so the dry-run reads
+    // zero rows rather than pretending a ticket preview (Wave 43 lane 3) —
+    // matching nothing here is the honest answer for a ticket-less rule.
+    let rows = if parsed.subject_kind.requires_ticket() {
+        core_db::tickets::list_tickets(
+            &mut *tx,
+            org_id,
+            core_db::tickets::TicketFilter {
+                board_id: record.board_id,
+                assignee_id: None,
+                client_id: None,
+                category: None,
+                priority: None,
+                tag_ids: None,
+                limit: TEST_RUN_SAMPLE,
+                offset: 0,
+                cursor: None,
+            },
+        )
+        .await?
+    } else {
+        Vec::new()
+    };
     tx.commit().await.map_err(ApiError::from)?;
 
     let previews: Vec<AutomationTestRunMatch> = rows
@@ -467,7 +477,7 @@ pub async fn test_run_rule(
         .filter(|t| {
             core_domain::automations::matches_all(
                 &parsed.conditions,
-                &core_domain::automations::TicketSnapshot {
+                AutomationSubject::Ticket(&core_domain::automations::TicketSnapshot {
                     ticket_id: t.id,
                     org_id: t.org_id,
                     board_id: t.board_id,
@@ -476,7 +486,7 @@ pub async fn test_run_rule(
                     priority: t.priority,
                     category: t.category,
                     assignee_id: t.assignee_id,
-                },
+                }),
             )
         })
         .map(|t| AutomationTestRunMatch {
@@ -499,6 +509,10 @@ pub async fn test_run_rule(
 pub struct CreateRuleRequest {
     pub name: String,
     pub board_id: Option<Uuid>,
+    /// What the rule's subject is: `ticket` (default, historical) or
+    /// `board` — a rule that fires on ticket-less envelopes (Wave 43
+    /// lane 3).
+    pub subject_kind: Option<String>,
     /// Domain event type, e.g. "ticket.created".
     pub trigger_event: String,
     /// Condition documents (see AutomationCondition schema).
@@ -560,6 +574,7 @@ pub async fn create_rule(
     core_domain::automations::validate_actions(&actions)?;
 
     let org_id = authed.principal.user.org_id;
+    let subject_kind = AutomationSubjectKind::from_db(req.subject_kind.as_deref());
     let id = Uuid::now_v7();
     let saved = org_tx::with_org_tx(
         &state,
@@ -571,6 +586,7 @@ pub async fn create_rule(
                 id,
                 org_id,
                 req.board_id,
+                subject_kind,
                 &name,
                 req.trigger_event.trim(),
                 req.conditions.clone(),
@@ -596,6 +612,8 @@ pub struct UpdateRuleRequest {
     pub name: Option<String>,
     /// `Some(Some(id))` scopes; `Some(None)` clears to all boards.
     pub board_id: Option<Option<Uuid>>,
+    /// Replaces the subject declaration (Wave 43 lane 3).
+    pub subject_kind: Option<String>,
     pub trigger_event: Option<String>,
     pub conditions: Option<serde_json::Value>,
     pub actions: Option<serde_json::Value>,
@@ -638,6 +656,10 @@ pub async fn update_rule(
                 &core_db::automations::RulePatch {
                     name: req.name.clone(),
                     board_id: req.board_id,
+                    subject_kind: req
+                        .subject_kind
+                        .as_deref()
+                        .map(|value| AutomationSubjectKind::from_db(Some(value))),
                     trigger_event: req.trigger_event.as_ref().map(|s| s.trim().to_string()),
                     conditions: req.conditions.clone(),
                     actions: req.actions.clone(),
