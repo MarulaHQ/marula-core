@@ -350,8 +350,8 @@ export default function TodayPage() {
                 riskMins.length === 0
                   ? "Nothing close to its target"
                   : riskMins.length === 1
-                    ? `${riskMins[0]! >= 60 ? `${Math.floor(riskMins[0]! / 60)}h` : `${riskMins[0]}m`} left`
-                    : `${riskMins[0]}m and ${riskMins[1]}m left`
+                    ? `${windowLabel(riskMins[0]!)} left`
+                    : `${windowLabel(riskMins[0]!)} and ${windowLabel(riskMins[1]!)} left`
               }
               anchor="due-today"
             />
@@ -645,6 +645,28 @@ function AttentionCard({
   );
 }
 
+/** "09:00" — a stored instant in the clock the user works in, never a raw
+ * UTC string: the form frames entries in local time and so must the copy. */
+function localClock(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "--:--";
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** "1:00" — the entry length as the pack's footer button writes it. */
+function durationClock(mins: number): string {
+  if (!Number.isFinite(mins) || mins <= 0) return "0:00";
+  return `${Math.floor(mins / 60)}:${String(Math.round(mins % 60)).padStart(2, "0")}`;
+}
+
+/** "709m" or "11h 49m" — one at-risk window label: sub-hour windows read
+ * as minutes, longer ones as hours and minutes. */
+function windowLabel(mins: number): string {
+  if (!Number.isFinite(mins) || mins <= 0) return "0m";
+  if (mins < 60) return `${mins}m`;
+  return fmtMins(mins);
+}
+
 /** "Mon 28 Sep (yesterday)" — the quick-log dialog's fixed day. */
 function yesterdayLabel(): string {
   const y = new Date(Date.now() - 86_400_000);
@@ -791,7 +813,7 @@ function QuickLogForm({
     void (async () => {
       try {
         const res = await api.api.GET("/api/v1/time-entries", {
-          params: { query: { since: `${yesterdayIso()}T00:00:00`, limit: 100 } },
+          params: { query: { since: `${yesterdayIso()}T00:00:00Z`, limit: 100 } },
         });
         if (!cancelled) {
           setDayEntries(
@@ -847,8 +869,12 @@ function QuickLogForm({
   if (!validMins) fixes.push("set how long the work took");
   if (!startedOk) fixes.push("set when it started");
   if (!billable && unbillableReason === "") fixes.push("pick why the time is not billable");
-  const canSubmit = fixes.length === 0 && ticketId !== "" && overlap === null;
+  // The pack's error state keeps the primary reading "Log 1:00" with the
+  // warning beside it — only an unfillable form blocks the submit; the
+  // overlap names its fix in the footer instead.
+  const canSubmit = fixes.length === 0 && workTypeChosen && ticketId !== "";
 
+  const fixCount = fixes.length + (overlap !== null ? 1 : 0);
   const dayLabel = yesterdayLabel();
 
   async function submit() {
@@ -969,7 +995,7 @@ function QuickLogForm({
           <Icon name="clock" size={12} />
           <span>
             That overlaps {overlapTicketLabel(overlap.hit, items)} from{" "}
-            {overlap.hit.started_at.slice(11, 16)} to {overlap.hit.ended_at.slice(11, 16)}.{" "}
+            {localClock(overlap.hit.started_at)} to {localClock(overlap.hit.ended_at)}.{" "}
             {gapHint(dayEntries, overlap.started, overlap.ended)}
           </span>
         </p>
@@ -1153,13 +1179,10 @@ function QuickLogForm({
         style={{ borderColor: "var(--m-border)" }}
       >
         <span className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-          {overlap !== null ? (
+          {fixCount > 0 ? (
             <span style={{ color: "var(--m-status-warning-fg)" }}>
-              1 thing to fix — shorten the entry or move it into the gap
-            </span>
-          ) : fixes.length > 0 ? (
-            <span style={{ color: "var(--m-status-warning-fg)" }}>
-              {fixes.length === 1 ? "1 thing to fix" : `${fixes.length} things to fix`}
+              {fixCount === 1 ? "1 thing to fix" : `${fixCount} things to fix`}
+              {overlap !== null ? " — shorten the entry or move it into the gap" : ""}
             </span>
           ) : (
             `${dayLabel.replace(" (yesterday)", "")}, ${startTime} to ${endTimeFrom(startTime, mins)}`
@@ -1178,7 +1201,7 @@ function QuickLogForm({
             {busy
               ? "Saving…"
               : workTypeChosen && canSubmit
-                ? `Log ${validMins ? fmtMins(mins) : ""}`
+                ? `Log ${validMins ? durationClock(mins) : ""}`
                 : "Choose a work type"}
           </Button>
         </div>

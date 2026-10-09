@@ -352,7 +352,7 @@ export function YesterdayCard({ now }: { now: number }) {
     let cancelled = false;
     void (async () => {
       try {
-        const since = `${dayIso}T00:00:00`;
+        const since = `${dayIso}T00:00:00Z`;
         const [gaps, ents] = await Promise.all([
           api.api.GET("/api/v1/time-gaps/me"),
           api.api.GET("/api/v1/time-entries", {
