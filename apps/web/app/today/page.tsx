@@ -1,29 +1,27 @@
-// /today — the daily landing work queue (TASKLIST 2.11, Wave 17 lane 1).
-//
-// Purpose: glanceability first — what needs attention NOW: overdue/due
-// today tickets (grouped queue), the active timer focus strip (live mono
-// elapsed), the time-approval queue count for approvers, and yesterday's
-// missing-time strip with the quick-log dialog. Rows are dense
-// Workbench-queue rows — mono ticket number, squared client tag, title,
-// status, source board, right-aligned SLA countdown in tabular numerals —
-// grouped Overdue / Due today / Later / No due date. Starting a timer from
-// a row rides the instant-first envelope (idempotency-keyed, optimistic
-// pending state, typed rejection copy).
+// /today — the daily landing surface, drawn to the surface pack
+// (brand/marula-mockups/marula-surface-pack/web/today/): a greeting header
+// with New ticket and Quick log, the five attention cards, the two-column
+// day body (Your day | Yesterday, On call, Travel), then the grouped work
+// queue below. The pack draws the day; the queue keeps the work reachable
+// and anchors from the attention cards. Quick-log is the pack's dialog in
+// full: Day / Started at / For with pre-fill, work-type chips with a dashed
+// Suggested chip that never auto-submits (V6 — suggestion-grade), the
+// billable toggle card, and a footer that names what to fix.
 // Non-purpose: no board management here; stop/pause/wrap-up stay on the
-// docked work bar and the ticket workspace; approval DECISIONS stay on
-// /approvals (this surface only counts the queue and deep-links).
+// docked work bar; approval DECISIONS stay on /approvals (this surface only
+// counts the queue and deep-links).
 "use client";
 
 import { friendlyMutationText } from "../../lib/error-copy";
 import type { components } from "@marula-core/sdk";
-import { Button, Card, EmptyState, Spinner, Tag } from "@marula-core/ui";
+import { Button, Card, Dialog, DialogActions, DialogContent, EmptyState, Kbd, Spinner, Tag } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BoardNav } from "../../components/board-nav";
 import { OnboardingResumeBanner } from "../../components/onboarding/resume-banner";
 import { DayPackPanel } from "../../components/today/day-pack-panel";
-import { TodayDayContext } from "../../components/today/day-context";
+import { YourDayPanel } from "../../components/today/day-surface";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { dueBucket, dueLabel, fmtMins } from "../../lib/format";
@@ -39,6 +37,7 @@ type GapReport = components["schemas"]["GapReportResponse"];
 type Ticket = components["schemas"]["Ticket"];
 
 const APPROVALS_QUEUE_CAP = 25;
+const LAST_VISIT_KEY = "today:last-visit-at";
 
 function PriorityTag({ priority }: { priority: string }) {
   const tone =
@@ -112,6 +111,15 @@ export default function TodayPage() {
   const [logOpen, setLogOpen] = useState(false);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [boardHref, setBoardHref] = useState<string | null>(null);
+  const [lastVisit, setLastVisit] = useState<number | null>(null);
+  // The pack's clock ("now 11:41") ticks by the minute — everything that
+  // renders a time-of-day keys off this one value.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
   const isApprover = (auth.me?.permissions ?? []).includes("special:approve_time");
 
   const refresh = useCallback(async () => {
@@ -138,6 +146,48 @@ export default function TodayPage() {
   useEffect(() => {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
+
+  // The pack's New ticket [C] routes to the default board, where the
+  // new-ticket dialog lives; nav is one cheap cached call.
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const nav = await api.api.GET("/api/v1/boards/nav");
+        if (cancelled || nav.error !== undefined) return;
+        const pick = nav.data.find((e) => e.is_default) ?? nav.data[0];
+        if (pick !== undefined) setBoardHref(`/boards/${pick.id}`);
+      } catch {
+        // The button simply stays a queue link when nav is unavailable.
+        if (!cancelled) setBoardHref("/tickets");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status]);
+
+  // "Changed since you looked": record the visit after the read so the next
+  // landing counts only tickets touched since this one.
+  useEffect(() => {
+    if (auth.status !== "authed" || items === null) return;
+    try {
+      const prior = Number(window.localStorage.getItem(LAST_VISIT_KEY) ?? "0");
+      setLastVisit(Number.isFinite(prior) && prior > 0 ? prior : null);
+      window.localStorage.setItem(LAST_VISIT_KEY, String(Date.now()));
+    } catch {
+      // Private mode: the card reads "up to date" rather than guessing.
+      setLastVisit(null);
+    }
+  }, [auth.status, items]);
+
+  // Yesterday card's Log time lands here, same as the strip did.
+  useEffect(() => {
+    const open = () => setLogOpen(true);
+    window.addEventListener("marula:open-quick-log", open);
+    return () => window.removeEventListener("marula:open-quick-log", open);
+  }, []);
 
   // missing_time nudges land here: /today?log=1 opens the quick-log dialog.
   useEffect(() => {
@@ -182,7 +232,7 @@ export default function TodayPage() {
   // rows themselves can be partial objects, so field reads stay
   // undefined-safe (truthiness checks only, no nested assumes).
   const gapDay = Array.isArray(gap?.days)
-    ? gap.days.find((d) => d !== null && d.has_gap) ?? gap.days[0]
+    ? gap.days.find((d) => d !== null && d.day === new Date(now - 86_400_000).toISOString().slice(0, 10)) ?? gap.days[0]
     : undefined;
   const day = gapDay;
   const all = Array.isArray(items) ? items : [];
@@ -199,6 +249,30 @@ export default function TodayPage() {
     (s) => s !== null && s.stopped_at === null && s !== active,
   ).length;
 
+  // The five attention cards (pack §2): each is a button that opens the
+  // filtered queue. Zero states keep the same geometry with a quiet line.
+  const atRisk = grouped.today.filter((t) => {
+    const due = t.sla_resolution_due ?? t.due_at;
+    return due !== null && due !== undefined && Date.parse(due) > now;
+  });
+  const riskMins = atRisk
+    .map((t) => {
+      const due = t.sla_resolution_due ?? t.due_at;
+      return due !== null && due !== undefined ? Math.round((Date.parse(due) - now) / 60_000) : null;
+    })
+    .filter((m): m is number => m !== null)
+    .sort((a, b) => a - b);
+  const changed =
+    lastVisit !== null ? all.filter((t) => t.updated_at !== undefined && Date.parse(t.updated_at) > lastVisit) : [];
+  const firstName = (auth.me?.display_name ?? "").split(/\s+/)[0] ?? "";
+  const hour = new Date(now).getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const yesterdayLabel = new Date(now - 86_400_000).toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 flex-1">
@@ -209,25 +283,105 @@ export default function TodayPage() {
           className="mx-auto flex w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-auto p-4 lg:border-l"
           style={{ borderColor: "var(--m-border)" }}
         >
-          {/* Header: what day it is + one-line attention summary */}
-          <header className="m-rise flex flex-wrap items-baseline justify-between gap-2">
+          {/* Pack header: the date over the greeting, New ticket / Quick log
+              to the right with their kbd chips. */}
+          <header className="m-rise flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-0.5">
               <p
                 className="text-[10px] font-semibold uppercase tracking-wide"
                 style={{ color: "var(--m-text-muted)" }}
               >
-                Work queue ·{" "}
-                {new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+                {new Date(now).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
               </p>
-              <h1 className="text-lg font-semibold tracking-tight">Today</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {firstName !== "" ? `${greeting}, ${firstName}` : greeting}
+              </h1>
             </div>
-            <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-              {all.length} open · assigned to you · across all boards
-            </span>
+            <div className="flex items-center gap-2">
+              {boardHref !== null && (
+                <a
+                  href={boardHref}
+                  className="flex items-center gap-1.5 rounded-[var(--m-radius-container)] px-2.5 py-1.5 text-xs font-medium hover:underline"
+                  style={{ border: "1px solid var(--m-border)", color: "var(--m-text)" }}
+                >
+                  <Icon name="plus" size={14} /> New ticket <Kbd tone="muted">C</Kbd>
+                </a>
+              )}
+              <Button size="sm" onClick={() => setLogOpen(true)}>
+                <Icon name="clock" size={14} /> Quick log <Kbd tone="muted">L</Kbd>
+              </Button>
+            </div>
           </header>
 
           {/* Wave 26 onboarding: sticky entry affordance above the attention strip */}
           <OnboardingResumeBanner />
+
+          {/* The five attention cards (pack): label + figure + one line, red
+              border only for genuine breaches, all green when the day is
+              clear. Each is a button that opens the filtered queue. */}
+          <div className="m-rise grid gap-3 sm:grid-cols-2 xl:grid-cols-5" style={{ animationDelay: "30ms" }}>
+            <AttentionCard
+              label="Yours today"
+              dot="accent"
+              value={grouped.today.length + grouped.overdue.length}
+              line={
+                grouped.today.length + grouped.overdue.length === 0
+                  ? "Nothing waiting on you"
+                  : `${grouped.today.length} due today`
+              }
+              anchor="overdue"
+            />
+            <AttentionCard
+              label="Changed since you looked"
+              dot={changed.length > 0 ? "accent" : "clear"}
+              value={changed.length}
+              line={
+                lastVisit !== null
+                  ? `Since you were last here at ${new Date(lastVisit).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`
+                  : "You are up to date"
+              }
+              anchor="due-today"
+            />
+            <AttentionCard
+              label="At risk"
+              dot={riskMins.length > 0 ? "warning" : "clear"}
+              value={riskMins.length}
+              line={
+                riskMins.length === 0
+                  ? "Nothing close to its target"
+                  : riskMins.length === 1
+                    ? `${riskMins[0]! >= 60 ? `${Math.floor(riskMins[0]! / 60)}h` : `${riskMins[0]}m`} left`
+                    : `${riskMins[0]}m and ${riskMins[1]}m left`
+              }
+              anchor="due-today"
+            />
+            <AttentionCard
+              label="Breached"
+              dot={grouped.overdue.length > 0 ? "danger" : "clear"}
+              value={grouped.overdue.length}
+              line={
+                grouped.overdue.length === 0
+                  ? "No SLA has been missed"
+                  : `${grouped.overdue[0]!.number} by ${breachText(grouped.overdue[0]!, now)}`
+              }
+              tone={grouped.overdue.length > 0 ? "breach" : "plain"}
+              anchor="overdue"
+            />
+            <AttentionCard
+              label="Not logged yesterday"
+              dot={day === undefined || !day.has_gap ? "clear" : "warning"}
+              value={day === undefined ? 0 : day.unaccounted_minutes}
+              format={fmtMins}
+              line={
+                day === undefined
+                  ? "No time expected yesterday"
+                  : day.has_gap
+                    ? `${yesterdayLabel}: ${fmtMins(day.logged_minutes)} logged of ${fmtMins(day.expected_minutes)}`
+                    : `${yesterdayLabel} is complete. ${fmtMins(day.expected_minutes)} logged`
+              }
+              onClick={day !== undefined && day.has_gap ? () => setLogOpen(true) : undefined}
+            />
+          </div>
 
           {/* Wave 32 lane 8: the tech's day pack — stops, what to grab, from where */}
           <DayPackPanel
@@ -236,48 +390,10 @@ export default function TodayPage() {
             meName={auth.me?.display_name ?? ""}
           />
 
-          {/* Who holds the pager and what is already booked. One call feeds
-              both cards, so the rota and the schedule can never disagree about
-              the same day. It loads after mount and reports its own state, so a
-              technician without dispatch scope loses two cards rather than the
-              queue above them. */}
-          <div className="m-rise" style={{ animationDelay: "60ms" }}>
-            <TodayDayContext />
-          </div>
-
-          {/* Attention strip: the day at a glance */}
-          <div className="m-rise grid gap-3 sm:grid-cols-2 xl:grid-cols-4" style={{ animationDelay: "30ms" }}>
-            <AttentionCard
-              label="Overdue"
-              value={grouped.overdue.length}
-              anchor="overdue"
-              tone={grouped.overdue.length > 0 ? "danger" : "clear"}
-            />
-            <AttentionCard
-              label="Due today"
-              value={grouped.today.length}
-              anchor="due-today"
-              tone={grouped.today.length > 0 ? "warning" : "clear"}
-            />
-            {isApprover && approvalsWaiting !== null && (
-              <AttentionCard
-                label="Approvals waiting"
-                value={approvalsWaiting}
-                suffix={approvalsWaiting >= APPROVALS_QUEUE_CAP ? "+" : ""}
-                href="/approvals"
-                tone={approvalsWaiting > 0 ? "accent" : "clear"}
-              />
-            )}
-            {day !== undefined && day.activity && (
-              <AttentionCard
-                label="Time to log"
-                value={day.has_gap ? day.unaccounted_minutes : 0}
-                format={fmtMins}
-                onClick={day.has_gap ? () => setLogOpen(true) : undefined}
-                tone={day.has_gap ? "warning" : "clear"}
-              />
-            )}
-          </div>
+          {/* The pack's two-column day body: Your day beside Yesterday, On
+              call and Travel. One dispatch call feeds the schedule and the
+              rota, so they can never disagree about the same day. */}
+          <YourDayPanel now={now} />
 
           {/* Focus strip: the running/paused timer set, live */}
           <FocusStrip
@@ -297,57 +413,9 @@ export default function TodayPage() {
             </p>
           )}
 
-          {/* Missing-time strip: yesterday's activity-vs-entries audit */}
-          {day !== undefined && day.activity && (
-            <Card className="m-rise grid gap-2 p-3" style={{ animationDelay: "60ms" }} aria-label="Missing time">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[13px]" style={{ color: "var(--m-text)" }}>
-                  <span
-                    className="text-[10px] font-semibold uppercase tracking-wide"
-                    style={{ color: "var(--m-text-muted)" }}
-                  >
-                    Yesterday
-                  </span>{" "}
-                  {fmtMins(day.logged_minutes)} logged of {fmtMins(day.expected_minutes)} expected
-                  {day.has_gap ? (
-                    <>
-                      {" — "}
-                      <span style={{ color: "var(--m-status-warning-fg)" }}>
-                        {fmtMins(day.unaccounted_minutes)} unaccounted
-                      </span>
-                    </>
-                  ) : null}
-                </p>
-                <Button size="sm" onClick={() => setLogOpen(true)}>
-                  Log time
-                </Button>
-              </div>
-              <div
-                className="flex h-2 gap-[2px] overflow-hidden rounded-[var(--m-radius-container)]"
-                style={{ background: "var(--m-canvas)" }}
-                aria-hidden="true"
-              >
-                {Array.from({ length: 8 }).map((_, i) => {
-                  const filled = day.logged_minutes >= (day.expected_minutes / 8) * (i + 1);
-                  return (
-                    <span
-                      key={i}
-                      className="h-full flex-1 rounded-[1px]"
-                      style={{
-                        // The meter's own fill token, not the accent tint: a
-                        // 2px indicator has to clear 3:1, and the tint is
-                        // neutral in dark (see tokens.css).
-                        background: filled ? "var(--m-meter-fill)" : "transparent",
-                        border: "1px solid var(--m-border)",
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            </Card>
-          )}
-
-          {/* The grouped queue */}
+          {/* The grouped queue. The pack draws the day; the queue keeps the
+              work reachable and the attention cards anchor into it. The
+              approvals count for approvers rides the same quiet band. */}
           {items === null ? (
             <div className="flex flex-1 items-center justify-center">
               <Spinner />
@@ -355,7 +423,26 @@ export default function TodayPage() {
           ) : all.length === 0 ? (
             <EmptyState message="Nothing assigned to you yet. Tickets appear here highest-priority first." />
           ) : (
-            BUCKETS.map((bucket, bi) => {
+            <>
+              {isApprover && approvalsWaiting !== null && approvalsWaiting > 0 && (
+                <a
+                  href="/approvals"
+                  className="m-rise flex items-center gap-2 rounded-[var(--m-radius-container)] px-3 py-2 text-xs hover:underline"
+                  style={{ background: "var(--m-surface-2)", color: "var(--m-text)" }}
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ background: "var(--m-accent)" }}
+                    aria-hidden="true"
+                  />
+                  <span className="font-medium">
+                    {approvalsWaiting === APPROVALS_QUEUE_CAP ? `${approvalsWaiting}+` : approvalsWaiting} time{" "}
+                    {approvalsWaiting === 1 ? "entry" : "entries"} waiting for your approval
+                  </span>
+                  <Icon name="arrow-r" size={13} />
+                </a>
+              )}
+              {BUCKETS.map((bucket, bi) => {
               const rows = grouped[bucket.key];
               if (rows.length === 0) return null;
               return (
@@ -449,7 +536,8 @@ export default function TodayPage() {
                   </ol>
                 </section>
               );
-            })
+              })}
+            </>
           )}
         </main>
       </div>
@@ -462,51 +550,74 @@ export default function TodayPage() {
   );
 }
 
-/** One attention-strip cell: quiet label, mono figure, deep link. */
+/** One attention card (pack §2): a coloured dot with the label, the tabular
+ * figure, one honest line underneath. Breach gets the red border; clear
+ * cards keep the geometry with a muted line. */
 function AttentionCard({
   label,
   value,
-  suffix = "",
+  dot,
   format,
+  line,
   anchor,
   href,
   onClick,
-  tone,
+  tone = "plain",
 }: {
   label: string;
   value: number;
-  suffix?: string;
+  dot: "accent" | "warning" | "danger" | "clear";
   format?: (n: number) => string;
+  line: string;
   anchor?: string;
   href?: string;
   onClick?: () => void;
-  tone: "danger" | "warning" | "accent" | "clear";
+  tone?: "plain" | "breach";
 }) {
-  const fg =
-    tone === "danger"
+  const dotColor =
+    dot === "danger"
       ? "var(--m-status-danger-fg)"
-      : tone === "warning"
+      : dot === "warning"
         ? "var(--m-status-warning-fg)"
-        : tone === "accent"
+        : dot === "accent"
           ? "var(--m-accent)"
-          : "var(--m-text-secondary)";
+          : "var(--m-text-muted)";
+  const breached = tone === "breach";
   const body = (
     <>
-      <span
-        className="text-[10px] font-semibold uppercase tracking-wide"
-        style={{ color: "var(--m-text-muted)" }}
-      >
-        {label}
+      <span className="flex items-center gap-1.5">
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ background: dotColor }}
+          aria-hidden="true"
+        />
+        <span
+          className="text-[10px] font-semibold uppercase tracking-wide"
+          style={{ color: breached ? "var(--m-status-danger-fg)" : "var(--m-text-muted)" }}
+        >
+          {label}
+        </span>
       </span>
- <span className="text-xl font-semibold tabular-nums" style={{ color: fg }}>
+      <span
+        className="text-xl font-semibold tabular-nums"
+        style={{ color: breached ? "var(--m-status-danger-fg)" : "var(--m-text)" }}
+      >
         {format !== undefined ? format(value) : value}
-        {suffix}
+      </span>
+      <span className="truncate text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+        {line}
       </span>
     </>
   );
+  const cardStyle: React.CSSProperties = breached
+    ? { borderColor: "var(--m-status-danger-fg)" }
+    : {};
   if (href !== undefined) {
     return (
-      <Card className="m-rise grid gap-0.5 p-3 transition-shadow duration-100 hover:shadow-md">
+      <Card
+        className="m-rise grid gap-0.5 p-3 transition-shadow duration-100 hover:shadow-md"
+        style={cardStyle}
+      >
         <a href={href} className="grid gap-0.5 outline-offset-4">
           {body}
         </a>
@@ -515,7 +626,7 @@ function AttentionCard({
   }
   if (onClick !== undefined) {
     return (
-      <Card className="m-rise p-3 transition-shadow duration-100 hover:shadow-md">
+      <Card className="m-rise p-3 transition-shadow duration-100 hover:shadow-md" style={cardStyle}>
         <button type="button" onClick={onClick} className="grid gap-0.5 text-left outline-offset-4">
           {body}
         </button>
@@ -523,12 +634,32 @@ function AttentionCard({
     );
   }
   return (
-    <Card className="m-rise p-3" style={anchor !== undefined ? { scrollMarginTop: "1rem" } : undefined}>
+    <Card
+      className="m-rise p-3"
+      style={{ ...cardStyle, ...(anchor !== undefined ? { scrollMarginTop: "1rem" } : {}) }}
+    >
       <a href={anchor !== undefined ? `#${anchor}` : undefined} className="grid gap-0.5 outline-offset-4">
         {body}
       </a>
     </Card>
   );
+}
+
+/** "Mon 28 Sep (yesterday)" — the quick-log dialog's fixed day. */
+function yesterdayLabel(): string {
+  const y = new Date(Date.now() - 86_400_000);
+  return `${y.toLocaleDateString(undefined, { weekday: "short" })} ${y.getDate()} ${y.toLocaleString(undefined, { month: "short" })} (yesterday)`;
+}
+
+/** The pack's kbd hint chips (C / L) ride the header buttons as kit `Kbd`. */
+
+/** "by 1h 05m" — how far past its target the worst breached ticket is. */
+function breachText(t: MyWorkItem, now: number): string {
+  const due = t.sla_resolution_due ?? t.due_at;
+  if (due === null || due === undefined) return "a while";
+  const mins = Math.max(1, Math.round((now - Date.parse(due)) / 60_000));
+  if (mins < 60) return `by ${mins}m`;
+  return `by ${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
 }
 
 /** The timer focus strip: running elapsed in mono digits, paused count. */
@@ -609,7 +740,9 @@ function FocusStrip({
   );
 }
 
-/// Minimal modal shell for the quick-log form (no portal dependency).
+/// The kit's dialog shell for the quick-log form; the pack's anatomy (title,
+/// subtitle, footer with fix count) rides DialogContent's header/description
+/// and DialogActions.
 function QuickLogDialog({
   items,
   onClose,
@@ -618,25 +751,19 @@ function QuickLogDialog({
   onClose: () => void;
 }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.5)" }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Log missing time"
-    >
-      <div
-        className="w-full max-w-md rounded-[var(--m-radius-container)] border p-4"
-        style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
-      >
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent title="Quick log" description="Time you forgot to log. Nothing is submitted until you choose a work type.">
         <QuickLogForm items={items} onDone={onClose} />
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-/// Quick manual entry for closing a missing-time gap: defaults to
-/// yesterday 09:00 + 60 minutes on the first queue item.
+/// The pack's quick-log dialog. Time you forgot to log: pre-filled for the
+/// common case (yesterday 09:00 for an hour), a work-type chip row whose
+/// suggested chip is advice and never auto-submits (V6), billable as a
+/// toggle card, errors as blush lines that name the fix, and a footer that
+/// counts the things to fix.
 function QuickLogForm({
   items,
   onDone,
@@ -645,48 +772,88 @@ function QuickLogForm({
   onDone: () => void;
 }) {
   const [ticketId, setTicketId] = useState(items[0]?.id ?? "");
-  const [minutes, setMinutes] = useState("60");
+  const [forMinutes, setForMinutes] = useState("60");
   const [startTime, setStartTime] = useState("09:00");
   const [notes, setNotes] = useState("");
   const [workType, setWorkType] = useState("");
+  const [workTypeChosen, setWorkTypeChosen] = useState(false);
   const [billable, setBillable] = useState(true);
   const [unbillableReason, setUnbillableReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { categories, map, refresh: refreshCategories } = useTimeCategories();
 
+  // Yesterday's entry windows, for the pack's overlap line: "That overlaps
+  // #12345 from 08:00 to 09:30. Yesterday's gap is 13:00 to 14:15."
+  const [dayEntries, setDayEntries] = useState<components["schemas"]["TimeEntry"][]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.api.GET("/api/v1/time-entries", {
+          params: { query: { since: `${yesterdayIso()}T00:00:00`, limit: 100 } },
+        });
+        if (!cancelled) {
+          setDayEntries(
+            (res.data ?? []).filter((e) => e.started_at.slice(0, 10) === yesterdayIso()),
+          );
+        }
+      } catch {
+        // No overlap check without the windows; the server still validates.
+        if (!cancelled) setDayEntries([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Billing-audit chips for the picked ticket's existing entries; adopt
   // prefills the form, never auto-submits (V6 — suggestion-grade).
   const audit = useBillingAuditForTicket(ticketId);
 
-  // Default category: ticket-context suggestion, else first category.
-  useEffect(() => {
-    if (categories === null || categories.length === 0) return;
-    setWorkType((current) => {
-      if (current !== "" && categories.some((c) => c.slug === current)) return current;
-      const ticket = items.find((t) => t.id === ticketId);
-      return (
-        suggestCategorySlug(
-          { boardName: ticket?.board_name ?? null, clientName: ticket?.client_name ?? null },
+  // The suggested work type is derived, never selected: the dashed chip
+  // offers it, the helper names its sources, the primary button stays
+  // disabled until a person chooses (pack: "Choose a work type").
+  const suggested =
+    categories === null || categories.length === 0
+      ? null
+      : suggestCategorySlug(
+          {
+            boardName: items.find((t) => t.id === ticketId)?.board_name ?? null,
+            clientName: items.find((t) => t.id === ticketId)?.client_name ?? null,
+          },
           categories,
           map,
-        ) ?? categories[0]!.slug
-      );
-    });
-  }, [categories, map, ticketId, items]);
+        ) ?? categories[0]!.slug;
 
-  const selectedCategory = categories?.find((c) => c.slug === workType);
+  const mins = Number.parseInt(forMinutes, 10);
+  const validMins = Number.isFinite(mins) && mins > 0;
+  const startedOk = !Number.isNaN(new Date(`${yesterdayIso()}T${startTime}:00`).getTime());
+  const overlap = useMemo(() => {
+    if (!validMins || !startedOk) return null;
+    const started = new Date(`${yesterdayIso()}T${startTime}:00`);
+    const ended = new Date(started.getTime() + mins * 60_000);
+    const hit = dayEntries.find((e) => {
+      const s = new Date(e.started_at).getTime();
+      const en = new Date(e.ended_at).getTime();
+      return s < ended.getTime() && en > started.getTime();
+    });
+    if (hit === undefined) return null;
+    return { hit, started, ended };
+  }, [dayEntries, validMins, startedOk, mins, startTime]);
+  const fixes: string[] = [];
+  if (!workTypeChosen) fixes.push("choose a work type");
+  if (!validMins) fixes.push("set how long the work took");
+  if (!startedOk) fixes.push("set when it started");
+  if (!billable && unbillableReason === "") fixes.push("pick why the time is not billable");
+  const canSubmit = fixes.length === 0 && ticketId !== "" && overlap === null;
+
+  const dayLabel = yesterdayLabel();
 
   async function submit() {
-    const mins = Number.parseInt(minutes, 10);
-    if (!ticketId || !Number.isFinite(mins) || mins <= 0) {
-      setError("Pick a ticket and a positive minute count.");
-      return;
-    }
-    const day = yesterdayIso();
-    const started = new Date(`${day}T${startTime}:00`);
-    if (Number.isNaN(started.getTime())) {
-      setError("Invalid start time.");
+    if (ticketId === "" || !validMins || !startedOk) {
+      setError("Pick a ticket, a start time and a positive length.");
       return;
     }
     if (!billable && unbillableReason === "") {
@@ -695,6 +862,8 @@ function QuickLogForm({
     }
     setBusy(true);
     try {
+      const day = yesterdayIso();
+      const started = new Date(`${day}T${startTime}:00`);
       const { error: apiError } = await api.api.POST("/api/v1/time-entries", {
         body: {
           ticket_id: ticketId,
@@ -725,141 +894,194 @@ function QuickLogForm({
           id="log-ticket"
           value={ticketId}
           onChange={(e) => setTicketId(e.target.value)}
-          className="rounded-[var(--m-radius-container)] px-2 py-1 text-xs"
+          className="rounded-[var(--m-radius-container)] px-2 py-1.5 text-xs"
           style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
+          data-testid="quicklog-ticket"
         >
           {items.map((t) => (
             <option key={t.id} value={t.id}>
               {t.number} — {t.title}
+              {t.client_name !== null && t.client_name !== undefined ? `, ${t.client_name}` : ""}
             </option>
           ))}
         </select>
       </div>
-      <div className="flex gap-3">
-        <div className="flex flex-1 flex-col gap-1">
+
+      <div className="grid grid-cols-3 gap-2">
+        <div className="flex flex-col gap-1">
           <label className="text-xs" htmlFor="log-date" style={{ color: "var(--m-text-secondary)" }}>
-            Date
+            Day
           </label>
           <input
             id="log-date"
             readOnly
-            value={yesterdayIso()}
-            className="rounded-[var(--m-radius-container)] px-2 py-1 text-xs"
+            value={dayLabel}
+            className="rounded-[var(--m-radius-container)] px-2 py-1.5 text-xs"
             style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
           />
         </div>
-        <div className="flex flex-1 flex-col gap-1">
+        <div className="flex flex-col gap-1">
           <label className="text-xs" htmlFor="log-start" style={{ color: "var(--m-text-secondary)" }}>
-            Start
+            Started at
           </label>
           <input
             id="log-start"
             type="time"
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
-            className="rounded-[var(--m-radius-container)] px-2 py-1 text-xs"
-            style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
+            className="rounded-[var(--m-radius-container)] px-2 py-1.5 text-xs"
+            style={{
+              border: `1px solid ${startedOk ? "var(--m-border)" : "var(--m-status-warning-fg)"}`,
+              background: "var(--m-surface)",
+              color: "var(--m-text)",
+            }}
+            data-testid="quicklog-start"
           />
         </div>
-        <div className="flex flex-1 flex-col gap-1">
+        <div className="flex flex-col gap-1">
           <label className="text-xs" htmlFor="log-minutes" style={{ color: "var(--m-text-secondary)" }}>
-            Minutes
+            For
           </label>
           <input
             id="log-minutes"
             type="number"
             min={1}
-            value={minutes}
-            onChange={(e) => setMinutes(e.target.value)}
-            className="rounded-[var(--m-radius-container)] px-2 py-1 text-xs"
+            value={forMinutes}
+            onChange={(e) => setForMinutes(e.target.value)}
+            className="rounded-[var(--m-radius-container)] px-2 py-1.5 text-xs"
             style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
+            data-testid="quicklog-minutes"
           />
         </div>
       </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-xs" htmlFor="log-notes" style={{ color: "var(--m-text-secondary)" }}>
-          Notes
-        </label>
-        <input
-          id="log-notes"
-          value={notes}
-          placeholder="What did you work on?"
-          onChange={(e) => setNotes(e.target.value)}
-          className="rounded-[var(--m-radius-container)] px-2 py-1 text-xs"
-          style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-xs" htmlFor="log-category" style={{ color: "var(--m-text-secondary)" }}>
-          Category
-        </label>
-        <div className="flex items-center justify-between rounded-[var(--m-radius-container)] px-2 py-1" style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)" }}>
-          <select
-            id="log-category"
-            value={workType}
-            onChange={(e) => setWorkType(e.target.value)}
-            className="w-full cursor-pointer border-0 bg-transparent text-xs outline-none"
-            style={{ color: "var(--m-text)" }}
-            data-testid="quicklog-category"
-          >
-            {(categories ?? []).length === 0 && <option value="">Loading categories…</option>}
-            {(categories ?? []).map((c) => (
-              <option key={c.slug} value={c.slug}>
-                {c.label}
-                {c.defaultBillable ? "" : " (non-billable)"}
-              </option>
-            ))}
-          </select>
-          <span aria-hidden className="text-xs" style={{ color: "var(--m-text-muted)" }}>⌄</span>
+
+      {overlap !== null && (
+        <p
+          className="flex items-start gap-1.5 rounded-[var(--m-radius-container)] px-2 py-1.5 text-[11px]"
+          style={{
+            border: "1px solid var(--m-status-warning-fg)",
+            background: "var(--m-status-warning-bg)",
+            color: "var(--m-status-warning-fg)",
+          }}
+          role="alert"
+          data-testid="quicklog-overlap"
+        >
+          <Icon name="clock" size={12} />
+          <span>
+            That overlaps {overlapTicketLabel(overlap.hit, items)} from{" "}
+            {overlap.hit.started_at.slice(11, 16)} to {overlap.hit.ended_at.slice(11, 16)}.{" "}
+            {gapHint(dayEntries, overlap.started, overlap.ended)}
+          </span>
+        </p>
+      )}
+
+      <p
+        className="flex items-start gap-1.5 rounded-[var(--m-radius-container)] px-2 py-1.5 text-[11px]"
+        style={{ background: "var(--m-bg-subtle)", color: "var(--m-text-secondary)" }}
+      >
+        <Icon name="clock" size={12} />
+        <span>
+          Pre-filled for the common case: yesterday at 09:00 for an hour. Change whatever is not right.
+        </span>
+      </p>
+
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium" style={{ color: "var(--m-text-secondary)" }}>
+          Work type
+        </span>
+        <div className="flex flex-wrap gap-1.5" data-testid="quicklog-work-types">
+          {categories === null ? (
+            <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+              Loading categories…
+            </span>
+          ) : (
+            categories.map((c) => {
+              const isSuggested = c.slug === suggested;
+              const selected = workType === c.slug;
+              return (
+                <button
+                  key={c.slug}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => {
+                    setWorkType(c.slug);
+                    setWorkTypeChosen(true);
+                    if (!c.defaultBillable) setBillable(false);
+                    void refreshCategories();
+                  }}
+                  className="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  style={{
+                    border: `1px ${isSuggested && !selected ? "dashed" : "solid"} var(--m-border)`,
+                    background: selected ? "var(--m-accent)" : "var(--m-surface)",
+                    color: selected ? "var(--m-text)" : "var(--m-text-secondary)",
+                  }}
+                >
+                  {c.label}
+                  {isSuggested && !selected && (
+                    <span className="ml-1 text-[9px] uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+                      Suggested
+                    </span>
+                  )}
+                  {selected && <Icon name="check" size={11} />}
+                </button>
+              );
+            })
+          )}
         </div>
-        {audit !== null && (
-          <button
-            type="button"
-            className="mt-1 w-fit cursor-pointer rounded-full border px-2 py-0.5 text-[10px]"
-            style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)", color: "var(--m-text-secondary)" }}
-            data-testid="quicklog-audit-chip"
-            onClick={() => {
-              if (audit === "billable_false") {
-                setBillable(false);
-                setUnbillableReason((r) => (r === "" ? "internal" : r));
-              } else {
-                setBillable(true);
-                setUnbillableReason("");
-              }
-              void refreshCategories();
-            }}
-          >
-            ✦ Audit: {audit === "billable_false" ? "looks non-billable — add a reason?" : "looks billable"}
-          </button>
-        )}
+        <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+          {workTypeChosen
+            ? `Chosen by you${audit !== null ? "" : "."}`
+            : suggested !== null
+              ? "Suggested from the ticket's board and client. Choose it, or pick another."
+              : "Choose the work type that fits."}
+        </p>
       </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-xs" htmlFor="log-billable" style={{ color: "var(--m-text-secondary)" }}>
-          Billable
-        </label>
-        <div className="flex items-center justify-between rounded-[var(--m-radius-container)] px-2 py-1" style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)" }}>
-          <select
-            id="log-billable"
-            value={billable ? "yes" : "no"}
-            onChange={(e) => {
-              setBillable(e.target.value === "yes");
-              if (e.target.value === "yes") setUnbillableReason("");
-            }}
-            className="w-full cursor-pointer border-0 bg-transparent text-xs outline-none"
-            style={{ color: "var(--m-text)" }}
-          >
-            <option value="yes">● Yes</option>
-            <option value="no">○ No</option>
-          </select>
-          <span aria-hidden className="text-xs" style={{ color: "var(--m-text-muted)" }}>⌄</span>
+
+      <div
+        className="flex items-center justify-between rounded-[var(--m-radius-container)] px-2.5 py-2"
+        style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)" }}
+      >
+        <div className="grid gap-0">
+          <span className="text-xs font-medium" style={{ color: "var(--m-text)" }}>
+            Billable
+          </span>
+          <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+            This time can go on an invoice.
+          </span>
         </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={billable}
+          aria-label="Billable"
+          onClick={() => {
+            setBillable((b) => !b);
+            if (!billable) setUnbillableReason("");
+          }}
+          className="relative h-5 w-9 rounded-full transition-colors duration-100"
+          style={{ background: billable ? "var(--m-accent)" : "var(--m-border)" }}
+          data-testid="quicklog-billable"
+        >
+          <span
+            className="absolute top-0.5 h-4 w-4 rounded-full transition-transform duration-100"
+            style={{
+              background: "var(--m-surface)",
+              border: "1px solid var(--m-border)",
+              transform: `translateX(${billable ? 18 : 2}px)`,
+            }}
+          />
+        </button>
       </div>
+
       {!billable && (
         <div className="flex flex-col gap-1">
           <label className="text-xs" htmlFor="log-unbillable-reason" style={{ color: "var(--m-text-secondary)" }}>
             Why not billable?
           </label>
-          <div className="flex items-center justify-between rounded-[var(--m-radius-container)] px-2 py-1" style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)" }}>
+          <div
+            className="flex items-center justify-between rounded-[var(--m-radius-container)] px-2 py-1.5"
+            style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)" }}
+          >
             <select
               id="log-unbillable-reason"
               value={unbillableReason}
@@ -884,19 +1106,133 @@ function QuickLogForm({
           </div>
         </div>
       )}
+
+      <div className="flex flex-col gap-1">
+        <label className="text-xs" htmlFor="log-notes" style={{ color: "var(--m-text-secondary)" }}>
+          What did you do? <span style={{ color: "var(--m-text-muted)" }}>Optional</span>
+        </label>
+        <textarea
+          id="log-notes"
+          value={notes}
+          rows={2}
+          placeholder="For example, fixed the Finance shared mailbox permissions"
+          onChange={(e) => setNotes(e.target.value)}
+          className="rounded-[var(--m-radius-container)] px-2 py-1.5 text-xs"
+          style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
+        />
+        {audit !== null && (
+          <button
+            type="button"
+            className="mt-1 w-fit cursor-pointer rounded-full border px-2 py-0.5 text-[10px]"
+            style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)", color: "var(--m-text-secondary)" }}
+            data-testid="quicklog-audit-chip"
+            onClick={() => {
+              if (audit === "billable_false") {
+                setBillable(false);
+                setUnbillableReason((r) => (r === "" ? "internal" : r));
+              } else {
+                setBillable(true);
+                setUnbillableReason("");
+              }
+              void refreshCategories();
+            }}
+          >
+            ✦ Audit: {audit === "billable_false" ? "looks non-billable — add a reason?" : "looks billable"}
+          </button>
+        )}
+      </div>
+
       {error !== null && (
         <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
           {error}
         </p>
       )}
-      <div className="flex justify-end gap-2">
-        <Button size="sm" variant="ghost" onClick={onDone}>
-          Cancel
-        </Button>
-        <Button size="sm" disabled={busy} onClick={() => void submit()}>
-          {busy ? "Saving…" : "Log entry"}
-        </Button>
+
+      <div
+        className="flex items-center justify-between gap-2 border-t pt-3"
+        style={{ borderColor: "var(--m-border)" }}
+      >
+        <span className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+          {overlap !== null ? (
+            <span style={{ color: "var(--m-status-warning-fg)" }}>
+              1 thing to fix — shorten the entry or move it into the gap
+            </span>
+          ) : fixes.length > 0 ? (
+            <span style={{ color: "var(--m-status-warning-fg)" }}>
+              {fixes.length === 1 ? "1 thing to fix" : `${fixes.length} things to fix`}
+            </span>
+          ) : (
+            `${dayLabel.replace(" (yesterday)", "")}, ${startTime} to ${endTimeFrom(startTime, mins)}`
+          )}
+        </span>
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={onDone}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={busy || !canSubmit}
+            onClick={() => void submit()}
+            data-testid="quicklog-submit"
+          >
+            {busy
+              ? "Saving…"
+              : workTypeChosen && canSubmit
+                ? `Log ${validMins ? fmtMins(mins) : ""}`
+                : "Choose a work type"}
+          </Button>
+        </div>
       </div>
     </div>
   );
+}
+
+/** "10:00" — the entry's end clock line for the dialog footer. */
+function endTimeFrom(start: string, minutes: number): string {
+  const started = new Date(`${yesterdayIso()}T${start}:00`);
+  if (Number.isNaN(started.getTime()) || !Number.isFinite(minutes)) return "";
+  return new Date(started.getTime() + minutes * 60_000).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+/** "MAR-100" — the overlapping entry's ticket, matched against the queue
+ * items so the line names the ticket like the pack does. */
+function overlapTicketLabel(
+  hit: components["schemas"]["TimeEntry"],
+  items: MyWorkItem[],
+): string {
+  const byId = items.find((t) => t.id === hit.ticket_id);
+  if (byId !== undefined) return byId.number;
+  return "an entry";
+}
+
+/** "Yesterday's gap is 13:00 to 14:15." — the nearest free window on the
+ * day's timeline, so the fix is one glance away. */
+function gapHint(
+  entries: components["schemas"]["TimeEntry"][],
+  overlapStart: Date,
+  overlapEnd: Date,
+): string {
+  const windows: { from: number; to: number }[] = [];
+  const dayStart = new Date(`${yesterdayIso()}T08:00:00`).getTime();
+  const dayEnd = new Date(`${yesterdayIso()}T17:00:00`).getTime();
+  let cursor = dayStart;
+  const sorted = [...entries].sort((a, b) => a.started_at.localeCompare(b.started_at));
+  for (const e of sorted) {
+    const s = new Date(e.started_at).getTime();
+    const en = new Date(e.ended_at).getTime();
+    if (Number.isNaN(s) || Number.isNaN(en)) continue;
+    if (en <= dayStart || s >= dayEnd) continue;
+    if (s - cursor >= 30 * 60_000) windows.push({ from: cursor, to: Math.min(s, dayEnd) });
+    cursor = Math.max(cursor, en);
+  }
+  if (dayEnd - cursor >= 30 * 60_000) windows.push({ from: cursor, to: dayEnd });
+  const open = windows.find((w) => w.to - w.from >= overlapEnd.getTime() - overlapStart.getTime());
+  if (open === undefined) return "No free hour left on yesterday's timeline — shorten the entry or let it overlap.";
+  const fmt = (ms: number) =>
+    new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `Yesterday's gap is ${fmt(open.from)} to ${fmt(open.to)}.`;
 }

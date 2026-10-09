@@ -149,6 +149,54 @@ const TIMER_SESSION = {
   segments: [{ started_at: iso(-600_000), ended_at: null }],
 };
 
+// The day surface: one booking in the schedule, the rota it rides, no
+// travel drafts, and yesterday's gap fed by two entry windows.
+const APPOINTMENT_ID = "00000000-0000-4000-8000-0000000000e1";
+const DISPATCH_DAY = {
+  date: new Date(NOW).toISOString().slice(0, 10),
+  unassigned: [],
+  technicians: [
+    {
+      user_id: ME_ID,
+      display_name: ME_FIXTURE.display_name,
+      on_call: [],
+      appointments: [
+        {
+          id: APPOINTMENT_ID,
+          user_id: ME_ID,
+          client_id: "00000000-0000-4000-8000-0000000000f1",
+          client_name: "Acme Corp",
+          title: "Mail server down",
+          starts_at: iso(60 * 60_000),
+          ends_at: iso(3 * 3600_000),
+          status: "scheduled",
+          kind: "onsite",
+          ticket_id: OVERDUE.id,
+          ticket_number: OVERDUE.number,
+          travel_minutes: 0,
+          travel_distance_meters: 0,
+          dispatch_status: null,
+        },
+      ],
+    },
+  ],
+};
+const YESTERDAY_ISO = new Date(NOW - DAY).toISOString().slice(0, 10);
+const TIME_ENTRIES = [
+  {
+    id: "00000000-0000-4000-8000-0000000000e2",
+    org_id: ME_FIXTURE.org_id,
+    user_id: ME_ID,
+    ticket_id: OVERDUE.id,
+    started_at: `${YESTERDAY_ISO}T09:00:00Z`,
+    ended_at: `${YESTERDAY_ISO}T11:30:00Z`,
+    minutes: 150,
+    billable: true,
+    approval_status: "approved",
+    origin: "manual",
+  },
+];
+
 const APPROVER_ME = {
   ...ME_FIXTURE,
   permissions: ["special:approve_time"],
@@ -164,6 +212,25 @@ function setupApi(me: typeof ME_FIXTURE, myWork: unknown[] = MY_WORK): MockApi {
   mock.on("GET", "/api/v1/boards/nav", () => ({ json: [] }));
   mock.on("GET", "/api/v1/tickets/my-work", () => ({ json: myWork }));
   mock.on("GET", "/api/v1/time-gaps/me", () => ({ json: GAP }));
+  mock.on("GET", "/api/v1/dispatch/day", () => ({ json: DISPATCH_DAY }));
+  mock.on("GET", "/api/v1/dispatch/travel-drafts", () => ({ json: [] }));
+  mock.on("GET", "/api/v1/time-entries", () => ({ json: TIME_ENTRIES }));
+  mock.on("GET", "/api/v1/time-categories/capture-defaults", () => ({
+    json: {
+      categories: [
+        {
+          id: "00000000-0000-4000-8000-0000000000e3",
+          org_id: ME_FIXTURE.org_id,
+          slug: "remote-support",
+          label: "Remote support",
+          default_billable: true,
+          position: 0,
+          created_at: iso(0),
+        },
+      ],
+      work_type_map: [],
+    },
+  }));
   mock.on("GET", "/api/v1/time-entries/approvals/queue", () => ({
     json: [QUEUE_ITEM("00000000-0000-4000-8000-0000000000d1"), QUEUE_ITEM("00000000-0000-4000-8000-0000000000d2")],
   }));
@@ -187,7 +254,9 @@ describe("/today integration", () => {
       </AuthProvider>,
     );
 
-    expect(await screen.findByText("Mail server down", {}, { timeout: 5000 })).toBeInTheDocument();
+    // The pack's day body carries the booking title too; the queue's row is
+    // the hover link, so match that one.
+    expect(await screen.findByText("Mail server down", { selector: "a > span.hover\\:underline" }, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Overdue" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Due today" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Later" })).toBeInTheDocument();
@@ -200,7 +269,7 @@ describe("/today integration", () => {
     cleanup();
   });
 
-  it("shows the attention strip, missing-time audit, and idle focus line", async () => {
+  it("shows the five attention cards with yesterday's gap and the day body", async () => {
     setupApi(APPROVER_ME);
     render(
       <AuthProvider>
@@ -208,29 +277,38 @@ describe("/today integration", () => {
       </AuthProvider>,
     );
 
-    expect(await screen.findByText("Approvals waiting", {}, { timeout: 5000 })).toBeInTheDocument();
-    expect(screen.getByText("Overdue", { selector: "span" })).toBeInTheDocument();
-    expect(screen.getByText("Time to log")).toBeInTheDocument();
-    // Missing-time strip: yesterday 5h logged of 8h expected, 3h unaccounted.
+    // Pack attention cards: labels, figures, one honest line each.
+    expect(await screen.findByText("Yours today", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByText("At risk")).toBeInTheDocument();
+    expect(screen.getByText("Breached")).toBeInTheDocument();
+    expect(screen.getByText("Not logged yesterday")).toBeInTheDocument();
+    expect(screen.getByText("Changed since you looked")).toBeInTheDocument();
+    // Yesterday card: 5h logged of 8h expected, 3h unaccounted.
     expect(
-      screen.getByText((_, el) =>
-        el?.textContent === "Yesterday 5h logged of 8h expected — 3h unaccounted",
-      ),
+      await screen.findByText((_, el) => el?.textContent === "5h logged of 8h — 3h unaccounted", {}, { timeout: 5000 }),
     ).toBeInTheDocument();
-    expect(screen.getByText("No active timer — start one from a row below; the work bar tracks it.")).toBeInTheDocument();
+    expect(await screen.findByText("3h not logged", {}, { timeout: 5000 })).toBeInTheDocument();
+    // Your day: the booking renders with its pill and the live clock line.
+    expect(await screen.findByText("Your day", {}, { timeout: 5000 })).toBeInTheDocument();
+    await screen.findByText("Acme Corp", {}, { timeout: 5000 });
     cleanup();
   });
 
-  it("opens the quick-log dialog from the missing-time strip", async () => {
+  it("opens the pack's quick-log dialog from the header and the yesterday card", async () => {
     setupApi(APPROVER_ME);
     render(
       <AuthProvider>
         <TodayPage />
       </AuthProvider>,
     );
-    await screen.findByText("Time to log", {}, { timeout: 5000 });
-    fireEvent.click(screen.getByRole("button", { name: "Log time" }));
-    expect(await screen.findByRole("dialog", { name: "Log missing time" })).toBeInTheDocument();
+    await screen.findByText("Not logged yesterday", {}, { timeout: 5000 });
+    fireEvent.click(screen.getByRole("button", { name: /Quick log/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Quick log" });
+    expect(dialog).toBeInTheDocument();
+    // The pack's footer: nothing chosen yet, so the primary names the step.
+    expect(screen.getByText("Choose a work type")).toBeInTheDocument();
+    // The suggested chip is offered, not selected — it never auto-submits.
+    expect(screen.getByText("Suggested")).toBeInTheDocument();
     cleanup();
   });
 
@@ -241,7 +319,7 @@ describe("/today integration", () => {
         <TodayPage />
       </AuthProvider>,
     );
-    await screen.findByText("Mail server down", {}, { timeout: 5000 });
+    await screen.findByText("Mail server down", { selector: "a > span.hover\\:underline" }, { timeout: 5000 });
 
     fireEvent.click(screen.getByRole("button", { name: "Start timer for MAR-100" }));
     await waitFor(() => {
@@ -263,7 +341,7 @@ describe("/today integration", () => {
         <TodayPage />
       </AuthProvider>,
     );
-    await screen.findByText("Mail server down", {}, { timeout: 5000 });
+    await screen.findByText("Mail server down", { selector: "a > span.hover\\:underline" }, { timeout: 5000 });
 
     expect(screen.queryByText("Approvals waiting")).not.toBeInTheDocument();
     expect(mock.callsTo("GET", "/api/v1/time-entries/approvals/queue")).toHaveLength(0);
