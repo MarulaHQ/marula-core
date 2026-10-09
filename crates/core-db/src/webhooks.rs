@@ -12,6 +12,7 @@
 
 use crate::{DbError, DbResult};
 use chrono::{DateTime, Utc};
+use sqlx::Row;
 use uuid::Uuid;
 
 // --- webhook subscriptions ---------------------------------------------------
@@ -28,10 +29,39 @@ pub struct WebhookRow {
     pub enabled: bool,
     pub created_by: Option<Uuid>,
     pub created_at: DateTime<Utc>,
+    /// Wave 43 lane 4 (A): the install whose declared endpoints seeded
+    /// this row, or NULL for a human-created subscription. An
+    /// install-attributed row is torn down by the install's lifecycle —
+    /// `ON DELETE CASCADE` on uninstall, and an explicit delete beside the
+    /// status flip in `revoke_catalog_entry` on revoke — so a connector's
+    /// outbound posture cannot outlive the consent that created it.
+    pub owner_install_id: Option<Uuid>,
+}
+
+/// The SELECT shape of a subscription row, in the order the map helper
+/// expects. Kept as one const because four queries share it and a
+/// disagreement between them is a silent type error.
+const WEBHOOK_COLS: &str = "id, org_id, url, secret_encrypted, event_types, enabled, \
+                            created_by, created_at, owner_install_id";
+
+fn webhook_from(r: &sqlx::postgres::PgRow) -> DbResult<WebhookRow> {
+    Ok(WebhookRow {
+        id: r.get("id"),
+        org_id: r.get("org_id"),
+        url: r.get("url"),
+        secret_encrypted: r.get("secret_encrypted"),
+        event_types: r.get("event_types"),
+        enabled: r.get("enabled"),
+        created_by: r.get("created_by"),
+        created_at: r.get("created_at"),
+        owner_install_id: r.get("owner_install_id"),
+    })
 }
 
 /// Inserts one subscription. `secret_encrypted` must already be sealed by
-/// the caller; this module never sees plaintext.
+/// the caller; this module never sees plaintext. `owner_install_id` is
+/// NULL for a human-created subscription and set when a connector's
+/// declared endpoints seed it.
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_webhook<'e, E>(
     executor: E,
@@ -41,60 +71,144 @@ pub async fn insert_webhook<'e, E>(
     secret_encrypted: &[u8],
     event_types: &[String],
     created_by: Uuid,
+    owner_install_id: Option<Uuid>,
 ) -> DbResult<WebhookRow>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let row = sqlx::query_as!(
-        WebhookRow,
-        r#"INSERT INTO webhooks (id, org_id, url, secret_encrypted, event_types, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id, org_id, url, secret_encrypted, event_types, enabled,
-                     created_by, created_at"#,
-        id,
-        org_id,
-        url,
-        secret_encrypted,
-        event_types,
-        created_by,
-    )
+    let row = sqlx::query(&format!(
+        "INSERT INTO webhooks (id, org_id, url, secret_encrypted, event_types, created_by, \
+         owner_install_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {WEBHOOK_COLS}"
+    ))
+    .bind(id)
+    .bind(org_id)
+    .bind(url)
+    .bind(secret_encrypted)
+    .bind(event_types)
+    .bind(created_by)
+    .bind(owner_install_id)
     .fetch_one(executor)
     .await?;
-    Ok(row)
+    webhook_from(&row)
+}
+
+/// Seeds the outbound subscriptions a consented connector's declared
+/// `connector_profile.webhook_endpoints` promise (Wave 43 lane 4 A).
+///
+/// The consent screen has always said "Declared webhook endpoints seed the
+/// connector's outbound posture"; this is the code that makes that true.
+/// The rows are attributed to the install so an uninstall or a revoke
+/// tears them down, which is what turns a declaration into a teardown-able
+/// posture rather than decoration.
+///
+/// Idempotent and non-destructive to an operator's choices, in two halves:
+/// a row the manifest no longer declares is deleted (the deny-by-default
+/// residue is deletion, the same posture the surface sync keeps), while a
+/// still-declared row is left alone so an admin who disabled one endpoint
+/// keeps it disabled. Returns how many rows this call created.
+pub async fn seed_install_webhooks<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    install_id: Uuid,
+    urls: &[String],
+    secret_encrypted: &[u8],
+    created_by: Uuid,
+) -> DbResult<usize>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    if urls.is_empty() {
+        // Nothing declared: the connector's outbound posture is empty, and
+        // any earlier seeding is stale rather than retained.
+        remove_install_webhooks(executor, org_id, install_id).await?;
+        return Ok(0);
+    }
+
+    // One statement, three halves. They touch disjoint row sets, so the
+    // single snapshot they share makes the order irrelevant: the insert
+    // only ever adds a URL that is in the declared list, and the delete
+    // only ever removes a URL that is not. `ON CONFLICT DO NOTHING` is what
+    // preserves an operator's choices on a re-seed — a row they disabled
+    // stays disabled, and one they deleted stays deleted.
+    let ids: Vec<Uuid> = urls.iter().map(|_| Uuid::now_v7()).collect();
+    let seeded: i64 = sqlx::query_scalar(
+        "WITH incoming AS (
+             SELECT * FROM UNNEST($3::uuid[], $4::text[]) AS t(id, url)
+         ),
+         ins AS (
+             INSERT INTO webhooks
+                 (id, org_id, url, secret_encrypted, event_types, created_by,
+                  owner_install_id)
+             SELECT t.id, $1, t.url, $5, $6::text[], $7, $2
+             FROM incoming t
+             ON CONFLICT DO NOTHING
+             RETURNING id
+         ),
+         del AS (
+             DELETE FROM webhooks
+             WHERE org_id = $1 AND owner_install_id = $2
+               AND url NOT IN (SELECT url FROM incoming)
+             RETURNING id
+         )
+         SELECT count(*)::int8 FROM ins",
+    )
+    .bind(org_id)
+    .bind(install_id)
+    .bind(&ids)
+    .bind(urls)
+    .bind(secret_encrypted)
+    .bind(Vec::<String>::new())
+    .bind(created_by)
+    .fetch_one(executor)
+    .await?;
+    Ok(seeded.try_into().unwrap_or(0))
+}
+
+/// Deletes every subscription this install seeded. Called on uninstall
+/// (belt-and-braces beside the FK's `ON DELETE CASCADE`) and on revoke,
+/// where a status flip is not a delete so the FK never fires.
+pub async fn remove_install_webhooks<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    install_id: Uuid,
+) -> DbResult<u64>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let res = sqlx::query("DELETE FROM webhooks WHERE org_id = $1 AND owner_install_id = $2")
+        .bind(org_id)
+        .bind(install_id)
+        .execute(executor)
+        .await?;
+    Ok(res.rows_affected())
 }
 
 pub async fn get_webhook<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<WebhookRow>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let row = sqlx::query_as!(
-        WebhookRow,
-        r#"SELECT id, org_id, url, secret_encrypted, event_types, enabled,
-                  created_by, created_at
-           FROM webhooks WHERE id = $1 AND org_id = $2"#,
-        id,
-        org_id,
-    )
+    let row = sqlx::query(&format!(
+        "SELECT {WEBHOOK_COLS} FROM webhooks WHERE id = $1 AND org_id = $2"
+    ))
+    .bind(id)
+    .bind(org_id)
     .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
-    Ok(row)
+    webhook_from(&row)
 }
 
 pub async fn list_webhooks<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<WebhookRow>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let rows = sqlx::query_as!(
-        WebhookRow,
-        r#"SELECT id, org_id, url, secret_encrypted, event_types, enabled,
-                  created_by, created_at
-           FROM webhooks WHERE org_id = $1 ORDER BY created_at DESC, id DESC"#,
-        org_id,
-    )
+    let rows = sqlx::query(&format!(
+        "SELECT {WEBHOOK_COLS} FROM webhooks WHERE org_id = $1 ORDER BY created_at DESC, id DESC"
+    ))
+    .bind(org_id)
     .fetch_all(executor)
     .await?;
-    Ok(rows)
+    rows.iter().map(webhook_from).collect()
 }
 
 /// Patches mutable fields; NULL leaves a field untouched.
@@ -109,26 +223,24 @@ pub async fn update_webhook<'e, E>(
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let row = sqlx::query_as!(
-        WebhookRow,
-        r#"UPDATE webhooks SET
-               url = COALESCE($3, url),
-               event_types = COALESCE($4, event_types),
-               enabled = COALESCE($5, enabled),
-               updated_at = now()
-           WHERE id = $1 AND org_id = $2
-           RETURNING id, org_id, url, secret_encrypted, event_types, enabled,
-                     created_by, created_at"#,
-        id,
-        org_id,
-        url,
-        event_types,
-        enabled,
-    )
+    let row = sqlx::query(&format!(
+        "UPDATE webhooks SET
+            url = COALESCE($3, url),
+            event_types = COALESCE($4, event_types),
+            enabled = COALESCE($5, enabled),
+            updated_at = now()
+          WHERE id = $1 AND org_id = $2
+          RETURNING {WEBHOOK_COLS}"
+    ))
+    .bind(id)
+    .bind(org_id)
+    .bind(url)
+    .bind(event_types)
+    .bind(enabled)
     .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
-    Ok(row)
+    webhook_from(&row)
 }
 
 pub async fn delete_webhook<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
@@ -151,6 +263,20 @@ where
 /// Enabled subscriptions of one org matching an event type. An empty
 /// `event_types` array is a wildcard. Called by the worker with the owner
 /// role (cross-org loop), so no RLS scope is set here by design.
+///
+/// Wave 43 lane 4 (A): an install-attributed row is live only while its
+/// install is ENABLED and not revoked. This is the gate that keeps a
+/// connector's outbound posture honest through the install lifecycle —
+/// a fresh install is created DISABLED (`webhooks.enabled` defaults true),
+/// so without it a seeded row would live-deliver before anyone enabled
+/// the connector. It is a `LEFT JOIN` precisely so a human-created row
+/// (`owner_install_id IS NULL`) passes through the `OR` untouched, exactly
+/// as before. Revocation gets this for free, which is defence in depth
+/// beside `revoke_catalog_entry` deleting the rows outright.
+///
+/// Safe with the cross-org caller: the owner role bypasses
+/// `plugin_installs_org`, so the join resolves across orgs rather than
+/// silently returning nothing for every other org.
 pub async fn find_enabled_for_event<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -159,20 +285,23 @@ pub async fn find_enabled_for_event<'e, E>(
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let rows = sqlx::query_as!(
-        WebhookRow,
-        r#"SELECT id, org_id, url, secret_encrypted, event_types, enabled,
-                  created_by, created_at
-           FROM webhooks
-           WHERE org_id = $1 AND enabled
-             AND (event_types = '{}' OR $2 = ANY(event_types))
-           ORDER BY created_at"#,
-        org_id,
-        event_type,
+    let rows = sqlx::query(
+        "SELECT w.id, w.org_id, w.url, w.secret_encrypted, w.event_types, w.enabled,
+                w.created_by, w.created_at, w.owner_install_id
+         FROM webhooks w
+         LEFT JOIN plugin_installs i
+                ON i.id = w.owner_install_id AND i.org_id = w.org_id
+         WHERE w.org_id = $1 AND w.enabled
+           AND (w.event_types = '{}' OR $2 = ANY(w.event_types))
+           AND (w.owner_install_id IS NULL
+                OR (i.status = 'enabled' AND i.revoked_at IS NULL))
+         ORDER BY w.created_at",
     )
+    .bind(org_id)
+    .bind(event_type)
     .fetch_all(executor)
     .await?;
-    Ok(rows)
+    rows.iter().map(webhook_from).collect()
 }
 
 // --- delivery ledger ----------------------------------------------------------

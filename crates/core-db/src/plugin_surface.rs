@@ -29,6 +29,8 @@ fn parse_surface(value: String) -> DbResult<&'static str> {
         "automation_action" => Ok("automation_action"),
         "report_render" => Ok("report_render"),
         "field_validator" => Ok("field_validator"),
+        "automation_trigger" => Ok("automation_trigger"),
+        "read" => Ok("read"),
         _ => Err(DbError::Conflict(format!(
             "unknown plugin surface kind {value:?}"
         ))),

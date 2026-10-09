@@ -301,6 +301,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
         SEALED_WEBHOOK_SECRET,
         &["ticket.created".to_string(), "ticket.closed".to_string()],
         base.user,
+        None,
     )
     .await
     .expect("webhook");
@@ -909,6 +910,7 @@ async fn partial_org_manifest_rounds_populated_sections() {
         b"partial-org-sealed-secret",
         &[],
         base.user,
+        None,
     )
     .await
     .expect("webhook");

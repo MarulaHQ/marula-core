@@ -240,6 +240,7 @@ async fn seed_full_org(db: &common::TestDb, n: u64) -> (Uuid, Uuid, Uuid, Vec<Uu
         SEALED_WEBHOOK_SECRET,
         &["ticket.created".to_string()],
         user,
+        None,
     )
     .await
     .expect("webhook");

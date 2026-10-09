@@ -72,6 +72,32 @@ fn row_to_install(row: &sqlx::postgres::PgRow) -> DbResult<PluginInstall> {
     })
 }
 
+/// Wave 43 lane 4 (E): the EMIT seam's validation half.
+///
+/// A plugin runtime authorized to emit (`events.emit`, the capability
+/// beside `automation.actions`) publishes an envelope of a type it
+/// DECLARED — and the declaration is checked here, against lane 2's
+/// event-type registry (`event_types`, migration 0124), never against a
+/// list this lane maintains. A type is admissible when it is a PLATFORM
+/// type (no grant needed) or the org holds an `event_type_grants` row;
+/// anything else is refused rather than published, which is what stops a
+/// plugin emitting `acme.crm.contact_created` that nobody admitted.
+///
+/// Returns the types that were NOT admitted. An empty list is the pass;
+/// a non-empty one is a typed refusal the caller turns into prose.
+///
+/// This is deliberately NOT the default path for a connector: inbound
+/// through lane 1's generic signed ingest needs no surface at all, and
+/// the authoring guide says so first. Emit is for a runtime that wants to
+/// publish without a round trip through the receiver.
+pub async fn validate_declared_event_types(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    event_types: &[String],
+) -> DbResult<Vec<String>> {
+    crate::event_types::check_event_types(pool, org_id, event_types).await
+}
+
 // --- catalog -----------------------------------------------------------------
 
 /// Publishes a catalog entry plus its first version snapshot.
@@ -207,6 +233,21 @@ pub async fn revoke_catalog_entry(
     )
     .fetch_all(&mut *tx)
     .await?;
+    // Wave 43 lane 4 (A): a revoked install's outbound subscriptions must
+    // not survive it. The FK's `ON DELETE CASCADE` covers UNINSTALL (the
+    // row goes away) but NOT revoke — revocation is a status flip, so the
+    // install row keeps existing and nothing cascades. Tear them down
+    // here, in the same transaction as the status flip, so the two cannot
+    // disagree.
+    //
+    // The org_id is bound explicitly from the RETURNING list rather than
+    // inferred from the transaction's RLS scope. RLS narrows the UPDATE
+    // above to the acting org in practice, but relying on that would make
+    // this delete silently correct only while the policy holds; binding
+    // the pair makes it exact either way.
+    for install in &installs {
+        crate::webhooks::remove_install_webhooks(&mut *tx, install.org_id, install.id).await?;
+    }
     Ok(installs.iter().map(|r| (r.id, r.org_id)).collect())
 }
 
@@ -335,6 +376,18 @@ pub async fn update_install(
             "a revoked install is terminal; re-install to adopt the entry again".into(),
         ));
     }
+    // Wave 43 lane 4 (A): this function is the GUARD, never the transition.
+    // `revoke_catalog_entry` is the only code in the repo that creates a
+    // `revoked` status — and it is also the only place that tears down the
+    // install's outbound webhooks beside the flip. Duplicating the teardown
+    // here would give two sites to audit and a guaranteed future
+    // divergence, so a caller passing `Revoked` fails loudly in dev
+    // instead of shipping a half-teardown.
+    debug_assert!(
+        !matches!(status, Some(PluginInstallStatus::Revoked)),
+        "a revoked status is created only by revoke_catalog_entry, which also tears down \
+         the install's outbound webhooks; passing Revoked here would skip that teardown"
+    );
     let granted = granted_capabilities
         .map(|caps| {
             serde_json::to_value(caps)

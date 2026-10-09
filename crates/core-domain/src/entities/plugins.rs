@@ -82,10 +82,32 @@ pub enum PluginCapability {
     /// every write of a field wired to the validator; the plugin never
     /// sees the value.
     FieldsValidate,
+    /// Wave 43 lane 4 (ADR 0017 §3): a plugin-contributed TRIGGER SOURCE —
+    /// the declared event type a rule can fire on. Registration only: the
+    /// trigger declares what it EMITS and the engine's matching decides
+    /// what fires, so the declaration touches no Marula entity of its own
+    /// and resolves onto the plugin-surface view gate rather than onto
+    /// the gate an effect would need.
+    AutomationTriggers,
+    /// Wave 43 lane 4 (ADR 0017 §3, §5): a plugin-contributed READ node —
+    /// the one kind that lets a workflow FETCH from an external system,
+    /// because `automation_action` is write-shaped. Stricter than a write
+    /// by construction: the declaration carries its own rate caps, output
+    /// ceiling, and the (always false) promise that it never returns a
+    /// vault secret. Reads traverse credentials the connector ALREADY
+    /// holds, so the grant confers nothing the connector did not have.
+    AutomationReads,
+    /// Wave 43 lane 4 (ADR 0017 §6): the plugin-facing EMIT seam. An
+    /// authorized plugin runtime publishes an envelope of a type it
+    /// DECLARED, validated against the event-type registry (migration
+    /// 0124). Deliberately NOT the cheap default: inbound through lane 1's
+    /// generic signed ingest needs no surface at all, and the authoring
+    /// guide says so first.
+    EventsEmit,
 }
 
 impl PluginCapability {
-    pub const ALL: [PluginCapability; 23] = [
+    pub const ALL: [PluginCapability; 26] = [
         PluginCapability::TicketsRead,
         PluginCapability::TicketsWrite,
         PluginCapability::ClientsRead,
@@ -109,6 +131,9 @@ impl PluginCapability {
         PluginCapability::AutomationActions,
         PluginCapability::ReportsRender,
         PluginCapability::FieldsValidate,
+        PluginCapability::AutomationTriggers,
+        PluginCapability::AutomationReads,
+        PluginCapability::EventsEmit,
     ];
 
     /// The capability key as declared in a manifest / grant list.
@@ -141,6 +166,9 @@ impl PluginCapability {
             PluginCapability::AutomationActions => "automation.actions",
             PluginCapability::ReportsRender => "reports.render",
             PluginCapability::FieldsValidate => "fields.validate",
+            PluginCapability::AutomationTriggers => "automation.triggers",
+            PluginCapability::AutomationReads => "automation.reads",
+            PluginCapability::EventsEmit => "events.emit",
         }
     }
 
@@ -250,6 +278,23 @@ impl PluginCapability {
                 module: Module::Tickets,
                 action: Action::View,
             },
+            // Wave 43 lane 4 (ADR 0017 §3): the three EXECUTOR kinds are
+            // registration-only declarations. Unlike an action, which
+            // executes a consented built-in effect and therefore resolves
+            // onto the gate that effect requires, a trigger contributes an
+            // event SOURCE, a read traverses credentials the connector
+            // ALREADY holds to fetch EXTERNAL data, and emit publishes an
+            // envelope of a type the registry already admitted. None of the
+            // three touches a Marula entity, so all three resolve onto the
+            // gate that governs viewing the plugin surface itself rather
+            // than inventing one — and the RULE that consumes the node
+            // carries its own permission checks at execution time.
+            PluginCapability::AutomationTriggers
+            | PluginCapability::AutomationReads
+            | PluginCapability::EventsEmit => Permission::Matrix {
+                module: Module::Plugins,
+                action: Action::View,
+            },
         }
     }
 }
@@ -304,12 +349,21 @@ pub struct PluginManifestV2 {
     pub connector_profile: Option<ConnectorProfile>,
     /// Wave 34 lane 4 (§4.6) — the declarative UI-surface profile:
     /// widgets, automation action kinds, report render kinds, custom-field
-    /// validators. Valid and OPTIONAL ONLY on `wasm` manifests (a
-    /// connector has no in-product UI surface); an EMPTY profile carries
-    /// no consent weight. Consent renders the declarations verbatim, and
-    /// each section only registers when its capability
-    /// (`ui.widgets` / `automation.actions` / `reports.render` /
-    /// `fields.validate`) is granted. Additive to the v2 shape.
+    /// validators, trigger sources, and read nodes.
+    ///
+    /// The rule is PER KIND (ADR 0017 §3, Wave 43 lane 4). On a `wasm`
+    /// manifest every section is available. On an `http_connector` the
+    /// three UI sections (`widget`, `report_render`, `field_validator`)
+    /// refuse — a connector has no in-product UI surface to govern — while
+    /// the three EXECUTOR sections (`automation_action`,
+    /// `automation_trigger`, `read`) are allowed, because a connector
+    /// already holds credentials and network egress and a sandbox does
+    /// not. Optional on both: an EMPTY profile carries no consent weight.
+    /// Consent renders the declarations verbatim, and each section only
+    /// registers when its capability (`ui.widgets` /
+    /// `automation.actions` / `reports.render` / `fields.validate` /
+    /// `automation.triggers` / `automation.reads`) is granted. Additive to
+    /// the v2 shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub surface_profile: Option<PluginSurfaceProfile>,
 }
@@ -597,6 +651,17 @@ pub struct PluginSurfaceProfile {
     /// JSON-Schema validators for board custom fields.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub field_validators: Vec<SurfaceFieldValidator>,
+    /// Wave 43 lane 4 (ADR 0017 §3): TRIGGER sources the plugin
+    /// contributes — the event type a rule can fire on. This is the half
+    /// of the `automation_action` symmetry that was missing: a plugin
+    /// could contribute an action but never a trigger.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triggers: Vec<SurfaceTrigger>,
+    /// Wave 43 lane 4 (ADR 0017 §3, §5): READ nodes, the only kind that
+    /// lets a workflow FETCH from an external system. Every entry carries
+    /// its own guardrails; there is no default that weakens them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reads: Vec<SurfaceRead>,
 }
 
 /// Where a declared widget may render. Closed vocabulary.
@@ -765,6 +830,100 @@ pub struct SurfaceFieldValidator {
     pub schema: serde_json::Value,
 }
 
+/// One declared TRIGGER source (Wave 43 lane 4, ADR 0017 §3): the event
+/// type a plugin emits, which a rule can then fire on.
+///
+/// The trigger is a DECLARATION, not a dispatcher. It names the type it
+/// emits and the schema the emitted payload satisfies; the engine's
+/// matching decides what fires. `emitted_event_type` is validated against
+/// the event-type registry (migration 0124) at grant time, so a plugin
+/// cannot declare a type the platform does not know and the org has not
+/// admitted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SurfaceTrigger {
+    /// Plugin-local id, `[a-z][a-z0-9_]{0,63}`. Registry key:
+    /// `plugin.<install-slug>.<id>`.
+    pub id: String,
+    /// Label shown in the automations editor's trigger picker.
+    pub label: String,
+    /// One-line description shown in the editor and on consent.
+    pub description: String,
+    /// The event type this source publishes (`segment.segment`, the same
+    /// grammar the platform's own types use, e.g. `rmm.device_offline`).
+    /// Checked against the event-type registry at grant time.
+    pub emitted_event_type: String,
+    /// Optional JSON-Schema subset the emitted envelope's payload
+    /// satisfies, so a rule author knows what they can read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_schema: Option<serde_json::Value>,
+}
+
+/// One declared READ node (Wave 43 lane 4, ADR 0017 §5).
+///
+/// `automation_action` is write-shaped, so before this kind a workflow
+/// could not FETCH from an external system at all — which is exactly the
+/// gap that stopped a workflow assembling Decision Engine context from an
+/// RMM. A read is therefore the one kind whose guardrails are STRICTER
+/// than a write's, and they are declared per entry rather than defaulted:
+/// a loop over devices is a denial of service aimed at the customer's own
+/// external system, and a device list of ten thousand must not grow the
+/// run ledger by megabytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SurfaceRead {
+    /// Plugin-local id, `[a-z][a-z0-9_]{0,63}`. Registry key:
+    /// `plugin.<install-slug>.<id>`.
+    pub id: String,
+    /// Label shown in the automations editor's read picker.
+    pub label: String,
+    /// One-line description shown in the editor and on consent.
+    pub description: String,
+    /// Optional JSON-Schema subset for the read's parameters (what the
+    /// caller supplies — never credentials, which the host resolves).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params_schema: Option<serde_json::Value>,
+    /// Optional JSON-Schema subset describing what comes back, so a
+    /// downstream node can use it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<serde_json::Value>,
+    /// The caps this read runs under. Required — a read without declared
+    /// guardrails refuses, so there is no silent unbounded default.
+    pub guardrails: ReadGuardrails,
+}
+
+/// The guardrails a declared read runs under (ADR 0017 §5).
+///
+/// Three of the four are ceilings a declaration may not exceed; the fourth
+/// is a promise that may only be declared one way. Validation applies the
+/// platform floors here so a manifest cannot write itself a weaker cap.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ReadGuardrails {
+    /// Calls this node may make in ONE workflow run. The per-run cap is
+    /// what stops a loop over a device list becoming a hammer.
+    pub max_calls_per_run: u32,
+    /// Minimum seconds between this ORG's read-node invocations. The
+    /// per-org cap is what stops a schedule becoming a stream.
+    pub min_interval_secs: u32,
+    /// Hard ceiling on the returned payload's size.
+    pub max_output_bytes: u32,
+    /// Must be `false`, and validation refuses anything else. A read node
+    /// may never return a vault secret, because the run ledger is a place
+    /// operators read.
+    pub may_return_secrets: bool,
+}
+
+/// Calls one read node may make per workflow run.
+pub const MAX_READ_CALLS_PER_RUN: u32 = 50;
+/// The tightest per-org cadence a read may declare (seconds).
+pub const MIN_READ_INTERVAL_SECS: u32 = 5;
+/// The largest payload a read may return (bytes).
+pub const MAX_READ_OUTPUT_BYTES: u32 = 262_144;
+/// What a read's output may never contain.
+pub const READ_SECRETS_REFUSAL: &str =
+    "a read node may never return a vault secret: the run ledger is a place operators read";
+
 const MAX_SURFACE_ENTRIES_PER_SECTION: usize = 8;
 const MAX_SURFACE_LABEL_BYTES: usize = 120;
 const MAX_SURFACE_DESCRIPTION_BYTES: usize = 400;
@@ -777,6 +936,31 @@ impl PluginSurfaceProfile {
             && self.actions.is_empty()
             && self.render_kinds.is_empty()
             && self.field_validators.is_empty()
+            && self.triggers.is_empty()
+            && self.reads.is_empty()
+    }
+
+    /// The EXECUTOR sections a connector may contribute (ADR 0017 §3):
+    /// actions, triggers and reads. The UI sections are excluded — see
+    /// [`PluginManifestV2::validate`], which refuses them on a connector.
+    pub fn declares_ui_sections(&self) -> bool {
+        !self.widgets.is_empty()
+            || !self.render_kinds.is_empty()
+            || !self.field_validators.is_empty()
+    }
+
+    /// The event types this profile's trigger sources emit, deduplicated
+    /// and in declaration order — the DECLARATION half of the emit seam
+    /// (Wave 43 lane 4 E). The `events.emit` capability lets a runtime
+    /// publish one of these; the gate that says whether the org has
+    /// admitted the type is the lane-2 registry, not this list.
+    pub fn declared_event_types(&self) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        self.triggers
+            .iter()
+            .map(|t| t.emitted_event_type.clone())
+            .filter(|t| seen.insert(t.clone()))
+            .collect()
     }
 
     /// The registry key prefix for this profile's install (slug is the
@@ -838,6 +1022,18 @@ impl PluginSurfaceProfile {
             return err(format!(
                 "surface profile declares {} field validators (max {MAX_SURFACE_ENTRIES_PER_SECTION})",
                 self.field_validators.len()
+            ));
+        }
+        if self.triggers.len() > MAX_SURFACE_ENTRIES_PER_SECTION {
+            return err(format!(
+                "surface profile declares {} triggers (max {MAX_SURFACE_ENTRIES_PER_SECTION})",
+                self.triggers.len()
+            ));
+        }
+        if self.reads.len() > MAX_SURFACE_ENTRIES_PER_SECTION {
+            return err(format!(
+                "surface profile declares {} reads (max {MAX_SURFACE_ENTRIES_PER_SECTION})",
+                self.reads.len()
             ));
         }
         let mut seen_widgets = std::collections::HashSet::new();
@@ -906,6 +1102,105 @@ impl PluginSurfaceProfile {
             }
             SettingsSchema::new(v.schema.clone())?;
         }
+        let mut seen_triggers = std::collections::HashSet::new();
+        for t in &self.triggers {
+            Self::validate_id(&t.id, "trigger")?;
+            Self::validate_label(&t.label, "trigger")?;
+            if t.description.trim().is_empty()
+                || t.description.len() > MAX_SURFACE_DESCRIPTION_BYTES
+            {
+                return err(format!(
+                    "trigger {:?} description must be 1..={MAX_SURFACE_DESCRIPTION_BYTES} bytes",
+                    t.id
+                ));
+            }
+            Self::validate_event_type(&t.emitted_event_type, "trigger")?;
+            if !seen_triggers.insert(&t.id) {
+                return err(format!("trigger id {:?} is declared twice", t.id));
+            }
+            if let Some(schema) = &t.payload_schema {
+                SettingsSchema::new(schema.clone())?;
+            }
+        }
+        let mut seen_reads = std::collections::HashSet::new();
+        for r in &self.reads {
+            Self::validate_id(&r.id, "read")?;
+            Self::validate_label(&r.label, "read")?;
+            if r.description.trim().is_empty()
+                || r.description.len() > MAX_SURFACE_DESCRIPTION_BYTES
+            {
+                return err(format!(
+                    "read {:?} description must be 1..={MAX_SURFACE_DESCRIPTION_BYTES} bytes",
+                    r.id
+                ));
+            }
+            if !seen_reads.insert(&r.id) {
+                return err(format!("read id {:?} is declared twice", r.id));
+            }
+            Self::validate_read_guardrails(r)?;
+            if let Some(schema) = &r.params_schema {
+                SettingsSchema::new(schema.clone())?;
+            }
+            if let Some(schema) = &r.output_schema {
+                SettingsSchema::new(schema.clone())?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The event-type grammar the platform's own emitted types use:
+    /// lowercase `segment.segment`, so `rmm.device_offline` parses and
+    /// `RMM.Device Offline` does not. Reused for a trigger's declared
+    /// emission, which the event-type registry validates at grant time.
+    fn validate_event_type(value: &str, what: &str) -> Result<(), crate::error::DomainError> {
+        let segments: Vec<&str> = value.split('.').collect();
+        let ok = value.len() <= 120
+            && segments.len() == 2
+            && segments.iter().all(|s| {
+                !s.is_empty()
+                    && s.len() <= 48
+                    && s.starts_with(|c: char| c.is_ascii_lowercase())
+                    && s.chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            });
+        if ok {
+            Ok(())
+        } else {
+            Err(crate::error::DomainError::Validation(format!(
+                "{what} event type {value:?} must be lowercase segment.segment \
+                 (e.g. rmm.device_offline)"
+            )))
+        }
+    }
+
+    /// Applies the platform floors to a declared read (ADR 0017 §5). A
+    /// declaration cannot write itself a weaker cap than the platform
+    /// allows, and the one boolean that may only be declared one way is
+    /// checked here rather than trusted.
+    fn validate_read_guardrails(read: &SurfaceRead) -> Result<(), crate::error::DomainError> {
+        let err = |m: String| Err(crate::error::DomainError::Validation(m));
+        let g = &read.guardrails;
+        if g.max_calls_per_run == 0 || g.max_calls_per_run > MAX_READ_CALLS_PER_RUN {
+            return err(format!(
+                "read {:?} declares max_calls_per_run {} (allowed 1..={MAX_READ_CALLS_PER_RUN})",
+                read.id, g.max_calls_per_run
+            ));
+        }
+        if g.min_interval_secs < MIN_READ_INTERVAL_SECS {
+            return err(format!(
+                "read {:?} declares min_interval_secs {} (floored at {MIN_READ_INTERVAL_SECS})",
+                read.id, g.min_interval_secs
+            ));
+        }
+        if g.max_output_bytes == 0 || g.max_output_bytes > MAX_READ_OUTPUT_BYTES {
+            return err(format!(
+                "read {:?} declares max_output_bytes {} (allowed 1..={MAX_READ_OUTPUT_BYTES})",
+                read.id, g.max_output_bytes
+            ));
+        }
+        if g.may_return_secrets {
+            return err(format!("read {:?}: {READ_SECRETS_REFUSAL}", read.id));
+        }
         Ok(())
     }
 }
@@ -961,11 +1256,29 @@ impl PluginManifestV2 {
                 }
             }
         }
-        // §4.6 kind-coherence: the surface profile is a WASM-manifest
-        // declaration — a connector has no in-product UI surface to
-        // govern, so declaring the field refuses rather than being
-        // ignored (the same deny-by-default posture connector_profile
-        // holds on wasm manifests).
+        // §4.6 kind-coherence, AMENDED PER KIND by ADR 0017 §3 (accepted
+        // 2026-10-01, Wave 43 lane 4). The original rule refused the field
+        // on EVERY connector, and its stated reason was UI coherence: a
+        // connector has no in-product UI surface to govern. That reason
+        // covers the UI kinds only — `widget` and `report_render` render in
+        // the product, and `field_validator` governs the board field
+        // editor, which is in-product UI too. It does NOT cover the
+        // executor kinds, so those three are now available to connectors:
+        //
+        //   UI      (wasm-only): widget, report_render, field_validator
+        //   Executor (either):  automation_action, automation_trigger, read
+        //
+        // The argument that carries it: an `http_connector` already holds
+        // credentials and network egress as its reason for existing, so an
+        // action grants it nothing new — and a read traverses the same
+        // credentials. The wasm case is the reverse, because a sandbox is
+        // capability-restricted and granting it a network action IS an
+        // escalation, which is presumably why the rule started there.
+        //
+        // Trust does not come from authorship: first-party and marketplace
+        // connectors hold the SAME capability, gated by consent + digest
+        // pinning + the per-install grant (`plugin_installs.
+        // granted_capabilities`), none of which depend on who wrote it.
         match self.runtime_kind() {
             PluginRuntimeKind::Wasm => {
                 if let Some(profile) = &self.surface_profile {
@@ -973,10 +1286,17 @@ impl PluginManifestV2 {
                 }
             }
             PluginRuntimeKind::HttpConnector => {
-                if self.surface_profile.is_some() {
-                    return Err(crate::error::DomainError::Validation(
-                        "http_connector manifests must not declare a surface_profile".into(),
-                    ));
+                if let Some(profile) = &self.surface_profile {
+                    if profile.declares_ui_sections() {
+                        return Err(crate::error::DomainError::Validation(
+                            "http_connector manifests may not declare a UI surface \
+                             (widget, report_render, field_validator): a connector has no \
+                             in-product UI surface to govern. The executor kinds \
+                             (automation_action, automation_trigger, read) are allowed."
+                                .into(),
+                        ));
+                    }
+                    profile.validate()?;
                 }
             }
         }
@@ -1943,6 +2263,8 @@ mod tests {
                     "properties": {"value": {"type": "string", "maxLength": 32}}
                 }),
             }],
+            triggers: vec![trigger("offline", "rmm.device_offline")],
+            reads: vec![read("devices")],
         };
         assert!(good.validate().is_ok());
 
@@ -2035,7 +2357,7 @@ mod tests {
     }
 
     #[test]
-    fn surface_profile_should_be_wasm_only_and_consent_visible() {
+    fn surface_profile_should_be_wasm_only_for_ui_kinds() {
         let mut m = manifest(&["ui.widgets", "automation.actions"]);
         m.surface_profile = Some(PluginSurfaceProfile {
             widgets: vec![SurfaceWidget {
@@ -2050,9 +2372,245 @@ mod tests {
         });
         // WASM baseline (absent kind) accepts the profile.
         assert!(m.validate().is_ok());
-        // A connector declaring a surface profile refuses.
+        // ADR 0017 §3: a UI kind still refuses on a connector.
         m.artifact_kind = Some(PluginRuntimeKind::HttpConnector);
         assert!(m.validate().is_err());
+    }
+
+    fn trigger(id: &str, emitted: &str) -> SurfaceTrigger {
+        SurfaceTrigger {
+            id: id.into(),
+            label: "T".into(),
+            description: "A trigger.".into(),
+            emitted_event_type: emitted.into(),
+            payload_schema: None,
+        }
+    }
+
+    fn read(id: &str) -> SurfaceRead {
+        SurfaceRead {
+            id: id.into(),
+            label: "R".into(),
+            description: "A read.".into(),
+            params_schema: None,
+            output_schema: None,
+            guardrails: ReadGuardrails {
+                max_calls_per_run: 5,
+                min_interval_secs: MIN_READ_INTERVAL_SECS,
+                max_output_bytes: 4096,
+                may_return_secrets: false,
+            },
+        }
+    }
+
+    #[test]
+    fn connector_should_contribute_executor_kinds_and_refuse_ui_kinds() {
+        let mut m = manifest(&[
+            "automation.actions",
+            "automation.triggers",
+            "automation.reads",
+        ]);
+        m.artifact_kind = Some(PluginRuntimeKind::HttpConnector);
+        m.surface_profile = Some(PluginSurfaceProfile {
+            actions: vec![SurfaceAction {
+                id: "note".into(),
+                label: "Note".into(),
+                description: "Adds a note.".into(),
+                effect: SurfaceActionEffect::AddInternalComment,
+                params_schema: None,
+            }],
+            triggers: vec![trigger("offline", "rmm.device_offline")],
+            reads: vec![read("devices")],
+            ..PluginSurfaceProfile::default()
+        });
+        assert!(m.validate().is_ok());
+
+        // The same manifest naming a read node that leaks secrets refuses.
+        let mut m = manifest(&["automation.reads"]);
+        m.artifact_kind = Some(PluginRuntimeKind::HttpConnector);
+        m.surface_profile = Some(PluginSurfaceProfile {
+            triggers: vec![trigger("t", "rmm.device_offline")],
+            reads: vec![SurfaceRead {
+                guardrails: ReadGuardrails {
+                    may_return_secrets: true,
+                    ..read("devices").guardrails
+                },
+                ..read("devices")
+            }],
+            ..PluginSurfaceProfile::default()
+        });
+        let err = m.validate().expect_err("secret refusal").to_string();
+        assert!(err.contains("vault secret"), "{err}");
+
+        // A read declaring no guardrails at all refuses.
+        let mut m = manifest(&["automation.reads"]);
+        m.artifact_kind = Some(PluginRuntimeKind::HttpConnector);
+        m.surface_profile = Some(PluginSurfaceProfile {
+            reads: vec![read("devices")],
+            ..PluginSurfaceProfile::default()
+        });
+        assert!(m.validate().is_ok());
+
+        // Each UI section refuses on a connector on its own.
+        for (name, profile) in [
+            (
+                "widget",
+                PluginSurfaceProfile {
+                    widgets: vec![SurfaceWidget {
+                        id: "w".into(),
+                        title: "W".into(),
+                        slot: SurfaceSlot::Dashboard,
+                        kind: SurfaceWidgetKind::Stat,
+                        props_schema: None,
+                        default_props: None,
+                    }],
+                    ..PluginSurfaceProfile::default()
+                },
+            ),
+            (
+                "report_render",
+                PluginSurfaceProfile {
+                    render_kinds: vec![SurfaceRenderKind {
+                        id: "r".into(),
+                        label: "R".into(),
+                        description: "Renders.".into(),
+                    }],
+                    ..PluginSurfaceProfile::default()
+                },
+            ),
+            (
+                "field_validator",
+                PluginSurfaceProfile {
+                    field_validators: vec![SurfaceFieldValidator {
+                        id: "f".into(),
+                        label: "F".into(),
+                        schema: json!({"type": "object", "properties": {}}),
+                    }],
+                    ..PluginSurfaceProfile::default()
+                },
+            ),
+        ] {
+            let mut m = manifest(&["ui.widgets"]);
+            m.artifact_kind = Some(PluginRuntimeKind::HttpConnector);
+            m.surface_profile = Some(profile);
+            let err = m.validate().expect_err(name).to_string();
+            assert!(err.contains("in-product UI"), "{name}: {err}");
+        }
+    }
+
+    #[test]
+    fn read_guardrails_should_refuse_weaker_than_the_platform_floor() {
+        let weak = |g: ReadGuardrails| {
+            let mut m = manifest(&["automation.reads"]);
+            m.surface_profile = Some(PluginSurfaceProfile {
+                reads: vec![SurfaceRead {
+                    guardrails: g,
+                    ..read("r")
+                }],
+                ..PluginSurfaceProfile::default()
+            });
+            m.validate().is_err()
+        };
+        assert!(weak(ReadGuardrails {
+            max_calls_per_run: 0,
+            min_interval_secs: MIN_READ_INTERVAL_SECS,
+            max_output_bytes: 4096,
+            may_return_secrets: false,
+        }));
+        assert!(weak(ReadGuardrails {
+            max_calls_per_run: MAX_READ_CALLS_PER_RUN + 1,
+            min_interval_secs: MIN_READ_INTERVAL_SECS,
+            max_output_bytes: 4096,
+            may_return_secrets: false,
+        }));
+        assert!(weak(ReadGuardrails {
+            max_calls_per_run: 5,
+            min_interval_secs: 0,
+            max_output_bytes: 4096,
+            may_return_secrets: false,
+        }));
+        assert!(weak(ReadGuardrails {
+            max_calls_per_run: 5,
+            min_interval_secs: MIN_READ_INTERVAL_SECS,
+            max_output_bytes: 0,
+            may_return_secrets: false,
+        }));
+        assert!(weak(ReadGuardrails {
+            max_calls_per_run: 5,
+            min_interval_secs: MIN_READ_INTERVAL_SECS,
+            max_output_bytes: MAX_READ_OUTPUT_BYTES + 1,
+            may_return_secrets: false,
+        }));
+    }
+
+    #[test]
+    fn trigger_event_types_should_use_the_platform_grammar() {
+        let ok = |emitted: &str| {
+            let mut m = manifest(&["automation.triggers"]);
+            m.surface_profile = Some(PluginSurfaceProfile {
+                triggers: vec![trigger("t", emitted)],
+                ..PluginSurfaceProfile::default()
+            });
+            m.validate().is_ok()
+        };
+        assert!(ok("rmm.device_offline"));
+        assert!(ok("alert.ingested"));
+        assert!(!ok("RMM.DeviceOffline"));
+        assert!(!ok("rmm"));
+        assert!(!ok("rmm..offline"));
+    }
+
+    #[test]
+    fn declared_event_types_should_dedupe_in_declaration_order() {
+        let profile = PluginSurfaceProfile {
+            triggers: vec![
+                trigger("a", "rmm.device_offline"),
+                trigger("b", "rmm.device_online"),
+                trigger("c", "rmm.device_offline"),
+            ],
+            ..PluginSurfaceProfile::default()
+        };
+        assert_eq!(
+            profile.declared_event_types(),
+            vec![
+                "rmm.device_offline".to_string(),
+                "rmm.device_online".to_string()
+            ]
+        );
+        assert!(PluginSurfaceProfile::default()
+            .declared_event_types()
+            .is_empty());
+    }
+
+    #[test]
+    fn the_three_new_capabilities_should_map_onto_plugins_view() {
+        let expected = Permission::Matrix {
+            module: Module::Plugins,
+            action: Action::View,
+        };
+        for cap in [
+            PluginCapability::AutomationTriggers,
+            PluginCapability::AutomationReads,
+            PluginCapability::EventsEmit,
+        ] {
+            assert_eq!(cap.permission(), expected);
+        }
+    }
+
+    #[test]
+    fn the_new_capability_keys_round_trip() {
+        assert_eq!(
+            PluginCapability::AutomationTriggers.as_str(),
+            "automation.triggers"
+        );
+        assert_eq!(
+            PluginCapability::AutomationReads.as_str(),
+            "automation.reads"
+        );
+        assert_eq!(PluginCapability::EventsEmit.as_str(), "events.emit");
+        for key in ["automation.triggers", "automation.reads", "events.emit"] {
+            assert!(PluginCapability::parse(key).is_some(), "{key}");
+        }
     }
 
     #[test]

@@ -6,12 +6,20 @@
 //! Posture:
 //!   * deny-by-default — a section registers ONLY when its capability
 //!     (`ui.widgets` / `automation.actions` / `reports.render` /
-//!     `fields.validate`) is in the install's granted set; ungranted
-//!     declarations stay visible on consent but register nothing.
+//!     `fields.validate` / `automation.triggers` / `automation.reads`) is
+//!     in the install's granted set; ungranted declarations stay visible
+//!     on consent but register nothing.
 //!   * entries are DATA. Widgets are closed render kinds; automation
-//!     actions map onto consented built-in effects; validators are
-//!     JSON-Schema subsets the core executes. Nothing here is or becomes
-//!     executable content (agent-safety §4.8).
+//!     actions map onto consented built-in effects; triggers declare the
+//!     event type a rule may fire on and reads carry their own guardrails;
+//!     validators are JSON-Schema subsets the core executes. Nothing here
+//!     is or becomes executable content (agent-safety §4.8).
+//!
+//! Wave 43 lane 4 (ADR 0017 §3): the executor kinds are available to
+//! `http_connector` manifests too, on the same grant mechanism — an
+//! http_connector already holds credentials and network egress, so an
+//! action grants it nothing new. The UI kinds stay wasm-only, and that
+//! split is enforced in `PluginManifestV2::validate`.
 
 use core_db::plugin_surface;
 use core_domain::entities::plugins::{
@@ -31,6 +39,13 @@ pub struct DerivedSurface {
     pub actions: Vec<DerivedEntry>,
     pub render_kinds: Vec<DerivedEntry>,
     pub field_validators: Vec<DerivedEntry>,
+    /// Wave 43 lane 4 (B): trigger sources. A plugin could contribute an
+    /// action but never a trigger, so the symmetry with
+    /// `automation_action` was open — this closes it.
+    pub triggers: Vec<DerivedEntry>,
+    /// Wave 43 lane 4 (D): read nodes, the only kind that lets a workflow
+    /// FETCH from an external system.
+    pub reads: Vec<DerivedEntry>,
 }
 
 impl DerivedSurface {
@@ -39,6 +54,8 @@ impl DerivedSurface {
             && self.actions.is_empty()
             && self.render_kinds.is_empty()
             && self.field_validators.is_empty()
+            && self.triggers.is_empty()
+            && self.reads.is_empty()
     }
 }
 
@@ -118,6 +135,41 @@ pub fn derive_profile(
             ));
         }
     }
+    if granted_of(PluginCapability::AutomationTriggers) {
+        for t in &profile.triggers {
+            out.triggers.push((
+                PluginSurfaceProfile::entry_key(slug, &t.id),
+                t.label.clone(),
+                json!({
+                    "description": t.description,
+                    "emitted_event_type": t.emitted_event_type,
+                    "payload_schema": t.payload_schema.clone(),
+                }),
+            ));
+        }
+    }
+    if granted_of(PluginCapability::AutomationReads) {
+        for r in &profile.reads {
+            out.reads.push((
+                PluginSurfaceProfile::entry_key(slug, &r.id),
+                r.label.clone(),
+                json!({
+                    "description": r.description,
+                    "params_schema": r.params_schema.clone(),
+                    "output_schema": r.output_schema.clone(),
+                    // The declared guardrails ride along so the consuming
+                    // surface and the run ledger can enforce and report the
+                    // SAME caps the manifest declared (ADR 0017 §5).
+                    "guardrails": {
+                        "max_calls_per_run": r.guardrails.max_calls_per_run,
+                        "min_interval_secs": r.guardrails.min_interval_secs,
+                        "max_output_bytes": r.guardrails.max_output_bytes,
+                        "may_return_secrets": r.guardrails.may_return_secrets,
+                    },
+                }),
+            ));
+        }
+    }
     out
 }
 
@@ -168,6 +220,18 @@ pub async fn sync_derived(
         &derived.field_validators,
     )
     .await?;
+    // Wave 43 lane 4 (B)/(D): the two new EXECUTOR kinds sync through the
+    // same per-section wholesale replace, so an ungranted section's
+    // deny-by-default residue is deletion, exactly like the other four.
+    plugin_surface::sync_surface_section(
+        tx,
+        org_id,
+        install_id,
+        "automation_trigger",
+        &derived.triggers,
+    )
+    .await?;
+    plugin_surface::sync_surface_section(tx, org_id, install_id, "read", &derived.reads).await?;
     Ok(())
 }
 
@@ -175,8 +239,8 @@ pub async fn sync_derived(
 mod tests {
     use super::*;
     use core_domain::entities::plugins::{
-        SurfaceAction, SurfaceActionEffect, SurfaceFieldValidator, SurfaceRenderKind, SurfaceSlot,
-        SurfaceWidget, SurfaceWidgetKind,
+        ReadGuardrails, SurfaceAction, SurfaceActionEffect, SurfaceFieldValidator, SurfaceRead,
+        SurfaceRenderKind, SurfaceSlot, SurfaceTrigger, SurfaceWidget, SurfaceWidgetKind,
     };
 
     fn install(slug: &str, grants: &[&str]) -> PluginInstall {
@@ -223,6 +287,26 @@ mod tests {
                 label: "Asset tag".into(),
                 schema: json!({"type": "object", "properties": {}}),
             }],
+            triggers: vec![SurfaceTrigger {
+                id: "device_offline".into(),
+                label: "Device offline".into(),
+                description: "An RMM device stops reporting.".into(),
+                emitted_event_type: "rmm.device_offline".into(),
+                payload_schema: None,
+            }],
+            reads: vec![SurfaceRead {
+                id: "site_devices".into(),
+                label: "Site devices".into(),
+                description: "Fetches a site's device list.".into(),
+                params_schema: None,
+                output_schema: None,
+                guardrails: ReadGuardrails {
+                    max_calls_per_run: 5,
+                    min_interval_secs: core_domain::entities::plugins::MIN_READ_INTERVAL_SECS,
+                    max_output_bytes: 8192,
+                    may_return_secrets: false,
+                },
+            }],
         }
     }
 
@@ -233,6 +317,8 @@ mod tests {
                 | PluginCapability::AutomationActions
                 | PluginCapability::ReportsRender
                 | PluginCapability::FieldsValidate
+                | PluginCapability::AutomationTriggers
+                | PluginCapability::AutomationReads
         )
     }
 
@@ -249,6 +335,13 @@ mod tests {
             derived.field_validators[0].0,
             "plugin.csat-widget.asset_tag"
         );
+        assert_eq!(derived.triggers[0].0, "plugin.csat-widget.device_offline");
+        assert_eq!(
+            derived.triggers[0].2["emitted_event_type"],
+            "rmm.device_offline"
+        );
+        assert_eq!(derived.reads[0].0, "plugin.csat-widget.site_devices");
+        assert_eq!(derived.reads[0].2["guardrails"]["max_calls_per_run"], 5);
     }
 
     #[test]
@@ -259,11 +352,61 @@ mod tests {
         assert!(derived.actions.is_empty());
         assert!(derived.render_kinds.is_empty());
         assert!(derived.field_validators.is_empty());
+        assert!(derived.triggers.is_empty());
+        assert!(derived.reads.is_empty());
         assert!(!derived.is_empty());
 
         let none = |_cap: PluginCapability| false;
         let empty = derive_profile("p", &profile(), none);
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn a_connector_contributes_executor_kinds_under_grants() {
+        let m = PluginManifestV2 {
+            name: "RMM Connector".into(),
+            version: "1.0.0".into(),
+            interface_version: core_domain::entities::plugins::PLUGIN_RUNTIME_INTERFACE_VERSION,
+            description: "Reads an RMM.".into(),
+            capabilities: vec![
+                "automation.actions".into(),
+                "automation.triggers".into(),
+                "automation.reads".into(),
+            ],
+            settings_schema: None,
+            artifact_kind: Some(core_domain::entities::plugins::PluginRuntimeKind::HttpConnector),
+            connector_profile: None,
+            surface_profile: Some(PluginSurfaceProfile {
+                actions: vec![SurfaceAction {
+                    id: "triage_note".into(),
+                    label: "Triage note".into(),
+                    description: "Adds the triage note.".into(),
+                    effect: SurfaceActionEffect::AddInternalComment,
+                    params_schema: None,
+                }],
+                triggers: profile().triggers,
+                reads: profile().reads,
+                ..PluginSurfaceProfile::default()
+            }),
+        };
+        m.validate().expect("connector manifest validates");
+
+        // WithOUT the grants: nothing registers, exactly like the UI kinds.
+        let none = derive_surface(&install("rmm", &[]), &m);
+        assert!(none.is_empty());
+
+        // With the grants: the executor sections register.
+        let granted = derive_surface(
+            &install("rmm", &["automation.triggers", "automation.reads"]),
+            &m,
+        );
+        assert_eq!(granted.triggers.len(), 1);
+        assert_eq!(granted.reads.len(), 1);
+        assert!(granted.actions.is_empty(), "actions stay ungranted");
+        assert!(
+            granted.widgets.is_empty(),
+            "a connector declares no widgets"
+        );
     }
 
     #[test]

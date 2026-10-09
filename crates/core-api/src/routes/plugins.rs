@@ -88,11 +88,23 @@ pub struct PluginManifestBody {
     /// Valid only on http_connector manifests; wasm manifests refuse it.
     #[serde(default)]
     pub connector_profile: Option<core_domain::entities::ConnectorProfile>,
-    /// §4.6 (Wave 34 lane 4) — the declarative UI-surface profile
-    /// (widgets / automation actions / report render kinds / field
-    /// validators). Valid only on wasm manifests.
+    /// §4.6 (Wave 34 lane 4, amended per kind by ADR 0017 §3 in Wave 43
+    /// lane 4) — the declarative surface profile. On a wasm manifest every
+    /// section is available; on an http_connector the three UI sections
+    /// refuse and the three executor sections
+    /// (automation_action / automation_trigger / read) are allowed.
     #[serde(default)]
     pub surface_profile: Option<core_domain::entities::PluginSurfaceProfile>,
+    /// ADR 0009 §6 — which runtime the published artifact speaks. Absent
+    /// ⇒ `wasm`, byte-identical to every request body published before
+    /// Wave 43 lane 4. Without this field the route FORCED wasm: a
+    /// connector's `connector_profile` is refused on a wasm manifest, so
+    /// `POST /api/plugins/catalog` could never publish the artifact kind
+    /// Wave 43 lane 4's outbound seeding actually needs. `validate()` is
+    /// called on the built manifest, so an incoherent combination is
+    /// still rejected here rather than at install time.
+    #[serde(default)]
+    pub artifact_kind: Option<core_domain::entities::PluginRuntimeKind>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -248,7 +260,7 @@ fn build_manifest(
         description: body.description.clone(),
         capabilities: body.capabilities.clone(),
         settings_schema: body.settings_schema.clone(),
-        artifact_kind: None,
+        artifact_kind: body.artifact_kind,
         connector_profile: body.connector_profile.clone(),
         surface_profile: body.surface_profile.clone(),
     };
@@ -582,6 +594,11 @@ pub async fn create_install(
     let org_id = authed.principal.user.org_id;
     let requested = parse_capability_keys(&req.granted_capabilities)?;
     let now = chrono::Utc::now();
+    // The at-rest key is Copy, so it is bound out here rather than reached
+    // through `&state` inside the closure below (which `with_org_tx` has
+    // already borrowed). Wave 43 lane 4 (A) needs it to seal a seeded
+    // connector's signing secret.
+    let at_rest_key = state.config.secret_key;
     let view = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
         let entry = core_db::plugins::get_catalog_entry(&mut tx.tx, req.slug.trim()).await?;
         if entry.revoked_at.is_some() {
@@ -623,6 +640,41 @@ pub async fn create_install(
         plugin_host::surface::sync_install_surface(&mut tx.tx, &install, &pinned.manifest)
             .await
             .map_err(|e| ApiError::Internal(anyhow::anyhow!(e.to_string())))?;
+        // Wave 43 lane 4 (A): make `connector_profile.webhook_endpoints`
+        // real. The consent screen has always promised that "declared
+        // webhook endpoints seed the connector's outbound posture"; this is
+        // where that becomes true. Seeding needs a SEALED signing secret,
+        // which only core-api can produce (the at-rest key lives in
+        // AppState.config) — that is why the seed lives here and not in
+        // core-db or plugin-host.
+        //
+        // The fresh install is created DISABLED, and `WebhookRow.enabled`
+        // defaults to true, so the rows are inert through the install
+        // lifecycle until an admin enables the connector: the delivery
+        // match (`webhooks::find_enabled_for_event`) requires
+        // `i.status = 'enabled' AND i.revoked_at IS NULL` for an
+        // install-attributed row. Human-created subscriptions are
+        // unaffected — they carry no owner.
+        let seeded = pinned
+            .manifest
+            .connector_profile
+            .as_ref()
+            .map(|p| p.webhook_endpoints.clone())
+            .unwrap_or_default();
+        if !seeded.is_empty() {
+            let raw_secret = format!("whsec_{}", uuid::Uuid::now_v7().simple());
+            let sealed = crate::crypto::seal(&at_rest_key, raw_secret.as_bytes())
+                .map_err(|e| ApiError::Internal(anyhow::anyhow!(e.to_string())))?;
+            core_db::webhooks::seed_install_webhooks(
+                &mut *tx.tx,
+                org_id,
+                install.id,
+                &seeded,
+                &sealed,
+                actor,
+            )
+            .await?;
+        }
         core_db::audit::insert(
             &mut *tx.tx,
             &core_domain::entities::AuditEvent {
