@@ -18,10 +18,15 @@ import { PACK_ICONS, PrimaryButton, SecondaryButton } from "@/ui/pack";
 import { type, useTheme } from "@/ui/tokens";
 import { requestMagicLink } from "@/auth/magic-link";
 
-// The canonical marula fruit, cut from the shipped app icon (native/assets/
-// icon.png) — never re-drawn. The wordmark beside it is Fraunces, which is
-// the brand's serif face.
-const FRUIT = require("../assets/marula-fruit.png") as number;
+// The canonical brand lockup — the brand's real identity, gold fruit with
+// the lowercase ink wordmark (design/marula/logo + apps/web/public, byte
+// copies of the kit's lockups; web's BrandLockup defaults to the same
+// colour variant). Colour on light surfaces, the on-dark lockup on dark.
+// Rasterized from the SVG for native (no SVG runtime here) via
+// e2e/rasterize-brand.mjs. The kit's minimum lockup width is 96px; 40px of
+// height on the 589×200 raster is ~118px wide, so the entry row clears it.
+const LOCKUP_COLOR = require("../assets/lockup-color.png") as number;
+const LOCKUP_COLOR_DARK = require("../assets/lockup-color-on-dark.png") as number;
 
 export default function LoginScreen() {
   const { status, signIn, error, biometricEnabled, biometricAvailable, unlock } = useAuth();
@@ -52,8 +57,12 @@ export default function LoginScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: tokens.background }]} testID="login-screen">
       <View style={styles.brandRow}>
-        <Image source={FRUIT} style={styles.fruit} accessibilityIgnoresInvertColors />
-        <Text style={[styles.wordmark, { color: tokens.text }]}>marula</Text>
+        <Image
+          source={tokens.mode === "dark" ? LOCKUP_COLOR_DARK : LOCKUP_COLOR}
+          style={styles.lockup}
+          resizeMode="contain"
+          accessibilityIgnoresInvertColors
+        />
       </View>
       <View style={styles.headline}>
         <Text style={[styles.headlineTitle, { color: tokens.text }]}>Welcome back</Text>
@@ -170,13 +179,8 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 8,
   },
-  wordmark: {
-    fontFamily: "Fraunces_500Medium",
-    fontSize: 34,
-    letterSpacing: -1,
-  },
-  fruit: {
-    width: 32,
+  lockup: {
+    width: 118,
     height: 40,
   },
   headline: {
