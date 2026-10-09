@@ -2380,6 +2380,7 @@ async fn rls_isolates_sla_v1_tables() {
         Uuid::now_v7(),
         sa.org,
         None,
+        core_domain::automations::AutomationSubjectKind::Ticket,
         "a-rule",
         "ticket.created",
         serde_json::json!([]),
@@ -2602,6 +2603,7 @@ async fn automation_rules_crud_and_trigger_listing() {
         rule_id,
         s.org,
         Some(s.board),
+        core_domain::automations::AutomationSubjectKind::Ticket,
         "p1 triage",
         "ticket.created",
         serde_json::json!([{ "type": "priority_is", "priority": "p1" }]),
@@ -2629,6 +2631,7 @@ async fn automation_rules_crud_and_trigger_listing() {
             id: hit[0].id,
             org_id: hit[0].org_id,
             board_id: hit[0].board_id,
+            subject_kind: hit[0].subject_kind,
             name: hit[0].name.clone(),
             trigger_event: hit[0].trigger_event.clone(),
             conditions: hit[0].conditions.clone(),
@@ -2639,10 +2642,15 @@ async fn automation_rules_crud_and_trigger_listing() {
     .expect("valid documents parse");
     assert_eq!(parsed.conditions.len(), 1);
     assert_eq!(parsed.actions.len(), 2);
-    assert!(parsed.applies_to_board(s.board));
+    assert!(parsed.applies_to_board(Some(s.board)));
     assert!(
-        !parsed.applies_to_board(Uuid::now_v7()),
+        !parsed.applies_to_board(Some(Uuid::now_v7())),
         "board scope enforced"
+    );
+    // (B) A board-scoped rule never matches a subject with no board.
+    assert!(
+        !parsed.applies_to_board(None),
+        "a ticket-less envelope with no board is not on anybody's board"
     );
 
     // Disabling removes it from the hot path but keeps the row.
@@ -2653,6 +2661,7 @@ async fn automation_rules_crud_and_trigger_listing() {
         &automations::RulePatch {
             name: None,
             board_id: None,
+            subject_kind: None,
             trigger_event: None,
             conditions: None,
             actions: None,
@@ -2680,6 +2689,7 @@ async fn automation_rules_crud_and_trigger_listing() {
         &automations::RulePatch {
             name: None,
             board_id: Some(None),
+            subject_kind: None,
             trigger_event: None,
             conditions: None,
             actions: None,
@@ -2711,6 +2721,7 @@ async fn automation_rules_crud_and_trigger_listing() {
         Uuid::now_v7(),
         s.org,
         None,
+        core_domain::automations::AutomationSubjectKind::Ticket,
         "broken rule",
         "ticket.created",
         serde_json::json!("not an array"),
@@ -2727,6 +2738,7 @@ async fn automation_rules_crud_and_trigger_listing() {
                 id: stored.id,
                 org_id: stored.org_id,
                 board_id: stored.board_id,
+                subject_kind: stored.subject_kind,
                 name: stored.name.clone(),
                 trigger_event: stored.trigger_event.clone(),
                 conditions: stored.conditions.clone(),

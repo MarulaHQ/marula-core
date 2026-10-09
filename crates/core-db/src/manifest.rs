@@ -211,27 +211,43 @@ async fn load_boards(conn: &mut PgConnection, org_id: Uuid) -> DbResult<Vec<Mani
 
 // --- automations -----------------------------------------------------------------
 
+/// Runtime query (not `sqlx::query!`) on purpose: Wave 43 lane 3 added the
+/// nullable `subject_kind` column to `automation_rules`, and a runtime
+/// query needs no offline `.sqlx` regeneration for it.
 async fn load_automation_rules(
     conn: &mut PgConnection,
     org_id: Uuid,
 ) -> DbResult<Vec<ManifestAutomationRule>> {
-    let rows = sqlx::query!(
-        r#"SELECT id, board_id, name, trigger_event, conditions, actions, enabled
+    type RuleRow = (
+        Uuid,
+        Option<Uuid>,
+        Option<String>,
+        String,
+        String,
+        serde_json::Value,
+        serde_json::Value,
+        bool,
+    );
+    let rows = sqlx::query_as::<_, RuleRow>(
+        r#"SELECT id, board_id, subject_kind, name, trigger_event, conditions, actions, enabled
            FROM automation_rules WHERE org_id = $1"#,
-        org_id
     )
+    .bind(org_id)
     .fetch_all(&mut *conn)
     .await?;
     let mut out: Vec<ManifestAutomationRule> = rows
         .into_iter()
         .map(|r| ManifestAutomationRule {
-            id: r.id,
-            board_id: r.board_id,
-            name: r.name,
-            trigger_event: r.trigger_event,
-            conditions: r.conditions,
-            actions: r.actions,
-            enabled: r.enabled,
+            id: r.0,
+            board_id: r.1,
+            subject_kind: core_domain::automations::AutomationSubjectKind::from_db(r.2.as_deref())
+                .as_str()
+                .to_string(),
+            name: r.3,
+            trigger_event: r.4,
+            conditions: r.5,
+            actions: r.6,
+            enabled: r.7,
         })
         .collect();
     out.sort_by(|a, b| (&a.name, a.id).cmp(&(&b.name, b.id)));

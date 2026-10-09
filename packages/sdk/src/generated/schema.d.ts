@@ -4970,6 +4970,11 @@ export interface paths {
          *     ticket through the SAME write paths users go through (ticket patch,
          *     comment insert, notification fan-out), emitting every corresponding
          *     domain event tagged `via_automation` so evaluators never loop.
+         * @description The subject may be ticket-less (Wave 43 lane 3): a board-scoped rule
+         *     whose envelope carried no ticket. Then the board is resolved for scope
+         *     and only subject-agnostic effects (notifications) run — every
+         *     ticket-writing effect skips with a warn, never fails the batch, so one
+         *     bad rule can never wedge the queue.
          */
         post: operations["internal_effects"];
         delete?: never;
@@ -7572,6 +7577,49 @@ export interface paths {
          *     uniform 401, never revealing which half failed.
          */
         post: operations["portal_login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/magic-link/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/portal/magic-link/confirm — spend the link, get portal tokens.
+         * @description One 401 for unknown, already-used, expired, and disabled alike. The claim
+         *     itself enforces the standing check (the UPDATE joins `portal_users`), so
+         *     there is no window between "may this identity sign in?" and "spend it".
+         */
+        post: operations["portal_magic_link_confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/magic-link/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/portal/magic-link/request — mail a single-use sign-in link.
+         * @description Throttled per address and per IP on the portal's OWN gate kind, so a run
+         *     against portal addresses never locks a staff member out of `/api/login`.
+         */
+        post: operations["portal_magic_link_request"];
         delete?: never;
         options?: never;
         head?: never;
@@ -12494,6 +12542,16 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         AcceptInviteRequest: {
+            /**
+             * @description What the invitee wants to be called.
+             *
+             *     The invitation carries an ADDRESS, not a name, so this is the first
+             *     moment a person can state their own name for their own account. Absent
+             *     or blank leaves whatever the inviter recorded untouched, so an older
+             *     client (or a link opened by someone who did not fill the field in)
+             *     changes nothing rather than blanking a name somebody else set.
+             */
+            display_name?: string | null;
             /** @description First password (argon2-hashed server-side). */
             password: string;
             timezone?: string | null;
@@ -12964,11 +13022,19 @@ export interface components {
             correlation_window_secs: number;
             created_at: string;
             enabled: boolean;
+            /**
+             * @description When set, this source is a generic M2M webhook receiver: a signed
+             *     POST emits a domain-event envelope onto the outbox stream instead
+             *     of creating an alert row (Wave 43 lane 1). NULL = alert source (Wave 9).
+             */
+            event_type?: string | null;
             /** Format: uuid */
             id: string;
             name: string;
             /** Format: uuid */
             org_id: string;
+            /** @description Payload contract pin; NULL defaults to `core-domain/v1` at ingest. */
+            payload_schema_ref?: string | null;
             /** @description Path segment of the ingest URL (public routing id). */
             source_ref: string;
             updated_at: string;
@@ -15712,7 +15778,19 @@ export interface components {
              * @description Storm window in seconds (10..=86400; default 900).
              */
             correlation_window_secs?: number | null;
+            /**
+             * @description When set, this source is a generic M2M webhook receiver that emits
+             *     domain-event envelopes onto the outbox stream instead of creating
+             *     alert rows (Wave 43 lane 1). Leave NULL for the classic alert path.
+             */
+            event_type?: string | null;
             name: string;
+            /**
+             * @description Payload contract pin (e.g. `"acme-io/webhook-v1"`); NULL defaults
+             *     to `core-domain/v1`. Advisory — the ingest envelope always carries
+             *     the resolved schema ref.
+             */
+            payload_schema_ref?: string | null;
             /**
              * @description Optional custom routing id (3–64 chars of `[a-z0-9-]`); generated
              *     when absent. Globally unique — collisions are a typed 409.
@@ -16471,6 +16549,12 @@ export interface components {
             /** @description Condition documents (see AutomationCondition schema). */
             conditions: unknown;
             name: string;
+            /**
+             * @description What the rule's subject is: `ticket` (default, historical) or
+             *     `board` — a rule that fires on ticket-less envelopes (Wave 43
+             *     lane 3).
+             */
+            subject_kind?: string | null;
             /** @description Domain event type, e.g. "ticket.created". */
             trigger_event: string;
         };
@@ -18155,12 +18239,21 @@ export interface components {
         EffectsRequest: {
             /** @description AutomationAction documents, parsed and validated via core-domain. */
             actions: unknown;
+            /**
+             * Format: uuid
+             * @description The board a ticket-less subject is scoped to.
+             */
+            board_id?: string | null;
             /** Format: uuid */
             org_id: string;
             /** Format: uuid */
             rule_id?: string | null;
-            /** Format: uuid */
-            ticket_id: string;
+            /**
+             * Format: uuid
+             * @description The ticket the subject resolved to. `None` on a board-subject match
+             *     (Wave 43 lane 3) — there is no ticket to act on.
+             */
+            ticket_id?: string | null;
         };
         /**
          * @description Delivery projection from the `email_outbound` ledger. Present for
@@ -20265,6 +20358,12 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
+            /**
+             * @description What the rule's subject is: `ticket` (the historical default) or
+             *     `board` — a rule that fires on ticket-less envelopes (Wave 43
+             *     lane 3). Absent from a pre-lane manifest, so it defaults.
+             */
+            subject_kind?: string;
             /** @description Domain event type from the envelope, e.g. `ticket.created`. */
             trigger_event: string;
         };
@@ -20754,6 +20853,15 @@ export interface components {
             code: string;
             /** @description The `mfa_token` from POST /api/auth/login when mfa_required was set. */
             mfa_token: string;
+            /**
+             * @description "Trust this computer": keep this browser signed in for
+             *     `TRUSTED_DEVICE_TTL_SECS` instead of the default refresh window.
+             *
+             *     `#[serde(default)]` so every existing client keeps working unchanged —
+             *     an absent field means "do not trust", which is the conservative answer
+             *     and the one a caller that never heard of the option should get.
+             */
+            trust_device?: boolean;
         };
         MoveAppointmentRequest: {
             /** Format: date-time */
@@ -21406,7 +21514,15 @@ export interface components {
             /** Format: int32 */
             correlation_window_secs?: number | null;
             enabled?: boolean | null;
+            /**
+             * @description Promote/demote a source between alert and generic M2M profiles.
+             *     `Some(None)` reverts to alert-source; `Some(Some(v))` sets the
+             *     emitted event type.
+             */
+            event_type?: string | null;
             name?: string | null;
+            /** @description Set/clear the payload contract pin the same way. */
+            payload_schema_ref?: string | null;
         };
         PatchAppointmentRequest: {
             kind?: null | components["schemas"]["AppointmentKind"];
@@ -22367,6 +22483,12 @@ export interface components {
             refresh_token: string;
             /** Format: uuid */
             session_id: string;
+        };
+        PortalMagicLinkConfirm: {
+            token: string;
+        };
+        PortalMagicLinkRequest: {
+            email: string;
         };
         PortalPayRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -28253,6 +28375,8 @@ export interface components {
             conditions?: unknown;
             enabled?: boolean | null;
             name?: string | null;
+            /** @description Replaces the subject declaration (Wave 43 lane 3). */
+            subject_kind?: string | null;
             trigger_event?: string | null;
         };
         UpdateScheduleRequest: components["schemas"]["MutationParams"] & {
@@ -43270,6 +43394,79 @@ export interface operations {
             };
             /** @description bad credentials */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_magic_link_confirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalMagicLinkConfirm"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalLoginResponse"];
+                };
+            };
+            /** @description the link is unknown, used, expired, or the account is disabled */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description too many attempts */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    portal_magic_link_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortalMagicLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description always ok — the answer never depends on whether the address matches */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description too many requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -7,11 +7,31 @@
 //!
 //! Non-purpose: no matching logic (core-domain `automations`), no effect
 //! application (core-api), no stream consumption (worker).
+//!
+//! This module uses RUNTIME sqlx queries (`sqlx::query`/`query_as`), not the
+//! compile-time `query!` macro: Wave 43 lane 3 added the nullable
+//! `subject_kind` column to `automation_rules`, and a runtime query needs
+//! no offline `.sqlx` regeneration for a schema change (AGENTS.md lane
+//! rule).
 
 use crate::{DbError, DbResult};
+use core_domain::automations::AutomationSubjectKind;
 use serde_json::Value;
 use sqlx::Postgres;
 use uuid::Uuid;
+
+/// Row shape shared by every read here — the SELECT column order below.
+type RuleRowTuple = (
+    Uuid,
+    Uuid,
+    Option<Uuid>,
+    Option<String>,
+    String,
+    String,
+    Value,
+    Value,
+    bool,
+);
 
 /// Raw storage row — documents unparsed by design (see module note).
 #[derive(Debug, Clone)]
@@ -19,11 +39,32 @@ pub struct AutomationRuleRecord {
     pub id: Uuid,
     pub org_id: Uuid,
     pub board_id: Option<Uuid>,
+    /// What the rule's subject is; NULL in the column reads as `Ticket`.
+    pub subject_kind: AutomationSubjectKind,
     pub name: String,
     pub trigger_event: String,
     pub conditions: Value,
     pub actions: Value,
     pub enabled: bool,
+}
+
+const SELECT_COLUMNS: &str = "id, org_id, board_id, subject_kind, name, trigger_event, \
+                              conditions, actions, enabled";
+
+fn record_from(row: RuleRowTuple) -> AutomationRuleRecord {
+    let (id, org_id, board_id, subject_kind, name, trigger_event, conditions, actions, enabled) =
+        row;
+    AutomationRuleRecord {
+        id,
+        org_id,
+        board_id,
+        subject_kind: AutomationSubjectKind::from_db(subject_kind.as_deref()),
+        name,
+        trigger_event,
+        conditions,
+        actions,
+        enabled,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -32,6 +73,7 @@ pub async fn insert<'e, E>(
     id: Uuid,
     org_id: Uuid,
     board_id: Option<Uuid>,
+    subject_kind: AutomationSubjectKind,
     name: &str,
     trigger_event: &str,
     conditions: Value,
@@ -40,85 +82,51 @@ pub async fn insert<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query!(
-        r#"INSERT INTO automation_rules
-             (id, org_id, board_id, name, trigger_event, conditions, actions)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           RETURNING id, org_id, board_id, name, trigger_event,
-                     conditions, actions, enabled"#,
-        id,
-        org_id,
-        board_id,
-        name,
-        trigger_event,
-        conditions,
-        actions,
-    )
+    let row = sqlx::query_as::<_, RuleRowTuple>(&format!(
+        "INSERT INTO automation_rules
+              (id, org_id, board_id, subject_kind, name, trigger_event, conditions, actions)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING {SELECT_COLUMNS}"
+    ))
+    .bind(id)
+    .bind(org_id)
+    .bind(board_id)
+    .bind(subject_kind.as_str())
+    .bind(name)
+    .bind(trigger_event)
+    .bind(conditions)
+    .bind(actions)
     .fetch_one(executor)
     .await?;
-    Ok(record_from(
-        row.id,
-        row.org_id,
-        row.board_id,
-        row.name,
-        row.trigger_event,
-        row.conditions,
-        row.actions,
-        row.enabled,
-    ))
+    Ok(record_from(row))
 }
 
 pub async fn list<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<AutomationRuleRecord>>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let rows = sqlx::query!(
-        r#"SELECT id, org_id, board_id, name, trigger_event, conditions, actions, enabled
-           FROM automation_rules WHERE org_id = $1 ORDER BY name"#,
-        org_id
-    )
+    let rows = sqlx::query_as::<_, RuleRowTuple>(&format!(
+        "SELECT {SELECT_COLUMNS} FROM automation_rules WHERE org_id = $1 ORDER BY name"
+    ))
+    .bind(org_id)
     .fetch_all(executor)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            record_from(
-                row.id,
-                row.org_id,
-                row.board_id,
-                row.name,
-                row.trigger_event,
-                row.conditions,
-                row.actions,
-                row.enabled,
-            )
-        })
-        .collect())
+    Ok(rows.into_iter().map(record_from).collect())
 }
 
 pub async fn get<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<AutomationRuleRecord>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query!(
-        r#"SELECT id, org_id, board_id, name, trigger_event, conditions, actions, enabled
-           FROM automation_rules WHERE org_id = $1 AND id = $2"#,
-        org_id,
-        id,
-    )
+    let row = sqlx::query_as::<_, RuleRowTuple>(&format!(
+        "SELECT {SELECT_COLUMNS} FROM automation_rules WHERE org_id = $1 AND id = $2"
+    ))
+    .bind(org_id)
+    .bind(id)
     .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
-    Ok(record_from(
-        row.id,
-        row.org_id,
-        row.board_id,
-        row.name,
-        row.trigger_event,
-        row.conditions,
-        row.actions,
-        row.enabled,
-    ))
+    Ok(record_from(row))
 }
 
 /// Enabled rules listening for one event type in one org — the hot path of
@@ -131,35 +139,22 @@ pub async fn list_enabled_by_trigger<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let rows = sqlx::query!(
-        r#"SELECT id, org_id, board_id, name, trigger_event, conditions, actions, enabled
-           FROM automation_rules
-           WHERE org_id = $1 AND trigger_event = $2 AND enabled"#,
-        org_id,
-        trigger_event,
-    )
+    let rows = sqlx::query_as::<_, RuleRowTuple>(&format!(
+        "SELECT {SELECT_COLUMNS} FROM automation_rules
+            WHERE org_id = $1 AND trigger_event = $2 AND enabled"
+    ))
+    .bind(org_id)
+    .bind(trigger_event)
     .fetch_all(executor)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            record_from(
-                row.id,
-                row.org_id,
-                row.board_id,
-                row.name,
-                row.trigger_event,
-                row.conditions,
-                row.actions,
-                row.enabled,
-            )
-        })
-        .collect())
+    Ok(rows.into_iter().map(record_from).collect())
 }
 
 pub struct RulePatch {
     pub name: Option<String>,
     pub board_id: Option<Option<Uuid>>,
+    /// `Some` replaces the subject declaration (Wave 43 lane 3).
+    pub subject_kind: Option<AutomationSubjectKind>,
     pub trigger_event: Option<String>,
     pub conditions: Option<Value>,
     pub actions: Option<Value>,
@@ -177,79 +172,46 @@ pub async fn update<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query!(
-        r#"UPDATE automation_rules SET
-             name = COALESCE($3, name),
-             board_id = CASE WHEN $4::bool THEN $5 ELSE board_id END,
-             trigger_event = COALESCE($6, trigger_event),
-             conditions = COALESCE($7, conditions),
-             actions = COALESCE($8, actions),
-             enabled = COALESCE($9, enabled),
-             updated_at = now()
-           WHERE org_id = $1 AND id = $2
-           RETURNING id, org_id, board_id, name, trigger_event,
-                     conditions, actions, enabled"#,
-        org_id,
-        id,
-        patch.name,
-        patch.board_id.is_some(),
-        patch.board_id.clone().flatten(),
-        patch.trigger_event,
-        patch.conditions,
-        patch.actions,
-        patch.enabled,
-    )
+    let row = sqlx::query_as::<_, RuleRowTuple>(&format!(
+        "UPDATE automation_rules SET
+              name = COALESCE($3, name),
+              board_id = CASE WHEN $4::bool THEN $5 ELSE board_id END,
+              subject_kind = COALESCE($6, subject_kind),
+              trigger_event = COALESCE($7, trigger_event),
+              conditions = COALESCE($8, conditions),
+              actions = COALESCE($9, actions),
+              enabled = COALESCE($10, enabled),
+              updated_at = now()
+            WHERE org_id = $1 AND id = $2
+            RETURNING {SELECT_COLUMNS}"
+    ))
+    .bind(org_id)
+    .bind(id)
+    .bind(patch.name.as_deref())
+    .bind(patch.board_id.is_some())
+    .bind(patch.board_id.flatten())
+    .bind(patch.subject_kind.map(|kind| kind.as_str()))
+    .bind(patch.trigger_event.as_deref())
+    .bind(patch.conditions.clone())
+    .bind(patch.actions.clone())
+    .bind(patch.enabled)
     .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
-    Ok(record_from(
-        row.id,
-        row.org_id,
-        row.board_id,
-        row.name,
-        row.trigger_event,
-        row.conditions,
-        row.actions,
-        row.enabled,
-    ))
+    Ok(record_from(row))
 }
 
 pub async fn delete<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let res = sqlx::query!(
-        "DELETE FROM automation_rules WHERE org_id = $1 AND id = $2",
-        org_id,
-        id
-    )
-    .execute(executor)
-    .await?;
+    let res = sqlx::query("DELETE FROM automation_rules WHERE org_id = $1 AND id = $2")
+        .bind(org_id)
+        .bind(id)
+        .execute(executor)
+        .await?;
     if res.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
     Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn record_from(
-    id: Uuid,
-    org_id: Uuid,
-    board_id: Option<Uuid>,
-    name: String,
-    trigger_event: String,
-    conditions: Value,
-    actions: Value,
-    enabled: bool,
-) -> AutomationRuleRecord {
-    AutomationRuleRecord {
-        id,
-        org_id,
-        board_id,
-        name,
-        trigger_event,
-        conditions,
-        actions,
-        enabled,
-    }
 }

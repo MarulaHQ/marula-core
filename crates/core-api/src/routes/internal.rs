@@ -821,7 +821,13 @@ pub async fn sla_verdict(
 pub struct EffectsRequest {
     pub org_id: Uuid,
     pub rule_id: Option<Uuid>,
-    pub ticket_id: Uuid,
+    /// The ticket the subject resolved to. `None` on a board-subject match
+    /// (Wave 43 lane 3) — there is no ticket to act on.
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub ticket_id: Option<Uuid>,
+    /// The board a ticket-less subject is scoped to.
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub board_id: Option<Uuid>,
     /// AutomationAction documents, parsed and validated via core-domain.
     pub actions: serde_json::Value,
 }
@@ -830,6 +836,12 @@ pub struct EffectsRequest {
 /// ticket through the SAME write paths users go through (ticket patch,
 /// comment insert, notification fan-out), emitting every corresponding
 /// domain event tagged `via_automation` so evaluators never loop.
+///
+/// The subject may be ticket-less (Wave 43 lane 3): a board-scoped rule
+/// whose envelope carried no ticket. Then the board is resolved for scope
+/// and only subject-agnostic effects (notifications) run — every
+/// ticket-writing effect skips with a warn, never fails the batch, so one
+/// bad rule can never wedge the queue.
 #[utoipa::path(operation_id = "internal_effects", post, path = "/api/internal/effects", tag = "automations",
     request_body = EffectsRequest,
     responses((status = 200, body = Object)))]
@@ -848,9 +860,24 @@ pub async fn effects(
     core_domain::automations::validate_actions(&actions)?;
 
     let applied = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, req.org_id, req.ticket_id)
-            .await
-            .map_err(|_| ApiError::NotFound)?;
+        // Ticket subject: the ticket row the effects write through. Board
+        // subject: no ticket, and the board must resolve in this org or the
+        // whole request is refused — a board that is not ours is not a scope.
+        let ticket = match req.ticket_id {
+            Some(ticket_id) => Some(
+                core_db::tickets::get_ticket(&mut *ctx.tx, req.org_id, ticket_id)
+                    .await
+                    .map_err(|_| ApiError::NotFound)?,
+            ),
+            None => {
+                if let Some(board_id) = req.board_id {
+                    core_db::boards::get_board(&mut *ctx.tx, req.org_id, board_id)
+                        .await
+                        .map_err(|_| ApiError::NotFound)?;
+                }
+                None
+            }
+        };
         // `ticket.board_id` rides every emitted payload so the realtime
         // layer can fan these automation writes out to the board channel.
 
@@ -860,6 +887,10 @@ pub async fn effects(
         for action in &actions {
             match action {
                 core_domain::automations::AutomationAction::AssignUser { user_id } => {
+                    let Some(ticket) = ticket.as_ref() else {
+                        skip_ticket_effect(req.rule_id, action);
+                        continue;
+                    };
                     let user =
                         match core_db::users::get_user(&mut *ctx.tx, req.org_id, *user_id).await {
                             Ok(u) if u.is_active => u,
@@ -868,7 +899,7 @@ pub async fn effects(
                     core_db::tickets::update_ticket(
                         &mut *ctx.tx,
                         req.org_id,
-                        req.ticket_id,
+                        ticket.id,
                         core_db::tickets::TicketPatch {
                             title: None,
                             body: None,
@@ -885,7 +916,7 @@ pub async fn effects(
                     )
                     .await?;
                     let mut payload = serde_json::to_value(core_domain::events::TicketAssigned {
-                        ticket_id: req.ticket_id,
+                        ticket_id: ticket.id,
                         board_id: ticket.board_id,
                         assignee_id: Some(*user_id),
                         assigned_by: None,
@@ -895,17 +926,21 @@ pub async fn effects(
                     ctx.emit(
                         types::TICKET_ASSIGNED,
                         "ticket",
-                        Some(req.ticket_id.to_string().as_str()),
+                        Some(ticket.id.to_string().as_str()),
                         &payload,
                     )
                     .await?;
                     let _ = user;
                 }
                 core_domain::automations::AutomationAction::SetPriority { priority } => {
+                    let Some(ticket) = ticket.as_ref() else {
+                        skip_ticket_effect(req.rule_id, action);
+                        continue;
+                    };
                     core_db::tickets::update_ticket(
                         &mut *ctx.tx,
                         req.org_id,
-                        req.ticket_id,
+                        ticket.id,
                         core_db::tickets::TicketPatch {
                             title: None,
                             body: None,
@@ -921,22 +956,26 @@ pub async fn effects(
                     )
                     .await?;
                     let mut payload = marker.clone();
-                    payload["ticket_id"] = serde_json::json!(req.ticket_id);
+                    payload["ticket_id"] = serde_json::json!(ticket.id);
                     ctx.emit(
                         types::TICKET_UPDATED,
                         "ticket",
-                        Some(req.ticket_id.to_string().as_str()),
+                        Some(ticket.id.to_string().as_str()),
                         &payload,
                     )
                     .await?;
                 }
                 core_domain::automations::AutomationAction::AddInternalComment { body } => {
+                    let Some(ticket) = ticket.as_ref() else {
+                        skip_ticket_effect(req.rule_id, action);
+                        continue;
+                    };
                     let comment = core_db::tickets::insert_comment(
                         &mut *ctx.tx,
                         core_db::tickets::NewTicketComment {
                             id: Uuid::now_v7(),
                             org_id: req.org_id,
-                            ticket_id: req.ticket_id,
+                            ticket_id: ticket.id,
                             author_id: None,
                             kind: core_domain::status::NoteKind::Internal,
                             body: body.trim(),
@@ -964,6 +1003,9 @@ pub async fn effects(
                     kind,
                     title,
                 } => {
+                    // Subject-agnostic: a notification links to the ticket
+                    // when there is one, and stands alone when there is not.
+                    let ticket_id = ticket.as_ref().map(|t| t.id);
                     for user_id in user_ids {
                         let pref = core_db::notifications::effective_preference(
                             &mut *ctx.tx,
@@ -981,7 +1023,7 @@ pub async fn effects(
                             req.org_id,
                             *user_id,
                             kind.as_str(),
-                            Some(req.ticket_id),
+                            ticket_id,
                             title.trim(),
                             None,
                         )
@@ -990,7 +1032,7 @@ pub async fn effects(
                             serde_json::to_value(core_domain::events::NotificationCreated {
                                 user_id: *user_id,
                                 kind: kind.as_str().to_string(),
-                                ticket_id: Some(req.ticket_id),
+                                ticket_id,
                                 title: notification.title.clone(),
                             })
                             .unwrap_or_default();
@@ -1005,6 +1047,10 @@ pub async fn effects(
                     }
                 }
                 core_domain::automations::AutomationAction::PluginAction { entry_key, params } => {
+                    let Some(ticket) = ticket.as_ref() else {
+                        skip_ticket_effect(req.rule_id, action);
+                        continue;
+                    };
                     // The registry row is the WHOLE authorization: it
                     // exists only while the install is enabled, the grant
                     // stands, and the entry is enabled. A missing entry
@@ -1055,7 +1101,7 @@ pub async fn effects(
                         core_db::tickets::NewTicketComment {
                             id: Uuid::now_v7(),
                             org_id: req.org_id,
-                            ticket_id: req.ticket_id,
+                            ticket_id: ticket.id,
                             author_id: None,
                             kind: core_domain::status::NoteKind::Internal,
                             body: body.trim(),
@@ -1102,9 +1148,23 @@ pub async fn effects(
                 org_id: req.org_id,
                 actor: Actor::System,
                 action: "automation.applied".into(),
-                entity_type: Some("ticket".into()),
-                entity_id: Some(req.ticket_id.to_string()),
-                detail: serde_json::json!({ "rule_id": req.rule_id, "actions": actions.len() }),
+                // A ticket-less subject audits against the rule that fired;
+                // the ticket variant keeps its per-ticket row.
+                entity_type: Some(if req.ticket_id.is_some() {
+                    "ticket".into()
+                } else {
+                    "automation_rule".into()
+                }),
+                entity_id: match (req.ticket_id, req.rule_id) {
+                    (Some(ticket_id), _) => Some(ticket_id.to_string()),
+                    (None, Some(rule_id)) => Some(rule_id.to_string()),
+                    (None, None) => None,
+                },
+                detail: serde_json::json!({
+                    "rule_id": req.rule_id,
+                    "board_id": req.board_id,
+                    "actions": actions.len()
+                }),
                 ip: None,
                 occurred_at: chrono::Utc::now(),
             },
@@ -1116,6 +1176,16 @@ pub async fn effects(
     .await?;
 
     Ok(Json(applied))
+}
+
+/// One warn line for a ticket-writing effect a board-subject rule cannot
+/// apply. Kept out of the match arms so each arm stays a `continue`.
+fn skip_ticket_effect(rule_id: Option<Uuid>, action: &core_domain::automations::AutomationAction) {
+    tracing::warn!(
+        rule = ?rule_id,
+        effect = action.as_str(),
+        "board-subject rule: effect needs a ticket, skipped"
+    );
 }
 
 // --- webhook delivery ledger (stage2-webhooks lane) ---

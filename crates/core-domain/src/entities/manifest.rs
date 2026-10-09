@@ -263,6 +263,11 @@ pub struct ManifestAutomationRule {
     /// Board the rule is scoped to; null = every board in the org.
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid, nullable = true))]
     pub board_id: Option<uuid::Uuid>,
+    /// What the rule's subject is: `ticket` (the historical default) or
+    /// `board` — a rule that fires on ticket-less envelopes (Wave 43
+    /// lane 3). Absent from a pre-lane manifest, so it defaults.
+    #[serde(default = "default_manifest_subject_kind")]
+    pub subject_kind: String,
     pub name: String,
     /// Domain event type from the envelope, e.g. `ticket.created`.
     pub trigger_event: String,
@@ -271,6 +276,12 @@ pub struct ManifestAutomationRule {
     #[cfg_attr(feature = "openapi", schema(value_type = Object))]
     pub actions: serde_json::Value,
     pub enabled: bool,
+}
+
+/// Pre-lane manifests carry no subject declaration; the ticket subject is
+/// the historical value.
+fn default_manifest_subject_kind() -> String {
+    "ticket".to_string()
 }
 
 /// One webhook subscription. The HMAC signing secret is structurally

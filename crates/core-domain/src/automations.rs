@@ -40,6 +40,82 @@ pub struct TicketSnapshot {
     pub assignee_id: Option<Uuid>,
 }
 
+/// What a rule's SUBJECT is: the ticket it matches against, or the board.
+///
+/// Wave 43 lane 3 made the subject first-class. Rows written before that
+/// lane are `Ticket` — the historical behaviour, unchanged. `Board`
+/// declares a rule that evaluates over a board with no ticket, so it can
+/// fire on a ticket-less envelope (lane 1's inbound receiver emits those,
+/// carrying `board_id`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AutomationSubjectKind {
+    /// The subject is a ticket; a ticket-less envelope never matches.
+    #[default]
+    Ticket,
+    /// The subject is a board; ticket-less envelopes may match.
+    Board,
+}
+
+impl AutomationSubjectKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ticket => "ticket",
+            Self::Board => "board",
+        }
+    }
+
+    /// Reads the nullable `automation_rules.subject_kind` column: NULL,
+    /// blank or unrecognized is a ticket subject (the historical value, and
+    /// the CHECK constraint already admits no third literal).
+    pub fn from_db(value: Option<&str>) -> Self {
+        match value.map(str::trim) {
+            Some("board") => Self::Board,
+            _ => Self::Ticket,
+        }
+    }
+
+    /// True when the rule cannot fire without a resolved ticket.
+    pub fn requires_ticket(&self) -> bool {
+        matches!(self, Self::Ticket)
+    }
+}
+
+/// The subject a rule is evaluated against at runtime: the ticket the
+/// envelope resolved to, or a ticket-less scope.
+///
+/// The ticket variant carries the read-only snapshot every deterministic
+/// condition reads; the ticket-less variant carries only the board scope,
+/// which may itself be absent (an org-wide envelope).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AutomationSubject<'a> {
+    Ticket(&'a TicketSnapshot),
+    Ticketless { board_id: Option<Uuid> },
+}
+
+impl<'a> AutomationSubject<'a> {
+    /// The ticket snapshot, when the subject has one.
+    pub fn ticket(&self) -> Option<&TicketSnapshot> {
+        match *self {
+            Self::Ticket(snapshot) => Some(snapshot),
+            Self::Ticketless { .. } => None,
+        }
+    }
+
+    /// The board this subject is scoped to; `None` is org-wide.
+    pub fn board_id(&self) -> Option<Uuid> {
+        match *self {
+            Self::Ticket(snapshot) => Some(snapshot.board_id),
+            Self::Ticketless { board_id } => board_id,
+        }
+    }
+
+    pub fn is_ticketless(&self) -> bool {
+        self.ticket().is_none()
+    }
+}
+
 /// One predicate; a rule matches only when EVERY condition holds.
 ///
 /// Deterministic predicates evaluate against the ticket snapshot; the
@@ -185,6 +261,29 @@ impl AutomationCondition {
         }
     }
 
+    /// Evaluates the condition against a subject that may have no ticket.
+    ///
+    /// On a ticket subject this is exactly [`AutomationCondition::holds`].
+    /// On a ticket-less subject every predicate that reads a ticket fact
+    /// degrades to NO-MATCH — the caller logs the warn, the same posture
+    /// the semantic skip already gets. Two predicates read nothing the
+    /// subject must supply and so still hold: an empty `title_contains`
+    /// needle (an explicit wildcard) and, riding the event payload rather
+    /// than the subject, `csat_score_below` (evaluated by the caller).
+    pub fn holds_for_subject(&self, subject: AutomationSubject<'_>) -> bool {
+        match subject.ticket() {
+            Some(snapshot) => self.holds(snapshot),
+            None => matches!(self, Self::TitleContains { needle } if needle.is_empty()),
+        }
+    }
+
+    /// True when the condition reads a fact only a ticket snapshot carries.
+    /// On a ticket-less subject these degrade to no-match-with-warn, so the
+    /// caller can name them instead of silently matching nothing.
+    pub fn requires_ticket(&self) -> bool {
+        !matches!(self, Self::TitleContains { needle } if needle.is_empty())
+    }
+
     /// The condition's ai_decision spec, when it is one.
     pub fn as_ai_decision(&self) -> Option<AiDecisionSpec<'_>> {
         match self {
@@ -250,12 +349,14 @@ pub fn split_conditions(conditions: &[AutomationCondition]) -> SplitConditions<'
 /// A rule matches when all of its conditions hold (empty conditions = match
 /// everything on the trigger event). Accepts owned slices or the split
 /// deterministic part (`Vec<&AutomationCondition>`) from
-/// [`split_conditions`].
-pub fn matches_all<'a, I>(conditions: I, snap: &TicketSnapshot) -> bool
+/// [`split_conditions`]. The subject may be ticket-less: predicates reading
+/// a ticket fact degrade to no-match, so a board rule with a
+/// ticket-only predicate simply never matches (and the worker names it).
+pub fn matches_all<'a, I>(conditions: I, subject: AutomationSubject<'_>) -> bool
 where
     I: IntoIterator<Item = &'a AutomationCondition>,
 {
-    conditions.into_iter().all(|c| c.holds(snap))
+    conditions.into_iter().all(|c| c.holds_for_subject(subject))
 }
 
 /// Evaluates the rule's `csat_score_below` conditions against the
@@ -314,6 +415,32 @@ pub enum AutomationAction {
     },
 }
 
+impl AutomationAction {
+    /// The action's stable wire tag, for log and validation messages.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::AssignUser { .. } => "assign_user",
+            Self::SetPriority { .. } => "set_priority",
+            Self::AddInternalComment { .. } => "add_internal_comment",
+            Self::NotifyUsers { .. } => "notify_users",
+            Self::PluginAction { .. } => "plugin_action",
+        }
+    }
+
+    /// True when the effect needs a ticket to act on. A board-subject rule
+    /// cannot carry one: it would skip-at-runtime on every single fire.
+    pub fn requires_ticket(&self) -> bool {
+        match self {
+            // Notifications are org-scoped; the ticket link is optional.
+            Self::NotifyUsers { .. } => false,
+            // Every other built-in writes the ticket, and the one
+            // consented plugin effect today is `add_internal_comment`,
+            // which needs a ticket comment row.
+            _ => true,
+        }
+    }
+}
+
 /// A rule as stored (`automation_rules`) with its JSONB documents still
 /// raw. Parsing is a separate, fallible step so one malformed rule can be
 /// logged and skipped instead of poisoning a whole evaluation batch.
@@ -323,6 +450,8 @@ pub struct AutomationRuleRow {
     pub org_id: Uuid,
     /// `None` = every board in the org.
     pub board_id: Option<Uuid>,
+    /// What the rule's subject is (Wave 43 lane 3).
+    pub subject_kind: AutomationSubjectKind,
     pub name: String,
     /// Domain event type from the envelope, e.g. `ticket.created`.
     pub trigger_event: String,
@@ -337,6 +466,7 @@ pub struct AutomationRule {
     pub id: Uuid,
     pub org_id: Uuid,
     pub board_id: Option<Uuid>,
+    pub subject_kind: AutomationSubjectKind,
     pub name: String,
     pub trigger_event: String,
     pub conditions: Vec<AutomationCondition>,
@@ -354,10 +484,13 @@ impl AutomationRule {
         let actions: Vec<AutomationAction> = serde_json::from_value(row.actions.clone())
             .map_err(|e| format!("rule {}: bad actions jsonb: {e}", row.id))?;
         validate_actions(&actions).map_err(|e| format!("rule {}: {e}", row.id))?;
+        validate_subject_actions(row.subject_kind, &actions)
+            .map_err(|e| format!("rule {}: {e}", row.id))?;
         Ok(Self {
             id: row.id,
             org_id: row.org_id,
             board_id: row.board_id,
+            subject_kind: row.subject_kind,
             name: row.name.clone(),
             trigger_event: row.trigger_event.clone(),
             conditions,
@@ -366,10 +499,42 @@ impl AutomationRule {
         })
     }
 
-    /// Board scope check: `None` rules see everything.
-    pub fn applies_to_board(&self, board_id: Uuid) -> bool {
-        self.board_id.is_none_or(|b| b == board_id)
+    /// Board scope check over a subject that may carry no board.
+    ///
+    /// `None` rules see everything, including a ticket-less envelope with
+    /// no board. A board-scoped rule matches ONLY a subject on that board,
+    /// so a ticket-less envelope with no board never satisfies one — an
+    /// org-wide event is not on anybody's board.
+    pub fn applies_to_board(&self, subject_board: Option<Uuid>) -> bool {
+        match (self.board_id, subject_board) {
+            (None, _) => true,
+            (Some(rule_board), Some(board_id)) => rule_board == board_id,
+            (Some(_), None) => false,
+        }
     }
+}
+
+/// Subject-aware action validation (Wave 43 lane 3): a board-subject rule
+/// has no ticket, so an effect that writes one would skip-at-runtime on
+/// every fire. Refuse it at the boundary instead of storing a rule that
+/// can never do anything.
+pub fn validate_subject_actions(
+    subject_kind: AutomationSubjectKind,
+    actions: &[AutomationAction],
+) -> Result<(), crate::DomainError> {
+    use crate::DomainError;
+    if subject_kind.requires_ticket() {
+        return Ok(());
+    }
+    for action in actions {
+        if action.requires_ticket() {
+            return Err(DomainError::Validation(format!(
+                "a board-subject rule cannot carry the '{}' effect: it needs a ticket",
+                action.as_str()
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Structural validation beyond serde: rejects empty effect payloads that
@@ -443,9 +608,27 @@ mod tests {
         }
     }
 
+    /// A ready-made ticket-subject rule row with a subject-agnostic action.
+    fn board_rule_row() -> AutomationRuleRow {
+        AutomationRuleRow {
+            id: Uuid::now_v7(),
+            org_id: Uuid::now_v7(),
+            board_id: None,
+            subject_kind: AutomationSubjectKind::Ticket,
+            name: "p1 triage".into(),
+            trigger_event: "ticket.created".into(),
+            conditions: serde_json::json!([]),
+            actions: serde_json::json!([
+                { "type": "notify_users", "user_ids": ["01890a5d-ac96-774b-bcce-b302099a8057"],
+                  "kind": "ticket_update", "title": "routed" }
+            ]),
+            enabled: true,
+        }
+    }
+
     #[test]
     fn empty_conditions_match_everything() {
-        assert!(matches_all(&[], &snapshot()));
+        assert!(matches_all(&[], AutomationSubject::Ticket(&snapshot())));
     }
 
     #[test]
@@ -457,7 +640,7 @@ mod tests {
             },
             AutomationCondition::Unassigned,
         ];
-        assert!(matches_all(&both, &snap));
+        assert!(matches_all(&both, AutomationSubject::Ticket(&snap)));
         let one_misses = vec![
             AutomationCondition::PriorityIs {
                 priority: Priority::P1,
@@ -466,7 +649,7 @@ mod tests {
                 category: TicketStatusCategory::Closed,
             },
         ];
-        assert!(!matches_all(&one_misses, &snap));
+        assert!(!matches_all(&one_misses, AutomationSubject::Ticket(&snap)));
     }
 
     #[test]
@@ -475,11 +658,11 @@ mod tests {
         let c = vec![AutomationCondition::TitleContains {
             needle: "SERVER Down".into(),
         }];
-        assert!(matches_all(&c, &snap));
+        assert!(matches_all(&c, AutomationSubject::Ticket(&snap)));
         let wild = vec![AutomationCondition::TitleContains {
             needle: String::new(),
         }];
-        assert!(matches_all(&wild, &snap));
+        assert!(matches_all(&wild, AutomationSubject::Ticket(&snap)));
     }
 
     #[test]
@@ -527,6 +710,183 @@ mod tests {
         assert!(validate_actions(&nobody).is_err());
     }
 
+    // --- Wave 43 lane 3: the ticket-less subject ---------------------------
+
+    /// (A) The degradation table: what each condition variant means with no
+    /// ticket snapshot. Every ticket-fact predicate degrades to no-match;
+    /// only the explicit wildcard (an empty needle) still holds.
+    #[test]
+    fn ticket_less_subject_degrades_ticket_facts_to_no_match() {
+        let board = Some(Uuid::now_v7());
+        let ticketless = AutomationSubject::Ticketless { board_id: board };
+        assert!(matches_all(&[], ticketless), "no conditions = match");
+
+        // Degrading variants: they read a ticket fact that does not exist.
+        for condition in [
+            AutomationCondition::PriorityIs {
+                priority: Priority::P1,
+            },
+            AutomationCondition::CategoryIs {
+                category: TicketStatusCategory::Open,
+            },
+            AutomationCondition::TitleContains {
+                needle: "server".into(),
+            },
+            AutomationCondition::Unassigned,
+            AutomationCondition::AiDecision {
+                surface: "decision_ticket_triage".into(),
+                question: "actionable".into(),
+                operator: AiDecisionOperator::ProbabilityAbove,
+                threshold: 0.8,
+                confidence_path: None,
+            },
+        ] {
+            assert!(
+                !condition.holds_for_subject(ticketless),
+                "{condition:?} must be no-match on a ticket-less subject"
+            );
+            assert!(
+                condition.requires_ticket(),
+                "{condition:?} must be named in the warn"
+            );
+        }
+
+        // Holding variants: they read nothing the subject must supply.
+        let wildcard = AutomationCondition::TitleContains {
+            needle: String::new(),
+        };
+        assert!(wildcard.holds_for_subject(ticketless));
+        assert!(!wildcard.requires_ticket());
+
+        // The ticket path is unchanged: the same conditions evaluate
+        // against the snapshot exactly as before this lane.
+        let snap = snapshot();
+        assert!(wildcard.holds_for_subject(AutomationSubject::Ticket(&snap)));
+        assert!(
+            AutomationCondition::Unassigned.holds_for_subject(AutomationSubject::Ticket(&snap)),
+            "the fixture ticket has no assignee"
+        );
+        assert!(
+            !AutomationCondition::PriorityIs {
+                priority: Priority::P3
+            }
+            .holds_for_subject(AutomationSubject::Ticket(&snap)),
+            "the fixture ticket is P1, not P3"
+        );
+    }
+
+    /// A ticket subject's board scope comes from its snapshot, and a
+    /// ticket-less subject's from the envelope.
+    #[test]
+    fn subject_carries_its_own_board_scope() {
+        let snap = snapshot();
+        assert_eq!(
+            AutomationSubject::Ticket(&snap).board_id(),
+            Some(snap.board_id)
+        );
+        assert!(AutomationSubject::Ticket(&snap).ticket().is_some());
+        assert!(!AutomationSubject::Ticket(&snap).is_ticketless());
+
+        let board = Uuid::now_v7();
+        let scoped = AutomationSubject::Ticketless {
+            board_id: Some(board),
+        };
+        assert_eq!(scoped.board_id(), Some(board));
+        assert!(scoped.ticket().is_none());
+        assert!(scoped.is_ticketless());
+
+        let org_wide = AutomationSubject::Ticketless { board_id: None };
+        assert_eq!(org_wide.board_id(), None);
+        assert!(org_wide.is_ticketless());
+    }
+
+    /// `subject_kind` reads the nullable column: NULL is the historical
+    /// ticket subject, and nothing else maps to a board.
+    #[test]
+    fn subject_kind_reads_the_nullable_column() {
+        assert_eq!(
+            AutomationSubjectKind::from_db(None),
+            AutomationSubjectKind::Ticket,
+            "pre-lane rows are ticket subjects"
+        );
+        assert_eq!(
+            AutomationSubjectKind::from_db(Some("ticket")),
+            AutomationSubjectKind::Ticket
+        );
+        assert_eq!(
+            AutomationSubjectKind::from_db(Some("board")),
+            AutomationSubjectKind::Board
+        );
+        assert_eq!(
+            AutomationSubjectKind::from_db(Some("nonsense")),
+            AutomationSubjectKind::Ticket,
+            "the CHECK constraint admits no third literal"
+        );
+        assert!(AutomationSubjectKind::Ticket.requires_ticket());
+        assert!(!AutomationSubjectKind::Board.requires_ticket());
+        assert_eq!(AutomationSubjectKind::Board.as_str(), "board");
+    }
+
+    /// A board-subject rule may only carry effects that need no ticket —
+    /// otherwise it would skip-at-runtime on every fire, forever.
+    #[test]
+    fn board_subject_rules_refuse_ticket_effects() {
+        let notify = vec![AutomationAction::NotifyUsers {
+            user_ids: vec![Uuid::now_v7()],
+            kind: NotificationKind::TicketUpdate,
+            title: "ping".into(),
+        }];
+        assert!(validate_subject_actions(AutomationSubjectKind::Board, &notify).is_ok());
+        assert!(validate_subject_actions(AutomationSubjectKind::Ticket, &notify).is_ok());
+
+        for action in [
+            AutomationAction::AssignUser {
+                user_id: Uuid::now_v7(),
+            },
+            AutomationAction::SetPriority {
+                priority: Priority::P1,
+            },
+            AutomationAction::AddInternalComment { body: "x".into() },
+            AutomationAction::PluginAction {
+                entry_key: "plugin.acme.sync".into(),
+                params: serde_json::json!({}),
+            },
+        ] {
+            let only = std::slice::from_ref(&action);
+            assert!(
+                validate_subject_actions(AutomationSubjectKind::Board, only).is_err(),
+                "'{}' needs a ticket",
+                action.as_str()
+            );
+            assert!(action.requires_ticket());
+            assert!(validate_subject_actions(AutomationSubjectKind::Ticket, only).is_ok());
+        }
+        // parse() rejects the same combination, so an out-of-band board rule
+        // with a ticket effect is skipped-with-warn, never silently fired.
+        let row = AutomationRuleRow {
+            subject_kind: AutomationSubjectKind::Board,
+            actions: serde_json::json!([{ "type": "set_priority", "priority": "p2" }]),
+            ..board_rule_row()
+        };
+        let err = AutomationRule::parse(&row).expect_err("board rule with a ticket effect");
+        assert!(err.contains("board-subject"), "{err}");
+    }
+
+    /// A rule whose subject is a ticket cannot fire on a ticket-less
+    /// envelope, and a board rule can — the gate the worker applies.
+    #[test]
+    fn subject_kind_gates_the_envelope_shape() {
+        let ticket_rule = AutomationRule::parse(&board_rule_row()).expect("ticket rule parses");
+        assert!(ticket_rule.subject_kind.requires_ticket());
+        let board_rule = AutomationRule::parse(&AutomationRuleRow {
+            subject_kind: AutomationSubjectKind::Board,
+            ..board_rule_row()
+        })
+        .expect("board rule parses");
+        assert!(!board_rule.subject_kind.requires_ticket());
+        assert!(board_rule.actions.iter().all(|a| !a.requires_ticket()));
+    }
+
     #[test]
     fn echo_detection_ignores_unknown_payloads() {
         assert!(is_automation_echo(
@@ -547,6 +907,7 @@ mod tests {
             id: Uuid::now_v7(),
             org_id: Uuid::now_v7(),
             board_id: None,
+            subject_kind: AutomationSubjectKind::Ticket,
             name: "p1 triage".into(),
             trigger_event: "ticket.created".into(),
             conditions: serde_json::json!([{ "type": "priority_is", "priority": "p1" }]),
@@ -558,15 +919,23 @@ mod tests {
             enabled: true,
         };
         let rule = AutomationRule::parse(&good).expect("valid rule parses");
-        assert!(rule.applies_to_board(Uuid::now_v7()));
+        assert!(rule.applies_to_board(Some(Uuid::now_v7())));
+        // (B) A board-scoped rule matches only a subject ON that board, and
+        // never a subject with no board at all.
         let board = Uuid::now_v7();
         let scoped = AutomationRuleRow {
             board_id: Some(board),
             ..good.clone()
         };
         let scoped = AutomationRule::parse(&scoped).expect("scoped rule parses");
-        assert!(scoped.applies_to_board(board));
-        assert!(!scoped.applies_to_board(Uuid::now_v7()));
+        assert!(scoped.applies_to_board(Some(board)));
+        assert!(!scoped.applies_to_board(Some(Uuid::now_v7())));
+        assert!(
+            !scoped.applies_to_board(None),
+            "a ticket-less envelope with no board is not on anybody's board"
+        );
+        // An org-wide rule is the only shape that sees a subject with no board.
+        assert!(rule.applies_to_board(None));
 
         for (label, row) in [
             (
@@ -660,7 +1029,7 @@ mod tests {
         assert_eq!(split.semantic.len(), 1);
         assert!(matches_all(
             split.deterministic.iter().copied(),
-            &snapshot()
+            AutomationSubject::Ticket(&snapshot())
         ));
     }
 
