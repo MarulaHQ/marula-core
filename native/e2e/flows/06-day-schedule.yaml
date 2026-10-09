@@ -8,7 +8,7 @@ appId: org.marula.app
     visible:
       id: "today-screen"
     timeout: 20000
-- assertVisible: "Today"
+- assertVisible: "Today, tab.*"
 - runFlow:
     when:
       visible:

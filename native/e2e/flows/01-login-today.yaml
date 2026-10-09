@@ -21,9 +21,9 @@ appId: org.marula.app
     visible:
       id: "today-screen"
     timeout: 20000
-- assertVisible: "Today"
 - runFlow:
     when:
       visible: "Save Password?"
     commands:
       - tapOn: "Not Now"
+- assertVisible: "Today, tab.*"
