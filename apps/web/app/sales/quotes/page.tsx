@@ -16,13 +16,19 @@ import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
+  ColumnChooser,
+  DataToolbar,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTrigger,
   EmptyState,
+  ExportControl,
   FieldHint,
+  FilterBar,
   Input,
+  Kbd,
   Label,
   Select,
   SelectContent,
@@ -31,18 +37,22 @@ import {
   SelectValue,
   Spinner,
   StatusTag,
-  Tag,
   Table,
+  Tag,
   Td,
   Th,
   Tr,
   ViewSwitch,
+  applyDensity,
+  type FilterClause,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { api, useRequireAuth } from "../../../lib/api";
+import { downloadRowsCsv } from "../../../lib/csv-download";
+import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
 import { formatQtyMilli } from "../../../lib/stock-format";
@@ -69,12 +79,32 @@ const STATUSES: readonly (QuoteStatus | "all")[] = [
   "expired",
 ];
 
-const PENDING_STATUS: Record<"send" | "accept" | "decline" | "expire", QuoteStatus> = {
-  send: "sent",
-  accept: "accepted",
-  decline: "declined",
-  expire: "expired",
-};
+interface ColumnDef {
+  key: string;
+  label: string;
+  required?: boolean;
+}
+
+/** The quote ledger's columns, in the quoting surface's order: the quote, its
+ *  client, the value, the status, when it moves. The canonical ledger ends at
+ *  STATUS and draws no per-row actions — the lifecycle legs live on
+ *  `/sales/quotes/[id]` — so the Actions column is gone and the QUOTE cell is
+ *  the way in. Actions are also outside the column set, so the chooser can
+ *  never offer to hide them. */
+const COLUMNS: readonly ColumnDef[] = [
+  { key: "number", label: "Quote", required: true },
+  { key: "client", label: "Client" },
+  { key: "total", label: "Value" },
+  { key: "status", label: "Status" },
+  { key: "valid", label: "Valid until" },
+];
+
+const FILTER_FIELDS = [
+  { key: "number", label: "Quote number" },
+  { key: "client", label: "Client" },
+  { key: "status", label: "Status" },
+  { key: "valid_until", label: "Valid until" },
+];
 
 const EMPTY_LINE: QuoteLineInput = {
   description: null,
@@ -103,7 +133,34 @@ export default function QuotesPage(): ReactNode {
   const [statusFilter, setStatusFilter] = useState<QuoteStatus | "all">("all");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [busyQuoteId, setBusyQuoteId] = useState<string | null>(null);
+
+  // The ledger shell is the shared one, so the quotes ledger answers the pack's
+  // money-cluster toolbar rule (views left, filters, Columns/Filter/Export
+  // right) exactly as the invoice and credit-note ledgers do.
+  const prefs = useDataSurfacePrefs();
+  const [clauses, setClauses] = useState<FilterClause[]>([]);
+  const savedColumns = useMemo(() => prefs.view("quotes").columns, [prefs]);
+  const [columns, setColumns] = useState(() =>
+    COLUMNS.map((c) => {
+      const stored = savedColumns.find((s) => s.key === c.key);
+      return { key: c.key, label: c.label, visible: stored?.visible ?? true, required: c.required };
+    }),
+  );
+  const [order, setOrder] = useState<string[]>(() => {
+    const known = savedColumns.map((c) => c.key).filter((k) => COLUMNS.some((c) => c.key === k));
+    return [...known, ...COLUMNS.map((c) => c.key).filter((k) => !known.includes(k))];
+  });
+  useEffect(() => {
+    if (!prefs.ready) return;
+    setColumns(
+      COLUMNS.map((c) => {
+        const stored = savedColumns.find((s) => s.key === c.key);
+        return { key: c.key, label: c.label, visible: stored?.visible ?? true, required: c.required };
+      }),
+    );
+    const known = savedColumns.map((c) => c.key).filter((k) => COLUMNS.some((c) => c.key === k));
+    setOrder([...known, ...COLUMNS.map((c) => c.key).filter((k) => !known.includes(k))]);
+  }, [prefs.ready, savedColumns]);
 
   // Builder state
   const [createOpen, setCreateOpen] = useState(false);
@@ -142,10 +199,125 @@ export default function QuotesPage(): ReactNode {
     })();
   }, [auth.status]);
 
+  const clientName = useCallback(
+    (id: string) => (clients ?? []).find((c) => c.id === id)?.name ?? "Client",
+    [clients],
+  );
+
+  /** The status view narrows first; the filter clauses narrow what is left. */
   const filtered = useMemo(
     () => (quotes ?? []).filter((q) => statusFilter === "all" || q.status === statusFilter),
     [quotes, statusFilter],
   );
+
+  const filteredByClause = useMemo(() => {
+    if (clauses.length === 0) return filtered;
+    return filtered.filter((q) => {
+      const raw = (key: string): string => {
+        switch (key) {
+          case "number": return q.number ?? "";
+          case "client": return clientName(q.client_id);
+          case "status": return q.status ?? "";
+          case "valid_until": return q.valid_until ?? "";
+          default: return "";
+        }
+      };
+      return clauses.every((clause) => {
+        const hay = raw(clause.field).toLowerCase();
+        const needle = String(clause.value ?? "").toLowerCase();
+        if (clause.op === "is_set") return hay !== "";
+        if (clause.op === "is_not_set") return hay === "";
+        if (clause.op === "ne") return hay !== needle;
+        return hay.includes(needle);
+      });
+    });
+  }, [filtered, clauses, clientName]);
+
+  const visibleColumns = useMemo(
+    () =>
+      order
+        .map((key) => columns.find((c) => c.key === key))
+        .filter((c): c is (typeof columns)[number] => c !== undefined && c.visible),
+    [order, columns],
+  );
+
+  const exportQuotes = useCallback(() => {
+    const header = visibleColumns.map((c) => c.label);
+    const body = filteredByClause.map((q) => {
+      const values: Record<string, string> = {
+        number: q.number ?? "",
+        client: clientName(q.client_id),
+        total: money(q.total_minor, q.currency),
+        status: q.status ?? "",
+        valid_until: q.valid_until ?? "",
+      };
+      return visibleColumns.map((c) => values[c.key] ?? "");
+    });
+    downloadRowsCsv("quotes.csv", header, body);
+  }, [visibleColumns, filteredByClause, clientName]);
+
+  const cell = (key: string, q: Quote) => {
+    const validDays = daysUntil(q.valid_until ?? "");
+    switch (key) {
+      case "number":
+        return (
+          <Link
+            href={`/sales/quotes/${q.id}`}
+            className="underline decoration-[var(--m-border)] underline-offset-2"
+            style={{ color: "var(--m-accent-text)", textDecoration: "none" }}
+            data-testid={`quote-link-${q.id}`}
+          >
+            <span className="text-[13px]">{q.number}</span>
+          </Link>
+        );
+      case "client":
+        return (
+          <Link
+            href={`/clients/${q.client_id}`}
+            className="underline decoration-[var(--m-border)] underline-offset-2"
+            style={{ color: "var(--m-accent)" }}
+          >
+            {clientName(q.client_id)}
+          </Link>
+        );
+      case "total":
+        return <span className="block text-right text-[13px] tabular-nums">{money(q.total_minor, q.currency)}</span>;
+      case "status":
+        return (
+          <>
+            <MoneyPillTag pill={quotePill(q.status)} testId={`quote-status-${q.id}`} />
+            {q.converted_invoice_id != null ? (
+              <Link
+                href={`/billing/${q.converted_invoice_id}`}
+                className="ml-1.5 text-[11px] underline decoration-[var(--m-border)] underline-offset-2"
+                data-testid={`quote-invoice-link-${q.id}`}
+              >
+                invoice →
+              </Link>
+            ) : null}
+          </>
+        );
+      case "valid":
+        return (
+          <>
+            <span className="tabular-nums">{q.valid_until}</span>
+            {/* A quote past its date is a fact about money, not a breach:
+                blush, and with the days in words. */}
+            {validDays !== null && validDays < 0 && q.status === "sent" ? (
+              <span className="m-money-pill m-money-pill-blush" style={{ marginLeft: 6 }}>
+                past valid-until
+              </span>
+            ) : validDays !== null && validDays <= 7 && q.status === "sent" ? (
+              <span className="m-money-pill m-money-pill-blush" style={{ marginLeft: 6 }}>
+                expires in {validDays}d
+              </span>
+            ) : null}
+          </>
+        );
+      default:
+        return null;
+    }
+  };
 
   function quoteTotals(): { subtotalMinor: number; taxMinor: number; totalMinor: number } {
     let subtotalMinor = 0;
@@ -210,69 +382,6 @@ export default function QuotesPage(): ReactNode {
   async function refreshQuotes(): Promise<void> {
     const { data } = await api.api.GET("/api/v1/quotes");
     setQuotes(data ?? []);
-  }
-
-  async function runQuoteAction(
-    quote: Quote,
-    action: "send" | "accept" | "decline" | "expire",
-  ): Promise<void> {
-    setActionError(null);
-    setBusyQuoteId(quote.id);
-    const result = await runEnvelopeMutation({
-      describe: `Quote ${action}`,
-      entityId: quote.id,
-      buildBody: (base) => ({ ...base }),
-      optimistic: () => {
-        setQuotes((cur) =>
-          (cur ?? []).map((q) =>
-            q.id === quote.id
-              ? { ...q, status: PENDING_STATUS[action], updated_at: new Date().toISOString() }
-              : q,
-          ),
-        );
-      },
-      revert: () => {
-        setQuotes((cur) =>
-          (cur ?? []).map((q) => (q.id === quote.id ? { ...q, status: quote.status } : q)),
-        );
-      },
-      request: (client, body) =>
-        client.POST(`/api/v1/quotes/{id}/${action}`, {
-          params: { path: { id: quote.id } },
-          body: body as components["schemas"]["QuoteLifecycleRequest"],
-        }),
-    });
-    setBusyQuoteId(null);
-    if (result.ok === false) {
-      setActionError(
-        `Could not ${action.replaceAll("-", " ")} quote ${quote.number}: ${rejectionText(result, "rejected.")}`,
-      );
-      return;
-    }
-    await refreshQuotes();
-  }
-
-  async function convertQuote(quote: Quote): Promise<void> {
-    setActionError(null);
-    setBusyQuoteId(quote.id);
-    const result = await runEnvelopeMutation({
-      describe: "Convert quote to invoice",
-      entityId: quote.id,
-      buildBody: (base) => ({ ...base }),
-      optimistic: () => {},
-      revert: () => {},
-      request: (client, body) =>
-        client.POST("/api/v1/quotes/{id}/convert-to-invoice", {
-          params: { path: { id: quote.id } },
-          body: body as components["schemas"]["QuoteLifecycleRequest"],
-        }),
-    });
-    setBusyQuoteId(null);
-    if (result.ok === false) {
-      setActionError(`Could not convert quote ${quote.number}: ${rejectionText(result, "rejected.")}`);
-      return;
-    }
-    await refreshQuotes();
   }
 
   async function createQuote(): Promise<void> {
@@ -358,13 +467,22 @@ export default function QuotesPage(): ReactNode {
 
   const totals = quoteTotals();
   const ledgerTotal = perCurrencySum(
-    filtered.map((q) => ({ currency: q.currency as string, amount: q.total_minor })),
+    filteredByClause.map((q) => ({ currency: q.currency as string, amount: q.total_minor })),
   );
 
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
       <MoneyHeader
         title="Quotes"
+        eyebrow="Billing"
+        stats={
+          /* The quoting surface pairs its count with the title; the cluster's
+             own shortcut pills still read from the unfiltered ledger. */
+          <span className="m-money-count" data-testid="quotes-count">
+            <span className="m-money-count-dot" aria-hidden="true" />
+            {(quotes ?? []).length}
+          </span>
+        }
         actions={
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
@@ -609,23 +727,67 @@ export default function QuotesPage(): ReactNode {
         }
       />
 
-      {/* The lifecycle is the view: draft, sent, then accepted or declined, on
-          the same pill rules as the invoice (pack §9). */}
-      <div className="m-rise">
-        <ViewSwitch
-          label="Quote lifecycle"
-          activeId={statusFilter}
-          onChange={(id) => setStatusFilter(id as QuoteStatus | "all")}
-          views={STATUSES.map((st) => ({
-            id: st,
-            label: st === "all" ? "All quotes" : st,
-            hint:
-              st === "all"
-                ? String((quotes ?? []).length)
-                : String((quotes ?? []).filter((q) => q.status === st).length),
-          }))}
-        />
-      </div>
+      <DataToolbar
+        label="Quote ledger controls"
+        views={
+          <ViewSwitch
+            label="Quote lifecycle"
+            activeId={statusFilter}
+            onChange={(id) => setStatusFilter(id as QuoteStatus | "all")}
+            views={STATUSES.map((st) => ({
+              id: st,
+              label: st === "all" ? "All quotes" : st,
+              hint:
+                st === "all"
+                  ? String((quotes ?? []).length)
+                  : String((quotes ?? []).filter((q) => q.status === st).length),
+            }))}
+          />
+        }
+        filters={
+          <FilterBar
+            fields={FILTER_FIELDS}
+            clauses={clauses}
+            onChange={(next) => {
+              setClauses(next);
+              void prefs.save("quotes", {
+                columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
+                filters: next,
+              });
+            }}
+          />
+        }
+        columns={
+          <ColumnChooser
+            columns={columns.map((c) => ({
+              key: c.key,
+              label: c.label,
+              visible: c.visible,
+              required: c.required,
+            }))}
+            onChange={(next) => {
+              const merged = next.map((n) => {
+                const def = COLUMNS.find((d) => d.key === n.key);
+                return { key: n.key, label: def?.label ?? n.key, visible: n.visible, required: def?.required };
+              });
+              setColumns(merged);
+              void prefs.save("quotes", {
+                columns: merged.map((c) => ({ key: c.key, visible: c.visible })),
+                filters: clauses,
+              });
+            }}
+          />
+        }
+        export={
+          <ExportControl
+            columns={visibleColumns.map((c) => c.label)}
+            rowCount={filteredByClause.length}
+            filters={clauses}
+            onExport={exportQuotes}
+            formats={["csv"]}
+          />
+        }
+      />
 
       {actionError !== null && (
         <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert" data-testid="quotes-action-error">
@@ -636,7 +798,7 @@ export default function QuotesPage(): ReactNode {
       <MoneyCard testId="quotes-ledger">
         <div className="m-money-bar">
           <span>
-            <b>{filtered.length}</b> {statusFilter === "all" ? "quotes" : statusFilter} ·{" "}
+            <b>{filteredByClause.length}</b> {statusFilter === "all" ? "quotes" : statusFilter} ·{" "}
             {/* Only ever a single-currency roll-up: a mixed set says so
                 rather than inventing an FX total. */}
             <b>{ledgerTotal.value}</b> in total
@@ -646,92 +808,26 @@ export default function QuotesPage(): ReactNode {
         <Table data-testid="quotes-table">
           <thead>
             <tr>
-              <Th>Number</Th>
-              <Th>Client</Th>
-              <Th>Status</Th>
-              <Th className="text-right">Total</Th>
-              <Th>Valid until</Th>
-              <Th className="text-right">Actions</Th>
+              {visibleColumns.map((column) => (
+                <Th
+                  key={column.key}
+                  columnKey={column.key}
+                  className={column.key === "total" ? "text-right" : undefined}
+                >
+                  {column.label}
+                </Th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {filtered.map((q) => {
-              const validDays = daysUntil(q.valid_until ?? "");
-              return (
-                <Tr key={q.id} className="row-hover" data-testid={`quotes-row-${q.id}`}>
-                  <Td>
-                    <span className="text-[13px] font-medium">{q.number}</span>
-                  </Td>
-                  <Td>
-                    <Link
-                      href={`/clients/${q.client_id}`}
-                      className="underline decoration-[var(--m-border)] underline-offset-2"
-                      style={{ color: "var(--m-accent)" }}
-                    >
-                      {(clients ?? []).find((c) => c.id === q.client_id)?.name ?? "Client"}
-                    </Link>
-                  </Td>
-                  <Td>
-                    <MoneyPillTag pill={quotePill(q.status)} testId={`quote-status-${q.id}`} />
-                    {q.converted_invoice_id != null ? (
-                      <Link
-                        href={`/billing/${q.converted_invoice_id}`}
-                        className="ml-1.5 text-[11px] underline decoration-[var(--m-border)] underline-offset-2"
-                        data-testid={`quote-invoice-link-${q.id}`}
-                      >
-                        invoice →
-                      </Link>
-                    ) : null}
-                  </Td>
- <Td className="text-right text-[13px] tabular-nums">{money(q.total_minor, q.currency)}</Td>
-                  <Td>
-                    <span className="tabular-nums">{q.valid_until}</span>
-                    {/* A quote past its date is a fact about money, not a
-                        breach: blush, and with the days in words. */}
-                    {validDays !== null && validDays < 0 && q.status === "sent" ? (
-                      <span className="m-money-pill m-money-pill-blush" style={{ marginLeft: 6 }}>
-                        past valid-until
-                      </span>
-                    ) : validDays !== null && validDays <= 7 && q.status === "sent" ? (
-                      <span className="m-money-pill m-money-pill-blush" style={{ marginLeft: 6 }}>
-                        expires in {validDays}d
-                      </span>
-                    ) : null}
-                  </Td>
-                  <Td>
-                    <div className="flex justify-end gap-1">
-                      {q.status === "draft" && (
-                        <Button size="sm" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "send")}>
-                          Send
-                        </Button>
-                      )}
-                      {q.status === "sent" && (
-                        <>
-                          <Button size="sm" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "accept")}>
-                            Accept
-                          </Button>
-                          <Button size="sm" variant="secondary" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "decline")}>
-                            Decline
-                          </Button>
-                          <Button size="sm" variant="ghost" disabled={busyQuoteId === q.id} onClick={() => void runQuoteAction(q, "expire")}>
-                            Expire
-                          </Button>
-                        </>
-                      )}
-                      {q.status === "accepted" && (
-                        <Button size="sm" disabled={busyQuoteId === q.id} onClick={() => void convertQuote(q)}>
-                          Convert to invoice
-                        </Button>
-                      )}
-                      {(q.status === "declined" || q.status === "expired") && (
-                        <span style={{ color: "var(--m-text-muted)" }}>Decided</span>
-                      )}
-                    </div>
-                  </Td>
-                </Tr>
-              );
-            })}
-            {filtered.length === 0 && (
+            {filteredByClause.map((q) => (
+              <Tr key={q.id} className="row-hover" data-testid={`quotes-row-${q.id}`}>
+                {visibleColumns.map((column) => (
+                  <Td key={column.key}>{cell(column.key, q)}</Td>
+                ))}
+              </Tr>
+            ))}
+            {filteredByClause.length === 0 && (
               <Tr>
                 <Td>
                   <EmptyState message="No quotes match this filter yet." />
@@ -742,6 +838,17 @@ export default function QuotesPage(): ReactNode {
         </Table>
         </div>
       </MoneyCard>
+
+      <footer className="m-money-foot">
+        <span className="m-money-foot-sp" />
+        <DensitySwitch
+          value={prefs.density}
+          onChange={(step) => {
+            applyDensity(step);
+            void prefs.setDensity(step);
+          }}
+        />
+      </footer>
     </div>
   );
 }

@@ -99,6 +99,12 @@ export function MoneyStatPill({
 
 export interface MoneyHeaderProps {
   title: string;
+  /**
+   * The money documents sit in one category, and the category's name goes
+   * above the page's name — the pack draws it on every quoting list (Q01, C01).
+   * Defaults to the cluster's own label; pass `null` to drop it.
+   */
+  eyebrow?: ReactNode;
   /** Shortcut pills, already counted by the caller. */
   stats?: ReactNode;
   /** Anything that belongs at the far right of the header. */
@@ -107,7 +113,13 @@ export interface MoneyHeaderProps {
   nav?: boolean;
 }
 
-export function MoneyHeader({ title, stats, actions, nav = true }: MoneyHeaderProps): React.JSX.Element {
+export function MoneyHeader({
+  title,
+  eyebrow = "Billing",
+  stats,
+  actions,
+  nav = true,
+}: MoneyHeaderProps): React.JSX.Element {
   // The frame is the shared one (`SurfaceHeader`, the chrome lane's), so the
   // title size is decided in one place for the whole app rather than spelled
   // here a fifth time. The money sub-navigation rides in `meta`, beside the
@@ -115,6 +127,7 @@ export function MoneyHeader({ title, stats, actions, nav = true }: MoneyHeaderPr
   return (
     <SurfaceHeader
       title={title}
+      eyebrow={eyebrow}
       meta={
         <>
           {nav ? <MoneySubnav /> : null}

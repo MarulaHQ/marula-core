@@ -795,6 +795,23 @@ body {
 .m-money-invhead-sp {
   flex: 1;
 }
+/* The quoting surface pairs a count with its title, on the title's baseline:
+   a dot in the category's own family and the number beside it. Never colour
+   alone — the word lives in the surrounding label. */
+.m-money-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.m-money-count-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--m-gold);
+}
 .m-money-line {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 90px 110px 120px;

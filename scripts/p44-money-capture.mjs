@@ -13,6 +13,14 @@
 // asserts; it writes PNGs. Read-only against the API: it logs in, GETs, and
 // only interacts to bring a state to the screen. The one mutation (record
 // payment) runs against a local dev stack with a demo seed, not production.
+//
+// SEED GAP: the demo seed writes no time-entry approval_status, so every seeded
+// entry sits at `draft` and `/approvals` renders its empty state — none of the
+// pack's three queue states can be reached. Before running this battery on a
+// fresh stack, push entries into the queue the way a tech does:
+//   POST /api/v1/time-entries/{id}/submit  ({} as the body; it needs JSON)
+// for entries NOT owned by the capture seat, because the pack's own-entry rule
+// keeps the approver's own time out of the bulk pass. Twelve is enough.
 import { chromium } from "playwright";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -30,6 +38,7 @@ const ROUTES = [
   { stem: "credit-notes", path: "/billing/credit-notes" },
   { stem: "pipeline", path: "/sales/pipeline" },
   { stem: "quotes", path: "/sales/quotes" },
+  { stem: "quote-detail", path: "/sales/quotes/QUOTE_ID" },
   { stem: "catalog", path: "/sales/catalog" },
 ];
 
@@ -68,6 +77,18 @@ async function firstInvoiceId(page) {
     .getAttribute("href")
     .catch(() => null);
   return href === null ? null : href.replace("/billing/", "");
+}
+
+/** The first quote id, read off the quote ledger's row link (which is the way
+ *  into the document, per canonical Q01). */
+async function firstQuoteId(page) {
+  await page.goto(`${WEB}/sales/quotes`, { waitUntil: "networkidle" });
+  const href = await page
+    .locator('a[href^="/sales/quotes/"]')
+    .first()
+    .getAttribute("href")
+    .catch(() => null);
+  return href === null ? null : href.replace("/sales/quotes/", "");
 }
 
 /** A route shot with the settle wait, so the shot is the resting state. */
@@ -188,6 +209,7 @@ async function main() {
   // Resolve the invoice id once, before the themes: both passes shoot the
   // same record, so the two themes' detail shots are of the same invoice.
   let invoiceId = null;
+  let quoteId = null;
   {
     const context = await browser.newContext({
       viewport: DESKTOP,
@@ -198,6 +220,8 @@ async function main() {
     await login(page);
     invoiceId = await firstInvoiceId(page);
     console.log(`invoice id for detail shots: ${invoiceId ?? "NONE"}`);
+    quoteId = await firstQuoteId(page);
+    console.log(`quote id for detail shots: ${quoteId ?? "NONE"}`);
     await context.close();
   }
 
@@ -225,17 +249,18 @@ async function main() {
     await login(page);
     for (const route of ROUTES) {
       if (["approvals", "invoice-detail"].includes(route.stem)) continue;
-      const target = route.path === "/billing/INVOICE_ID" && invoiceId !== null
-        ? `/billing/${invoiceId}`
-        : route.path === "/billing/INVOICE_ID"
-          ? null
-          : route.path;
-      if (target === null) {
-        console.warn(`[${theme.name}] no invoice to shoot — skipping ${route.stem}`);
+      const raw =
+        route.path === "/billing/INVOICE_ID"
+          ? (invoiceId === null ? null : `/billing/${invoiceId}`)
+          : route.path === "/sales/quotes/QUOTE_ID"
+            ? (quoteId === null ? null : `/sales/quotes/${quoteId}`)
+            : route.path;
+      if (raw === null) {
+        console.warn(`[${theme.name}] no record to shoot — skipping ${route.stem}`);
         continue;
       }
-      await shot(page, target, path.join(OUT, `${theme.name}-${route.stem}.png`));
-      written.push(target);
+      await shot(page, raw, path.join(OUT, `${theme.name}-${route.stem}.png`));
+      written.push(raw);
     }
     await context.close();
   }

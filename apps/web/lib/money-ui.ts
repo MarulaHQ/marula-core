@@ -1,7 +1,8 @@
 // Money-cluster UI grammar (Wave 41 lane 8) — the words and numbers the
 // money surfaces speak, taken from the Marula surface pack's approvals
-// reference (brand/marula-mockups/marula-surface-pack/DESIGN-NOTES-approvals.md
-// §3–§7 and source/approvals.html).
+// reference (brand/packs/core-surface-pack/DESIGN-NOTES-approvals.md §3–§7
+// and source/approvals.html) and the quoting surface
+// (DESIGN-NOTES-quoting.md).
 //
 // Purpose: the cluster is one family, so the sub-navigation order, the H:MM
 // duration grammar, the ageing buckets, the colour meaning of a money status
@@ -14,7 +15,26 @@
 // stays the only one), no fetch, no JSX — the components read this and paint.
 // The colour meaning itself lives in the --m-* tokens; this only names it.
 
-/** The money sub-navigation, in the pack's order. */
+/**
+ * The money sub-navigation.
+ *
+ * The quoting surface names five money documents in one category — quotes,
+ * contracts, time approvals, invoices, credit notes (`DESIGN-NOTES-quoting.md`)
+ * — and says outright that "the final navigation is not decided" and that "the
+ * approvals screen should adopt the same tab row once navigation is settled".
+ * The approvals surface, which its own notes call the reference for the whole
+ * money cluster, ships the row below plus Pipeline and Catalogue. Two canonical
+ * references therefore disagree, and the citing note defers to a decision that
+ * has not happened, so this row stays as the approvals reference draws it.
+ *
+ * One reconciliation was tried and reverted: adding Contracts, the quoting
+ * surface's second money document. `/contracts` and `/contracts/[id]` are
+ * owned by the clients lane and wear neither `MoneyHeader` nor this
+ * sub-navigation, so joining them would put a money nav item on a page that
+ * drops the cluster's navigation — a dead end. When contracts adopts the money
+ * frame it joins this row; until then it is a cross-lane change, not a
+ * fidelity fix.
+ */
 export type MoneyItemId =
   | "approvals"
   | "invoices"
@@ -44,7 +64,7 @@ export function moneyItemFor(pathname: string): MoneyItemId | null {
   if (pathname === "/billing" || pathname.startsWith("/billing/")) {
     return pathname.startsWith("/billing/credit-notes") ? "credit-notes" : "invoices";
   }
-  if (pathname === "/sales/quotes") return "quotes";
+  if (pathname === "/sales/quotes" || pathname.startsWith("/sales/quotes/")) return "quotes";
   if (pathname === "/sales/pipeline") return "pipeline";
   if (pathname === "/sales/catalog") return "catalogue";
   return null;
@@ -160,7 +180,9 @@ export function invoicePill(status: string, paidMinor: number, totalMinor: numbe
   return { label: "Sent", family: "gold" };
 }
 
-/** Quote lifecycle: the same pill rules, one step earlier. */
+/** Quote lifecycle: the same pill rules, one step earlier. An expired quote is
+ *  money that lapsed, so it takes blush like any other lapsed amount — red is
+ *  never the expiry colour. */
 export function quotePill(status: string): MoneyPill {
   switch (status) {
     case "draft":
@@ -170,8 +192,9 @@ export function quotePill(status: string): MoneyPill {
     case "accepted":
       return { label: "Accepted", family: "green", icon: "check" };
     case "declined":
+      return { label: "Declined", family: "neutral" };
     case "expired":
-      return { label: status === "declined" ? "Declined" : "Expired", family: "neutral" };
+      return { label: "Expired", family: "blush" };
     default:
       return { label: status, family: "neutral" };
   }

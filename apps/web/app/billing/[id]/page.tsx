@@ -60,7 +60,6 @@ import {
 import {
   AgeingPill,
   MoneyCard,
-  MoneyHeader,
   MoneyKv,
   MoneyNote,
   MoneyPillTag,

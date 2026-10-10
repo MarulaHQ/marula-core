@@ -15,6 +15,7 @@ import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
@@ -25,11 +26,12 @@ import {
   Label,
   Spinner,
   StatusTag,
-  Tag,
   Table,
+  Tag,
   Td,
   Th,
   Tr,
+  applyDensity,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -38,7 +40,6 @@ import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
 import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
-import { DensitySwitch, applyDensity } from "@marula-core/ui";
 import { MoneyCard, MoneyHeader, MoneyPillTag, MoneyStatPill } from "../../../components/money";
 
 type CatalogItem = components["schemas"]["CatalogItemView"];

@@ -20,6 +20,7 @@ import { rejectionText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
@@ -36,6 +37,7 @@ import {
   Spinner,
   StatusTag,
   Tag,
+  applyDensity,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -45,10 +47,6 @@ import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
 import { DEAL_STATUS_TONE, perCurrencySum } from "../../../lib/money-summary";
-import {
-  DensitySwitch,
-  applyDensity,
-} from "@marula-core/ui";
 import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
 import { MoneyHeader, MoneyStatPill } from "../../../components/money";
 
