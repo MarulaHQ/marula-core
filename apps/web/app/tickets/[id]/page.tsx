@@ -1116,7 +1116,7 @@ async function changeStatus(statusId: string): Promise<void> {
           )}
 
           <h1
-            className="mb-0 mt-2.5 text-[22px] font-bold leading-tight tracking-[-0.03em]"
+            className="mb-0 mt-2.5 text-[26px] font-semibold leading-tight tracking-[-0.03em]"
             style={{ color: "var(--m-text)" }}
             data-testid="wb-ticket-title"
           >

@@ -13,6 +13,7 @@
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
+import { slaReading } from "../../../lib/ticket-ops";
 import type { components } from "@marula-core/sdk";
 import {
   Button,
@@ -30,7 +31,8 @@ import {
   SelectValue,
   Spinner,
   StatusTag,
-  Tag,
+  SurfaceHeader,
+  Badge,
   Textarea,
 } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
@@ -38,7 +40,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { BoardNav } from "../../../components/board-nav";
-import { api, useRequireAuth } from "../../../lib/api";
+import { api, useAuth, useRequireAuth } from "../../../lib/api";
 import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
 import {
   categoryTone,
@@ -281,6 +283,39 @@ function ChevronIcon(): ReactNode {
   return <Icon name="down" size={12} />;
 }
 
+/**
+ * The queue card's SLA pill. The same reading the ledger uses (`slaReading`),
+ * drawn in the same law the pack sets for every SLA cell: a breach is red with
+ * an alert icon and a word ("Breached 1h 05m" / "Overdue 2d"), an at-risk
+ * clock takes the warning pair, and colour is never alone.
+ */
+function KanbanSlaPill({ reading }: { reading: NonNullable<ReturnType<typeof slaReading>> }): ReactNode {
+  if (reading.tone === "danger") {
+    const span = reading.label.replace(/\s*over$/, "");
+    return (
+      <span className="m-sla-pill" style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+          <path d="M12 3 2.5 20h19L12 3Z" strokeLinejoin="round" />
+          <path d="M12 10v4M12 17.2v.1" strokeLinecap="round" />
+        </svg>
+        Overdue {span}
+      </span>
+    );
+  }
+  if (reading.tone === "warning") {
+    return (
+      <span className="m-sla-pill" style={{ background: "var(--m-status-warning-bg)", color: "var(--m-status-warning-fg)" }}>
+        {reading.label}
+      </span>
+    );
+  }
+  return (
+    <span className="text-[12px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+      {reading.label}
+    </span>
+  );
+}
+
 interface KanbanCardProps {
   ticket: BoardTicket;
   statuses: BoardStatus[];
@@ -310,9 +345,11 @@ function KanbanCard({
   // Popup-blocker fallback: an honest inline hint, never silent failure.
   const [popoutHint, setPopoutHint] = useState<string | null>(null);
   const tone = categoryTone(ticket.category);
-  const due = dueChip(ticket.due_at, Date.now());
-  const current = statuses.find((s) => s.id === ticket.status_id) ?? null;
-  const targets = sortStatuses(statuses).filter(
+  // The board model carries the ticket's own due clock but not the live SLA
+  // status, so the card reads through the same `slaReading` the ledger uses
+  // (its due-date fallback branch) — one law everywhere.
+  const reading = slaReading(ticket, null);
+  const current = statuses.find((s) => s.id === ticket.status_id) ?? null;  const targets = sortStatuses(statuses).filter(
     (s) =>
       ticket.status_id !== null &&
       transitionAllowed(statuses, workflow, ticket.status_id, s.id),
@@ -387,7 +424,12 @@ function KanbanCard({
             <StatusTag tone={tone}>
               {current?.name ?? humanCategoryLabel(ticket.category)}
             </StatusTag>
-            {due !== null && <StatusTag tone={due.tone}>{due.label}</StatusTag>}
+            {/* The queue card's SLA reads as the ledger's SLA does (the same
+                `slaReading`, the same law): a breach is red with an alert icon
+                and a word, an at-risk clock takes the warning pair, and calm
+                reads plain. The absolute date chip is gone — the countdown is
+                what the queue is judged on. */}
+            {reading !== null && <KanbanSlaPill reading={reading} />}
             <span className="ml-auto" />
             <span className="relative">
               <Button
@@ -503,9 +545,12 @@ function KanbanColumn({
       : status.category === "waiting" && tickets.length > 0
         ? `Queue ${tickets.length}`
         : null;
+  // A WIP signal is at-risk information, not a breach: the warning pair at
+  // the limit and approaching it. Red stays reserved for a real SLA breach,
+  // a P1, and the destructive confirm.
   const signalTone = wipLimit !== null
     ? tickets.length >= wipLimit
-      ? ("danger" as const)
+      ? ("warning" as const)
       : tickets.length * 4 >= wipLimit * 3
         ? ("warning" as const)
         : tone
@@ -568,9 +613,9 @@ function KanbanColumn({
           {tickets.length}
         </span>
         {signal !== null && (
-          <Tag tone={signalTone} data-testid={`kanban-wip-${status.name}`}>
+          <Badge tone={signalTone} data-testid={`kanban-wip-${status.name}`}>
             {signal}
-          </Tag>
+          </Badge>
         )}
         <span className="ml-auto" />
         <button
@@ -615,9 +660,17 @@ export default function BoardPage() {
   const params = useParams<{ id: string }>();
   const boardId = typeof params?.id === "string" ? params.id : "";
 
-  // IF4/IF5: hydrate-once board snapshot, deltas over the board channel.
+  // IF4/IF5: hydrate-once board snapshot, deltas over the board channel. The
+  // hydrate waits for auth: on a fresh deep link the token jar is empty until
+  // /me returns, and an unauthed first read 401s into a swallowed catch that
+  // left this board a spinner forever (qa-p44-ui-tickets-boards capture).
   const boardSpec = useMemo(() => makeBoardSpec(api.api, boardId), [boardId]);
-  const { data: board, loading, patch } = useInstantCollection(boardModelKey(boardId), boardSpec);
+  const authed = auth.status === "authed";
+  const { data: board, loading, patch } = useInstantCollection(
+    boardModelKey(boardId),
+    boardSpec,
+    authed,
+  );
   const { mutate } = useInstantWrite();
   useInstantChannels(boardId === "" ? [] : [`board:${boardId}`]);
 
@@ -634,11 +687,34 @@ export default function BoardPage() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  // The title block names the board. The board read model carries statuses
+  // and tickets but not the board's own name, so it comes from the nav entry
+  // — one org-scoped read, gated on auth like every other read here.
+  const [boardName, setBoardName] = useState<string | null>(null);
+  const [boardDescription, setBoardDescription] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (boardId === "" || !authed) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await api.api.GET("/api/v1/boards/nav");
+      if (cancelled || res.data === undefined) return;
+      const entry = res.data.find((b) => b.id === boardId);
+      if (entry === undefined) return;
+      setBoardName(entry.name);
+      setBoardDescription(entry.description ?? null);
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [boardId, authed]);
 
   // The transition matrix drives both drops and the Move menus. Failure
   // (e.g. no permission) falls back to the semantic floor client-mirror.
+  // It also waits for auth — a deep-linked first read races the token
+  // rotation and the swallowed catch would leave the matrix unfetched.
   useEffect(() => {
-    if (boardId === "") return;
+    if (boardId === "" || !authed) return;
     let cancelled = false;
     void api.api
       .GET("/api/v1/boards/{id}/transitions", { params: { path: { id: boardId } } })
@@ -649,7 +725,7 @@ export default function BoardPage() {
     return () => {
       cancelled = true;
     };
-  }, [boardId]);
+  }, [boardId, authed]);
 
   const statuses = board?.statuses ?? [];
   const ordered = useMemo(() => sortStatuses(statuses), [statuses]);
@@ -700,8 +776,7 @@ export default function BoardPage() {
       }).then((result) => {
         if (result.status === "rejected") {
           setMoveError(
-            result.message ??
-              `That move is not allowed by this board's workflow (${ticket.number})`,
+            `Not placed. ${result.message ?? `that move is not allowed by this board's workflow (${ticket.number})`}`,
           );
         }
       });
@@ -719,7 +794,7 @@ export default function BoardPage() {
       if (!transitionAllowed(statuses, workflow, ticket.status_id, statusId)) {
         const from = statuses.find((s) => s.id === ticket.status_id)?.name ?? "this status";
         const to = statuses.find((s) => s.id === statusId)?.name ?? "that status";
-        setMoveError(`Workflow does not allow ${from} → ${to} (${ticket.number})`);
+        setMoveError(`Not placed. Workflow does not allow ${from} → ${to} (${ticket.number}).`);
         return;
       }
       moveTicket(ticket, statusId);
@@ -743,22 +818,31 @@ export default function BoardPage() {
           className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4 md:p-6"
           style={{ borderLeft: "1px solid var(--m-border)" }}
         >
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-sm font-semibold">Board</h1>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => router.push(`/boards/${boardId}/fields`)}
-            >
-              Custom fields
-            </Button>
-            <span className="ml-auto" />
-            <MembersPanel boardId={boardId} />
-            <NewTicketDialog
-              boardId={boardId}
-              canCreate={(auth.me?.permissions ?? []).includes("tickets:create") ?? false}
-            />
-          </div>
+          <SurfaceHeader
+            title={boardName ?? "Board"}
+            description={boardDescription ?? undefined}
+            meta={
+              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                {visible.length} of {totalTickets} {totalTickets === 1 ? "ticket" : "tickets"}
+              </span>
+            }
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => router.push(`/boards/${boardId}/fields`)}
+              >
+                Custom fields
+              </Button>
+              <span className="ml-auto" />
+              <MembersPanel boardId={boardId} />
+              <NewTicketDialog
+                boardId={boardId}
+                canCreate={(auth.me?.permissions ?? []).includes("tickets:create") ?? false}
+              />
+            </div>
+          </SurfaceHeader>
 
           <div
             role="toolbar"
@@ -846,11 +930,15 @@ export default function BoardPage() {
           </div>
 
           {moveError !== null && (
+            /* A rejected move is a decision/problem, not a breach: it takes the
+               warning pair and says the reason plainly ("Not placed. {reason}"),
+               never the red pair — red means a real SLA breach, a P1, or the
+               destructive confirm (DESIGN-NOTES red-means-breach law). */
             <p
               role="alert"
               data-testid="board-move-error"
               className="rounded-[var(--m-radius-control)] px-3 py-1.5 text-xs"
-              style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
+              style={{ background: "var(--m-status-warning-bg)", color: "var(--m-status-warning-fg)" }}
             >
               {moveError}
             </p>
@@ -923,7 +1011,9 @@ function AssigneeFilter({
   onChange: (userId: string) => void;
 }) {
   const [directory, setDirectory] = useState<OrgUser[] | null>(null);
+  const auth = useAuth();
   useEffect(() => {
+    if (auth.status !== "authed") return;
     let cancelled = false;
     void api.api
       .GET("/api/v1/org/users", { params: { query: { limit: 200 } } })
@@ -934,7 +1024,7 @@ function AssigneeFilter({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [auth.status]);
 
   const active = value !== null && directory?.some((u) => u.id === value);
   return (

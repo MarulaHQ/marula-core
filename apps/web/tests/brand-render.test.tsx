@@ -222,7 +222,12 @@ describe("ledger brand render", () => {
     // render, so a fixture sitting exactly on a minute boundary floors to a
     // different minute depending on how long the suite took to get here.
     expect(table).toMatch(/1[12]m left/);  // at risk: inside the 30-minute window
-    expect(table).toMatch(/\d+h( \d+m)? over/); // breached
+    // The breached cell is the pack's pill (qa-p44-ui-tickets-boards): an
+    // alert icon plus word + duration. An SLA-applied clock reads
+    // "Breached 1h 05m"; a due-date fallback reads "Overdue 1h 05m" — the
+    // word replaces the old "1h 05m over" phrasing, and colour is never
+    // alone.
+    expect(table).toMatch(/(Breached|Overdue) \d+h( \d+m)?/); // breached
     expect(table).toContain("—");          // no SLA policy and no due date
     // The four status tones.
     expect(table).toContain("In progress");

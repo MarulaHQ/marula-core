@@ -141,7 +141,10 @@ describe("/tickets ledger", () => {
     expect(screen.getByLabelText("Ticket views")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Add filter/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Columns/ })).toBeInTheDocument();
-    expect(screen.getByText("3 rows")).toBeInTheDocument();
+    // The footer reads "shown of total" per the pack, with the density control
+    // beside it (wave 44 lane 2).
+    expect(screen.getByText(/Showing \d+ of \d+ tickets/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Row density")).toBeInTheDocument();
     cleanup();
   });
 

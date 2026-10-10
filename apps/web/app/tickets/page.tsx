@@ -28,10 +28,12 @@ import {
   Card,
   ColumnChooser,
   DataToolbar,
+  DensitySwitch,
   EmptyState,
   ExportControl,
   FilterBar,
   Spinner,
+  SurfaceHeader,
   type ChoosableColumn,
   type ExportRequest,
   type FilterClause,
@@ -44,12 +46,13 @@ import {
 } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../lib/api";
 import { useDataSurfacePrefs, type SavedSurfaceView } from "../../lib/data-surface-prefs";
 import {
   TicketTable,
   type LedgerColumnDef,
+  type LedgerNameMaps,
 } from "../../components/tickets/ledger-table";
 import { useTicketSlaMap } from "../../lib/ticket-sla";
 import {
@@ -69,6 +72,10 @@ const SURFACE = "tickets.list";
 /** One page. Deep pages go through the keyset cursor, which a bulk-selection
  *  surface cannot act on without walking every id first. */
 const PAGE_LIMIT = 50;
+/** One identity for "no rows yet", so effects keyed on the shown list do not
+ *  see a fresh empty array on every render while a load is in flight. Never
+ *  mutated — it is shared, not copied. */
+const EMPTY_ROWS: TicketRow[] = [];
 
 /** The mockup's views are by ownership, not by category: the queue a person
  *  works from is "mine", then "unassigned" for the dispatcher, then everything. */
@@ -89,6 +96,15 @@ const COLUMN_DEFS: ColumnDef[] = [
   { key: "sla", label: "SLA", visible: true, width: 116, sortable: true },
   { key: "assignee", label: "Assignee", visible: true, width: 150, sortable: false },
   { key: "updated_at", label: "Last activity", visible: true, width: 104, sortable: true },
+  // The pack's "available but hidden" six: Contact, Board, Type and Created
+  // are derivable from the row payload, so they ship as choosable columns
+  // that cost their name read only while shown. Time logged and Source are
+  // NOT offered — the payload carries no source field and a time-logged
+  // column would mean a per-row fan-out the list never promised.
+  { key: "contact", label: "Contact", visible: false, width: 150, sortable: false },
+  { key: "board", label: "Board", visible: false, width: 140, sortable: true },
+  { key: "type", label: "Type", visible: false, width: 140, sortable: false },
+  { key: "created_at", label: "Created", visible: false, width: 110, sortable: true },
 ];
 
 const DEFAULT_COLUMNS: ChoosableColumn[] = COLUMN_DEFS.map((c) => ({
@@ -151,10 +167,22 @@ export default function TicketsListPage() {
   const [error, setError] = useState<string | null>(null);
   const [people, setPeople] = useState<Record<string, string>>({});
   const [clients, setClients] = useState<Record<string, string>>({});
+  // The optional columns' name maps. Each loads only while its column is
+  // shown, so a column nobody turned on costs nothing.
+  const [contacts, setContacts] = useState<Record<string, string>>({});
+  const [boardNames, setBoardNames] = useState<Record<string, string>>({});
+  const [typeNames, setTypeNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [bulkPriority, setBulkPriority] = useState<components["schemas"]["Priority"]>("p2");
+  const [bulkAssignee, setBulkAssignee] = useState("");
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkBoard, setBulkBoard] = useState("");
+  /** The statuses of the single board a multi-board selection shares, if
+   *  any: the bulk Set status only means something when the selected rows
+   *  all live on one board (a status id is board-scoped). */
+  const [bulkBoardStatuses, setBulkBoardStatuses] = useState<{ id: string; name: string }[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
   /** The attention shortcut the mockup puts in the title row: null, "risk" or "breach". */
   const [attention, setAttention] = useState<null | "risk" | "breach">(null);
@@ -183,7 +211,7 @@ export default function TicketsListPage() {
       setRows(null);
       setError(null);
       const result = await api.api.GET("/api/v1/tickets", {
-        params: { query: { limit: PAGE_LIMIT } },
+            params: { query: { limit: PAGE_LIMIT } },
       });
       if (result.error !== undefined || result.data === undefined) {
         setError("The ticket list did not load. Check your connection and retry.");
@@ -249,6 +277,80 @@ export default function TicketsListPage() {
   // --- derived rows -------------------------------------------------------
   const myId = auth.status === "authed" ? auth.me?.user_id ?? null : null;
 
+  // The optional columns, read only while shown. Board and Type names are
+  // one org-scoped read each; a Contact needs its client's directory, which
+  // is bounded by the distinct clients on this page and cached in state.
+  const showsOptional = useMemo(
+    () => ({
+      contact: visible.some((c) => c.key === "contact"),
+      board: visible.some((c) => c.key === "board"),
+      type: visible.some((c) => c.key === "type"),
+    }),
+    [visible],
+  );
+
+  /** The maps as the table and the export take them, gated per column. */
+  const optionalNames = useCallback(
+    (): LedgerNameMaps => ({
+      contacts: showsOptional.contact ? contacts : undefined,
+      boards: showsOptional.board ? boardNames : undefined,
+      types: showsOptional.type ? typeNames : undefined,
+    }),
+    [showsOptional, contacts, boardNames, typeNames],
+  );
+
+  useEffect(() => {
+    if (auth.status !== "authed" || !showsOptional.board) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await api.api.GET("/api/v1/boards/nav");
+      if (cancelled || res.data === undefined) return;
+      const map: Record<string, string> = {};
+      for (const board of res.data) map[board.id] = board.name;
+      setBoardNames(map);
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status, showsOptional.board]);
+
+  useEffect(() => {
+    if (auth.status !== "authed" || !showsOptional.type) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await api.api.GET("/api/v1/taxonomy/types", { params: { query: {} } });
+      if (cancelled || res.data === undefined) return;
+      const map: Record<string, string> = {};
+      for (const node of res.data) map[node.id] = node.name;
+      setTypeNames(map);
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status, showsOptional.type]);
+
+  useEffect(() => {
+    if (auth.status !== "authed" || !showsOptional.contact) return;
+    const clientIds = [...new Set((rows ?? []).map((r) => r.client_id).filter((id): id is string => id !== null && id !== undefined))];
+    if (clientIds.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const map: Record<string, string> = {};
+      await Promise.all(
+        clientIds.map(async (clientId) => {
+          const res = await api.api.GET("/api/v1/clients/{id}/contacts", {
+            params: { path: { id: clientId } },
+          });
+          for (const contact of res.data ?? []) map[contact.id] = contact.name;
+        }),
+      );
+      if (!cancelled) setContacts(map);
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status, showsOptional.contact, rows]);
+
   // Counts for the view switch, computed from the loaded rows.
   const viewCounts = useMemo(() => {
     const all = rows ?? [];
@@ -285,20 +387,49 @@ export default function TicketsListPage() {
         return attention === "breach" ? tone === "danger" : tone === "warning";
       });
     }
-    const ordered = sortTickets(base.filter((r) => matchesClauses(r, clauses)), sort);
+    // Two filter fields take a human word where the row carries an id or an
+    // enum, so they are translated before matching: a Client clause names the
+    // client and a Status clause names the status label. That is what keeps
+    // the chip reading "Client is Acme Corporation" / "Status is not Closed"
+    // — the pack's chip wording — instead of a UUID or an enum slug.
+    const resolved = clauses.map((c) => {
+      if (c.field === "client_id") {
+        const id = Object.entries(clients).find(
+          ([, name]) => name.toLowerCase() === (c.value ?? "").trim().toLowerCase(),
+        );
+        return { ...c, value: id?.[0] ?? "\u0000no-such-client" };
+      }
+      if (c.field === "category") {
+        const hit = (Object.entries(CATEGORY_LABEL) as [string, string][]).find(
+          ([, label]) => label.toLowerCase() === (c.value ?? "").trim().toLowerCase(),
+        );
+        return { ...c, value: hit?.[0] ?? "\u0000no-such-status" };
+      }
+      return c;
+    });
+    const ordered = sortTickets(base.filter((r) => matchesClauses(r, resolved)), sort);
     // SLA is not a row field: it comes from the SLA map, so it sorts here.
     // Soonest first by default, which is the mockup's order; a ticket with no
-    // policy sorts last rather than claiming first place.
+    // policy sorts last rather than claiming first place. The sentinel is a
+    // finite number and ties compare 0: Infinity - Infinity is NaN, and a
+    // NaN comparator scrambles V8's order (the captured ledger read neither
+    // soonest-first nor number order until this was fixed).
     if (sort?.field === "sla") {
-      const rank = (id: string) => sla[id]?.minutes_remaining ?? Number.POSITIVE_INFINITY;
-      return [...ordered].sort((a, b) =>
-        sort.dir === "asc" ? rank(a.id) - rank(b.id) : rank(b.id) - rank(a.id),
-      );
+      const NO_SLA = Number.MAX_SAFE_INTEGER;
+      const rank = (id: string) => sla[id]?.minutes_remaining ?? NO_SLA;
+      const dir = sort.dir === "asc" ? 1 : -1;
+      return [...ordered].sort((a, b) => {
+        const diff = (rank(a.id) - rank(b.id)) * dir;
+        return diff === 0 ? a.number.localeCompare(b.number) : diff;
+      });
     }
     return ordered;
-  }, [rows, clauses, sort, view, myId, attention, sla]);
+  }, [rows, clauses, sort, view, myId, attention, sla, clients]);
 
-  const shown = filtered ?? [];
+  // A stable identity matters: an effect keyed on `shown` (the bulk status
+  // read below) would otherwise see a fresh `[]` on every render while the
+  // rows are still loading and loop.
+  const shown = useMemo(() => filtered ?? EMPTY_ROWS, [filtered]);
 
   // A selection that outlives its row would let a bulk act on a ticket that is
   // no longer on screen, so it is pruned against what is actually rendered.
@@ -324,6 +455,30 @@ export default function TicketsListPage() {
       return next;
     });
   }, []);
+
+  /** The row's one-click Take it: one PATCH against the caller's own id,
+   *  reported in the surface's notice exactly like a bulk act. */
+  const takeRow = useCallback(
+    async (row: TicketRow) => {
+      if (auth.me === null) return;
+      setNotice(null);
+      try {
+        const res = await api.api.PATCH("/api/v1/tickets/{id}", {
+          params: { path: { id: row.id } },
+          body: { assignee_id: auth.me.user_id },
+        });
+        if (res.error !== undefined) {
+          setNotice(`${row.number} was not taken — try again.`);
+          return;
+        }
+        setNotice(`Took ${row.number}. It is in My queue now.`);
+        setReloadKey((k) => k + 1);
+      } catch {
+        setNotice(`${row.number} was not taken — try again.`);
+      }
+    },
+    [auth.me],
+  );
 
   // --- persistence --------------------------------------------------------
   const persist = useCallback(
@@ -380,6 +535,7 @@ export default function TicketsListPage() {
       patch: {
         priority?: components["schemas"]["Priority"];
         assignee_id?: string | null;
+        category_id?: string | null;
       },
       verb: string,
     ) => {
@@ -415,13 +571,105 @@ export default function TicketsListPage() {
     [selected],
   );
 
+  /** Move a selection to another board. Each ticket remaps its own status
+   *  through the semantic categories (the server's rule); the ones it cannot
+   *  place without a human choice are named in the notice rather than moved
+   *  on a guess, and a rejected row keeps its board. */
+  const runBulkMove = useCallback(
+    async (targetBoardId: string) => {
+      const ids = [...selected];
+      if (ids.length === 0) return;
+      setBulkBusy(true);
+      setNotice(null);
+      let ok = 0;
+      let conflicts = 0;
+      let rejected = 0;
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const res = await api.api.POST("/api/v1/tickets/{id}/move-board", {
+              params: { path: { id } },
+              body: { target_board_id: targetBoardId },
+            });
+            if (res.error === undefined) ok += 1;
+            else if (res.response.status === 409) conflicts += 1;
+            else rejected += 1;
+          } catch {
+            rejected += 1;
+          }
+        }),
+      );
+      setBulkBusy(false);
+      const parts = [`Moved ${ok} of ${ids.length}.`];
+      if (conflicts > 0) {
+        parts.push(
+          `${conflicts} ${conflicts === 1 ? "needs" : "need"} a status choice — open ${conflicts === 1 ? "it" : "them"} to pick one.`,
+        );
+      }
+      if (rejected > 0) {
+        parts.push(`${rejected} could not move — nothing changed on those rows.`);
+      }
+      setNotice(parts.join(" "));
+      setSelected(new Set());
+      setBulkBoard("");
+      setReloadKey((k) => k + 1);
+    },
+    [selected],
+  );
+
+  // The target board list for the bulk move, read once while a selection
+  // exists (one org-scoped read, then the bar owns the pick).
+  const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (auth.status !== "authed" || selected.size === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await api.api.GET("/api/v1/boards/nav");
+      if (cancelled || res.data === undefined) return;
+      setBoards(res.data.map((b) => ({ id: b.id, name: b.name })));
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status, selected.size]);
+
+  // While a selection exists on ONE board, that board's statuses can be
+  // offered to the Set status picker (a status id is board-scoped, so a
+  // mixed-board selection has no meaningful status to set).
+  useEffect(() => {
+    if (selected.size === 0) {
+      setBulkBoardStatuses([]);
+      setBulkStatus("");
+      return;
+    }
+    const boardIds = new Set(shown.filter((r) => selected.has(r.id)).map((r) => r.board_id));
+    if (boardIds.size !== 1) {
+      setBulkBoardStatuses([]);
+      setBulkStatus("");
+      return;
+    }
+    const boardId = [...boardIds][0];
+    let cancelled = false;
+    void (async () => {
+      const res = await api.api.GET("/api/v1/boards/{id}/statuses", { params: { path: { id: boardId ?? "" } } });
+      if (cancelled || res.data === undefined) return;
+      setBulkBoardStatuses(res.data.map((s) => ({ id: s.id, name: s.name })));
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, shown]);
+
   // --- export -------------------------------------------------------------
   const onExport = useCallback(
     (request: ExportRequest) => {
       const header = request.columns;
       const lines = [header.map(csvCell).join(",")];
+      // The optional columns' name maps, so an exported Contact/Board/Type
+      // reads as a name rather than the id the row carries.
+      const names = optionalNames();
       for (const row of shown) {
-        lines.push(header.map((key) => csvCell(exportValue(row, key, sla, people, auth.me?.user_id ?? null))).join(","));
+        lines.push(header.map((key) => csvCell(exportValue(row, key, sla, people, auth.me?.user_id ?? null, names))).join(","));
       }
       const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -434,8 +682,29 @@ export default function TicketsListPage() {
       URL.revokeObjectURL(url);
       setNotice(`Exported ${shown.length} ${shown.length === 1 ? "row" : "rows"} as CSV.`);
     },
-    [shown, view, sla, people, auth.me],
+    [shown, view, sla, people, auth.me, contacts, boardNames, typeNames, showsOptional],
   );
+
+  /** The bulk bar's "Export N": the selection only, never the whole view. */
+  const onExportSelected = useCallback(() => {
+    const rows = shown.filter((r) => selected.has(r.id));
+    const names = optionalNames();
+    const keys = visible.map((c) => c.key);
+    const lines = [keys.map(csvCell).join(",")];
+    for (const row of rows) {
+      lines.push(keys.map((key) => csvCell(exportValue(row, key, sla, people, auth.me?.user_id ?? null, names))).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `tickets-${view}-selection-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setNotice(`Exported ${rows.length} selected ${rows.length === 1 ? "row" : "rows"} as CSV.`);
+  }, [shown, selected, visible, sla, people, auth.me?.user_id, view, optionalNames]);
 
   if (auth.status !== "authed") return null;
 
@@ -443,40 +712,44 @@ export default function TicketsListPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-lg font-semibold">Tickets</h1>
-        {/* The mockup's attention shortcuts ride the title row, doubling as
-            filters. Blush for "at risk", red for "breached"; the count is the
-            number of rows that match. "Changed since you looked" is the pack's
-            third shortcut and still unbuilt (the list payload carries no unread
-            flag). */}
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Attention shortcuts">
-          {([
-            { id: "risk", label: "At risk", colour: "var(--m-blush)", count: attentionCounts.risk },
-            { id: "breach", label: "Breached", colour: "var(--m-status-danger-fg)", count: attentionCounts.breach },
-          ] as const).map((s) => {
-            const active = attention === s.id;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setAttention((a) => (a === s.id ? null : s.id))}
-                className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
-                style={{
-                  borderColor: active ? s.colour : "var(--m-border)",
-                  color: "var(--m-text-secondary)",
-                  background: active ? "var(--m-surface-2)" : "var(--m-surface)",
-                }}
-              >
-                <span className="inline-block h-2 w-2 rounded-full" style={{ background: s.colour }} aria-hidden="true" />
-                {s.label}
-                <span className="tabular-nums font-medium" style={{ color: "var(--m-text)" }}>{s.count}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <SurfaceHeader
+        title="Tickets"
+        meta={
+          /* The mockup's attention shortcuts ride the title row, doubling as
+             filters. Blush for "at risk", red for "breached"; the count is the
+             number of rows that match. "Changed since you looked" is the pack's
+             third shortcut and still unbuilt (the list payload carries no unread
+             flag). The title row's "New ticket" primary is likewise unbuilt:
+             the only create flow in the product is the board's dialog, so the
+             slot stays empty rather than shipping a dead button. */
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Attention shortcuts">
+            {([
+              { id: "risk", label: "At risk", colour: "var(--m-blush)", count: attentionCounts.risk },
+              { id: "breach", label: "Breached", colour: "var(--m-status-danger-fg)", count: attentionCounts.breach },
+            ] as const).map((s) => {
+              const active = attention === s.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setAttention((a) => (a === s.id ? null : s.id))}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
+                  style={{
+                    borderColor: active ? s.colour : "var(--m-border)",
+                    color: "var(--m-text-secondary)",
+                    background: active ? "var(--m-surface-2)" : "var(--m-surface)",
+                  }}
+                >
+                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: s.colour }} aria-hidden="true" />
+                  {s.label}
+                  <span className="tabular-nums font-medium" style={{ color: "var(--m-text)" }}>{s.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        }
+      />
 
       <DataToolbar
         label="Ticket list controls"
@@ -509,55 +782,6 @@ export default function TicketsListPage() {
             onExport={onExport}
           />
         }
-        trailing={
-          selected.size > 0 ? (
-            <div className="m-bulk-bar" role="group" aria-label="Bulk actions">
-              <span className="m-bulk-count">
-                {selected.size} selected
-              </span>
-              <select
-                className="m-input"
-                aria-label="Priority to set on the selected tickets"
-                value={bulkPriority}
-                onChange={(e) => setBulkPriority(e.target.value as components["schemas"]["Priority"])}
-              >
-                <option value="p1">P1</option>
-                <option value="p2">P2</option>
-                <option value="p3">P3</option>
-                <option value="p4">P4</option>
-              </select>
-              {/* The two actions are a PAIR: the picker sets a value and this
-                  button applies it, so the button the picker feeds is the one
-                  that carries the primary treatment. It previously did not,
-                  which left "Assign to me" as the loudest control on a row it
-                  has nothing to do with. Two bulk writes are also two
-                  destructive-ish acts, so neither earns the solid destructive
-                  pair; primary says "this is the one you are here for". */}
-              <Button
-                size="sm"
-                variant="primary"
-                disabled={bulkBusy}
-                onClick={() => void runBulk({ priority: bulkPriority }, `Set ${bulkPriority.toUpperCase()}`)}
-              >
-                Set priority
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={bulkBusy || auth.me === null}
-                onClick={() =>
-                  auth.me !== null &&
-                  void runBulk({ assignee_id: auth.me.user_id }, "Assigned to you")
-                }
-              >
-                Assign to me
-              </Button>
-              <Button size="sm" variant="ghost" disabled={bulkBusy} onClick={() => setSelected(new Set())}>
-                Clear
-              </Button>
-            </div>
-          ) : null
-        }
       />
 
       {notice !== null ? (
@@ -579,23 +803,40 @@ export default function TicketsListPage() {
         </Card>
       ) : error !== null ? (
         <Card>
-          <div className="flex items-center justify-between gap-3 p-4">
-            <p role="alert" className="text-[13px]">
-              {error}
-            </p>
-            <Button variant="secondary" size="sm" onClick={() => void refresh()}>
-              Retry
-            </Button>
+          <div className="p-6">
+            <EmptyState
+              message={
+                "Couldn't load tickets. Filters and columns are saved, so nothing is lost."
+              }
+              illustration={<ErrorMark />}
+              action={
+                // The pack's error state carries a second action, "Check
+                // status". This product has no status page to point it at, so
+                // the slot stays empty rather than shipping a dead button.
+                <Button size="sm" variant="primary" onClick={() => void refresh()}>
+                  Retry
+                </Button>
+              }
+            />
           </div>
         </Card>
       ) : shown.length === 0 ? (
         <Card>
           <div className="p-6">
-            <EmptyState
-              message={
-                clauses.length > 0
-                  ? "No tickets match these filters. Remove one to widen the search."
-                  : attention === "breach"
+            {clauses.length > 0 ? (
+              <EmptyState
+                message="No tickets match these filters. Remove one to widen the search."
+                illustration={<MagnifierMark />}
+                action={
+                  <Button size="sm" variant="secondary" onClick={() => onClauses([])}>
+                    Clear filters
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                message={
+                  attention === "breach"
                     ? "Nothing is breaching its SLA. Good."
                     : attention === "risk"
                       ? "Nothing is at risk right now."
@@ -604,15 +845,21 @@ export default function TicketsListPage() {
                         : view === "unassigned"
                           ? "Everything open has an owner."
                           : "There are no tickets yet."
-              }
-              action={
-                clauses.length > 0 ? (
-                  <Button size="sm" variant="secondary" onClick={() => onClauses([])}>
-                    Clear filters
-                  </Button>
-                ) : undefined
-              }
-            />
+                }
+                illustration={<SparklesMark />}
+                action={
+                  view === "mine" && viewCounts.unassigned > 0 ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => onView("unassigned")}
+                    >
+                      See unassigned ({viewCounts.unassigned})
+                    </Button>
+                  ) : undefined
+                }
+              />
+            )}
           </div>
         </Card>
       ) : (
@@ -624,6 +871,7 @@ export default function TicketsListPage() {
             sla={sla}
             people={people}
             clients={clients}
+            names={optionalNames()}
             numbersById={numbersById}
             myId={auth.me?.user_id ?? null}
             selected={selected}
@@ -638,13 +886,132 @@ export default function TicketsListPage() {
               onColumns(columns.map((c) => (c.key === key ? { ...c, width } : c)))
             }
             onToggleRow={toggleOne}
+            onTake={(row) => void takeRow(row)}
+            bulk={
+              selected.size > 0
+                ? {
+                    count: `${selected.size} selected`,
+                    children: (
+                      <>
+                        {/* The pickers each set a value and the button the
+                            picker feeds carries the primary treatment: the two
+                            are a pair, so the control the picker feeds is the
+                            one that reads as "this is why you are here". */}
+                        <select
+                          className="m-input"
+                          aria-label="User to assign the selected tickets to"
+                          value={bulkAssignee}
+                          onChange={(e) => setBulkAssignee(e.target.value)}
+                        >
+                          <option value="">Assign to…</option>
+                          {Object.entries(people).map(([id, name]) => (
+                            <option key={id} value={id}>
+                              {name}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={bulkBusy || bulkAssignee === ""}
+                          onClick={() => void runBulk({ assignee_id: bulkAssignee }, "Assigned")}
+                        >
+                          Assign
+                        </Button>
+                        {bulkBoardStatuses.length > 0 ? (
+                          <>
+                            <select
+                              className="m-input"
+                              aria-label="Status to set on the selected tickets"
+                              value={bulkStatus}
+                              onChange={(e) => setBulkStatus(e.target.value)}
+                            >
+                              <option value="">Set status…</option>
+                              {bulkBoardStatuses.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name}
+                                </option>
+                              ))}
+                            </select>
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              disabled={bulkBusy || bulkStatus === ""}
+                              onClick={() => void runBulk({ category_id: bulkStatus }, "Status set")}
+                            >
+                              Set status
+                            </Button>
+                          </>
+                        ) : null}
+                        <select
+                          className="m-input"
+                          aria-label="Priority to set on the selected tickets"
+                          value={bulkPriority}
+                          onChange={(e) => setBulkPriority(e.target.value as components["schemas"]["Priority"])}
+                        >
+                          <option value="p1">P1</option>
+                          <option value="p2">P2</option>
+                          <option value="p3">P3</option>
+                          <option value="p4">P4</option>
+                        </select>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={bulkBusy}
+                          onClick={() => void runBulk({ priority: bulkPriority }, `Set ${bulkPriority.toUpperCase()}`)}
+                        >
+                          Set priority
+                        </Button>
+                        <select
+                          className="m-input"
+                          aria-label="Board to move the selected tickets to"
+                          value={bulkBoard}
+                          onChange={(e) => setBulkBoard(e.target.value)}
+                        >
+                          <option value="">Move to board…</option>
+                          {boards.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={bulkBusy || bulkBoard === ""}
+                          onClick={() => void runBulkMove(bulkBoard)}
+                        >
+                          Move
+                        </Button>
+                        <Button size="sm" variant="secondary" disabled={bulkBusy} onClick={onExportSelected}>
+                          Export {selected.size}
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={bulkBusy} onClick={() => setSelected(new Set())}>
+                          Clear selection
+                        </Button>
+                      </>
+                    ),
+                  }
+                : undefined
+            }
           />
-          <p className="m-table-foot">
-            {shown.length === PAGE_LIMIT
-              ? `Showing the ${PAGE_LIMIT} most recent. Narrow the view to reach older tickets.`
-              : `${shown.length} ${shown.length === 1 ? "ticket" : "tickets"}`}
-            {mergedCount > 0 ? ` · ${mergedCount} merged` : ""}
-          </p>
+          <div className="m-table-foot" data-testid="ledger-footer">
+            <span>
+              {shown.length === PAGE_LIMIT
+                ? `Showing the ${PAGE_LIMIT} most recent of ${viewCounts.all} loaded. Narrow the view to reach older tickets.`
+                : `Showing ${shown.length} of ${viewCounts.all} ${viewCounts.all === 1 ? "ticket" : "tickets"}`}
+              {mergedCount > 0 ? ` · ${mergedCount} merged` : ""}
+            </span>
+            {/* The pack's footer control: the density steps live here, saved
+                per user through the same preference key as Settings, so this
+                switch and the one in Appearance move together. */}
+            <DensitySwitch
+              value={prefs.density}
+              onChange={prefs.setDensity}
+              variant="icons"
+              label="Row density"
+            />
+          </div>
         </Card>
       )}
     </div>
@@ -659,6 +1026,7 @@ function exportValue(
   sla: Record<string, components["schemas"]["TicketSlaStatus"] | null>,
   people: Record<string, string>,
   myId: string | null,
+  names?: LedgerNameMaps,
 ): string {
   switch (key) {
     case "category":
@@ -670,6 +1038,12 @@ function exportValue(
       return people[row.assignee_id] ?? (row.assignee_id === myId ? "You" : "Assigned");
     case "sla":
       return slaReading(row, sla[row.id] ?? null)?.label ?? "";
+    case "contact":
+      return row.contact_id ? names?.contacts?.[row.contact_id] ?? "" : "";
+    case "board":
+      return names?.boards?.[row.board_id] ?? "";
+    case "type":
+      return row.type_id ? names?.types?.[row.type_id] ?? "" : "";
     case "updated_at":
       return row.updated_at;
     default: {
@@ -677,4 +1051,69 @@ function exportValue(
       return raw === null || raw === undefined ? "" : String(raw);
     }
   }
+}
+
+// --- the empty states' marks ------------------------------------------------
+//
+// The pack's three empty shapes each carry their own small line drawing, so a
+// reader tells the cause apart before reading a word: a magnifier for "your
+// filters matched nothing", sparkles for "this queue is quiet", and a blush
+// cross for "we could not load it" — the cross is blush, never red, because a
+// failed read is not a breach. All three are stroked in text-secondary on the
+// same 48px grid the kit's default mark uses.
+
+function EmptyMarkBase({ children }: { children: ReactNode }): React.JSX.Element {
+  return (
+    <svg
+      width="48"
+      height="48"
+      viewBox="0 0 48 48"
+      fill="none"
+      stroke="var(--m-text-secondary)"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+function MagnifierMark(): React.JSX.Element {
+  return (
+    <EmptyMarkBase>
+      <circle cx="21" cy="21" r="12" />
+      <path d="m30 30 9 9" />
+      <path d="M16 21h10" />
+    </EmptyMarkBase>
+  );
+}
+
+function SparklesMark(): React.JSX.Element {
+  return (
+    <EmptyMarkBase>
+      <path d="M24 12v0M24 12c.8 4.5 3.5 7.2 8 8-4.5.8-7.2 3.5-8 8-.8-4.5-3.5-7.2-8-8 4.5-.8 7.2-3.5 8-8Z" />
+      <path d="M35 32c.5 2.6 2 4.1 4.6 4.6-2.6.5-4.1 2-4.6 4.6-.5-2.6-2-4.1-4.6-4.6 2.6-.5 4.1-2 4.6-4.6Z" />
+    </EmptyMarkBase>
+  );
+}
+
+function ErrorMark(): React.JSX.Element {
+  return (
+    <svg
+      width="48"
+      height="48"
+      viewBox="0 0 48 48"
+      fill="none"
+      stroke="var(--m-blush)"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="24" cy="24" r="13" />
+      <path d="M24 16v9" />
+      <path d="M24 29v.4" />
+    </svg>
+  );
 }
