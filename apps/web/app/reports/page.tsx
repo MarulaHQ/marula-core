@@ -687,9 +687,8 @@ function ReportsInner() {
             </span>
             <span className="flex-1" />
             <span className="flex items-center gap-2">
-              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                Density
-              </span>
+              {/* The switch carries its own visible label — adding one here
+                  double-prints "Density". */}
               <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
             </span>
           </div>
@@ -932,9 +931,8 @@ function ReportsInner() {
             </span>
             <span className="flex-1" />
             <span className="flex items-center gap-2">
-              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                Density
-              </span>
+              {/* The switch carries its own visible label — adding one here
+                  double-prints "Density". */}
               <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
             </span>
           </div>

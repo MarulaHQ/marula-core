@@ -98,25 +98,37 @@ export default function ProvenancePage() {
   const [view, setView] = useState<"all" | "agent" | "imports">("all");
   const [clauses, setClauses] = useState<FilterClause[]>([]);
 
-  const FILTER_FIELDS: FilterField[] = useMemo(
-    () => [
-      { key: "field", label: "Field", operators: ["contains"] },
+  // The API only accepts a `field` filter ALONGSIDE an `entity` one (422
+  // "entity_id and field filters require entity"), so the Field option is
+  // offered once an entity clause is in the bar — the dependency is visible
+  // instead of the user discovering it through an error state.
+  const filterFields: FilterField[] = useMemo(() => {
+    const base: FilterField[] = [
       { key: "entity", label: "Entity", operators: ["contains"] },
       { key: "actor", label: "Actor", operators: ["eq"] },
-    ],
-    [],
-  );
+    ];
+    return clauses.some((c) => c.field === "entity")
+      ? [...base, { key: "field", label: "Field", operators: ["contains"] }]
+      : base;
+  }, [clauses]);
 
   const load = useCallback(
     async (opts: { cursor: string | null }) => {
       setLoadError(null);
       const fieldClause = clauses.find((c) => c.field === "field");
       const entityClause = clauses.find((c) => c.field === "entity");
+      // `field` rides the request only when an entity filter rides with it;
+      // the clause sanitizer below keeps that pairing true.
+      const withEntity = entityClause !== undefined;
       const { data, error } = await api.api.GET("/api/v1/provenance", {
         params: {
           query: {
-            field: fieldClause?.value === undefined || fieldClause.value === "" ? null : fieldClause.value,
-            entity: entityClause?.value === undefined || entityClause.value === "" ? null : entityClause.value,
+            field:
+              withEntity && fieldClause !== undefined && fieldClause.value !== ""
+                ? fieldClause.value
+                : null,
+            entity:
+              entityClause !== undefined && entityClause.value !== "" ? entityClause.value : null,
             cursor: opts.cursor,
             limit: 50,
           },
@@ -246,6 +258,13 @@ export default function ProvenancePage() {
 
   const table = useSurfaceTableColumns<ProvRow>(SURFACE_KEY, prefs, columns);
 
+  const setClausesSanitized = useCallback((next: readonly FilterClause[]) => {
+    const hasEntity = next.some((c) => c.field === "entity");
+    // A Field clause can never outlive its Entity clause — the pairing is
+    // what the API accepts, so removing the Entity drops the Field with it.
+    setClauses(hasEntity ? [...next] : next.filter((c) => c.field !== "field"));
+  }, []);
+
   const viewFiltered = useMemo(() => {
     const base =
       view === "agent"
@@ -329,16 +348,15 @@ export default function ProvenancePage() {
         }
         filters={
           <FilterBar
-            fields={FILTER_FIELDS}
+            fields={filterFields}
             clauses={clauses}
             onChange={(next) => {
-              const serverChanged =
-                next.filter((c) => c.field === "field").length !==
-                  clauses.filter((c) => c.field === "field").length ||
-                next.filter((c) => c.field === "entity").length !==
-                  clauses.filter((c) => c.field === "entity").length;
-              setClauses(next);
-              if (serverChanged) void load({ cursor: null });
+              // The clause change re-runs the load effect above, whose
+              // callback depends on `clauses`. Firing load here too would
+              // race it with a stale closure: in the live app the
+              // unfiltered response lands last and the table keeps the
+              // pre-filter rows, so the chip looks like it did nothing.
+              setClausesSanitized(next);
             }}
             label="provenance filters"
             emptyHint=""
@@ -461,9 +479,8 @@ export default function ProvenancePage() {
             ) : null}
             <span className="flex-1" />
             <span className="flex items-center gap-2">
-              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                Density
-              </span>
+              {/* The switch carries its own visible label — adding one here
+                  double-prints "Density". */}
               <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
             </span>
           </div>

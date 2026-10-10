@@ -310,14 +310,12 @@ export default function AuditPage() {
             fields={FILTER_FIELDS}
             clauses={clauses}
             onChange={(next) => {
-              const actionChanged =
-                next.filter((c) => c.field === "action").length !==
-                clauses.filter((c) => c.field === "action").length;
-              const actorChanged =
-                next.filter((c) => c.field === "actor").length !==
-                clauses.filter((c) => c.field === "actor").length;
+              // The clause change re-runs the load effect above, whose
+              // callback depends on `clauses`. Firing load here too would
+              // race it with a stale closure: in the live app the
+              // unfiltered response lands last and the table keeps the
+              // pre-filter rows, so the chip looks like it did nothing.
               setClauses(next);
-              if (actionChanged || actorChanged) void loadEvents(null);
             }}
             label="audit filters"
             emptyHint=""
@@ -499,9 +497,8 @@ export default function AuditPage() {
               <kbd className="m-insight-kbd">↵</kbd> inspect
             </span>
             <span className="flex items-center gap-2">
-              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                Density
-              </span>
+              {/* The switch carries its own visible label — adding one here
+                  double-prints "Density". */}
               <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
             </span>
           </div>
