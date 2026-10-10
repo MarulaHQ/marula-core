@@ -109,6 +109,7 @@ describe("/provenance integration", () => {
 
   it("carries the four data-surface controls and no bulk bar", async () => {
     setupApi();
+    const user = userEvent.setup();
     render(
       <AuthProvider>
         <ProvenancePage />
@@ -119,10 +120,12 @@ describe("/provenance integration", () => {
     expect(screen.getByRole("tablist", { name: "Provenance views" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /add filter/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Columns" })).toBeInTheDocument();
-    // One button per format, and the row count on the strip so the user
-    // knows the size before they ask.
-    expect(screen.getByRole("button", { name: "Export CSV" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Export XLSX" })).toBeInTheDocument();
+    // Single export trigger; the per-format choices live behind its menu
+    // (kit-sweep 7818cfff anatomy), and the row count shows before asking.
+    expect(screen.getByRole("button", { name: /export/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /export/i }));
+    expect(screen.getByRole("menuitem", { name: "CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "XLSX" })).toBeInTheDocument();
     expect(screen.getByText(/\d+ rows?/)).toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: "Density" })).toBeInTheDocument();
     // Audit and provenance take every control EXCEPT the selection bar.
@@ -167,6 +170,49 @@ describe("/provenance integration", () => {
     await screen.findByText(/No writes match these filters/);
     // The empty state never suggests another way to ask.
     expect(screen.queryByText(/ask/i)).not.toBeInTheDocument();
+    cleanup();
+  });
+
+  it("offers the Field filter only alongside an Entity one — the API's pairing", async () => {
+    const mock = setupApi();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <ProvenancePage />
+      </AuthProvider>,
+    );
+    await screen.findByText("status");
+
+    // The API answers a field filter without an entity with a 422, so the
+    // Field option appears once an entity clause is in the bar — the
+    // dependency is visible in the builder, not discovered through an error.
+    await user.click(screen.getByRole("button", { name: /add filter/i }));
+    const offered = Array.from(
+      (screen.getByLabelText("Field") as HTMLSelectElement).options,
+    ).map((o) => o.value);
+    expect(offered).toEqual(["entity", "actor"]);
+    await user.click(screen.getByRole("button", { name: /add filter/i }));
+
+    // With an entity clause present, Field is offered and rides the request.
+    await addClause(user, "Entity", "ticket");
+    await addClause(user, "Field", "status");
+    expect(await screen.findByText("Field contains status")).toBeInTheDocument();
+    await waitFor(() => {
+      const calls = mock.callsTo("GET", "/api/v1/provenance");
+      const last = calls[calls.length - 1]?.query;
+      expect(last?.entity).toBe("ticket");
+      expect(last?.field).toBe("status");
+    });
+
+    // Removing the entity drops the field clause with it, so the surface
+    // can never build a request the API rejects.
+    await user.click(screen.getByRole("button", { name: /Remove filter: Entity/ }));
+    await waitFor(() => {
+      const calls = mock.callsTo("GET", "/api/v1/provenance");
+      const last = calls[calls.length - 1]?.query;
+      expect(last?.field ?? "").toBe("");
+    });
+    expect(screen.queryByText("Field contains status")).not.toBeInTheDocument();
     cleanup();
   });
 

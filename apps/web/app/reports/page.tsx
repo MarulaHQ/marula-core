@@ -38,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
   Tag,
   Td,
@@ -472,26 +473,22 @@ function ReportsInner() {
 
   return (
     <div className="grid gap-5 p-6">
-      <header className="m-rise flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-3">
-          <h1
-            className="text-[26px] font-semibold tracking-[-0.01em]"
-            style={{ color: "var(--m-text)" }}
-          >
-            Reports
-          </h1>
+      <SurfaceHeader
+        className="m-rise"
+        title="Reports"
+        meta={
           <span
             className="inline-flex h-6 items-center rounded-full px-2.5 text-[12px] font-semibold"
             style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
           >
             Build, run and schedule
           </span>
-        </div>
-      </header>
+        }
+      />
 
-      {/* Sub-navigation is the header-row pattern: the sections sit BESIDE the
-          title, and the pack draws the active one as a raised surface card. */}
-      <header className="flex flex-wrap items-center gap-3">
+      {/* Sub-navigation sits under the header row: the pack draws the active
+          one as a raised surface card. */}
+      <div className="flex flex-wrap items-center gap-3">
         <SurfaceTabs
           tabs={[
             { id: "builder", label: "Builder" },
@@ -502,7 +499,20 @@ function ReportsInner() {
           onChange={(id) => setTab(id as Tab)}
           label="Report sections"
         />
-      </header>
+      </div>
+
+      {/* A rejected appearance.data_surfaces write reverts the user's
+          columns and sort; it says so in blush, never red. */}
+      {prefs.error !== null && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          data-testid="prefs-save-error"
+        >
+          {prefs.error}
+        </div>
+      )}
 
       {tab === "builder" && (
         <div className="grid gap-4">
@@ -677,9 +687,8 @@ function ReportsInner() {
             </span>
             <span className="flex-1" />
             <span className="flex items-center gap-2">
-              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                Density
-              </span>
+              {/* The switch carries its own visible label — adding one here
+                  double-prints "Density". */}
               <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
             </span>
           </div>
@@ -922,9 +931,8 @@ function ReportsInner() {
             </span>
             <span className="flex-1" />
             <span className="flex items-center gap-2">
-              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                Density
-              </span>
+              {/* The switch carries its own visible label — adding one here
+                  double-prints "Density". */}
               <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
             </span>
           </div>

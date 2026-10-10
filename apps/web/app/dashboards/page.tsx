@@ -16,13 +16,14 @@
 import {
   Button,
   Card,
-  EmptyState,
   Spinner,
+  SurfaceHeader,
 } from "@marula-core/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ReportWidget } from "../../components/dashboards/report-widget";
 import { PluginWidgetsSection } from "../../components/dashboards/plugin-widget";
 import { SurfaceTabs } from "../../components/insight/surface-tabs";
+import { InsightState } from "../../components/insight/insight-state";
 import {
   WIDGET_CATALOG,
   WIDGET_ROWS_KEY,
@@ -117,16 +118,10 @@ export default function DashboardsPage() {
 
   return (
     <main className="mx-auto grid w-full max-w-6xl gap-5 p-6">
-      <header className="m-rise grid gap-3">
-        {/* Page header row, TL frame: title 26px semibold + scope pill, action right. */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-3">
-            <h1
-              className="text-[26px] font-semibold tracking-[-0.01em]"
-              style={{ color: "var(--m-text)" }}
-            >
-              Dashboards
-            </h1>
+      <div className="m-rise grid gap-3">
+        <SurfaceHeader
+          title="Dashboards"
+          meta={
             <span
               className="inline-flex h-6 items-center rounded-full px-2.5 text-[12px] font-semibold"
               style={{
@@ -136,17 +131,19 @@ export default function DashboardsPage() {
             >
               {manager ? "Org-wide scope" : "Your data only"}
             </span>
-          </div>
-          <Button
-            variant={pickerOpen ? "secondary" : "primary"}
-            size="sm"
-            aria-expanded={pickerOpen}
-            aria-controls="widget-picker"
-            onClick={() => setPickerOpen((open) => !open)}
-          >
-            {pickerOpen ? "Close" : "Add widget"}
-          </Button>
-        </div>
+          }
+          actions={
+            <Button
+              variant={pickerOpen ? "secondary" : "primary"}
+              size="sm"
+              aria-expanded={pickerOpen}
+              aria-controls="widget-picker"
+              onClick={() => setPickerOpen((open) => !open)}
+            >
+              {pickerOpen ? "Close" : "Add widget"}
+            </Button>
+          }
+        />
 
         {/* Toolbar row: named arrangement views (the presets) on the left. */}
         <SurfaceTabs
@@ -232,13 +229,14 @@ export default function DashboardsPage() {
             {saveError}
           </div>
         )}
-      </header>
+      </div>
 
       {visible.length === 0 ? (
         <Card className="p-6">
-          <EmptyState
-            message="Your dashboard is empty."
-            action={
+          <InsightState
+            title="Your dashboard is empty"
+            hint="Add widgets from the catalogue above, or restore the default arrangement."
+            primary={
               <Button variant="primary" size="sm" onClick={() => persist(defaultRows())}>
                 Restore My day
               </Button>

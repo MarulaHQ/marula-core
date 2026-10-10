@@ -20,6 +20,7 @@ import {
   ExportControl,
   FilterBar,
   Spinner,
+  SurfaceHeader,
   Table,
   Tag,
   Td,
@@ -262,27 +263,34 @@ export default function AuditPage() {
 
   return (
     <div className="grid gap-4 p-6">
-      <header className="m-rise grid gap-1.5">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1
-            className="text-[26px] font-semibold tracking-[-0.01em]"
-            style={{ color: "var(--m-text)" }}
-          >
-            Audit trail
-          </h1>
+      <SurfaceHeader
+        className="m-rise"
+        title="Audit trail"
+        meta={
           <span
             className="inline-flex h-6 items-center rounded-full px-2.5 text-[12px] font-semibold"
             style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
           >
             Append-only
           </span>
+        }
+        description={
+          "Every security change, administrative action and domain lifecycle event, in order. Rows expand in place to their structured detail. Nothing here can be edited or deleted."
+        }
+      />
+
+      {/* A rejected appearance.data_surfaces write reverts the user's
+          columns and sort; it says so in blush, never red. */}
+      {prefs.error !== null && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          data-testid="prefs-save-error"
+        >
+          {prefs.error}
         </div>
-        <p className="max-w-2xl text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Every security change, administrative action and domain lifecycle event, in order.
-          Rows expand in place to their structured detail. Nothing here can be edited or
-          deleted.
-        </p>
-      </header>
+      )}
 
       <DataToolbar
         label="Audit ledger controls"
@@ -302,14 +310,12 @@ export default function AuditPage() {
             fields={FILTER_FIELDS}
             clauses={clauses}
             onChange={(next) => {
-              const actionChanged =
-                next.filter((c) => c.field === "action").length !==
-                clauses.filter((c) => c.field === "action").length;
-              const actorChanged =
-                next.filter((c) => c.field === "actor").length !==
-                clauses.filter((c) => c.field === "actor").length;
+              // The clause change re-runs the load effect above, whose
+              // callback depends on `clauses`. Firing load here too would
+              // race it with a stale closure: in the live app the
+              // unfiltered response lands last and the table keeps the
+              // pre-filter rows, so the chip looks like it did nothing.
               setClauses(next);
-              if (actionChanged || actorChanged) void loadEvents(null);
             }}
             label="audit filters"
             emptyHint=""
@@ -491,9 +497,8 @@ export default function AuditPage() {
               <kbd className="m-insight-kbd">↵</kbd> inspect
             </span>
             <span className="flex items-center gap-2">
-              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                Density
-              </span>
+              {/* The switch carries its own visible label — adding one here
+                  double-prints "Density". */}
               <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
             </span>
           </div>

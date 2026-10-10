@@ -18,6 +18,7 @@ import {
   EmptyState,
   FieldHint,
   Spinner,
+  SurfaceHeader,
   Table,
   Tag,
   Td,
@@ -217,7 +218,7 @@ export default function ScorecardsPage() {
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
-  const query = { query: { from, to } } as const;
+  const query = { params: { query: { from, to } } } as const;
 
   const refresh = useCallback(async () => {
     setOwnError(null);
@@ -276,30 +277,29 @@ export default function ScorecardsPage() {
 
   return (
     <div className="mx-auto grid w-full max-w-6xl gap-4 p-6">
-      <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <h1
-            className="text-[26px] font-semibold tracking-[-0.01em]"
-            style={{ color: "var(--m-text)" }}
-          >
-            Scorecards
-          </h1>
+      <SurfaceHeader
+        className="m-rise"
+        title="Scorecards"
+        meta={
           <span
             className="inline-flex h-6 items-center rounded-full px-2.5 text-[12px] font-semibold"
             style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
           >
             {isManager ? "Team visible" : "Private to you"}
           </span>
-        </div>
-        {/* The window IS this surface's view control (Dispatch sub-nav pattern):
-            the pack draws it as tabs beside the title, not a select. */}
-        <SurfaceTabs
-          tabs={WINDOWS.map((w) => ({ id: String(w.days), label: w.label }))}
-          activeId={String(days)}
-          onChange={(id) => setDays(Number(id))}
-          label="Scorecard window"
-        />
-      </header>
+        }
+        actions={
+          /* The window IS this surface's view control (Dispatch sub-nav
+             pattern): the pack draws it as tabs beside the title, not a
+             select. */
+          <SurfaceTabs
+            tabs={WINDOWS.map((w) => ({ id: String(w.days), label: w.label }))}
+            activeId={String(days)}
+            onChange={(id) => setDays(Number(id))}
+            label="Scorecard window"
+          />
+        }
+      />
 
       <p className="max-w-2xl text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
         Coaching metrics over approved work and SLA outcomes. Private by default — you see your
