@@ -181,13 +181,23 @@ body {
   transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
 }
+/*
+ * The board's ghost language, mirroring the Dispatch pack (wave 44 lane 2):
+ * mid-drag the ghost is a DASHED gold outline over a gold tint — never a
+ * solid outline — and the card being dragged becomes a dashed placeholder
+ * rather than a dimmed solid one, so the drop target reads as a slot while
+ * the card still reads as "in flight".
+ */
 .kanban-card-dragging {
-  opacity: 0.45;
+  border-style: dashed !important;
+  border-color: var(--m-gold) !important;
+  background: var(--m-gold-soft) !important;
+  opacity: 0.55;
 }
 .kanban-column-drop {
-  outline: 2px solid var(--m-accent);
+  outline: 2px dashed var(--m-gold);
   outline-offset: -2px;
-  background: var(--m-accent-soft);
+  background: var(--m-gold-soft);
 }
 .kanban-rail-label {
   writing-mode: vertical-rl;
@@ -747,6 +757,97 @@ body {
 .m-money-pill-green {
   background: var(--m-status-success-bg);
   color: var(--m-status-success-fg);
+}
+
+/*
+ * The ledger's SLA cell pill (wave 44 lane 2, qa-p44-ui-tickets-boards):
+ * the pill shape + icon slot; the tone pair comes inline from the cell
+ * (warning for at risk/paused, danger for breached) so the word and the
+ * colour can never disagree. Colour is never alone — the cell always
+ * renders a word with the pill.
+ */
+.m-sla-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The selection bar, in place of the column header (wave 44 lane 2,
+ * qa-p44-ui-tickets-boards): it takes the header's own row so selecting
+ * never shifts the layout. A gold tint, never an inverted surface, with a
+ * 3px gold bar on the left edge. The kit's `.m-bulk-bar` is the toolbar
+ * variant and is left untouched; this row is the ledger's own header. The
+ * doubled selector matches `.m-table th`'s specificity so the kit's
+ * surface fill does not win.
+ */
+.m-table th.m-bulk-head {
+  border-left: 3px solid var(--m-gold);
+  background: var(--m-gold-soft);
+  padding: 6px 10px;
+  text-align: left;
+  font-weight: 400;
+}
+.m-bulk-head .m-bulk-head-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--m-text);
+  white-space: nowrap;
+}
+.m-bulk-head .m-bulk-head-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The row's one-click Take it (wave 44 lane 2): a quiet ghost until hovered,
+   because it sits on a row that is otherwise all read. */
+.m-take-it {
+  border: 1px dashed var(--m-border);
+  border-radius: var(--m-radius-control);
+  background: none;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--m-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.m-take-it:hover {
+  border-color: var(--m-gold);
+  color: var(--m-text);
+  background: var(--m-gold-soft);
+}
+
+/*
+ * The settings-form reorder grip (wave 44 lane 2, the board field editor):
+ * the pack draws a grip on the row, and the cursor has to SAY "grabbable"
+ * or the handle reads as decoration.
+ */
+.m-field-grip {
+  display: grid;
+  height: 28px;
+  width: 22px;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: var(--m-radius-control);
+  color: var(--m-text-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: grab;
+  user-select: none;
+}
+.m-field-grip:hover {
+  background: var(--m-surface-2);
+  color: var(--m-text);
 }
 
 /* The invoice document: a 1.7fr / 1fr split, lines on the left, the three

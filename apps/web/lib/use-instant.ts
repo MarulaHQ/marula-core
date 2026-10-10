@@ -35,10 +35,18 @@ export interface InstantCollection<T> {
  * Binds one read-model collection to the component tree. `spec` may be
  * rebuilt per render; the store keeps the first spec per cache key (its
  * closures match the key's ids by construction).
+ *
+ * `enabled` gates the hydrate-once effect. A fresh deep link mounts before
+ * the token rotation lands (the in-memory jar is empty until /me returns),
+ * so a read fired on that first render 401s and the swallowed catch leaves
+ * the collection a spinner forever. A surface that can mount unauthed —
+ * the board and classic detail both did (qa-p44-ui-tickets-boards) — passes
+ * its auth readiness here instead.
  */
 export function useInstantCollection<T>(
   key: string,
   spec: ReadModelSpec<T>,
+  enabled = true,
 ): InstantCollection<T> {
   const runtime = instantRuntime();
   const specRef = useRef(spec);
@@ -64,9 +72,11 @@ export function useInstantCollection<T>(
 
   // Hydrate-once: cache hits already have `data` (no flash, no refetch);
   // misses hydrate in an effect, sharing the in-flight fetch via the store.
+  // A disabled hook hydrates on the first enabled render.
   useEffect(() => {
+    if (!enabled) return;
     void runtime.store.ensure(key, specRef.current).catch(() => {});
-  }, [runtime, key]);
+  }, [runtime, key, enabled]);
 
   return { data, loading: data === undefined, refresh, patch };
 }
