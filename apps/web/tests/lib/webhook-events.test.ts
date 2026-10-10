@@ -1,13 +1,17 @@
 // Unit tests: /lib/admin/webhook-events — event multiselect reducer over
 // the curated catalog + custom types, wildcard-empty payload semantics,
-// and delivery-log classification tones.
+// registry origin labels, the ungranted-types refusal parser, and
+// delivery-log classification tones.
 import { describe, expect, it } from "vitest";
 import {
   ALL_CATALOG_TYPES,
   EVENT_CATALOG,
   classifyDelivery,
   eventSelectionReducer,
+  eventTypeOrigin,
+  eventTypeOriginLabel,
   selectionToPayload,
+  ungrantedTypesFromError,
 } from "../../lib/admin/webhook-events";
 import type { components } from "@marula-core/sdk";
 
@@ -100,5 +104,55 @@ describe("delivery log classification", () => {
     );
     expect(verdict.tone).toBe("neutral");
     expect(verdict.label).toBe("pending");
+  });
+});
+
+describe("event-type registry origin (Wave 43 lane 5)", () => {
+  it("catalog types are the platform seed and read as platform", () => {
+    for (const t of ALL_CATALOG_TYPES) {
+      expect(eventTypeOrigin(t)).toBe("platform");
+      expect(eventTypeOriginLabel(t)).toBe("platform");
+    }
+  });
+
+  it("anything outside the catalog is grant-admitted and says so", () => {
+    expect(eventTypeOrigin("rmm.device_offline")).toBe("grant");
+    expect(eventTypeOriginLabel("rmm.device_offline")).toBe("needs grant");
+  });
+
+  it("the catalog carries the inbound webhook types lane 1 emits", () => {
+    for (const t of ["webhook.ingested", "webhook.received", "alert.ingested", "webhook.test"]) {
+      expect(ALL_CATALOG_TYPES).toContain(t);
+    }
+  });
+});
+
+describe("ungrantedTypesFromError — the registry refusal parser", () => {
+  const refusal =
+    'unknown or ungranted event types ["rmm.device_offline", "acme.crm.contact_created"]; either subscribe only to platform types, or obtain a grant for custom types';
+
+  it("pulls every refused type out of the wire message", () => {
+    expect(ungrantedTypesFromError(refusal)).toEqual([
+      "rmm.device_offline",
+      "acme.crm.contact_created",
+    ]);
+  });
+
+  it("reads the message off a thrown Error or an envelope object", () => {
+    expect(ungrantedTypesFromError(new Error(refusal))).toEqual([
+      "rmm.device_offline",
+      "acme.crm.contact_created",
+    ]);
+    expect(ungrantedTypesFromError({ message: refusal })).toEqual([
+      "rmm.device_offline",
+      "acme.crm.contact_created",
+    ]);
+  });
+
+  it("yields [] on anything unparseable so callers fall back to generic copy", () => {
+    expect(ungrantedTypesFromError("rate limited")).toEqual([]);
+    expect(ungrantedTypesFromError(null)).toEqual([]);
+    expect(ungrantedTypesFromError(undefined)).toEqual([]);
+    expect(ungrantedTypesFromError({})).toEqual([]);
   });
 });
