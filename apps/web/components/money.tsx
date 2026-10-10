@@ -149,6 +149,8 @@ export function MoneyPillTag({
  * The ageing bucket. Overdue and due-soon are the same blush: a sent invoice
  * running late is a fact about money, and red on this screen would claim a
  * breach that has not happened (pack §7, and the cluster's colour table).
+ * A CURRENT invoice earns no pill at all — 21 days out is not a warning, and
+ * painting it blush spends the colour before there is anything to say.
  */
 export function AgeingPill({
   bucket,
@@ -160,6 +162,7 @@ export function AgeingPill({
   testId?: string;
 }): React.JSX.Element | null {
   if (label === null) return null;
+  if (bucket !== "overdue" && bucket !== "due-soon") return null;
   const late = bucket === "overdue";
   return (
     <span
