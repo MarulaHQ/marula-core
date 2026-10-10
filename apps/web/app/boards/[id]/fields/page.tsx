@@ -1,14 +1,19 @@
-// /boards/[id]/fields — custom-field editor (Wave 17 lane 3).
+// /boards/[id]/fields — custom-field editor (Wave 17 lane 3, Wave 44 lane 2
+// redrew it in the settings-form family).
 //
 // Purpose: the board's typed custom-field definitions as a manageable
 // matrix: add via a field-type picker (the closed FieldKindWire set),
 // edit name/options/required with typed validation (choice kinds must
-// carry a non-empty, unique option set), reorder with keyboard-reachable
-// up/down controls that persist sort_order, and delete with an inline
-// confirm. All writes hit the ConfigureBoard field endpoints directly —
-// these are board-config writes, not envelope-gated ticket mutations.
+// carry a non-empty, unique option set), reorder with a drag grip whose
+// arrows stay as the keyboard-reachable path (both persist sort_order),
+// flip Required as a real toggle (the PATCH takes the flag), and delete
+// with an inline confirm. All writes hit the ConfigureBoard field
+// endpoints directly — these are board-config writes, not envelope-gated
+// ticket mutations.
 // Non-purpose: no ticket values here (the ticket workspace renders
-// values); no org-wide fields (v1 creates board-scoped only).
+// values); no org-wide fields (v1 creates board-scoped only); no
+// visibility toggle, because the payload has no visibility flag to bind
+// one to (recorded honestly in the lane's REVIEW).
 "use client";
 
 import type { components } from "@marula-core/sdk";
@@ -22,6 +27,7 @@ import {
   Label,
   Spinner,
   StatusTag,
+  SurfaceHeader,
 } from "@marula-core/ui";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -371,6 +377,8 @@ export default function BoardFieldsPage() {
   const [editing, setEditing] = useState<FieldDef | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  /** The field being dragged by its reorder grip, for the in-flight look. */
+  const [gripDragId, setGripDragId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const res = await api.api.GET("/api/v1/boards/{id}/fields", {
@@ -384,8 +392,11 @@ export default function BoardFieldsPage() {
   }, [boardId]);
 
   useEffect(() => {
-    if (boardId !== "") void refresh();
-  }, [boardId, refresh]);
+    // Reads wait for auth: on a fresh deep link the token jar is empty until
+    // /me returns, and a read fired on that first render 401s into an error
+    // state nothing retries (qa-p44-ui-tickets-boards capture).
+    if (boardId !== "" && auth.status === "authed") void refresh();
+  }, [boardId, refresh, auth.status]);
 
   const sorted = useMemo(
     () => [...(fields ?? [])].sort((a, b) => a.sort_order - b.sort_order),
@@ -408,14 +419,15 @@ export default function BoardFieldsPage() {
     [],
   );
 
-  /// Reorder: swap with the neighbor in the sorted list, then persist both
-  /// affected sort_order values. Optimistic local swap, revert on failure.
-  const reorder = useCallback(
-    async (index: number, dir: -1 | 1) => {
+  /// Reorder to an absolute index (the grip's drop target): swap with the
+  /// target in the sorted list, then persist both affected sort_order values.
+  /// Optimistic local swap, revert on failure.
+  const reorderTo = useCallback(
+    async (index: number, target: number) => {
       const list = sorted;
       const a = list[index];
-      const b = list[index + dir];
-      if (a === undefined || b === undefined) return;
+      const b = list[target];
+      if (a === undefined || b === undefined || index === target) return;
       setBusyId(a.id);
       const swap = (arr: FieldDef[]): FieldDef[] =>
         arr.map((f) =>
@@ -444,6 +456,33 @@ export default function BoardFieldsPage() {
       }
     },
     [boardId, fields, sorted],
+  );
+
+  /// The keyboard path into the same reorder: one step up or down.
+  const reorder = useCallback(
+    async (index: number, dir: -1 | 1) => {
+      await reorderTo(index, index + dir);
+    },
+    [reorderTo],
+  );
+
+  /// Required is the row's one toggle: `required` is a real payload flag, so
+  /// the settings-form control writes it directly and reports a failure in
+  /// the surface's error line rather than silently flipping back.
+  const toggleRequired = useCallback(
+    async (field: FieldDef, on: boolean) => {
+      const before = fields;
+      setFields((prev) => (prev === null ? prev : prev.map((f) => (f.id === field.id ? { ...f, required: on } : f))));
+      const res = await api.api.PATCH("/api/v1/boards/{id}/fields/{field_id}", {
+        params: { path: { id: boardId, field_id: field.id } },
+        body: { required: on },
+      });
+      if (res.error !== undefined) {
+        setFields(before);
+        setError(`The setting could not be saved. ${field.name} is still ${field.required ? "required" : "optional"}.`);
+      }
+    },
+    [boardId, fields],
   );
 
   const remove = useCallback(
@@ -479,47 +518,47 @@ export default function BoardFieldsPage() {
           className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4 md:p-6"
           style={{ borderLeft: "1px solid var(--m-border)" }}
         >
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="grid">
-              <h1 className="text-sm font-semibold">Custom fields</h1>
-              <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-                Typed fields on every ticket of this board.
-              </p>
+          <SurfaceHeader
+            title="Custom fields"
+            description="Typed fields on every ticket of this board."
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={() => router.push(`/boards/${boardId}`)}>
+                Back to board
+              </Button>
+              <Button
+                size="sm"
+                data-testid="add-field"
+                onClick={() => {
+                  setEditing(null);
+                  setDialogOpen(true);
+                }}
+              >
+                Add field
+              </Button>
+              <FieldDialog
+                boardId={boardId}
+                existing={editing}
+                nextSortOrder={
+                  sorted.length === 0 ? 0 : (sorted[sorted.length - 1]?.sort_order ?? 0) + 1
+                }
+                onSaved={onSaved}
+                onClose={() => {
+                  setDialogOpen(false);
+                  setEditing(null);
+                }}
+                open={dialogOpen}
+              />
             </div>
-            <span className="ml-auto" />
-            <Button size="sm" variant="ghost" onClick={() => router.push(`/boards/${boardId}`)}>
-              Back to board
-            </Button>
-            <Button
-              size="sm"
-              data-testid="add-field"
-              onClick={() => {
-                setEditing(null);
-                setDialogOpen(true);
-              }}
-            >
-              Add field
-            </Button>
-            <FieldDialog
-              boardId={boardId}
-              existing={editing}
-              nextSortOrder={
-                sorted.length === 0 ? 0 : (sorted[sorted.length - 1]?.sort_order ?? 0) + 1
-              }
-              onSaved={onSaved}
-              onClose={() => {
-                setDialogOpen(false);
-                setEditing(null);
-              }}
-              open={dialogOpen}
-            />
-          </div>
+          </SurfaceHeader>
 
           {error !== null && (
+            /* A failed save is a validation problem, not a breach: the warning
+               pair, never the red one. */
             <p
               role="alert"
               className="rounded-[var(--m-radius-control)] px-3 py-1.5 text-xs"
-              style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
+              style={{ background: "var(--m-status-warning-bg)", color: "var(--m-status-warning-fg)" }}
             >
               {error}
             </p>
@@ -556,9 +595,43 @@ export default function BoardFieldsPage() {
                   <li
                     key={f.id}
                     data-testid={`field-row-${f.name}`}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", f.id);
+                      e.dataTransfer.effectAllowed = "move";
+                      setGripDragId(f.id);
+                    }}
+                    onDragEnd={() => setGripDragId(null)}
+                    onDragOver={(e) => {
+                      if (gripDragId === null || gripDragId === f.id) return;
+                      e.preventDefault();
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const fromId = e.dataTransfer.getData("text/plain");
+                      setGripDragId(null);
+                      if (fromId === "" || fromId === f.id) return;
+                      void reorderTo(sorted.findIndex((x) => x.id === fromId), i);
+                    }}
                     className="flex items-center gap-2 rounded-[var(--m-radius-container)] border px-3 py-2"
-                    style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+                    style={{
+                      borderColor: gripDragId === f.id ? "var(--m-gold)" : "var(--m-border)",
+                      background: "var(--m-surface)",
+                      opacity: gripDragId === f.id ? 0.55 : 1,
+                    }}
                   >
+                    {/* The reorder grip: the pack's settings-form treatment is a
+                        drag handle, so the row carries one. The arrows below
+                        stay — the grip is the mouse path, the arrows are the
+                        keyboard and screen-reader path, and both end in the
+                        same two PATCHes. */}
+                    <span
+                      aria-hidden
+                      className="m-field-grip"
+                      title={`Drag to reorder ${f.name}`}
+                    >
+                      ⠿
+                    </span>
                     <span
                       aria-hidden
                       className="grid h-7 w-7 shrink-0 place-items-center rounded-[var(--m-radius-control)] text-sm"
@@ -573,7 +646,21 @@ export default function BoardFieldsPage() {
                         {CHOICE_KINDS.includes(f.kind as FieldKind) ? ` · ${f.options.length} options` : ""}
                       </span>
                     </span>
-                    {f.required && <StatusTag tone="warning">Required</StatusTag>}
+                    {/*
+                      Required is a real payload flag (the PATCH takes it), so
+                      the row carries it as the settings-form toggle instead of
+                      a read-only badge: one PATCH, reported in the same error
+                      line if it fails.
+                    */}
+                    <label className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--m-text-secondary)" }}>
+                      <Checkbox
+                        checked={f.required}
+                        data-testid={`field-required-${f.name}`}
+                        disabled={busyId === f.id}
+                        onCheckedChange={(on) => void toggleRequired(f, on === true)}
+                      />
+                      Required
+                    </label>
                     <span className="ml-auto" />
                     <span className="flex items-center gap-0.5">
                       <Button

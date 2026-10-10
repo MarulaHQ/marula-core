@@ -171,8 +171,9 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
 export const TICKET_FILTER_FIELDS = [
   { key: "title", label: "Subject", operators: ["contains", "eq"] as FilterOperator[] },
   { key: "number", label: "Number", operators: ["contains", "eq"] as FilterOperator[] },
+  { key: "client_id", label: "Client", operators: ["eq", "ne"] as FilterOperator[] },
   { key: "priority", label: "Priority", operators: ["in", "eq"] as FilterOperator[] },
-  { key: "category", label: "Status", operators: ["in"] as FilterOperator[] },
+  { key: "category", label: "Status", operators: ["in", "ne"] as FilterOperator[] },
   { key: "assignee_id", label: "Assignee", operators: ["is_set", "is_not_set"] as FilterOperator[] },
   { key: "due_at", label: "Due", operators: ["is_set", "is_not_set"] as FilterOperator[] },
   {

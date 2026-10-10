@@ -24,6 +24,7 @@ import {
 import { Avatar, Pill, PriorityChip, type Priority } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { MergeBanner } from "./merge-banner";
 import {
   CATEGORY_LABEL,
@@ -40,6 +41,33 @@ export interface LedgerColumnDef extends ChoosableColumn {
   sortable: boolean;
 }
 
+/**
+ * Name lookups for the pack's "available but hidden" columns (Contact, Board,
+ * Type). The surface loads each map only while its column is shown, so the
+ * ledger never pays a read for a column nobody turned on.
+ */
+export interface LedgerNameMaps {
+  /** contact id -> contact name, for the Contact column. */
+  contacts?: Record<string, string>;
+  /** board id -> board name, for the Board column. */
+  boards?: Record<string, string>;
+  /** taxonomy type id -> type name, for the Type column. */
+  types?: Record<string, string>;
+}
+
+/**
+ * The selection bar, rendered IN PLACE of the column header while rows are
+ * selected (pack state 05). The placement is the law: the layout never jumps
+ * because the bar occupies exactly the header's row. A gold tint, never an
+ * inverted surface, with a 3px gold bar on the left edge.
+ */
+export interface LedgerBulkBar {
+  /** The count text: "3 selected". */
+  count: string;
+  /** The controls, owned by the surface that owns the writes. */
+  children: ReactNode;
+}
+
 export function TicketTable({
   columns,
   rows,
@@ -47,6 +75,8 @@ export function TicketTable({
   sla,
   people,
   clients,
+  names,
+  bulk,
   numbersById,
   myId,
   selected,
@@ -54,6 +84,7 @@ export function TicketTable({
   onReorderColumns,
   onResizeColumn,
   onToggleRow,
+  onTake,
 }: {
   columns: LedgerColumnDef[];
   rows: TicketRow[];
@@ -62,6 +93,10 @@ export function TicketTable({
   people: Record<string, string>;
   /** client id -> display name, for the Client column. */
   clients: Record<string, string>;
+  /** Names for the optional hidden columns; absent until a column shows. */
+  names?: LedgerNameMaps;
+  /** While rows are selected, the bar that replaces the column header. */
+  bulk?: LedgerBulkBar;
   /** ticket id -> number, so a merged row can name its survivor. */
   numbersById: Record<string, string>;
   myId: string | null;
@@ -70,60 +105,77 @@ export function TicketTable({
   onReorderColumns: (from: number, to: number) => void;
   onResizeColumn: (columnKey: string, width: number) => void;
   onToggleRow: (id: string, on: boolean) => void;
+  /** Offered per row on unassigned rows: the one-click Take it. */
+  onTake?: (row: TicketRow) => void;
 }): React.JSX.Element {
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
     <>
       <Table>
         <thead>
-          <tr>
-            <Th className="w-10">
-              <Checkbox
-                checked={allSelected}
-                onCheckedChange={(on) => {
-                  for (const row of rows) onToggleRow(row.id, on === true);
-                }}
-                aria-label={allSelected ? "Clear selection" : `Select all ${rows.length} tickets`}
-              />
-            </Th>
-            {columns.map((column, index) => {
-              const active = sort?.field === column.key;
-              const canSort = column.sortable;
-              return (
-                <Th
-                  key={column.key}
-                  columnKey={column.key}
-                  width={column.width}
-                  index={index}
-                  columnCount={columns.length}
-                  sortable={canSort}
-                  resizable={column.width !== undefined}
-                  onReorder={onReorderColumns}
-                  onResize={onResizeColumn}
-                  aria-sort={
-                    canSort
-                      ? active
-                        ? sort?.dir === "asc"
-                          ? "ascending"
-                          : "descending"
-                        : "none"
-                      : undefined
-                  }
-                >
-                  {canSort ? (
-                    <button type="button" className="m-th-sort" onClick={() => onSort(column.key)}>
-                      {column.label}
-                      <span className="m-th-sort-mark" aria-hidden="true">
-                        {active ? (sort?.dir === "asc" ? "\u25b2" : "\u25bc") : "\u2195"}
-                      </span>
-                    </button>
-                  ) : (
-                    column.label
-                  )}
-                </Th>
-              );
-            })}
-          </tr>
+          {bulk !== undefined ? (
+            <tr>
+              <th
+                colSpan={columns.length + 1}
+                className="m-bulk-head"
+                data-testid="ledger-bulk-bar"
+              >
+                <span className="m-bulk-head-count">{bulk.count}</span>
+                <div className="m-bulk-head-bar" role="group" aria-label="Bulk actions">
+                  {bulk.children}
+                </div>
+              </th>
+            </tr>
+          ) : (
+            <tr>
+              <Th className="w-10">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={(on) => {
+                    for (const row of rows) onToggleRow(row.id, on === true);
+                  }}
+                  aria-label={allSelected ? "Clear selection" : `Select all ${rows.length} tickets`}
+                />
+              </Th>
+              {columns.map((column, index) => {
+                const active = sort?.field === column.key;
+                const canSort = column.sortable;
+                return (
+                  <Th
+                    key={column.key}
+                    columnKey={column.key}
+                    width={column.width}
+                    index={index}
+                    columnCount={columns.length}
+                    sortable={canSort}
+                    resizable={column.width !== undefined}
+                    onReorder={onReorderColumns}
+                    onResize={onResizeColumn}
+                    aria-sort={
+                      canSort
+                        ? active
+                          ? sort?.dir === "asc"
+                            ? "ascending"
+                            : "descending"
+                          : "none"
+                        : undefined
+                    }
+                  >
+                    {canSort ? (
+                      <button type="button" className="m-th-sort" onClick={() => onSort(column.key)}>
+                        {column.label}
+                        <span className="m-th-sort-mark" aria-hidden="true">
+                          {active ? (sort?.dir === "asc" ? "\u25b2" : "\u25bc") : "\u2195"}
+                        </span>
+                      </button>
+                    ) : (
+                      column.label
+                    )}
+                  </Th>
+                );
+              })}
+            </tr>
+          )}
         </thead>
         <tbody className="m-enter">
           {rows.map((row, index) => (
@@ -135,10 +187,12 @@ export function TicketTable({
               sla={sla[row.id] ?? null}
               people={people}
               clients={clients}
+              names={names}
               numbersById={numbersById}
               myId={myId}
               selected={selected.has(row.id)}
               onToggle={(on) => onToggleRow(row.id, on)}
+              onTake={onTake}
             />
           ))}
         </tbody>
@@ -154,10 +208,12 @@ export function TicketRowView({
   sla,
   people,
   clients,
+  names,
   numbersById,
   myId,
   selected,
   onToggle,
+  onTake,
 }: {
   row: TicketRow;
   index: number;
@@ -165,10 +221,12 @@ export function TicketRowView({
   sla: components["schemas"]["TicketSlaStatus"] | null;
   people: Record<string, string>;
   clients: Record<string, string>;
+  names?: LedgerNameMaps;
   numbersById: Record<string, string>;
   myId: string | null;
   selected: boolean;
   onToggle: (on: boolean) => void;
+  onTake?: (row: TicketRow) => void;
 }): React.JSX.Element {
   const survivor = row.merged_into_ticket_id ?? null;
   // Rows past the stagger limit share delay 0, so a full page does not still
@@ -194,6 +252,8 @@ export function TicketRowView({
               sla={sla}
               people={people}
               clients={clients}
+              names={names}
+              onTake={onTake}
               myId={myId}
             />
           </Td>
@@ -219,6 +279,8 @@ export function TicketCell({
   sla,
   people,
   clients,
+  names,
+  onTake,
   myId,
 }: {
   columnKey: string;
@@ -226,6 +288,9 @@ export function TicketCell({
   sla: components["schemas"]["TicketSlaStatus"] | null;
   people: Record<string, string>;
   clients: Record<string, string>;
+  names?: LedgerNameMaps;
+  /** Present when the surface offers one-click Take it on unassigned rows. */
+  onTake?: (row: TicketRow) => void;
   myId: string | null;
 }): React.JSX.Element | null {
   switch (columnKey) {
@@ -251,7 +316,25 @@ export function TicketCell({
     case "priority":
       return <PriorityChip level={row.priority.toUpperCase() as Priority} />;
     case "assignee": {
-      if (!row.assignee_id) return <Avatar unassigned aria-label="Unassigned" />;
+      if (!row.assignee_id) {
+        // The pack: an unassigned row offers one-click Take it, the queue a
+        // dispatcher works from in a single motion (D12 — the action rides
+        // the row, not a toolbar). One PATCH, and the row becomes "You".
+        if (onTake === undefined) return <Avatar unassigned aria-label="Unassigned" />;
+        return (
+          <div className="flex min-w-0 items-center gap-2">
+            <Avatar unassigned aria-label="Unassigned" />
+            <button
+              type="button"
+              className="m-take-it"
+              onClick={() => onTake(row)}
+              aria-label={`Take ${row.number}`}
+            >
+              Take it
+            </button>
+          </div>
+        );
+      }
       const name = people[row.assignee_id] ?? (row.assignee_id === myId ? "You" : "Assigned");
       return (
         <span className="flex min-w-0 items-center gap-2">
@@ -277,18 +360,42 @@ export function TicketCell({
           </span>
         );
       }
+      // Colour is never alone (DESIGN-NOTES-tickets §9): a breached clock says
+      // "Breached 1h 05m" with an alert icon in the red pair, an at-risk one
+      // reads "42m left" in the warning pair, and a paused clock says "Paused"
+      // with a pause icon. Calm stays plain text.
+      if (sla?.paused === true) {
+        return (
+          <span className="m-sla-pill" style={{ background: "var(--m-status-warning-bg)", color: "var(--m-status-warning-fg)" }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+              <path d="M9 5v14M15 5v14" strokeLinecap="round" />
+            </svg>
+            Paused
+          </span>
+        );
+      }
+      if (reading.tone === "danger") {
+        const span = reading.label.replace(/\s*over$/, "");
+        const applied = sla?.applied === true;
+        return (
+          <span className="m-sla-pill" style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+              <path d="M12 3 2.5 20h19L12 3Z" strokeLinejoin="round" />
+              <path d="M12 10v4M12 17.2v.1" strokeLinecap="round" />
+            </svg>
+            {applied ? `Breached ${span}` : `Overdue ${span}`}
+          </span>
+        );
+      }
+      if (reading.tone === "warning") {
+        return (
+          <span className="m-sla-pill" style={{ background: "var(--m-status-warning-bg)", color: "var(--m-status-warning-fg)" }}>
+            {reading.label}
+          </span>
+        );
+      }
       return (
-        <span
-          className="text-[12.5px] tabular-nums"
-          style={{
-            color: reading.warn
-              ? reading.tone === "danger"
-                ? "var(--m-status-danger-fg)"
-                : "var(--m-status-warning-fg)"
-              : "var(--m-text-secondary)",
-            fontWeight: reading.warn ? 600 : 400,
-          }}
-        >
+        <span className="text-[12.5px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
           {reading.label}
         </span>
       );
@@ -297,6 +404,43 @@ export function TicketCell({
       return (
         <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
           {relativeTime(row.updated_at)}
+        </span>
+      );
+    // The pack's available-but-hidden four. Each reads "—" when its name map
+    // has not loaded (the surface loads a map only while its column shows),
+    // so an unresolved id never renders as a raw uuid.
+    case "contact": {
+      const name = row.contact_id !== null && row.contact_id !== undefined
+        ? names?.contacts?.[row.contact_id]
+        : undefined;
+      return (
+        <span className="truncate text-[13px]" style={{ color: name ? "var(--m-text)" : "var(--m-text-muted)" }}>
+          {name ?? "\u2014"}
+        </span>
+      );
+    }
+    case "board": {
+      const name = names?.boards?.[row.board_id];
+      return (
+        <span className="truncate text-[13px]" style={{ color: name ? "var(--m-text)" : "var(--m-text-muted)" }}>
+          {name ?? "\u2014"}
+        </span>
+      );
+    }
+    case "type": {
+      const name = row.type_id !== null && row.type_id !== undefined
+        ? names?.types?.[row.type_id]
+        : undefined;
+      return (
+        <span className="truncate text-[13px]" style={{ color: name ? "var(--m-text)" : "var(--m-text-muted)" }}>
+          {name ?? "\u2014"}
+        </span>
+      );
+    }
+    case "created_at":
+      return (
+        <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+          {relativeTime(row.created_at)}
         </span>
       );
     default:
