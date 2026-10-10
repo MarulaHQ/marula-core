@@ -92,6 +92,12 @@ interface AutomationRuleView {
   trigger_event: string;
   conditions: AutomationCondition[];
   actions: AutomationAction[];
+  /**
+   * What the rule's subject is (Wave 43 lane 3): `ticket` (default,
+   * historical) or `board` — a rule that fires on ticket-less envelopes
+   * such as inbound webhook events. Absent reads as `ticket`.
+   */
+  subject_kind?: "ticket" | "board" | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -123,7 +129,7 @@ const RULE_COLUMNS: RuleColumn[] = [
   { key: "updated", label: "Updated", visible: false },
 ];
 
-const TRIGGER_EVENTS: { value: string; label: string }[] = [
+const TRIGGER_EVENTS: { value: string; label: string; ticketless?: boolean }[] = [
   { value: "ticket.created", label: "Ticket created" },
   { value: "ticket.updated", label: "Ticket updated" },
   { value: "ticket.status_changed", label: "Ticket status changed" },
@@ -131,6 +137,15 @@ const TRIGGER_EVENTS: { value: string; label: string }[] = [
   { value: "ticket.comment_added", label: "Comment added" },
   { value: "ticket.closed", label: "Ticket closed" },
   { value: "csat.response_recorded", label: "CSAT response recorded" },
+  // Ticket-less platform events (Wave 43 lanes 1 + 3): the envelopes a
+  // board-subject rule fires on — the generic receiver's emitted event,
+  // the alert ingestor's, and the other non-ticket platform types.
+  { value: "webhook.ingested", label: "Inbound webhook received", ticketless: true },
+  { value: "alert.ingested", label: "Alert ingested", ticketless: true },
+  { value: "client.created", label: "Client created", ticketless: true },
+  { value: "client.updated", label: "Client updated", ticketless: true },
+  { value: "notification.created", label: "Notification created", ticketless: true },
+  { value: "sla.escalation_fired", label: "SLA escalation fired", ticketless: true },
 ];
 
 const PRIORITIES: Priority[] = ["p1", "p2", "p3", "p4"];
@@ -254,6 +269,9 @@ export default function AutomationsPage() {
   const [name, setName] = useState("");
   const [boardId, setBoardId] = useState<string>("");
   const [triggerEvent, setTriggerEvent] = useState<string>("ticket.created");
+  // Rule subject (Wave 43 lane 3): a `board` rule fires on envelopes that
+  // carry no ticket — the inbound webhook events above.
+  const [subjectKind, setSubjectKind] = useState<"ticket" | "board">("ticket");
 
   // Condition builder state
   const [condType, setCondType] = useState<"priority_is" | "category_is" | "title_contains" | "unassigned">("priority_is");
@@ -351,6 +369,7 @@ export default function AutomationsPage() {
     setName("");
     setBoardId("");
     setTriggerEvent("ticket.created");
+    setSubjectKind("ticket");
     setConditions([]);
     setActions([]);
     setFormError(null);
@@ -362,6 +381,7 @@ export default function AutomationsPage() {
     setName(r.name);
     setBoardId(r.board_id ?? "");
     setTriggerEvent(r.trigger_event);
+    setSubjectKind(r.subject_kind === "board" ? "board" : "ticket");
     setConditions(r.conditions ?? []);
     setActions(r.actions ?? []);
     setFormError(null);
@@ -425,7 +445,8 @@ export default function AutomationsPage() {
     setFormError(null);
     const body = {
       name: name.trim(),
-      board_id: boardId === "" ? null : boardId,
+      board_id: boardId === "" || boardId === "all" ? null : boardId,
+      subject_kind: subjectKind,
       trigger_event: triggerEvent,
       conditions,
       actions,
@@ -628,7 +649,10 @@ export default function AutomationsPage() {
                     shownColumns.map((c) => {
                       if (c.key === "rule") return r.name;
                       if (c.key === "status") return r.enabled ? "enabled" : "paused";
-                      if (c.key === "trigger") return r.trigger_event;
+                      if (c.key === "trigger")
+                        return r.subject_kind === "board"
+                          ? `${r.trigger_event} (no ticket)`
+                          : r.trigger_event;
                       if (c.key === "conditions")
                         return (r.conditions ?? []).map((x) => x.type).join(" ");
                       if (c.key === "actions") return (r.actions ?? []).map((x) => x.type).join(" ");
@@ -707,9 +731,14 @@ export default function AutomationsPage() {
                           </StatusPill>
                         ) : null}
                         {c.key === "trigger" ? (
-                          <code className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                            {r.trigger_event}
-                          </code>
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            <code className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                              {r.trigger_event}
+                            </code>
+                            {r.subject_kind === "board" ? (
+                              <Tag tone="outline">no ticket</Tag>
+                            ) : null}
+                          </span>
                         ) : null}
                         {c.key === "conditions" ? (
                           (r.conditions ?? []).length === 0 ? (
@@ -722,7 +751,9 @@ export default function AutomationsPage() {
                               }}
                               fixLabel="Add one"
                             >
-                              matches every ticket
+                              {r.subject_kind === "board"
+                                ? "matches every occurrence"
+                                : "matches every ticket"}
                             </InlineVerdict>
                           ) : (
                             <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -841,12 +872,13 @@ export default function AutomationsPage() {
               />
             </div>
 
-            {/* WHEN — the trigger and the scope it fires in */}
+            {/* WHEN — the subject, the trigger and the scope it fires in */}
             <RuleStep
               word="WHEN"
               summary={
                 <>
-                  <code className="">{triggerEvent}</code> fires on{" "}
+                  <code className="">{triggerEvent}</code> fires{" "}
+                  {subjectKind === "board" ? "with no ticket" : "on a ticket"} on{" "}
                   {boardId === "" || boardId === "all"
                     ? "every board"
                     : (boards.find((b) => b.id === boardId)?.name ?? "one board")}
@@ -854,41 +886,79 @@ export default function AutomationsPage() {
                 </>
               }
             >
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3">
                 <div>
-                  <Label htmlFor="ar-board">Board scope</Label>
+                  <Label htmlFor="ar-subject">Rule subject</Label>
                   <Select
-                    value={boardId}
-                    onValueChange={(v) => setBoardId(v ?? "")}
+                    value={subjectKind}
+                    onValueChange={(v) => {
+                      const next = v === "board" ? "board" : "ticket";
+                      setSubjectKind(next);
+                      // Keep the draft coherent: a subject swap moves the
+                      // trigger to a matching event rather than leaving an
+                      // impossible pair selected.
+                      const current = TRIGGER_EVENTS.find((ev) => ev.value === triggerEvent);
+                      if (next === "board" && current?.ticketless !== true) {
+                        setTriggerEvent("webhook.ingested");
+                      }
+                      if (next === "ticket" && current?.ticketless === true) {
+                        setTriggerEvent("ticket.created");
+                      }
+                    }}
                   >
-                    <SelectTrigger id="ar-board" className="w-full">
-                      <SelectValue placeholder="All boards (org-wide)" />
+                    <SelectTrigger id="ar-subject" className="w-full">
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All boards</SelectItem>
-                      {boards.map((b) => (
-                        <SelectItem key={b.id} value={b.id}>
-                          {b.name}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="ticket">Ticket — fires on events about a ticket</SelectItem>
+                      <SelectItem value="board">Board — fires on events with no ticket</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div>
-                  <Label htmlFor="ar-event">Trigger event</Label>
-                  <Select value={triggerEvent} onValueChange={(v) => setTriggerEvent(v ?? "ticket.created")}>
-                    <SelectTrigger id="ar-event" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TRIGGER_EVENTS.map((ev) => (
-                        <SelectItem key={ev.value} value={ev.value}>
-                          {ev.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label htmlFor="ar-board">Board scope</Label>
+                    <Select
+                      value={boardId}
+                      onValueChange={(v) => setBoardId(v ?? "")}
+                    >
+                      <SelectTrigger id="ar-board" className="w-full">
+                        <SelectValue placeholder="All boards (org-wide)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All boards</SelectItem>
+                        {boards.map((b) => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="ar-event">Trigger event</Label>
+                    <Select value={triggerEvent} onValueChange={(v) => setTriggerEvent(v ?? "ticket.created")}>
+                      <SelectTrigger id="ar-event" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TRIGGER_EVENTS.filter((ev) =>
+                          subjectKind === "board" ? ev.ticketless === true : ev.ticketless !== true,
+                        ).map((ev) => (
+                          <SelectItem key={ev.value} value={ev.value}>
+                            {ev.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FieldHint>
+                      {subjectKind === "board"
+                        ? "Ticket-less events — an inbound webhook, an alert, or another platform envelope. Plugin-emitted types need an org grant and are not listable until the registry gains a read endpoint."
+                        : "Events about a ticket. Inbound webhook events live under the board subject."}
+                    </FieldHint>
+                  </div>
                 </div>
               </div>
             </RuleStep>
@@ -936,6 +1006,13 @@ export default function AutomationsPage() {
                   ))}
                 </div>
               )}
+              {subjectKind === "board" ? (
+                <p className="mt-2 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                  Board rules fire on envelopes with no ticket, so ticket-shaped
+                  conditions (priority, status, assignee) never match them — the
+                  engine skips them with a warning.
+                </p>
+              ) : null}
               <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3" style={{ borderColor: "var(--m-border)" }}>
                 <div className="w-40">
                   <Label htmlFor="ar-cond-type">Add condition</Label>

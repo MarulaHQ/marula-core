@@ -189,6 +189,10 @@ const CAPABILITY_NOTES: Record<string, string> = {
     "Widgets — the plugin may register dashboard and ticket-pane widgets. Widgets are declarative cards rendered by Marula's own components; the plugin ships no code the browser runs.",
   "automation.actions":
     "Automation actions — the plugin may register action kinds for the automations editor. Each action runs a consented built-in effect (such as adding an internal comment) with typed parameters.",
+  "automation.triggers":
+    "Automation triggers — the plugin may declare event types it emits, so a rule can fire on them. Each declared type is checked against the event registry at grant time; the trigger is a declaration, not code the engine runs raw.",
+  "automation.reads":
+    "Read nodes — the plugin may fetch EXTERNAL data through credentials it already holds, under declared caps: a per-run call ceiling, a minimum interval between this org's reads, a response-size ceiling, and never a vault secret.",
   "reports.render":
     "Report renders — the plugin may contribute render kinds to the report builder. Rendering stays in Marula's trusted component set.",
   "fields.validate":
@@ -226,6 +230,24 @@ export function SurfaceProfileBlock({ surfaceProfile }: { surfaceProfile?: unkno
         actions?: { id: string; label: string; description: string; effect: string }[];
         render_kinds?: { id: string; label: string; description: string }[];
         field_validators?: { id: string; label: string }[];
+        triggers?: {
+          id: string;
+          label: string;
+          description: string;
+          emitted_event_type: string;
+          payload_schema?: unknown;
+        }[];
+        reads?: {
+          id: string;
+          label: string;
+          description: string;
+          guardrails?: {
+            max_calls_per_run?: number;
+            min_interval_secs?: number;
+            max_output_bytes?: number;
+            may_return_secrets?: boolean;
+          };
+        }[];
       }
     | null
     | undefined;
@@ -236,12 +258,39 @@ export function SurfaceProfileBlock({ surfaceProfile }: { surfaceProfile?: unkno
     ["Report render kinds", (profile.render_kinds ?? []).map((r) => `${r.label} — ${r.description}`)],
     ["Field validators", (profile.field_validators ?? []).map((v) => v.label)],
   ];
+  // Wave 43 lane 5: TRIGGER surfaces (lane 4) and the event types they emit,
+  // shown beside the UI surfaces above so an approver sees the full surface
+  // the plugin contributes — including the half a rule can fire on.
+  const triggers = profile.triggers ?? [];
+  const emittedTypes = [...new Set(triggers.map((t) => t.emitted_event_type))];
+  if (triggers.length > 0) {
+    sections.push([
+      "Automation triggers",
+      triggers.map((t) => `${t.label} — ${t.description} · emits “${t.emitted_event_type}”`),
+    ]);
+  }
+  // Read nodes (lane 4, ADR 0017 §5) — the caps are part of what consent
+  // approves, so they render with the declaration, not beside it.
+  const reads = profile.reads ?? [];
+  if (reads.length > 0) {
+    sections.push([
+      "Read nodes",
+      reads.map((r) => {
+        const g = r.guardrails;
+        const caps =
+          g === undefined
+            ? "guardrails not declared"
+            : `≤${g.max_calls_per_run ?? "?"} calls/run · ≥${g.min_interval_secs ?? "?"}s apart · ≤${g.max_output_bytes ?? "?"} bytes back · secrets ${g.may_return_secrets === true ? "allowed" : "never"}`;
+        return `${r.label} — ${r.description} (${caps})`;
+      }),
+    ]);
+  }
   const total = sections.reduce((n, [, rows]) => n + rows.length, 0);
   if (total === 0) return null;
   return (
     <div className="rounded-md border border-dashed p-3" style={{ borderColor: "var(--m-border)" }}>
       <p className="text-[11px] uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
-        UI surfaces
+        Declared surfaces
       </p>
       <ul className="mt-2 grid gap-1">
         {sections
@@ -253,10 +302,18 @@ export function SurfaceProfileBlock({ surfaceProfile }: { surfaceProfile?: unkno
             </li>
           ))}
       </ul>
+      {emittedTypes.length > 0 ? (
+        <p className="mt-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }} data-testid="emitted-event-types">
+          Emitted event types: {emittedTypes.map((t) => (
+            <code key={t} className="mr-2">{t}</code>
+          ))}
+        </p>
+      ) : null}
       <p className="mt-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
         Declarative registrations only — widgets render through Marula&apos;s
         own components, automation actions run consented built-in effects,
-        and validators are JSON-Schema checks. The plugin contributes no
+        triggers name the event types the plugin publishes for rules to fire
+        on, and validators are JSON-Schema checks. The plugin contributes no
         executable code to these surfaces.
       </p>
     </div>
