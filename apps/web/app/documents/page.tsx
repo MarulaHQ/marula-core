@@ -72,7 +72,7 @@ type LayoutField = components["schemas"]["LayoutField"];
 type Client = components["schemas"]["Client"];
 type LayoutMutationResponse = components["schemas"]["LayoutMutationResponse"];
 
-type Scope = { kind: "all" } | { kind: "global" } | { kind: "client"; id: string };
+type Scope = { kind: "all" } | { kind: "global" } | { kind: "client-any" };
 
 type DocumentColumnKey = "title" | "type" | "scope" | "version" | "updated";
 
@@ -145,7 +145,7 @@ export default function DocumentsPage() {
     const needle = q.trim().toLowerCase();
     return docs.filter((d) => {
       if (scope.kind === "global" && d.client_id !== null) return false;
-      if (scope.kind === "client" && d.client_id !== scope.id) return false;
+      if (scope.kind === "client-any" && d.client_id === null) return false;
       // "typed"/"untyped" are views, not a type id, so they are matched here
       // rather than against layout_id.
       if (layoutFilter === "typed" && d.layout_id == null) return false;
@@ -190,7 +190,7 @@ export default function DocumentsPage() {
         meta={
           <>
             <StatPill tone="neutral" label="Org-global" count={stats?.global ?? 0} onClick={() => setScope((s) => (s.kind === "global" ? { kind: "all" } : { kind: "global" }))} pressed={scope.kind === "global"} />
-            <StatPill tone="neutral" label="Client-scoped" count={stats?.scoped ?? 0} onClick={() => setScope((s) => (s.kind === "all" ? { kind: "global" } : { kind: "all" }))} pressed={scope.kind === "all"} />
+            <StatPill tone="neutral" label="Client-scoped" count={stats?.scoped ?? 0} onClick={() => setScope((s) => (s.kind === "client-any" ? { kind: "all" } : { kind: "client-any" }))} pressed={scope.kind === "client-any"} />
             <StatPill tone="gold" label="Typed" count={stats?.typed ?? 0} />
           </>
         }
@@ -232,10 +232,21 @@ export default function DocumentsPage() {
               views={[
                 { id: "all", label: "All", hint: String(filtered?.length ?? 0) },
                 { id: "global", label: "Org-global" },
+                { id: "client-scoped", label: "Client-scoped" },
                 { id: "typed", label: "Typed" },
                 { id: "untyped", label: "Untyped" },
               ]}
-              activeId={layoutFilter === "all" ? "all" : layoutFilter === "untyped" ? "untyped" : scope.kind === "global" ? "global" : "typed"}
+              activeId={
+                layoutFilter === "all"
+                  ? scope.kind === "global"
+                    ? "global"
+                    : scope.kind === "client-any"
+                      ? "client-scoped"
+                      : "all"
+                  : layoutFilter === "typed" || layoutFilter === "untyped"
+                    ? layoutFilter
+                    : ""
+              }
               onChange={(id) => {
                 if (id === "all") {
                   setLayoutFilter("all");
@@ -243,6 +254,10 @@ export default function DocumentsPage() {
                 }
                 if (id === "global") {
                   setScope({ kind: "global" });
+                  setLayoutFilter("all");
+                }
+                if (id === "client-scoped") {
+                  setScope({ kind: "client-any" });
                   setLayoutFilter("all");
                 }
                 if (id === "typed") setLayoutFilter("typed");
