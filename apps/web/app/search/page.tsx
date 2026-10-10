@@ -15,7 +15,7 @@
 // Non-purpose: no server-side facets, no portal visibility logic.
 "use client";
 
-import { Button, Spinner, Tag } from "@marula-core/ui";
+import { Button, Spinner, SurfaceHeader, Tag } from "@marula-core/ui";
 import { InsightState } from "../../components/insight/insight-state";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -286,20 +286,11 @@ export default function SearchPage() {
   return (
     <div className="flex h-full flex-col">
       <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
-        <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-          <h1
-            className="text-[26px] font-semibold tracking-[-0.01em]"
-            style={{ color: "var(--m-text)" }}
-          >
-            Search
-          </h1>
-          <span
-            className="text-[13px]"
-            style={{ color: "var(--m-text-secondary)" }}
-          >
-            Tickets, clients, sites, documents and the knowledge base
-          </span>
-        </header>
+        <SurfaceHeader
+          className="m-rise"
+          title="Search"
+          description="Tickets, clients, sites, documents and the knowledge base"
+        />
 
         <div className="flex flex-wrap items-center gap-2">
           <input

@@ -21,6 +21,7 @@ import {
   ExportControl,
   FilterBar,
   Spinner,
+  SurfaceHeader,
   Table,
   Tag,
   Td,
@@ -283,26 +284,34 @@ export default function ProvenancePage() {
 
   return (
     <div className="grid gap-4 p-6">
-      <header className="m-rise grid gap-1.5">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1
-            className="text-[26px] font-semibold tracking-[-0.01em]"
-            style={{ color: "var(--m-text)" }}
-          >
-            Provenance
-          </h1>
+      <SurfaceHeader
+        className="m-rise"
+        title="Provenance"
+        meta={
           <span
             className="inline-flex h-6 items-center rounded-full px-2.5 text-[12px] font-semibold"
             style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
           >
             Read-only
           </span>
+        }
+        description={
+          "Who changed what, field by field, across every applied write — including agent sessions and imports. It never rewrites history."
+        }
+      />
+
+      {/* A rejected appearance.data_surfaces write reverts the user's
+          columns and sort; it says so in blush, never red. */}
+      {prefs.error !== null && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          data-testid="prefs-save-error"
+        >
+          {prefs.error}
         </div>
-        <p className="max-w-2xl text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          Who changed what, field by field, across every applied write — including agent
-          sessions and imports. It never rewrites history.
-        </p>
-      </header>
+      )}
 
       <DataToolbar
         label="Write trail controls"

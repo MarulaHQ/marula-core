@@ -52,6 +52,7 @@ beforeEach(() => {
 describe("/audit integration", () => {
   it("carries the data-surface controls and no selection bulk bar", async () => {
     setupApi();
+    const user = userEvent.setup();
     render(
       <AuthProvider>
         <AuditPage />
@@ -61,10 +62,12 @@ describe("/audit integration", () => {
     expect(screen.getByRole("tablist", { name: "Audit views" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /add filter/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Columns" })).toBeInTheDocument();
-    // One button per format, and the row count on the strip so the user
-    // knows the size before they ask.
-    expect(screen.getByRole("button", { name: "Export CSV" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Export XLSX" })).toBeInTheDocument();
+    // Single export trigger; the per-format choices live behind its menu
+    // (kit-sweep 7818cfff anatomy), and the row count shows before asking.
+    expect(screen.getByRole("button", { name: /export/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /export/i }));
+    expect(screen.getByRole("menuitem", { name: "CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "XLSX" })).toBeInTheDocument();
     expect(screen.getByText(/\d+ rows?/)).toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: "Density" })).toBeInTheDocument();
     // The bulk bar is wrong here: an append-only ledger has no bulk action.

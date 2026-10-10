@@ -109,6 +109,7 @@ describe("/provenance integration", () => {
 
   it("carries the four data-surface controls and no bulk bar", async () => {
     setupApi();
+    const user = userEvent.setup();
     render(
       <AuthProvider>
         <ProvenancePage />
@@ -119,10 +120,12 @@ describe("/provenance integration", () => {
     expect(screen.getByRole("tablist", { name: "Provenance views" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /add filter/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Columns" })).toBeInTheDocument();
-    // One button per format, and the row count on the strip so the user
-    // knows the size before they ask.
-    expect(screen.getByRole("button", { name: "Export CSV" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Export XLSX" })).toBeInTheDocument();
+    // Single export trigger; the per-format choices live behind its menu
+    // (kit-sweep 7818cfff anatomy), and the row count shows before asking.
+    expect(screen.getByRole("button", { name: /export/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /export/i }));
+    expect(screen.getByRole("menuitem", { name: "CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "XLSX" })).toBeInTheDocument();
     expect(screen.getByText(/\d+ rows?/)).toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: "Density" })).toBeInTheDocument();
     // Audit and provenance take every control EXCEPT the selection bar.

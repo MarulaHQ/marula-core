@@ -295,7 +295,7 @@ describe("/dashboards integration", () => {
       </AuthProvider>,
     );
 
-    expect(await screen.findByText("Your dashboard is empty.", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText("Your dashboard is empty", {}, { timeout: 5000 })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Restore My day" }));
     await waitFor(() => {
       expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(1);
