@@ -406,27 +406,31 @@ function GrantEditor({
             <SelectItem value="user">User</SelectItem>
           </SelectContent>
         </Select>
-        <select
-          className="h-[var(--m-density-control)] max-w-48 rounded-[var(--m-radius-control)] border px-1 text-[12px]"
-          style={{ borderColor: "var(--m-border)" }}
-          value={target}
-          onChange={(e) => setTarget(e.target.value)}
-          aria-label={grantee === "role" ? "Role" : "User"}
+        <Select
+          value={target === "" ? undefined : target}
+          onValueChange={setTarget}
         >
-          <option value="">{grantee === "role" ? "Pick a role…" : "Pick a user…"}</option>
-          {(grantee === "role" ? (roles as RoleRow[]) : (users as UserRow[])).map((row) => {
-            const id = row.id;
-            const label =
-              grantee === "role"
-                ? (row as RoleRow).display_name ?? (row as RoleRow).name ?? id
-                : (row as UserRow).name ?? id;
-            return (
-              <option key={id} value={id}>
-                {label}
-              </option>
-            );
-          })}
-        </select>
+          <SelectTrigger
+            className="h-[var(--m-density-control)] max-w-48 text-[12px]"
+            aria-label={grantee === "role" ? "Role" : "User"}
+          >
+            <SelectValue placeholder={grantee === "role" ? "Pick a role…" : "Pick a user…"} />
+          </SelectTrigger>
+          <SelectContent>
+            {(grantee === "role" ? (roles as RoleRow[]) : (users as UserRow[])).map((row) => {
+              const id = row.id;
+              const label =
+                grantee === "role"
+                  ? (row as RoleRow).display_name ?? (row as RoleRow).name ?? id
+                  : (row as UserRow).name ?? id;
+              return (
+                <SelectItem key={id} value={id}>
+                  {label}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
         <Button size="sm" disabled={busy || target === ""} onClick={() => void pick(grantee)}>
           Grant
         </Button>

@@ -15,10 +15,16 @@ import { friendlyMutationText } from "../../../lib/error-copy";
 import {
   Button,
   Card,
+  Checkbox,
   EmptyState,
   FieldHint,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
@@ -354,10 +360,9 @@ export default function SlaSettingsPage() {
               return (
                 <div key={day} role="row" className="flex items-center gap-2">
                   <label className="inline-flex items-center gap-2 text-[12px] w-32">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={window != null}
-                      onChange={() => {
+                      onCheckedChange={() => {
                         setCalTouched(true);
                         dispatchCal({ type: "toggle-day", index: i });
                       }}
@@ -534,45 +539,41 @@ export default function SlaSettingsPage() {
                           <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
                             % of budget →
                           </span>
-                          <select
-                            aria-label={`Step ${index + 1} notification kind`}
-                            value={row.kind ?? ""}
-                            onChange={(e) =>
+                          <Select
+                            value={row.kind ?? undefined}
+                            onValueChange={(v) =>
                               dispatchLadder({
                                 type: "update",
                                 key: row.key,
-                                patch: { kind: e.target.value as LadderKind },
+                                patch: { kind: v as LadderKind },
                               })
                             }
-                            className="text-[12px] px-2 py-1.5"
-                            style={{
-                              borderRadius: "var(--m-radius-control)",
-                              border: "1px solid var(--m-border)",
-                              background: "var(--m-surface)",
-                              color: "var(--m-text)",
-                            }}
                           >
-                            <option value="" disabled>
-                              pick kind…
-                            </option>
-                            <option value="risk">risk</option>
-                            <option value="escalate">escalate</option>
-                            <option value="breach">breach</option>
-                          </select>
+                            <SelectTrigger
+                              aria-label={`Step ${index + 1} notification kind`}
+                              className="w-32 text-[12px]"
+                            >
+                              <SelectValue placeholder="pick kind…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="risk">risk</SelectItem>
+                              <SelectItem value="escalate">escalate</SelectItem>
+                              <SelectItem value="breach">breach</SelectItem>
+                            </SelectContent>
+                          </Select>
                           {row.kind !== null && (
                             <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                               {kindExplanation(row.kind)}
                             </span>
                           )}
                           <label className="inline-flex items-center gap-1.5 text-[12px] ml-auto">
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={row.enabled}
-                              onChange={(e) =>
+                              onCheckedChange={(c) =>
                                 dispatchLadder({
                                   type: "update",
                                   key: row.key,
-                                  patch: { enabled: e.target.checked },
+                                  patch: { enabled: c === true },
                                 })
                               }
                               aria-label={`Enable step ${index + 1}`}

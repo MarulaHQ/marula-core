@@ -33,6 +33,7 @@ import {
   Table,
   Tag,
   Td,
+  Textarea,
   Th,
   Tr,
 } from "@marula-core/ui";
@@ -602,11 +603,10 @@ function BoardIdentityDialog({
           </label>
           <label className="grid gap-1">
             <span className="text-[12px]">Signature</span>
-            <textarea
+            <Textarea
               value={signature}
               onChange={(e) => setSignature(e.target.value)}
               rows={3}
-              className="m-input"
               placeholder={"Acme Projects\nprojects@yourdomain.com"}
             />
           </label>
@@ -1061,14 +1061,13 @@ function SendingCard({
 
           <div className="grid gap-1">
             <span className="text-[12px]">Org signature</span>
-            <textarea
+            <Textarea
               value={signature}
               onChange={(e) => {
                 setSignature(e.target.value);
                 setSaved(false);
               }}
               rows={3}
-              className="m-input"
               placeholder={"{{org.name}} Support\nsupport@yourdomain.com"}
               data-testid="mail-org-signature"
             />

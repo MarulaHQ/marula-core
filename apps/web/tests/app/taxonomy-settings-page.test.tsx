@@ -5,6 +5,7 @@
 // read-only posture without `special:manage_boards`.
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { AuthProvider } from "../../lib/api";
 import TaxonomySettingsPage from "../../app/settings/taxonomy/page";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
@@ -161,7 +162,10 @@ describe("/settings/taxonomy", () => {
     await screen.findByText("Laptop");
 
     fireEvent.click(screen.getByRole("button", { name: "Move" }));
-    fireEvent.change(screen.getByTestId("reparent-target"), { target: { value: C_SOFT } });
+    // The reparent target is the kit Radix Select — open the trigger, pick the root.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    await user.click(screen.getByTestId("reparent-target"));
+    await user.click(await screen.findByRole("option", { name: "Software" }));
     fireEvent.click(screen.getByTestId("confirm-reparent"));
 
     await waitFor(() => {
