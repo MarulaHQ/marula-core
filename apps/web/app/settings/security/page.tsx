@@ -14,7 +14,7 @@ import { Button, Card, FieldHint, Input, Label, Tag } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { resolveApiBaseUrl, useAuth, useRequireAuth } from "../../../lib/api";
+import { loadTokens, resolveApiBaseUrl, useAuth, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 
 const API_BASE = resolveApiBaseUrl();
@@ -69,14 +69,17 @@ async function apiCall<T>(
   method: "POST" | "GET",
   body?: unknown,
 ): Promise<T> {
-  const tokens = JSON.parse(
-    window.localStorage.getItem("marula-tokens") ?? "{}",
-  );
+  // Wave 19 lane 5 moved tokens to memory-only (the httpOnly session cookie
+  // owns the refresh secret; the access token never touches document storage,
+  // and saveTokens actively removes the legacy localStorage family). Read the
+  // live in-memory token here too — the old localStorage read returned an empty
+  // bearer, so this page always failed to load security state.
+  const tokens = loadTokens();
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${tokens.access_token ?? ""}`,
+      authorization: `Bearer ${tokens?.access_token ?? ""}`,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -88,7 +91,7 @@ async function apiCall<T>(
 }
 
 export default function SecuritySettingsPage() {
-  useRequireAuth();
+  const auth = useRequireAuth();
   const { me } = useAuth();
 
   // status flags
@@ -144,8 +147,11 @@ export default function SecuritySettingsPage() {
   }, []);
 
   useEffect(() => {
+    // Gate on authed so the memory-only token is restored (cookie-driven
+    // rotation) before the first call — matches the other settings pages.
+    if (auth.status !== "authed") return;
     void refreshStatus();
-  }, [refreshStatus]);
+  }, [auth.status, refreshStatus]);
 
   function guard(action: () => Promise<void>) {
     return async () => {

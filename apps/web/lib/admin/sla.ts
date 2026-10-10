@@ -174,14 +174,35 @@ export function ladderPayload(state: LadderDraftState): ReplaceLadderRequest {
   return { steps };
 }
 
-/** Plain-language target summary for one policy (priority → minutes). */
+/** Plain-language target summary for one policy (priority → resolution minutes). */
 export function policyTargetSummary(policy: PolicyView): string {
   const targets = (policy.targets ?? {}) as Record<string, unknown>;
   const entries = Object.entries(targets);
   if (entries.length === 0) return "No targets set";
   return entries
-    .map(([prio, mins]) => `${prio.toUpperCase()} ${String(mins)}m`)
+    .map(([prio, target]) => {
+      const mins = targetResolutionMinutes(target);
+      return `${prio.toUpperCase()} ${mins === null ? "—" : `${mins}m`}`;
+    })
     .join(" · ");
+}
+
+/**
+ * Resolution-clock minutes for one priority target — the budget the escalation
+ * ladder measures against. Each target is an object
+ * (`{ first_response_mins, resolution_mins }`), never a bare number, so the
+ * summary must read the field rather than stringify the object (which printed
+ * "[object Object]m" on the SLA page). Tolerates a legacy bare-number shape and
+ * falls back to first-response when no resolution is set.
+ */
+function targetResolutionMinutes(target: unknown): number | null {
+  if (typeof target === "number") return target;
+  if (target !== null && typeof target === "object") {
+    const t = target as { resolution_mins?: unknown; first_response_mins?: unknown };
+    if (typeof t.resolution_mins === "number") return t.resolution_mins;
+    if (typeof t.first_response_mins === "number") return t.first_response_mins;
+  }
+  return null;
 }
 
 // --- calendar draft ----------------------------------------------------------

@@ -19,6 +19,11 @@ import {
   FieldHint,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Spinner,
   StatusTag,
 } from "@marula-core/ui";
@@ -311,17 +316,15 @@ export default function InventorySettingsPage(): ReactNode {
           <div className="grid gap-3 md:grid-cols-3">
             <div className="grid gap-1">
               <Label htmlFor="dedupe-mode">Run mode</Label>
-              <select
-                id="dedupe-mode"
-                className="rounded border bg-transparent px-2 py-1 text-[13px]"
-                style={{ borderColor: "var(--m-border)", color: "var(--m-text)" }}
-                value={modeDraft}
-                onChange={(e) => setModeDraft(e.target.value)}
-                data-testid="dedupe-mode"
-              >
-                <option value="report_only">Report only (suggest, never merge)</option>
-                <option value="auto_merge">Auto-merge above threshold</option>
-              </select>
+              <Select value={modeDraft} onValueChange={setModeDraft}>
+                <SelectTrigger id="dedupe-mode" data-testid="dedupe-mode" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="report_only">Report only (suggest, never merge)</SelectItem>
+                  <SelectItem value="auto_merge">Auto-merge above threshold</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid gap-1">
               <Label htmlFor="dedupe-interval">Schedule (hours, empty = manual)</Label>

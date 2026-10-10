@@ -23,7 +23,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, Button, Spinner } from "@marula-core/ui";
+import { Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import { api } from "../../../../lib/api";
@@ -143,28 +143,18 @@ export default function ShadowRunsPage(): React.JSX.Element {
       >
         <label className="flex items-center gap-2">
           <span className="sr-only">Surface</span>
-          <select
-            aria-label="Surface"
-            value={selected}
-            onChange={(event) => setSelected(event.target.value)}
-            data-testid="ai-shadow-surface"
-            style={{
-              height: 40,
-              borderRadius: 10,
-              border: "1px solid var(--m-input)",
-              background: "var(--m-surface)",
-              color: "var(--m-text)",
-              padding: "0 12px",
-              fontWeight: 600,
-            }}
-          >
-            {surfaces.length === 0 ? <option value="">No surfaces</option> : null}
-            {surfaces.map((s) => (
-              <option key={s.surface_key} value={s.surface_key}>
-                {s.label}
-              </option>
-            ))}
-          </select>
+          <Select value={selected === "" ? undefined : selected} onValueChange={setSelected}>
+            <SelectTrigger aria-label="Surface" data-testid="ai-shadow-surface">
+              <SelectValue placeholder="No surfaces" />
+            </SelectTrigger>
+            <SelectContent>
+              {surfaces.map((s) => (
+                <SelectItem key={s.surface_key} value={s.surface_key}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
       </SettingsHeader>
 

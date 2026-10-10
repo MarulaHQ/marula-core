@@ -138,9 +138,10 @@ describe("/settings/sla integration", () => {
 
     const newOffset = screen.getByLabelText(/Step 3 offset percent/i);
     expect(newOffset).toHaveValue(50);
-    const newKind = screen.getByLabelText(/Step 3 notification kind/i) as HTMLSelectElement;
-    // Escalate is preselected via suggestKindForOffset(50).
-    expect(newKind.value).toBe("escalate");
+    const newKind = screen.getByLabelText(/Step 3 notification kind/i);
+    // Escalate is preselected via suggestKindForOffset(50); the kit Select
+    // trigger shows the selected kind's label rather than a native .value.
+    expect(newKind).toHaveTextContent("escalate");
     cleanup();
   });
 

@@ -26,6 +26,11 @@ import {
   FieldHint,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Spinner,
   Tag,
 } from "@marula-core/ui";
@@ -547,32 +552,29 @@ export default function TaxonomySettingsPage() {
           <div className="grid gap-3 p-4">
             <div>
               <Label htmlFor="reparent-target">New root category</Label>
-              <select
-                id="reparent-target"
-                aria-label="New root category"
-                data-testid="reparent-target"
-                value={reparentTo}
-                onChange={(e) => setReparentTo(e.target.value)}
-                className="w-full text-[13px] px-2 py-1.5"
-                style={{
-                  borderRadius: "var(--m-radius-control)",
-                  border: "1px solid var(--m-border)",
-                  background: "var(--m-surface)",
-                  color: "var(--m-text)",
-                }}
+              <Select
+                value={reparentTo === "" ? undefined : reparentTo}
+                onValueChange={setReparentTo}
               >
-                <option value="" disabled>
-                  Choose a root category
-                </option>
-                {roots
-                  .filter((r) => r.id !== reparenting?.parent_id)
-                  .map((root) => (
-                    <option key={root.id} value={root.id}>
-                      {root.name}
-                      {root.is_retired ? " (retired)" : ""}
-                    </option>
-                  ))}
-              </select>
+                <SelectTrigger
+                  id="reparent-target"
+                  aria-label="New root category"
+                  data-testid="reparent-target"
+                  className="w-full"
+                >
+                  <SelectValue placeholder="Choose a root category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roots
+                    .filter((r) => r.id !== reparenting?.parent_id)
+                    .map((root) => (
+                      <SelectItem key={root.id} value={root.id}>
+                        {root.name}
+                        {root.is_retired ? " (retired)" : ""}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
             </div>
             <DialogActions>
               <Button variant="ghost" onClick={() => setReparenting(null)}>
