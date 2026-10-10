@@ -66,6 +66,16 @@ the [changelog](CHANGELOG.md) records what changed.
   the document from the catalog, pricing and terms you already keep, under the
   same per-surface gate as every other AI help. Drafts are proposals: edited
   and approved by a person before anything reaches a client.
+- **Reports and dashboards, described.** Say what you want to see, typed or
+  spoken, and the agent drafts it from the views, measures, filters, charts and
+  cards the product already serves: the right lens, the right chart, the cards
+  sized and placed where they read best, and the delivery schedule if you named
+  one. Before it hands the draft over it runs the thing against your own data
+  and checks what it built: a chart with nothing to plot, a card that resolves
+  to no rows, a filter nobody thought to widen. It fixes what it can, and says
+  plainly what it could not. Every draft lands in the builders you already use
+  as a proposal you edit and approve, under the same per-surface gate as every
+  other AI help.
 - **Client-facing finishing holes.** Quote approval from the client portal,
   satisfaction surveys on resolution, canned replies for ticket work.
 - **More of the plugin surface.** UI widgets, automation steps, and report
