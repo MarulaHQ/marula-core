@@ -69,7 +69,7 @@ import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, useRequireAuth } from "../../../lib/api";
+import { api, useAuth, useRequireAuth } from "../../../lib/api";
 import { ProjectGantt } from "../../../components/project-gantt";
 import { dueLabel, money } from "../../../lib/format";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
@@ -77,6 +77,7 @@ import {
   RecordFrame,
   RecordRow,
   RecordSection,
+  RecordTabs,
   SummaryCard,
 } from "../../../components/records/record-frame";
 
@@ -103,6 +104,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function ProjectDetailPage() {
   const auth = useRequireAuth();
+  const { me } = useAuth();
   const params = useParams<{ id: string }>();
   const projectId = params.id;
 
@@ -124,6 +126,10 @@ export default function ProjectDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [attentionOnly, setAttentionOnly] = useState(false);
+  // The record's tabs (DESIGN-NOTES-clients §7): the delivery plan, the
+  // tasks, and time and budget. The header above them does not change
+  // between tabs, so the record never feels like it moved.
+  const [tab, setTab] = useState<"plan" | "tasks" | "money">("plan");
 
   const [phaseOpen, setPhaseOpen] = useState(false);
   const [phaseName, setPhaseName] = useState("");
@@ -554,6 +560,11 @@ export default function ProjectDetailPage() {
   const pProgress = phaseProgress(phases);
   const tProgress = taskProgress(tasks);
   const risk = projectRisk(project);
+  // The account owner is the signed-in user's real name. "You" collapsed
+  // the owner line to a pronoun on the one surface that exists to say who
+  // owns the account; the monogram carries the same person the client
+  // record draws.
+  const ownerName = me?.display_name ?? me?.email ?? "";
   // A project bills through one of its own client's live contracts, so
   // the picker never offers a contract the server would refuse.
   const clientContracts = contracts.filter(
@@ -630,24 +641,40 @@ export default function ProjectDetailPage() {
             </RecordSection>
 
             <RecordSection label="Owner">
-              <RecordRow label="Account owner">
-                {client === null ? "Unassigned" : "You"}
-              </RecordRow>
+              {ownerName === "" ? (
+                <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  Unassigned
+                </p>
+              ) : (
+                <div className="flex items-center gap-2.5">
+                  <Monogram name={ownerName} />
+                  <span className="text-[13px] font-semibold">{ownerName}</span>
+                </div>
+              )}
             </RecordSection>
           </>
         }
         content={
           <>
+      {/* ---- breadcrumb and actions ---- */}
       <div className="m-rise">
-        <Link
-          href="/projects"
-          className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
-          style={{ color: "var(--m-text-secondary)" }}
-        >
-          ← Projects
-        </Link>
+        <div className="flex flex-wrap items-center gap-2" style={{ color: "var(--m-text-secondary)" }}>
+          <Link
+            href="/projects"
+            className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+          >
+            Projects
+          </Link>
+          <ChevronIcon />
+          <span className="text-[13px]">{project.name}</span>
+        </div>
+
+        {/* ---- the title and its pills. This header does not change
+            between tabs, so the record never feels like it moved. ---- */}
         <div className="mt-2 flex flex-wrap items-center gap-2.5">
-          <h1 className="text-lg font-semibold">{project.name}</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em]">
+            {project.name}
+          </h1>
           <Tag tone={projectStatusTone(project.status)}>
             {STATUS_LABEL[project.status] ?? project.status.replaceAll("_", " ")}
           </Tag>
@@ -721,17 +748,59 @@ export default function ProjectDetailPage() {
         ) : null}
       </div>
 
-      {sortedPhases.length > 0 ? (
-        <PhaseRail phases={sortedPhases} />
-      ) : null}
+      {/* ---- the tabs. DESIGN-NOTES-clients §7 gives the project record
+          Plan, Tasks, and Time and budget; the header above them stays put
+          so the record never feels like it moved. ---- */}
+      <div className="mt-3">
+        <RecordTabs
+          tabs={[
+            { id: "plan", label: "Plan" },
+            { id: "tasks", label: "Tasks", count: tProgress.total },
+            { id: "money", label: "Time and budget" },
+          ]}
+          active={tab}
+          onChange={(id) => setTab(id as typeof tab)}
+        />
+      </div>
 
-      {actionError !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-          {actionError}
-        </p>
-      ) : null}
+      <div key={tab} className="mt-4 flex flex-col gap-4">
+        {actionError !== null ? (
+          <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+            {actionError}
+          </p>
+        ) : null}
 
-      {rollup !== null && rollup.bills.length > 0 ? (
+        {tab === "plan" ? (
+          <>
+            {sortedPhases.length > 0 ? (
+              <PhaseRail phases={sortedPhases} />
+            ) : null}
+            {/* The dated timeline, kept on the Plan tab: a bar tells you
+                WHEN, the rail above tells you WHAT ORDER, and a planner
+                reads the bar first. Undated phases appear in the rail and
+                are named as not being on the timeline. */}
+            <Card className="m-rise p-0" data-testid="project-schedule">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4" style={{ borderColor: "var(--m-border)" }}>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-sm font-semibold">Schedule</h2>
+                  <span className="text-[12px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                    {pProgress.done}/{pProgress.total} phases
+                  </span>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => setPhaseOpen(true)} data-testid="add-phase">
+                  Add phase
+                </Button>
+              </div>
+              <div className="p-4">
+                <ProjectGantt projectId={projectId} />
+              </div>
+            </Card>
+          </>
+        ) : null}
+
+        {tab === "money" ? (
+          <>
+        {rollup !== null && rollup.bills.length > 0 ? (
         <Card className="m-rise p-4" style={{ animationDelay: "70ms" }} data-testid="project-cost-bills">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">Purchase bills</h2>
@@ -748,7 +817,7 @@ export default function ProjectDetailPage() {
                 >
                   {bill.purchase_order_number}
                 </Link>
- <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                   {money(bill.amount_minor, bill.currency)}
                   {bill.base_amount_minor !== null &&
                   bill.base_amount_minor !== undefined &&
@@ -798,6 +867,13 @@ export default function ProjectDetailPage() {
                 Open contract
               </Link>
             ) : null}
+            <Link
+              href="/billing"
+              className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+              style={{ color: "var(--m-text-secondary)" }}
+            >
+              Billing →
+            </Link>
           </div>
         </div>
 
@@ -819,7 +895,7 @@ export default function ProjectDetailPage() {
                         ) : null}
                         {row.phase_name}
                       </span>
- <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                      <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                         {money(row.consumed_minor, row.currency ?? "USD")}
                         {row.budget_minor !== null && row.budget_minor !== undefined
                           ? ` of ${money(row.budget_minor, row.currency ?? "USD")}`
@@ -865,7 +941,7 @@ export default function ProjectDetailPage() {
                         <span style={{ color: "var(--m-text-muted)" }}>{release.released_on}</span>
                       </span>
                       <span className="flex items-center gap-2">
- <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                        <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                           {money(release.amount_minor, release.currency)}
                         </span>
                         {release.invoice_id === null || release.invoice_id === undefined ? (
@@ -888,54 +964,21 @@ export default function ProjectDetailPage() {
           </div>
         )}
       </Card>
+          </>
+        ) : null}
 
-      <Card className="m-rise p-0" style={{ animationDelay: "80ms" }}>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4" style={{ borderColor: "var(--m-border)" }}>
-          <div className="flex items-center gap-3">
-            <h2 className="text-sm font-semibold">Delivery</h2>
-            <span className="text-[12px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-              {pProgress.done}/{pProgress.total} phases · {tProgress.done}/{tProgress.total} tasks
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/billing"
-              className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
-              style={{ color: "var(--m-text-secondary)" }}
-            >
-              Billing →
-            </Link>
-            <Button size="sm" variant="secondary" onClick={() => setPhaseOpen(true)} data-testid="add-phase">
-              Add phase
-            </Button>
-            <AddPhaseDialog
-              open={phaseOpen}
-              onOpenChange={setPhaseOpen}
-              name={phaseName}
-              setName={setPhaseName}
-              milestone={phaseMilestone}
-              setMilestone={setPhaseMilestone}
-              amount={phaseAmount}
-              setAmount={setPhaseAmount}
-              budget={phaseBudget}
-              setBudget={setPhaseBudget}
-              fee={phaseFee}
-              setFee={setPhaseFee}
-              busy={busy}
-              onCreate={() => void createPhase()}
-            />
-          </div>
-        </div>
+            {tab === "tasks" ? (
+            <Card className="m-rise p-0" data-testid="project-tasks">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4" style={{ borderColor: "var(--m-border)" }}>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-sm font-semibold">Delivery</h2>
+                  <span className="text-[12px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                    {pProgress.done}/{pProgress.total} phases · {tProgress.done}/{tProgress.total} tasks
+                  </span>
+                </div>
+              </div>
 
-        {/* The dated timeline sits above the ordered rail: a bar tells you
-            WHEN, the rail tells you WHAT ORDER, and a planner reads the bar
-            first. Undated phases appear in the rail below and are named as
-            not being on the timeline. */}
-        <div className="p-4">
-          <ProjectGantt projectId={projectId} />
-        </div>
-
-        {phases.length === 0 ? (
+              {phases.length === 0 ? (
           <div className="p-4">
             <EmptyState message="No phases yet. Phases group tasks into delivery stages; a milestone phase releases its amount to billing on completion." />
           </div>
@@ -1051,29 +1094,49 @@ export default function ProjectDetailPage() {
               <Button size="sm" variant="secondary" onClick={() => setTaskOpen(true)} data-testid="add-task">
                 Add task
               </Button>
-              <AddTaskDialog
-                open={taskOpen}
-                onOpenChange={setTaskOpen}
-                title={taskTitle}
-                setTitle={setTaskTitle}
-                phase={taskPhase}
-                setPhase={setTaskPhase}
-                phases={sortedPhases}
-                milestone={taskMilestone}
-                setMilestone={setTaskMilestone}
-                amount={taskAmount}
-                setAmount={setTaskAmount}
-                dependsOn={taskDependsOn}
-                setDependsOn={setTaskDependsOn}
-                tasks={tasks}
-                busy={busy}
-                onCreate={() => void createTask()}
-              />
             </div>
           </div>
         )}
-      </Card>
+            </Card>
+        ) : null}
+      </div>
 
+      {/* The dialogs live outside the tab panels, so a dialog opened from one
+          tab survives switching to another rather than surprising. */}
+      <AddPhaseDialog
+        open={phaseOpen}
+        onOpenChange={setPhaseOpen}
+        name={phaseName}
+        setName={setPhaseName}
+        milestone={phaseMilestone}
+        setMilestone={setPhaseMilestone}
+        amount={phaseAmount}
+        setAmount={setPhaseAmount}
+        budget={phaseBudget}
+        setBudget={setPhaseBudget}
+        fee={phaseFee}
+        setFee={setPhaseFee}
+        busy={busy}
+        onCreate={() => void createPhase()}
+      />
+      <AddTaskDialog
+        open={taskOpen}
+        onOpenChange={setTaskOpen}
+        title={taskTitle}
+        setTitle={setTaskTitle}
+        phase={taskPhase}
+        setPhase={setTaskPhase}
+        phases={sortedPhases}
+        milestone={taskMilestone}
+        setMilestone={setTaskMilestone}
+        amount={taskAmount}
+        setAmount={setTaskAmount}
+        dependsOn={taskDependsOn}
+        setDependsOn={setTaskDependsOn}
+        tasks={tasks}
+        busy={busy}
+        onCreate={() => void createTask()}
+      />
       <DependencyDialog
         depTaskId={depTaskId}
         onClose={() => setDepTaskId(null)}
@@ -1088,7 +1151,7 @@ export default function ProjectDetailPage() {
         summary={
           <>
             <p
-              className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em]"
+              className="mb-1 text-[12px] font-semibold uppercase tracking-[0.08em]"
               style={{ color: "var(--m-text-muted)" }}
             >
               Right now
@@ -1161,6 +1224,30 @@ export default function ProjectDetailPage() {
       />
     </div>
   );
+}
+
+/** The account owner's monogram, the same one the client record draws. */
+function Monogram({ name }: { name: string }) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
+  return (
+    <span
+      aria-hidden="true"
+      className="grid h-9 w-9 shrink-0 place-items-center rounded-[999px] text-[12px] font-semibold"
+      style={{ background: "var(--m-canopy-deep)", color: "var(--m-cream)" }}
+    >
+      {initials}
+    </span>
+  );
+}
+
+/** The breadcrumb's chevron, as on the client and contract records. */
+function ChevronIcon() {
+  return <Icon name="chev" size={14} />;
 }
 
 /**

@@ -611,10 +611,18 @@ export default function ContractsPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+        {/* The count leads, then the "of" clause only when a filter has
+            actually narrowed the list — the same convention the projects
+            ledger uses, so the two surfaces read alike. */}
         <span className="tabular-nums">
-          Showing <strong className="font-semibold">{filtered?.length ?? 0}</strong> of{" "}
-          <strong className="font-semibold">{contracts?.length ?? 0}</strong> contracts
+          {filtered?.length ?? 0} contract{(filtered?.length ?? 0) === 1 ? "" : "s"}
         </span>
+        {filtered !== null && contracts !== null && filtered.length !== contracts.length ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="tabular-nums">of {contracts.length} in total</span>
+          </>
+        ) : null}
         <span className="flex-1" />
         <span className="tabular-nums">Booked per period: {posture.book}</span>
       </div>
