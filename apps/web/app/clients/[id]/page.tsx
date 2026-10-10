@@ -100,14 +100,16 @@ type Ticket = components["schemas"]["TicketWithFields"];
 type ActivityEntry = { at: string; text: string; href: string };
 type ClientCompletenessView = components["schemas"]["ClientCompletenessView"];
 type Contract = components["schemas"]["Contract"];
+type Invoice = components["schemas"]["Invoice"];
 
-type Tab = "overview" | "contacts" | "sites" | "contracts" | "assets" | "documents";
+type Tab = "overview" | "contacts" | "sites" | "contracts" | "tickets" | "assets" | "documents";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "contacts", label: "Contacts" },
   { id: "sites", label: "Sites and devices" },
   { id: "contracts", label: "Contracts and billing" },
+  { id: "tickets", label: "Tickets" },
   { id: "assets", label: "Assets" },
   { id: "documents", label: "Documents" },
 ];
@@ -180,9 +182,19 @@ export default function ClientDetailPage() {
   const [completeness, setCompleteness] = useState<ClientCompletenessView | null>(null);
   const [completenessUnavailable, setCompletenessUnavailable] = useState(false);
   const [contracts, setContracts] = useState<Contract[]>([]);
+  // The client's REAL invoices, read from the billing read model the same
+  // way the /billing surface reads them. The billing figures on this record
+  // are only ever figures the API returned — an invoice number invented for
+  // the picture is the defect this lane's parent law exists to prevent.
+  const [invoices, setInvoices] = useState<Invoice[] | null>(null);
+  const [invoicesDenied, setInvoicesDenied] = useState(false);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Which site the Sites tab's table is scoped to. The site choice is a
+  // filter, not a tab: picking a site shows that site's devices, the way
+  // the pack draws it.
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   // The setup card's dismissal. Two separate states, because the two buttons
   // do different things: skipping keeps the card for next time, hiding
   // removes it and the client's menu brings it back.
@@ -269,6 +281,19 @@ export default function ClientDetailPage() {
     if (res.error === undefined && Array.isArray(res.data)) {
       setContracts(res.data.filter((c) => c.client_id === clientId));
     }
+    // The real invoice ledger for this client, scoped by the endpoint's own
+    // client_id filter. A 403 (no financial read) leaves the ledger honestly
+    // absent rather than inventing numbers or failing the record.
+    const inv = await api.api.GET("/api/v1/invoices", {
+      params: { query: { client_id: clientId } },
+    });
+    if (inv.error !== undefined || inv.data === undefined) {
+      setInvoices(null);
+      setInvoicesDenied(true);
+      return;
+    }
+    setInvoicesDenied(false);
+    setInvoices(inv.data);
   }, [clientId]);
 
   useEffect(() => {
@@ -333,6 +358,43 @@ export default function ClientDetailPage() {
         href: `/tickets/${t.id}`,
       }));
   }, [tickets]);
+
+  /** The billing truth, computed from real invoices only: the outstanding
+   * balance (invoiced minus actually recorded payments), how long the
+   * oldest past-due invoice has been waiting, and the newest invoice to
+   * open. Blush for past-due attention — red is never an invoice's colour
+   * in this product. If the API returns nothing, every figure is absent
+   * and the card says so in words. */
+  const billing = useMemo(() => {
+    const rows = invoices ?? [];
+    if (invoicesDenied) {
+      return { denied: true as const, any: false, unpaid: [] as Invoice[], balanceMinor: 0, currency: "USD", oldestOverdueDays: 0, newest: null as Invoice | null };
+    }
+    const outstanding = rows.filter((i) => i.status === "issued" || i.status === "draft");
+    const balanceMinor = outstanding.reduce((sum, i) => sum + (i.total_minor - i.total_paid_minor), 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const oldestOverdueDays = outstanding.reduce((oldest, i) => {
+      if (i.status !== "issued") return oldest;
+      const due = new Date(i.due_on).getTime();
+      if (Number.isNaN(due)) return oldest;
+      const days = Math.round((today.getTime() - due) / 86_400_000);
+      return days > 0 && days > oldest ? days : oldest;
+    }, 0);
+    const newest = rows.reduce<Invoice | null>(
+      (latest, i) => (latest === null || i.issued_at > latest.issued_at ? i : latest),
+      null,
+    );
+    return {
+      denied: false as const,
+      any: rows.length > 0,
+      unpaid: outstanding,
+      balanceMinor,
+      currency: outstanding[0]?.currency ?? rows[0]?.currency ?? "USD",
+      oldestOverdueDays,
+      newest,
+    };
+  }, [invoices, invoicesDenied]);
 
   const resetCreateForm = () => {
     setSiteName("");
@@ -457,8 +519,11 @@ export default function ClientDetailPage() {
   const now = Date.now();
   const renewal = renewalSignal(liveContract?.effective_until, now);
   const quoteDue = renewalQuoteDueDate(liveContract?.effective_until);
-  const activeSite = sites?.find((s) => s.id === (sites[0]?.id ?? "")) ?? null;
-  const deviceCount = activeSite === null ? assets?.length ?? 0 : assets?.length ?? 0;
+  // The endpoints figure on the title is the client's whole device count —
+  // the pack's "250 endpoints" — not one site's. The Sites tab's table is
+  // what a site choice scopes, and it filters to that site.
+  const deviceCount = assets?.length ?? 0;
+  const activeSite = sites?.find((s) => s.id === selectedSiteId) ?? sites?.[0] ?? null;
   const hasContact = (contacts?.length ?? 0) > 0;
   const hasContract = liveContract !== null;
   const portalOn = (portalUsers?.filter((u) => u.status !== "disabled").length ?? 0) > 0;
@@ -570,13 +635,18 @@ export default function ClientDetailPage() {
                 </p>
               ) : (
                 <ul className="flex flex-col gap-1">
-                  {(sites ?? []).map((s) => (
-                    <li key={s.id}>
-                      <RecordRow label={s.name}>
-                        {deviceCount} devices
-                      </RecordRow>
-                    </li>
-                  ))}
+                  {(sites ?? []).map((s) => {
+                    const atSite = (assets ?? []).filter((a) => a.site_id === s.id);
+                    const offline = atSite.filter((a) => a.status !== "active").length;
+                    return (
+                      <li key={s.id}>
+                        <RecordRow label={s.name}>
+                          {atSite.length} {atSite.length === 1 ? "device" : "devices"}
+                          {offline > 0 ? ` · ${offline} offline` : ""}
+                        </RecordRow>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </RecordSection>
@@ -659,11 +729,13 @@ export default function ClientDetailPage() {
                       ? contacts === null ? null : contacts.length
                       : t.id === "sites"
                         ? sites === null ? null : sites.length
-                        : t.id === "assets"
-                          ? assets === null ? null : assets.length
-                          : t.id === "documents"
-                            ? documents === null ? null : documents.length
-                            : null,
+                        : t.id === "tickets"
+                          ? tickets === null ? null : tickets.length
+                          : t.id === "assets"
+                            ? assets === null ? null : assets.length
+                            : t.id === "documents"
+                              ? documents === null ? null : documents.length
+                              : null,
                 }))}
                 active={tab}
                 onChange={(id) => setTab(id as Tab)}
@@ -714,7 +786,7 @@ export default function ClientDetailPage() {
                   sites={sites}
                   assets={assets}
                   selected={activeSite}
-                  onSelect={(id) => setTab("sites") /* the site choice stays in this tab */}
+                  onSelect={(id) => setSelectedSiteId(id)}
                   onAdd={() => openCreate("site")}
                 />
               ) : null}
@@ -724,8 +796,13 @@ export default function ClientDetailPage() {
                   contract={liveContract}
                   renewal={renewal}
                   quoteDue={quoteDue}
-                  contracts={contracts}
+                  invoices={invoices}
+                  invoicesDenied={invoicesDenied}
                 />
+              ) : null}
+
+              {tab === "tickets" ? (
+                <TicketsCard tickets={tickets} />
               ) : null}
 
               {tab === "assets" ? <AssetsTab clientId={clientId} /> : null}
@@ -745,7 +822,7 @@ export default function ClientDetailPage() {
         summary={
           <>
             <p
-              className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em]"
+              className="mb-1 text-[12px] font-semibold uppercase tracking-[0.08em]"
               style={{ color: "var(--m-text-muted)" }}
             >
               Right now
@@ -776,23 +853,55 @@ export default function ClientDetailPage() {
               )}
             </SummaryCard>
 
+            {/* Billing reads the REAL ledger: the outstanding balance is
+                invoiced minus actually recorded payments, the overdue age is
+                the oldest past-due invoice's real age, and the invoice link
+                points at the real document. A client with nothing invoiced
+                says exactly that — never a number invented for the picture. */}
             <SummaryCard title="Billing">
-              {liveContract === null ? (
+              {billing.denied ? (
+                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  Invoices are not available in your scope.
+                </span>
+              ) : billing.unpaid.length > 0 ? (
+                <>
+                  {billing.oldestOverdueDays > 0 ? (
+                    <RecordRow label="Overdue">
+                      <Badge tone="due">
+                        <span className="inline-flex items-center gap-1">
+                          <ClockIcon />
+                          {billing.oldestOverdueDays}d
+                        </span>
+                      </Badge>
+                    </RecordRow>
+                  ) : null}
+                  <RecordRow label="Balance due">
+                    {money(billing.balanceMinor, billing.currency)}
+                  </RecordRow>
+                  {billing.newest !== null ? (
+                    <RecordRow label="Invoice">
+                      <Link
+                        href={`/billing/${billing.newest.id}`}
+                        className="underline underline-offset-2"
+                      >
+                        {billing.newest.number}
+                      </Link>
+                    </RecordRow>
+                  ) : null}
+                </>
+              ) : billing.any ? (
+                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  Nothing outstanding. {(invoices ?? []).length} invoice
+                  {(invoices ?? []).length === 1 ? "" : "s"} on record, all settled.
+                </span>
+              ) : liveContract === null ? (
                 <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
                   No contract to invoice against yet.
                 </span>
               ) : (
-                <>
-                  <RecordRow label="Per period">
-                    {liveContract.amount_minor != null
-                      ? money(liveContract.amount_minor, liveContract.currency)
-                      : "Not priced"}
-                  </RecordRow>
-                  <RecordRow label="Contract">{liveContract.number}</RecordRow>
-                  <RecordRow label="Renews">
-                    {formatPackDate(liveContract.effective_until) ?? "Open-ended"}
-                  </RecordRow>
-                </>
+                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  Nothing invoiced yet. An invoice run bills this contract.
+                </span>
               )}
             </SummaryCard>
 
@@ -1095,19 +1204,20 @@ function SetupCard({
   );
 }
 
-/** Open work as a card: the client's live tickets with their priority chips.
- * A P1 is the only red chip; the rest sit quiet, and the SLA figure is blush
- * with its own clock because colour is never alone. */
 /** Open work, read from the client's real tickets. The card is a card of the
  * work that exists, so a client with nothing open says so in words instead of
  * showing an illustration of somebody else's week. */
-function OpenWorkCard({ work }: { work: {
-  total: number;
-  inProgress: Ticket[];
-  waiting: Ticket[];
-  oldestOpenSince: number | null;
-  rows: Ticket[];
-} }): React.JSX.Element {
+function OpenWorkCard({
+  work,
+}: {
+  work: {
+    total: number;
+    inProgress: Ticket[];
+    waiting: Ticket[];
+    oldestOpenSince: number | null;
+    rows: Ticket[];
+  };
+}): React.JSX.Element {
   return (
     <div
       className="overflow-hidden rounded-2xl border"
@@ -1140,7 +1250,7 @@ function OpenWorkCard({ work }: { work: {
               <Badge priority={t.priority} className="shrink-0">
                 {t.priority.toUpperCase()}
               </Badge>
- <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+              <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
                 {t.number}
               </span>
               <Link
@@ -1174,6 +1284,10 @@ function OpenWorkCard({ work }: { work: {
 /** Recent activity, built from the client's real tickets so the relationship
  * reads as a story rather than a set of current numbers. */
 function RecentActivityCard({ entries }: { entries: ActivityEntry[] | null }): React.JSX.Element {
+  // The card exists when there is activity to show. A titled card with an
+  // empty body says nothing the left column's honest empties did not
+  // already say, and the pack draws no card for this state.
+  if (entries !== null && entries.length === 0) return <></>;
   return (
     <div
       className="overflow-hidden rounded-2xl border"
@@ -1186,10 +1300,6 @@ function RecentActivityCard({ entries }: { entries: ActivityEntry[] | null }): R
       {entries === null ? (
         <div className="p-4">
           <Spinner />
-        </div>
-      ) : entries.length === 0 ? (
-        <div className="p-4">
-          <EmptyState message="No activity recorded yet. Ticket updates appear here as they happen." />
         </div>
       ) : (
         <ul>
@@ -1238,6 +1348,14 @@ function relativeWhen(iso: string): string {
   if (days === 1) return "Yesterday";
   if (days < 7) return `${days}d ago`;
   return formatPackDate(iso.slice(0, 10)) ?? "";
+}
+
+/** A live ticket whose due date has passed. Blush is the past-due signal's
+ * colour and it carries the clock and the date, never colour alone. */
+function isPastDue(ticket: Ticket): boolean {
+  if (ticket.category === "closed") return false;
+  if (ticket.due_at == null || ticket.due_at === "") return false;
+  return daysSince(ticket.due_at) > 0;
 }
 
 /** Contacts as a people table: each person's role in the account, and portal
@@ -1384,9 +1502,133 @@ function ContactsCard({
   );
 }
 
-/** Sites as a choice ABOVE the table, so the device table keeps its full
- * width. Warranty about to end is blush with its clock; an offline device is
- * a grey dot AND the word, never colour alone. */
+/** The client's ticket history — the same live `GET /api/v1/tickets?client_id=`
+ * rows the Open work card reads, undivided by status so the record answers
+ * "what has this account been through" as well as "what is open". The tab's
+ * count is the real ticket count, nothing else. */
+function TicketsCard({ tickets }: { tickets: Ticket[] | null }) {
+  if (tickets === null) {
+    return (
+      <div
+        className="overflow-hidden rounded-2xl border"
+        style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+        data-testid="client-tickets-card"
+      >
+        <div className="p-4">
+          <Spinner />
+        </div>
+      </div>
+    );
+  }
+  const rows = [...tickets]
+    .sort((a, b) => {
+      const liveDelta = Number(a.category === "closed") - Number(b.category === "closed");
+      if (liveDelta !== 0) return liveDelta;
+      return b.updated_at.localeCompare(a.updated_at);
+    })
+    .slice(0, 25);
+  return (
+    <div
+      className="overflow-hidden rounded-2xl border"
+      style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+      data-testid="client-tickets-card"
+    >
+      <div className="flex flex-wrap items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
+        <h2 className="text-[15px] font-semibold">Tickets</h2>
+        <span className="flex-1" />
+        <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+          {tickets.length} on record
+        </span>
+      </div>
+      {rows.length === 0 ? (
+        <div className="p-4">
+          <EmptyState message="No tickets raised against this client yet. New tickets appear here as they come in." />
+        </div>
+      ) : (
+        <Table>
+          <thead>
+            <tr>
+              <Th>Ticket</Th>
+              <Th>Subject</Th>
+              <Th>Status</Th>
+              <Th>Due</Th>
+              <Th>Last update</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((t) => (
+              <Tr key={t.id} className="m-entity-row">
+                <Td>
+                  <span className="flex items-center gap-2">
+                    <Badge priority={t.priority}>{t.priority.toUpperCase()}</Badge>
+                    <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                      {t.number}
+                    </span>
+                  </span>
+                </Td>
+                <Td>
+                  <Link
+                    href={`/tickets/${t.id}`}
+                    className="text-[13px] font-medium underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
+                  >
+                    {t.title}
+                  </Link>
+                </Td>
+                <Td>
+                  <Badge tone={t.category === "closed" ? "success" : "neutral"}>
+                    {t.category === "in_progress"
+                      ? "In progress"
+                      : t.category === "waiting"
+                        ? "Waiting"
+                        : t.category === "closed"
+                          ? "Closed"
+                          : "Open"}
+                  </Badge>
+                </Td>
+                <Td>
+                  {t.due_at != null && t.due_at !== "" ? (
+                    isPastDue(t) ? (
+                      <Badge tone="due">
+                        <span className="inline-flex items-center gap-1">
+                          <ClockIcon />
+                          {formatPackDate(t.due_at)}
+                        </span>
+                      </Badge>
+                    ) : (
+                      <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                        {formatPackDate(t.due_at)}
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                      None
+                    </span>
+                  )}
+                </Td>
+                <Td>
+                  <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                    {formatPackDate(t.updated_at)}
+                  </span>
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Sites as a choice ABOVE the table, so the device table keeps its full
+ * width (pack state 05). The choice is a filter: each site carries its own
+ * real device and offline counts, and the table shows that site's devices
+ * only. An offline device is a grey dot AND the word, never colour alone.
+ *
+ * There is deliberately no Warranty column: this schema carries no warranty
+ * field, and "Covered" on every row would be a fact the product does not
+ * have. The Model column shows the asset's real classification instead.
+ */
 function SitesCard({
   sites,
   assets,
@@ -1407,11 +1649,15 @@ function SitesCard({
       </div>
     );
   }
+  const atSite = (siteId: string) => assets.filter((a) => a.site_id === siteId);
+  const visible = selected === null ? assets : atSite(selected.id);
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3" role="radiogroup" aria-label="Sites">
         {sites.map((s) => {
           const chosen = selected?.id === s.id;
+          const siteAssets = atSite(s.id);
+          const offline = siteAssets.filter((a) => a.status !== "active").length;
           return (
             <button
               key={s.id}
@@ -1429,7 +1675,8 @@ function SitesCard({
             >
               <span className="text-[13px] font-semibold">{s.name}</span>
               <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                {assets.length} devices
+                {siteAssets.length} {siteAssets.length === 1 ? "device" : "devices"}
+                {offline > 0 ? ` · ${offline} offline` : ""}
               </span>
             </button>
           );
@@ -1449,12 +1696,18 @@ function SitesCard({
           <h2 className="text-[15px] font-semibold">{selected?.name ?? "Devices"}</h2>
           <span className="flex-1" />
           <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Showing {Math.min(assets.length, 6)} of {assets.length}
+            Showing {Math.min(visible.length, 6)} of {visible.length}
           </span>
         </div>
-        {assets.length === 0 ? (
+        {visible.length === 0 ? (
           <div className="p-4">
-            <EmptyState message="No devices recorded for this site yet." />
+            <EmptyState
+              message={
+                selected === null
+                  ? "No devices recorded for this client yet."
+                  : `No devices recorded at ${selected.name} yet.`
+              }
+            />
           </div>
         ) : (
           <Table>
@@ -1463,14 +1716,22 @@ function SitesCard({
                 <Th>Device</Th>
                 <Th>Model</Th>
                 <Th>Status</Th>
-                <Th>Warranty</Th>
               </tr>
             </thead>
             <tbody>
-              {assets.slice(0, 6).map((a) => (
+              {visible.slice(0, 6).map((a) => (
                 <Tr key={a.id} className="m-entity-row">
-                  <Td className="font-semibold">{a.tag}</Td>
-                  <Td style={{ color: "var(--m-text-secondary)" }}>{a.name}</Td>
+                  <Td>
+                    <span className="flex flex-col leading-[1.3]">
+                      <span className="font-semibold">{a.tag}</span>
+                      <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                        {a.name}
+                      </span>
+                    </span>
+                  </Td>
+                  <Td style={{ color: "var(--m-text-secondary)" }}>
+                    {a.kind === "" ? <span style={{ color: "var(--m-text-muted)" }}>—</span> : a.kind}
+                  </Td>
                   <Td>
                     <span className="inline-flex items-center gap-1.5 text-[13px]">
                       <span
@@ -1479,11 +1740,6 @@ function SitesCard({
                         style={{ background: a.status === "active" ? "var(--m-canopy)" : "var(--m-input)" }}
                       />
                       {a.status === "active" ? "Online" : "Offline"}
-                    </span>
-                  </Td>
-                  <Td>
-                    <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                      Covered
                     </span>
                   </Td>
                 </Tr>
@@ -1496,27 +1752,42 @@ function SitesCard({
   );
 }
 
-/** The contract's terms as four figures, the renewal strip, and the billing
- * ledger. The strip is BLUSH and states the date the renewal quote should go
- * out, because a renewal is missed when the lead time is not written down. */
+/**
+ * The Contracts and billing tab. The contract terms are the card the pack
+ * makes the page; beneath them sits the client's REAL invoice ledger —
+ * `GET /api/v1/invoices?client_id=`, never contracts relabelled as
+ * invoices. An active contract is not a paid invoice, so the ledger's status
+ * column shows only the statuses the billing read model actually returns,
+ * and a client with no invoices says so in words.
+ */
 function ContractsBillingCard({
   contract,
   renewal,
   quoteDue,
-  contracts,
+  invoices,
+  invoicesDenied,
 }: {
   contract: Contract | null;
   renewal: { tone: string | null; label: string; days: number } | null;
   quoteDue: string | null;
-  contracts: Contract[];
+  invoices: Invoice[] | null;
+  invoicesDenied: boolean;
 }) {
+  const ledger = invoices ?? [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysPastDue = (dueOn: string) => {
+    const due = new Date(dueOn).getTime();
+    if (Number.isNaN(due)) return 0;
+    return Math.round((today.getTime() - due) / 86_400_000);
+  };
   return (
     <div className="flex flex-col gap-4" data-testid="client-contracts-billing">
       {renewal !== null ? (
         <div
           role="status"
           className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl px-4 py-2.5"
-          style={{ background: "var(--m-status-due-bg, var(--m-time))", color: "var(--m-status-due-fg, var(--m-time-fg)" }}
+          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
           data-testid="client-renewal-strip"
         >
           <ClockIcon />
@@ -1589,42 +1860,114 @@ function ContractsBillingCard({
         )}
       </div>
 
-      {contracts.length > 1 ? (
-        <div
-          className="overflow-hidden rounded-2xl border"
-          style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
-        >
-          <div className="flex flex-wrap items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
-            <h2 className="text-[15px] font-semibold">Billing history</h2>
-            <span className="flex-1" />
+      {/* The ledger, read from the real invoices endpoint. Every status word
+          is the status the read model returned; the only blush is a genuinely
+          past-due invoice, and it carries the clock and the number of days,
+          never colour alone. */}
+      <div
+        className="overflow-hidden rounded-2xl border"
+        style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+        data-testid="client-billing-history"
+      >
+        <div className="flex flex-wrap items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
+          <h2 className="text-[15px] font-semibold">Billing history</h2>
+          <span className="flex-1" />
+          {!invoicesDenied && invoices !== null ? (
             <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              Credit notes: none
+              {ledger.length} invoice{ledger.length === 1 ? "" : "s"}
             </span>
+          ) : null}
+        </div>
+        {invoicesDenied ? (
+          <div className="p-4">
+            <EmptyState message="Invoices are not available in your scope." />
           </div>
+        ) : invoices === null ? (
+          <div className="p-4">
+            <Spinner />
+          </div>
+        ) : ledger.length === 0 ? (
+          <div className="p-4">
+            <EmptyState message="No invoices yet. An invoice run bills this client's contracts, and every issued invoice appears here with its real status." />
+          </div>
+        ) : (
           <Table>
             <thead>
               <tr>
                 <Th>Invoice</Th>
-                <Th>Description</Th>
+                <Th>Period</Th>
+                <Th>Issued</Th>
+                <Th>Due</Th>
                 <Th>Status</Th>
+                <Th className="text-right">Amount</Th>
               </tr>
             </thead>
             <tbody>
-              {contracts.map((c) => (
-                <Tr key={c.id} className="m-entity-row">
-                  <Td style={{ color: "var(--m-text-secondary)" }}>{c.number}</Td>
-                  <Td className="font-medium">{c.name}</Td>
-                  <Td>
-                    <Badge tone={c.status === "active" ? "success" : "neutral"}>
-                      {c.status === "active" ? "Paid" : c.status}
-                    </Badge>
-                  </Td>
-                </Tr>
-              ))}
+              {ledger.map((inv) => {
+                const late = inv.status === "issued" && daysPastDue(inv.due_on) > 0;
+                const paidPart = inv.total_paid_minor > 0 && inv.status !== "paid";
+                return (
+                  <Tr key={inv.id} className="m-entity-row">
+                    <Td>
+                      <Link
+                        href={`/billing/${inv.id}`}
+                        className="text-[13px] font-medium underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
+                      >
+                        {inv.number}
+                      </Link>
+                    </Td>
+                    <Td>
+                      <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                        {inv.period_from != null && inv.period_to != null
+                          ? `${formatPackDate(inv.period_from)} → ${formatPackDate(inv.period_to)}`
+                          : "—"}
+                      </span>
+                    </Td>
+                    <Td>
+                      <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                        {formatPackDate(inv.issued_at)}
+                      </span>
+                    </Td>
+                    <Td>
+                      <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                        {formatPackDate(inv.due_on)}
+                      </span>
+                    </Td>
+                    <Td>
+                      {inv.status === "paid" ? (
+                        <Badge tone="success">Paid</Badge>
+                      ) : inv.status === "issued" ? (
+                        late ? (
+                          <Badge tone="due">
+                            <span className="inline-flex items-center gap-1">
+                              <ClockIcon />
+                              {daysPastDue(inv.due_on)}d late
+                            </span>
+                          </Badge>
+                        ) : (
+                          <Badge tone="neutral">Issued</Badge>
+                        )
+                      ) : (
+                        <Badge tone="neutral">
+                          {inv.status === "void" ? "Void" : "Draft"}
+                        </Badge>
+                      )}
+                    </Td>
+                    <Td className="text-right text-[13px] font-semibold tabular-nums">
+                      {money(inv.total_minor, inv.currency)}
+                      {paidPart ? (
+                        <span className="ml-1 font-normal" style={{ color: "var(--m-text-muted)" }}>
+                          · paid {money(inv.total_paid_minor, inv.currency)}
+                        </span>
+                      ) : null}
+                    </Td>
+                  </Tr>
+                );
+              })}
             </tbody>
           </Table>
-        </div>
-      ) : null}
+        )}
+      </div>
     </div>
   );
 }
@@ -1641,7 +1984,7 @@ function Figure({
   return (
     <div>
       <p
-        className="text-[11px] font-semibold uppercase tracking-[0.08em]"
+        className="text-[12px] font-semibold uppercase tracking-[0.08em]"
         style={{ color: "var(--m-text-muted)" }}
       >
         {label}

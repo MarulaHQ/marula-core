@@ -147,11 +147,17 @@ function mount() {
   );
 }
 
+/** The record's title. The breadcrumb carries the same name, so a text
+ * query matches twice — the heading is the title and only the title. */
+function loaded() {
+  return screen.findByRole("heading", { level: 1 });
+}
+
 describe("ProjectDetailPage", () => {
   it("renders the roll-up strip, phase rail, and risk chips", async () => {
     setupApi();
     mount();
-    expect(await screen.findByText("Exchange migration")).toBeInTheDocument();
+    expect(await loaded()).toHaveTextContent("Exchange migration");
     expect(screen.getByTestId("rollup-phases")).toHaveTextContent("1/ 2 phases");
     expect(screen.getByTestId("rollup-tasks")).toHaveTextContent("0/ 3 tasks");
     expect(screen.getByTestId("rollup-milestones")).toHaveTextContent("0/ 1 milestones");
@@ -162,9 +168,30 @@ describe("ProjectDetailPage", () => {
     cleanup();
   });
 
+  it("carries the pack's three tabs under the title, Plan open first", async () => {
+    setupApi();
+    mount();
+    await loaded();
+    // DESIGN-NOTES-clients §7 gives the project record Plan, Tasks, and
+    // Time and budget. They sit under the title, so the header does not
+    // change between them.
+    expect(screen.getByTestId("record-tab-plan")).toHaveTextContent("Plan");
+    expect(screen.getByTestId("record-tab-tasks")).toHaveTextContent("Tasks");
+    expect(screen.getByTestId("record-tab-money")).toHaveTextContent("Time and budget");
+    // Plan is the default view: the phase rail and the schedule are on
+    // screen before any click, and the task groups are not.
+    expect(screen.getByTestId("project-schedule")).toBeInTheDocument();
+    expect(screen.queryByTestId("project-tasks")).toBeNull();
+    cleanup();
+  });
+
   it("groups tasks under phases and flags blocked-by with the blocker titles", async () => {
     setupApi();
     mount();
+    // The record's tabs (DESIGN-NOTES-clients §7): the task groups live on
+    // the Tasks tab, under a header that does not change between tabs.
+    await loaded();
+    fireEvent.click(screen.getByTestId("record-tab-tasks"));
     const migrationGroup = await screen.findByTestId(`task-group-${PHASE_ACTIVE}`);
     expect(within(migrationGroup).getByText("Cut over mail")).toBeInTheDocument();
     expect(within(migrationGroup).getByText("Freeze mailbox deltas")).toBeInTheDocument();
@@ -178,6 +205,8 @@ describe("ProjectDetailPage", () => {
   it("the needs-attention filter hides calm tasks", async () => {
     setupApi();
     mount();
+    await loaded();
+    fireEvent.click(screen.getByTestId("record-tab-tasks"));
     await screen.findByText("Cut over mail");
     expect(screen.getByText("Archive project channel")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("attention-filter"));
@@ -191,6 +220,8 @@ describe("ProjectDetailPage", () => {
   it("completing a task posts the idempotency-keyed envelope", async () => {
     const mock = setupApi();
     mount();
+    await loaded();
+    fireEvent.click(screen.getByTestId("record-tab-tasks"));
     const row = await screen.findByTestId(`task-row-${TASK_BLOCKING}`);
     fireEvent.click(within(row).getByRole("button", { name: "Complete" }));
     await waitFor(() => {

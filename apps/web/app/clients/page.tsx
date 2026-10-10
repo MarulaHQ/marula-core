@@ -782,12 +782,19 @@ export default function ClientsPage() {
         )}
       </div>
 
-      {/* ---- footer: shown of total, and the density control ---- */}
+      {/* ---- footer: the count leads, then the "of" clause only when a
+          filter has actually narrowed the list — the same convention the
+          projects and contracts ledgers use, so the three read alike. ---- */}
       <div className="flex flex-wrap items-center gap-3 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
         <span className="tabular-nums">
-          Showing <strong className="font-semibold">{filtered?.length ?? 0}</strong> of{" "}
-          <strong className="font-semibold">{clients?.length ?? 0}</strong> clients
+          {filtered?.length ?? 0} client{(filtered?.length ?? 0) === 1 ? "" : "s"}
         </span>
+        {filtered !== null && clients !== null && filtered.length !== clients.length ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="tabular-nums">of {clients.length} in total</span>
+          </>
+        ) : null}
         <span className="flex-1" />
         <DensityInline />
       </div>

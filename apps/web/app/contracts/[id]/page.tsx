@@ -66,6 +66,7 @@ import {
   RecordFrame,
   RecordRow,
   RecordSection,
+  RecordTabs,
   SummaryCard,
 } from "../../../components/records/record-frame";
 
@@ -78,6 +79,14 @@ type BlockSpec = components["schemas"]["BlockSpec"];
 type CapSpec = components["schemas"]["CapSpec"];
 type ChangeOrder = components["schemas"]["ContractChangeOrder"];
 type SlaCredit = components["schemas"]["ContractSlaCredit"];
+type Invoice = components["schemas"]["Invoice"];
+
+/** The record's tabs. `DESIGN-NOTES-clients.md` §7: the contract copies the
+ * client's "Contracts and billing" tab — the contract card becomes the page
+ * and THE LEDGER IS ITS INVOICES — so the record gets the same three-column
+ * frame with the same tab bar shape: what the agreement is, its terms, and
+ * the real invoices it has produced. */
+type RecordTab = "overview" | "agreement" | "invoices";
 
 export default function ContractDetailPage(): ReactNode {
   const auth = useRequireAuth();
@@ -138,6 +147,12 @@ export default function ContractDetailPage(): ReactNode {
   const [preview, setPreview] = useState<BillingEvaluation | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  // The record's REAL invoice ledger — `GET /api/v1/invoices?contract_id=`.
+  // The pack's §7 rule is that the ledger IS the record's invoices; nothing
+  // on this page invents one.
+  const [invoices, setInvoices] = useState<Invoice[] | null>(null);
+  const [invoicesDenied, setInvoicesDenied] = useState(false);
+  const [tab, setTab] = useState<RecordTab>("overview");
 
   const load = useCallback(async () => {
     const { data, error } = await api.api.GET("/api/v1/contracts/{id}", {
@@ -160,6 +175,19 @@ export default function ContractDetailPage(): ReactNode {
     setStatus(data.status);
     setEffectiveFrom(data.effective_from);
     setEffectiveUntil(data.effective_until ?? "");
+    // The real invoices this contract has produced, scoped by the read
+    // model's own contract_id filter. A 403 (no financial read) leaves the
+    // ledger honestly absent rather than failing the record.
+    const inv = await api.api.GET("/api/v1/invoices", {
+      params: { query: { contract_id: contractId } },
+    });
+    if (inv.error !== undefined || inv.data === undefined) {
+      setInvoices(null);
+      setInvoicesDenied(true);
+    } else {
+      setInvoicesDenied(false);
+      setInvoices(inv.data);
+    }
     setAmount(data.amount_minor !== null && data.amount_minor !== undefined ? String(data.amount_minor / 100) : "");
     setFrequency(data.billing_frequency ?? "monthly");
     setAnchor(data.billing_anchor ?? "");
@@ -513,13 +541,36 @@ export default function ContractDetailPage(): ReactNode {
         }
         content={
           <>
+      {/* ---- breadcrumb and actions ---- */}
       <div className="m-rise">
-        <div className="flex flex-wrap items-center gap-3">
-          <Link href="/contracts" className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2" style={{ color: "var(--m-text-secondary)" }}>
-            ← Contracts
+        <div className="flex flex-wrap items-center gap-2" style={{ color: "var(--m-text-secondary)" }}>
+          <Link
+            href="/contracts"
+            className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+          >
+            Contracts
           </Link>
- <h1 className="text-lg font-semibold tabular-nums">{contract.number}</h1>
+          <ChevronIcon />
+          <span className="text-[13px]">{contract.name}</span>
+          <span className="flex-1" />
+          <Link
+            href={`/clients/${contract.client_id}`}
+            className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+          >
+            View client
+          </Link>
+        </div>
+
+        {/* ---- the title and its pills. This header does not change
+            between tabs, so the record never feels like it moved. ---- */}
+        <div className="mt-2 flex flex-wrap items-center gap-2.5">
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em]">
+            {contract.name}
+          </h1>
           <Tag tone={contractStatusTone(contract.status)}>{contract.status}</Tag>
+          <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+            {contract.number}
+          </span>
           <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
             {contract.contract_type.replaceAll("_", " ")} · {contract.currency}
           </span>
@@ -531,12 +582,6 @@ export default function ContractDetailPage(): ReactNode {
               </Tag>
             ) : null;
           })()}
-          <Link
-            href={`/clients/${contract.client_id}`}
-            className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
-          >
-            View client
-          </Link>
         </div>
       </div>
 
@@ -547,7 +592,7 @@ export default function ContractDetailPage(): ReactNode {
           role="status"
           data-testid="contract-renewal-strip"
           className="mt-3 flex flex-wrap items-center gap-3 rounded-xl px-4 py-2.5"
-          style={{ background: "var(--m-status-due-bg, var(--m-time))", color: "var(--m-status-due-fg, var(--m-time-fg)" }}
+          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
         >
           <ClockGlyph />
           <span className="text-[13px]">
@@ -593,18 +638,41 @@ export default function ContractDetailPage(): ReactNode {
         <Figure label="Payment terms" value={contract.po_number != null && contract.po_number !== "" ? `Net 14 · ${contract.po_number}` : "Net 14"} />
       </div>
 
-      {saveError !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-          {saveError}
-        </p>
-      ) : null}
-      {saved !== null ? (
-        <p role="status" className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          {saved}
-        </p>
-      ) : null}
+      {/* ---- the tabs. The renewal strip and the terms card above stay
+          put, so what needs attention is never a click away; the tabs
+          below switch between the agreement, its commercial adjustments,
+          and the real invoice ledger. ---- */}
+      <div className="mt-3">
+        <RecordTabs
+          tabs={[
+            { id: "overview", label: "Overview" },
+            { id: "agreement", label: "Agreement" },
+            {
+              id: "invoices",
+              label: "Invoices",
+              count: invoices === null ? null : invoices.length,
+            },
+          ]}
+          active={tab}
+          onChange={(id) => setTab(id as RecordTab)}
+        />
+      </div>
 
-      <Card>
+      <div key={tab} className="mt-4 flex flex-col gap-4">
+        {tab === "agreement" ? (
+          <>
+            {saveError !== null ? (
+              <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                {saveError}
+              </p>
+            ) : null}
+            {saved !== null ? (
+              <p role="status" className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                {saved}
+              </p>
+            ) : null}
+
+            <Card>
         <h2 className="p-4 pb-0 text-sm font-semibold">Agreement</h2>
         <div className="grid gap-3 p-4">
           <div className="grid grid-cols-2 gap-3">
@@ -895,12 +963,6 @@ export default function ContractDetailPage(): ReactNode {
         </Card>
       ) : null}
 
-      {childError !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }} data-testid="contract-child-error">
-          {childError}
-        </p>
-      ) : null}
-
       {isTm || isRetainer ? (
         <Card data-testid="contract-blocks">
           <h2 className="p-4 pb-0 text-sm font-semibold">Prepaid blocks</h2>
@@ -1050,6 +1112,16 @@ export default function ContractDetailPage(): ReactNode {
           </div>
         </Card>
       ) : null}
+          </>
+        ) : null}
+
+        {tab === "overview" ? (
+          <>
+            {childError !== null ? (
+              <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }} data-testid="contract-child-error">
+                {childError}
+              </p>
+            ) : null}
 
       <Card data-testid="contract-change-orders">
         <h2 className="p-4 pb-0 text-sm font-semibold">Change orders</h2>
@@ -1270,6 +1342,113 @@ export default function ContractDetailPage(): ReactNode {
           </div>
         </div>
       </Card>
+          </>
+        ) : null}
+
+        {tab === "invoices" ? (
+          <>
+            {/* THE LEDGER IS ITS INVOICES (DESIGN-NOTES-clients §7): the
+                real invoices this contract has produced, read from the
+                billing read model. Every status word is the status the API
+                returned; a contract with no invoices yet says so. */}
+            <div
+              className="overflow-hidden rounded-2xl border"
+              style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+              data-testid="contract-invoice-ledger"
+            >
+              <div className="flex flex-wrap items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
+                <h2 className="text-[15px] font-semibold">Invoices</h2>
+                <span className="flex-1" />
+                {!invoicesDenied && invoices !== null ? (
+                  <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                    {(invoices ?? []).length} on this contract
+                  </span>
+                ) : null}
+              </div>
+              {invoicesDenied ? (
+                <div className="p-4">
+                  <EmptyState message="Invoices are not available in your scope." />
+                </div>
+              ) : invoices === null ? (
+                <div className="p-4">
+                  <Spinner />
+                </div>
+              ) : invoices.length === 0 ? (
+                <div className="p-4">
+                  <EmptyState message="No invoices yet. An invoice run over the contract's billing window issues the first one, and every issued invoice appears here with its real status." />
+                </div>
+              ) : (
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>Invoice</Th>
+                      <Th>Period</Th>
+                      <Th>Issued</Th>
+                      <Th>Due</Th>
+                      <Th>Status</Th>
+                      <Th className="text-right">Amount</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.map((inv) => {
+                      const late =
+                        inv.status === "issued" &&
+                        daysSince(inv.due_on) > 0;
+                      return (
+                        <Tr key={inv.id} className="m-entity-row">
+                          <Td>
+                            <Link
+                              href={`/billing/${inv.id}`}
+                              className="text-[13px] font-medium underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
+                            >
+                              {inv.number}
+                            </Link>
+                          </Td>
+                          <Td>
+                            <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                              {inv.period_from != null && inv.period_to != null
+                                ? `${formatPackDate(inv.period_from)} → ${formatPackDate(inv.period_to)}`
+                                : "—"}
+                            </span>
+                          </Td>
+                          <Td>
+                            <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                              {formatPackDate(inv.issued_at)}
+                            </span>
+                          </Td>
+                          <Td>
+                            <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                              {formatPackDate(inv.due_on)}
+                            </span>
+                          </Td>
+                          <Td>
+                            {inv.status === "paid" ? (
+                              <Badge tone="success">Paid</Badge>
+                            ) : inv.status === "issued" ? (
+                              late ? (
+                                <Badge tone="due">
+                                  <span className="inline-flex items-center gap-1">
+                                    <ClockGlyph />
+                                    {daysSince(inv.due_on)}d late
+                                  </span>
+                                </Badge>
+                              ) : (
+                                <Badge tone="neutral">Issued</Badge>
+                              )
+                            ) : (
+                              <Badge tone="neutral">{inv.status === "void" ? "Void" : "Draft"}</Badge>
+                            )}
+                          </Td>
+                          <Td className="text-right text-[13px] font-semibold tabular-nums">
+                            {money(inv.total_minor, inv.currency)}
+                          </Td>
+                        </Tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
+              )}
+            </div>
 
       <Card>
         <div className="flex items-center justify-between p-4 pb-0">
@@ -1305,11 +1484,14 @@ export default function ContractDetailPage(): ReactNode {
         ) : null}
       </Card>
           </>
+        ) : null}
+      </div>
+          </>
         }
         summary={
           <>
             <p
-              className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em]"
+              className="mb-1 text-[12px] font-semibold uppercase tracking-[0.08em]"
               style={{ color: "var(--m-text-muted)" }}
             >
               Right now
@@ -1774,4 +1956,20 @@ function billingDay(anchor: string | null | undefined): string {
  * the pill carries an icon and the number as well as the tone. */
 function ClockGlyph() {
   return <Icon name="clock" size={13} />;
+}
+
+/** The breadcrumb's chevron, as on the client and project records. */
+function ChevronIcon() {
+  return <Icon name="chev" size={14} />;
+}
+
+/** Whole days since a date, for an invoice's past-due age. Calendar days
+ * rather than 24-hour spans, so the number does not flip at an awkward
+ * hour. */
+function daysSince(date: string): number {
+  const then = new Date(date).getTime();
+  if (Number.isNaN(then)) return 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((today.getTime() - then) / 86_400_000);
 }
