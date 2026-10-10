@@ -140,7 +140,9 @@ describe("quotePill and dealPill", () => {
     expect(quotePill("sent").family).toBe("gold");
     expect(quotePill("accepted")).toEqual({ label: "Accepted", family: "green", icon: "check" });
     expect(quotePill("declined").label).toBe("Declined");
+    expect(quotePill("declined").family).toBe("neutral");
     expect(quotePill("expired").label).toBe("Expired");
+    expect(quotePill("expired").family).toBe("blush");
   });
 
   it("names a closed deal without a colour alarm", () => {

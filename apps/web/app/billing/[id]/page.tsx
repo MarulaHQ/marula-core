@@ -60,7 +60,6 @@ import {
 import {
   AgeingPill,
   MoneyCard,
-  MoneyHeader,
   MoneyKv,
   MoneyNote,
   MoneyPillTag,
@@ -434,10 +433,14 @@ export default function InvoiceDetailPage() {
             onOpenChange={(o) => {
               setPayOpen(o);
               setPayError(null);
+              // The common case is the whole balance arriving at once, so the
+              // field opens holding it (pack 09); a partial payment is a trim
+              // of a full number, not a typed one.
+              setPayAmount(o ? (outstanding / 100).toFixed(2) : "");
             }}
           >
             <DialogTrigger asChild>
-              <Button disabled={!isOpen} data-testid="record-payment">
+              <Button variant="primary" disabled={!isOpen} data-testid="record-payment">
                 Record payment
               </Button>
             </DialogTrigger>
@@ -515,6 +518,7 @@ export default function InvoiceDetailPage() {
                     Cancel
                   </Button>
                   <Button
+                    variant="primary"
                     onClick={() => void recordPayment()}
                     disabled={payBusy || payAmountMinor <= 0 || payAmountMinor > outstanding}
                     data-testid="record-payment-save"

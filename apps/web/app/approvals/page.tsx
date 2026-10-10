@@ -954,7 +954,7 @@ export default function ApprovalsPage() {
                 <b>{filtered.length}</b> waiting · <b>{hms(totalMinutes)}</b> in all
               </span>
               <span className="m-money-bar-sp" />
-              {easyIds.length > 0 ? (
+              {easyIds.length > 0 && selected.size === 0 ? (
                 <button
                   type="button"
                   className="m-money-linkbtn"
