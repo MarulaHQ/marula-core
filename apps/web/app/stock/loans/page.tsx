@@ -433,7 +433,15 @@ export default function StockLoansPage(): ReactNode {
 
   return (
     <>
-    <LedgerSurface
+      {/* The write feedback the board asks for: an issued loan, a completed
+          return, a rejected one. Set by every mutation path; the surface's
+          own footer proves the write, the words here name it. */}
+      {notice !== null && (
+        <p className="text-xs" role="status" style={{ color: "var(--m-status-success-fg)" }} data-testid="loans-notice">
+          {notice}
+        </p>
+      )}
+      <LedgerSurface
       surface="stock-loans"
       testId="loans-ledger"
       title="Client loans"

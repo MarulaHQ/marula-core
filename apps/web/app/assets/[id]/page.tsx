@@ -44,6 +44,11 @@ import { api, useAuth, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { EntityPicker } from "../../../components/entities/entity-picker";
 import { NeutralMark } from "../../../components/assets-stock/ledger-marks";
+import {
+  RecordFrame,
+  RecordRow,
+  RecordSection,
+} from "../../../components/records/record-frame";
 import { LabelPrintButton } from "../../../components/labels/label-print-button";
 import type { LinkTarget } from "../../../lib/entity-links";
 
@@ -138,6 +143,11 @@ export default function AssetDetailPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [layouts, setLayouts] = useState<DocumentLayout[] | null>(null);
   const [sites, setSites] = useState<Site[] | null>(null);
+  // The record is ABOUT a client, so the context column carries the client's
+  // NAME. A truncated UUID is what a machine shows when it has not looked.
+  // Resolving can 403 on a restricted client the role cannot see — the
+  // fallback keeps the id, which is the honest view for that role.
+  const [clientName, setClientName] = useState<string | null>(null);
   const [links, setLinks] = useState<ResolvedLink[] | null>(null);
   const [vault, setVault] = useState<VaultEntryView[] | null>(null);
   const [vaultDenied, setVaultDenied] = useState(false);
@@ -214,8 +224,13 @@ export default function AssetDetailPage() {
     const a = await api.api.GET("/api/v1/assets/{id}", { params: { path: { id: assetId } } });
     if (a.data !== undefined && a.data.client_id != null) {
       void api.api
+        .GET("/api/v1/clients/{id}", { params: { path: { id: a.data.client_id } } })
+        .then(({ data: client }) => setClientName(client?.name ?? null));
+      void api.api
         .GET("/api/v1/clients/{id}/sites", { params: { path: { id: a.data.client_id } } })
         .then(({ data }) => setSites(data ?? []));
+    } else if (a.data !== undefined) {
+      setClientName(null);
     }
   }, [assetId]);
 
@@ -468,42 +483,82 @@ export default function AssetDetailPage() {
   }
 
   return (
-    <div className="mx-auto grid w-full grid-cols-1 max-w-[1400px] gap-6 p-4 md:p-6">
-      <div className="m-entity-rise">
-        {asset.client_id != null ? (
-          <Link
-            href={`/clients/${asset.client_id}`}
-            className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
-            style={{ color: "var(--m-text-secondary)" }}
-          >
-            ← Client
-          </Link>
-        ) : (
-          <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            Internal org asset
-          </span>
-        )}
-        <header className="m-ledger-header">
-          <div className="m-ledger-title-row">
-            <h1 className="m-ledger-title" data-testid="asset-detail-name">
-              {asset.name}
-            </h1>
-            <NeutralMark label={asset.status} testId="asset-detail-status" />
-            {layout !== undefined ? <Tag tone="outline">{layout.name}</Tag> : null}
-            {/* Loan-device label (Wave 32 lane 5): the QR encodes this asset's
-                canonical deep link, so a scan anywhere resolves back here. */}
-            <div className="m-ledger-header-action">
-              <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-                {asset.tag}
-              </span>
+    <div className="mx-auto grid w-full max-w-[1600px] gap-4 p-4 md:p-6">
+      <RecordFrame
+        context={
+          <>
+            <RecordSection label="Asset">
+              <p className="text-[16px] font-semibold">{asset.name}</p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <NeutralMark label={asset.status} testId="asset-detail-status" />
+                {layout !== undefined ? <Tag tone="outline">{layout.name}</Tag> : null}
+              </div>
+              {asset.tag !== "" ? (
+                <p className="mt-1.5 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                  {asset.tag}
+                </p>
+              ) : null}
+            </RecordSection>
+
+            <RecordSection label="At a glance">
+              <RecordRow label="Client">
+                {asset.client_id != null ? (
+                  <Link
+                    href={`/clients/${asset.client_id}`}
+                    className="underline decoration-[var(--m-border)] underline-offset-2"
+                  >
+                    {clientName ?? `${asset.client_id.slice(0, 8)}…`}
+                  </Link>
+                ) : (
+                  "Internal org"
+                )}
+              </RecordRow>
+              <RecordRow label="Site">
+                {asset.site_id != null
+                  ? (sites ?? []).find((s) => s.id === asset.site_id)?.name ?? "site"
+                  : "—"}
+              </RecordRow>
+              <RecordRow label="Tag">{asset.tag}</RecordRow>
+              <RecordRow label="Status">{asset.status}</RecordRow>
+              <RecordRow label="Type">{layout?.name ?? "untyped"}</RecordRow>
+            </RecordSection>
+          </>
+        }
+        content={
+          <>
+            {/* ---- breadcrumb and actions ---- */}
+            <div className="flex flex-wrap items-center gap-2">
+              {asset.client_id != null ? (
+                <Link
+                  href={`/clients/${asset.client_id}`}
+                  className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+                  style={{ color: "var(--m-text-secondary)" }}
+                >
+                  ← Client
+                </Link>
+              ) : (
+                <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                  Internal org asset
+                </span>
+              )}
+              <span className="flex-1" />
+              {/* Loan-device label (Wave 32 lane 5): the QR encodes this asset's
+                  canonical deep link, so a scan anywhere resolves back here. */}
               <LabelPrintButton purpose="device_asset" entityId={asset.id} entityLabel={asset.name} />
             </div>
-          </div>
-        </header>
-      </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="grid content-start gap-6">
+            {/* ---- the title and its marks. This header does not change
+                between sections, so the record never feels like it moved. ---- */}
+            <div className="mt-2 m-ledger-header">
+              <div className="m-ledger-title-row">
+                <h1 className="m-ledger-title" data-testid="asset-detail-name">
+                  {asset.name}
+                </h1>
+                <NeutralMark label={asset.status} testId="asset-detail-status" />
+                {layout !== undefined ? <Tag tone="outline">{layout.name}</Tag> : null}
+              </div>
+            </div>
+
       {/* ---- fields ---- */}
       <Card className="m-entity-rise" style={{ "--stagger-i": 0 } as React.CSSProperties}>
         <div
@@ -770,34 +825,16 @@ export default function AssetDetailPage() {
         )}
       </Card>
 
-        </div>
-
-        <div className="grid content-start gap-6" data-testid="asset-glance-rail">
-          {/* ---- at a glance ---- */}
-          <Card className="m-entity-rise" style={{ "--stagger-i": 2 } as React.CSSProperties}>
-            <h2 className="p-4 pb-2 text-sm font-semibold">At a glance</h2>
-            <dl className="grid gap-1 px-4 pb-4 text-[13px]">
-              <GlanceRow label="Client">
-                {asset.client_id != null ? (
-                  <Link href={`/clients/${asset.client_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
-                    {asset.client_id.slice(0, 8)}…
-                  </Link>
-                ) : (
-                  "Internal org"
-                )}
-              </GlanceRow>
-              <GlanceRow label="Site">
-                {asset.site_id != null
-                  ? (sites ?? []).find((s) => s.id === asset.site_id)?.name ?? "site"
-                  : "—"}
-              </GlanceRow>
-              <GlanceRow label="Tag">
-                <span className="">{asset.tag}</span>
-              </GlanceRow>
-              <GlanceRow label="Status">{asset.status}</GlanceRow>
-              <GlanceRow label="Type">{layout?.name ?? "untyped"}</GlanceRow>
-            </dl>
-          </Card>
+            </>
+        }
+        summary={
+          <>
+            <p
+              className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em]"
+              style={{ color: "var(--m-text-muted)" }}
+            >
+              Right now
+            </p>
 
       {/* ---- integration link status: data, not sync ---- */}
       <Card className="m-entity-rise" style={{ "--stagger-i": 3 } as React.CSSProperties}>
@@ -1014,8 +1051,9 @@ export default function AssetDetailPage() {
           </div>
         )}
       </Card>
-        </div>
-      </div>
+            </>
+        }
+      />
 
       {/* ---- audited reveal dialog ---- */}
       <Dialog open={reveal !== null} onOpenChange={(o) => !o && setReveal(null)}>
@@ -1051,17 +1089,6 @@ export default function AssetDetailPage() {
 // ---- draft helpers (kept below the component for readability) -------------
 
 type FieldDrafts = Record<string, string>;
-
-function GlanceRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="shrink-0" style={{ color: "var(--m-text-secondary)" }}>
-        {label}
-      </dt>
-      <dd className="min-w-0 truncate text-right">{children}</dd>
-    </div>
-  );
-}
 
 function effectiveFields(
   current: DocumentLayout | undefined,
