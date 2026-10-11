@@ -6,7 +6,7 @@
 // text back and say so; accepted kinds offer an explicit "Open" action
 // routed by the frozen vocabulary (marula://stock-item/<uuid>, …).
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 
@@ -14,19 +14,109 @@ import type { ScanResolution } from "@/core/models";
 import { kindLabel, resolveScan, scanRoute, scanSummary } from "@/core/scan";
 import { useAuth } from "@/auth/auth-context";
 import { friendlyMutationError } from "@/core/errors";
+import { useConnectivity } from "@/data/connectivity";
+import { asyncStore } from "@/data/storage";
 import { Button, Card, Pill } from "@/ui/primitives";
 import { infoPair, shape, type, useTheme } from "@/ui/tokens";
 
+/** The offline saved-scan shelf — the pack's "Saved for later" case. A scan
+ * the resolver can't reach (no signal) is saved on the phone and resolved
+ * automatically when the connection returns. One JSON list, namespaced. */
+const SAVED_SCANS_KEY = "scan.saved";
+const savedStore = asyncStore("scans");
+
+interface SavedScan {
+  id: string;
+  text: string;
+  savedAt: string;
+}
+
+async function readSaved(): Promise<SavedScan[]> {
+  const raw = await savedStore.get(SAVED_SCANS_KEY);
+  if (raw === null) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as SavedScan[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeSaved(rows: SavedScan[]): Promise<void> {
+  await savedStore.set(SAVED_SCANS_KEY, JSON.stringify(rows));
+}
+
+/** The offline resolver: saves the scan and reports the honest outcome. */
+export function useSavedScans() {
+  const { online } = useConnectivity();
+  const [saved, setSaved] = useState<SavedScan[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    void readSaved().then((rows) => {
+      setSaved(rows);
+      setHydrated(true);
+    });
+  }, []);
+
+  const save = useCallback(async (text: string) => {
+    const rows = await readSaved();
+    // One copy per code: a repeated scan of the same label is one intent.
+    const next = rows.some((row) => row.text === text)
+      ? rows
+      : [
+          ...rows,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            text,
+            savedAt: new Date().toISOString(),
+          },
+        ];
+    await writeSaved(next);
+    setSaved(next);
+  }, []);
+
+  const drop = useCallback(async (id: string) => {
+    const rows = (await readSaved()).filter((row) => row.id !== id);
+    await writeSaved(rows);
+    setSaved(rows);
+  }, []);
+
+  const clearResolved = useCallback(async (texts: string[]) => {
+    const done = new Set(texts);
+    const rows = (await readSaved()).filter((row) => !done.has(row.text));
+    await writeSaved(rows);
+    setSaved(rows);
+  }, []);
+
+  return { saved, hydrated, online, save, drop, clearResolved };
+}
+
 export function useScanResolver() {
   const { client } = useAuth();
+  const { online } = useConnectivity();
+  const saved = useSavedScans();
   const [resolution, setResolution] = useState<ScanResolution | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The code the shelf took while offline — its own register, never an
+  // error: the pack's scan-10 is a save, not a failure.
+  const [savedCode, setSavedCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const resolve = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
       if (trimmed.length === 0) return;
+      setSavedCode(null);
+      // The offline case that must never lose a scan: save it, say so. The
+      // shelf drains itself the moment the connection returns.
+      if (!online) {
+        await saved.save(trimmed);
+        setSavedCode(trimmed);
+        setError(null);
+        setResolution(null);
+        return;
+      }
       setBusy(true);
       setError(null);
       try {
@@ -42,10 +132,52 @@ export function useScanResolver() {
         setBusy(false);
       }
     },
-    [client],
+    [client, online, saved],
   );
 
-  return { resolution, error, busy, resolve, clear: () => setResolution(null) };
+  // Connectivity returned: drain the shelf, newest intent last, and surface
+  // the last resolution like a fresh scan.
+  const { hydrated, saved: shelf, clearResolved } = saved;
+  useEffect(() => {
+    if (!online || !hydrated || shelf.length === 0) return;
+    let cancelled = false;
+    const drain = async () => {
+      const rows = [...shelf];
+      const resolved: string[] = [];
+      let last: ScanResolution | null = null;
+      for (const row of rows) {
+        if (cancelled) return;
+        try {
+          last = await resolveScan(client, row.text);
+          resolved.push(row.text);
+        } catch {
+          break;
+        }
+      }
+      if (cancelled) return;
+      if (resolved.length > 0) {
+        await clearResolved(resolved);
+        if (last !== null) {
+          setResolution(last);
+          setError(null);
+        }
+      }
+    };
+    void drain();
+    return () => {
+      cancelled = true;
+    };
+  }, [online, hydrated, shelf, clearResolved, client]);
+
+  // One reset, all three registers: a sheet dismissed behind you never
+  // leaves the last code's state on screen.
+  const clear = useCallback(() => {
+    setResolution(null);
+    setError(null);
+    setSavedCode(null);
+  }, []);
+
+  return { resolution, error, savedCode, busy, resolve, clear, saved };
 }
 
 export function ScanResolutionCard({

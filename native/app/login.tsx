@@ -8,8 +8,8 @@
 // real magic-link endpoint, Microsoft names its provider honestly when the
 // org hasn't enabled one.
 
-import { Redirect, router } from "expo-router";
-import { useRef, useState } from "react";
+import { Redirect } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
@@ -29,7 +29,7 @@ const LOCKUP_COLOR = require("../assets/lockup-color.png") as number;
 const LOCKUP_COLOR_DARK = require("../assets/lockup-color-on-dark.png") as number;
 
 export default function LoginScreen() {
-  const { status, signIn, error, biometricEnabled, biometricAvailable, unlock } = useAuth();
+  const { status, signIn, error, client, biometricEnabled, biometricAvailable, unlock } = useAuth();
   const { tokens } = useTheme();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,6 +38,30 @@ export default function LoginScreen() {
   const passwordRef = useRef<TextInput>(null);
   const [linkNote, setLinkNote] = useState<string | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
+  // The org's real SSO providers (GET /auth/oidc/providers/public) decide
+  // what the Microsoft button says — never a fake route.
+  const [ssoNames, setSsoNames] = useState<string[] | null>(null);
+  const [ssoNote, setSsoNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void client.api
+      .GET("/api/v1/auth/oidc/providers/public")
+      .then((result) => {
+        if (cancelled) return;
+        if (result.data !== undefined) {
+          setSsoNames(result.data.map((provider) => provider.display_name));
+        } else {
+          setSsoNames([]);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSsoNames([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
 
   if (status === "signedIn") return <Redirect href="/(tabs)" />;
   if (status === "mfa") return <Redirect href="/mfa" />;
@@ -146,10 +170,24 @@ export default function LoginScreen() {
       <SecondaryButton
         label="Sign in with Microsoft"
         testID="login-sso"
-        onPress={() =>
-          router.replace("/mfa" as never)
-        }
+        onPress={() => {
+          if (ssoNames !== null && ssoNames.length > 0) {
+            // The org HAS an SSO provider; the system-browser bridge (open
+            // the provider's authorize URL and return to the app) is not
+            // built on the phone yet — recorded gap 2026-10-05. Say so.
+            setSsoNote(
+              `${ssoNames[0]} is set up for this org, but signing in with it needs the browser sign-in bridge that isn't on this phone yet. Use the password or emailed link.`,
+            );
+          } else {
+            setSsoNote(
+              "This org hasn't enabled Microsoft sign-in. Use the password or the emailed link.",
+            );
+          }
+        }}
       />
+      {ssoNote !== null ? (
+        <Text style={[styles.errorText, { color: tokens.textSecondary }]}>{ssoNote}</Text>
+      ) : null}
 
       {biometricEnabled && biometricAvailable ? (
         <SecondaryButton

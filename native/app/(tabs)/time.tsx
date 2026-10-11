@@ -12,7 +12,7 @@
 // Non-purpose: no approval flows (the desk owns them).
 
 import { useMemo, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 
 import {
@@ -21,11 +21,12 @@ import {
   fetchDayPack,
   fetchMyDayEntries,
   fetchTicket,
+  fetchTimerWorkingSet,
   startOfLocalDay,
   type DayPack,
   type TimeEntry,
 } from "@/core/models";
-import { stopTimer } from "@/core/writes";
+import { createTimeEntry, stopTimer, pauseTimer, resumeTimer } from "@/core/writes";
 import { useModel, useMutation } from "@/data/sync-context";
 import { useAuth } from "@/auth/auth-context";
 import {
@@ -75,19 +76,29 @@ const DURATIONS = [
 type SheetRequest =
   | { kind: "stop" }
   | { kind: "edit"; entry: TimeEntry }
-  | { kind: "gap"; minutes: number; startedAt: string };
+  | { kind: "gap"; minutes: number; startedAt: string; endsAt: string; ticketId: string };
 
 export default function TimeScreen() {
   const { tokens, mode } = useTheme();
   const { me } = useAuth();
+  const { mutate } = useMutation();
   const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
+  // The working set keeps a PAUSED session on screen: /timers/active only
+  // answers for a running one, so a paused timer would otherwise vanish
+  // with no way to resume or stop it. Most recent first, first pause wins.
+  const workingSet = useModel(MODELS.timerWorkingSet, fetchTimerWorkingSet, { maxAgeMs: 30_000 });
   const session = timer.data ?? null;
-  const paused = session !== null && isPaused(session);
-  const seconds = useSecondTick(session !== null && !paused);
+  const pausedSession = useMemo(() => {
+    if (session !== null) return null;
+    return (workingSet.data ?? []).find((candidate) => isPaused(candidate)) ?? null;
+  }, [session, workingSet.data]);
+  const clockSession = session ?? pausedSession;
+  const paused = session === null && pausedSession !== null;
+  const seconds = useSecondTick(clockSession !== null && !paused);
   const dayPack = useModel(MODELS.dayPack(), fetchDayPack, { maxAgeMs: 60_000 });
   const ticket = useModel(
-    session !== null ? MODELS.ticket(session.ticket_id) : "ticket:missing",
-    (client) => fetchTicket(client, session?.ticket_id ?? ""),
+    clockSession !== null ? MODELS.ticket(clockSession.ticket_id) : "ticket:missing",
+    (client) => fetchTicket(client, clockSession?.ticket_id ?? ""),
     { maxAgeMs: 15_000 },
   );
   // The signed-in person's day: their own entries since local midnight.
@@ -106,7 +117,7 @@ export default function TimeScreen() {
   const runningInk = mode === "dark" ? chrome.gold : chrome.goldText;
   const runningTicketLabel =
     ticket.data !== undefined ? `${ticket.data.number} ${ticket.data.title}` : "Running";
-  const runningMinutes = session !== null ? Math.floor(elapsedMs(session, seconds) / 60_000) : 0;
+  const runningMinutes = clockSession !== null ? Math.floor(elapsedMs(clockSession, seconds) / 60_000) : 0;
 
   const dayRows = useMemo(() => entries.data ?? [], [entries.data]);
   const loggedToday = dayRows.reduce((sum, entry) => sum + entry.minutes, 0);
@@ -116,7 +127,7 @@ export default function TimeScreen() {
   const gap = useMemo(() => unloggedStop(dayPack.data, dayRows), [dayPack.data, dayRows]);
 
   const stopSheetSession =
-    sheet?.kind === "stop" && session !== null ? session : null;
+    sheet?.kind === "stop" && clockSession !== null ? clockSession : null;
 
   // The heading's date is today, always: the mockup's "Tue 29 Sep" is a
   // fixture, not a contract.
@@ -128,24 +139,35 @@ export default function TimeScreen() {
         <PackHeading title="Time" detail={todayLine} />
       </View>
       <View style={styles.scroll} testID="time-screen">
-        {session !== null ? (
+        {clockSession !== null ? (
           <View
             testID="time-running-card"
             style={[styles.runningCard, { backgroundColor: runningGround, borderRadius: pack.radiusCard }]}
           >
-            <Text style={[styles.runningLabel, { color: runningInk }]}>Running now</Text>
+            <Text style={[styles.runningLabel, { color: runningInk }]}>
+              {paused ? "Paused" : "Running now"}
+            </Text>
             <Text style={[styles.runningTicket, { color: runningInk }]} numberOfLines={1}>
               {runningTicketLabel}
             </Text>
             <Text style={[styles.runningClock, { color: runningInk }]}>
-              {clockText(elapsedMs(session, seconds))}
+              {clockText(elapsedMs(clockSession, seconds))}
             </Text>
             <View style={styles.runningActions}>
               <SecondaryButton
                 label={paused ? "Resume" : "Pause"}
                 icon={paused ? PACK_ICONS.play : PACK_ICONS.pause}
                 style={{ flex: 1, backgroundColor: tokens.surface }}
-                onPress={() => setBanner(null)}
+                testID={paused ? "time-resume" : "time-pause"}
+                onPress={() => {
+                  if (clockSession === null) return;
+                  void mutate(paused ? resumeTimer : pauseTimer, {
+                    sessionId: clockSession.id,
+                    ...(clockSession.ticket_id !== null && clockSession.ticket_id !== undefined
+                      ? { ticketId: clockSession.ticket_id }
+                      : {}),
+                  });
+                }}
               />
               <PrimaryButton
                 label="Stop and log"
@@ -213,7 +235,13 @@ export default function TimeScreen() {
               label="Log it"
               style={{ backgroundColor: tokens.surface, minHeight: 44 }}
               onPress={() =>
-                setSheet({ kind: "gap", minutes: gap.minutes, startedAt: gap.startedAt })
+                setSheet({
+                  kind: "gap",
+                  minutes: gap.minutes,
+                  startedAt: gap.startedAt,
+                  endsAt: gap.endsAt,
+                  ticketId: gap.ticketId,
+                })
               }
             />
           </View>
@@ -236,6 +264,22 @@ export default function TimeScreen() {
           }}
         />
       ) : null}
+      {sheet?.kind === "gap" ? (
+        <GapLogSheet
+          minutes={sheet.minutes}
+          startedAt={sheet.startedAt}
+          endsAt={sheet.endsAt}
+          ticketId={sheet.ticketId}
+          onClose={() => setSheet(null)}
+          onLogged={(text) => {
+            setSheet(null);
+            setBanner(text);
+          }}
+        />
+      ) : null}
+      {sheet?.kind === "edit" ? (
+        <EditEntrySheet entry={sheet.entry} onClose={() => setSheet(null)} />
+      ) : null}
     </Screen>
   );
 }
@@ -244,7 +288,7 @@ export default function TimeScreen() {
 export function unloggedStop(
   pack: DayPack | undefined,
   entries: TimeEntry[],
-): { title: string; detail: string; minutes: number; startedAt: string } | null {
+): { title: string; detail: string; minutes: number; startedAt: string; endsAt: string; ticketId: string } | null {
   const stops = (pack?.trips ?? []).flatMap((trip) => trip.stops);
   if (stops.length === 0) return null;
   const logged = new Set(entries.map((entry) => entry.ticket_id));
@@ -252,7 +296,7 @@ export function unloggedStop(
     const ticketId = candidate.ticket_id;
     return ticketId !== undefined && ticketId !== null && !logged.has(ticketId);
   });
-  if (stop === undefined) return null;
+  if (stop === undefined || stop.ticket_id == null) return null;
   const minutes = Math.max(
     15,
     Math.round((Date.parse(stop.ends_at) - Date.parse(stop.starts_at)) / 60_000 / 15) * 15,
@@ -263,6 +307,8 @@ export function unloggedStop(
     detail: `${dayLabel(new Date(stop.starts_at))}, ${clockOf(stop.starts_at)} to ${clockOf(stop.ends_at)} — ${formatHoursMinutes(minutes)} not logged`,
     minutes,
     startedAt: clockOf(stop.starts_at),
+    endsAt: stop.ends_at,
+    ticketId: stop.ticket_id,
   };
 }
 
@@ -362,8 +408,181 @@ function StopLogSheet({
   );
 }
 
-function BillableSwitch({ on, onToggle }: { on: boolean; onToggle: (next: boolean) => void }) {
+/**
+ * Quick log for the gap card: the stop's real window, rounded per the pack,
+ * written through POST /time-entries. The work-type and billable segments
+ * are the same Quick-log semantics the Stop sheet carries.
+ */
+function GapLogSheet({
+  minutes,
+  startedAt,
+  endsAt,
+  ticketId,
+  onClose,
+  onLogged,
+}: {
+  minutes: number;
+  startedAt: string;
+  endsAt: string;
+  ticketId: string;
+  onClose: () => void;
+  onLogged: (text: string) => void;
+}) {
+  return (
+    <QuickLogSheet
+      title="Log it"
+      subtitle={`The visit window was ${shortClock(roundUpTo(minutes))} — rounded up to the next 15 minutes.`}
+      initialMinutes={roundUpTo(minutes)}
+      startedAtIso={startedAt}
+      ticketId={ticketId}
+      onClose={onClose}
+      onLogged={onLogged}
+      testID="gap-log-sheet"
+    />
+  );
+}
+
+/**
+ * The entry edit: the pack's "same sheet, prefilled" derivation. The API
+ * gap is named honestly in the sheet — POST /time-entries has no update
+ * endpoint (recorded 2026-10-05), so this re-logs a corrected entry; the
+ * original stays on the books for the desk to adjust on web.
+ */
+function EditEntrySheet({ entry, onClose }: { entry: TimeEntry; onClose: () => void }) {
+  const [note, setNote] = useState<string | null>(null);
+  return (
+    <QuickLogSheet
+      title="Edit entry"
+      subtitle={
+        note ??
+        `API gap: entries cannot be edited from the phone yet — saving logs a corrected entry and the desk adjusts the original.`
+      }
+      initialMinutes={entry.minutes}
+      startedAtIso={entry.started_at}
+      ticketId={entry.ticket_id ?? ""}
+      initialNotes={entry.notes ?? ""}
+      initialBillable={entry.billable}
+      onClose={() => {
+        onClose();
+      }}
+      onLogged={() => setNote("Corrected entry logged. The desk will reconcile the original.")}
+      testID="edit-entry-sheet"
+    />
+  );
+}
+
+/** The shared Quick-log body: duration, work type, billable, reason. */
+function QuickLogSheet({
+  title,
+  subtitle,
+  initialMinutes,
+  startedAtIso,
+  ticketId,
+  initialNotes,
+  initialBillable = true,
+  onClose,
+  onLogged,
+  testID,
+}: {
+  title: string;
+  subtitle: string;
+  initialMinutes: number;
+  startedAtIso: string;
+  ticketId: string;
+  initialNotes?: string;
+  initialBillable?: boolean;
+  onClose: () => void;
+  onLogged: (text: string) => void;
+  testID: string;
+}) {
   const { tokens } = useTheme();
+  const { me } = useAuth();
+  const { mutate } = useMutation();
+  const [duration, setDuration] = useState(initialMinutes);
+  const [workType, setWorkType] = useState("remote-support");
+  const [billable, setBillable] = useState(initialBillable);
+  const [unbillableReason, setUnbillableReason] = useState("internal");
+  const [notes, setNotes] = useState(initialNotes ?? "");
+  const [busy, setBusy] = useState(false);
+
+  const commit = () => {
+    const start = new Date(startedAtIso);
+    const end = new Date(start.getTime() + duration * 60_000);
+    setBusy(true);
+    void mutate(createTimeEntry, {
+      ticketId,
+      userId: me?.user_id ?? "",
+      startedAt: start.toISOString(),
+      endedAt: end.toISOString(),
+      billable,
+      ...(billable ? {} : { unbillableReason }),
+      workType,
+      ...(notes.trim() !== "" ? { notes: notes.trim() } : {}),
+    }).then((result) => {
+      setBusy(false);
+      if (result.ok) {
+        onLogged(`Logged ${shortClock(duration)} — it syncs when you're back online.`);
+      }
+    });
+  };
+
+  return (
+    <Sheet visible onClose={onClose} title={title} subtitle={subtitle} testID={testID}>
+      <View>
+        <PackLabel style={{ marginBottom: 8 }}>Log this as</PackLabel>
+        <Segment
+          options={[...DURATIONS, { value: initialMinutes, label: shortClock(initialMinutes) }].filter(
+            (option, index, all) => all.findIndex((o) => o.value === option.value) === index,
+          )}
+          value={duration}
+          onChange={setDuration}
+          testIDPrefix="quick-duration"
+        />
+      </View>
+      <View>
+        <PackLabel style={{ marginBottom: 8 }}>Work type</PackLabel>
+        <Segment options={WORK_TYPES} value={workType} onChange={setWorkType} testIDPrefix="quick-work" />
+      </View>
+      <Facts>
+        <FactRow first minHeight={56} label="Notes">
+          <TextInput
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="What was done"
+            placeholderTextColor={tokens.textMuted}
+            style={[styles.noteInput, { color: tokens.text }]}
+            multiline
+          />
+        </FactRow>
+        <FactRow minHeight={56}>
+          <Text style={[styles.billableLabel, { color: tokens.text }]}>Billable</Text>
+          <BillableSwitch on={billable} onToggle={setBillable} />
+        </FactRow>
+        {!billable ? (
+          <FactRow minHeight={56}>
+            <Text style={[styles.billableLabel, { color: tokens.text }]}>Reason</Text>
+            <Segment
+              options={UNBILLABLE_REASONS}
+              value={unbillableReason}
+              onChange={setUnbillableReason}
+              size="small"
+              testIDPrefix="quick-reason"
+            />
+          </FactRow>
+        ) : null}
+      </Facts>
+      <PrimaryButton
+        testID="quick-log-commit"
+        label={`Log ${shortClock(duration)}`}
+        icon={PACK_ICONS.check}
+        disabled={busy}
+        onPress={commit}
+      />
+    </Sheet>
+  );
+}
+
+function BillableSwitch({ on, onToggle }: { on: boolean; onToggle: (next: boolean) => void }) {  const { tokens } = useTheme();
   return (
     <View
       accessibilityRole="switch"
@@ -537,6 +756,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 3,
     justifyContent: "center",
+  },
+  noteInput: {
+    flex: 1,
+    fontFamily: type.sans,
+    fontSize: 14,
+    minHeight: 36,
+    textAlignVertical: "top",
   },
   switchKnob: {
     width: 20,

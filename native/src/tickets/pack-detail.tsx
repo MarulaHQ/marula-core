@@ -32,10 +32,13 @@ import { REASON_COPY } from "@/core/errors";
 import {
   MODELS,
   fetchActiveTimer,
+  fetchClient,
+  fetchClientContacts,
   fetchTicket,
   fetchTicketAttachments,
   fetchTicketChecklist,
   fetchTicketComments,
+  type ContactRow,
   type TicketAttachment,
   type TicketComment,
 } from "@/core/models";
@@ -51,7 +54,7 @@ import {
   type PickedPhoto,
   type StagedAttachment,
 } from "@/tickets/attachments";
-import { EmptyState, ErrorNote, Loading } from "@/ui/primitives";
+import { EmptyState, ErrorNote, Loading, SuccessNote } from "@/ui/primitives";
 import {
   PackHeader,
   PackLabel,
@@ -107,8 +110,41 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
 
   const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
 
+  // The pack's meta line and composer are the ticket's OWN people: the
+  // client the ticket bills through and its named contact — read models,
+  // not sample data. The device segment of the pack's line has no source in
+  // the ticket contract (recorded as a gap), so it renders only when the
+  // ticket carries a real site/device label.
+  const client = useModel(
+    ticket.data !== undefined && ticket.data.client_id != null
+      ? MODELS.client(ticket.data.client_id)
+      : "client:missing",
+    useCallback((api) => fetchClient(api, ticket.data?.client_id ?? ""), [ticket.data?.client_id]),
+    { maxAgeMs: 60_000 },
+  );
+  const contacts = useModel(
+    ticket.data !== undefined && ticket.data.client_id != null
+      ? MODELS.clientContacts(ticket.data.client_id)
+      : "contacts:missing",
+    useCallback(
+      (api) => fetchClientContacts(api, ticket.data?.client_id ?? ""),
+      [ticket.data?.client_id],
+    ),
+    { maxAgeMs: 60_000 },
+  );
+  const contact = useMemo(() => {
+    const rows = contacts.data ?? [];
+    const named = ticket.data !== undefined && ticket.data.contact_id != null
+      ? rows.find((row: ContactRow) => row.id === ticket.data?.contact_id)
+      : undefined;
+    return named ?? rows[0];
+  }, [contacts.data, ticket.data]);
+
   const [composer, setComposer] = useState<ComposerKind | null>(null);
   const [body, setBody] = useState("");
+  // Two registers, never one: a committed/queued write is good news and
+  // renders in the success paint; everything else is a rejection in danger.
+  const [goodNews, setGoodNews] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [staged, setStaged] = useState<StagedAttachment[]>([]);
@@ -122,10 +158,13 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
     ticket.error?.reason === "not_found";
 
   useEffect(() => {
-    if (banner === null) return;
-    const timeout = setTimeout(() => setBanner(null), 6_000);
+    if (banner === null && goodNews === null) return;
+    const timeout = setTimeout(() => {
+      setBanner(null);
+      setGoodNews(null);
+    }, 6_000);
     return () => clearTimeout(timeout);
-  }, [banner]);
+  }, [banner, goodNews]);
 
   const sortedComments = useMemo(() => {
     const rows = comments.data ?? [];
@@ -189,8 +228,10 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
       setBody("");
       setStaged([]);
       setComposer(null);
-      if (result.queued) setBanner("Saved on this device — will sync when you're back online.");
+      setBanner(null);
+      if (result.queued) setGoodNews("Saved on this device — will sync when you're back online.");
     } else {
+      setGoodNews(null);
       setBanner(result.failure?.text ?? "The note couldn't be saved.");
     }
   }, [body, composer, id, mutate, staged, ticket.data]);
@@ -209,8 +250,31 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
       </View>
     );
   }
+  // The offline blank (DEVIATIONS G5-1): an error with nothing cached is the
+  // one state where this screen drew nothing at all. Say exactly what the
+  // phone has and what happens next — an offline banner never just says
+  // "offline", it says what is queued or what is missing.
+  if (ticket.data === undefined && ticket.status === "error") {
+    return (
+      <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: 16 }]}>
+        <EmptyState
+          message={
+            ticket.offline
+              ? "You're offline and this ticket was never opened on this phone — its detail isn't cached yet. It will load when the connection returns."
+              : (ticket.error?.text ?? "The ticket couldn't load. Check your connection and try again.")
+          }
+          actionLabel="Back to the board"
+          onAction={() => {
+            if (fromNotification) router.replace("/notifications");
+            else router.replace("/(tabs)/board" as never);
+          }}
+        />
+      </View>
+    );
+  }
 
-  const contactFirst = "John";
+  const contactFirst = firstName(contact?.name);
+  const clientLabel = client.data !== undefined ? client.data.name : "Client";
   const backTarget = () => {
     if (fromNotification) router.replace("/notifications");
     else if (router.canGoBack()) router.back();
@@ -279,7 +343,8 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
               <View style={styles.titleMeta}>
                 <PriorityChip label={String(ticket.data.priority)} />
                 <Text style={[styles.titleMetaText, { color: tokens.textSecondary }]}>
-                  Acme Corporation · JOHN-LAPTOP
+                  {clientLabel}
+                  {contactFirst !== "" ? ` · ${contactFirst}` : ""}
                 </Text>
               </View>
               <Text style={[styles.title, { color: tokens.text }]}>{ticket.data.title}</Text>
@@ -287,7 +352,7 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
 
             <View style={styles.actionsRow}>
               <SecondaryButton
-                label={`Call ${contactFirst}`}
+                label={contactFirst !== "" ? `Call ${contactFirst}` : "Call"}
                 icon={PACK_ICONS.phone}
                 style={{ flex: 1 }}
                 onPress={() => setBanner("The call opens in the phone app.")}
@@ -330,7 +395,9 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
                       <View style={styles.entryBody}>
                         <View style={styles.entryWho}>
                           <Text style={[styles.entryAuthor, { color: tokens.text }]}>
-                            {comment.kind === "client_visible" ? "John Smith" : "Tumi L."}
+                            {comment.kind === "client_visible"
+                              ? contactName(contact)
+                              : "Your team"}
                           </Text>
                           <Text style={[styles.entryWhen, { color: tokens.textSecondary }]}>
                             {clockTime(comment.created_at)}
@@ -360,14 +427,6 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
                     </View>
                   );
                 })}
-                <View style={[styles.systemLine, { backgroundColor: tokens.surfaceHover }]}>
-                  <View style={[styles.systemDisc, { backgroundColor: tokens.border }]}>
-                    <Ionicons name={PACK_ICONS.check} size={12} color={tokens.textSecondary} />
-                  </View>
-                  <Text style={[styles.systemText, { color: tokens.textSecondary }]}>
-                    Status changed to In progress · 10:31
-                  </Text>
-                </View>
               </View>
             </View>
 
@@ -423,6 +482,7 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
             </View>
 
             {banner !== null ? <ErrorNote text={banner} /> : null}
+            {goodNews !== null ? <SuccessNote text={goodNews} /> : null}
           </>
         ) : null}
       </ScrollView>
@@ -439,7 +499,7 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
           }}
         />
         <PrimaryButton
-          label={`Reply to ${contactFirst}`}
+          label={contactFirst !== "" ? `Reply to ${contactFirst}` : "Reply"}
           icon={PACK_ICONS.mail}
           style={{ flex: 1.5 }}
           testID="ticket-action-reply"
@@ -454,6 +514,7 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
         visible={composer !== null}
         kind={composer ?? "reply"}
         contactFirst={contactFirst}
+        contactName={contactName(contact)}
         body={body}
         onBody={setBody}
         sending={sending || uploading}
@@ -559,6 +620,7 @@ function ComposerSheet({
   visible,
   kind,
   contactFirst,
+  contactName,
   body,
   onBody,
   sending,
@@ -572,6 +634,7 @@ function ComposerSheet({
   visible: boolean;
   kind: ComposerKind;
   contactFirst: string;
+  contactName: string;
   body: string;
   onBody: (text: string) => void;
   sending: boolean;
@@ -640,14 +703,14 @@ function ComposerSheet({
         >
           {note
             ? "Only your team sees this. The client never does."
-            : `John Smith will get this by email.`}
+            : `${contactName !== "" ? contactName : "The client"} will get this by email.`}
         </Text>
       </View>
       <TextInput
         testID="note-composer-input"
         value={body}
         onChangeText={onBody}
-        placeholder={note ? "Add a note for the team" : `Write to ${contactFirst}`}
+        placeholder={note ? "Add a note for the team" : contactFirst !== "" ? `Write to ${contactFirst}` : "Write to the client"}
         placeholderTextColor={note ? tokens.textSecondary : tokens.textMuted}
         multiline
         style={[
@@ -712,6 +775,18 @@ function authorInitials(body: string): string {
   const trimmed = body.trim();
   const letter = trimmed.slice(0, 1).toUpperCase();
   return letter.length === 0 ? "·" : letter;
+}
+
+/** The contact's full name for the thread's client lines; "The client" when
+ * the ticket carries no named contact yet. */
+function contactName(contact: ContactRow | undefined): string {
+  return contact?.name ?? "";
+}
+
+/** The first name the pack's actions address ("Call John"). */
+function firstName(name: string | null | undefined): string {
+  if (name === null || name === undefined || name.trim() === "") return "";
+  return name.trim().split(/\s+/)[0] ?? "";
 }
 
 function clockTime(iso: string): string {
@@ -866,26 +941,6 @@ const styles = StyleSheet.create({
     fontFamily: typeStyle.sansMedium,
     fontSize: 12,
     flexShrink: 1,
-  },
-  systemLine: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 14,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    alignSelf: "flex-start",
-  },
-  systemDisc: {
-    width: 22,
-    height: 22,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  systemText: {
-    fontFamily: typeStyle.sans,
-    fontSize: 12,
   },
   clockLink: {
     fontFamily: typeStyle.sansMedium,

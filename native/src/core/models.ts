@@ -44,6 +44,11 @@ export type TravelDraft = Ok<paths["/api/v1/dispatch/travel-drafts"]["get"]>[num
 export type OnCallBlock = Ok<paths["/api/v1/on-call-blocks"]["get"]>[number];
 export type TicketAttachment =
   Ok<paths["/api/v1/tickets/{id}/attachments"]["get"]>[number];
+export type ClientRow = Ok<paths["/api/v1/clients/{id}"]["get"]>;
+export type ContactRow =
+  Ok<paths["/api/v1/clients/{id}/contacts"]["get"]>[number];
+export type TicketsListRow = Ok<paths["/api/v1/tickets"]["get"]>[number];
+export type DispatchQueueView = Ok<paths["/api/v1/dispatch/queue"]["get"]>;
 
 /** Wave 32 lane 8 day pack (Wave 33 lane 2 mirrors it on the phone). */
 export type DayPack = Ok<paths["/api/v1/day-pack"]["get"]>;
@@ -67,6 +72,7 @@ export const MODELS = {
   ticketComments: (id: string) => `ticket:${id}:comments`,
   ticketStockMovements: (id: string) => `ticket:${id}:stock-movements`,
   activeTimer: "timer.active",
+  timerWorkingSet: "timer.working-set",
   onHand: "stock.on-hand",
   stockItem: (id: string) => `stock.item:${id}`,
   stockMovements: (id: string) => `stock.item:${id}:movements`,
@@ -90,6 +96,10 @@ export const MODELS = {
   ticketChecklist: (ticketId: string) => `ticket:${ticketId}:checklist`,
   myDayEntries: (userId: string) => `time:day:${userId}`,
   ticketAttachments: (ticketId: string) => `ticket:${ticketId}:attachments`,
+  client: (id: string) => `client:${id}`,
+  clientContacts: (id: string) => `client:${id}:contacts`,
+  ticketsList: "tickets.list",
+  dispatchQueue: "dispatch.queue",
   travelDrafts: "dispatch.travel-drafts",
   onCall: (fromDate: string) => `oncall:${fromDate}`,
 } as const;
@@ -111,6 +121,33 @@ export async function fetchTicket(client: MarulaClient, id: string): Promise<Tic
   return unwrap(await client.api.GET("/api/v1/tickets/{id}", { params: { path: { id } } }));
 }
 
+export async function fetchClient(client: MarulaClient, id: string): Promise<ClientRow> {
+  return unwrap(await client.api.GET("/api/v1/clients/{id}", { params: { path: { id } } }));
+}
+
+export async function fetchClientContacts(
+  client: MarulaClient,
+  id: string,
+): Promise<ContactRow[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/clients/{id}/contacts", { params: { path: { id } } }),
+  );
+}
+
+/** The board's All scope: open tickets across boards (the phone reads one page). */
+export async function fetchTicketsList(client: MarulaClient): Promise<TicketsListRow[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/tickets", {
+      params: { query: { limit: QUERY_DEFAULT_LIMIT } },
+    }),
+  );
+}
+
+/** The board's Unassigned scope: the dispatch queue in dispatch order. */
+export async function fetchDispatchQueue(client: MarulaClient): Promise<DispatchQueueView> {
+  return unwrap(await client.api.GET("/api/v1/dispatch/queue", { params: { query: {} } }));
+}
+
 export async function fetchTicketComments(
   client: MarulaClient,
   id: string,
@@ -125,6 +162,19 @@ export async function fetchActiveTimer(client: MarulaClient): Promise<TimerSessi
   // returns Option<TimerSession>; at runtime it is the session or null.
   const result = await client.api.GET("/api/v1/timers/active");
   return unwrap(result) as unknown as TimerSession | null;
+}
+
+/**
+ * Recent timer sessions, including PAUSED ones — `/timers/active` answers
+ * only for a running session (`is_running` is false once a segment closes),
+ * so without this read a paused timer is unreachable: the card vanishes and
+ * nothing can resume or stop it. The working set keeps the paused session
+ * visible (the pack's paused card), most recent first.
+ */
+export async function fetchTimerWorkingSet(client: MarulaClient): Promise<TimerSession[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/timers/working-set"),
+  ) as unknown as TimerSession[];
 }
 
 export async function fetchOnHand(client: MarulaClient): Promise<OnHandRow[]> {

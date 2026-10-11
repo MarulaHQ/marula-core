@@ -20,6 +20,7 @@ import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-nativ
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useModel } from "@/data/sync-context";
+import { useConnectivity } from "@/data/connectivity";
 import { MODELS, fetchActiveTimer } from "@/core/models";
 import { CameraScanner } from "@/scan/camera-scanner";
 import { useScanResolver } from "@/scan/scan-flow";
@@ -54,8 +55,13 @@ export default function ScanScreen() {
   const { text: injectedText } = useLocalSearchParams<{ text?: string }>();
   const [typed, setTyped] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
-  const { resolution, error, busy, resolve, clear } = useScanResolver();
+  // The pack's torch disc is a real control: gold when on, and it actually
+  // drives the lens (the mockup's "torch when on" is gold — not colour
+  // alone, the disc's icon stays).
+  const [torch, setTorch] = useState(false);
+  const { resolution, error, savedCode, busy, resolve, clear, saved } = useScanResolver();
   const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
+  const { online } = useConnectivity();
 
   const contextLabel = timer.data !== null && timer.data !== undefined ? "Timing a ticket" : null;
 
@@ -92,10 +98,12 @@ export default function ScanScreen() {
         <Pressable
           testID="scan-torch"
           accessibilityRole="button"
-          accessibilityLabel="Torch"
-          style={styles.disc}
+          accessibilityLabel={torch ? "Torch on" : "Torch"}
+          accessibilityState={{ checked: torch }}
+          onPress={() => setTorch((on) => !on)}
+          style={[styles.disc, torch ? { backgroundColor: chrome.gold } : null]}
         >
-          <Ionicons name={PACK_ICONS.bolt} size={20} color={chrome.cream} />
+          <Ionicons name={PACK_ICONS.bolt} size={20} color={torch ? chrome.ink : chrome.cream} />
         </Pressable>
         <Pressable
           testID="scan-keyboard"
@@ -123,6 +131,31 @@ export default function ScanScreen() {
       </View>
 
       <View style={styles.simulatorPanel}>
+        {!online ? (
+          <View style={[styles.offlineBanner, { backgroundColor: chrome.goldTintLight }]}>
+            <Text style={[styles.offlineText, { color: chrome.goldText }]}>
+              {"You're offline. Scans are saved on this phone and resolve by "}
+              {"themselves when the connection returns."}
+            </Text>
+          </View>
+        ) : null}
+        {saved.saved.length > 0 ? (
+          <Pressable
+            testID="scan-saved"
+            accessibilityRole="button"
+            accessibilityLabel={`Saved for later, ${saved.saved.length} waiting`}
+            onPress={() => {
+              const first = saved.saved[0];
+              if (first !== undefined) void resolve(first.text);
+            }}
+            style={[styles.savedRow, { borderColor: chrome.camLine }]}
+          >
+            <Ionicons name={PACK_ICONS.clock} size={16} color={chrome.cream} />
+            <Text style={[styles.savedText, { color: chrome.cream }]}>
+              Saved for later · {saved.saved.length} waiting
+            </Text>
+          </Pressable>
+        ) : null}
         <Text style={[styles.panelLabel, { color: chrome.cream }]}>{typedLabel(busy, error)}</Text>
         <View style={styles.simRow}>
           {samples.map((sample) => (
@@ -181,6 +214,7 @@ export default function ScanScreen() {
       <CameraScanner
         visible={cameraOpen}
         onClose={() => setCameraOpen(false)}
+        torch={torch}
         onScan={(scanned) => {
           setCameraOpen(false);
           setTyped(scanned);
@@ -190,24 +224,34 @@ export default function ScanScreen() {
 
       <ResultSheets
         resolution={resolution}
-        error={error}
+        error={savedCode !== null ? null : error}
         onClear={clear}
         onRetry={() => {
-          void resolve(typed);
+          if (typed.trim() !== "") void resolve(typed);
         }}
       />
+      {savedCode !== null ? (
+        <Sheet
+          visible
+          onClose={clear}
+          title="Saved for later"
+          subtitle={`“${savedCode}” is saved on this phone, with ${saved.saved.length} scan${saved.saved.length === 1 ? "" : "s"} waiting. It resolves by itself when the connection returns.`}
+          testID="scan-saved-sheet"
+        >
+          <PrimaryButton label="Scan another" icon={PACK_ICONS.scan} onPress={clear} />
+        </Sheet>
+      ) : null}
     </View>
   );
 }
 
+/** The panel's label names what it is: busy, a rejection, or the quick
+ * payloads (the chips are fixed sample codes, never a fake "Recent" list). */
 function typedLabel(busy: boolean, error: string | null): string {
   if (busy) return "Resolving…";
   if (error !== null) return error;
-  void tokens_unused;
-  return "Recent";
+  return "Try a code";
 }
-
-const tokens_unused = 0;
 
 /** The pack's result sheets, one per resolution fate. */
 function ResultSheets({
@@ -236,6 +280,10 @@ function ResultSheets({
   const candidates = resolution.candidates ?? [];
   const unknown = resolution.kind === "unknown" && candidates.length === 0;
   if (unknown) {
+    // The pack's dead end that isn't: neutral, the code echoed, and the
+    // three ways out in order of effort. "Add as a new asset" has no phone
+    // write path yet (recorded gap 2026-10-05) — it names the honest route
+    // on the desk instead of pretending to act.
     return (
       <Sheet visible onClose={onClear} title="Not recognized" testID="scan-unknown-sheet">
         <Image
@@ -246,36 +294,28 @@ function ResultSheets({
         />
         <PackPill pair={tokens.warning} label="NO MATCH" />
         <Text style={[styles.sheetBody, { color: tokens.textSecondary }]}>
-          Nothing matches “{resolution.input}”. Check the label, or enter the code by hand.
+          Nothing matches “{resolution.input}”. We looked for a stock item, a serial, a
+          location and an asset tag.
         </Text>
-        <PrimaryButton label="Type a code" icon={PACK_ICONS.keyboard} onPress={onClear} />
-        <SecondaryButton label="Close" onPress={onClear} />
+        <PrimaryButton label="Search by name" icon={PACK_ICONS.search} onPress={onClear} />
+        <SecondaryButton
+          label="Add as a new asset"
+          onPress={() => {
+            onClear();
+            router.push(`/(tabs)/board` as never);
+          }}
+        />
+        <SecondaryButton label="Scan again" icon={PACK_ICONS.scan} onPress={onClear} />
       </Sheet>
     );
   }
   if (candidates.length > 1) {
     return (
-      <Sheet
-        visible
-        onClose={onClear}
-        title="Pick the exact one"
-        subtitle={`${candidates.length} records match this code — a scan never guesses.`}
-        testID="scan-pick-sheet"
-      >
-        {candidates.map((candidate: { entity_id: string; display_name: string; secondary?: string | null }) => (
-          <ChoiceCard
-            key={candidate.entity_id}
-            title={candidate.display_name}
-            detail={candidate.secondary ?? undefined}
-            chosen={false}
-            onPress={() => {
-              onClear();
-              router.push(candidateRoute(resolution, candidate.entity_id) as never);
-            }}
-            testID={`scan-candidate-${candidate.entity_id}`}
-          />
-        ))}
-      </Sheet>
+      <AmbiguousSheet
+        resolution={resolution}
+        candidates={candidates}
+        onClear={onClear}
+      />
     );
   }
   return (
@@ -310,8 +350,56 @@ function ResultSheets({
   );
 }
 
-function scanKinds(kind: string): string {
-  switch (kind) {
+/** The ambiguity picker: the best match (the resolver's first row) is
+ * preselected and the primary names the choice, so it cannot be tapped
+ * blind — the pack's green-chosen card, reversible until Continue. */
+function AmbiguousSheet({
+  resolution,
+  candidates,
+  onClear,
+}: {
+  resolution: ScanResolution;
+  candidates: { entity_id: string; display_name: string; secondary?: string | null }[];
+  onClear: () => void;
+}) {
+  const router = useRouter();
+  const [choice, setChoice] = useState(candidates[0]?.entity_id ?? "");
+  const chosen =
+    candidates.find((candidate) => candidate.entity_id === choice) ?? candidates[0];
+  return (
+    <Sheet
+      visible
+      onClose={onClear}
+      title="Pick the exact one"
+      subtitle={`${candidates.length} records match this code — a scan never guesses.${chosen !== undefined && resolution.display_name === "" ? ` ${chosen.display_name} is the likeliest match.` : ""}`}
+      testID="scan-pick-sheet"
+    >
+      {candidates.map((candidate) => (
+        <ChoiceCard
+          key={candidate.entity_id}
+          title={candidate.display_name}
+          detail={candidate.secondary ?? undefined}
+          chosen={candidate.entity_id === chosen?.entity_id}
+          onPress={() => setChoice(candidate.entity_id)}
+          testID={`scan-candidate-${candidate.entity_id}`}
+        />
+      ))}
+      {chosen !== undefined ? (
+        <PrimaryButton
+          label={`Continue with ${chosen.display_name}`}
+          testID="scan-pick-continue"
+          onPress={() => {
+            onClear();
+            router.push(candidateRoute(resolution, chosen.entity_id) as never);
+          }}
+        />
+      ) : null}
+      <SecondaryButton label="Search by name" onPress={onClear} />
+    </Sheet>
+  );
+}
+
+function scanKinds(kind: string): string {  switch (kind) {
     case "stock_item":
       return "Stock item";
     case "serialized_unit":
@@ -400,6 +488,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 24,
     gap: 12,
+  },
+  offlineBanner: {
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  offlineText: {
+    fontFamily: type.sansMedium,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  savedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+  },
+  savedText: {
+    fontFamily: type.sansMedium,
+    fontSize: 14,
   },
   panelLabel: {
     fontFamily: type.sansSemiBold,
