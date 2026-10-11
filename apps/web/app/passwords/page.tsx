@@ -318,6 +318,12 @@ export default function VaultPage() {
   // AND the rotation never stamped (the worker-side sweep marker lives
   // in the DB; the client reflects the columns the entities carry).
   const legacyRotationDue = (e: PasswordEntry) => e.rotate_at != null && new Date(e.rotate_at) < new Date() && e.last_rotated_at == null;
+  // The same honesty for the knowledge-class vault: a rotation is due when
+  // its rotate_at has passed and the record was never rotated. Without this
+  // the "Rotation due" pill read 0 on the /passwords vault whenever the
+  // overdue records were sealed-vault rows rather than legacy entries.
+  const sealedRotationDue = (r: SecretRecord) =>
+    r.rotate_at != null && Date.parse(r.rotate_at) < Date.now() && r.last_rotated_at == null;
 
   const legacyRevealEntry = async (entry: PasswordEntry) => {
     setLegacyRevealing(entry.id);
@@ -392,6 +398,9 @@ export default function VaultPage() {
     if (view === "expired") {
       rows = rows.filter((r) => r.expires_at != null && Date.parse(r.expires_at) < Date.now());
     }
+    if (view === "rotate") {
+      rows = rows.filter(sealedRotationDue);
+    }
     return rows;
   }, [sortedRecords, clauses, view]);
 
@@ -410,8 +419,10 @@ export default function VaultPage() {
   }, [view, legacyFiltered, filteredRecords]);
 
   const rotationDueCount = useMemo(
-    () => (legacyFiltered ?? []).filter(legacyRotationDue).length,
-    [legacyFiltered],
+    () =>
+      ((legacyFiltered ?? []).filter(legacyRotationDue).length ?? 0) +
+      ((filteredRecords ?? []).filter(sealedRotationDue).length ?? 0),
+    [legacyFiltered, filteredRecords],
   );
 
   const visibleColumns = columns;
@@ -819,6 +830,13 @@ export default function VaultPage() {
                                       {r.title}
                                     </span>
                                   </button>
+                                ) : null}
+                                {c.key === "username" ? (
+                                  (r.fields ?? []).some((f) => f.field_key === "username" && f.has_value) ? (
+                                    <span style={{ color: "var(--m-text-secondary)" }}>set</span>
+                                  ) : (
+                                    <span style={{ color: "var(--m-text-muted)" }}>—</span>
+                                  )
                                 ) : null}
                                 {c.key === "kind" ? (
                                   // The flat credential ledger has no kind, so
