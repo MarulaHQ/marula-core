@@ -166,15 +166,19 @@ test("a stockroom wedge burst stages the item and the picker attaches it to a ti
   await expect(authedPage.getByTestId("stock-dispatch-scan")).toBeVisible({ timeout: 30_000 });
 
   // A burst into the board search routes to the dispatch scan and opens
-  // the movement form with the item staged.
-  const search = authedPage.getByTestId("stock-search");
+  // the movement form with the item staged. The dispatch scan input is scoped:
+  // /stock renders two scan bars (dispatch + the movement form's).
+  const search = authedPage.getByTestId("stock-dispatch-scan").getByTestId("scan-input");
   await search.fill("cab");
   await search.pressSequentially(`E2E-DISPATCH-${run}`, { delay: 8 });
   await search.press("Enter");
   await expect(authedPage.getByTestId("scan-chip-summary")).toContainText(item.name, {
     timeout: 20_000,
   });
-  await expect(search).toHaveValue("cab");
+  // The burst resolves into a chip and the query is consumed: the staged
+  // identity rides the chip, so the input clears rather than keeping the
+  // raw code as leftover text.
+  await expect(search).toHaveValue("");
   await expect(authedPage.getByTestId("movement-ticket")).toBeVisible({ timeout: 20_000 });
 
   // Attach to a ticket straight from the stockroom — the ticket is never

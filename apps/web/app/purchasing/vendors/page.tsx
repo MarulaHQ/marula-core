@@ -476,6 +476,13 @@ export default function VendorsPage(): ReactNode {
 
   return (
     <>
+      {/* Write feedback: a created vendor, replaced contacts, an added portal
+          link. Set by every mutation path on this page. */}
+      {notice !== null && (
+        <p className="text-xs" role="status" style={{ color: "var(--m-status-success-fg)" }} data-testid="purchasing-vendors-notice">
+          {notice}
+        </p>
+      )}
     <LedgerSurface
       surface="purchasing-vendors"
       testId="vendors-ledger"

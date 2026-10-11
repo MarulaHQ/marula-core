@@ -44,7 +44,18 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CheckInDialog } from "../../../components/stock/check-in-dialog";
 import { MovementDialog, type MovementKind } from "../../../components/stock/movement-dialog";
-import { NeutralMark, ReturnedMark } from "../../../components/assets-stock/ledger-marks";
+import {
+  DueSoonMark,
+  NeutralMark,
+  OverdueMark,
+  ReturnedMark,
+} from "../../../components/assets-stock/ledger-marks";
+import {
+  RecordFrame,
+  RecordRow,
+  RecordSection,
+  SummaryCard,
+} from "../../../components/records/record-frame";
 import { LabelPrintButton } from "../../../components/labels/label-print-button";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
@@ -400,7 +411,13 @@ export default function StockItemDetailPage(): ReactNode {
     const location = where?.location_name ?? (locationId === null ? null : locationName(locationId));
     const parts: ReactNode[] = [];
     if (location !== null) parts.push(<span key="location">{location}</span>);
-    if (holder !== null) parts.push(<span key="holder">holder {idPrefix(holder)}</span>);
+    if (holder !== null) {
+      parts.push(
+        <span key="holder">
+          holder {actorNames.get(holder) ?? idPrefix(holder)}
+        </span>,
+      );
+    }
     if (clientId !== null) {
       parts.push(
         <span key="client">
@@ -426,64 +443,99 @@ export default function StockItemDetailPage(): ReactNode {
   const serialized = itemValue.kind === "serialized";
 
   return (
-    <div className="mx-auto grid w-full max-w-350 gap-6 p-4 md:p-6">
-      <header className="m-ledger-header">
-        <div className="m-ledger-title-row">
-          <h1 className="m-ledger-title" data-testid="stock-detail-name">
-            {itemValue.name}
-          </h1>
-          <Tag tone="outline">{itemValue.kind}</Tag>
-          <Tag tone="outline">{itemValue.unit}</Tag>
-          {itemValue.is_tool ? <Tag tone="outline">tool</Tag> : null}
-          {itemValue.active ? (
-            <ReturnedMark label="Active" testId="stock-detail-state" />
-          ) : (
-            <NeutralMark label="Archived" testId="stock-detail-state" />
-          )}
-          <div className="m-ledger-header-action">
-          <LabelPrintButton purpose="stock_item" entityId={itemValue.id} entityLabel={itemValue.name} />
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setMovementKind("receive");
-              setMovementOpen(true);
-            }}
-            data-testid="stock-record-movement"
-          >
-            Record movement
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setMovementKind("consume");
-              setMovementOpen(true);
-            }}
-            data-testid="stock-dispatch"
-          >
-            Dispatch to ticket
-          </Button>
-          <Button variant="secondary" onClick={openEdit} data-testid="stock-edit">
-            Edit
-          </Button>
-          {itemValue.active ? (
-            <Button variant="ghost" disabled={busy} onClick={() => void setActive(false)} data-testid="stock-archive">
-              Archive
-            </Button>
-          ) : (
-            <Button variant="ghost" disabled={busy} onClick={() => void setActive(true)} data-testid="stock-reactivate">
-              Reactivate
-            </Button>
-          )}
-        </div>
-          </div>
-        <p className="m-ledger-subtitle">
-          <Link href="/stock">Stock</Link> / item detail · {itemValue.sku ?? "no SKU"} ·{" "}
-          {itemValue.part_number ?? "no part number"} ·{" "}
-          {itemValue.last_unit_cost_minor == null
-            ? "last unit cost —"
-            : `last unit cost ${money(itemValue.last_unit_cost_minor, itemValue.currency)}`}
-        </p>
-      </header>
+    <div className="mx-auto grid w-full max-w-[1600px] gap-4 p-4 md:p-6">
+      <RecordFrame
+        context={
+          <>
+            <RecordSection label="Item">
+              <p className="text-[16px] font-semibold">{itemValue.name}</p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <Tag tone="outline">{itemValue.kind}</Tag>
+                <Tag tone="outline">{itemValue.unit}</Tag>
+                {itemValue.is_tool ? <Tag tone="outline">tool</Tag> : null}
+                {itemValue.active ? (
+                  <ReturnedMark label="Active" testId="stock-detail-state" />
+                ) : (
+                  <NeutralMark label="Archived" testId="stock-detail-state" />
+                )}
+              </div>
+            </RecordSection>
+
+            <RecordSection label="Details">
+              <RecordRow label="SKU">{itemValue.sku ?? "—"}</RecordRow>
+              <RecordRow label="Part number">{itemValue.part_number ?? "—"}</RecordRow>
+              <RecordRow label="Last unit cost">
+                {itemValue.last_unit_cost_minor == null
+                  ? "—"
+                  : money(itemValue.last_unit_cost_minor, itemValue.currency)}
+              </RecordRow>
+            </RecordSection>
+          </>
+        }
+        content={
+          <>
+            {/* ---- breadcrumb and actions ---- */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href="/stock"
+                className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+                style={{ color: "var(--m-text-secondary)" }}
+              >
+                Stock
+              </Link>
+              <span className="flex-1" />
+              <LabelPrintButton purpose="stock_item" entityId={itemValue.id} entityLabel={itemValue.name} />
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setMovementKind("receive");
+                  setMovementOpen(true);
+                }}
+                data-testid="stock-record-movement"
+              >
+                Record movement
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setMovementKind("consume");
+                  setMovementOpen(true);
+                }}
+                data-testid="stock-dispatch"
+              >
+                Dispatch to ticket
+              </Button>
+              <Button variant="secondary" onClick={openEdit} data-testid="stock-edit">
+                Edit
+              </Button>
+              {itemValue.active ? (
+                <Button variant="ghost" disabled={busy} onClick={() => void setActive(false)} data-testid="stock-archive">
+                  Archive
+                </Button>
+              ) : (
+                <Button variant="ghost" disabled={busy} onClick={() => void setActive(true)} data-testid="stock-reactivate">
+                  Reactivate
+                </Button>
+              )}
+            </div>
+
+            {/* ---- the title and its marks. This header does not change
+                between sections, so the record never feels like it moved. ---- */}
+            <div className="mt-2 m-ledger-header">
+              <div className="m-ledger-title-row">
+                <h1 className="m-ledger-title" data-testid="stock-detail-name">
+                  {itemValue.name}
+                </h1>
+                <Tag tone="outline">{itemValue.kind}</Tag>
+                <Tag tone="outline">{itemValue.unit}</Tag>
+                {itemValue.is_tool ? <Tag tone="outline">tool</Tag> : null}
+                {itemValue.active ? (
+                  <ReturnedMark label="Active" testId="stock-detail-state" />
+                ) : (
+                  <NeutralMark label="Archived" testId="stock-detail-state" />
+                )}
+              </div>
+            </div>
 
       {actionError !== null && (
         <p className="text-xs" role="alert" style={{ color: "var(--m-status-danger-fg)" }} data-testid="stock-detail-error">
@@ -667,7 +719,10 @@ export default function StockItemDetailPage(): ReactNode {
                 const mine = row.lines.filter((line) => line.stock_item_id === itemValue.id);
                 return (
                   <Tr key={row.checkout.id} className="row-hover" data-testid={`stock-checkout-${row.checkout.id}`}>
-                    <Td className="text-xs">{idPrefix(row.checkout.holder_user_id)}</Td>
+                    {/* The holder is a person, and the page already resolves
+                        the org directory for the ledger's WHO column — the
+                        checkout table reads the same names. */}
+                    <Td className="text-xs">{actorNames.get(row.checkout.holder_user_id) ?? idPrefix(row.checkout.holder_user_id)}</Td>
  <Td className="text-right text-sm tabular-nums">{mine.length}</Td>
                     <Td className="text-xs">
                       <span className="flex items-center gap-1">
@@ -797,6 +852,67 @@ export default function StockItemDetailPage(): ReactNode {
           </span>
         </footer>
       </div>
+            </>
+        }
+        summary={
+          <>
+            <p
+              className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em]"
+              style={{ color: "var(--m-text-muted)" }}
+            >
+              Right now
+            </p>
+
+            {/* The pack's summary column carries what needs attention, distilled
+                from the same data the tables show — the projects record's
+                Budget/Risk cards are the pattern. Low stock is BLUSH (running
+                out of a consumable is attention, not breach); a genuinely
+                overdue checkout is the only red here. Word and icon, never
+                colour alone. */}
+            <SummaryCard title="Attention">
+              {(() => {
+                const lowCount = onHand.filter((row) => row.low).length;
+                if (lowCount > 0) {
+                  return (
+                    <DueSoonMark
+                      label={`${lowCount} location${lowCount === 1 ? "" : "s"} at reorder point`}
+                    />
+                  );
+                }
+                return (
+                  <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                    Stock healthy at every location.
+                  </span>
+                );
+              })()}
+            </SummaryCard>
+
+            {itemValue.is_tool && (
+              <SummaryCard title="Checkouts">
+                {(() => {
+                  const openCount = checkouts.length;
+                  const overdueCount = checkouts.filter((row) => row.checkout.overdue).length;
+                  if (overdueCount > 0) {
+                    return <OverdueMark label={`${overdueCount} overdue`} />;
+                  }
+                  if (openCount > 0) {
+                    return (
+                      <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                        {openCount} open, nothing overdue.
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                      No open checkouts.
+                    </span>
+                  );
+                })()}
+              </SummaryCard>
+            )}
+          </>
+        }
+      />
 
       <MovementDialog
         open={movementOpen}

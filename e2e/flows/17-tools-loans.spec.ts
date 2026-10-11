@@ -81,7 +81,9 @@ test("check a tool out to me and check it back in", async ({ authedPage, ownerTo
   await expect(authedPage.getByTestId("tools-notice")).toBeVisible({ timeout: 20_000 });
 
   // Who-has-what flips the unit to checked out with the due phrase.
-  const row = authedPage.getByTestId("tools-table").getByRole("row").filter({ hasText: serial });
+  const row = authedPage
+    .locator('[data-testid^="tools-row-"]')
+    .filter({ hasText: serial });
   await expect(row).toContainText("checked out", { timeout: 20_000 });
   await expect(row).toContainText("tomorrow");
 
@@ -90,7 +92,7 @@ test("check a tool out to me and check it back in", async ({ authedPage, ownerTo
   await authedPage.locator('[data-testid^="tools-checkin-condition-"]').first().click();
   await authedPage.getByRole("option", { name: "good" }).click();
   await authedPage.getByTestId("tools-checkin-save").click();
-  await expect(row).toContainText("in stock", { timeout: 20_000 });
+  await expect(row).toContainText("In stock", { timeout: 20_000 });
 });
 
 test("issue a loan to a client from stock and return it", async ({ authedPage, ownerTokens }) => {
@@ -120,8 +122,12 @@ test("issue a loan to a client from stock and return it", async ({ authedPage, o
   await authedPage.getByTestId("loans-issue-save").click();
   await expect(authedPage.getByTestId("loans-notice")).toBeVisible({ timeout: 20_000 });
 
-  const row = authedPage.getByTestId("loans-table").getByRole("row").filter({ hasText: item.name });
-  await expect(row).toContainText("open", { timeout: 20_000 });
+  // The row lands on the board with its due state (the template's STATE
+  // column carries the due phrase — "Due tomorrow" — not the raw "open").
+  const row = authedPage
+    .locator('[data-testid^="loans-row-"]')
+    .filter({ hasText: item.name });
+  await expect(row).toBeVisible({ timeout: 20_000 });
   await expect(row).toContainText("tomorrow");
 
   // The return flow takes a destination (stock-sourced) and a condition.
@@ -130,7 +136,7 @@ test("issue a loan to a client from stock and return it", async ({ authedPage, o
   await authedPage.locator('[data-testid^="loans-return-condition-"]').first().click();
   await authedPage.getByRole("option", { name: "good" }).click();
   await authedPage.getByTestId("loans-return-save").click();
-  await expect(row).toContainText("returned", { timeout: 20_000 });
+  await expect(row).toContainText("Returned", { timeout: 20_000 });
 });
 
 test("a kit shows member readiness before the checkout", async ({ authedPage, ownerTokens }) => {

@@ -40,6 +40,12 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { OrderStatusTag, ReceiptStateTag } from "../../../components/purchasing/status";
 import { MovementDialog, type MovementKind } from "../../../components/stock/movement-dialog";
 import { ScanBar, type ScanEvent } from "../../../components/scan/scan-bar";
+import {
+  RecordFrame,
+  RecordRow,
+  RecordSection,
+  SummaryCard,
+} from "../../../components/records/record-frame";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
@@ -738,75 +744,94 @@ export default function PurchaseOrderPage(): ReactNode {
   const receivedTotalMinor = detail.totals?.received_minor ?? null;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <header className="m-ledger-header">
-        <div className="m-ledger-title-row">
-          <h1 className="m-ledger-title" data-testid="purchasing-order-number">
-            {order.number}
-          </h1>
-          <OrderStatusTag status={order.status} />
-          <div className="m-ledger-header-action">
-            {canSend && (
-              <Button disabled={busy !== null} onClick={() => void runOrderAction("send")} data-testid="purchasing-send">
-                Send order
-              </Button>
-            )}
-            {canReceive && (
-              <Button onClick={openReceive} data-testid="purchasing-receive">
-                Receive goods
-              </Button>
-            )}
-            {canClose && (
-              <Button
-                variant="secondary"
-                disabled={busy !== null}
-                onClick={() => void runOrderAction("close")}
-                data-testid="purchasing-close"
+    <div className="mx-auto grid w-full max-w-[1600px] gap-4 p-4 md:p-6">
+      <RecordFrame
+        context={
+          <>
+            <RecordSection label="Order">
+              <p className="text-[16px] font-semibold">{order.number}</p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <OrderStatusTag status={order.status} />
+              </div>
+            </RecordSection>
+
+            <RecordSection label="Vendor">
+              {vendorName !== null ? (
+                <p className="text-[13px] font-semibold">{vendorName}</p>
+              ) : (
+                <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  No vendor on the order.
+                </p>
+              )}
+            </RecordSection>
+
+            <RecordSection label="Details">
+              <RecordRow label="Expected">{order.expected_at ?? "—"}</RecordRow>
+              <RecordRow label="Currency">{order.currency}</RecordRow>
+              <RecordRow label="Vendor reference">{order.vendor_reference ?? "—"}</RecordRow>
+              <RecordRow label="Ordered">
+                {order.ordered_at == null ? "—" : order.ordered_at.slice(0, 10)}
+              </RecordRow>
+            </RecordSection>
+          </>
+        }
+        content={
+          <>
+            {/* ---- breadcrumb and actions ---- */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href="/purchasing"
+                className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
+                style={{ color: "var(--m-text-secondary)" }}
               >
-                Close
-              </Button>
-            )}
-            {canCancel && (
-              <Button
-                variant="ghost"
-                disabled={busy !== null}
-                onClick={() => {
-                  setCancelReason("");
-                  setCancelOpen(true);
-                }}
-                data-testid="purchasing-cancel"
-              >
-                Cancel
-              </Button>
-            )}
-          </div>
-        </div>
-        <p className="m-ledger-subtitle">
-          {vendorName ?? "Vendor"} · {links.length} portal link{links.length === 1 ? "" : "s"} ·{" "}
-          <Link href="/purchasing" style={{ color: "var(--m-status-info-fg)" }}>
-            Purchase orders
-          </Link>
-        </p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {(
-            [
-              { label: "Expected", value: order.expected_at ?? "—" },
-              { label: "Currency", value: order.currency },
-              { label: "Vendor reference", value: order.vendor_reference ?? "—" },
-              { label: "Ordered", value: order.ordered_at == null ? "—" : order.ordered_at.slice(0, 10) },
-            ] as const
-          ).map((field) => (
-            <div key={field.label} className="grid gap-0.5">
-              <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
-                {field.label}
-              </span>
-              <span className="text-[13px]" style={{ color: "var(--m-text)" }}>
-                {field.value}
-              </span>
+                Purchase orders
+              </Link>
+              <span className="flex-1" />
+              {canSend && (
+                <Button disabled={busy !== null} onClick={() => void runOrderAction("send")} data-testid="purchasing-send">
+                  Send order
+                </Button>
+              )}
+              {canReceive && (
+                <Button onClick={openReceive} data-testid="purchasing-receive">
+                  Receive goods
+                </Button>
+              )}
+              {canClose && (
+                <Button
+                  variant="secondary"
+                  disabled={busy !== null}
+                  onClick={() => void runOrderAction("close")}
+                  data-testid="purchasing-close"
+                >
+                  Close
+                </Button>
+              )}
+              {canCancel && (
+                <Button
+                  variant="ghost"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    setCancelReason("");
+                    setCancelOpen(true);
+                  }}
+                  data-testid="purchasing-cancel"
+                >
+                  Cancel
+                </Button>
+              )}
             </div>
-          ))}
-        </div>
-      </header>
+
+            {/* ---- the title and its marks. This header does not change
+                between sections, so the record never feels like it moved. ---- */}
+            <div className="mt-2 m-ledger-header">
+              <div className="m-ledger-title-row">
+                <h1 className="m-ledger-title" data-testid="purchasing-order-number">
+                  {order.number}
+                </h1>
+                <OrderStatusTag status={order.status} />
+              </div>
+            </div>
 
       {actionError !== null && (
         <p className="text-xs" role="alert" style={{ color: "var(--m-status-danger-fg)" }} data-testid="purchasing-action-error">
@@ -1332,6 +1357,40 @@ export default function PurchaseOrderPage(): ReactNode {
           )}
         </Card>
       )}
+            </>
+        }
+        summary={
+          <>
+            <p
+              className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em]"
+              style={{ color: "var(--m-text-muted)" }}
+            >
+              Right now
+            </p>
+
+            {/* The summary card reads the same rollup the Lines card shows.
+                Without financial access `totals` is null — the view says
+                "Withheld", never zero and never a dash: a zero reads as free,
+                a dash reads as no value (the p41 law this surface owns). */}
+            <SummaryCard title="Totals">
+              {detail.totals != null ? (
+                <>
+                  <RecordRow label="Ordered">
+                    {money(detail.totals.ordered_minor, order.currency)}
+                  </RecordRow>
+                  <RecordRow label="Received">
+                    {money(detail.totals.received_minor, order.currency)}
+                  </RecordRow>
+                </>
+              ) : (
+                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                  Withheld — line costs are hidden without financial access.
+                </span>
+              )}
+            </SummaryCard>
+          </>
+        }
+      />
 
       <Dialog open={receiveOpen} onOpenChange={setReceiveOpen}>
         <DialogContent title="Receive goods">

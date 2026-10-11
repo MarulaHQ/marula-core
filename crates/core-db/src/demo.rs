@@ -1191,7 +1191,11 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     // (offset, name, sku, part, kind, unit, currency) — DOCK-01 and DOCK-02
     // carry the SAME part number on purpose: scanning the part resolves to two
     // candidates, which is the ambiguity picker's whole reason to exist.
-    let stock_specs: [(u64, &str, &str, &str, &str, &str, &str); 6] = [
+    // is_tool marks the checkout-eligible items: the two kit-checkout carriers
+    // below (the kit's own tool and the switch-firmware unit, one of them OVERDUE)
+    // must be flagged or the tools board renders "No tool units yet" — the state
+    // the fixture exists to draw would not exist.
+    let stock_specs: [(u64, &str, &str, &str, &str, &str, &str, bool); 6] = [
         (
             910,
             "Torque wrench set",
@@ -1200,6 +1204,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "serialized",
             "each",
             "USD",
+            true,
         ),
         (
             911,
@@ -1209,6 +1214,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "serialized",
             "each",
             "USD",
+            true,
         ),
         (
             912,
@@ -1218,6 +1224,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "consumable",
             "each",
             "USD",
+            false,
         ),
         (
             913,
@@ -1227,6 +1234,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "consumable",
             "each",
             "USD",
+            false,
         ),
         (
             914,
@@ -1236,6 +1244,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "consumable",
             "each",
             "USD",
+            false,
         ),
         (
             915,
@@ -1245,12 +1254,13 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "consumable",
             "each",
             "USD",
+            false,
         ),
     ];
-    for (id, name, sku, part, kind, unit, currency) in stock_specs {
+    for (id, name, sku, part, kind, unit, currency, is_tool) in stock_specs {
         sqlx::query(
-            "INSERT INTO stock_items (id, org_id, name, sku, part_number, kind, unit, currency)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            "INSERT INTO stock_items (id, org_id, name, sku, part_number, kind, unit, currency, is_tool)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              ON CONFLICT (id) DO NOTHING",
         )
         .bind(demo_uuid(id))
@@ -1261,15 +1271,16 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         .bind(kind)
         .bind(unit)
         .bind(currency)
+        .bind(is_tool)
         .execute(&mut *tx)
         .await?;
     }
 
     for (id, item, number, location, status) in [
-        (920u64, 910u64, "TL-0142", LOC_VAN, "out"),
+        (920u64, 910u64, "TL-0142", LOC_VAN, "checked_out"),
         (921, 911, "TL-0088", LOC_SHELF, "in_stock"),
         (922, 912, "SN-10004", LOC_WAREHOUSE, "in_stock"),
-        (923, 913, "SN-10005", LOC_SHELF, "out"),
+        (923, 911, "SN-10005", LOC_SHELF, "checked_out"),
     ] {
         sqlx::query(
             "INSERT INTO stock_serials (id, org_id, stock_item_id, serial_number,
@@ -1386,7 +1397,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         (
             972,
             923,
-            913,
+            911,
             LOC_SHELF,
             -20,
             "Switch firmware — still out, due back yesterday",

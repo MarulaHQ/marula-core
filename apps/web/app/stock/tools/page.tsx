@@ -651,66 +651,6 @@ export default function StockToolsPage(): ReactNode {
       }
     </LedgerSurface>
 
-
-      <Card className="m-rise overflow-x-auto p-0">
-        <div className="flex flex-wrap items-center justify-between gap-2 p-4 pb-2">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
-            Kits
-          </h2>
-          <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-            a kit checks out every member unit at once
-          </span>
-        </div>
-        <Table data-testid="tools-kits-table">
-          <thead>
-            <tr>
-              <Th>Name</Th>
-              <Th>Code</Th>
-              <Th>Note</Th>
-              <Th>State</Th>
-              <Th className="text-right">Actions</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {kits.map((kit) => (
-              <Tr key={kit.id} className="row-hover" data-testid={`tools-kit-row-${kit.id}`}>
-                <Td>
-                  <span className="font-medium" style={{ color: "var(--m-text)" }}>
-                    {kit.name}
-                  </span>
-                </Td>
-                <Td className="text-xs">{kit.code ?? "—"}</Td>
-                <Td className="text-xs">{kit.note ?? "—"}</Td>
-                <Td>
-                  <StatusTag tone={kit.active ? "success" : "neutral"}>
-                    {kit.active ? "active" : "archived"}
-                  </StatusTag>
-                </Td>
-                <Td>
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => openManage(kit)}
-                      data-testid={`tools-kit-manage-${kit.id}`}
-                    >
-                      Members
-                    </Button>
-                  </div>
-                </Td>
-              </Tr>
-            ))}
-            {kits.length === 0 && (
-              <Tr>
-                <Td>
-                  <EmptyState message="No kits yet. Create one and add member tools." />
-                </Td>
-              </Tr>
-            )}
-          </tbody>
-        </Table>
-      </Card>
-
       <CheckoutDialog
         open={checkoutOpen}
         onOpenChange={(open) => {
