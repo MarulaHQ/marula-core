@@ -25,6 +25,7 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHmac } from "node:crypto";
+import { Buffer } from "node:buffer";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 

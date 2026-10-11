@@ -10,14 +10,21 @@
 //
 // Non-purpose: no settings editing (delta!.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { router } from "expo-router";
+import * as Device from "expo-device";
 import { StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { useAuth } from "@/auth/auth-context";
 import { APP_VERSION, DEV_TOOLS_ENABLED } from "@/config";
-import { MODELS, fetchUnreadCount } from "@/core/models";
+import {
+  MODELS,
+  ON_CALL_WINDOW_DAYS,
+  fetchOnCallBlocks,
+  fetchUnreadCount,
+  type OnCallBlock,
+} from "@/core/models";
 import { useConnectivity } from "@/data/connectivity";
 import { useModel, useQueue } from "@/data/sync-context";
 import {
@@ -38,6 +45,19 @@ export default function MoreScreen() {
   const { pendingCount } = useQueue();
   const unread = useModel(MODELS.unreadCount, fetchUnreadCount, { maxAgeMs: 60_000 });
   const [now, setNow] = useState(() => new Date());
+  // The profile card's pill is DERIVED, not drawn: the on-call read model
+  // (today's blocks, mine only, covering this moment) decides whether
+  // tonight is an on-call one.
+  const today = new Date(now).toISOString().slice(0, 10);
+  const onCall = useModel(
+    MODELS.onCall(today),
+    useCallback((client) => {
+      const from = new Date(`${today}T00:00:00`);
+      const to = new Date(from.getTime() + ON_CALL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+      return fetchOnCallBlocks(client, from, to);
+    }, [today]),
+    { maxAgeMs: 5 * 60_000 },
+  );
   // The dev-only forced-offline switch lives in the connectivity context:
   // the offline-queue flow drives it to prove a queued write replays.
   const { online, forcedOffline, setForcedOffline } = useConnectivity();
@@ -48,6 +68,22 @@ export default function MoreScreen() {
   }, []);
 
   const appearance = mode === "system" ? "system" : mode;
+
+  const onCallNow: OnCallBlock | null = useMemo(() => {
+    if (onCall.data === undefined || me === null) return null;
+    const stamp = now.getTime();
+    return (
+      onCall.data.find(
+        (block) =>
+          block.user_id === me.user_id &&
+          Date.parse(block.starts_at) <= stamp &&
+          stamp < Date.parse(block.ends_at),
+      ) ?? null
+    );
+  }, [onCall.data, me, now]);
+
+  const deviceName =
+    Device.deviceName ?? Device.modelName ?? (Device.osName !== null ? `${Device.osName} device` : "This device");
 
   return (
     <Screen testID="more-screen">
@@ -66,7 +102,9 @@ export default function MoreScreen() {
               Service desk · {online ? "Online" : "Offline"}
             </Text>
           </View>
-          <PackPill pair={tokens.warning} label="On call tonight" />
+          {onCallNow !== null ? (
+            <PackPill pair={tokens.warning} label="On call tonight" />
+          ) : null}
         </View>
       </Card>
 
@@ -154,7 +192,7 @@ export default function MoreScreen() {
       </Card>
 
       <Text style={[styles.footer, { color: tokens.textMuted }]}>
-        Marula {APP_VERSION} · Pixel 8
+        Marula {APP_VERSION} · {deviceName}
       </Text>
 
       {biometricAvailable ? (

@@ -25,10 +25,13 @@ export function CameraScanner({
   visible,
   onClose,
   onScan,
+  torch = false,
 }: {
   visible: boolean;
   onClose: () => void;
   onScan: (text: string) => void;
+  /** The scan screen's torch disc owns the state; the lens just applies it. */
+  torch?: boolean;
 }) {
   const { tokens } = useTheme();
   const insets = useSafeAreaInsets();
@@ -76,7 +79,7 @@ export function CameraScanner({
             <CameraView
               style={StyleSheet.absoluteFill}
               facing="back"
-              enableTorch={false}
+              enableTorch={torch}
               barcodeScannerSettings={{ barcodeTypes: [...BARCODE_TYPES] }}
               onBarcodeScanned={(result) => {
                 if (locked.current) return;

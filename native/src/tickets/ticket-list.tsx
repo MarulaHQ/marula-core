@@ -29,9 +29,13 @@ import { type, useTheme, type ThemeTokens } from "@/ui/tokens";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 export function TicketList({
+  rows,
   selectedId,
   onSelect,
 }: {
+  /** The scope's rows, filtered by the screen — the list renders what it is
+   * given so Mine/Unassigned/All stay three truths, not one relabelled. */
+  rows?: MyWorkItem[];
   selectedId?: string;
   onSelect: (id: string) => void;
 }) {
@@ -42,20 +46,20 @@ export function TicketList({
   // Timer running pill. Real state, not a fixture.
   const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
   const runningId = timer.data?.ticket_id ?? null;
+  const list = rows ?? work.data ?? [];
 
-  if (work.status === "error" && work.data === undefined) {
+  if (rows === undefined && work.status === "error" && work.data === undefined) {
     return <ErrorNote text={work.error?.text ?? "Couldn't load your work."} onRetry={work.refresh} />;
   }
-  if (work.status === "loading" && work.data === undefined) {
+  if (rows === undefined && work.status === "loading" && work.data === undefined) {
     return <Loading label="Loading work" />;
   }
-  const rows = work.data ?? [];
-  if (rows.length === 0) {
+  if (list.length === 0) {
     return <EmptyState message="Nothing assigned to you right now." />;
   }
   return (
     <View testID="ticket-list" style={styles.list}>
-      {rows.map((item: MyWorkItem) => {
+      {list.map((item: MyWorkItem) => {
         const selected = item.id === selectedId;
         return (
           <Pressable

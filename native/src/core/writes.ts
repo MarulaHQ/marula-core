@@ -295,6 +295,69 @@ export const resumeTimer: WriteOperation<TimerSessionArgs, TimerToggleBody> = {
     }),
 };
 
+/** Manual time entry (the pack's gap card / Quick log, no timer). The API
+ * gap this op carries, recorded 2026-10-05 (Wave 44 lane 11): POST
+ * /api/v1/time-entries accepts no idempotency key, so an offline replay can
+ * double-write; and there is no update endpoint, so a logged entry cannot be
+ * edited from the phone (the edit sheet pre-fills but only re-logs). */
+export interface CreateTimeEntryArgs {
+  ticketId: string;
+  ticketNumber?: string;
+  userId: string;
+  startedAt: string;
+  endedAt: string;
+  billable: boolean;
+  unbillableReason?: string;
+  workType?: string;
+  notes?: string;
+}
+
+export type CreateTimeEntryBody = {
+  __ticket_id: string;
+  started_at: string;
+  ended_at: string;
+  billable: boolean;
+  unbillable_reason?: string;
+  work_type?: string;
+  notes?: string;
+};
+
+export const createTimeEntry: WriteOperation<CreateTimeEntryArgs, CreateTimeEntryBody> = {
+  kind: "time.create_entry",
+  label: (args) =>
+    `Log time on ${args.ticketNumber !== undefined ? args.ticketNumber : "ticket"}`,
+  entityKey: () => "time_entry",
+  method: "POST",
+  path: () => "/api/v1/time-entries",
+  invalidate: (args) => [
+    MODELS.myDayEntries(args.userId),
+    MODELS.dayPack(),
+    MODELS.myWork,
+    MODELS.ticket(args.ticketId),
+  ],
+  build: (args) => ({
+    __ticket_id: args.ticketId,
+    started_at: args.startedAt,
+    ended_at: args.endedAt,
+    billable: args.billable,
+    ...(args.unbillableReason !== undefined ? { unbillable_reason: args.unbillableReason } : {}),
+    ...(args.workType !== undefined ? { work_type: args.workType } : {}),
+    ...(args.notes !== undefined && args.notes !== "" ? { notes: args.notes } : {}),
+  }),
+  send: (client, body) =>
+    client.api.POST("/api/v1/time-entries", {
+      body: {
+        ticket_id: body.__ticket_id,
+        started_at: body.started_at,
+        ended_at: body.ended_at,
+        billable: body.billable,
+        ...(body.unbillable_reason !== undefined ? { unbillable_reason: body.unbillable_reason } : {}),
+        ...(body.work_type !== undefined ? { work_type: body.work_type } : {}),
+        ...(body.notes !== undefined ? { notes: body.notes } : {}),
+      },
+    }),
+};
+
 export interface ConsumeStockArgs {
   itemId: string;
   itemName?: string;
