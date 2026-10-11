@@ -31,6 +31,7 @@ const TICKET = {
   id: "t1",
   number: "MAR-100",
   title: "Mail server down",
+  body: "Mail server down. The whole office is affected.",
   status_id: "st1",
   category: "in_progress",
   priority: "p1",
@@ -156,6 +157,21 @@ describe("/portal/tickets/[id]", () => {
     expect((box as HTMLTextAreaElement).value).toBe("Please reopen");
     expect(screen.queryByTestId("portal-pending-reply")).toBeNull();
     cleanup();
+  });
+
+  it("leads the thread with the client's own opening words (pack state 03)", async () => {
+    setupApi();
+    render(
+      <PortalAuthProvider>
+        <PortalTicketPage />
+      </PortalAuthProvider>,
+    );
+    // The pack draws the client's original report as the thread's first
+    // bubble; before this fix a ticket's own body was never rendered at all.
+    expect(await screen.findByText("Mail server down. The whole office is affected.")).toBeInTheDocument();
+    const thread = screen.getByTestId("portal-thread");
+    const firstArticle = thread.querySelector("article");
+    expect(firstArticle?.querySelector("b")?.textContent).toBe("You");
   });
 
   it("lists attachments with sizes and download controls", async () => {

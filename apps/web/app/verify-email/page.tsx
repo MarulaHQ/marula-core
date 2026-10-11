@@ -26,6 +26,7 @@ import {
   EntryIcon,
   EntryNote,
   EntryShell,
+  EntrySprout,
 } from "../../components/auth/entry";
 
 function VerifyEmailInner(): ReactNode {
@@ -152,7 +153,10 @@ function VerifyEmailInner(): ReactNode {
   return (
     <EntryShell background="rust" fruit="half">
       <EntryCard testId="verify-email-card">
+        {/* The pack's line-art fruit mark, above the headline
+            (auth/neutral & dark 07-verify-email.png). */}
         <div className="entry-centred">
+          <EntrySprout />
           <EntryHeadline>Nearly there.</EntryHeadline>
           <p className="entry-sub">
             Verify your email.{" "}
@@ -202,7 +206,16 @@ function VerifyEmailInner(): ReactNode {
                 {error}
               </p>
             )}
-            <button type="submit" className="entry-btn" disabled={busy} data-testid="verify-send">
+            {/* Ghost, not the filled primary: the pack draws the resend on
+                this card as an outline (auth/neutral & dark
+                07-verify-email.png) — the sent state above uses
+                `entry-btn--secondary` for the same action. */}
+            <button
+              type="submit"
+              className="entry-btn entry-btn--secondary"
+              disabled={busy}
+              data-testid="verify-send"
+            >
               {busy ? "Sending…" : "Resend the email"}
             </button>
           </form>

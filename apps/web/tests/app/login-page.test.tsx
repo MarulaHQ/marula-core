@@ -40,6 +40,15 @@ function setupApi(): { mock: MockApi } {
       },
     };
   });
+  // Sign-in failure: the gate's uniform 401 (reason `unauthorized`, message
+  // `invalid credentials` — the shape a throttled answer ALSO takes, so
+  // nothing enumerates the lock).
+  mock.on("POST", "/api/v1/auth/login", () => ({
+    status: 401,
+    json: {
+      error: { code: 401, reason: "unauthorized", message: "invalid credentials" },
+    },
+  }));
   mock.install();
   return { mock };
 }
@@ -87,6 +96,27 @@ describe("/login — register mode slug collision", () => {
       (mock.lastBody<{ org_slug: string }>("POST", "/api/v1/auth/register") as { org_slug: string })
         .org_slug,
     ).toBe("acme-it-2");
+    cleanup();
+  });
+
+  it("reads a uniform sign-in 401 as credentials, not an expired session", async () => {
+    setupApi();
+    const user = userEvent.setup();
+    render(<LoginPage />);
+    await user.type(screen.getByPlaceholderText("you@company.com"), "owner@demo.local");
+    const passwordInput = document.querySelector(
+      'input[type="password"]',
+    ) as HTMLInputElement;
+    await user.type(passwordInput, "wrong-password-123");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    // The central reason map turns `unauthorized` into the session-expired
+    // line — the right story for an API call, the WRONG one for a sign-in
+    // attempt (auth/neutral/states/02-login-error.png draws the credentials
+    // sentence).
+    expect(
+      await screen.findByText("That email and password don't match."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/session expired/)).toBeNull();
     cleanup();
   });
 });

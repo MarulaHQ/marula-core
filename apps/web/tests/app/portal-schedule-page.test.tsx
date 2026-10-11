@@ -163,4 +163,50 @@ describe("/portal/schedule", () => {
     expect((body.idempotency_key as string).startsWith("portal-req-")).toBe(true);
     cleanup();
   });
+
+  it("names WHO a shared clock hour is with, so the client never books 'whoever'", async () => {
+    const mock = new MockApi();
+    mock.on("GET", "/api/v1/portal/me", () => ({
+      json: {
+        id: "u1",
+        org_id: "o1",
+        client_id: "c1",
+        email: "ops@acme.com",
+        display_name: "Ops User",
+        role: "contact",
+      },
+    }));
+    // Two people hold the SAME clock hour on the day in hand (the seed's
+    // Diego and Tessa both open 09:00Z) — the buttons must say who each is
+    // with, or the client would be booking "whoever" (capture review,
+    // batch 9).
+    mock.on("GET", "/api/v1/portal/schedule/slots", () => ({
+      json: [
+        { user_id: "u9", display_name: "Diego Dispatcher", slots: [slots(13)] },
+        { user_id: "u10", display_name: "Tessa Technician", slots: [slots(13), slots(15)] },
+      ],
+    }));
+    mock.on("GET", "/api/v1/portal/appointment-requests", () => ({ json: [] }));
+    mock.install();
+    render(
+      <PortalAuthProvider>
+        <PortalSchedulePage />
+      </PortalAuthProvider>,
+    );
+    fireEvent.click(await screen.findByTestId(`portal-day-${DAY1}`));
+    const timeGroup = screen.getByLabelText("What time?");
+    const timeButtons = Array.from(
+      timeGroup.querySelectorAll('[data-testid^="portal-slot-"]'),
+    );
+    expect(timeButtons).toHaveLength(3);
+    // The two buttons sharing 03:00Z carry first names; the unique 05:00Z
+    // does not (the pack's day is one person, so it draws bare times).
+    expect(timeButtons[0]?.textContent).toContain("Diego");
+    expect(timeButtons[1]?.textContent).toContain("Tessa");
+    expect(timeButtons[2]?.textContent).not.toContain("Tessa");
+    // Unique testids, because a start time alone is not a person.
+    const ids = timeButtons.map((s) => s.getAttribute("data-testid"));
+    expect(new Set(ids).size).toBe(3);
+    cleanup();
+  });
 });

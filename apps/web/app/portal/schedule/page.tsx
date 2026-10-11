@@ -308,19 +308,39 @@ export default function PortalSchedulePage() {
             <div className="portal-field" style={{ gap: 8 }}>
               <span className="portal-field__label">What time?</span>
               <div className="portal-choices" role="radiogroup" aria-label="What time?">
-                {(days.find((d) => d.day === pickedDay)?.slots ?? []).map((s) => (
-                  <button
-                    key={`${s.starts}-${s.userId}`}
-                    type="button"
-                    role="radio"
-                    aria-checked={picked?.starts === s.starts && picked.userId === s.userId}
-                    className="portal-choice"
-                    onClick={() => setPicked(s)}
-                    data-testid={`portal-slot-${s.starts}`}
-                  >
-                    {clockTime(s.starts)}
-                  </button>
-                ))}
+                {(() => {
+                  const daySlots = days.find((d) => d.day === pickedDay)?.slots ?? [];
+                  // Two people can hold the SAME clock hour (the seed's
+                  // Diego and Tessa both open 09:00Z). A bare time would
+                  // draw two identical buttons, and the client would be
+                  // booking "whoever" — so when a time is shared the button
+                  // says who it is with, first name only.
+                  const timeCount = new Map<string, number>();
+                  for (const s of daySlots) {
+                    const label = clockTime(s.starts);
+                    timeCount.set(label, (timeCount.get(label) ?? 0) + 1);
+                  }
+                  return daySlots.map((s) => {
+                    const label = clockTime(s.starts);
+                    const shared = (timeCount.get(label) ?? 0) > 1;
+                    const who = shared ? ` · ${s.name.split(" ")[0]}` : "";
+                    return (
+                      <button
+                        key={`${s.starts}-${s.userId}`}
+                        type="button"
+                        role="radio"
+                        aria-checked={picked?.starts === s.starts && picked.userId === s.userId}
+                        aria-label={`${label}${shared ? ` with ${s.name.split(" ")[0]}` : ""}`}
+                        className="portal-choice"
+                        onClick={() => setPicked(s)}
+                        data-testid={`portal-slot-${s.starts}-${s.userId}`}
+                      >
+                        {label}
+                        {who}
+                      </button>
+                    );
+                  });
+                })()}
               </div>
             </div>
           )}

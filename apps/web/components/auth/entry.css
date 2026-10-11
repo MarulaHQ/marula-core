@@ -188,6 +188,15 @@
   height: 110px;
 }
 
+/* The in-card line-art fruit mark the sent/verify cards wear above the
+   headline. It sits INSIDE the card, unlike the floating fruit above. */
+.entry-sprout {
+  display: block;
+  margin: 0 0 12px 2px;
+  width: 30px;
+  height: 30px;
+}
+
 /* The headline is in the brand's serif, in its voice. This is the second half
    of the scoped exception and it stops here with the first. */
 .entry-headline {

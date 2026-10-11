@@ -129,13 +129,23 @@ export default function LoginPage() {
       }
       const left = triesLeft(err);
       setTries(left);
+      const credentialsText =
+        left === null
+          ? "That email and password don't match."
+          : `That email and password don't match. You have ${left} ${left === 1 ? "try" : "tries"} left before a short wait.`;
+      // A failed sign-in answers with reason `unauthorized` — the gate's
+      // deliberate uniform shape (a throttled answer must be
+      // indistinguishable from a wrong password, so nothing enumerates the
+      // lock). The central reason map correctly reads `unauthorized` as an
+      // EXPIRED SESSION, which is the wrong story for this screen: signing
+      // in IS the request. On the sign-in path the credentials sentence
+      // (with the gate's typed count, when one rode along) is the honest
+      // copy — auth/neutral/states/02-login-error.png.
+      const envelopeReason = (envelope?.error as { reason?: unknown } | undefined)?.reason;
+      const signinCredentials =
+        mode === "signin" && (envelopeReason === "unauthorized" || envelopeReason === undefined);
       setError(
-        friendlyMutationText(
-          err,
-          left === null
-            ? "That email and password don't match."
-            : `That email and password don't match. You have ${left} ${left === 1 ? "try" : "tries"} left before a short wait.`,
-        ),
+        signinCredentials ? credentialsText : friendlyMutationText(err, credentialsText),
       );
     } finally {
       setBusy(false);

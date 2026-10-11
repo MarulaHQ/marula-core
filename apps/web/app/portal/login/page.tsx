@@ -48,7 +48,7 @@ function PortalLoginInner(): ReactNode {
   const router = useRouter();
   const params = useSearchParams();
   const token = params.get("token") ?? "";
-  const { status } = usePortalAuth();
+  const auth = usePortalAuth();
 
   const [mode, setMode] = useState<"link" | "password">("link");
   const [email, setEmail] = useState("");
@@ -60,8 +60,8 @@ function PortalLoginInner(): ReactNode {
   const [consuming, setConsuming] = useState(token !== "");
 
   useEffect(() => {
-    if (status === "authed") router.replace("/portal/tickets");
-  }, [status, router]);
+    if (auth.status === "authed") router.replace("/portal/tickets");
+  }, [auth.status, router]);
 
   // Consume the emailed link on arrival, then hand over.
   useEffect(() => {
@@ -125,7 +125,10 @@ function PortalLoginInner(): ReactNode {
     setBusy(true);
     setError(null);
     try {
-      await portalApi.login(email.trim(), password);
+      // Through the provider, not the API directly: the provider is the
+      // one piece that can tell useRequirePortalAuth the session exists,
+      // and without this the fresh login bounces straight back here.
+      await auth.signIn(email.trim(), password);
       router.replace("/portal/tickets");
     } catch (err) {
       // Blush, with words that say what happens next — never red, and never

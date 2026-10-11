@@ -162,7 +162,11 @@ function PortalHeader() {
       <div className="portal-header__in">
         <Link href="/portal" className="portal-desk" aria-label={`${DESK_NAME} portal home`}>
           <span className="portal-desk__mark" aria-hidden />
-          {DESK_NAME}
+          {/* The wordmark, apart from the mark: at narrow widths the header
+              keeps the mark and drops the name so all five nav labels fit
+              (D32 in the p44 REVIEW — "Schedule" clipped to "Sch…" at 480px
+              because the links refused to shrink). */}
+          <span className="portal-desk__name">{DESK_NAME}</span>
         </Link>
         <nav className="portal-nav" aria-label="Portal">
           {PORTAL_LINKS.map((link) => (
@@ -201,9 +205,13 @@ function PortalFooter() {
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
   const { rootRef } = usePortalTheme();
+  const { status } = usePortalAuth();
   return (
     <div className="portal-root" ref={rootRef} data-portal-theme="sand">
-      <PortalHeader />
+      {/* The nav is the signed-in client's navigation, and the pack's state
+          01 draws none on the anonymous sign-in screen — so it appears once
+          the session is known rather than before. */}
+      {status === "authed" && <PortalHeader />}
       <main className="portal-main">{children}</main>
       <PortalFooter />
     </div>

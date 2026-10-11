@@ -44,6 +44,9 @@ interface PortalTicket {
   id: string;
   number: string;
   title: string;
+  /** The client's own opening words, carried on the detail's ticket (the
+   *  pack's thread leads with it). Absent from the list row. */
+  body?: string;
   status_id: string;
   category: "open" | "in_progress" | "waiting" | "closed";
   /** The status's own words when the org allows clients to see them; null
@@ -144,10 +147,15 @@ async function portalFetch<T>(
       ...(rest.headers as Record<string, string> | undefined),
     },
   });
-  if (response.status === 401 && (stored?.access_token || document.cookie.includes("marula_portal="))) {
+  if (response.status === 401) {
     // Single rotation attempt; a second 401 means truly logged out. The
     // body credential is used when held; otherwise the httpOnly cookie
-    // pair drives the rotation (empty body).
+    // pair drives the rotation (empty body). The rotation is attempted on
+    // EVERY 401 rather than gated on a visible cookie check: the real
+    // session cookie is httpOnly, so document.cookie never reports it and
+    // such a gate would disable the only recovery path a full page load
+    // has (Wave 34 row 11b). A browser with no session simply gets a 401
+    // back, which is the same answer it had before.
     const rotated = await fetch(`${API_BASE}/api/v1/portal/refresh`, {
       method: "POST",
       credentials: "include",
@@ -526,12 +534,20 @@ export interface PortalAppointmentRequest {
 interface PortalAuthState {
   me: PortalProfile | null;
   status: "loading" | "anonymous" | "authed";
+  /** Runs the real login, then publishes the session to the provider. The
+   *  login page must call this rather than `portalApi.login` directly:
+   *  `restore()` ran once at mount and found nothing, so the provider is
+   *  still `anonymous` when the credentials land — and
+   *  `useRequirePortalAuth` would bounce the freshly signed-in page
+   *  straight back to /portal/login (Wave 34 row 11a). */
+  signIn(email: string, password: string): Promise<void>;
   signOut(): void;
 }
 
 const PortalAuthContext = createContext<PortalAuthState>({
   me: null,
   status: "loading",
+  signIn: async () => {},
   signOut: () => {},
 });
 
@@ -545,9 +561,11 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
     async function restore() {
       // No local short-circuit: the auth cookie is HttpOnly, so it never
       // shows up in document.cookie — the /portal/me probe below is the
-      // only honest check (the browser attaches the cookie itself). A
-      // hard reload keeps the user signed in instead of bouncing them to
-      // /portal/login.
+      // only honest check (the browser attaches the cookie itself). On a
+      // hard reload the probe goes out bearer-less and rides the 401
+      // cookie-driven rotation in portalFetch: the httpOnly jar holds the
+      // session pair, so the rotation answers with a fresh access token
+      // and the retry lands signed-in.
       try {
         const profile = await portalApi.me();
         if (cancelled) return;
@@ -564,6 +582,12 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const signIn = useCallback(async (email: string, password: string) => {
+    const result = await portalApi.login(email, password);
+    setMe(result.portal_user);
+    setStatus("authed");
+  }, []);
+
   const signOut = useCallback(() => {
     clearPortalTokens();
     setMe(null);
@@ -571,8 +595,8 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ me, status, signOut }),
-    [me, status, signOut],
+    () => ({ me, status, signIn, signOut }),
+    [me, status, signIn, signOut],
   );
   return <PortalAuthContext.Provider value={value}>{children}</PortalAuthContext.Provider>;
 }
