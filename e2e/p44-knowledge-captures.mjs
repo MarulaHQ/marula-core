@@ -364,7 +364,7 @@ for (const theme of ["light", "dark"]) {
   await page.waitForTimeout(900);
   await shot(page, `${theme}-07-passwords-client-vault`);
   await assertGeometry(page, `${theme}-07-passwords-client-vault`);
-  await page.getByRole("button", { name: /Capture Platform admin login/ }).first().click().catch(() => {});
+  await page.getByRole("button", { name: /Acme rotate-past login/ }).first().click().catch(() => {});
   await page.getByTestId("kb-secret-reveal-open").first().waitFor({ state: "visible", timeout: 15_000 }).catch(() => {});
   await page.waitForTimeout(600);
   await shot(page, `${theme}-08-passwords-record-dialog`);
@@ -400,7 +400,7 @@ for (const theme of ["light", "dark"]) {
 
   // --- 11: /documents/[id] — the detail with its version history ---------------
   await gotoStaff(page, "/documents", "text=Documents");
-  await page.getByRole("button", { name: /How to submit a support ticket/ }).first().click().catch(() => {});
+  await page.getByRole("button", { name: /Runbook — Client Onboarding/ }).first().click().catch(() => {});
   await page.getByTestId("document-versions").first().waitFor({ state: "visible", timeout: 20_000 }).catch(() => {});
   await page.waitForTimeout(800);
   await shot(page, `${theme}-11-document-detail`);
