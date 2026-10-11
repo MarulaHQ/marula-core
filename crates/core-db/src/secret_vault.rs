@@ -655,25 +655,43 @@ pub async fn create_record(
 ) -> DbResult<SecretRecord> {
     // The owning folder must exist inside the same org AND carry the
     // SAME scope as the record (the six-scope invariant from 0078).
-    let folder =
-        sqlx::query("SELECT client_id FROM secret_folders sf WHERE sf.id = $2 AND sf.org_id = $1")
-            .bind(org_id)
-            .bind(folder_id)
-            .fetch_optional(&mut *conn)
-            .await?;
+    // The lookup must resolve the folder in EITHER scope: org-scope rows
+    // carry `org_id`, while client-scope rows carry a NULL `org_id` and a
+    // `client_id` (exactly-one-of). Matching on `org_id` alone made every
+    // client-scoped folder invisible here, so creating a record in a client
+    // vault 404'd; the client-in-org branch is the same anchor
+    // `folder_access` uses, so a folder from another org still resolves to
+    // nothing. The scope match below still refuses a record written into
+    // the wrong scope.
+    let folder = sqlx::query(
+        "SELECT client_id FROM secret_folders sf
+         WHERE sf.id = $2
+           AND (sf.org_id = $1
+                OR sf.client_id IN (SELECT id FROM clients WHERE org_id = $1))",
+    )
+    .bind(org_id)
+    .bind(folder_id)
+    .fetch_optional(&mut *conn)
+    .await?;
     let folder_client: Option<Uuid> = folder.ok_or(DbError::NotFound)?.get("client_id");
     if folder_client != client_id {
         return Err(DbError::Conflict(
             "folder scope does not match the record's scope".into(),
         ));
     }
+    // 0078's exactly-one-of scope: a client-scope record row carries a NULL
+    // `org_id` (its org resolves through the owning client, which is how the
+    // read path anchors it). Binding the calling org onto a client row
+    // violates the table CHECK, which is the second half of why a
+    // client-vault create could never land.
+    let row_org: Option<Uuid> = if client_id.is_some() { None } else { Some(org_id) };
     sqlx::query(
         "INSERT INTO secret_records
            (id, org_id, client_id, folder_id, kind, title, expires_at, rotate_at,
             object_key, file_sha256, file_bytes, created_by, updated_by)
          VALUES ($2, $1, $3, $4, $5::secret_record_kind, $6, $7, $8, $9, $10, $11, $12, $12)",
     )
-    .bind(org_id)
+    .bind(row_org)
     .bind(id)
     .bind(client_id)
     .bind(folder_id)
@@ -695,7 +713,7 @@ pub async fn create_record(
         )
         .bind(Uuid::now_v7())
         .bind(id)
-        .bind(org_id)
+        .bind(row_org)
         .bind(client_id)
         .bind(key)
         .bind(ciphertext)
@@ -720,8 +738,9 @@ pub async fn update_record(
     field_updates: &[(String, Option<Vec<u8>>)],
     actor: Uuid,
 ) -> DbResult<SecretRecord> {
+    let update_scope = in_org_scope("sr", 1);
     let r = sqlx::query(
-        "UPDATE secret_records SET
+        ("UPDATE secret_records AS sr SET
            title = $3,
            expires_at = CASE WHEN $4::bool THEN $5 ELSE expires_at END,
            rotate_at = CASE WHEN $7::bool THEN $8 ELSE rotate_at END,
@@ -730,7 +749,9 @@ pub async fn update_record(
            last_rotated_at = CASE WHEN $7::bool THEN now() ELSE last_rotated_at END,
            updated_by = $6,
            updated_at = now()
-         WHERE id = $2 AND org_id = $1",
+         WHERE id = $2 AND ".to_string()
+            + &update_scope)
+            .as_str(),
     )
     .bind(org_id)
     .bind(id)
@@ -747,12 +768,16 @@ pub async fn update_record(
     }
     for (key, value) in field_updates {
         if let Some(v) = value {
+            let upsert_scope = in_org_scope("sr", 5);
             sqlx::query(
-                "INSERT INTO secret_fields (id, record_id, org_id, client_id, field_key, value_ciphertext)
+                ("INSERT INTO secret_fields (id, record_id, org_id, client_id, field_key, value_ciphertext)
                  SELECT $1, sr.id, sr.org_id, sr.client_id, $2, $3 FROM secret_records sr
-                 WHERE sr.id = $4 AND sr.org_id = $5
+                 WHERE sr.id = $4 AND ".to_string()
+                    + &upsert_scope
+                    + "
                  ON CONFLICT (record_id, field_key)
-                 DO UPDATE SET value_ciphertext = $3, updated_at = now()",
+                 DO UPDATE SET value_ciphertext = $3, updated_at = now()")
+                    .as_str(),
             )
             .bind(Uuid::now_v7())
             .bind(key)
@@ -763,10 +788,15 @@ pub async fn update_record(
             .await
             .map_err(|e| maybe_conflict(e, "sealed field update rejected"))?;
         } else {
+            let clear_scope = in_org_scope("x", 1);
             sqlx::query(
-                "DELETE FROM secret_fields
-                 WHERE record_id = (SELECT x.id FROM secret_records x WHERE x.id = $2 AND x.org_id = $1)
-                   AND field_key = $3",
+                ("DELETE FROM secret_fields
+                 WHERE record_id = (SELECT x.id FROM secret_records x WHERE x.id = $2 AND "
+                    .to_string()
+                    + &clear_scope
+                    + ")
+                   AND field_key = $3")
+                    .as_str(),
             )
             .bind(org_id)
             .bind(id)
@@ -793,11 +823,14 @@ pub async fn set_file_pointer(
     file_bytes: i64,
     actor: Uuid,
 ) -> DbResult<SecretRecord> {
+    let doc_scope = in_org_scope("sr", 1);
     let r = sqlx::query(
-        "UPDATE secret_records SET
+        ("UPDATE secret_records AS sr SET
            object_key = $3, file_sha256 = $4, file_bytes = $5,
            updated_by = $6, updated_at = now()
-         WHERE id = $2 AND org_id = $1 AND kind = 'document'",
+         WHERE id = $2 AND kind = 'document' AND ".to_string()
+            + &doc_scope)
+            .as_str(),
     )
     .bind(org_id)
     .bind(id)
@@ -821,9 +854,13 @@ pub async fn count_other_file_refs(
     object_key: &str,
     exclude_record: Uuid,
 ) -> DbResult<i64> {
+    let refs_scope = in_org_scope("sr", 1);
     let n: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM secret_records
-         WHERE org_id = $1 AND object_key = $2 AND id <> $3",
+        ("SELECT COUNT(*) FROM secret_records sr
+         WHERE ".to_string()
+            + &refs_scope
+            + " AND sr.object_key = $2 AND sr.id <> $3")
+            .as_str(),
     )
     .bind(org_id)
     .bind(object_key)
@@ -834,7 +871,10 @@ pub async fn count_other_file_refs(
 }
 
 pub async fn delete_record(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
-    let r = sqlx::query("DELETE FROM secret_records WHERE id = $2 AND org_id = $1")
+    let del_scope = in_org_scope("sr", 1);
+    let r = sqlx::query(
+        ("DELETE FROM secret_records sr WHERE id = $2 AND ".to_string() + &del_scope).as_str(),
+    )
         .bind(org_id)
         .bind(id)
         .execute(&mut *conn)
@@ -852,12 +892,16 @@ pub async fn list_sealed_fields(
     org_id: Uuid,
     record_id: Uuid,
 ) -> DbResult<Vec<(String, Vec<u8>)>> {
-    let sql = "SELECT f.field_key, f.value_ciphertext
+    let reveal_scope = in_org_scope("sr", 1);
+    let sql = ("SELECT f.field_key, f.value_ciphertext
                FROM secret_fields f
-               JOIN secret_records sr ON sr.id = f.record_id AND sr.org_id = $1
+               JOIN secret_records sr ON sr.id = f.record_id AND ".to_string()
+        + &reveal_scope
+        + "
                WHERE f.record_id = $2
-               ORDER BY f.field_key";
-    let rows = sqlx::query(sql)
+               ORDER BY f.field_key")
+    .to_owned();
+    let rows = sqlx::query(&sql)
         .bind(org_id)
         .bind(record_id)
         .fetch_all(&mut *conn)
