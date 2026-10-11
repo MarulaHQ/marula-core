@@ -21,6 +21,7 @@ import {
   fetchDayPack,
   fetchMyDayEntries,
   fetchTicket,
+  fetchTimerWorkingSet,
   startOfLocalDay,
   type DayPack,
   type TimeEntry,
@@ -82,13 +83,22 @@ export default function TimeScreen() {
   const { me } = useAuth();
   const { mutate } = useMutation();
   const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
+  // The working set keeps a PAUSED session on screen: /timers/active only
+  // answers for a running one, so a paused timer would otherwise vanish
+  // with no way to resume or stop it. Most recent first, first pause wins.
+  const workingSet = useModel(MODELS.timerWorkingSet, fetchTimerWorkingSet, { maxAgeMs: 30_000 });
   const session = timer.data ?? null;
-  const paused = session !== null && isPaused(session);
-  const seconds = useSecondTick(session !== null && !paused);
+  const pausedSession = useMemo(() => {
+    if (session !== null) return null;
+    return (workingSet.data ?? []).find((candidate) => isPaused(candidate)) ?? null;
+  }, [session, workingSet.data]);
+  const clockSession = session ?? pausedSession;
+  const paused = session === null && pausedSession !== null;
+  const seconds = useSecondTick(clockSession !== null && !paused);
   const dayPack = useModel(MODELS.dayPack(), fetchDayPack, { maxAgeMs: 60_000 });
   const ticket = useModel(
-    session !== null ? MODELS.ticket(session.ticket_id) : "ticket:missing",
-    (client) => fetchTicket(client, session?.ticket_id ?? ""),
+    clockSession !== null ? MODELS.ticket(clockSession.ticket_id) : "ticket:missing",
+    (client) => fetchTicket(client, clockSession?.ticket_id ?? ""),
     { maxAgeMs: 15_000 },
   );
   // The signed-in person's day: their own entries since local midnight.
@@ -107,7 +117,7 @@ export default function TimeScreen() {
   const runningInk = mode === "dark" ? chrome.gold : chrome.goldText;
   const runningTicketLabel =
     ticket.data !== undefined ? `${ticket.data.number} ${ticket.data.title}` : "Running";
-  const runningMinutes = session !== null ? Math.floor(elapsedMs(session, seconds) / 60_000) : 0;
+  const runningMinutes = clockSession !== null ? Math.floor(elapsedMs(clockSession, seconds) / 60_000) : 0;
 
   const dayRows = useMemo(() => entries.data ?? [], [entries.data]);
   const loggedToday = dayRows.reduce((sum, entry) => sum + entry.minutes, 0);
@@ -117,7 +127,7 @@ export default function TimeScreen() {
   const gap = useMemo(() => unloggedStop(dayPack.data, dayRows), [dayPack.data, dayRows]);
 
   const stopSheetSession =
-    sheet?.kind === "stop" && session !== null ? session : null;
+    sheet?.kind === "stop" && clockSession !== null ? clockSession : null;
 
   // The heading's date is today, always: the mockup's "Tue 29 Sep" is a
   // fixture, not a contract.
@@ -129,17 +139,19 @@ export default function TimeScreen() {
         <PackHeading title="Time" detail={todayLine} />
       </View>
       <View style={styles.scroll} testID="time-screen">
-        {session !== null ? (
+        {clockSession !== null ? (
           <View
             testID="time-running-card"
             style={[styles.runningCard, { backgroundColor: runningGround, borderRadius: pack.radiusCard }]}
           >
-            <Text style={[styles.runningLabel, { color: runningInk }]}>Running now</Text>
+            <Text style={[styles.runningLabel, { color: runningInk }]}>
+              {paused ? "Paused" : "Running now"}
+            </Text>
             <Text style={[styles.runningTicket, { color: runningInk }]} numberOfLines={1}>
               {runningTicketLabel}
             </Text>
             <Text style={[styles.runningClock, { color: runningInk }]}>
-              {clockText(elapsedMs(session, seconds))}
+              {clockText(elapsedMs(clockSession, seconds))}
             </Text>
             <View style={styles.runningActions}>
               <SecondaryButton
@@ -148,11 +160,11 @@ export default function TimeScreen() {
                 style={{ flex: 1, backgroundColor: tokens.surface }}
                 testID={paused ? "time-resume" : "time-pause"}
                 onPress={() => {
-                  if (session === null) return;
+                  if (clockSession === null) return;
                   void mutate(paused ? resumeTimer : pauseTimer, {
-                    sessionId: session.id,
-                    ...(session.ticket_id !== null && session.ticket_id !== undefined
-                      ? { ticketId: session.ticket_id }
+                    sessionId: clockSession.id,
+                    ...(clockSession.ticket_id !== null && clockSession.ticket_id !== undefined
+                      ? { ticketId: clockSession.ticket_id }
                       : {}),
                   });
                 }}

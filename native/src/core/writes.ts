@@ -145,7 +145,7 @@ export const startTimer: WriteOperation<TimerStartArgs, TimerStartBody> = {
   entityKey: () => "timer",
   method: "POST",
   path: () => "/api/v1/timers/start",
-  invalidate: (args) => [MODELS.activeTimer, MODELS.myWork, MODELS.ticket(args.ticketId)],
+  invalidate: (args) => [MODELS.activeTimer, MODELS.timerWorkingSet, MODELS.myWork, MODELS.ticket(args.ticketId)],
   build: (args, base) => ({
     ticket_id: args.ticketId,
     idempotency_key: base.idempotencyKey,
@@ -188,6 +188,7 @@ export const stopTimer: WriteOperation<TimerSessionArgs, TimerStopBody> = {
   path: () => "/api/v1/timers/stop",
   invalidate: (args) => [
     MODELS.activeTimer,
+    MODELS.timerWorkingSet,
     MODELS.myWork,
     ...(args.ticketId !== undefined ? [MODELS.ticket(args.ticketId)] : []),
   ],
@@ -262,7 +263,10 @@ export const pauseTimer: WriteOperation<TimerSessionArgs, TimerToggleBody> = {
   entityKey: () => "timer",
   method: "POST",
   path: () => "/api/v1/timers/pause",
-  invalidate: () => [MODELS.activeTimer],
+  // The working set rides every timer write: /timers/active answers only
+  // while running, so a paused card reads the set — and a stale set would
+  // resolve Resume to an older session.
+  invalidate: () => [MODELS.activeTimer, MODELS.timerWorkingSet],
   build: (args, base) => ({
     session_id: args.sessionId,
     ...(args.reason !== undefined ? { reason: args.reason } : {}),
@@ -284,7 +288,7 @@ export const resumeTimer: WriteOperation<TimerSessionArgs, TimerToggleBody> = {
   entityKey: () => "timer",
   method: "POST",
   path: () => "/api/v1/timers/resume",
-  invalidate: () => [MODELS.activeTimer],
+  invalidate: () => [MODELS.activeTimer, MODELS.timerWorkingSet],
   build: (args, base) => ({
     session_id: args.sessionId,
     idempotency_key: base.idempotencyKey,

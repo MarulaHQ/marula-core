@@ -59,7 +59,7 @@ export default function ScanScreen() {
   // drives the lens (the mockup's "torch when on" is gold — not colour
   // alone, the disc's icon stays).
   const [torch, setTorch] = useState(false);
-  const { resolution, error, busy, resolve, clear, saved } = useScanResolver();
+  const { resolution, error, savedCode, busy, resolve, clear, saved } = useScanResolver();
   const timer = useModel(MODELS.activeTimer, fetchActiveTimer);
   const { online } = useConnectivity();
 
@@ -156,7 +156,8 @@ export default function ScanScreen() {
             </Text>
           </Pressable>
         ) : null}
-        <Text style={[styles.panelLabel, { color: chrome.cream }]}>{typedLabel(busy, error)}</Text>        <View style={styles.simRow}>
+        <Text style={[styles.panelLabel, { color: chrome.cream }]}>{typedLabel(busy, error)}</Text>
+        <View style={styles.simRow}>
           {samples.map((sample) => (
             <Pressable
               key={sample.label}
@@ -223,12 +224,23 @@ export default function ScanScreen() {
 
       <ResultSheets
         resolution={resolution}
-        error={error}
+        error={savedCode !== null ? null : error}
         onClear={clear}
         onRetry={() => {
-          void resolve(typed);
+          if (typed.trim() !== "") void resolve(typed);
         }}
       />
+      {savedCode !== null ? (
+        <Sheet
+          visible
+          onClose={clear}
+          title="Saved for later"
+          subtitle={`“${savedCode}” is saved on this phone, with ${saved.saved.length} scan${saved.saved.length === 1 ? "" : "s"} waiting. It resolves by itself when the connection returns.`}
+          testID="scan-saved-sheet"
+        >
+          <PrimaryButton label="Scan another" icon={PACK_ICONS.scan} onPress={clear} />
+        </Sheet>
+      ) : null}
     </View>
   );
 }

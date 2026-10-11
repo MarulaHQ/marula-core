@@ -72,6 +72,7 @@ export const MODELS = {
   ticketComments: (id: string) => `ticket:${id}:comments`,
   ticketStockMovements: (id: string) => `ticket:${id}:stock-movements`,
   activeTimer: "timer.active",
+  timerWorkingSet: "timer.working-set",
   onHand: "stock.on-hand",
   stockItem: (id: string) => `stock.item:${id}`,
   stockMovements: (id: string) => `stock.item:${id}:movements`,
@@ -161,6 +162,19 @@ export async function fetchActiveTimer(client: MarulaClient): Promise<TimerSessi
   // returns Option<TimerSession>; at runtime it is the session or null.
   const result = await client.api.GET("/api/v1/timers/active");
   return unwrap(result) as unknown as TimerSession | null;
+}
+
+/**
+ * Recent timer sessions, including PAUSED ones — `/timers/active` answers
+ * only for a running session (`is_running` is false once a segment closes),
+ * so without this read a paused timer is unreachable: the card vanishes and
+ * nothing can resume or stop it. The working set keeps the paused session
+ * visible (the pack's paused card), most recent first.
+ */
+export async function fetchTimerWorkingSet(client: MarulaClient): Promise<TimerSession[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/timers/working-set"),
+  ) as unknown as TimerSession[];
 }
 
 export async function fetchOnHand(client: MarulaClient): Promise<OnHandRow[]> {

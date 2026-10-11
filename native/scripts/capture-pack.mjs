@@ -15,9 +15,10 @@
  * Wave 43 lane 7 (p43-demo-fixture-coverage) added the states the seed now
  * proves: scan-ambiguous (the shared DOCK-01 part resolves to two
  * candidates) and the offline trio (note queues while forced offline, the
- * inspector shows the pending op, the replay settles it). The pack's
- * scan-10-offline-saved sheet itself stays undrawn — the scan surface has
- * no offline-save path; the queue trio is the honest equivalent.
+ * inspector shows the pending op, the replay settles it).
+ * Wave 44 lane 11 (p44-ui-mobile-fidelity) added the scan surface's own
+ * offline-save path: scan-offline-saved draws the pack's scan-10 sheet
+ * (a code saved on the phone, "Saved for later · N waiting").
  *
  * Usage: boot the stack, start expo web (see capture-web.mjs header), then
  *   node native/scripts/capture-pack.mjs [--only=a,b] [--theme=light|dark]
@@ -275,9 +276,50 @@ const STATES = [
     await page.click('[data-testid="scan-resolve"]').catch(() => {});
     await settle(page, '[data-testid="scan-pick-sheet"]', 2200);
   }],
-  ["camera-off", async (page) => {
-    await page.locator('[data-testid="scan-camera"]').click().catch(() => {});
+  ["scan-offline-saved", async (page) => {
+    // The pack's scan-10 (Wave 44 lane 11): offline, a scan is SAVED, not
+    // lost — the warm banner, the "Saved for later · N waiting" row, and
+    // the saved sheet. NAVIGATION RULE (same as the offline trio):
+    // forcedOffline is in-memory, so every move after the toggle must be
+    // IN-APP (clicks) — a page.goto would drop the flag. Warm /scan online
+    // first so the screen exists in the router, then toggle offline from
+    // /more and come back through the tab bar FAB.
+    await page.goto(`${WEB_URL}/scan`, { waitUntil: "domcontentloaded" });
+    await settle(page, '[data-testid="scan-screen"]', 1000);
+    await page.goto(`${WEB_URL}/more`, { waitUntil: "domcontentloaded" });
+    await settle(page, '[data-testid="more-airplane-toggle"]', 1500);
+    await page.locator('[data-testid="more-airplane-toggle"]').click();
+    await settle(page, '[data-testid="banner-offline"]', 2500);
+    await page.getByLabel("Scan, tab").first().click();
+    await settle(page, '[data-testid="scan-screen"]', 1500);
+    await page.fill('[data-testid="scan-input"]', "VAN-SHELF-42").catch(() => {});
+    await page.click('[data-testid="scan-resolve"]').catch(() => {});
+    // The save never leaves the phone: the warm banner + the saved row, and
+    // the sheet that names what happens next.
+    await page
+      .locator('[data-testid="scan-saved-sheet"]')
+      .waitFor({ timeout: 12_000 })
+      .catch(() => {});
     await page.waitForTimeout(1200);
+    // RESTORE ONLINE before the states that follow: the airplane toggle is
+    // in-memory shell state, and leaving it on would photograph every later
+    // state through the offline mask. Dismiss the sheet (it covers the tab
+    // bar), go to More in-app, toggle back, and land on the board.
+    await page.locator('[data-testid="scan-saved-sheet"] button').first().click().catch(() => {});
+    await page.waitForTimeout(400);
+    await page.getByRole("tab", { name: /More/ }).first().click().catch(() => {});
+    await settle(page, '[data-testid="more-airplane-toggle"]', 1500);
+    await page.locator('[data-testid="more-airplane-toggle"]').click().catch(() => {});
+    await settle(page, '[data-testid="more-screen"]', 800);
+  }],
+  ["camera-off", async (page) => {
+    // Self-sufficient: land on the scan screen first (the previous state's
+    // online-restore leaves the shell wherever it was), then open the
+    // camera sheet — the pack's camera-off state is the permission sheet.
+    await page.goto(`${WEB_URL}/scan`, { waitUntil: "domcontentloaded" });
+    await settle(page, '[data-testid="scan-screen"]', 1200);
+    await page.locator('[data-testid="scan-camera"]').click().catch(() => {});
+    await page.waitForTimeout(1800);
   }],
   ["stock-item", async (page) => {
     // The seed carries assets, not stock items: drive the item surface from
@@ -454,7 +496,8 @@ async function startRunningTimer(accessToken) {
   const headers = { "content-type": "application/json", authorization: `Bearer ${accessToken}` };
   const mine = await fetch(`${API_URL}/api/v1/tickets/my-work`, { headers });
   if (!mine.ok) return null;
-  const tickets = (await mine.json()).items ?? [];
+  // my-work returns a bare array (Ok<T>[]), not an {items} envelope.
+  const tickets = (await mine.json()) ?? [];
   const ticket = tickets.find((row) => row.category !== "resolved") ?? tickets[0];
   if (ticket === undefined) return null;
   const start = await fetch(`${API_URL}/api/v1/timers/start`, {
@@ -553,6 +596,105 @@ const arg = (name, fallback) => {
   return hit === undefined ? fallback : hit.split("=")[1];
 };
 
+/** Sign in as the demo owner, spending the stored TOTP when enrolled. */
+async function ownerLogin() {
+  const signIn = await fetch(`${API_URL}/api/v1/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: MFA_EMAIL, password: PASSWORD }),
+  });
+  const body = await signIn.json();
+  if (typeof body.access_token === "string") return body;
+  const secret = await readTotpSecret();
+  if (secret === null) return null;
+  const counter = Math.floor(Date.now() / 1000 / 30);
+  for (const offset of [-1, 0, 1]) {
+    const verified = await fetch(`${API_URL}/api/v1/auth/mfa/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mfa_token: body.mfa_token, code: totp(secret, counter + offset) }),
+    });
+    if (verified.ok) return verified.json();
+  }
+  return null;
+}
+
+/**
+ * Capture the timer states (time-day, stop-and-log) on the owner seat with
+ * a real running timer — the dispatcher session cannot hold one, so these
+ * two states get their own seeded context per theme.
+ */
+async function ownerTimePass(browser) {
+  const captured = [];
+  const tokens = await ownerLogin();
+  if (tokens === null) {
+    console.warn("owner pass skipped: no owner session");
+    return;
+  }
+  const auth = { "content-type": "application/json", authorization: `Bearer ${tokens.access_token}` };
+  const mine = await fetch(`${API_URL}/api/v1/tickets/my-work`, { headers: auth });
+  const tickets = (await mine.json()) ?? [];
+  const ticket = tickets.find((row) => row.category !== "resolved") ?? tickets[0];
+  let timerId = null;
+  if (ticket !== undefined) {
+    const start = await fetch(`${API_URL}/api/v1/timers/start`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ ticket_id: ticket.id, idempotency_key: `capture-owner-${ticket.id}` }),
+    });
+    if (start.ok) {
+      timerId = (await start.json()).id;
+      console.log(`owner timer running on ${ticket.number}`);
+    }
+  }
+  const stored = {
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    sessionId: tokens.session_id,
+  };
+  const only = arg("only", null)?.split(",").map((value) => value.trim()) ?? null;
+  for (const theme of THEMES) {
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      deviceScaleFactor: 2,
+      colorScheme: theme,
+    });
+    await context.addInitScript(
+      ([sessionJson, themeMode]) => {
+        if (localStorage.getItem("marula.capture.seeded") === "1") return;
+        localStorage.setItem("marula.session.v1", sessionJson);
+        localStorage.setItem("@marula-core/prefs/theme.mode", themeMode);
+        localStorage.setItem("marula.capture.seeded", "1");
+      },
+      [JSON.stringify(stored), theme],
+    );
+    const page = await context.newPage();
+    for (const name of only === null
+      ? ["time-day", "stop-and-log"]
+      : ["time-day", "stop-and-log"].filter((state) => only.includes(state))) {
+      const setup = STATES.find(([stateName]) => stateName === name)?.[1];
+      if (setup === undefined) continue;
+      try {
+        await setup(page);
+        await page.screenshot({
+          path: path.join(outDir, `${theme}-${name}.png`),
+          animations: "disabled",
+          timeout: 60_000,
+        });
+        captured.push(`${theme}/${name}`);
+        console.log(`captured ${theme}/${name} (owner seat)`);
+      } catch (error) {
+        console.warn(`skip ${theme}/${name}: ${error.message?.slice(0, 120)}`);
+      }
+    }
+    await context.close();
+  }
+  if (timerId !== null) {
+    await stopRunningTimer(tokens.access_token, timerId);
+  }
+  return captured;
+}
+
 async function main() {
   await mkdir(outDir, { recursive: true });
   const tokens = await login();
@@ -565,7 +707,6 @@ async function main() {
   const only = arg("only", null)?.split(",").map((value) => value.trim()) ?? null;
   const themes = arg("theme", null) === null ? THEMES : [arg("theme", "light")];
   const plan = only === null ? STATES : STATES.filter(([name]) => only.includes(name));
-  const session0 = await startRunningTimer(session.accessToken);
   const browser = await chromium.launch();
   const shots = [];
 
@@ -618,8 +759,12 @@ async function main() {
     await context.close();
   }
 
+  // The timer surfaces ride the OWNER seat: RBAC grants Time:Create to the
+  // Owner preset only (Dispatcher/Technician hold View/Edit — a start from
+  // either seat answers 403, which silently left the running card undrawn
+  // before this pass existed). The dispatcher stays the capture session.
+  shots.push(...(await ownerTimePass(browser)));
   await browser.close();
-  await stopRunningTimer(session.accessToken, session0?.id ?? null);
   await unenrollTotpForMfaUser();
   await writeFile(path.join(outDir, "INDEX.json"), JSON.stringify(shots, null, 2));
   console.log(`\n${shots.length} capture files in ${outDir}`);

@@ -98,17 +98,22 @@ export function useScanResolver() {
   const saved = useSavedScans();
   const [resolution, setResolution] = useState<ScanResolution | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The code the shelf took while offline — its own register, never an
+  // error: the pack's scan-10 is a save, not a failure.
+  const [savedCode, setSavedCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const resolve = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
       if (trimmed.length === 0) return;
+      setSavedCode(null);
       // The offline case that must never lose a scan: save it, say so. The
       // shelf drains itself the moment the connection returns.
       if (!online) {
         await saved.save(trimmed);
-        setError("You're offline — the scan is saved on this phone and resolves by itself when the connection returns.");
+        setSavedCode(trimmed);
+        setError(null);
         setResolution(null);
         return;
       }
@@ -164,7 +169,15 @@ export function useScanResolver() {
     };
   }, [online, hydrated, shelf, clearResolved, client]);
 
-  return { resolution, error, busy, resolve, clear: () => setResolution(null), saved };
+  // One reset, all three registers: a sheet dismissed behind you never
+  // leaves the last code's state on screen.
+  const clear = useCallback(() => {
+    setResolution(null);
+    setError(null);
+    setSavedCode(null);
+  }, []);
+
+  return { resolution, error, savedCode, busy, resolve, clear, saved };
 }
 
 export function ScanResolutionCard({
