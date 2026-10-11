@@ -54,7 +54,7 @@ test("create an item, receive stock, threshold it into the low banner, see the l
   await authedPage.getByTestId("stock-name").fill(`E2E Anchors ${run}`);
   await authedPage.getByTestId("stock-create").click();
   await expect(
-    authedPage.getByTestId("stock-table").getByRole("row").filter({ hasText: `E2E Anchors ${run}` }),
+    authedPage.locator('[data-testid^="stock-row-"]').filter({ hasText: `E2E Anchors ${run}` }),
   ).toBeVisible({ timeout: 20_000 });
 
   // Receive four into the first location through the movement dialog.
@@ -65,7 +65,11 @@ test("create an item, receive stock, threshold it into the low banner, see the l
   await expect(authedPage.getByTestId("stock-movement-recorded")).toBeVisible({ timeout: 20_000 });
 
   // The item detail shows the level, the ledger row, and takes thresholds.
-  await authedPage.getByTestId("stock-table").getByRole("link", { name: itemName }).click();
+  await authedPage
+    .locator('[data-testid^="stock-row-"]')
+    .filter({ hasText: itemName })
+    .getByRole("link", { name: itemName })
+    .click();
   await expect(authedPage.getByTestId("stock-detail-name")).toContainText(itemName);
   await expect(authedPage.locator('[data-testid^="stock-onhand-row-"]').first()).toContainText("4 each");
   await expect(authedPage.getByTestId("stock-ledger-table")).toContainText("Received");
@@ -78,9 +82,13 @@ test("create an item, receive stock, threshold it into the low banner, see the l
     authedPage.locator('[data-testid^="stock-onhand-row-"]').first(),
   ).toContainText("low", { timeout: 20_000 });
 
-  // The board banner reads the same threshold row the automations use.
+  // The ledger row carries the same threshold state the automations read: the
+  // low pill on the row (the p41 template replaced the old top-of-page banner
+  // with the row state + the "At reorder point" shortcut).
   await authedPage.goto("/stock");
-  await expect(authedPage.getByTestId("stock-low-banner")).toContainText(itemName, { timeout: 20_000 });
+  await expect(
+    authedPage.locator('[data-testid^="stock-row-"]').filter({ hasText: itemName }),
+  ).toContainText("Low stock", { timeout: 20_000 });
 });
 
 test("the availability check refuses an over-consumption before the write", async ({

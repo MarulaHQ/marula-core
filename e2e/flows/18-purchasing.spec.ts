@@ -68,8 +68,7 @@ test("raise an order in the browser, send it, receive with an over-receipt ackno
   await expect(authedPage.getByTestId("purchasing-action-notice")).toBeVisible({ timeout: 20_000 });
   await authedPage.goto("/purchasing");
   const orderRow = authedPage
-    .getByTestId("purchasing-table")
-    .getByRole("row")
+    .locator('[data-testid^="purchasing-row-"]')
     .filter({ hasText: vendor.name });
   await expect(orderRow).toContainText("ordered", { timeout: 20_000 });
   await orderRow.locator('[data-testid^="purchasing-open-"]').click();
@@ -111,8 +110,9 @@ test("vendor settings: create, replace contacts, add a portal link", async ({ au
   await authedPage.getByTestId("purchasing-vendor-currency").fill("EUR");
   await authedPage.getByTestId("purchasing-vendor-save").click();
 
-  const table = authedPage.getByTestId("purchasing-vendors-table");
-  const row = table.getByRole("row").filter({ hasText: vendorName });
+  const row = authedPage
+    .locator('[data-testid^="purchasing-vendor-row-"]')
+    .filter({ hasText: vendorName });
   await expect(row).toBeVisible({ timeout: 20_000 });
 
   // The panel auto-expands after create: replace the contact list in one write.
