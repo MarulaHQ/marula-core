@@ -76,6 +76,29 @@ export function EntryFruit({ half = false }: { half?: boolean }) {
   );
 }
 
+/** The line-art fruit mark the sent/verify cards wear above the headline: a
+ *  cream ring with a sprout and two sparks (auth/neutral & dark states
+ *  04-magic-link, 07-verify-email). Drawn here beside the other brand marks
+ *  rather than in the icon kit — the kit is generated from the sprite, and
+ *  this is a brand mark, not a UI icon. */
+export function EntrySprout() {
+  return (
+    <svg className="entry-sprout" width="30" height="30" viewBox="0 0 32 32" aria-hidden fill="none">
+      <circle cx="16" cy="18" r="9" stroke="var(--m-cream)" strokeWidth="2" />
+      <path d="M16 9V5" stroke="var(--m-bark)" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M16 6c2.5-3 7-3.5 9-1.5-1.5 2.5-6 3-9 1.5Z"
+        fill="var(--m-canopy)"
+        stroke="var(--m-cream)"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path d="M4 8l.7 2L7 11l-2.3.9L4 14l-.7-2.1L1 11l2.3-1z" fill="var(--m-cream)" opacity=".9" />
+      <path d="M27 21l.6 1.7L29.3 24l-1.7.6L27 26l-.6-1.4L24.7 24l1.7-.6z" fill="var(--m-cream)" opacity=".9" />
+    </svg>
+  );
+}
+
 /** The header. `band` puts it on the pattern; otherwise it sits on the canvas. */
 export function EntryHeader({
   background,

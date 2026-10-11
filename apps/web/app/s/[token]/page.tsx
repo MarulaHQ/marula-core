@@ -53,7 +53,7 @@ function friendlyLinkError(error: unknown): string {
     return "This link is no longer bookable.";
   }
   if (code === 429) return "Too many attempts. Wait a minute and try again.";
-  return "This link is not available.";
+  return "Each booking link works for a short while, then it stops.";
 }
 
 function fmtTime(iso: string): string {
@@ -97,7 +97,7 @@ function ExpiryPill({ expiresAt }: { expiresAt: string }) {
 export default function PublicBookingPage(): ReactNode {
   const params = useParams<{ token: string }>();
   const token = params?.token ?? "";
-  const desk = portalOrgName() ?? "Your service desk";
+  const desk = portalOrgName() ?? "your service desk";
 
   useEffect(() => {
     // Public page: always render in the light theme, never inherit a staff
@@ -131,7 +131,7 @@ export default function PublicBookingPage(): ReactNode {
       .catch(() => {
         if (!cancelled) {
           setState("error");
-          setErrorText("This link is not available.");
+          setErrorText("The link could not be opened.");
         }
       });
     return () => {

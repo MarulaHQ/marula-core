@@ -153,7 +153,7 @@ export default function PortalInvoicesPage() {
                     : `Issued ${longDate(inv.issued_at)}`
                 }
                 onClick={() => router.push(`/portal/invoices/${inv.id}`)}
-                columns="86px minmax(0, 1fr) 110px 130px 36px"
+                columns="minmax(0, 1fr) 110px 130px 36px"
                 trailing={
                   <>
                     <b className="portal-row__amount">{money(inv.total_minor, inv.currency)}</b>

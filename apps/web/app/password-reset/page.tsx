@@ -32,7 +32,7 @@ import {
 } from "../../components/auth/entry";
 
 /** The server's floor. See the header note: the copy matches the contract. */
-const MIN_LENGTH = 10;
+const MIN_LENGTH = 12;
 
 function PasswordInput({
   id,

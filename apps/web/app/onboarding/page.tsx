@@ -320,8 +320,8 @@ export default function OnboardingPage() {
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         <WizardRail
-          heading={`Step ${stepIndex + 1} of ${USER_STEP_ORDER.length}`}
-          steps={USER_STEP_ORDER.map((key) => labelFor(key).title)}
+          heading="Getting you started"
+          steps={USER_STEP_ORDER.map((key) => labelFor(key).short)}
           states={states}
           current={meta.short}
           onSelect={(label) => {

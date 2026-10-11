@@ -1,6 +1,8 @@
 // Integration test: /login register mode — the org_slug_taken 409 renders
 // friendly copy from the central reason map and offers one-click accept of
-// the envelope's `suggestion` (Wave 13 lane-1 follow-up, web leg).
+// the envelope's `suggestion` (Wave 13 lane-1 follow-up, web leg). Since the
+// p41 pack redesign there are no tabs: registration sits one quiet link below
+// the sign-in card, reached through `login-create-org`.
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -38,6 +40,15 @@ function setupApi(): { mock: MockApi } {
       },
     };
   });
+  // Sign-in failure: the gate's uniform 401 (reason `unauthorized`, message
+  // `invalid credentials` — the shape a throttled answer ALSO takes, so
+  // nothing enumerates the lock).
+  mock.on("POST", "/api/v1/auth/login", () => ({
+    status: 401,
+    json: {
+      error: { code: 401, reason: "unauthorized", message: "invalid credentials" },
+    },
+  }));
   mock.install();
   return { mock };
 }
@@ -53,8 +64,9 @@ describe("/login — register mode slug collision", () => {
     const user = userEvent.setup();
     render(<LoginPage />);
 
-    // Switch to the Create org segment.
-    await user.click(screen.getByRole("tab", { name: "Create org" }));
+    // Registration is one quiet link below the card (no tabs since the p41
+    // pack redesign: parity ledger #9).
+    await user.click(screen.getByTestId("login-create-org"));
 
     await user.type(screen.getByPlaceholderText("Acme IT"), "Acme IT");
     await user.type(screen.getByPlaceholderText("acme-it"), "acme-it");
@@ -84,6 +96,27 @@ describe("/login — register mode slug collision", () => {
       (mock.lastBody<{ org_slug: string }>("POST", "/api/v1/auth/register") as { org_slug: string })
         .org_slug,
     ).toBe("acme-it-2");
+    cleanup();
+  });
+
+  it("reads a uniform sign-in 401 as credentials, not an expired session", async () => {
+    setupApi();
+    const user = userEvent.setup();
+    render(<LoginPage />);
+    await user.type(screen.getByPlaceholderText("you@company.com"), "owner@demo.local");
+    const passwordInput = document.querySelector(
+      'input[type="password"]',
+    ) as HTMLInputElement;
+    await user.type(passwordInput, "wrong-password-123");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    // The central reason map turns `unauthorized` into the session-expired
+    // line — the right story for an API call, the WRONG one for a sign-in
+    // attempt (auth/neutral/states/02-login-error.png draws the credentials
+    // sentence).
+    expect(
+      await screen.findByText("That email and password don't match."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/session expired/)).toBeNull();
     cleanup();
   });
 });

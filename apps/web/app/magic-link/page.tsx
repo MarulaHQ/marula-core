@@ -32,6 +32,7 @@ import {
   EntryHeadline,
   EntryNote,
   EntryShell,
+  EntrySprout,
 } from "../../components/auth/entry";
 import { applyEntryTheme } from "../../lib/entry-theme";
 import { friendlyMutationText } from "../../lib/error-copy";
@@ -199,6 +200,7 @@ function MagicLinkInner(): ReactNode {
         {sentOnce ? (
           <>
             <div className="entry-centred">
+              <EntrySprout />
               <EntryFruit half />
               <EntryHeadline>Your link is on its way.</EntryHeadline>
               <p className="entry-sub">
@@ -247,7 +249,11 @@ function MagicLinkInner(): ReactNode {
                 link signs in this browser for a full session.
               </p>
             </div>
-            <form onSubmit={requestLink} className="entry-field">
+            <form
+              onSubmit={requestLink}
+              className="entry-field"
+              style={{ display: "flex", flexDirection: "column", gap: 16 }}
+            >
               <label className="entry-label" htmlFor="magic-email">
                 Work email
               </label>
@@ -261,28 +267,41 @@ function MagicLinkInner(): ReactNode {
                 autoComplete="email"
                 required
               />
+              {error !== null && (
+                <p className="entry-error" role="alert" data-testid="magic-link-error">
+                  {error}
+                </p>
+              )}
+              {/* The submit MUST live inside the form: outside it, type=submit
+                  is inert and the button does nothing — the pack's state 04 is
+                  only reachable through a submit, and Enter-only submission
+                  hides a dead primary control. (/login gets this right.) */}
+              <button
+                type="submit"
+                className="entry-btn"
+                disabled={busy}
+                data-testid="magic-link-send"
+              >
+                {busy ? "Sending…" : "Email me a sign-in link"}
+              </button>
             </form>
-            {error !== null && (
-              <p className="entry-error" role="alert" data-testid="magic-link-error">
-                {error}
-              </p>
-            )}
-            <button type="submit" className="entry-btn" disabled={busy} data-testid="magic-link-send">
-              {busy ? "Sending…" : "Email me a sign-in link"}
-            </button>
             <EntryNote>
               We only use your address to get you in. Nothing else is sent to it.
             </EntryNote>
+            {/* The pack's sent card (state 04) draws no way back — the link
+                belongs to the request half, where going back is still on the
+                person's mind. */}
+            <button
+              type="button"
+              className="entry-link"
+              style={{ fontWeight: 500, color: "var(--m-text-secondary)", textAlign: "center" }}
+              onClick={() => router.replace("/login")}
+              data-testid="magic-link-back-to-signin"
+            >
+              Back to sign in
+            </button>
           </>
         )}
-        <button
-          type="button"
-          className="entry-link"
-          style={{ fontWeight: 500, color: "var(--m-text-secondary)", textAlign: "center" }}
-          onClick={() => router.replace("/login")}
-        >
-          Back to sign in
-        </button>
       </EntryCard>
     </EntryShell>
   );

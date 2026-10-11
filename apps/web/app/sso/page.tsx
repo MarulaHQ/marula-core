@@ -216,8 +216,8 @@ function SsoPicker() {
         <div>
           <EntryHeadline>Straight through the front door.</EntryHeadline>
           <p className="entry-sub">
-            Sign in with your company account. Your admin set this up: we&apos;ll send you to your
-            company&apos;s sign-in, then bring you straight back here.
+          Sign in with your company account. Your admin set this up. We&apos;ll send you to your
+          company&apos;s sign-in, then bring you back.
           </p>
         </div>
 

@@ -42,6 +42,7 @@ import { friendlyMutationText } from "../../../../lib/error-copy";
 import { Spinner } from "@marula-core/ui";
 import {
   portalApi,
+  usePortalAuth,
   useRequirePortalAuth,
   type PortalAttachmentView,
   type PortalTicketDetail,
@@ -63,6 +64,8 @@ export default function PortalTicketPage() {
   useRequirePortalAuth();
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  // The signed-in client, whose own name labels the opening message.
+  const { me } = usePortalAuth();
   const [detail, setDetail] = useState<PortalTicketDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<PortalAttachmentView[] | null>(null);
@@ -162,10 +165,15 @@ export default function PortalTicketPage() {
 
   const t = detail.ticket;
   const status = clientStatusFor(t.category);
-  // "Nobody has answered yet" is the case the pack's state 04 is drawn for,
-  // and the only staffing fact the pinned API supports.
-  const nothingYet = status === "received";
+  const ticketOwner = me?.display_name ?? "You";
   const deskSaidSomething = detail.comments.some((c) => c.kind === "in_house_update");
+  // "Nobody has answered yet" is the case the pack's state 04 is drawn for:
+  // NO REPLY ON THE THREAD. What the desk has already written — the
+  // in-house update included, when the tier allows it — is the answer;
+  // gating on the status instead let a received-status ticket with a reply
+  // show BOTH the ladder's "our first reply will appear here" and the reply
+  // itself (found on the capture, batch 4).
+  const nothingYet = detail.comments.length === 0 && t.category !== "closed";
 
   return (
     <>
@@ -199,16 +207,34 @@ export default function PortalTicketPage() {
         </div>
       </div>
 
-      {detail.comments.length === 0 && pending === null ? (
-        <p className="portal-hint" style={{ margin: 0 }}>
-          You haven&apos;t written anything on this yet. Tell us what you need below.
-        </p>
-      ) : (
-        <div
-          style={{ display: "flex", flexDirection: "column", gap: 18 }}
-          data-testid="portal-thread"
-        >
-          {detail.comments.map((c) => {
+      {/*
+        The thread is the client's OWN opening message first — the pack
+        draws it (portal/sand/states/03-ticket-reply.png: Priya's report is
+        the first bubble) — then everything the desk has written since. The
+        opening words are hers, so the thread is never an empty box on a
+        brand-new ticket, and the ladder below says what happens next.
+      */}
+      <div
+        style={{ display: "flex", flexDirection: "column", gap: 18 }}
+        data-testid="portal-thread"
+      >
+        {(t.body ?? "").trim() !== "" && (
+          <article className="portal-msg portal-msg--mine">
+            <span className="portal-avatar portal-avatar--sm" aria-hidden>
+              {initials(ticketOwner)}
+            </span>
+            <div className="portal-msg__body">
+              <div className="portal-msg__who">
+                <b>You</b>
+                <span>{when(t.created_at)}</span>
+              </div>
+              <p className="portal-msg__text" style={{ margin: 0 }}>
+                {t.body}
+              </p>
+            </div>
+          </article>
+        )}
+        {detail.comments.map((c) => {
             const fromDesk = c.kind === "in_house_update";
             const mine = !fromDesk && lastSent.current !== null && c.body === lastSent.current;
             const speaker = fromDesk ? "An update from your service desk" : mine ? "You" : null;
@@ -246,7 +272,6 @@ export default function PortalTicketPage() {
             </article>
           )}
         </div>
-      )}
 
       {nothingYet && <TicketProgress unassigned />}
 

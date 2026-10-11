@@ -35,7 +35,7 @@ import {
   PasswordRules,
 } from "../../components/auth/entry";
 
-const MIN_LENGTH = 10;
+const MIN_LENGTH = 12;
 
 function AcceptInviteInner(): ReactNode {
   const router = useRouter();
@@ -328,8 +328,7 @@ function AcceptInviteInner(): ReactNode {
         </form>
 
         <p className="entry-hint" style={{ textAlign: "center", margin: 0 }}>
-          Next you&apos;ll set up a second step &mdash; a quick way to keep your account safe. Every
-          step after this one can be skipped, and you can come back to it.
+          Next you&apos;ll set up a second step, a quick way to keep your account safe.
         </p>
       </EntryCard>
     </EntryShell>

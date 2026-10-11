@@ -195,6 +195,27 @@
   content: "";
 }
 
+/* Narrow widths: the five labels and the account button outrun a 480px
+   header, so the wordmark goes (the mark stays, and the Link keeps its
+   aria-label) and the labels tighten. flex-shrink alone only moves the clip
+   from the label into the nav's own scroll box — "Schedule" still reads
+   "Sch…" in a static frame, so the row has to actually fit. Checked against
+   the pack's 1600px states, which this never touches. */
+@media (max-width: 600px) {
+  .portal-header__in {
+    gap: 4px;
+  }
+
+  .portal-desk__name {
+    display: none;
+  }
+
+  .portal-nav__link {
+    padding: 0 8px;
+    font-size: 13px;
+  }
+}
+
 .portal-nav {
   display: flex;
   flex: 1;
@@ -208,6 +229,11 @@
   align-items: center;
   border-radius: 10px;
   padding: 0 12px;
+  /* Never shrink: the labels are `nowrap`, so a shrunken link clips its own
+     text ("Schedule" → "Sch…") before the nav's `overflow-x: auto` ever
+     scrolls. Shrink is off so the container scrolls instead, and at very
+     narrow widths the nav scrolls rather than truncating. */
+  flex-shrink: 0;
   color: var(--m-text-secondary);
   font-size: 14px;
   font-weight: 500;
