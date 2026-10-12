@@ -13,7 +13,7 @@ import { Kbd } from "../../src/components/kbd";
 import { Separator } from "../../src/components/separator";
 import { Spinner } from "../../src/components/spinner";
 import { Table, Td, Th, Tr } from "../../src/components/table";
-import { StatusTag, Tag } from "../../src/components/tag";
+import { Badge } from "../../src/components/badge";
 import { applyTheme, resolveInitialTheme, useTheme } from "../../src/theme";
 
 describe("Field", () => {
@@ -31,28 +31,36 @@ describe("Field", () => {
   });
 });
 
-describe("Tag", () => {
+describe("Badge", () => {
   it("renders the kit Pill and maps each tone to its kit pair", () => {
-    // Wave41 lane 20: Tag wraps the kit Pill now, so it carries the pill slot
-    // and the kit's tone classes rather than the retired .m-tag-* classes.
+    // Badge is now the only status label, and it wraps the kit Pill (wave41
+    // lane 20), so it carries the pill slot and the kit's tone classes rather
+    // than the retired .m-tag-* classes. Tag/StatusTag were retired by the
+    // p41-ui-audit sweep on 2026-10-12.
     const expected = {
       success: "bg-mc-green-soft",
       warning: "bg-mc-progress",
       danger: "bg-mc-st-breach",
       neutral: "bg-muted",
-      outline: "bg-muted",
+      due: "bg-mc-attn",
+      offline: "bg-muted",
     } as const;
     for (const tone of Object.keys(expected) as Array<keyof typeof expected>) {
-      const { container } = render(<Tag tone={tone}>x</Tag>);
+      const { container } = render(<Badge tone={tone}>x</Badge>);
       const el = container.firstElementChild!;
       expect(el).toHaveAttribute("data-slot", "pill");
       expect(el).toHaveClass(expected[tone]);
     }
   });
 
-  it("StatusTag renders its label", () => {
-    render(<StatusTag tone="danger">Breach</StatusTag>);
+  it("renders its label", () => {
+    render(<Badge tone="danger">Breach</Badge>);
     expect(screen.getByText("Breach")).toBeInTheDocument();
+  });
+
+  it("maps a priority onto the kit's PriorityChip", () => {
+    const { container } = render(<Badge priority="p1">P1</Badge>);
+    expect(container.firstElementChild).toBeTruthy();
   });
 });
 

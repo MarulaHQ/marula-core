@@ -14,7 +14,17 @@
 
 import { friendlyMutationText } from "../../lib/error-copy";
 import type { components } from "@marula-core/sdk";
-import { Button, Card, Dialog, DialogActions, DialogContent, EmptyState, Kbd, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  EmptyState,
+  Kbd,
+  Spinner,
+} from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -69,9 +79,9 @@ function ClientTag({ name }: { name: string }) {
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
   return (
-    <Tag tone="outline" title={name}>
+    <Badge tone="neutral" title={name}>
       {initials}
-    </Tag>
+    </Badge>
   );
 }
 
@@ -500,7 +510,7 @@ export default function TodayPage() {
                             {t.board_name}
                           </span>
                           <span className="hidden h-5 items-center sm:flex">
-                            {t.category === "in_progress" && <Tag tone="neutral">{t.status_name}</Tag>}
+                            {t.category === "in_progress" && <Badge tone="neutral">{t.status_name}</Badge>}
                           </span>
                           <span
  className="text-right tabular-nums"
@@ -754,9 +764,9 @@ function FocusStrip({
         {formatElapsed(elapsed)}
       </span>
       {pausedCount > 0 && (
-        <Tag tone="outline">
+        <Badge tone="neutral">
           {pausedCount} paused
-        </Tag>
+        </Badge>
       )}
     </Card>
   );

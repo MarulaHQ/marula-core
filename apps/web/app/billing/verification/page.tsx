@@ -30,6 +30,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -46,7 +47,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  Tag,
   type StatusTone,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
@@ -169,9 +169,9 @@ function BlockPanelCard({
                 <span className="text-xs" style={{ color: "var(--m-text)" }}>
                   {block.label}
                 </span>
-                <Tag tone={blockTone(block.alert)}>
+                <Badge tone={blockTone(block.alert)}>
                   {block.alert === "none" ? "healthy" : block.alert}
-                </Tag>
+                </Badge>
               </div>
               {/* The bar is the balance: drawn (solid) against the whole
                   block. Width is a transform-free style, so it needs no
@@ -501,7 +501,7 @@ function EntryRow({
         {money(entry.cost_minor, currency)}
       </td>
       <td className="py-2 pr-3 align-top">
-        <Tag tone={badge.tone}>{badge.label}</Tag>
+        <Badge tone={badge.tone}>{badge.label}</Badge>
       </td>
       <td className="py-2 align-top">
         {entry.invoiced ? (

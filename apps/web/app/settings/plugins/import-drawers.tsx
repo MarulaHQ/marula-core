@@ -11,7 +11,16 @@
 // always ride the staged/approval pipeline.
 "use client";
 
-import { Button, Dialog, DialogActions, DialogContent, Input, Label, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  Input,
+  Label,
+  Spinner,
+} from "@marula-core/ui";
 import { useState } from "react";
 import { api, uploadPluginZip } from "../../../lib/api";
 import { reasonCopy } from "../../../lib/error-copy";
@@ -235,13 +244,13 @@ export function ZipImportDrawer({
           </div>
           {file !== null ? (
             <div className="flex flex-wrap items-center gap-2" data-testid="zip-preview">
-              <Tag tone={oversize ? "danger" : "neutral"}>{file.name}</Tag>
+              <Badge tone={oversize ? "danger" : "neutral"}>{file.name}</Badge>
               <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                 {Math.ceil(file.size / 1024)} KiB
               </span>
               {entries !== null && !oversize ? (
                 entries > 256 ? (
-                  <Tag tone="danger">~{entries} entries — exceeds the 256 cap</Tag>
+                  <Badge tone="danger">~{entries} entries — exceeds the 256 cap</Badge>
                 ) : (
                   <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
                     ~{entries} archive entries

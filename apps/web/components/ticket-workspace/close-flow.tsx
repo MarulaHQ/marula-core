@@ -25,7 +25,13 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Button, FieldHint, Label, StatusTag, Tag, Textarea } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  FieldHint,
+  Label,
+  Textarea,
+} from "@marula-core/ui";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api, apiBaseUrl, authHeaders } from "../../lib/api";
@@ -365,7 +371,7 @@ function CloseFlowInner({
             ] as const
           ).map(([value, label]) => (
             <li key={value}>
-              <StatusTag tone={step === value ? "success" : "neutral"}>{label}</StatusTag>
+              <Badge tone={step === value ? "success" : "neutral"}>{label}</Badge>
             </li>
           ))}
         </ol>
@@ -523,7 +529,7 @@ function CloseFlowInner({
                 }}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <Tag tone="neutral">Locked to the organization</Tag>
+                  <Badge tone="neutral">Locked to the organization</Badge>
                   <span className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
                     This workspace sends one signature of its own.
                   </span>
@@ -673,12 +679,12 @@ function CloseFlowInner({
                   .trim()}
               </pre>
               <div className="flex flex-wrap items-center gap-1.5">
-                <Tag tone="neutral">
+                <Badge tone="neutral">
                   Signature: {SOURCE_LABEL[signatureSource] ?? signatureSource}
-                </Tag>
-                <Tag tone="neutral">
+                </Badge>
+                <Badge tone="neutral">
                   Greeting: {SOURCE_LABEL[greetingSource] ?? greetingSource}
-                </Tag>
+                </Badge>
               </div>
             </div>
 

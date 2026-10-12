@@ -1,0 +1,18 @@
+/**
+ * Ledger-table chrome — co-located beside ledger-table.tsx, which writes these classes.
+ *
+ * Moved out of `packages/ui/src/components.css` by the shared-chrome close-out
+ * (2026-10-12): that sheet carries the kit's shared vocabulary, and these
+ * rules belong to a feature.
+ */
+
+.m-enter > * {
+  animation: m-enter 120ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+.m-enter > * {
+    animation-duration: 0.01ms;
+    animation-delay: 0ms;
+  }
+}

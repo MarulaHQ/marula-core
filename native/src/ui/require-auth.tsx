@@ -9,7 +9,7 @@ import { BootScreen } from "@/ui/boot";
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { status } = useAuth();
   if (status === "loading") return <BootScreen />;
-  if (status === "locked") return <Redirect href="/locked" />;
+  if (status === "biometric") return <Redirect href="/unlock" />;
   if (status === "mfa") return <Redirect href="/mfa" />;
   if (status === "signedOut") return <Redirect href="/login" />;
   return <>{children}</>;

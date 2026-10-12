@@ -25,6 +25,7 @@ import { MODELS, fetchActiveTimer } from "@/core/models";
 import { CameraScanner } from "@/scan/camera-scanner";
 import { useScanResolver } from "@/scan/scan-flow";
 import type { ScanResolution } from "@/core/models";
+import { warrantyPairKey, warrantySentence } from "@/core/warranty";
 import {
   ChoiceCard,
   FactRow,
@@ -331,6 +332,17 @@ function ResultSheets({
           {resolution.input}
         </FactRow>
         <FactRow label="Kind">{scanKinds(resolution.kind)}</FactRow>
+        {/* The pack's scan-02-found sheet draws five rows for a device asset:
+            Code, Kind, Client, Location and Warranty. Client and location read
+            null for an internal-org asset, so the rows simply do not render
+            rather than claiming a client the MSP's own fleet does not have. */}
+        {resolution.client_name != null ? (
+          <FactRow label="Client">{resolution.client_name}</FactRow>
+        ) : null}
+        {resolution.location_name != null ? (
+          <FactRow label="Location">{resolution.location_name}</FactRow>
+        ) : null}
+        <WarrantyRow warranty={resolution.warranty} />
         {resolution.serial_status !== null && resolution.serial_status !== undefined ? (
           <FactRow label="Status">
             {String(resolution.serial_status).replace(/_/g, " ")}
@@ -347,6 +359,31 @@ function ResultSheets({
       />
       <SecondaryButton label="Scan something else" onPress={onClear} />
     </Sheet>
+  );
+}
+
+/** The warranty row on the found sheet: a pill with a clock, because it is
+ * the one fact on that sheet that can lapse. Amber while it is ending, red
+ * once it has, green while it is covered, and plain "Not set" when the asset
+ * carries nothing to derive a horizon from — never an invented date. The
+ * sentence comes from the server's `state` and `days_remaining`, so this pill
+ * and the assets ledger cannot disagree about which side of the window an
+ * asset sits on. */
+function WarrantyRow({ warranty }: { warranty: ScanResolution["warranty"] }) {
+  const { tokens } = useTheme();
+  if (warranty == null) {
+    return <FactRow label="Warranty">Not set</FactRow>;
+  }
+  const pairKey = warrantyPairKey(warranty);
+  const pair =
+    pairKey === "danger" ? tokens.danger : pairKey === "warning" ? tokens.warning : tokens.success;
+  return (
+    <FactRow
+      label="Warranty"
+      trailing={
+        <PackPill pair={pair} label={warrantySentence(warranty)} icon={PACK_ICONS.clock} />
+      }
+    />
   );
 }
 

@@ -16,6 +16,7 @@ import { rejectionText } from "../lib/error-copy";
 import { Icon as KitIcon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -27,7 +28,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   Table,
   Td,
   Th,
@@ -371,7 +371,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
                 const billed = line.invoice_line_id != null;
                 return (
                   <Tr key={line.id}>
-                    <Td><StatusTag tone={line.kind === "parts" ? "neutral" : line.kind === "flat" ? "success" : "warning"}>{line.kind}</StatusTag></Td>
+                    <Td><Badge tone={line.kind === "parts" ? "neutral" : line.kind === "flat" ? "success" : "warning"}>{line.kind}</Badge></Td>
                     <Td className="text-xs">
                       <span className="inline-flex items-center gap-1">
                         {billed ? <BilledLock /> : null}

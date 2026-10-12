@@ -19,6 +19,7 @@ import { Badge, EmptyState, Spinner } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
+import "./ticket-fields.css";
 
 type CustomFieldValue = components["schemas"]["TicketCustomFieldValue"];
 type Tag = components["schemas"]["Tag"];

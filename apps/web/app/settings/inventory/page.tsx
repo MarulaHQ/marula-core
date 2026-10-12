@@ -13,6 +13,7 @@
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -25,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -290,12 +290,12 @@ export default function InventorySettingsPage(): ReactNode {
         </h2>
         <Card className="grid gap-3 p-4" data-testid="jev-workflow">
           <div className="flex flex-wrap items-center gap-2">
-            <StatusTag tone={wf?.enabled ? "success" : "neutral"}>
+            <Badge tone={wf?.enabled ? "success" : "neutral"}>
               {wf?.enabled ? "enabled" : "off"}
-            </StatusTag>
-            <StatusTag tone={configured ? "success" : "warning"}>
+            </Badge>
+            <Badge tone={configured ? "success" : "warning"}>
               {configured ? "decision model configured" : "decision model not configured"}
-            </StatusTag>
+            </Badge>
           </div>
           <FieldHint>
             Runs over the pending dedupe queues, asking the decision model one

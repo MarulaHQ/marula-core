@@ -16,7 +16,18 @@
 
 import "./calendar.css";
 import { friendlyMutationText } from "../../lib/error-copy";
-import { Button, Card, Dialog, DialogActions, DialogContent, FieldHint, Input, Label, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  FieldHint,
+  Input,
+  Label,
+  Spinner,
+} from "@marula-core/ui";
 import CalendarSyncPanel from "../../components/calendar-sync-panel";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api, useRequireAuth } from "../../lib/api";
@@ -911,7 +922,7 @@ function AgendaList({
                       ? `due ${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
                       : `${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}–${end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
                   </span>
-                  <Tag
+                  <Badge
                     tone={
                       entry.kind === "ticket_deadline"
                         ? breached
@@ -925,7 +936,7 @@ function AgendaList({
                     }
                   >
                     {CLASS_LABEL[entry.kind]}
-                  </Tag>
+                  </Badge>
                   <span className="min-w-0 truncate text-[13px]">{entry.title}</span>
                   {flagged ? (
                     <span className="ml-auto shrink-0 text-[11px] font-semibold" style={{ color: "var(--m-status-warning-fg)" }}>

@@ -17983,6 +17983,7 @@ export interface components {
             updated_at: string;
             /** Format: int32 */
             useful_life_months?: number | null;
+            warranty?: null | components["schemas"]["WarrantyWindow"];
         };
         /**
          * @description One booking block on the dispatch board: the appointment plus the
@@ -25252,6 +25253,11 @@ export interface components {
         ScanResolutionView: {
             /** @description Populated when the winning kind matched more than one row. */
             candidates?: components["schemas"]["ScanCandidateView"][];
+            /**
+             * @description Device assets only: the client the asset belongs to. NULL for an
+             *     internal-org asset — the MSP's own fleet carries no client (ADR 0012).
+             */
+            client_name?: string | null;
             deep_link?: string | null;
             /** Format: uuid */
             device_asset_id?: string | null;
@@ -25267,6 +25273,8 @@ export interface components {
             kind: string;
             /** Format: uuid */
             location_id?: string | null;
+            /** @description Device assets only: the site the asset sits at. */
+            location_name?: string | null;
             secondary?: string | null;
             /** Format: uuid */
             serial_id?: string | null;
@@ -25277,6 +25285,7 @@ export interface components {
              * @description Present for stock_item and serialized_unit: the parent item.
              */
             stock_item_id?: string | null;
+            warranty?: null | components["schemas"]["WarrantyWindow"];
         };
         ScanResolveRequest: {
             /**
@@ -29229,6 +29238,22 @@ export interface components {
         VoipCallLogResponse: {
             /** Format: uuid */
             id: string;
+        };
+        /**
+         * @description Which side of the warranty horizon an asset sits on.
+         * @enum {string}
+         */
+        WarrantyState: "active" | "ending" | "ended";
+        /**
+         * @description The warranty horizon for one device asset: the end date, which side of it
+         *     today falls, and how many whole days are left (negative once ended).
+         */
+        WarrantyWindow: {
+            /** Format: int64 */
+            days_remaining: number;
+            /** Format: date */
+            ends_on: string;
+            state: components["schemas"]["WarrantyState"];
         };
         WebauthnBeginResponse: {
             /** @description Opaque ceremony binding — pass back to finish. */

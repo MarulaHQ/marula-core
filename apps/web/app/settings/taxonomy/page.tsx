@@ -17,6 +17,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -32,7 +33,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -661,7 +661,7 @@ function NodeRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className={`truncate text-[13px] ${strong === true ? "font-semibold" : ""}`}>{node.name}</span>
-          {node.is_retired ? <Tag tone="neutral">Retired</Tag> : null}
+          {node.is_retired ? <Badge tone="neutral">Retired</Badge> : null}
         </div>
         {node.description != null && node.description !== "" ? (
           <p className="truncate text-[12px]" style={{ color: "var(--m-text-muted)" }}>

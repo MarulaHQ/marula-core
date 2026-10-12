@@ -28,7 +28,16 @@
 // the row failed.
 "use client";
 
-import { Button, Card, EmptyState, FieldHint, Input, Label, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  FieldHint,
+  Input,
+  Label,
+  Spinner,
+} from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, api } from "../lib/api";
@@ -530,13 +539,13 @@ function ConnectionRow({
             <span className="text-[13px] font-medium truncate" style={{ color: "var(--m-text)" }}>
               {conn.name}
             </span>
-            <Tag tone="neutral">{conn.provider}</Tag>
+            <Badge tone="neutral">{conn.provider}</Badge>
             {/* A delegated connection with no token is NOT connected. Saying
                 so plainly is the difference between an operator who
                 retries and one who assumes the sync is running. */}
             {conn.provider !== "ical" && !conn.access_token ? (
               <>
-                <Tag tone="warning">not connected</Tag>
+                <Badge tone="warning">not connected</Badge>
                 <Button
                   size="sm"
                   variant="secondary"
@@ -547,7 +556,7 @@ function ConnectionRow({
                 </Button>
               </>
             ) : null}
-            <Tag tone={statusTone(conn.status)}>{statusLabel(conn.status)}</Tag>
+            <Badge tone={statusTone(conn.status)}>{statusLabel(conn.status)}</Badge>
           </div>
           <div className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
             {DIRECTION_COPY[conn.direction] ?? conn.direction} · last sync {fmtWhen(conn.last_synced_at)}

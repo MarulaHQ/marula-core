@@ -122,6 +122,24 @@ async fn register_org(app: &Router, slug: &str) -> String {
     value["access_token"].as_str().expect("access token").into()
 }
 
+/// Creates a client site. Not to be confused with `create_location`, which
+/// makes a stock location: a device asset's location is a SITE.
+async fn create_client_site(app: &Router, token: &str, client_id: &str, name: &str) -> String {
+    let response = send(
+        app,
+        axum::http::Method::POST,
+        &format!("/api/v1/clients/{client_id}/sites"),
+        &[auth(token)],
+        Some(json!({ "name": name })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "site create");
+    body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 async fn create_location(app: &Router, token: &str, name: &str, code: &str) -> String {
     let response = send(
         app,
@@ -165,6 +183,41 @@ async fn create_item(
     )
     .await;
     assert_eq!(response.status(), 200, "item create: {name}");
+    body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// Creates a device asset for a client, optionally with the purchase inputs
+/// the warranty horizon is derived from. Goes through `/assets` rather than
+/// `/clients/{id}/assets`: the latter is a thin convenience create that takes
+/// tag/name/kind only and drops `lifecycle` on the floor.
+async fn create_asset(
+    app: &Router,
+    token: &str,
+    client_id: &str,
+    tag: &str,
+    name: &str,
+    kind: &str,
+    lifecycle: Option<Value>,
+) -> String {
+    let response = send(
+        app,
+        axum::http::Method::POST,
+        "/api/v1/assets",
+        &[auth(token)],
+        Some(json!({
+            "client_id": client_id,
+            "tag": tag,
+            "name": name,
+            "kind": kind,
+            "lifecycle": lifecycle,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "asset create: {tag}");
     body_json(response).await["id"]
         .as_str()
         .unwrap()
@@ -585,18 +638,16 @@ async fn scan_resolution_is_typed_deterministic_and_never_a_guess() {
     )
     .await;
     let client_id = client["id"].as_str().unwrap();
-    let asset = body_json(
-        send(
-            &app,
-            axum::http::Method::POST,
-            &format!("/api/v1/clients/{client_id}/assets"),
-            &[auth(&token)],
-            Some(json!({ "tag": "EXCH-01", "name": "ThinkPad T14", "kind": "device" })),
-        )
-        .await,
+    let asset_id = create_asset(
+        &app,
+        &token,
+        client_id,
+        "EXCH-01",
+        "ThinkPad T14",
+        "device",
+        None,
     )
     .await;
-    let asset_id = asset["id"].as_str().unwrap();
     let hit = resolve_scan(&app, &token, "exch-01").await;
     assert_eq!(hit["kind"], "device_asset");
     assert_eq!(hit["device_asset_id"], asset_id);
@@ -605,6 +656,88 @@ async fn scan_resolution_is_typed_deterministic_and_never_a_guess() {
         hit["deep_link"],
         format!("marula://device-asset/{asset_id}")
     );
+
+    // 6a. A resolved device asset carries the three facts its found sheet
+    // prints — additive, so an asset with no purchase history answers with
+    // null rather than an invented warranty.
+    assert_eq!(hit["client_name"], "Acme Dental");
+    assert_eq!(hit["location_name"], Value::Null);
+    assert_eq!(hit["warranty"], Value::Null);
+
+    // 6b. The same asset, at a site, resolves with its location named.
+    let site = create_client_site(&app, &token, client_id, "Acme server room").await;
+    let site_asset = create_asset(
+        &app,
+        &token,
+        client_id,
+        "EXCH-02",
+        "ThinkPad T14 (server room)",
+        "device",
+        None,
+    )
+    .await;
+    let response = send(
+        &app,
+        axum::http::Method::PATCH,
+        &format!("/api/v1/assets/{site_asset}"),
+        &[auth(&token)],
+        Some(json!({
+            "site_id": site,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "asset site update");
+    let hit = resolve_scan(&app, &token, "exch-02").await;
+    assert_eq!(hit["location_name"], "Acme server room");
+
+    // 6c. Warranty horizons come from the purchase inputs. Both buckets are
+    // fixed dates, so the assertions hold whenever the suite runs. (The
+    // 90-day "ending" callout is the domain rule, unit-tested against an
+    // injected today in core-domain; the demo seed carries a live example.)
+    let current = create_asset(
+        &app,
+        &token,
+        client_id,
+        "EXCH-10",
+        "Dell Latitude 5540",
+        "laptop",
+        Some(json!({ "purchase_date": "2020-01-15", "useful_life_months": 240 })),
+    )
+    .await;
+    let hit = resolve_scan(&app, &token, "exch-10").await;
+    assert_eq!(hit["device_asset_id"], current);
+    let warranty = &hit["warranty"];
+    assert_eq!(warranty["state"], "active");
+    assert_eq!(warranty["ends_on"], "2040-01-15");
+    assert!(
+        warranty["days_remaining"].as_i64().unwrap() > 90,
+        "active means beyond the 90-day callout window"
+    );
+    let lapsed = create_asset(
+        &app,
+        &token,
+        client_id,
+        "EXCH-11",
+        "Retired firewall",
+        "network",
+        Some(json!({ "purchase_date": "2020-01-15", "useful_life_months": 24 })),
+    )
+    .await;
+    let hit = resolve_scan(&app, &token, "exch-11").await;
+    assert_eq!(hit["device_asset_id"], lapsed);
+    let warranty = &hit["warranty"];
+    assert_eq!(warranty["state"], "ended");
+    assert_eq!(warranty["ends_on"], "2022-01-15");
+    assert!(warranty["days_remaining"].as_i64().unwrap() < 0);
+
+    // 6d. Every other kind still resolves without the new fields — a stock
+    // item never grows a client, a location or a warranty.
+    let hit = resolve_scan(&app, &token, "c6-1m").await;
+    assert_eq!(hit["kind"], "stock_item");
+    assert_eq!(hit["client_name"], Value::Null);
+    assert_eq!(hit["location_name"], Value::Null);
+    assert_eq!(hit["warranty"], Value::Null);
 
     // 7. Ambiguity: two items sharing a part number come back as candidates.
     let _twin = create_item(

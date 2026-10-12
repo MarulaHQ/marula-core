@@ -1,11 +1,21 @@
-// Locked — the pack's `09-locked`: the device the service desk has not
-// approved yet.
+// Unlock — the biometric gate on a restored session.
 //
-// Purpose: NEUTRAL, not red — nobody is at fault. It says what is happening,
-// what was asked and of whom (the facts table: Phone, Asked, Waiting on),
-// and gives three ways out: Check again, Contact your admin, Sign out.
-// Distinct from the biometric gate: this is the org-approval screen driven
-// by the auth context's `locked` status.
+// Purpose: neutral, not red — nobody is at fault and there is nothing to
+// approve. It says what is happening (Face ID is on for this phone), names
+// the phone it is on, and gives two ways out: unlock with Face ID, or sign
+// out. The unlock leg is real — it runs the same biometric check the setting
+// behind it promises.
+//
+// Renamed from `/locked` (ADR 0021). The screen used to claim the pack's
+// `09-locked` semantics — a phone awaiting service-desk approval, an admin
+// already asked, a notification promised, a "Check again" that checked
+// nothing. No device-approval concept exists in the API, the database or the
+// domain, so those claims were removed rather than renamed. Device approval
+// is a product want with its own lane; if it lands, it arrives as a new auth
+// status, not as this screen's copy.
+//
+// The composition is inherited: grey lock in a soft circle, a neutral
+// sentence, a facts table, one primary action.
 
 import { Redirect } from "expo-router";
 import { useState } from "react";
@@ -15,12 +25,11 @@ import * as Device from "expo-device";
 
 import { useAuth } from "@/auth/auth-context";
 import { BootScreen } from "@/ui/boot";
-import { FactRow, Facts, LinkButton, PACK_ICONS, PrimaryButton, SecondaryButton } from "@/ui/pack";
+import { FactRow, Facts, LinkButton, PACK_ICONS, PrimaryButton } from "@/ui/pack";
 import { type, useTheme } from "@/ui/tokens";
-import { openAdminMail } from "@/auth/admin-contact";
 
-export default function LockedScreen() {
-  const { status, signOut } = useAuth();
+export default function UnlockScreen() {
+  const { status, unlock, signOut } = useAuth();
   const { tokens } = useTheme();
   const [checking, setChecking] = useState(false);
 
@@ -32,43 +41,35 @@ export default function LockedScreen() {
   return (
     <View
       style={[styles.screen, { backgroundColor: tokens.background }]}
-      testID="locked-screen"
+      testID="unlock-screen"
     >
       <View style={[styles.lockDisc, { backgroundColor: tokens.surfaceHover }]}>
         <Ionicons name={PACK_ICONS.lock} size={40} color={tokens.textSecondary} />
       </View>
-      <Text style={[styles.title, { color: tokens.text }]}>This phone is not approved yet</Text>
+      <Text style={[styles.title, { color: tokens.text }]}>Unlock Marula</Text>
       <Text style={[styles.body, { color: tokens.textSecondary }]}>
-        Your service desk needs to approve this phone before you can sign in. We have asked them,
-        and you will get a notification the moment they do.
+        You turned on Face ID for this phone. Unlock to pick up where you left off — your session
+        is still signed in.
       </Text>
       <Facts style={styles.facts}>
         <FactRow first label="Phone">
           {Device.modelName ?? "This phone"}
         </FactRow>
-        <FactRow label="Asked">Just now</FactRow>
-        <FactRow label="Waiting on">Your admin</FactRow>
+        <FactRow label="Unlock with">Face ID</FactRow>
       </Facts>
       <PrimaryButton
-        label="Check again"
-        testID="locked-check"
+        label="Unlock with Face ID"
+        testID="unlock-check"
         disabled={checking}
         busy={checking}
         onPress={() => {
           setChecking(true);
-          setTimeout(() => setChecking(false), 1200);
-        }}
-      />
-      <SecondaryButton
-        label="Contact your admin"
-        testID="locked-contact"
-        onPress={() => {
-          void openAdminMail();
+          unlock().finally(() => setChecking(false));
         }}
       />
       <LinkButton
         label="Sign out"
-        testID="locked-signout"
+        testID="unlock-signout"
         onPress={() => {
           void signOut();
         }}

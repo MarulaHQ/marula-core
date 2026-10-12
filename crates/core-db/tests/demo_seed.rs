@@ -261,14 +261,14 @@ async fn sla_spread_and_scan_ambiguity_survive_the_seed() {
     // to exist.
     let mut tx = db.app.begin().await.unwrap();
     core_db::set_org(&mut tx, DEMO_ORG_ID).await.unwrap();
-    let items = core_db::labels::find_items_by_code(&mut *tx, DEMO_ORG_ID, "DOCK-01", 8)
+    let items = core_db::labels::find_items_by_code(&mut tx, DEMO_ORG_ID, "DOCK-01", 8)
         .await
         .unwrap();
     assert!(
         items.len() > 1,
         "the shared DOCK-01 part number must resolve to two candidates"
     );
-    let locations = core_db::labels::find_locations_by_code(&mut *tx, DEMO_ORG_ID, "SHELF-B", 8)
+    let locations = core_db::labels::find_locations_by_code(&mut tx, DEMO_ORG_ID, "SHELF-B", 8)
         .await
         .unwrap();
     assert!(

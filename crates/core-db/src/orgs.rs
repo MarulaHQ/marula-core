@@ -341,6 +341,34 @@ where
 /// so every org starts with the client-agnostic IT/MSP baseline. The
 /// canonical data lives in `taxonomy::STANDARD_TAXONOMY` (single Rust
 /// source of truth; the migration carries its own SQL copy by necessity).
+/// Seeds version 1 of the customer sign-off consent (Wave 43 track 2 lane 12,
+/// migration 0127).
+///
+/// The migration backfills orgs that already exist; this covers every org
+/// created afterwards, because an org with no consent row can never capture a
+/// signature and would silently ship a disabled pad. Idempotent per org: the
+/// UNIQUE (org_id, version) makes a double-seed a no-op-shaped conflict the
+/// caller can ignore.
+pub const DEFAULT_SIGN_OFF_CONSENT: &str =
+    "I confirm the work described above was completed to my satisfaction and I am authorised to sign off on it.";
+
+pub async fn seed_default_sign_off_consent(conn: &mut PgConnection, org_id: Uuid) -> DbResult<()> {
+    // `sqlx::query`, not `sqlx::query!`: the compile-time macro would need a
+    // fresh `cargo sqlx prepare` for every consent-shape change, and the
+    // offline cache in a release boot is already stale for anything new.
+    sqlx::query(
+        r#"INSERT INTO sign_off_consents (id, org_id, version, body, created_by)
+           VALUES ($1, $2, 1, $3, NULL)
+           ON CONFLICT (org_id, version) DO NOTHING"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(org_id)
+    .bind(DEFAULT_SIGN_OFF_CONSENT)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
 pub async fn seed_default_taxonomy(conn: &mut PgConnection, org_id: Uuid) -> DbResult<()> {
     for (name, ord) in crate::taxonomy::STANDARD_TYPES {
         sqlx::query!(

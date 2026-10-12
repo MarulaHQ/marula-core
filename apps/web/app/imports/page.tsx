@@ -12,6 +12,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   ColumnChooser,
   DataToolbar,
@@ -28,15 +29,14 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
   ViewSwitch,
   applyDensity,
   useDensity,
-  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import {
@@ -425,7 +425,7 @@ export default function ImportsPage() {
         }
         actions={
           (batches ?? []).some((b) => b.queued_at != null && b.finished_at == null) ? (
-            <Tag tone="warning">a batch is still committing</Tag>
+            <Badge tone="warning">a batch is still committing</Badge>
           ) : null
         }
       />
@@ -951,7 +951,7 @@ function RowLine({ row }: { row: RowReport }) {
           <Td className="tabular-nums">{row.row_index}</Td>
           <Td>{row.external_key ?? "—"}</Td>
           <Td>
-            <Tag tone="danger">failed</Tag>{" "}
+            <Badge tone="danger">failed</Badge>{" "}
             <span style={{ color: "var(--m-status-danger-fg)" }}>{outcome.errors.join("; ")}</span>
           </Td>
         </Tr>
@@ -963,7 +963,7 @@ function RowLine({ row }: { row: RowReport }) {
           <Td className="tabular-nums">{row.row_index}</Td>
           <Td>{row.external_key ?? "—"}</Td>
           <Td>
-            <Tag tone="warning">skip</Tag> {outcome.reason}
+            <Badge tone="warning">skip</Badge> {outcome.reason}
           </Td>
         </Tr>
       );
@@ -973,9 +973,9 @@ function RowLine({ row }: { row: RowReport }) {
         <Td className="tabular-nums">{row.row_index}</Td>
         <Td>{row.external_key ?? "—"}</Td>
         <Td>
-          <Tag tone={outcome.status === "would_update" ? "warning" : "success"}>
+          <Badge tone={outcome.status === "would_update" ? "warning" : "success"}>
             {outcome.status === "would_update" ? "update" : "create"}
-          </Tag>
+          </Badge>
         </Td>
       </Tr>
     );

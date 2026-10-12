@@ -14,9 +14,10 @@
 "use client";
 
 import {
+  AssistantColumn,
+  Badge,
   Button,
   Card,
-  AssistantColumn,
   ColumnChooser,
   DataToolbar,
   DensitySwitch,
@@ -36,15 +37,14 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
   ViewSwitch,
   applyDensity,
   useDensity,
-  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -611,7 +611,7 @@ export default function AlertsPage() {
                           {c.key === "escalation" ? (
                             a.incident_ticket_id !== null && a.incident_ticket_id !== undefined ? (
                               <div className="flex items-center gap-2">
-                                <Tag tone="success">escalated</Tag>
+                                <Badge tone="success">escalated</Badge>
                                 <Link
                                   href={`/tickets/${a.incident_ticket_id}`}
                                   className="text-[13px] font-medium underline decoration-[var(--m-border)] underline-offset-2"
@@ -620,7 +620,7 @@ export default function AlertsPage() {
                                 </Link>
                               </div>
                             ) : (
-                              <Tag tone="neutral">unrouted</Tag>
+                              <Badge tone="neutral">unrouted</Badge>
                             )
                           ) : null}
                           {c.key === "received" ? (
@@ -798,9 +798,9 @@ export default function AlertsPage() {
                       </Td>
                       <Td className="text-[12px] tabular-nums">{s.correlation_window_secs}s</Td>
                       <Td>
-                        <Tag tone={s.enabled ? "success" : "neutral"}>
+                        <Badge tone={s.enabled ? "success" : "neutral"}>
                           {s.enabled ? "enabled" : "disabled"}
-                        </Tag>
+                        </Badge>
                       </Td>
                       <Td className="text-right">
                         <Button variant="ghost" size="sm" onClick={() => void handleToggleSource(s)}>

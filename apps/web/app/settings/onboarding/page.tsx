@@ -15,7 +15,12 @@
  */
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, FieldHint, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  FieldHint,
+} from "@marula-core/ui";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 import {
@@ -146,19 +151,19 @@ export default function OnboardingSettingsPage() {
               </span>
               <span style={{ color: "var(--m-text)" }}>{s.step}</span>
               {s.done && (
-                <Tag tone="outline" style={{ border: "1px solid var(--m-border)" }}>
+                <Badge tone="neutral" style={{ border: "1px solid var(--m-border)" }}>
                   {s.satisfied ? "done · verified" : "done"}
-                </Tag>
+                </Badge>
               )}
               {s.dismissed && !s.done && (
-                <Tag tone="outline" style={{ border: "1px solid var(--m-border)" }}>
+                <Badge tone="neutral" style={{ border: "1px solid var(--m-border)" }}>
                   dismissed
-                </Tag>
+                </Badge>
               )}
               {!s.resolved && s.satisfied && (
-                <Tag tone="outline" style={{ border: "1px solid var(--m-accent)" }}>
+                <Badge tone="neutral" style={{ border: "1px solid var(--m-accent)" }}>
                   ready to complete
-                </Tag>
+                </Badge>
               )}
               {!s.resolved && !s.satisfied && !s.dismissed && (
                 <span className="ml-auto text-[12px]" style={{ color: "var(--m-text-muted)" }}>
@@ -232,9 +237,9 @@ export default function OnboardingSettingsPage() {
                 </span>
                 <span className="ml-auto flex items-center gap-2">
                   {!m.unresolved ? (
-                    <Tag tone="outline" style={{ border: "1px solid var(--m-border)" }}>
+                    <Badge tone="neutral" style={{ border: "1px solid var(--m-border)" }}>
                       resolved
-                    </Tag>
+                    </Badge>
                   ) : (
                     <>
                       <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>

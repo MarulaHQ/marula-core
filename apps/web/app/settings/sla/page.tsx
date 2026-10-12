@@ -13,6 +13,7 @@
 
 import { friendlyMutationText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -25,7 +26,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useMemo, useReducer, useState } from "react";
@@ -437,15 +437,15 @@ export default function SlaSettingsPage() {
             ) : (
               <div className="flex flex-wrap gap-1 pt-1">
                 {calDraft.holidays.map((date) => (
-                  <Tag
+                  <Badge
                     key={date}
-                    tone="outline"
+                    tone="neutral"
                     role="listitem"
                     title="Click to remove"
                     onClick={() => dispatchCal({ type: "remove-holiday", date })}
                   >
                     {date} ✕
-                  </Tag>
+                  </Badge>
                 ))}
               </div>
             )}
@@ -498,8 +498,8 @@ export default function SlaSettingsPage() {
                     <span className="text-[13px]" style={{ color: "var(--m-text)" }}>
                       {policy.name}
                     </span>
-                    {policy.is_default && <Tag tone="neutral">default</Tag>}
-                    {policy.uses_embedded_calendar && <Tag tone="outline">embedded calendar</Tag>}
+                    {policy.is_default && <Badge tone="neutral">default</Badge>}
+                    {policy.uses_embedded_calendar && <Badge tone="neutral">embedded calendar</Badge>}
                   </div>
                   <code className="text-[11px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                     {policyTargetSummary(policy)}

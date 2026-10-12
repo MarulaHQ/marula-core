@@ -28,13 +28,14 @@
 "use client";
 
 import {
+  Badge,
   Button,
   ColumnChooser,
   DataToolbar,
+  DensitySwitch,
   Dialog,
   DialogActions,
   DialogContent,
-  DensitySwitch,
   EmptyState,
   ExportControl,
   FieldHint,
@@ -44,7 +45,6 @@ import {
   Label,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -1563,7 +1563,7 @@ function QueueRow({
               <Button size="sm" variant="ghost" onClick={onHistory} data-testid={`history-${e.id}`}>
                 {historyOpen ? "Hide trail" : "Trail"}
               </Button>
-              {item.locked ? <Tag tone="neutral">Locked — invoiced</Tag> : null}
+              {item.locked ? <Badge tone="neutral">Locked — invoiced</Badge> : null}
               <span style={{ flex: 1 }} />
               {flag !== undefined ? (
                 <span role="status" style={{ color: "var(--m-status-warning-fg)", fontSize: 12 }}>
@@ -1729,7 +1729,7 @@ function ContextPane({
                     : `#${item.ticket.number} ${item.ticket.title}`}
                 </Link>
               </b>
-              <Tag tone={statusTone(e.approval_status)}>{e.approval_status ?? "draft"}</Tag>
+              <Badge tone={statusTone(e.approval_status)}>{e.approval_status ?? "draft"}</Badge>
             </div>
             <MoneyKv label="Client">
               {item.ticket?.client_name === null || item.ticket?.client_name === undefined ? (

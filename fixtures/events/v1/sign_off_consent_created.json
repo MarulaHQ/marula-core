@@ -1,0 +1,13 @@
+{
+  "entity": "sign_off_consent",
+  "event_type": "sign_off_consent.created",
+  "payload": {
+    "body": "I confirm the work described above was completed to my satisfaction.",
+    "consent_id": "00000000-0000-0000-0000-00000000003f",
+    "created_by": "00000000-0000-0000-0000-000000000005",
+    "version": 2
+  },
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "variant": "default"
+}

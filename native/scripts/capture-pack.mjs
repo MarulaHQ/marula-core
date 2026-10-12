@@ -8,7 +8,7 @@
  *
  * Drawn states covered (signature pad intentionally NOT drawn):
  *   board-list, ticket-detail, note-composer, time-day, stop-and-log,
- *   more, notifications, deep-linked-open, locked, login, mfa,
+ *   more, notifications, deep-linked-open, unlock, login, mfa,
  *   scan-camera, scan-found, scan-ambiguous, scan-unknown, camera-off,
  *   stock-item, stock-location, stock-serial, tool-checkout, tool-overdue,
  *   move + asset record (derived legs).
@@ -236,9 +236,23 @@ const STATES = [
       await settle(page, '[data-testid="ticket-from-notification"]', 1600, 120_000);
     }
   }],
-  ["locked", async (page) => {
-    await page.goto(`${WEB_URL}/locked`, { waitUntil: "domcontentloaded" });
-    await settle(page, '[data-testid="locked-screen"]', 900);
+  // DERIVED state, not the pack's 09-locked: the biometric gate on a restored
+  // session (ADR 0021). The gate only exists when the operator turned
+  // biometrics ON, so the capture seeds that preference or it photographs the
+  // Today screen — which is what the old `locked` capture did, leaving a file
+  // named after a state it never drew.
+  ["unlock", async (page) => {
+    await page.goto(`${WEB_URL}/unlock`, { waitUntil: "domcontentloaded" });
+    // Seed the preference AFTER the first navigation: localStorage is not
+    // readable on about:blank, which is where a bare page.evaluate lands.
+    await page
+      .evaluate(() => localStorage.setItem("marula.biometric-unlock.v1", "1"))
+      .catch(() => {});
+    await page.reload({ waitUntil: "domcontentloaded" });
+    // Strict on purpose. On web, expo-local-authentication reports no enrolled
+    // biometric, so the gate never opens and this state is a skip — not a
+    // screenshot of whatever the app redirected to.
+    await settleOrFail(page, '[data-testid="unlock-screen"]', 1200);
   }],
   ["login", async (page) => {
     await page.goto(`${WEB_URL}/login`, { waitUntil: "domcontentloaded" });
@@ -479,6 +493,26 @@ const STATES = [
  */
 async function settle(page, selector, ms = 2500, anchorTimeout = 20_000) {
   await page.waitForSelector(selector, { timeout: anchorTimeout }).catch(() => {});
+  await page.waitForTimeout(ms);
+}
+
+/**
+ * `settle` for a state whose screen is the point of the capture. It exists
+ * because the pack's `09-locked` / biometric screen silently captured as the
+ * Today screen for a whole lane: the seed never set the biometric preference
+ * and `expo-local-authentication` reports not-enrolled on web, so the gate
+ * never appeared — and `settle` swallowed it, so a file named after the state
+ * was written anyway. A mislabeled capture is worse than a missing one, so a
+ * named screen now has to actually appear or the state is skipped and says so.
+ */
+async function settleOrFail(page, selector, ms = 2500, anchorTimeout = 20_000) {
+  const found = await page
+    .waitForSelector(selector, { timeout: anchorTimeout })
+    .then(() => true)
+    .catch(() => false);
+  if (!found) {
+    throw new Error(`never reached ${selector} (last url: ${page.url()})`);
+  }
   await page.waitForTimeout(ms);
 }
 

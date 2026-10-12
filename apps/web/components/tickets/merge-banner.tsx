@@ -14,6 +14,7 @@
 import { Icon } from "@marula-core/ui/kit";
 import { cn } from "@marula-core/ui";
 import Link from "next/link";
+import "./merge-banner.css";
 
 export interface MergeBannerProps {
   /** The ticket that survived the merge. */

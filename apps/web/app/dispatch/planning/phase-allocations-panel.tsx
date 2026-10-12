@@ -16,6 +16,7 @@
 // allocated, and the project page is where phases are made.
 
 import {
+  Badge,
   Button,
   Card,
   CardHeader,
@@ -24,7 +25,6 @@ import {
   Spinner,
   Table,
   Td,
-  Tag,
   Th,
   Tr,
 } from "@marula-core/ui";
@@ -248,9 +248,9 @@ export function PhaseAllocationsPanel({
                 <Td>
                   {a.phase_name}
                   {a.phase_status === "completed" ? (
-                    <Tag tone="neutral" style={{ marginLeft: "6px" }}>
+                    <Badge tone="neutral" style={{ marginLeft: "6px" }}>
                       done
-                    </Tag>
+                    </Badge>
                   ) : null}
                 </Td>
                 <Td style={{ fontVariantNumeric: "tabular-nums" }}>

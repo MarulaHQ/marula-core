@@ -308,6 +308,19 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "settings_key_taken",
             "a setting with this key already exists",
         )),
+        // Wave 43 track 2 lane 12 (migration 0127): an offline-replayed
+        // sign-off create lands on its own idempotency key. Typed so the
+        // client's write queue can recognise its replay as already applied.
+        "sign_offs_org_id_idempotency_key_key" => Some((
+            "sign_off_already_captured",
+            "this sign-off was already captured; the offline queue replay is a no-op",
+        )),
+        // Same lane: a consent version collision (two admins adding the
+        // next version at once) rather than two revisions racing to N.
+        "sign_off_consents_org_id_version_key" => Some((
+            "consent_version_taken",
+            "that consent version already exists; reload and add the next one",
+        )),
         // Wave 22 Marketplace v2 (migration 0097): both new unique
         // indexes get typed reasons per the migration-conventions rule.
         "uq_plugin_publisher_identity" => Some((

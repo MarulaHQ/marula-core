@@ -723,6 +723,14 @@ use utoipa::OpenApi;
         crate::routes::attachments::list_for_comment,
         crate::routes::attachments::download,
         crate::routes::attachments::remove,
+        // Wave 43 track 2 lane 12 (migration 0127): sign-off capture, its
+        // revocation trail, payload download, and consent-version control.
+        crate::routes::sign_offs::create,
+        crate::routes::sign_offs::list,
+        crate::routes::sign_offs::revoke,
+        crate::routes::sign_offs::payload,
+        crate::routes::sign_offs::current_consent,
+        crate::routes::sign_offs::create_consent,
         crate::routes::portal::list_attachments,
         crate::routes::portal::download_attachment,
         // portal v2 (TASKLIST Phase 3): invoices, KB, appointment requests
@@ -921,6 +929,10 @@ use utoipa::OpenApi;
     ),
     components(schemas(
         // import framework (TASKLIST D2)
+        // Wave 43 track 2 lane 12: sign-off request bodies.
+        crate::routes::sign_offs::CreateSignOffRequest,
+        crate::routes::sign_offs::RevokeSignOffRequest,
+        crate::routes::sign_offs::CreateConsentRequest,
         crate::routes::imports::DryRunRequest,
         crate::routes::imports::CreateBatchRequest,
         crate::routes::imports::ChunkRequest,
@@ -1889,6 +1901,12 @@ use utoipa::OpenApi;
         // attachments (TASKLIST 2.14)
         core_domain::entities::Attachment,
         core_domain::entities::AttachmentKind,
+        // Wave 43 track 2 lane 12: sign-off evidence + consent models.
+        core_domain::entities::SignOff,
+        core_domain::entities::SignOffConsent,
+        core_domain::entities::SignOffRevocation,
+        core_domain::entities::SignOffSignerKind,
+        core_domain::entities::SignOffView,
         crate::routes::portal::PortalAttachmentView,
         // portal v2 (TASKLIST Phase 3): invoices, KB, appointment requests
         crate::routes::portal_v2::PortalInvoice,
@@ -2152,6 +2170,8 @@ use utoipa::OpenApi;
         (name = "scheduling", description = "Appointments, availability, on-call, calendar views"),
         (name = "projects", description = "Projects: phases/tasks/dependencies/views/templates + milestone billing events"),
         (name = "attachments", description = "File attachments on tickets/comments (ObjectStore-backed)"),
+        // Wave 43 track 2 lane 12 (migration 0127)
+        (name = "sign_offs", description = "Customer sign-off capture: witnessed signatures, their revocation trail, and consent wording"),
         (name = "kb", description = "Native knowledge base: categories, articles, client-facing flags"),
         (name = "documents", description = "Documents with immutable, append-only, diffable versions (restore-creates-new-version)"),
         (name = "alerts", description = "Alert ingestor: HMAC-signed webhook ingest, dedup/correlation, storm collapse into incident tickets"),

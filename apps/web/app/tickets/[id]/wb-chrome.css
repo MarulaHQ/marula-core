@@ -1,0 +1,16 @@
+/**
+ * Ticket workbench chrome — co-located beside [id]/page.tsx, which writes these classes.
+ *
+ * Moved out of `packages/ui/src/components.css` by the shared-chrome close-out
+ * (2026-10-12): that sheet carries the kit's shared vocabulary, and these
+ * rules belong to a feature.
+ */
+
+.m-wb-tab-count {
+  margin-left: 5px;
+  font-family: var(--m-font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--m-text-muted);
+}

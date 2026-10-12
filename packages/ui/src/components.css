@@ -108,6 +108,7 @@
    action inverts with it: gold on ink, never the surface's own cream (gold on
    cream is 1.7:1). The tokens flip together in dark mode, so this rule never
    needs a dark-mode override. */
+
 .m-btn-assistant {
   background: var(--m-asbtn);
   color: var(--m-asbtnf);
@@ -127,6 +128,7 @@
    every action on the card is gold then none of them is the one. The secondary
    is gold on ink with a gold border, so it reads as available without
    competing with the primary it sits beside. */
+
 .m-btn-assistant-outline {
   background: transparent;
   color: var(--m-asbtn);
@@ -149,6 +151,7 @@
 /* The single inverted surface on a screen. Its five tokens flip together, so
    no rule here has a dark-mode variant — that is the point of holding them
    as a set. */
+
 .m-assistant-card {
   background: var(--m-asb);
   color: var(--m-asf);
@@ -205,6 +208,7 @@
 /* Dismissed: a dashed row, not a card. Undo stays reachable without opening
    anything, because dismissing a recommendation is a reflex and the undo is
    the safety net for it. */
+
 .m-assistant-dismissed {
   display: flex;
   align-items: center;
@@ -244,6 +248,7 @@
 }
 
 /* The open question and, once answered, the answer under it. */
+
 .m-assistant-question {
   display: flex;
   align-items: flex-start;
@@ -285,6 +290,7 @@
 
 /* The three states the assistant surface adds on top of the card: the ran
    report, the quiet actions row, and an error the person has to see. */
+
 .m-assistant-ran {
   display: inline-flex;
   align-items: center;
@@ -342,6 +348,7 @@
    the plan's literal `rounded-md` (6px): tokens.css states that buttons AND
    inputs render at 10px, and a control that is not the same shape as the
    button beside it is a visible seam in every form in the product. */
+
 .m-input,
 .m-select-trigger {
   height: var(--m-density-control);
@@ -376,6 +383,7 @@
 /* The plan's `border-destructive` on error. `--m-destructive` and
    `--m-status-danger-fg` carry the same red in both modes by design, so a
    field error and a P1 badge are the same red and cannot drift apart. */
+
 .m-input[aria-invalid="true"],
 .m-textarea[aria-invalid="true"] {
   border-color: var(--m-destructive);
@@ -498,6 +506,7 @@
    a run of text on a coloured fill with the glyphs touching the round ends,
    which is exactly what it looked like. Restored from
    `marula-surface-pack/source/clients.html` (`.pill`). */
+
 .m-badge {
   display: inline-flex;
   align-items: center;
@@ -563,6 +572,7 @@
 
 /* Red is reserved for genuine breach, P1 and destructive actions, so P1 takes
    the danger pair and nothing below it does. */
+
 .m-badge-p1 {
   background: var(--m-status-danger-bg);
   color: var(--m-status-danger-fg);
@@ -690,7 +700,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .m-spinner {
+.m-spinner {
     animation-duration: 0.01ms;
     animation-iteration-count: 1;
   }
@@ -708,6 +718,7 @@
 
 /* The mark is line work in the text colour at reduced weight, so it belongs
    to the surface rather than sitting on it as an asset. */
+
 .m-empty-mark {
   color: var(--m-text-muted);
   opacity: 0.7;
@@ -720,6 +731,7 @@
    EVERY theme — the same inversion the assistant card uses, because both mean
    "this is not the ordinary surface" — and the undo action is the one gold
    thing inside it. */
+
 [data-sonner-toaster] {
   --normal-font: var(--m-font-ui);
   font-family: var(--m-font-ui);
@@ -796,6 +808,7 @@
 /* Density switch: the same segmented shape as the view switch, because the
    two are read the same way — but radio semantics, and with the step's own
    measurements on it, since "Compact" means nothing until you know 40px. */
+
 .m-density-switch {
   display: inline-flex;
   align-items: center;
@@ -804,6 +817,7 @@
 
 /* The printed label is a word, not a control: the group beside it is the
    control, and it is the group that takes the border. */
+
 .m-density-switch-label {
   font-size: 13px;
   color: var(--m-text-secondary);
@@ -838,6 +852,7 @@
 /* The icons shape: three small square segments, as the pack's footer draws
    them. 32px keeps the pointer target honest without turning a footer control
    into a feature. */
+
 .m-density-switch--icons .m-density-switch-item {
   width: 32px;
   height: 30px;
@@ -846,6 +861,7 @@
 
 /* The active step is a raised tile, not a filled colour: the footer's one
    quiet accent is the spark, and a gold slab here would out-shout it. */
+
 .m-density-switch--icons .m-density-switch-item.is-active {
   background: var(--m-surface);
   color: var(--m-text);
@@ -854,6 +870,7 @@
 
 /* The described shape: the settings page explaining the setting, where each
    step's name and its measurement are the point. */
+
 .m-density-switch--described .m-density-switch-group {
   background: var(--m-surface);
 }
@@ -910,6 +927,7 @@
 /* The current step is gold, a step already been through is green with a
    check, and every step is a button — a technician who knows the answer is
    Resolved should not have to walk it through Waiting. */
+
 .m-stepper {
   display: flex;
   flex-wrap: wrap;
@@ -986,6 +1004,7 @@
 
 /* Done is green with a check, per the colour rules: a step already passed is
    finished, and finished is green everywhere else in the product too. */
+
 .m-stepper-step.is-done {
   background: var(--m-status-success-bg);
   color: var(--m-status-success-fg);
@@ -999,6 +1018,7 @@
 }
 
 /* The current step is gold. Not a tint of the current step — the step. */
+
 .m-stepper-step.is-current {
   background: var(--m-accent-soft);
   color: var(--m-accent-text);
@@ -1016,6 +1036,7 @@
 /* A reply is the plain surface; an internal note takes the note tint, the
    same tint internal timeline entries use, so a screenshot tells you who the
    writer is talking to without reading the label. */
+
 .m-composer {
   border-radius: 14px;
   border: 1px solid var(--m-border);
@@ -1068,6 +1089,7 @@
 
 /* The strip the four controls share. One wrapping row rather than a
    horizontal scroller: a scroller hides the control the user came for. */
+
 .m-data-toolbar {
   display: flex;
   flex-direction: column;
@@ -1132,6 +1154,7 @@
 
 /* The popover both popovers share: a settings sheet, pinned to its trigger,
    above the strip, and never wider than the viewport. */
+
 .m-column-chooser,
 .m-filter-builder-root {
   position: relative;
@@ -1191,6 +1214,7 @@
 
 /* Column list: the table's own order, so hiding and moving are the same
    gesture and a column nobody has seen sits beside the ones they hide daily. */
+
 .m-column-list {
   margin: 0;
   padding: 0;
@@ -1237,6 +1261,7 @@
 
 /* View switch: a pressed segment rather than a menu, so getting back to the
    view you were just in is one click and not a reopen. */
+
 .m-view-switch {
   display: inline-flex;
   align-items: center;
@@ -1274,6 +1299,7 @@
 
 /* Gold means the current thing, everywhere in the product — the active step,
    the active chip, the running clock. A view switch is no exception. */
+
 .m-view-switch-item.is-active {
   background: var(--m-accent-soft);
   color: var(--m-accent-text);
@@ -1286,6 +1312,7 @@
 }
 
 /* Filter chips: the active filter, said back, one removable piece at a time. */
+
 .m-filter-bar {
   display: flex;
   flex-wrap: wrap;
@@ -1350,6 +1377,7 @@
 
 /* Export: the count is on the control, because a row count discovered after
    the fact is how a ledger goes to the wrong person. */
+
 .m-export {
   position: relative;
   display: inline-flex;
@@ -1411,6 +1439,7 @@
 /* Reorder and resize affordances. The grip and the divider are the only two
    pixels of chrome on the header, and neither shows until the header is
    hovered or focused, so a table at rest is still a table. */
+
 .m-table th.is-reorderable {
   position: relative;
   user-select: none;
@@ -1445,6 +1474,7 @@
 
 /* The drop indicator sits on the edge the column lands against, and is drawn
    as an inset shadow so it does not move the cell's box. */
+
 .m-table th.is-drop-before {
   box-shadow: inset 2px 0 0 var(--m-accent);
 }
@@ -1500,6 +1530,7 @@
    the whole point of the primitive. Tracking is 0.06em rather than the
    eyebrow's 0.08em: a column header is a longer string than a section label
    ("LAST ACTIVITY" against "CONTRACT"), and it sits at 13px, not 12. */
+
 .m-table th {
   position: sticky;
   top: 0;
@@ -1616,6 +1647,7 @@
 /* Slim formatting toolbar: rides control tokens; tools are 24px icon
  * buttons with aria-labels; the active state uses the accent-soft mix
  * (Ember stays interactive-only). */
+
 .m-editor-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1668,6 +1700,7 @@
 }
 
 /* Slash/block menu — popover list. */
+
 .m-editor-menu {
   z-index: 60;
   min-width: 200px;
@@ -1708,6 +1741,7 @@
 
 /* Editor content canvas + saved-read prose (both modes render from
  * tokens only; embed frames hold a 16:9 area). */
+
 .m-editor-canvas {
   min-height: 240px;
   padding: 12px;
@@ -1813,6 +1847,7 @@
 }
 
 /* Tiptap selection styling uses ::selection, not animation. */
+
 .m-editor-canvas .ProseMirror-selectednode {
   outline: 2px solid var(--m-focus-ring);
   outline-offset: 2px;
@@ -1823,6 +1858,7 @@
 }
 
 /* Saved (read-only) article prose reuses the same vocabulary. */
+
 .m-kb-prose :where(p) {
   margin: 0.5em 0;
 }
@@ -1835,6 +1871,7 @@
    No outer margin: a frame that also decides the space around it fights
    whatever container it is dropped into. Spacing stays with the surface's
    own layout, which is what the `SettingsHeader` alias does explicitly. */
+
 .m-surface-header {
   display: flex;
   flex-direction: column;
@@ -1872,6 +1909,7 @@
 
 /* The two sizes the pack draws. `surface` is the ledger shape every
    `web/<area>/states` sheet uses; `compact` is the settings/utility shape. */
+
 .m-surface-header-title-surface {
   font-size: 26px;
 }
@@ -1901,22 +1939,6 @@
 
 }
 
-/* --- resolved: p41-ui-operations blocks follow the p41-ui-chrome ones --- */
-/* --- entrance motion ------------------------------------------------------
- * One generic reveal for a list that renders a known number of rows. Transform
- * and opacity only, 120ms, no layout property animated — the motion law in
- * docs/theme.md §5.
- *
- * The stagger is the CALLER's to set, as an inline `animation-delay`, because
- * only the surface knows how many rows it rendered and how many of them are
- * worth staggering. This file may not name a custom property of its own: the
- * css-contract test requires every `var(--*)` here to be a tokens.css token.
- * A caller that wants no stagger simply does not set a delay.
- */
-.m-enter > * {
-  animation: m-enter 120ms ease-out both;
-}
-
 @keyframes m-enter {
   from {
     opacity: 0;
@@ -1926,83 +1948,6 @@
     opacity: 1;
     transform: none;
   }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .m-enter > * {
-    animation-duration: 0.01ms;
-    animation-delay: 0ms;
-  }
-}
-
-/* --- merge banner ----------------------------------------------------------
- * A neutral/sand strip. History, not alarm: nothing here is at risk, so the
- * warning and danger pairs are both wrong. The leading mark is drawn in bark so
- * it reads as a filing mark rather than a status dot.
- */
-.m-merge-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--m-status-neutral-bg);
-  color: var(--m-status-neutral-fg);
-  font-size: 12.5px;
-  border-top: 1px solid var(--m-border);
-}
-
-.m-merge-banner-icon {
-  display: inline-flex;
-  flex-shrink: 0;
-  color: var(--m-bark);
-}
-
-.m-merge-banner-text {
-  min-width: 0;
-  flex: 1;
-}
-
-.m-merge-banner-link {
-  flex-shrink: 0;
-  color: var(--m-gold-text);
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.m-merge-banner-link.is-muted {
-  color: var(--m-text-muted);
-  font-weight: 400;
-  text-decoration: none;
-}
-
-/* --- ticket ledger ---------------------------------------------------------
- * The parts of a data surface that DataToolbar does not own: the bulk-action
- * cluster, the sort control inside a `Th`, the merged-row flag and the table's
- * foot line. All of it is surface-shaped rather than a new primitive, so it
- * lives here with the rest of the component styling.
- */
-.m-bulk-bar {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border: 1px solid var(--m-border);
-  border-radius: var(--m-radius-control);
-  background: var(--m-surface-2);
-}
-
-.m-bulk-count {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--m-text);
-  white-space: nowrap;
-}
-
-.m-bulk-bar .m-input {
-  min-height: var(--m-density-control-sm);
-  padding: 0 8px;
-  font-size: 12.5px;
 }
 
 .m-th-sort {
@@ -2031,22 +1976,6 @@
   color: var(--m-text-muted);
 }
 
-/* The merged flag is a word, not a dot: a row that is closed because of a
- * merge has to say so at a glance, in the same column as everything else. */
-.m-merged-flag {
-  flex-shrink: 0;
-  /* The pack's `.tag`: 12px, .06em, 1px 8px. It was 11px and 6px wide, which
-     made the word sit inside its pill rather than fill it. */
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--m-status-neutral-bg);
-  color: var(--m-status-neutral-fg);
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
 .m-table-foot {
   margin: 0;
   padding: 8px 12px;
@@ -2055,46 +1984,9 @@
   color: var(--m-text-muted);
 }
 
-.m-merge-row td {
-  padding: 0;
-}
-
-/* --- Today: on call & schedule --------------------------------------------
- * Two quiet cards beside the queue. A technician reads them once, at the top of
- * the day, and then stops — so they are dense rows on a card rather than a
- * timetable. The section title carries the count so the card's own body can
- * stay a list.
- */
-.m-day-context-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  /* The pack's `.lab`. */
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--m-text-secondary);
-}
-
-.m-day-context-count {
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--m-surface-2);
-  color: var(--m-text-secondary);
-  font-size: 11px;
-  letter-spacing: 0;
-}
-
-.m-day-context-note {
-  margin: 0;
-  font-size: 13px;
-  color: var(--m-text-secondary);
-}
-
 /* Context column — 290px, S2's width in all three variants. Below xl the
    column stacks in source order instead of sitting beside a fluid one. */
+
 .m-context-column {
   display: flex;
   min-width: 0;
@@ -2103,7 +1995,7 @@
 }
 
 @media (min-width: 1280px) {
-  .m-context-column {
+.m-context-column {
     width: 290px;
     flex-shrink: 0;
     max-height: calc(100vh - 11rem);
@@ -2129,6 +2021,7 @@
 }
 
 /* Assistant column — 340px, S3's width. */
+
 .m-assistant-column {
   display: flex;
   min-width: 0;
@@ -2137,7 +2030,7 @@
 }
 
 @media (min-width: 1280px) {
-  .m-assistant-column {
+.m-assistant-column {
     width: 340px;
     flex-shrink: 0;
     max-height: calc(100vh - 11rem);
@@ -2159,52 +2052,11 @@
 
 }
 
-/* --- resolved: p41-ui-operations blocks follow the p41-ui-chrome ones --- */
-.m-day-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.m-day-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: var(--m-density-row);
-  padding: 4px 0;
-  border-top: 1px solid var(--m-border);
-}
-
-.m-day-list > .m-day-row:first-child {
-  border-top: 0;
-}
-
-.m-day-when {
-  flex-shrink: 0;
-  font-size: 12.5px;
-  color: var(--m-text-secondary);
-}
-
-.m-day-name {
-  min-width: 0;
-  flex: 1;
-  font-size: 13px;
-  color: var(--m-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.m-day-meta {
-  flex-shrink: 0;
-  font-size: 12px;
-  color: var(--m-text-muted);
-}
-
 /* --- workbench: custom fields, tags, link tree -----------------------------
  * Facts about a ticket, in the neutral surface voice. Nothing here takes a
  * status pair, because nothing here is a status.
  */
+
 .m-panel-subhead {
   /* The pack's `.lab`: 12px / .08em / 600. It was 11px / .06em / 700 here,
      which read undersized and jammed against the container above it. */
@@ -2219,6 +2071,7 @@
 /* Custom fields are a definition list, so the screen reader gets name/value
  * pairs rather than a grid of loose spans. Two columns at the workbench width,
  * one when it narrows; the label/value rhythm is the separator. */
+
 .m-field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -2260,30 +2113,6 @@
   padding: 0;
 }
 
-/* The rollup strip: four facts about the linked tree, read in one pass. Mono
- * figures with tabular numerals so the digits line up down the column. */
-.m-rollup {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--m-border);
-  border-radius: var(--m-radius-container);
-  background: var(--m-surface-2);
-}
-
-.m-rollup-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.m-rollup-value {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--m-text);
-}
-
 .m-assistant-column-body {
   display: flex;
   min-width: 0;
@@ -2301,6 +2130,7 @@
    cream in dark. `--m-ink-dark` is never overridden, so the badge keeps its
    ink ground in both themes. See the lane landing record; the aliasing itself
    is the token owner's call, not this component's. */
+
 .m-assistant-stub {
   position: relative;
   display: flex;
@@ -2331,62 +2161,4 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 
-}
-
-/* --- resolved: p41-ui-operations blocks follow the p41-ui-chrome ones --- */
-.m-rollup-label {
-  font-size: 12px;
-  color: var(--m-text-secondary);
-}
-
-.m-edge-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.m-edge {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: var(--m-density-row);
-  padding: 5px 0;
-  border-top: 1px solid var(--m-border);
-}
-
-.m-edge-list > .m-edge:first-child {
-  border-top: 0;
-}
-
-.m-edge-link {
-  flex-shrink: 0;
-  font-family: var(--m-font-mono);
-  font-size: 12.5px;
-  color: var(--m-text);
-  text-decoration-color: var(--m-accent);
-}
-
-.m-edge-label {
-  font-size: 13px;
-  color: var(--m-text-secondary);
-}
-
-.m-edge-meta {
-  font-size: 12px;
-  color: var(--m-text-muted);
-}
-
-/* --- workbench tab row figures --------------------------------------------
- * The pack draws `Activity 7 · Time 0:45 · Files 1`. A figure is a quiet
- * annotation on a label, not a badge: it sits at the muted tone, keeps the
- * label's own weight down so "Activity" still reads first, and takes tabular
- * figures so a row of them lines up when a scan crosses the tab strip.
- */
-.m-wb-tab-count {
-  margin-left: 5px;
-  font-family: var(--m-font-mono);
-  font-size: 10.5px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  color: var(--m-text-muted);
 }

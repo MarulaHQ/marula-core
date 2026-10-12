@@ -55,7 +55,6 @@ import {
   SelectValue,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -2038,9 +2037,9 @@ function CompletenessCard({
           </div>
           <p className="mt-1 flex items-center gap-2">
             <span className="text-[20px] font-semibold tabular-nums">{completeness.score}</span>
-            <Tag tone={tone === "success" || tone === "warning" || tone === "danger" ? tone : "neutral"}>
+            <Badge tone={tone === "success" || tone === "warning" || tone === "danger" ? tone : "neutral"}>
               {completeness.score >= 75 ? "complete" : completeness.score >= 40 ? "in progress" : "thin"}
-            </Tag>
+            </Badge>
           </p>
           <p className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
             {completeness.basis}

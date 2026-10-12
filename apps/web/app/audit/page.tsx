@@ -13,6 +13,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   ColumnChooser,
   DataToolbar,
@@ -22,7 +23,6 @@ import {
   Spinner,
   SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -148,7 +148,7 @@ export default function AuditPage() {
         label: "Kind",
         sortValue: (r) => r.actorKind,
         render: (r) => (
-          <Tag tone={KIND_TONE[r.actorKind] ?? "neutral"}>{r.actorKind}</Tag>
+          <Badge tone={KIND_TONE[r.actorKind] ?? "neutral"}>{r.actorKind}</Badge>
         ),
       },
       {

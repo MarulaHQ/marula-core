@@ -12,7 +12,10 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Spinner, StatusTag } from "@marula-core/ui";
+import {
+  Badge,
+  Spinner,
+} from "@marula-core/ui";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";
@@ -261,7 +264,7 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
             >
               <div className="flex flex-wrap items-center gap-2">
                 {row.badge !== null && row.badge !== undefined && (
-                  <StatusTag tone={row.badgeTone ?? "neutral"}>{row.badge}</StatusTag>
+                  <Badge tone={row.badgeTone ?? "neutral"}>{row.badge}</Badge>
                 )}
                 {row.parentId != null && (
                   <span

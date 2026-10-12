@@ -18,6 +18,7 @@
 
 import type { components } from "@marula-core/sdk";
 import {
+  Badge,
   Button,
   Checkbox,
   Dialog,
@@ -26,7 +27,6 @@ import {
   Input,
   Label,
   Spinner,
-  StatusTag,
   SurfaceHeader,
 } from "@marula-core/ui";
 import { useParams, useRouter } from "next/navigation";

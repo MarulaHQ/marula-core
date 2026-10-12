@@ -47,7 +47,6 @@ import {
   SelectValue,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -508,7 +507,7 @@ export default function ContractDetailPage(): ReactNode {
                 {contract.number}
               </p>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <Tag tone={contractStatusTone(contract.status)}>{contract.status}</Tag>
+                <Badge tone={contractStatusTone(contract.status)}>{contract.status}</Badge>
                 <Badge tone="neutral">{contract.contract_type.replaceAll("_", " ")}</Badge>
               </div>
             </RecordSection>
@@ -567,7 +566,7 @@ export default function ContractDetailPage(): ReactNode {
           <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em]">
             {contract.name}
           </h1>
-          <Tag tone={contractStatusTone(contract.status)}>{contract.status}</Tag>
+          <Badge tone={contractStatusTone(contract.status)}>{contract.status}</Badge>
           <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
             {contract.number}
           </span>
@@ -577,9 +576,9 @@ export default function ContractDetailPage(): ReactNode {
           {(() => {
             const sig = termSignal(contract.effective_until);
             return sig !== null ? (
-              <Tag tone={sig.tone === "warning" ? "warning" : "danger"} data-testid="contract-term-signal">
+              <Badge tone={sig.tone === "warning" ? "warning" : "danger"} data-testid="contract-term-signal">
                 {sig.label}
-              </Tag>
+              </Badge>
             ) : null;
           })()}
         </div>
@@ -1162,7 +1161,7 @@ export default function ContractDetailPage(): ReactNode {
                   </Td>
                   <Td className="text-right tabular-nums">{money(order.amount_minor, contract.currency)}</Td>
                   <Td>
-                    <Tag tone={orderTone(order.status)}>{order.status}</Tag>
+                    <Badge tone={orderTone(order.status)}>{order.status}</Badge>
                   </Td>
                   <Td>{order.approved_at?.slice(0, 10) ?? "—"}</Td>
                   <Td>
@@ -1279,7 +1278,7 @@ export default function ContractDetailPage(): ReactNode {
                   <Td className="text-right tabular-nums">{money(credit.amount_minor, credit.currency)}</Td>
                   <Td>{credit.applies_on}</Td>
                   <Td>
-                    <Tag tone={creditTone(credit.status)}>{credit.status}</Tag>
+                    <Badge tone={creditTone(credit.status)}>{credit.status}</Badge>
                   </Td>
                   <Td>
                     {credit.status === "pending" ? (
@@ -1498,7 +1497,7 @@ export default function ContractDetailPage(): ReactNode {
             </p>
             <SummaryCard title="Status">
               <RecordRow label="Status">
-                <Tag tone={contractStatusTone(contract.status)}>{contract.status}</Tag>
+                <Badge tone={contractStatusTone(contract.status)}>{contract.status}</Badge>
               </RecordRow>
               <RecordRow label="Type">{contract.contract_type.replaceAll("_", " ")}</RecordRow>
               <RecordRow label="Currency">{contract.currency}</RecordRow>

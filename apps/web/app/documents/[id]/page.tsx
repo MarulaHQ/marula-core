@@ -16,6 +16,7 @@
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -30,12 +31,11 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
-  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -385,7 +385,7 @@ export default function DocumentDetailPage() {
             ) : (
               <span>Org-global</span>
             )}
-            {layout !== null ? <Tag tone="outline">{layout.name}</Tag> : null}
+            {layout !== null ? <Badge tone="neutral">{layout.name}</Badge> : null}
             <span className="tabular-nums">v{doc.current_version}</span>
             <span>
               ·{" "}
@@ -394,7 +394,7 @@ export default function DocumentDetailPage() {
                 : `updated ${new Date(doc.content_updated_at).toLocaleString()}`}
             </span>
             {doc.restored_from_version != null ? (
-              <Tag tone="warning">restored from v{doc.restored_from_version}</Tag>
+              <Badge tone="warning">restored from v{doc.restored_from_version}</Badge>
             ) : null}
           </span>
         }
@@ -531,7 +531,7 @@ export default function DocumentDetailPage() {
                           </Td>
                           <Td className="text-right">
                             {isCurrent ? (
-                              <Tag tone="success">current</Tag>
+                              <Badge tone="success">current</Badge>
                             ) : (
                               <Button
                                 size="sm"
@@ -718,7 +718,7 @@ export default function DocumentDetailPage() {
                     style={{ borderColor: "var(--m-border)" }}
                   >
                     <span className="min-w-0">
-                      <Tag tone="outline">{l.to_kind.replace("_", " ")}</Tag>{" "}
+                      <Badge tone="neutral">{l.to_kind.replace("_", " ")}</Badge>{" "}
                       {l.target_deleted ? (
                         <span style={{ color: "var(--m-status-danger-fg)" }}>deleted target</span>
                       ) : (

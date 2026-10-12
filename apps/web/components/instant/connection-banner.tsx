@@ -15,7 +15,9 @@
 
 "use client";
 
-import { Tag } from "@marula-core/ui";
+import {
+  Badge,
+} from "@marula-core/ui";
 import { useConnectionState, useOutbox } from "../../lib/use-instant";
 
 export function ConnectionBanner() {
@@ -24,18 +26,18 @@ export function ConnectionBanner() {
 
   if (!online) {
     return (
-      <Tag tone="warning" aria-live="polite">
+      <Badge tone="warning" aria-live="polite">
         {pending > 0
           ? `Offline — ${pending} ${pending === 1 ? "change" : "changes"} will sync when you're back`
           : "Offline — changes will sync when you're back"}
-      </Tag>
+      </Badge>
     );
   }
   if (resyncing) {
     return (
-      <Tag tone="warning" aria-live="polite">
+      <Badge tone="warning" aria-live="polite">
         Catching up with recent changes…
-      </Tag>
+      </Badge>
     );
   }
   // The live leg only exists once something subscribes; a page without
@@ -43,11 +45,11 @@ export function ConnectionBanner() {
   const liveInUse = status !== "closed" || pending > 0 || outcomes.length > 0;
   if (liveInUse && status !== "open") {
     return (
-      <Tag tone="warning" aria-live="polite">
+      <Badge tone="warning" aria-live="polite">
         {pending > 0
           ? `Reconnecting — ${pending} ${pending === 1 ? "change" : "changes"} queued`
           : "Reconnecting…"}
-      </Tag>
+      </Badge>
     );
   }
   return null;

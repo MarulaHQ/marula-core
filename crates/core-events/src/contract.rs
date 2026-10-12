@@ -500,8 +500,9 @@ use core_domain::events::{
     SchedulingLinkViewed, ScorecardSettingsUpdated, SecretFolderCreated, SecretFolderDeleted,
     SecretFolderForked, SecretFolderUpdated, SecretGrantDeleted, SecretGrantUpdated,
     SecretRecordCreated, SecretRecordDeleted, SecretRecordUpdated, SecretRevealed,
-    SecretRotationDue, SecretShareLinkClaimed, SecretShareLinkCreated, SiteCreated, SiteUpdated,
-    StockItemArchived, StockItemCreated, StockItemUpdated, StockLevelLow, StockMovementRecorded,
+    SecretRotationDue, SecretShareLinkClaimed, SecretShareLinkCreated, SignOffConsentCreated,
+    SignOffCreated, SignOffRevoked, SignOffSuperseded, SiteCreated, SiteUpdated, StockItemArchived,
+    StockItemCreated, StockItemUpdated, StockLevelLow, StockMovementRecorded,
     TagCreated, TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated,
     TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded,
     TicketCostLineAdded, TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded,
@@ -2496,6 +2497,72 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 config_keys: vec!["tone".into()],
                 updated_by: su(54),
                 occurred_at: st(20),
+            }
+        ),
+    },
+    // -- sign-offs (Wave 43 track 2 lane 12) --------------------------------
+    PublishedEvent {
+        event_type: types::SIGN_OFF_CREATED,
+        entity: "sign_off",
+        variant: "default",
+        shape: typed_shape!(
+            SignOffCreated,
+            SignOffCreated {
+                sign_off_id: su(60),
+                ticket_id: su(1),
+                attachment_id: Some(su(61)),
+                typed_agreement: false,
+                signer_name: "Dana Whitfield".into(),
+                signer_kind: "customer".into(),
+                witnessed_by_user_id: Some(su(5)),
+                captured_at: st(20),
+                consent_version: 1,
+                sha256: "cc".repeat(32),
+                size_bytes: 18_432,
+                supersedes_sign_off_id: None,
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SIGN_OFF_REVOKED,
+        entity: "sign_off",
+        variant: "default",
+        shape: typed_shape!(
+            SignOffRevoked,
+            SignOffRevoked {
+                sign_off_id: su(60),
+                revocation_id: su(62),
+                ticket_id: su(1),
+                reason: "Customer disputed the work, re-sign requested".into(),
+                seq: 1,
+                revoked_by_user_id: su(5),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SIGN_OFF_SUPERSEDED,
+        entity: "sign_off",
+        variant: "default",
+        shape: typed_shape!(
+            SignOffSuperseded,
+            SignOffSuperseded {
+                sign_off_id: su(60),
+                ticket_id: su(1),
+                corrected_by_sign_off_id: su(64),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::SIGN_OFF_CONSENT_CREATED,
+        entity: "sign_off_consent",
+        variant: "default",
+        shape: typed_shape!(
+            SignOffConsentCreated,
+            SignOffConsentCreated {
+                consent_id: su(63),
+                version: 2,
+                body: "I confirm the work described above was completed to my satisfaction.".into(),
+                created_by: su(5),
             }
         ),
     },

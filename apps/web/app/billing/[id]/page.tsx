@@ -22,6 +22,7 @@
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Dialog,
   DialogActions,
@@ -38,7 +39,6 @@ import {
   SelectValue,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -60,6 +60,7 @@ import {
 import {
   AgeingPill,
   MoneyCard,
+  MoneyHeader,
   MoneyKv,
   MoneyNote,
   MoneyPillTag,
@@ -405,12 +406,19 @@ export default function InvoiceDetailPage() {
         <span>{invoice.number}</span>
       </nav>
 
-      <div className="m-money-invhead">
-        <h1>{invoice.number}</h1>
-        <MoneyPillTag pill={pill} testId="invoice-status-pill" />
-        <AgeingPill bucket={bucket} label={late} testId="invoice-ageing-pill" />
-        <span className="m-money-invhead-sp" />
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <MoneyHeader
+        className="m-money-invhead"
+        eyebrow="Invoices"
+        nav={false}
+        title={invoice.number}
+        stats={
+          <>
+            <MoneyPillTag pill={pill} testId="invoice-status-pill" />
+            <AgeingPill bucket={bucket} label={late} testId="invoice-ageing-pill" />
+          </>
+        }
+        actions={
+          <div style={{ flex: 1 }}>
           {/* In order of risk: a reminder touches nothing, a credit reverses
               value, a payment closes the invoice. */}
           {isOpen && forwardStates.length > 0 ? (
@@ -530,7 +538,8 @@ export default function InvoiceDetailPage() {
             </DialogContent>
           </Dialog>
         </div>
-      </div>
+        }
+      />
 
       {actionNote !== null ? (
         <p role="status" className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -620,7 +629,7 @@ export default function InvoiceDetailPage() {
                     <Tr key={p.id} className="row-hover">
                       <Td className="text-[12px]">{new Date(p.received_at).toLocaleString()}</Td>
                       <Td>
-                        <Tag>{p.provider === "none" ? "EFT" : p.provider}</Tag>
+                        <Badge tone="neutral">{p.provider === "none" ? "EFT" : p.provider}</Badge>
                       </Td>
                       <Td>{p.notes ?? "—"}</Td>
  <Td className="text-right text-[12px] tabular-nums">

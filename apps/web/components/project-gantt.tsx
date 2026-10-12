@@ -15,11 +15,11 @@
 // because putting a bar at "today" would assert a schedule nobody chose.
 
 import {
+  Badge,
   Card,
   CardHeader,
   EmptyState,
   Spinner,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useState } from "react";
@@ -329,7 +329,7 @@ function PhaseStatusTag({ phase }: { phase: Phase }) {
       : phase.status === "in_progress" || phase.status === "active"
         ? "warning"
         : "neutral";
-  return <Tag tone={tone}>{phase.status.replace("_", " ")}</Tag>;
+  return <Badge tone={tone}>{phase.status.replace("_", " ")}</Badge>;
 }
 
 /**

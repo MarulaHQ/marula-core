@@ -33,7 +33,10 @@ test.describe("theme preset matrix (shipped defaults only)", () => {
     const tags = ["warm-preset-light", "warm-preset-dark", "high-contrast-preset-light", "high-contrast-preset-dark"];
     const isDefault = !tags.includes(testInfo.project.name);
     await page.goto("/");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", /light|dark/);
+    // The DOM carries the kit's names: the app's `light` is written as
+    // `neutral` so the kit's cream block cannot win
+    // (packages/ui/src/theme.ts toDomTheme).
+    await expect(page.locator("html")).toHaveAttribute("data-theme", /neutral|dark/);
     if (isDefault) {
       await expect(page.locator("html")).not.toHaveAttribute("data-preset");
     } else {

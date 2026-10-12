@@ -601,6 +601,20 @@ export function invalidationFor(envelope: EventEnvelope): {
       }
       break;
     }
+    // Wave 43 track 2 lane 12: a sign-off (or its revocation / correction)
+    // changes the ticket it was captured on, so the ticket re-snapshots.
+    case "sign_off":
+    case "sign_off_consent": {
+      keys.add(MODELS.myWork);
+      // A wording revision changes what every pad must show, so the consent
+      // read re-fetches for the whole app rather than for one ticket.
+      keys.add(MODELS.signOffConsent);
+      if (ticketId !== undefined) {
+        keys.add(MODELS.ticket(ticketId));
+        keys.add(MODELS.signOffs(ticketId));
+      }
+      break;
+    }
     case "timer": {
       keys.add(MODELS.activeTimer);
       keys.add(MODELS.myWork);

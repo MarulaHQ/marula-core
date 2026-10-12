@@ -13,6 +13,7 @@
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -22,7 +23,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -169,11 +169,11 @@ export default function WorkflowOverridesTab({ clientId }: { clientId: string })
           >
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-medium">{entry.label}</span>
-              <StatusTag
+              <Badge
                 tone={entry.source === "client_override" ? "success" : entry.source === "unset" ? "neutral" : "warning"}
               >
                 {SOURCE_LABEL[entry.source] ?? entry.source}
-              </StatusTag>
+              </Badge>
               {detailText(entry) !== null && (
                 <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                   {detailText(entry)}

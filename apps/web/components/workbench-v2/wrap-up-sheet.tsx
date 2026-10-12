@@ -13,6 +13,15 @@
 // Keep working → create the time entry from the session and keep the
 // timer-free ticket open. A ticket with no timer session renders the
 // typed state and still allows the status transitions.
+//
+// Wave 43 track 2 lane 12: the same wrap-up moment gains a "Client
+// sign-off" section — the parity half of the mobile pack's own signature
+// pad (design/mockups/marula-app-mockup-images/mobile/*/states/
+// 11-wrap-up-signed.png). It sits where the pack puts it on mobile: after
+// the outcome choice, above the footer. Capture submits immediately (or
+// queues durably when offline) rather than blocking the status change,
+// because a ticket legitimately closes with no signature — the customer
+// was not there.
 // Non-purpose: no client email step here (the classic close flow keeps
 // that; this sheet is the fast path).
 
@@ -24,6 +33,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
+import { SignaturePad, type CapturePayload } from "../signature-pad";
+import {
+  captureSignOff,
+  currentConsent,
+  type ConsentPin,
+} from "../../lib/signature/capture";
 import { useDialogA11y } from "../../lib/a11y/use-dialog-a11y";
 import {
   suggestCategorySlug,
@@ -106,6 +121,14 @@ function WrapUpSheetInner({
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
   const [session, setSession] = useState<TimerSession | null>(null);
+  // Sign-off capture (Wave 43 track 2 lane 12). The pad needs the org's
+  // CURRENT consent wording before the customer can sign, so it is read on
+  // open; a wording that fails to load leaves the pad disabled rather than
+  // letting the signer agree to nothing.
+  const [consent, setConsent] = useState<ConsentPin | null>(null);
+  const [signOff, setSignOff] = useState<
+    { state: "idle" | "capturing" | "accepted" | "queued" } | { state: "failed"; message: string }
+  >({ state: "idle" });
   const { categories, map, refresh: refreshCategories } = useTimeCategories();
 
   // Wave 39 V6: the newest billing-audit answers for this ticket's
@@ -138,6 +161,9 @@ function WrapUpSheetInner({
 
   useEffect(() => {
     if (!open) return;
+    void currentConsent()
+      .then(setConsent)
+      .catch(() => setConsent(null));
     void api.api
       .GET("/api/v1/tickets/{id}/time-entries", { params: { path: { id: ticketId } } })
       .then(({ data }) => setEntries(data ?? []))
@@ -196,6 +222,33 @@ function WrapUpSheetInner({
     statusId !== null ? closedStatuses.find((s) => transitionAllowed(statuses, workflow, statusId, s.id)) ?? null : null;
   const waitingTarget =
     statusId !== null ? waitingStatuses.find((s) => transitionAllowed(statuses, workflow, statusId, s.id)) ?? null : null;
+
+  // Submits the mark and the typed name as ONE evidence row. Accepted,
+  // queued (offline — the durable queue owns the replay), or a typed
+  // rejection that the pad renders inline.
+  async function capture(payload: CapturePayload): Promise<void> {
+    if (consent === null) return;
+    setSignOff({ state: "capturing" });
+    const result = await captureSignOff({
+      ticketId,
+      imageBase64: payload.imageBase64,
+      signerName: payload.signerName,
+      capturedAt: new Date().toISOString(),
+      consent,
+    });
+    if (result.status === "accepted") {
+      setSignOff({ state: "accepted" });
+      return;
+    }
+    if (result.status === "queued") {
+      setSignOff({ state: "queued" });
+      return;
+    }
+    setSignOff({
+      state: "failed",
+      message: result.message ?? "The signature was rejected.",
+    });
+  }
 
   async function stopTimer(): Promise<boolean> {
     if (session === null) return true;
@@ -470,8 +523,35 @@ function WrapUpSheetInner({
             })}
           </div>
 
+          <div className="mt-3.5 border-t pt-3.5" style={{ borderColor: "var(--m-border)" }}>
+            <SignaturePad
+              onCapture={(payload) => capture(payload)}
+              consentText={
+                consent?.body ?? "Loading the consent wording for this workspace…"
+              }
+              consentVersion={consent?.version ?? 0}
+              disabled={consent === null}
+              busy={signOff.state === "capturing"}
+            />
+            {signOff.state === "accepted" && (
+              <p className="mt-1.5 text-xs" style={{ color: "var(--m-status-ok-fg)" }} data-testid="wb-wrapup-signed">
+                Signed off and recorded.
+              </p>
+            )}
+            {signOff.state === "queued" && (
+              <p className="mt-1.5 text-xs" style={{ color: "var(--m-text-secondary)" }} data-testid="wb-wrapup-signed-queued">
+                Signed off. It will sync automatically when you reconnect.
+              </p>
+            )}
+            {signOff.state === "failed" && (
+              <p className="mt-1.5 text-xs" role="alert" style={{ color: "var(--m-status-danger-fg)" }} data-testid="wb-wrapup-signed-failed">
+                {signOff.message}
+              </p>
+            )}
+          </div>
+
           {entries !== null && (
-            <p className="mt-3 text-[10.5px]" style={{ color: "var(--m-text-muted)" }}>
+            <p className="mt-3 text-xs" style={{ color: "var(--m-text-muted)" }}>
               {entries.length} time entr{entries.length === 1 ? "y" : "ies"} already logged on this ticket.
             </p>
           )}

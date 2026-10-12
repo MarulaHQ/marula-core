@@ -18,7 +18,13 @@
 "use client";
 
 import { friendlyMutationText, resultErrorText } from "../../../lib/error-copy";
-import { Button, Card, FieldHint, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  FieldHint,
+  Spinner,
+} from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useState } from "react";
 import { api, apiBaseUrl, useRequireAuth } from "../../../lib/api";
@@ -289,9 +295,9 @@ export default function ExportSettingsPage() {
                     {row.sha256 ? `${row.sha256.slice(0, 12)}…` : "—"}
                   </span>
                   {row.archived ? (
-                    <Tag tone="neutral" data-testid={`export-archived-${row.export_id}`}>
+                    <Badge tone="neutral" data-testid={`export-archived-${row.export_id}`}>
                       Archived
-                    </Tag>
+                    </Badge>
                   ) : null}
                   <span className="ml-auto flex items-center gap-2">
                     <Button

@@ -5,6 +5,7 @@
 //! connector compatibility; typed behavior binds to the layout.
 
 use crate::{DbError, DbResult};
+use chrono::Utc;
 use core_domain::entities::DeviceAsset;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
@@ -49,6 +50,18 @@ pub(crate) fn row_to_asset(row: sqlx::postgres::PgRow) -> DeviceAsset {
         useful_life_months: row.get("useful_life_months"),
         salvage_value_minor: row.get("salvage_value_minor"),
         depreciation_rate_bps: row.get("depreciation_rate_bps"),
+        // The one place the warranty horizon is derived. Every read of an
+        // asset row lands here, so the ledger, the record page and the scan
+        // resolver answer from the same rule rather than each inventing one.
+        warranty: {
+            let fields: serde_json::Value = row.get("fields");
+            core_domain::entities::client::asset_warranty_from_fields(
+                &fields,
+                row.get("purchase_date"),
+                row.get("useful_life_months"),
+                Utc::now().date_naive(),
+            )
+        },
         identity_keys: row.get("identity_keys"),
         observed_fields: row.get("observed_fields"),
         curated_fields: row.get("curated_fields"),

@@ -6,6 +6,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -23,7 +24,6 @@ import {
   SelectValue,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -408,7 +408,7 @@ export default function AssetsTab({ clientId }: { clientId: string }) {
                 <Td>{asset.name}</Td>
                 <Td>{asset.layout_id !== null && asset.layout_id !== undefined ? (layoutById.get(asset.layout_id)?.name ?? "—") : "—"}</Td>
                 <Td>
-                  <Tag>{asset.status}</Tag>
+                  <Badge>{asset.status}</Badge>
                 </Td>
               </Tr>
             ))}

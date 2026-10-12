@@ -11,6 +11,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -25,8 +26,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  StatusTag,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useState, type ReactNode } from "react";
@@ -349,9 +348,9 @@ export function CheckoutDialog({
               {availability !== null && (
                 <>
                   <div className="flex items-center gap-2">
-                    <StatusTag tone={availability.ready ? "success" : "danger"}>
+                    <Badge tone={availability.ready ? "success" : "danger"}>
                       {availability.ready ? "ready" : "not ready"}
-                    </StatusTag>
+                    </Badge>
                     <p className="text-sm" style={{ color: "var(--m-text)" }}>
                       {availability.ready
                         ? "Every member has enough in-stock units here."
@@ -437,9 +436,9 @@ export function CheckoutDialog({
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       {serialized ? (
-                        <Tag tone="outline" className="text-xs">
+                        <Badge tone="neutral" className="text-xs">
                           serialized — one unit per row
-                        </Tag>
+                        </Badge>
                       ) : (
                         <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                           {item === undefined ? "Pick a tool for this row." : "Counted tool."}

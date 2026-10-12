@@ -5,11 +5,11 @@
 // live connection test, remove. Keys are sealed at rest and never
 // render back.
 import {
+  Badge,
   Button,
   Card,
   Input,
   Spinner,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
@@ -146,14 +146,14 @@ export function ByokLegacyCard() {
           </p>
         </div>
         {isConfigured ? (
-          <Tag>
+          <Badge>
             {kind === "connector" ? "key sealed" : "key sealed"} · never displayed
-          </Tag>
+          </Badge>
         ) : (
-          <Tag>not configured</Tag>
+          <Badge>not configured</Badge>
         )}
         {overview !== null && overview.active_provider === provider && kind === "ai" ? (
-          <Tag>active · {overview.active_model}</Tag>
+          <Badge>active · {overview.active_model}</Badge>
         ) : null}
         <div className="flex flex-1 items-center gap-2">
           <Input

@@ -23,6 +23,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   ColumnChooser,
@@ -44,15 +45,14 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
   ViewSwitch,
   applyDensity,
   useDensity,
-  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -534,9 +534,9 @@ export default function SecretsVaultPage() {
                 </span>
                 <span>{KIND_LABELS[selectedFolderRow.kind] ?? selectedFolderRow.kind}</span>
                 {selectedFolderRow.restricted ? (
-                  <Tag tone="warning">restricted · reveal needs an edit grant</Tag>
+                  <Badge tone="warning">restricted · reveal needs an edit grant</Badge>
                 ) : null}
-                {selectedFolderRow.forked_from !== null ? <Tag tone="neutral">forked seed</Tag> : null}
+                {selectedFolderRow.forked_from !== null ? <Badge tone="neutral">forked seed</Badge> : null}
               </div>
             ) : null}
 
@@ -723,9 +723,9 @@ function TreeList({
               </span>
             ) : null}
             {f.restricted ? (
-              <Tag tone="warning" className="ml-2">
+              <Badge tone="warning" className="ml-2">
                 restricted
-              </Tag>
+              </Badge>
             ) : null}
           </button>
           {f.is_default_seed ? (
@@ -1226,7 +1226,7 @@ function LinksPanel({
               style={{ borderColor: "var(--m-border)" }}
             >
               <span className="min-w-0">
-                <Tag>{l.to_kind.replaceAll("_", " ")}</Tag>{" "}
+                <Badge>{l.to_kind.replaceAll("_", " ")}</Badge>{" "}
                 {l.target_deleted ? (
                   <span style={{ color: "var(--m-status-danger-fg)" }}>deleted target</span>
                 ) : (

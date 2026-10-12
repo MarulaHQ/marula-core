@@ -1,0 +1,100 @@
+/**
+ * Feature CSS with no consumer in the app.
+ *
+ * Moved out of `packages/ui/src/components.css` by the shared-chrome
+ * close-out (2026-10-12). Nothing in apps/ or packages/ renders these
+ * classes, so they are parked here rather than deleted, to keep the
+ * removal visible. They are candidates for deletion.
+ */
+
+.m-bulk-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface-2);
+}
+
+.m-bulk-count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--m-text);
+  white-space: nowrap;
+}
+
+.m-bulk-bar .m-input {
+  min-height: var(--m-density-control-sm);
+  padding: 0 8px;
+  font-size: 12.5px;
+}
+
+.m-day-context-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* The pack's `.lab`. */
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--m-text-secondary);
+}
+
+.m-day-context-count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.m-day-context-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}
+
+.m-day-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.m-day-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--m-density-row);
+  padding: 4px 0;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-day-list > .m-day-row:first-child {
+  border-top: 0;
+}
+
+.m-day-when {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  color: var(--m-text-secondary);
+}
+
+.m-day-name {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+  color: var(--m-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-day-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--m-text-muted);
+}

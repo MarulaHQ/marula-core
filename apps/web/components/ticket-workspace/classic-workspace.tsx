@@ -12,10 +12,10 @@ import { rejectionText } from "../../lib/error-copy";
 import type { components } from "@marula-core/sdk";
 import { snapshotOf } from "@marula-core/sdk";
 import {
+  Badge,
   Button,
   EmptyState,
   Spinner,
-  StatusTag,
   Table,
   Td,
   Th,
@@ -757,9 +757,9 @@ export function TicketWorkspaceClassic(): ReactNode {
         {(model?.comments ?? []).map((c) => (
           <article key={c.id} className="grid gap-1 rounded-[var(--m-radius-container)] border p-2 text-xs" style={{ borderColor: "var(--m-border)" }}>
             <header className="flex flex-wrap items-center gap-2">
-              <StatusTag tone={c.kind === "client_visible" ? "success" : c.kind === "in_house_update" ? "warning" : "neutral"}>
+              <Badge tone={c.kind === "client_visible" ? "success" : c.kind === "in_house_update" ? "warning" : "neutral"}>
                 {c.kind === "client_visible" ? "Client-visible" : c.kind === "in_house_update" ? "In-house" : "Internal"}
-              </StatusTag>
+              </Badge>
               <span className="font-medium">{namesByUser.get(c.author_id ?? "") ?? "Unknown author"}</span>
               <time className="ml-auto" style={{ color: "var(--m-text-muted)" }}>
                 {new Date(c.created_at).toLocaleString()}

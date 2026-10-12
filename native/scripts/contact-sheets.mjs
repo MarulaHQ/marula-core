@@ -32,7 +32,10 @@ const PACK_STATES = {
   more: "06-more",
   notifications: "07-notifications",
   "deep-linked-open": "08-deep-linked-open",
-  locked: "09-locked",
+  // DERIVED, not the pack's 09-locked: no device-approval concept exists in
+  // the API (ADR 0021), so this capture stands for the biometric unlock
+  // screen and the pack's approval state stays honestly undrawn.
+  unlock: "derived-unlock",
   login: "10-login",
   mfa: "11-mfa",
   "scan-camera": "scan-01-camera",
@@ -58,7 +61,7 @@ function packPathFor(theme, file) {
 const GROUPS = [
   ["01-chrome", ["board-list", "ticket-detail", "note-composer", "time-day"]],
   ["02-sheets", ["stop-and-log", "more", "notifications", "deep-linked-open"]],
-  ["03-auth", ["locked", "login", "mfa", "scan-camera"]],
+  ["03-auth", ["unlock", "login", "mfa", "scan-camera"]],
   ["04-scan", ["scan-found", "scan-ambiguous", "scan-unknown", "camera-off", "stock-item"]],
   ["05-fieldops", ["stock-location", "stock-serial", "tool-checkout", "tool-overdue", "move", "asset-record"]],
   // Wave 43 lane 7: the offline-queue proof (no pack sheet — the pack's

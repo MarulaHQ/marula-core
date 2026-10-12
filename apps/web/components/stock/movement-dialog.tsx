@@ -18,12 +18,13 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Dialog,
   DialogActions,
   DialogContent,
-  FieldHint,
   FieldError,
+  FieldHint,
   Input,
   Label,
   Select,
@@ -31,7 +32,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Tag,
   Textarea,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
@@ -743,13 +743,13 @@ export function MovementDialog({
           </div>
 
           {anchoredTicketId !== null && (
-            <Tag tone="outline" className="w-fit" data-testid="movement-ticket-anchor">
+            <Badge tone="neutral" className="w-fit" data-testid="movement-ticket-anchor">
               {chosenTicket !== null
                 ? `Charges ${chosenTicket.label}`
                 : ticketLabel !== undefined
                   ? `Charges ${ticketLabel}`
                   : `Charges ticket ${anchoredTicketId.slice(0, 8)}…`}
-            </Tag>
+            </Badge>
           )}
 
           {error !== null && <FieldError data-testid="movement-error">{error}</FieldError>}

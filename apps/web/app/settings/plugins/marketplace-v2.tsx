@@ -8,7 +8,14 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Button, Card, EmptyState, Input, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  Spinner,
+} from "@marula-core/ui";
 import { useEffect, useState } from "react";
 import { api } from "../../../lib/api";
 import { reasonCopy } from "../../../lib/error-copy";
@@ -90,9 +97,9 @@ export function VerifiedBadge({ sourceUrl }: { sourceUrl: string }) {
   if (verified === null || verified.size === 0) return null;
   if (!verified.has(publisherIdentityOf(sourceUrl))) return null;
   return (
-    <Tag tone="success" data-testid="verified-badge">
+    <Badge tone="success" data-testid="verified-badge">
       ✓ verified publisher
-    </Tag>
+    </Badge>
   );
 }
 
@@ -277,7 +284,7 @@ export function MarketplaceViewTab({ canManage, onFocus }: { canManage: boolean;
             <div className="flex flex-wrap items-center gap-2 p-4" data-testid={`publisher-row-${pub.publisher}`}>
               <span className="text-[13px] font-semibold">{pub.display_name}</span>
               <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>{pub.publisher}</span>
-              <Tag tone={pub.status === "verified" ? "success" : "danger"}>{pub.status}</Tag>
+              <Badge tone={pub.status === "verified" ? "success" : "danger"}>{pub.status}</Badge>
               {pub.note !== "" ? (
                 <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>{pub.note}</span>
               ) : null}

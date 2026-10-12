@@ -11,7 +11,9 @@
 
 "use client";
 
-import { StatusTag } from "@marula-core/ui";
+import {
+  Badge,
+} from "@marula-core/ui";
 import { useState } from "react";
 import { useOutbox } from "../../lib/use-instant";
 import { reasonCopy } from "../../lib/error-copy";
@@ -43,17 +45,17 @@ export function OutboxDock() {
         aria-expanded={expanded}
       >
         {pending > 0 && (
-          <StatusTag tone="warning">
+          <Badge tone="warning">
             {`${pending} offline ${pending === 1 ? "change" : "changes"} pending`}
-          </StatusTag>
+          </Badge>
         )}
         {outcomes.length > 0 && (
-          <StatusTag tone={outcomeTone(outcomes[outcomes.length - 1]?.status ?? "queued")}>
+          <Badge tone={outcomeTone(outcomes[outcomes.length - 1]?.status ?? "queued")}>
             {outcomeLabel(
               outcomes[outcomes.length - 1]?.status ?? "queued",
               outcomes[outcomes.length - 1]?.reason,
             )}
-          </StatusTag>
+          </Badge>
         )}
       </button>
       {expanded && (
@@ -67,9 +69,9 @@ export function OutboxDock() {
             .reverse()
             .map((o) => (
               <li key={o.key} className="flex items-center gap-2">
-                <StatusTag tone={outcomeTone(o.status)}>
+                <Badge tone={outcomeTone(o.status)}>
                   {outcomeLabel(o.status, o.reason)}
-                </StatusTag>
+                </Badge>
                 <span className="truncate">{o.describe}</span>
               </li>
             ))}

@@ -13,7 +13,13 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Button, Card, EmptyState, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Spinner,
+} from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
@@ -210,9 +216,9 @@ function ArtifactRoster({
               <span className="font-mono text-[12px]" style={{ color: "var(--m-text-muted)" }}>
                 {install.slug}@{install.version}
               </span>
-              <Tag tone={install.status === "enabled" ? "success" : install.status === "disabled" ? "warning" : "danger"}>
+              <Badge tone={install.status === "enabled" ? "success" : install.status === "disabled" ? "warning" : "danger"}>
                 {install.status}
-              </Tag>
+              </Badge>
               <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
                 {install.granted_capabilities.length} granted caps
               </span>

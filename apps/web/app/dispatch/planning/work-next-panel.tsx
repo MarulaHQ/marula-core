@@ -18,12 +18,12 @@
 // detection believes.
 
 import {
+  Badge,
   Button,
   Card,
   CardHeader,
   EmptyState,
   Spinner,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
@@ -208,9 +208,9 @@ export function WorkNextPanel({
                 ) : null}
               </span>
 
-              <Tag tone={PRIORITY_TONE[entry.priority] ?? "neutral"}>
+              <Badge tone={PRIORITY_TONE[entry.priority] ?? "neutral"}>
                 {entry.priority.toUpperCase()}
-              </Tag>
+              </Badge>
 
               <span style={{ display: "inline-flex", gap: "4px" }}>
                 <Button

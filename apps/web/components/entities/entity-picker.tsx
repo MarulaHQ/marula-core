@@ -12,6 +12,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Dialog,
   DialogActions,
@@ -23,7 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useRef, useState } from "react";
@@ -146,7 +146,7 @@ export function EntityPicker({ open, defaultKind, clientId, onPick, onClose }: E
                         }
                       }}
                     >
-                      <Tag tone="outline">{LINK_KIND_OPTIONS.find((k) => k.value === r.kind)?.label ?? r.kind}</Tag>
+                      <Badge tone="neutral">{LINK_KIND_OPTIONS.find((k) => k.value === r.kind)?.label ?? r.kind}</Badge>
                       <span className="min-w-0 flex-1 truncate font-medium">{r.title}</span>
                       <span className="shrink-0 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
                         {r.meta}

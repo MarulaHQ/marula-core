@@ -15,6 +15,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -31,9 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -581,7 +580,7 @@ export default function StockPage(): ReactNode {
                     <Link href={`/stock/${item.id}`} style={{ color: "var(--m-text)" }}>
                       {item.name}
                     </Link>
-                    {item.is_tool ? <Tag tone="outline">tool</Tag> : null}
+                    {item.is_tool ? <Badge tone="neutral">tool</Badge> : null}
                     <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
                       {item.sku ?? item.part_number ?? ""}
                     </span>

@@ -1,5 +1,6 @@
 //! Attachment entity: one stored file bound to exactly one owner target —
-//! a ticket, a ticket comment, or an inbound email message (TASKLIST 2.14).
+//! a ticket, a ticket comment, an inbound email message, or the sign-off row
+//! whose drawn mark it carries (TASKLIST 2.14; Wave 43 track 2 lane 12).
 //!
 //! Purpose: the serde/utoipa shape shared by DB mapping and the API plus
 //! the [`AttachmentKind`] taxonomy. Bytes never live here: rows point at
@@ -20,6 +21,9 @@ pub enum AttachmentKind {
     EmailMessage,
     /// Attached to the ticket itself (no comment intermediary yet).
     Ticket,
+    /// The PNG payload of one sign-off (`sign_offs.attachment_id`). The
+    /// attachment is the payload; the sign-off row is the fact.
+    SignOff,
 }
 
 impl AttachmentKind {
@@ -29,6 +33,7 @@ impl AttachmentKind {
             AttachmentKind::TicketComment => "ticket_comment",
             AttachmentKind::EmailMessage => "email_message",
             AttachmentKind::Ticket => "ticket",
+            AttachmentKind::SignOff => "sign_off",
         }
     }
 }
@@ -40,6 +45,7 @@ impl std::str::FromStr for AttachmentKind {
             "ticket_comment" => Ok(AttachmentKind::TicketComment),
             "email_message" => Ok(AttachmentKind::EmailMessage),
             "ticket" => Ok(AttachmentKind::Ticket),
+            "sign_off" => Ok(AttachmentKind::SignOff),
             other => Err(crate::DomainError::Validation(format!(
                 "invalid attachment kind: {other}"
             ))),

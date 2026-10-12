@@ -11,7 +11,15 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Button, Card, EmptyState, Input, Label, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  Label,
+  Spinner,
+} from "@marula-core/ui";
 import { useState } from "react";
 import { api } from "../../../lib/api";
 import { envelopeOf, reasonCopy } from "../../../lib/error-copy";
@@ -175,9 +183,9 @@ export function AgentSkillsTab({
             <Card key={group.slug}>
               <div className="flex flex-wrap items-center gap-2 p-4 pb-1">
                 <span className="text-sm font-semibold">{group.slug}</span>
-                <Tag tone={group.active.enabled ? "success" : "neutral"}>
+                <Badge tone={group.active.enabled ? "success" : "neutral"}>
                   {group.active.enabled ? "enabled" : "disabled"}
-                </Tag>
+                </Badge>
                 <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
                   active v{group.active.version} · {group.active.source_kind}
                 </span>
@@ -209,9 +217,9 @@ export function AgentSkillsTab({
                   <ol className="mt-2 grid gap-2" data-testid={`skill-versions-${group.slug}`}>
                     {versionRows(group).map((row) => (
                       <li key={row.id} className="flex flex-wrap items-baseline gap-x-2 text-[12px]">
-                        <Tag tone={row.version === group.active.version ? "outline" : "neutral"}>
+                        <Badge tone={row.version === group.active.version ? "outline" : "neutral"}>
                           v{row.version}
-                        </Tag>
+                        </Badge>
                         <span style={{ color: "var(--m-text-secondary)" }}>{row.source_kind}</span>
                         <span style={{ color: "var(--m-text-muted)" }}>{row.source_url}</span>
                         {row.fetched_ref !== null && row.fetched_ref !== undefined ? (

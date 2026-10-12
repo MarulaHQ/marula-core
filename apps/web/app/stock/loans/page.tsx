@@ -11,6 +11,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -28,9 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -553,7 +552,7 @@ export default function StockLoansPage(): ReactNode {
                   <Link href={`/clients/${detail.loan.client_id}`} style={{ color: "var(--m-text)" }}>
                     {clientName(detail.loan.client_id)}
                   </Link>
-                  {detail.loan.is_lease ? <Tag tone="outline">lease</Tag> : null}
+                  {detail.loan.is_lease ? <Badge tone="neutral">lease</Badge> : null}
                 </span>
               ),
               items: summaryOf(detail),
@@ -803,9 +802,9 @@ export default function StockLoansPage(): ReactNode {
                       <p className="text-sm font-medium" style={{ color: "var(--m-text)" }}>
                         {lineLabel(line)}
                         {line.from_stock && (
-                          <Tag tone="outline" className="ml-1.5 text-xs">
+                          <Badge tone="neutral" className="ml-1.5 text-xs">
                             from stock
-                          </Tag>
+                          </Badge>
                         )}
                       </p>
                       <div className="grid gap-1">

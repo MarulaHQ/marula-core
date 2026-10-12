@@ -12,7 +12,16 @@
 // Non-purpose: no persistence — the page owns widget rows.
 "use client";
 
-import { Button, Card, EmptyState, StatusTag, Tag, Table, Td, Th, Tr } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Table,
+  Td,
+  Th,
+  Tr,
+} from "@marula-core/ui";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { WidgetDef } from "../../lib/dashboards";
@@ -138,9 +147,9 @@ export function ReportWidget({ def, meUserId, entranceDelay = 0, onRemove }: Pro
           <h3 className="truncate text-[13px] font-semibold" style={{ color: "var(--m-text)" }}>
             {def.title}
           </h3>
-          <Tag tone={def.lens === "org" ? "neutral" : "outline"}>
+          <Badge tone={def.lens === "org" ? "neutral" : "outline"}>
             {def.lens === "org" ? "Org" : "Mine"}
-          </Tag>
+          </Badge>
         </div>
         <div className="flex items-center gap-1 opacity-0 transition-opacity duration-100 group-focus-within:opacity-100 group-hover:opacity-100">
           <a
@@ -319,7 +328,7 @@ function WidgetBody({
                 <Tr key={r.ticket_id}>
                   <Td>{r.ticket_number}</Td>
                   <Td>
-                    <StatusTag tone={priorityTone(r.priority)}>{r.priority.toUpperCase()}</StatusTag>
+                    <Badge tone={priorityTone(r.priority)}>{r.priority.toUpperCase()}</Badge>
                   </Td>
                   <Td>{r.policy_name}</Td>
                   <Td>{r.resolution_due.slice(0, 10)}</Td>

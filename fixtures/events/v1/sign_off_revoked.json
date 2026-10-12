@@ -1,0 +1,15 @@
+{
+  "entity": "sign_off",
+  "event_type": "sign_off.revoked",
+  "payload": {
+    "reason": "Customer disputed the work, re-sign requested",
+    "revocation_id": "00000000-0000-0000-0000-00000000003e",
+    "revoked_by_user_id": "00000000-0000-0000-0000-000000000005",
+    "seq": 1,
+    "sign_off_id": "00000000-0000-0000-0000-00000000003c",
+    "ticket_id": "00000000-0000-0000-0000-000000000001"
+  },
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "variant": "default"
+}

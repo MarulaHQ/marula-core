@@ -26,6 +26,7 @@ import {
   type AgeingBucket,
   type MoneyPill,
 } from "../lib/money-ui";
+import "./money.css";
 
 // ---------------------------------------------------------------- icons ----
 
@@ -111,6 +112,11 @@ export interface MoneyHeaderProps {
   actions?: ReactNode;
   /** The sub-navigation defaults on; a document page keeps it. */
   nav?: boolean;
+  /**
+   * Extra classes for the header frame. The invoice document carries its own
+   * inset and wrap, which the shared frame does not.
+   */
+  className?: string;
 }
 
 export function MoneyHeader({

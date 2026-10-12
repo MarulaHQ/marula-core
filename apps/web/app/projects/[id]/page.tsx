@@ -46,6 +46,7 @@ import {
   taskProgress,
 } from "../../../lib/projects-metrics";
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -62,7 +63,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  Tag,
 } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
@@ -604,14 +604,14 @@ export default function ProjectDetailPage() {
                 </Link>
               )}
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <Tag tone={projectStatusTone(project.status)}>
+                <Badge tone={projectStatusTone(project.status)}>
                   {STATUS_LABEL[project.status] ?? project.status.replaceAll("_", " ")}
-                </Tag>
+                </Badge>
                 {risk !== null ? (
                   /* The pack's rule, on the client-facing side of the
                      record too: a date coming up is blush, a date that has
                      passed is red. Both carry their words. */
-                  <Tag tone={risk.tone === "danger" ? "danger" : "warning"}>{risk.label}</Tag>
+                  <Badge tone={risk.tone === "danger" ? "danger" : "warning"}>{risk.label}</Badge>
                 ) : null}
               </div>
             </RecordSection>
@@ -675,11 +675,11 @@ export default function ProjectDetailPage() {
           <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em]">
             {project.name}
           </h1>
-          <Tag tone={projectStatusTone(project.status)}>
+          <Badge tone={projectStatusTone(project.status)}>
             {STATUS_LABEL[project.status] ?? project.status.replaceAll("_", " ")}
-          </Tag>
+          </Badge>
           {risk !== null ? (
-            <Tag tone={risk.tone === "danger" ? "danger" : "warning"}>{risk.label}</Tag>
+            <Badge tone={risk.tone === "danger" ? "danger" : "warning"}>{risk.label}</Badge>
           ) : null}
         </div>
         <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -732,19 +732,19 @@ export default function ProjectDetailPage() {
           </span>
         ) : null}
         {overdue.length > 0 ? (
-          <Tag tone="danger" data-testid="risk-overdue">
+          <Badge tone="danger" data-testid="risk-overdue">
             {overdue.length} overdue task{overdue.length === 1 ? "" : "s"}
-          </Tag>
+          </Badge>
         ) : null}
         {blocked.length > 0 ? (
-          <Tag tone="warning" data-testid="risk-blocked">
+          <Badge tone="warning" data-testid="risk-blocked">
             {blocked.length} blocked
-          </Tag>
+          </Badge>
         ) : null}
         {dueSoon.length > 0 ? (
-          <Tag tone="warning" data-testid="risk-due-soon">
+          <Badge tone="warning" data-testid="risk-due-soon">
             {dueSoon.length} due in 3d
-          </Tag>
+          </Badge>
         ) : null}
       </div>
 
@@ -891,7 +891,7 @@ export default function ProjectDetailPage() {
                     <li key={row.phase_id} className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
                       <span className="flex items-center gap-2">
                         {row.alert !== "none" ? (
-                          <Tag tone={row.alert === "over" ? "danger" : "warning"}>{row.alert}</Tag>
+                          <Badge tone={row.alert === "over" ? "danger" : "warning"}>{row.alert}</Badge>
                         ) : null}
                         {row.phase_name}
                       </span>
@@ -936,7 +936,7 @@ export default function ProjectDetailPage() {
                   {releases.map((release) => (
                     <li key={release.id} className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
                       <span className="flex items-center gap-2">
-                        <Tag tone={releaseTone(release.status)}>{release.status}</Tag>
+                        <Badge tone={releaseTone(release.status)}>{release.status}</Badge>
                         {release.label}
                         <span style={{ color: "var(--m-text-muted)" }}>{release.released_on}</span>
                       </span>
@@ -1039,9 +1039,9 @@ export default function ProjectDetailPage() {
                   >
                     <span className="text-[12px] font-semibold">{group.label}</span>
                     {group.phase !== null ? (
-                      <Tag tone={group.phase.status === "completed" ? "success" : "neutral"}>
+                      <Badge tone={group.phase.status === "completed" ? "success" : "neutral"}>
                         {STATUS_LABEL[group.phase.status] ?? group.phase.status}
-                      </Tag>
+                      </Badge>
                     ) : null}
                     {group.phase?.is_milestone && group.phase.milestone_amount_minor !== null && group.phase.milestone_amount_minor !== undefined ? (
                       <span className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
@@ -1184,24 +1184,24 @@ export default function ProjectDetailPage() {
                 </span>
               ) : (
                 <RecordRow label="Schedule">
-                  <Tag tone={risk.tone === "danger" ? "danger" : "warning"}>
+                  <Badge tone={risk.tone === "danger" ? "danger" : "warning"}>
                     {risk.label}
-                  </Tag>
+                  </Badge>
                 </RecordRow>
               )}
               {overdue.length > 0 ? (
                 <RecordRow label="Overdue tasks">
-                  <Tag tone="danger">{overdue.length} overdue</Tag>
+                  <Badge tone="danger">{overdue.length} overdue</Badge>
                 </RecordRow>
               ) : null}
               {blocked.length > 0 ? (
                 <RecordRow label="Blocked">
-                  <Tag tone="warning">{blocked.length} blocked</Tag>
+                  <Badge tone="warning">{blocked.length} blocked</Badge>
                 </RecordRow>
               ) : null}
               {dueSoon.length > 0 ? (
                 <RecordRow label="Due in 3d">
-                  <Tag tone="warning">{dueSoon.length} due in 3d</Tag>
+                  <Badge tone="warning">{dueSoon.length} due in 3d</Badge>
                 </RecordRow>
               ) : null}
             </SummaryCard>
@@ -1409,11 +1409,11 @@ function TaskRow({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <Tag tone={done ? "success" : task.status === "cancelled" ? "danger" : "neutral"}>
+        <Badge tone={done ? "success" : task.status === "cancelled" ? "danger" : "neutral"}>
           {task.status.replaceAll("_", " ")}
-        </Tag>
-        {blocked ? <Tag tone="warning">blocked</Tag> : null}
-        {overdue ? <Tag tone="danger">{due?.text ?? "overdue"}</Tag> : dueSoon && due !== null ? <Tag tone="warning">{due.text}</Tag> : null}
+        </Badge>
+        {blocked ? <Badge tone="warning">blocked</Badge> : null}
+        {overdue ? <Badge tone="danger">{due?.text ?? "overdue"}</Badge> : dueSoon && due !== null ? <Badge tone="warning">{due.text}</Badge> : null}
       </div>
       <div className="min-w-0 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
         {deps.length === 0 ? (

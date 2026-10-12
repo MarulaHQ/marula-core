@@ -15,7 +15,12 @@
 // Non-purpose: no server-side facets, no portal visibility logic.
 "use client";
 
-import { Button, Spinner, SurfaceHeader, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Spinner,
+  SurfaceHeader,
+} from "@marula-core/ui";
 import { InsightState } from "../../components/insight/insight-state";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -366,7 +371,7 @@ export default function SearchPage() {
                     onClick={() => setRawQuery(pin.query)}
                     title={`Runs “${pin.query}”`}
                   >
-                    <Tag>{GROUP_KIND_LABEL[pin.entity_kind] ?? pin.entity_kind}</Tag>
+                    <Badge>{GROUP_KIND_LABEL[pin.entity_kind] ?? pin.entity_kind}</Badge>
                     {pin.title}
                   </button>
                   <button
@@ -500,7 +505,7 @@ export default function SearchPage() {
                         background: focused ? "var(--m-accent-soft)" : "transparent",
                       }}
                     >
-                      <Tag>{GROUP_KIND_LABEL[hit.entity_kind] ?? hit.entity_kind}</Tag>
+                      <Badge>{GROUP_KIND_LABEL[hit.entity_kind] ?? hit.entity_kind}</Badge>
                       {href !== null ? (
                         <Link
                           href={href}

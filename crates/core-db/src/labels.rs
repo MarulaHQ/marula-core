@@ -444,3 +444,82 @@ pub async fn get_asset_by_id(
     .await?;
     Ok(row)
 }
+
+/// The facts a found sheet prints for a device asset. The asset row alone
+/// cannot answer "whose is it, where does it sit, is it under warranty": the
+/// client and site names live on their own tables, and the warranty horizon
+/// comes from the row's own columns through the same domain rule every other
+/// asset read uses (`row_to_asset`), so the two cannot disagree.
+pub struct AssetFacts {
+    /// NULL for an internal-org asset (ADR 0012: the MSP's own fleet carries
+    /// no client) and when the row's client was deleted.
+    pub client_name: Option<String>,
+    /// The site the asset sits at.
+    pub location_name: Option<String>,
+    pub warranty: Option<core_domain::entities::client::WarrantyWindow>,
+}
+
+impl AssetFacts {
+    /// An asset row that vanished between the two reads: every fact unknown.
+    fn empty() -> Self {
+        Self {
+            client_name: None,
+            location_name: None,
+            warranty: None,
+        }
+    }
+}
+
+/// One row per asset: the client and site names by LEFT JOIN (so an asset
+/// with no client or no site still resolves), plus the row's warranty inputs.
+pub async fn get_asset_facts(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    asset_id: Uuid,
+) -> DbResult<AssetFacts> {
+    let row = sqlx::query_as!(
+        AssetFactsRow,
+        // The `?` suffix is a nullable override, not decoration. Postgres
+        // reports `clients.name` as NOT NULL — which it is — and sqlx takes
+        // that at face value for a LEFT JOIN, so an asset with no client or
+        // no site decodes as a 500 ("unexpected null") instead of NULL.
+        r#"SELECT c.name AS "client_name?",
+                  s.name AS "location_name?",
+                  a.fields,
+                  a.purchase_date,
+                  a.useful_life_months
+           FROM device_assets a
+           LEFT JOIN clients c ON c.id = a.client_id AND c.org_id = a.org_id
+           LEFT JOIN sites s ON s.id = a.site_id AND s.org_id = a.org_id
+           WHERE a.org_id = $1 AND a.id = $2"#,
+        org_id,
+        asset_id
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(row.map(Into::into).unwrap_or_else(AssetFacts::empty))
+}
+
+/// The raw join, mapped to the facts by the domain warranty rule.
+struct AssetFactsRow {
+    client_name: Option<String>,
+    location_name: Option<String>,
+    fields: serde_json::Value,
+    purchase_date: Option<chrono::NaiveDate>,
+    useful_life_months: Option<i32>,
+}
+
+impl From<AssetFactsRow> for AssetFacts {
+    fn from(row: AssetFactsRow) -> Self {
+        Self {
+            client_name: row.client_name,
+            location_name: row.location_name,
+            warranty: core_domain::entities::client::asset_warranty_from_fields(
+                &row.fields,
+                row.purchase_date,
+                row.useful_life_months,
+                chrono::Utc::now().date_naive(),
+            ),
+        }
+    }
+}

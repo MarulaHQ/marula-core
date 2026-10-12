@@ -17,6 +17,7 @@
 export const dynamic = "force-dynamic";
 
 import {
+  Badge,
   Button,
   Card,
   ColumnChooser,
@@ -40,7 +41,6 @@ import {
   Spinner,
   SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -191,9 +191,9 @@ function ReportsInner() {
         sortValue: (r) => r.scope,
         render: (r) =>
           r.scope === "org" ? (
-            <Tag tone="neutral">Org-wide</Tag>
+            <Badge tone="neutral">Org-wide</Badge>
           ) : (
-            <Tag tone="neutral">Private</Tag>
+            <Badge tone="neutral">Private</Badge>
           ),
       },
       {
@@ -883,9 +883,9 @@ function ReportsInner() {
                       <Td className="text-[13px] font-medium">{s.name}</Td>
                       <Td className="text-[13px]">{s.definition_name}</Td>
                       <Td>
-                        <Tag tone="neutral">
+                        <Badge tone="neutral">
                           {s.cadence} @ {s.time_of_day}
-                        </Tag>
+                        </Badge>
                       </Td>
                       <Td className="whitespace-nowrap text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                         {s.next_run_at

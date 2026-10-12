@@ -17,6 +17,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -28,7 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -419,7 +419,7 @@ export default function ToolboxesSettingsPage(): React.ReactNode {
                             {kit.code}
                           </span>
                         ) : null}
-                        {!kit.active ? <StatusTag tone="neutral">Archived</StatusTag> : null}
+                        {!kit.active ? <Badge tone="neutral">Archived</Badge> : null}
                       </span>
                     </button>
                   </li>
@@ -516,11 +516,11 @@ export default function ToolboxesSettingsPage(): React.ReactNode {
                               {qtyText(member.qty_milli)}×
                             </span>
                             {state !== undefined ? (
-                              <StatusTag tone={state.ready ? "success" : "warning"}>
+                              <Badge tone={state.ready ? "success" : "warning"}>
                                 {state.ready
                                   ? "In stock"
                                   : `${qtyText(state.available)} of ${qtyText(state.required)}`}
-                              </StatusTag>
+                              </Badge>
                             ) : null}
                             {isAdmin ? (
                               <button

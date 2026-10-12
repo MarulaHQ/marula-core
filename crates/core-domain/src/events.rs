@@ -347,6 +347,13 @@ pub mod types {
     /// family from `attachment.*` (that one is ticket/email-shaped).
     pub const DOCUMENT_ATTACHMENT_ADDED: &str = "document_attachment.added";
     pub const DOCUMENT_ATTACHMENT_DELETED: &str = "document_attachment.deleted";
+    /// Customer sign-offs (Wave 43 track 2 lane 12, migration 0127): the
+    /// witnessed evidence row, its revocation trail, a correction that
+    /// replaces it, and consent-wording versions.
+    pub const SIGN_OFF_CREATED: &str = "sign_off.created";
+    pub const SIGN_OFF_REVOKED: &str = "sign_off.revoked";
+    pub const SIGN_OFF_SUPERSEDED: &str = "sign_off.superseded";
+    pub const SIGN_OFF_CONSENT_CREATED: &str = "sign_off_consent.created";
     /// Custom fields / dynamic forms v1 (TASKLIST 2.17): definition CRUD
     /// through the board settings surface and typed ticket-value writes.
     pub const CUSTOM_FIELD_DEF_CREATED: &str = "custom_field.def_created";
@@ -1781,6 +1788,85 @@ pub struct AttachmentLinked {
     pub ticket_comment_id: uuid::Uuid,
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub ticket_id: uuid::Uuid,
+}
+
+/// sign_off.created — a customer signed off on a ticket. The drawn mark is an
+/// attachment payload; the facts below are what makes it evidence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SignOffCreated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub sign_off_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: uuid::Uuid,
+    /// The PNG payload in the content-addressed store. `None` when the signer
+    /// agreed by typing their name instead of drawing, which is a real
+    /// capture path rather than a degenerate one.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub attachment_id: Option<uuid::Uuid>,
+    /// True when the signature was typed rather than drawn. An auditor needs
+    /// to know which captures carried ink.
+    pub typed_agreement: bool,
+    pub signer_name: String,
+    pub signer_kind: String,
+    /// The staff member who witnessed the signature, when there was one.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub witnessed_by_user_id: Option<uuid::Uuid>,
+    /// Device-clock reading at capture time (offline capture is the norm).
+    pub captured_at: chrono::DateTime<chrono::Utc>,
+    pub consent_version: i32,
+    /// sha256 hex of the exact PNG bytes, or "" on a typed agreement —
+    /// consumers can verify integrity after download.
+    pub sha256: String,
+    pub size_bytes: i64,
+    /// Set when this sign-off corrects an earlier one.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub supersedes_sign_off_id: Option<uuid::Uuid>,
+}
+
+/// sign_off.superseded — a correction replaced an earlier sign-off. Emitted on
+/// the ORIGINAL so its subscribers learn it no longer stands, without the
+/// original row ever being written (the correction points backward at it).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SignOffSuperseded {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub sign_off_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: uuid::Uuid,
+    /// The correction that replaced it.
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub corrected_by_sign_off_id: uuid::Uuid,
+}
+
+/// sign_off.revoked — one entry landed in a sign-off's revocation trail. The
+/// original row and its bytes are untouched; this is why the payload reads as
+/// revoked rather than as gone.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SignOffRevoked {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub sign_off_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub revocation_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub ticket_id: uuid::Uuid,
+    pub reason: String,
+    pub seq: i32,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub revoked_by_user_id: uuid::Uuid,
+}
+
+/// sign_off_consent.created — an org added a consent wording version.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SignOffConsentCreated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub consent_id: uuid::Uuid,
+    pub version: i32,
+    pub body: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub created_by: uuid::Uuid,
 }
 
 /// attachment.deleted — the metadata row went away; `object_removed`

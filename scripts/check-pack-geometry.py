@@ -2,7 +2,7 @@
 """Diff the lane's ledger geometry against the surface pack's own numbers.
 
 The pack ships the HTML each mockup was rendered from
-(`brand/marula-mockups/marula-surface-pack/source/*.html`), so the rendered
+(`brand/packs/core-surface-pack/source/*.html`), so the rendered
 ground truth is readable as measurements rather than only as a picture. This
 compares the values that must agree — the density scale, the pill box, the
 chip box, the toolbar row, the table's header and cell insets, and the
@@ -12,13 +12,30 @@ Run: python3 scripts/check-pack-geometry.py
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-PACK = REPO / "brand/marula-mockups/marula-surface-pack/source/tickets-list.html"
 LEDGER = REPO / "apps/web/app/ledger.css"
+
+# The pack was moved out of the repo on 2026-10-10: the canonical copy now lives
+# in the private org home at brand/packs/core-surface-pack, and the old
+# brand/marula-mockups/marula-surface-pack path is stale. Resolve it the same way
+# check-surface-pack.mjs does — an env override, then a walk up from the repo,
+# because a worktree lane's org home is several levels above its cwd.
+PACK_CANDIDATES = [
+    Path(__file__).resolve().parent.parent / "brand/packs/core-surface-pack/source/tickets-list.html",
+    REPO / "brand/marula-mockups/marula-surface-pack/source/tickets-list.html",
+]
+for _up in range(6):
+    _p = Path(__file__).resolve()
+    for _ in range(_up + 1):
+        _p = _p.parent
+    PACK_CANDIDATES.append(_p / "brand/packs/core-surface-pack/source/tickets-list.html")
+PACK = Path(os.environ["MARULA_PACK_ROOT"]) / "source/tickets-list.html" \
+    if os.environ.get("MARULA_PACK_ROOT") else next((c for c in PACK_CANDIDATES if c.exists()), PACK_CANDIDATES[0])
 
 # (label, the pack's declared value, what the lane must resolve it to)
 EXPECTED: list[tuple[str, str, str]] = [

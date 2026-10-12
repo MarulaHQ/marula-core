@@ -10,6 +10,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -26,9 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -515,7 +514,7 @@ export default function StockLocationsPage(): ReactNode {
                 </span>
               ),
               code: <span className="text-xs">{location.code ?? "—"}</span>,
-              kind: <Tag tone="outline">{location.kind}</Tag>,
+              kind: <Badge tone="neutral">{location.kind}</Badge>,
               parent: <span>{nameOf(location.parent_id)}</span>,
               assignee: <span>{userLabel(location.assigned_user_id)}</span>,
               items: <span className="tabular-nums">{itemCount}</span>,

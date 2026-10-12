@@ -10,7 +10,10 @@
 
 "use client";
 
-import { Button, StatusTag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+} from "@marula-core/ui";
 import { useState, type ReactNode } from "react";
 
 import {
@@ -101,7 +104,7 @@ export function PodAdminSettings({
                   {pod.title}
                   {!pod.rearrangeable && (
                     <span className="ml-1 align-middle">
-                      <StatusTag tone="neutral">fixed</StatusTag>
+                      <Badge tone="neutral">fixed</Badge>
                     </span>
                   )}
                 </td>

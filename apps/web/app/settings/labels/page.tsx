@@ -19,7 +19,13 @@
 
 "use client";
 
-import { Button, Card, EmptyState, Spinner, StatusTag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Spinner,
+} from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 
 import { LabelDesigner } from "../../../components/labels/label-designer";
@@ -146,7 +152,7 @@ export default function LabelsSettingsPage(): React.ReactNode {
                           <span className="text-[13px] font-medium" style={{ color: "var(--m-text)" }}>
                             {template.name}
                           </span>
-                          {template.is_default ? <StatusTag tone="success">default</StatusTag> : null}
+                          {template.is_default ? <Badge tone="success">default</Badge> : null}
                         </span>
                         <span className="mt-0.5 block text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                           {purposeLabel(template.purpose)} · {template.width_mm} × {template.height_mm} mm ·{" "}

@@ -10,7 +10,9 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { StatusTag } from "@marula-core/ui";
+import {
+  Badge,
+} from "@marula-core/ui";
 import type { ReactNode } from "react";
 
 type Ticket = components["schemas"]["TicketWithFields"];
@@ -74,7 +76,7 @@ export function OriginalRequest({ ticket }: { ticket: Ticket }): ReactNode {
         <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
           {ticket.number}
         </span>
-        <StatusTag tone="neutral">Original request</StatusTag>
+        <Badge tone="neutral">Original request</Badge>
         <time className="ml-auto text-[11px]" style={{ color: "var(--m-text-muted)" }}>
           {ticket.created_at !== null && ticket.created_at !== undefined
             ? new Date(ticket.created_at).toLocaleString()

@@ -14,7 +14,10 @@
 
 "use client";
 
-import { Button, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+} from "@marula-core/ui";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../lib/api";
@@ -56,9 +59,9 @@ function HelpDocRow({ doc }: { doc: HelpDoc }) {
             {doc.title}
           </p>
           <p className="mt-0.5 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-            <Tag tone={AUDIENCE_TONES[doc.audience] ?? "neutral"}>
+            <Badge tone={AUDIENCE_TONES[doc.audience] ?? "neutral"}>
               {doc.audience}
-            </Tag>
+            </Badge>
             <span>updated {doc.updated}</span>
           </p>
         </div>

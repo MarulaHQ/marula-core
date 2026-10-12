@@ -13,6 +13,7 @@
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   DensitySwitch,
@@ -25,9 +26,7 @@ import {
   Input,
   Label,
   Spinner,
-  StatusTag,
   Table,
-  Tag,
   Td,
   Th,
   Tr,

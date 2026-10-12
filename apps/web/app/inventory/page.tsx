@@ -14,11 +14,11 @@
 
 import { rejectionText } from "../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
   Spinner,
-  StatusTag,
   Table,
   Td,
   Th,
@@ -375,9 +375,9 @@ export default function InventoryPage(): ReactNode {
                   <span className="text-sm font-medium">{c.primary_tag}</span>
                   <span style={{ color: "var(--m-text-muted)" }}>←</span>
                   <span className="text-sm font-medium">{c.candidate_tag}</span>
-                  <StatusTag tone={c.confidence >= 0.9 ? "success" : "warning"}>
+                  <Badge tone={c.confidence >= 0.9 ? "success" : "warning"}>
                     {`${Math.round(c.confidence * 100)}% confidence`}
-                  </StatusTag>
+                  </Badge>
                   <span className="truncate text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                     {c.reason}
                   </span>
@@ -417,7 +417,7 @@ export default function InventoryPage(): ReactNode {
                     <Td>{tagFor(m.primary_config_item_id)}</Td>
                     <Td>{tagFor(m.merged_config_item_id)}</Td>
                     <Td>
-                      <StatusTag tone={m.status === "split" ? "warning" : "success"}>{m.status}</StatusTag>
+                      <Badge tone={m.status === "split" ? "warning" : "success"}>{m.status}</Badge>
                     </Td>
                     <Td>{new Date(m.merged_at).toLocaleString()}</Td>
                     <Td>

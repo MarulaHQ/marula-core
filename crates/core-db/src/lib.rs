@@ -93,6 +93,7 @@ pub mod search_pins;
 pub mod secret_vault;
 pub mod settings;
 pub mod share_links;
+pub mod sign_offs;
 pub mod sla;
 pub mod stock;
 pub mod tags;

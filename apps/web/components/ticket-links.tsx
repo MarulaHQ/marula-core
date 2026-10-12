@@ -20,6 +20,7 @@
 import { rejectionText } from "../lib/error-copy";
 import type { components } from "@marula-core/sdk";
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -29,7 +30,6 @@ import {
   Input,
   Label,
   Spinner,
-  StatusTag,
   Table,
   Td,
   Th,
@@ -184,7 +184,7 @@ export function MergedIntoBanner({
       data-testid="merged-into-banner"
       role="status"
     >
-      <StatusTag tone="neutral">Merged</StatusTag>
+      <Badge tone="neutral">Merged</Badge>
       <span style={{ color: "var(--m-text-secondary)" }}>
         This ticket was merged into{" "}
         <button
@@ -535,7 +535,7 @@ export function TicketLinksPanel({
                 return (
                   <Tr key={edge.id}>
                     <Td className="text-[12px]">→ out</Td>
-                    <Td><StatusTag tone={edge.link_type === "parent_child" ? "neutral" : "warning"}>{edge.link_type}</StatusTag></Td>
+                    <Td><Badge tone={edge.link_type === "parent_child" ? "neutral" : "warning"}>{edge.link_type}</Badge></Td>
                     <Td className="text-[12px]">
                       <button
                         type="button"
@@ -562,7 +562,7 @@ export function TicketLinksPanel({
                 return (
                   <Tr key={edge.id}>
                     <Td className="text-[12px]">← in</Td>
-                    <Td><StatusTag tone={edge.link_type === "parent_child" ? "neutral" : "warning"}>{edge.link_type}</StatusTag></Td>
+                    <Td><Badge tone={edge.link_type === "parent_child" ? "neutral" : "warning"}>{edge.link_type}</Badge></Td>
                     <Td className="text-[12px]">
                       <button
                         type="button"
@@ -691,12 +691,12 @@ export function TicketLinksPanel({
                   <>
                     <div className="rounded-[var(--m-radius-container)] border p-2 text-[12px]" style={{ borderColor: "var(--m-accent)" }} data-testid="merge-survivor">
                       Survivor: <strong>{survivor.number} {survivor.title}</strong>{" "}
-                      <StatusTag tone={survivor.category === "closed" ? "danger" : "neutral"}>
+                      <Badge tone={survivor.category === "closed" ? "danger" : "neutral"}>
                         {survivor.category === "in_progress"
                           ? "In progress"
                           : survivor.category.charAt(0).toUpperCase() + survivor.category.slice(1)
                         }
-                      </StatusTag>
+                      </Badge>
                       <Button variant="ghost" size="sm" onClick={() => setSurvivor(null)}>Change</Button>
                     </div>
                     {boardMismatch ? (

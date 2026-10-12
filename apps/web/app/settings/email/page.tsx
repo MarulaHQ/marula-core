@@ -16,6 +16,7 @@
 
 import { friendlyMutationText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   CardContent,
@@ -31,7 +32,6 @@ import {
   SelectValue,
   Spinner,
   Table,
-  Tag,
   Td,
   Textarea,
   Th,
@@ -254,9 +254,9 @@ export default function EmailSettingsPage() {
         title="Email"
         description="Where inbound mail routes, who outbound mail comes from, how it leaves, and what happened to each message. Credentials are sealed at rest and never displayed again."
       >
-        <Tag tone={settings.reply_by_email.enabled ? "success" : "neutral"}>
+        <Badge tone={settings.reply_by_email.enabled ? "success" : "neutral"}>
           {settings.reply_by_email.enabled ? "Reply by email on" : "Reply by email off"}
-        </Tag>
+        </Badge>
       </SettingsHeader>
 
       <InboundCard
@@ -1131,9 +1131,9 @@ function SendingCard({
             <div className="text-[13px] font-medium">Sealed credentials</div>
             {secrets.map((secret) => (
               <div key={secret.label} className="flex items-center gap-2 text-[12px]">
-                <Tag tone={secret.configured ? "success" : "neutral"}>
+                <Badge tone={secret.configured ? "success" : "neutral"}>
                   {secret.configured ? "Sealed" : "Not set"}
-                </Tag>
+                </Badge>
                 <span style={{ color: "var(--m-text-secondary)" }}>
                   {secret.label}
                   {secret.updatedAt ? ` · updated ${when(secret.updatedAt)}` : ""}
@@ -1252,7 +1252,7 @@ function LedgerCard({
         <div className="flex flex-wrap gap-2 text-[12px]">
           {(["queued", "sending", "sent", "dead"] as const).map((status) => (
             <span key={status} className="flex items-center gap-1.5">
-              <Tag tone={statusTone(status)}>{counts[status]}</Tag>
+              <Badge tone={statusTone(status)}>{counts[status]}</Badge>
               <span style={{ color: "var(--m-text-secondary)" }}>{status}</span>
             </span>
           ))}
@@ -1312,7 +1312,7 @@ function LedgerCard({
                     </Td>
                     <Td className="px-3 py-2 text-[13px]">{row.subject ?? "—"}</Td>
                     <Td className="px-3 py-2">
-                      <Tag tone={statusTone(row.status)}>{row.status}</Tag>
+                      <Badge tone={statusTone(row.status)}>{row.status}</Badge>
                     </Td>
                     <Td className="px-3 py-2 text-[12px]" style={{ fontFamily: "var(--m-font-mono)" }}>
                       {row.attempts}/{row.max_attempts}
