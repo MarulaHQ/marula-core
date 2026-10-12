@@ -1,0 +1,12 @@
+{
+  "entity": "sign_off",
+  "event_type": "sign_off.superseded",
+  "payload": {
+    "corrected_by_sign_off_id": "00000000-0000-0000-0000-000000000040",
+    "sign_off_id": "00000000-0000-0000-0000-00000000003c",
+    "ticket_id": "00000000-0000-0000-0000-000000000001"
+  },
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "variant": "default"
+}

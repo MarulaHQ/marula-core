@@ -96,6 +96,11 @@ export const MODELS = {
   ticketChecklist: (ticketId: string) => `ticket:${ticketId}:checklist`,
   myDayEntries: (userId: string) => `time:day:${userId}`,
   ticketAttachments: (ticketId: string) => `ticket:${ticketId}:attachments`,
+  // The ticket's board workflow: which statuses the wrap-up outcome control
+  // may move to. Read once per board and invalidated on the board entity.
+  boardStatuses: (boardId: string) => `board:${boardId}:statuses`,
+  signOffs: (ticketId: string) => `ticket:${ticketId}:sign-offs`,
+  signOffConsent: "sign-off.consent",
   client: (id: string) => `client:${id}`,
   clientContacts: (id: string) => `client:${id}:contacts`,
   ticketsList: "tickets.list",
@@ -293,6 +298,31 @@ export function startOfLocalDay(now = new Date()): string {
 
 /** The ticket's checklist (read view: items + progress + close-gate state). */
 export type TicketChecklistView = Ok<paths["/api/v1/tickets/{id}/checklist"]["get"]>;
+/** The board's workflow statuses, with their category (closed/waiting/...). */
+export type BoardStatus = Ok<paths["/api/v1/boards/{id}/statuses"]["get"]>[number];
+/** One sign-off as the ticket renders it: the evidence row plus the payload's
+ *  storage facts, its revocation state, and the correction relation. */
+export type SignOffView = Ok<paths["/api/v1/tickets/{id}/sign-offs"]["get"]>[number];
+/** The consent wording a pad must show, with the version the capture sends
+ *  back so the server can refuse a stale pad. */
+export type SignOffConsent = Ok<paths["/api/v1/org/sign-off-consents/current"]["get"]>;
+
+export async function fetchSignOffConsent(client: MarulaClient): Promise<SignOffConsent> {
+  return unwrap(await client.api.GET("/api/v1/org/sign-off-consents/current"));
+}
+
+export async function fetchTicketSignOffs(
+  client: MarulaClient,
+  ticketId: string,
+): Promise<SignOffView[]> {
+  return unwrap(
+    await client.api.GET("/api/v1/tickets/{id}/sign-offs", { params: { path: { id: ticketId } } }),
+  );
+}
+
+export async function fetchBoardStatuses(client: MarulaClient, boardId: string): Promise<BoardStatus[]> {
+  return unwrap(await client.api.GET("/api/v1/boards/{id}/statuses", { params: { path: { id: boardId } } }));
+}
 
 export async function fetchTicketChecklist(
   client: MarulaClient,

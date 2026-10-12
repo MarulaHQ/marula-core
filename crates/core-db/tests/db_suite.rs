@@ -6,7 +6,10 @@
 //! filtered lists, status transitions setting `resolved_at`, comments and
 //! checklists, the single-active-timer invariant, time entries, the
 //! transactional outbox (`FOR UPDATE SKIP LOCKED`), notification counts,
-//! audit append-only persistence, and RLS isolation (no `app.org_id`
+//! audit append-only persistence, customer sign-offs (Wave 43 track 2 lane
+//! 12, migration 0127: insert-only evidence, idempotent replay, a correction
+//! as a second row, an append-only revocation trail, the consent snapshot,
+//! and the capture-shape CHECK), and RLS isolation (no `app.org_id`
 //! scope ⇒ no rows; foreign scope ⇒ no cross-org rows).
 //!
 //! Non-purpose: domain-rule testing (core-domain unit tests) and HTTP/API
@@ -19,12 +22,13 @@ mod common;
 use common::TestDb;
 use common::{fixed_uuid, org_tx, test_db, FUTURE, PAST};
 use core_db::{
-    audit, automations, notifications as notif, orgs, outbox, portal, queue, search, sla, tickets,
-    timers, users, DbError, DbResult,
+    audit, automations, notifications as notif, orgs, outbox, portal, queue, search, sign_offs,
+    sla, tickets, timers, users, DbError, DbResult,
 };
 use core_domain::entities::{
-    Actor, Attachment, AuditEvent, BusinessCalendar, NotificationPreference, PortalRole,
-    PortalUser, PortalUserStatus, SlaCalendar, Ticket, TimeEntry, TimerSession,
+    Actor, Attachment, AttachmentKind, AuditEvent, BusinessCalendar, NotificationPreference,
+    PortalRole, PortalUser, PortalUserStatus, SignOffSignerKind, SlaCalendar, Ticket, TimeEntry,
+    TimerSession,
 };
 use core_domain::policy::BuiltinRole;
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
@@ -78,6 +82,10 @@ async fn seed_org(app: &PgPool, n: u64) -> Seeded {
     orgs::seed_default_sla_policy(&mut *tx, org)
         .await
         .expect("sla seed");
+    // Version 1 of the sign-off consent (Wave 43 track 2 lane 12, 0127).
+    orgs::seed_default_sign_off_consent(&mut tx, org)
+        .await
+        .expect("consent seed");
     let entry_status = status_id(&mut tx, board, "New").await;
     let waiting_status = status_id(&mut tx, board, "Waiting").await;
     let resolved_status = status_id(&mut tx, board, "Resolved").await;
@@ -7792,4 +7800,644 @@ async fn search_hybrid_vector_leg_respects_kind_allow_list() {
         "vector candidates outside the allow-list never count"
     );
     tx.commit().await.expect("commit");
+}
+// --- sign-offs (Wave 43 track 2 lane 12, migration 0127) --------------------
+//
+// The evidence row is insert-only, so these tests prove that shape rather
+// than an update path: a capture round-trips, a replay of the same
+// idempotency key is a typed conflict, a correction is a second row that
+// names the original rather than editing it, revocation appends a seq and
+// never touches the original, and a consent revision leaves the snapshot on
+// an existing sign-off alone.
+
+/// The wording `seed_default_sign_off_consent` inserts as version 1. Referenced
+/// rather than re-typed so a copy change reads as one edit.
+const SIGN_OFF_CONSENT: &str = orgs::DEFAULT_SIGN_OFF_CONSENT;
+
+async fn sign_off_attachment(
+    conn: &mut PgConnection,
+    org: Uuid,
+    id: Uuid,
+    ticket: Uuid,
+    sha_hex: &str,
+    uploader: Option<Uuid>,
+) -> Attachment {
+    let key = format!("org/{org}/attachments/{sha_hex}");
+    core_db::attachments::insert(
+        conn,
+        core_db::attachments::NewAttachment {
+            id,
+            org_id: org,
+            kind: AttachmentKind::SignOff,
+            ticket_id: Some(ticket),
+            ticket_comment_id: None,
+            email_message_id: None,
+            filename: "signature.png",
+            content_type: "image/png",
+            size_bytes: 1_024,
+            sha256: sha_hex,
+            storage_key: &key,
+            uploaded_by_user_id: uploader,
+            uploaded_by_portal_user_id: None,
+        },
+    )
+    .await
+    .expect("sign-off payload insert")
+}
+
+/// The sha256 the PNG path hex-encodes: 32 bytes of `ab`.
+fn sha256_ab() -> String {
+    "ab".repeat(32)
+}
+
+#[tokio::test]
+async fn sign_off_capture_round_trips_with_its_consent_snapshot() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 610).await;
+    let witness = seed_user(&db.app, &s, 61000).await;
+    let ticket_id = fixed_uuid(61001);
+    let attachment_id = fixed_uuid(61002);
+    let sign_off_id = fixed_uuid(61003);
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let ticket = create_ticket(
+        &mut tx,
+        &s,
+        ticket_id,
+        "Boiler will not light",
+        Priority::P3,
+        s.entry_status,
+        None,
+    )
+    .await;
+    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+
+    let written = sign_offs::insert_sign_off(
+        &mut tx,
+        sign_offs::NewSignOff {
+            id: sign_off_id,
+            org_id: s.org,
+            ticket_id: ticket.id,
+            attachment_id: Some(attachment_id),
+            typed_agreement: false,
+            signer_name: "Dana Whitfield",
+            signer_kind: SignOffSignerKind::Customer,
+            witnessed_by_user_id: Some(witness),
+            captured_at: at(9),
+            consent_version: 1,
+            consent_text_snapshot: SIGN_OFF_CONSENT,
+            supersedes_sign_off_id: None,
+            idempotency_key: "capture-1",
+        },
+    )
+    .await
+    .expect("sign-off insert");
+
+    assert_eq!(written.signer_name, "Dana Whitfield");
+    assert_eq!(written.consent_version, 1);
+    assert_eq!(written.consent_text_snapshot, SIGN_OFF_CONSENT);
+    assert!(!written.typed_agreement);
+    assert_eq!(written.attachment_id, Some(attachment_id));
+
+    let read_back = sign_offs::get_sign_off(&mut tx, s.org, sign_off_id)
+        .await
+        .expect("sign-off read");
+    assert_eq!(read_back, written);
+
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn sign_off_replay_of_the_same_idempotency_key_is_a_typed_conflict() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 611).await;
+    let witness = seed_user(&db.app, &s, 61100).await;
+    let ticket_id = fixed_uuid(61101);
+    let attachment_id = fixed_uuid(61102);
+
+    // The first capture COMMITS before the replay is attempted. Running the
+    // replay against a still-open transaction holding the same unique key
+    // makes Postgres block rather than refuse, so the shapes this test cares
+    // about would be unobservable behind a lock.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let ticket = create_ticket(
+        &mut tx,
+        &s,
+        ticket_id,
+        "Fuse keeps blowing",
+        Priority::P3,
+        s.entry_status,
+        None,
+    )
+    .await;
+    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+
+    let args = |id: Uuid| sign_offs::NewSignOff {
+        id,
+        org_id: s.org,
+        ticket_id: ticket.id,
+        attachment_id: Some(attachment_id),
+        typed_agreement: false,
+        signer_name: "Dana Whitfield",
+        signer_kind: SignOffSignerKind::Customer,
+        witnessed_by_user_id: Some(witness),
+        captured_at: at(9),
+        consent_version: 1,
+        consent_text_snapshot: SIGN_OFF_CONSENT,
+        supersedes_sign_off_id: None,
+        idempotency_key: "capture-replay",
+    };
+    let original = sign_offs::insert_sign_off(&mut tx, args(fixed_uuid(61103)))
+        .await
+        .expect("first capture");
+    tx.commit().await.expect("commit");
+
+    // The offline queue replays the identical op with a fresh row id but the
+    // same key. This is the unique violation the API maps to the typed
+    // `sign_off_already_captured` conflict.
+    let mut replaying = org_tx(&db.app, s.org).await;
+    let replay = sign_offs::insert_sign_off(&mut replaying, args(fixed_uuid(61104))).await;
+    drop(replaying);
+    assert!(
+        is_unique_violation(replay.as_ref().expect_err("replay must conflict")),
+        "a replayed capture must land on its idempotency key, not a second row"
+    );
+
+    // Exactly one row carries that key, and it is the original.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let live: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sign_offs WHERE idempotency_key = 'capture-replay'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .expect("count by key");
+    assert_eq!(live, 1, "the original row survives a replay rather than being duplicated");
+    let read_back = sign_offs::get_sign_off(&mut tx, s.org, original.id)
+        .await
+        .expect("read");
+    assert_eq!(read_back, original);
+    assert_eq!(read_back.id, fixed_uuid(61103));
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn sign_off_correction_is_a_second_row_that_names_the_original() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 612).await;
+    let witness = seed_user(&db.app, &s, 61200).await;
+    let ticket_id = fixed_uuid(61201);
+    let first_attachment = fixed_uuid(61202);
+    let second_attachment = fixed_uuid(61203);
+    let first_sign_off = fixed_uuid(61204);
+    let correction = fixed_uuid(61205);
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let ticket = create_ticket(
+        &mut tx,
+        &s,
+        ticket_id,
+        "Thermostat stuck",
+        Priority::P3,
+        s.entry_status,
+        None,
+    )
+    .await;
+    sign_off_attachment(
+        &mut tx,
+        s.org,
+        first_attachment,
+        ticket.id,
+        &sha256_ab(),
+        Some(witness),
+    )
+    .await;
+    sign_off_attachment(
+        &mut tx,
+        s.org,
+        second_attachment,
+        ticket.id,
+        &"cd".repeat(32),
+        Some(witness),
+    )
+    .await;
+
+    let original = sign_offs::insert_sign_off(
+        &mut tx,
+        sign_offs::NewSignOff {
+            id: first_sign_off,
+            org_id: s.org,
+            ticket_id: ticket.id,
+            attachment_id: Some(first_attachment),
+            typed_agreement: false,
+            signer_name: "Dana Whitfield",
+            signer_kind: SignOffSignerKind::Customer,
+            witnessed_by_user_id: Some(witness),
+            captured_at: at(9),
+            consent_version: 1,
+            consent_text_snapshot: SIGN_OFF_CONSENT,
+            supersedes_sign_off_id: None,
+            idempotency_key: "capture-first",
+        },
+    )
+    .await
+    .expect("original capture");
+    assert_eq!(original.supersedes_sign_off_id, None);
+
+    let replacing = sign_offs::insert_sign_off(
+        &mut tx,
+        sign_offs::NewSignOff {
+            id: correction,
+            org_id: s.org,
+            ticket_id: ticket.id,
+            attachment_id: Some(second_attachment),
+            typed_agreement: false,
+            signer_name: "Dana Whitfield",
+            signer_kind: SignOffSignerKind::Customer,
+            witnessed_by_user_id: Some(witness),
+            captured_at: at(10),
+            consent_version: 1,
+            consent_text_snapshot: SIGN_OFF_CONSENT,
+            supersedes_sign_off_id: Some(first_sign_off),
+            idempotency_key: "capture-correction",
+        },
+    )
+    .await
+    .expect("correction insert");
+    assert_eq!(replacing.supersedes_sign_off_id, Some(first_sign_off));
+
+    // The original is not written: the relation points backward, and reading
+    // it back proves its own column is still empty.
+    let re_read = sign_offs::get_sign_off(&mut tx, s.org, first_sign_off)
+        .await
+        .expect("original read");
+    assert_eq!(
+        re_read.supersedes_sign_off_id, None,
+        "an original sign-off is never written to record what replaced it"
+    );
+
+    // The view derives `superseded_by` for whoever asks.
+    let views = sign_offs::list_sign_off_views_for_ticket(&mut tx, s.org, ticket.id)
+        .await
+        .expect("views");
+    let original_view = views
+        .iter()
+        .find(|view| view.sign_off.id == first_sign_off)
+        .expect("original view");
+    assert_eq!(original_view.superseded_by, Some(correction));
+    assert!(original_view.revocation.is_none());
+
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn sign_off_revocation_appends_seq_and_leaves_the_row_alone() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 613).await;
+    let witness = seed_user(&db.app, &s, 61300).await;
+    let revoker = seed_user(&db.app, &s, 61301).await;
+    let ticket_id = fixed_uuid(14301 + 1_000);
+    let attachment_id = fixed_uuid(61302);
+    let sign_off_id = fixed_uuid(61303);
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let ticket = create_ticket(
+        &mut tx,
+        &s,
+        ticket_id,
+        "Water leak under the sink",
+        Priority::P3,
+        s.entry_status,
+        None,
+    )
+    .await;
+    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+    let before = sign_offs::insert_sign_off(
+        &mut tx,
+        sign_offs::NewSignOff {
+            id: sign_off_id,
+            org_id: s.org,
+            ticket_id: ticket.id,
+            attachment_id: Some(attachment_id),
+            typed_agreement: false,
+            signer_name: "Dana Whitfield",
+            signer_kind: SignOffSignerKind::Customer,
+            witnessed_by_user_id: Some(witness),
+            captured_at: at(9),
+            consent_version: 1,
+            consent_text_snapshot: SIGN_OFF_CONSENT,
+            supersedes_sign_off_id: None,
+            idempotency_key: "capture-revoked",
+        },
+    )
+    .await
+    .expect("capture");
+
+    let revocation = sign_offs::insert_revocation(
+        &mut tx,
+        Uuid::now_v7(),
+        s.org,
+        sign_off_id,
+        "Customer disputed the work",
+        revoker,
+    )
+    .await
+    .expect("revocation");
+    assert_eq!(revocation.seq, 1);
+    assert_eq!(revocation.revoked_by_user_id, Some(revoker));
+
+    // The row itself is untouched, and the view reports the revocation.
+    let after = sign_offs::get_sign_off(&mut tx, s.org, sign_off_id)
+        .await
+        .expect("read");
+    assert_eq!(
+        after, before,
+        "revoking appends to the trail and writes nothing on the sign-off"
+    );
+    let views = sign_offs::list_sign_off_views_for_ticket(&mut tx, s.org, ticket.id)
+        .await
+        .expect("views");
+    let view = views.first().expect("view");
+    assert_eq!(view.revocation.as_ref().map(|r| r.seq), Some(1));
+    assert_eq!(view.attachment_sha256.as_deref(), Some(sha256_ab().as_str()));
+
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn sign_off_payload_is_downloadable_only_for_a_drawn_mark() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 614).await;
+    let witness = seed_user(&db.app, &s, 61400).await;
+    let ticket_id = fixed_uuid(61401);
+    let attachment_id = fixed_uuid(61402);
+    let drawn = fixed_uuid(61403);
+    let typed = fixed_uuid(61404);
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let ticket = create_ticket(
+        &mut tx,
+        &s,
+        ticket_id,
+        "No hot water",
+        Priority::P3,
+        s.entry_status,
+        None,
+    )
+    .await;
+    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+
+    // The drawn path.
+    sign_offs::insert_sign_off(
+        &mut tx,
+        sign_offs::NewSignOff {
+            id: drawn,
+            org_id: s.org,
+            ticket_id: ticket.id,
+            attachment_id: Some(attachment_id),
+            typed_agreement: false,
+            signer_name: "Dana Whitfield",
+            signer_kind: SignOffSignerKind::Customer,
+            witnessed_by_user_id: Some(witness),
+            captured_at: at(9),
+            consent_version: 1,
+            consent_text_snapshot: SIGN_OFF_CONSENT,
+            supersedes_sign_off_id: None,
+            idempotency_key: "capture-drawn",
+        },
+    )
+    .await
+    .expect("drawn capture");
+
+    // The typed path: same row shape, no payload.
+    sign_offs::insert_sign_off(
+        &mut tx,
+        sign_offs::NewSignOff {
+            id: typed,
+            org_id: s.org,
+            ticket_id: ticket.id,
+            attachment_id: None,
+            typed_agreement: true,
+            signer_name: "Dana Whitfield",
+            signer_kind: SignOffSignerKind::Customer,
+            witnessed_by_user_id: Some(witness),
+            captured_at: at(9),
+            consent_version: 1,
+            consent_text_snapshot: SIGN_OFF_CONSENT,
+            supersedes_sign_off_id: None,
+            idempotency_key: "capture-typed",
+        },
+    )
+    .await
+    .expect("typed capture");
+
+    let payload = sign_offs::payload_for_sign_off(&mut tx, s.org, drawn)
+        .await
+        .expect("drawn payload");
+    assert_eq!(payload.sha256, sha256_ab());
+    assert_eq!(payload.filename, "signature.png");
+
+    // A typed agreement has no object, so the inner JOIN yields no row and
+    // the route answers 404 rather than inventing bytes.
+    let typed_payload = sign_offs::payload_for_sign_off(&mut tx, s.org, typed).await;
+    assert!(
+        matches!(typed_payload, Err(DbError::NotFound)),
+        "expected NotFound, got {typed_payload:?}"
+    );
+
+    // The view carries the payload facts only for the drawn one.
+    let views = sign_offs::list_sign_off_views_for_ticket(&mut tx, s.org, ticket.id)
+        .await
+        .expect("views");
+    let typed_view = views
+        .iter()
+        .find(|view| view.sign_off.id == typed)
+        .expect("typed view");
+    assert!(typed_view.sign_off.typed_agreement);
+    assert_eq!(typed_view.attachment_sha256, None);
+    assert_eq!(typed_view.attachment_filename, None);
+
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn sign_off_consent_revision_leaves_an_existing_snapshot_alone() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 615).await;
+    let admin = seed_user(&db.app, &s, 61500).await;
+    let witness = seed_user(&db.app, &s, 61501).await;
+    let ticket_id = fixed_uuid(61501);
+    let attachment_id = fixed_uuid(61502);
+    let sign_off_id = fixed_uuid(61503);
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let seeded = sign_offs::current_consent(&mut tx, s.org)
+        .await
+        .expect("seeded consent");
+    assert_eq!(seeded.version, 1);
+
+    let ticket = create_ticket(
+        &mut tx,
+        &s,
+        ticket_id,
+        "Radiator cold upstairs",
+        Priority::P3,
+        s.entry_status,
+        None,
+    )
+    .await;
+    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+    sign_offs::insert_sign_off(
+        &mut tx,
+        sign_offs::NewSignOff {
+            id: sign_off_id,
+            org_id: s.org,
+            ticket_id: ticket.id,
+            attachment_id: Some(attachment_id),
+            typed_agreement: false,
+            signer_name: "Dana Whitfield",
+            signer_kind: SignOffSignerKind::Customer,
+            witnessed_by_user_id: Some(witness),
+            captured_at: at(9),
+            consent_version: seeded.version,
+            consent_text_snapshot: &seeded.body,
+            supersedes_sign_off_id: None,
+            idempotency_key: "capture-v1",
+        },
+    )
+    .await
+    .expect("capture under v1");
+
+    // The org revises its wording.
+    let revised = "I confirm the work described above was completed to my satisfaction and that I authorised anyone signing for me.";
+    let revision = sign_offs::insert_consent(
+        &mut tx,
+        Uuid::now_v7(),
+        s.org,
+        seeded.version + 1,
+        revised,
+        admin,
+    )
+    .await
+    .expect("consent revision");
+    assert_eq!(revision.version, 2);
+
+    // The sign-off still says what this signer actually read.
+    let after = sign_offs::get_sign_off(&mut tx, s.org, sign_off_id)
+        .await
+        .expect("read");
+    assert_eq!(after.consent_text_snapshot, seeded.body);
+    assert_eq!(after.consent_version, 1);
+
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn sign_off_conflict_reports_its_constraint_for_a_typed_conflict() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 616).await;
+    let witness = seed_user(&db.app, &s, 61600).await;
+    let ticket_id = fixed_uuid(61601);
+    let attachment_id = fixed_uuid(61603);
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let ticket = create_ticket(
+        &mut tx,
+        &s,
+        ticket_id,
+        "Extractor fan noisy",
+        Priority::P3,
+        s.entry_status,
+        None,
+    )
+    .await;
+    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+    tx.commit().await.expect("commit");
+
+    // The key is a caller-supplied literal rather than a formatted string:
+    // `NewSignOff` borrows it, and a borrow of a temporary inside the closure
+    // is exactly the mistake this line's shape invites.
+    let args = |id: Uuid, attachment_id: Option<Uuid>, typed: bool, key: &'static str| {
+        sign_offs::NewSignOff {
+            id,
+            org_id: s.org,
+            ticket_id,
+            attachment_id,
+            typed_agreement: typed,
+            signer_name: "Dana Whitfield",
+            signer_kind: SignOffSignerKind::Customer,
+            witnessed_by_user_id: Some(witness),
+            captured_at: at(9),
+            consent_version: 1,
+            consent_text_snapshot: SIGN_OFF_CONSENT,
+            supersedes_sign_off_id: None,
+            idempotency_key: key,
+        }
+    };
+
+    // Neither path. The capture-shape CHECK has to refuse it, because a row
+    // with no mark and no agreement is not evidence of anything.
+    let mut neither_tx = org_tx(&db.app, s.org).await;
+    let neither = sign_offs::insert_sign_off(
+        &mut neither_tx,
+        args(fixed_uuid(61604), None, false, "capture-neither"),
+    )
+    .await;
+    drop(neither_tx);
+    assert!(
+        is_constraint_violation(&neither.expect_err("neither path must be refused")),
+        "a capture with neither a mark nor a typed agreement is not evidence"
+    );
+
+    // Both at once, refused by the same CHECK.
+    let mut both_tx = org_tx(&db.app, s.org).await;
+    let both =
+        sign_offs::insert_sign_off(&mut both_tx, args(fixed_uuid(61605), Some(attachment_id), true, "capture-both")).await;
+    drop(both_tx);
+    assert!(is_constraint_violation(&both.expect_err("both paths must be refused")));
+
+    // The reserved portal kind with a staff witness attached. The API rejects
+    // this kind outright today; the signer-shape CHECK is the backstop.
+    let mut portal_tx = org_tx(&db.app, s.org).await;
+    let portal = sign_offs::insert_sign_off(
+        &mut portal_tx,
+        sign_offs::NewSignOff {
+            signer_kind: SignOffSignerKind::PortalClient,
+            ..args(fixed_uuid(61606), Some(attachment_id), false, "capture-portal")
+        },
+    )
+    .await;
+    drop(portal_tx);
+    assert!(is_constraint_violation(
+        &portal.expect_err("portal signing with a witness must be refused")
+    ));
+
+    // A portal sign-off with NO witness passes the CHECK: that is the shape a
+    // future portal lane lands, and the refusal belongs to the API, not here.
+    let mut portal_ok = org_tx(&db.app, s.org).await;
+    let accepted = sign_offs::insert_sign_off(
+        &mut portal_ok,
+        sign_offs::NewSignOff {
+            witnessed_by_user_id: None,
+            signer_kind: SignOffSignerKind::PortalClient,
+            ..args(fixed_uuid(61607), Some(attachment_id), false, "capture-portal-ok")
+        },
+    )
+    .await
+    .expect("the reserved shape is storable; the route refuses it, not the schema");
+    drop(portal_ok);
+    assert_eq!(accepted.witnessed_by_user_id, None);
+
+    // Nothing landed: all three refused shapes.
+    let mut check = org_tx(&db.app, s.org).await;
+    let live: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sign_offs WHERE id IN ($1, $2, $3)",
+    )
+    .bind(fixed_uuid(61604))
+    .bind(fixed_uuid(61605))
+    .bind(fixed_uuid(61606))
+    .fetch_one(&mut *check)
+    .await
+    .expect("count");
+    assert_eq!(live, 0);
+    drop(check);
 }

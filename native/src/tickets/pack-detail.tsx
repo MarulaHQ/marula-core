@@ -43,6 +43,7 @@ import {
   type TicketComment,
 } from "@/core/models";
 import { addTicketNote, setChecklistItemChecked, startTimer } from "@/core/writes";
+import { WrapUpSheet } from "./wrap-up-sheet";
 import { useModel, useMutation } from "@/data/sync-context";
 import {
   AttachmentUploadError,
@@ -141,6 +142,10 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
   }, [contacts.data, ticket.data]);
 
   const [composer, setComposer] = useState<ComposerKind | null>(null);
+  // Wave 43 track 2 lane 12: the wrap-up sheet carries the sign-off pad. It
+  // is a separate sheet rather than a section in the read model, because a
+  // tech opens it to close the job and then leaves it.
+  const [wrapUp, setWrapUp] = useState(false);
   const [body, setBody] = useState("");
   // Two registers, never one: a committed/queued write is good news and
   // renders in the success paint; everything else is a rejection in danger.
@@ -300,11 +305,12 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
                   <Pressable
                     hitSlop={8}
                     accessibilityRole="button"
-                    accessibilityLabel="More actions"
-                    onPress={() => router.push("/(tabs)/board" as never)}
-                    style={styles.moreDisc}
+                    accessibilityLabel="Wrap up"
+                    onPress={() => setWrapUp(true)}
+                    style={[styles.moreDisc, { borderColor: tokens.border, borderWidth: 1, borderRadius: 22, alignSelf: "center" }]}
+                    testID="ticket-action-wrapup"
                   >
-                    <Ionicons name="ellipsis-horizontal" size={20} color={tokens.text} />
+                    <Ionicons name="checkmark-done" size={20} color={tokens.text} />
                   </Pressable>
                 </View>
               ) : null
@@ -509,6 +515,15 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
           }}
         />
       </PinnedBar>
+
+      <WrapUpSheet
+        visible={wrapUp}
+        onClose={() => setWrapUp(false)}
+        boardId={ticket.data?.board_id ?? ""}
+        ticketId={id}
+        ticketNumber={ticket.data?.number ?? undefined}
+        currentStatusId={ticket.data?.status_id ?? null}
+      />
 
       <ComposerSheet
         visible={composer !== null}

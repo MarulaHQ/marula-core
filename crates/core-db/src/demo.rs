@@ -284,6 +284,11 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     crate::orgs::seed_default_taxonomy(&mut tx, DEMO_ORG_ID).await?;
     // Time-category taxonomy (Wave 39 lane 1): the ten standard slugs.
     crate::time_categories::seed_default_time_categories(&mut tx, DEMO_ORG_ID).await?;
+    // Customer sign-off consent, version 1 (Wave 43 track 2 lane 12, 0127).
+    // The migration's backfill only covers orgs that exist when it runs, and
+    // the demo org is created afterwards, so without this the pad has no
+    // wording to show and capture is unreachable.
+    crate::orgs::seed_default_sign_off_consent(&mut tx, DEMO_ORG_ID).await?;
 
     // --- builtin roles (fixed ids, shared permission sets) ----------------
     let mut role_ids: Vec<(String, Uuid)> = Vec::new();

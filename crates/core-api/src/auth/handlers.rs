@@ -216,6 +216,9 @@ pub async fn register(
     // Time-category taxonomy (Wave 39 lane 1): the ten standard slugs.
     core_db::time_categories::seed_default_time_categories(&mut tx, org_id).await?;
     core_db::document_layouts::seed_default_document_layouts(&mut tx, org_id).await?;
+    // Customer sign-off consent, version 1 (Wave 43 track 2 lane 12, 0127).
+    // Without this the pad has no wording to show and capture is unreachable.
+    core_db::orgs::seed_default_sign_off_consent(&mut tx, org_id).await?;
     core_db::templates::seed_default_templates(&mut tx, org_id).await?;
 
     core_db::users::create_user(

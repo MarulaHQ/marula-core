@@ -19,6 +19,9 @@
  * Wave 44 lane 11 (p44-ui-mobile-fidelity) added the scan surface's own
  * offline-save path: scan-offline-saved draws the pack's scan-10 sheet
  * (a code saved on the phone, "Saved for later · N waiting").
+ * Wave 43 track 2 lane 12 (p43-signature-pad) added the signature pad, which
+ * the pack DOES draw: wrap-up-empty is the pack's mobile state
+ * 08-wrap-up-resolved and wrap-up-signed is 11-wrap-up-signed.
  *
  * Usage: boot the stack, start expo web (see capture-web.mjs header), then
  *   node native/scripts/capture-pack.mjs [--only=a,b] [--theme=light|dark]
@@ -184,6 +187,41 @@ const STATES = [
       await row.click();
       await settle(page, '[data-testid="ticket-action-note"]', 1400, 120_000);
     }
+  }],
+  ["wrap-up-empty", async (page) => {
+    // The pack's mobile state 08-wrap-up-resolved: on-site and travel time
+    // cards, the drafted notes, the Outcome segmented control, the DASHED
+    // signature pad, and the sync primary with an offline hint.
+    await gotoWrapUp(page);
+    await settle(page, '[data-testid="signature-placeholder"]', 1500, 60_000);
+  }],
+  ["wrap-up-signed", async (page) => {
+    // The pack's mobile state 11-wrap-up-signed: a mark drawn in the pad,
+    // the placeholder still under it, and Clear at the bottom-right.
+    await gotoWrapUp(page);
+    await settle(page, '[data-testid="signature-pad-surface"]', 1500, 60_000);
+    const pad = page.locator('[data-testid="signature-pad-surface"]').first();
+    const box = await pad.boundingBox();
+    if (box === null) return;
+    // A stroke across the upper two-thirds, the way the pack draws it, made
+    // of several small mouse steps so the SVG path is a continuous curve
+    // rather than one jump that rounds off into a dot.
+    const cx = box.x + box.width * 0.5;
+    const cy = box.y + box.height * 0.38;
+    const halfWidth = box.width * 0.3;
+    await page.mouse.move(cx - halfWidth, cy);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i += 1) {
+      const t = i / 10;
+      await page.mouse.move(
+        cx - halfWidth + 2 * halfWidth * t,
+        cy + Math.sin(t * Math.PI * 2.2) * box.height * 0.09,
+      );
+      await page.waitForTimeout(12);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+    await settle(page, '[data-testid="signature-clear"]', 600, 30_000);
   }],
   ["note-composer", async (page) => {
     // Self-sufficient: reach a ticket first, so this state also captures on
@@ -693,6 +731,25 @@ async function ownerTimePass(browser) {
     await stopRunningTimer(tokens.access_token, timerId);
   }
   return captured;
+}
+
+/** Reaches the wrap-up surface on a live ticket, so both pad states are
+ *  runnable with `--only` rather than only after an earlier state. */
+async function gotoWrapUp(page) {
+  if ((await page.locator('[data-testid="wrap-up-sheet"]').count()) === 0) {
+    await page.goto(`${WEB_URL}/board`, { waitUntil: "domcontentloaded" });
+    await settle(page, '[data-testid="ticket-list"]', 1500);
+    const row = page.locator('[data-testid^="ticket-row-"]').first();
+    if ((await row.count()) > 0) {
+      await row.click();
+      await settle(page, '[data-testid="ticket-action-note"]', 1200, 120_000);
+    }
+    const wrap = page.locator('[data-testid="ticket-action-wrapup"]').first();
+    if ((await wrap.count()) > 0) {
+      await wrap.click({ force: true, timeout: 10_000 });
+      await settle(page, '[data-testid="wrap-up-sheet"]', 1200, 60_000);
+    }
+  }
 }
 
 async function main() {

@@ -6227,6 +6227,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/org/sign-off-consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/org/sign-off-consents — append the next consent version. The
+         *     version comes from the current max; existing sign-offs keep their own
+         *     snapshot, so revising the wording never rewrites a past agreement.
+         */
+        post: operations["sign_off_consents_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/sign-off-consents/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/org/sign-off-consents/current — the wording a pad must show. The
+         *     pad fetches this before capture so the version it sends back is the one
+         *     the signer actually read.
+         */
+        get: operations["sign_off_consents_current"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org/users": {
         parameters: {
             query?: never;
@@ -10277,6 +10319,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sign-offs/{id}/payload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/sign-offs/{id}/payload — streams the mark's bytes. Staff-only and
+         *     audit-free by intent: reading evidence is not the same act as capturing
+         *     it, and the row's own trail is the record of decisions.
+         */
+        get: operations["sign_offs_payload"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sla/calendars": {
         parameters: {
             query?: never;
@@ -11515,6 +11578,57 @@ export interface paths {
         get: operations["tickets_rollup"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/sign-offs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/tickets/{id}/sign-offs — the ticket's sign-offs with payload
+         *     facts, revocation state and the correction relation. Renders a timeline
+         *     row without ever moving the mark's bytes.
+         */
+        get: operations["sign_offs_list"];
+        put?: never;
+        /**
+         * POST /api/tickets/{id}/sign-offs — capture one signature.
+         * @description The whole capture lands in one transaction: the payload row in the
+         *     content-addressed store, the evidence row, `sign_off.created`, and the
+         *     audit entry. The body's `idempotency_key` is the anchor the offline queue
+         *     replays on, so a retried queue op is a no-op rather than a second
+         *     signature.
+         */
+        post: operations["sign_offs_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/sign-offs/{sign_off_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/tickets/{id}/sign-offs/{sign_off_id}/revoke
+         * @description Appends one entry to the sign-off's revocation trail. The row and its
+         *     bytes are untouched — this is why a revoked signature reads as revoked
+         *     rather than as gone, which is the whole point of keeping evidence.
+         */
+        post: operations["sign_offs_revoke"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13413,7 +13527,7 @@ export interface components {
          * @description What an attachment belongs to. The enum value is persisted verbatim.
          * @enum {string}
          */
-        AttachmentKind: "ticket_comment" | "email_message" | "ticket";
+        AttachmentKind: "ticket_comment" | "email_message" | "ticket" | "sign_off";
         AuditEvent: {
             /** @description Dot-path of the action, e.g. "auth.login", "ticket.status_change". */
             action: string;
@@ -16003,6 +16117,10 @@ export interface components {
              */
             user_id?: string | null;
         };
+        /** @description POST /api/org/sign-off-consents */
+        CreateConsentRequest: {
+            body: string;
+        };
         CreateContactRequest: {
             email?: string | null;
             name: string;
@@ -16652,6 +16770,40 @@ export interface components {
              *     audit stores detail, never material.
              */
             label?: string;
+        };
+        /** @description POST /api/tickets/{id}/sign-offs */
+        CreateSignOffRequest: {
+            /**
+             * Format: date-time
+             * @description Device-clock reading when the stroke finished. Recorded verbatim.
+             */
+            captured_at: string;
+            /**
+             * Format: uuid
+             * @description Optional explicit consent id — pins the exact wording row when the
+             *     pad fetched it before a concurrent revision landed.
+             */
+            consent_id?: string | null;
+            /**
+             * Format: int32
+             * @description Consent wording version the signer saw. The server rejects an
+             *     unknown version so a stale pad cannot capture against wording the
+             *     signer never read.
+             */
+            consent_version: number;
+            /** @description Client-minted replay anchor (offline queue). Enforced unique per org. */
+            idempotency_key: string;
+            /** @description Base64 PNG of the trimmed, ink-only mark. */
+            image_base64: string;
+            /** @description Reserved for the portal path; rejected today. */
+            signer_kind?: string | null;
+            /** @description Who signed, as they typed it on the pad. */
+            signer_name: string;
+            /**
+             * Format: uuid
+             * @description Set only when this capture corrects an earlier sign-off.
+             */
+            supersedes_sign_off_id?: string | null;
         };
         CreateSiteRequest: {
             address?: string | null;
@@ -24854,6 +25006,11 @@ export interface components {
         RevokeCatalogEntryRequest: {
             reason: string;
         };
+        /** @description POST /api/sign-offs/{id}/revoke */
+        RevokeSignOffRequest: {
+            /** @description Why the sign-off no longer stands. Part of the audit record. */
+            reason: string;
+        };
         /**
          * @description Instant-first mutation response (IF2): the role at the top level plus
          *     the additive `mutation` metadata.
@@ -25919,6 +26076,134 @@ export interface components {
              */
             ticket_id?: string | null;
             tracking_ref?: string | null;
+        };
+        /**
+         * @description The evidence row. Immutable by design: there is no UPDATE path, so a
+         *     correction is a second row linked by `supersedes_sign_off_id`.
+         */
+        SignOff: {
+            /**
+             * Format: uuid
+             * @description The PNG payload in the content-addressed store (`kind = sign_off`).
+             *     `None` exactly when the signer agreed by typing their name instead of
+             *     drawing, which is the first-class alternative path rather than a
+             *     degenerate capture.
+             */
+            attachment_id?: string | null;
+            /**
+             * Format: date-time
+             * @description Device-clock reading when the stroke finished, recorded verbatim —
+             *     offline capture is the normal case, so this is evidence about the
+             *     device, not a trusted server timestamp.
+             */
+            captured_at: string;
+            /**
+             * @description Verbatim text the signer agreed to. Snapshot, not a live join, so a
+             *     later consent revision can never change what an earlier signer agreed.
+             */
+            consent_text_snapshot: string;
+            /**
+             * Format: int32
+             * @description Consent wording version the signer saw.
+             */
+            consent_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** @description Client-minted, server-enforced unique per org (offline replay lands once). */
+            idempotency_key: string;
+            /** Format: uuid */
+            org_id: string;
+            signer_kind: components["schemas"]["SignOffSignerKind"];
+            /** @description Who signed, as they typed it. A drawn mark identifies nobody on its own. */
+            signer_name: string;
+            /**
+             * Format: uuid
+             * @description Set only on a correction row; points backward at the original.
+             */
+            supersedes_sign_off_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The ticket being signed off. A sign-off always has one subject.
+             */
+            ticket_id: string;
+            /**
+             * @description True when the signer agreed by typing their name. An auditor needs to
+             *     know which captures carried ink, because the two are not equally
+             *     strong evidence and only one can be compared against a sample.
+             */
+            typed_agreement: boolean;
+            /**
+             * Format: uuid
+             * @description The staff member who presented the pad and watched the signature.
+             */
+            witnessed_by_user_id?: string | null;
+        };
+        /** @description Append-only consent wording per org. Revision N+1 never rewrites revision N. */
+        SignOffConsent: {
+            body: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: int32 */
+            version: number;
+        };
+        /**
+         * @description One entry in a sign-off's revocation trail. The row and its bytes survive;
+         *     "is revoked" is answered by the existence of one of these.
+         */
+        SignOffRevocation: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            reason: string;
+            /** Format: uuid */
+            revoked_by_user_id?: string | null;
+            /**
+             * Format: int32
+             * @description 1-based per sign-off; a second revocation of the same sign-off is a
+             *     data error, not an overwrite.
+             */
+            seq: number;
+            /** Format: uuid */
+            sign_off_id: string;
+        };
+        /**
+         * @description Who drew the mark. `PortalClient` is RESERVED: the API rejects it today so
+         *     a future portal-signing lane needs no schema change, mirroring the reserved
+         *     `Attachment::uploaded_by_portal_user_id` column.
+         * @enum {string}
+         */
+        SignOffSignerKind: "customer" | "portal_client";
+        /**
+         * @description A sign-off plus the facts a client renders on the timeline: the payload's
+         *     storage facts, the current revocation state, and the correction relation.
+         */
+        SignOffView: components["schemas"]["SignOff"] & {
+            attachment_content_type?: string | null;
+            /**
+             * @description Payload facts (filename/content type/size/sha256), never the bytes.
+             *     All `None` on a typed agreement, which has no mark to describe.
+             */
+            attachment_filename?: string | null;
+            attachment_sha256?: string | null;
+            /** Format: int64 */
+            attachment_size_bytes?: number | null;
+            revocation?: null | components["schemas"]["SignOffRevocation"];
+            /**
+             * Format: uuid
+             * @description The id of a correction that replaced this one, when one exists.
+             */
+            superseded_by?: string | null;
         };
         /** @description The close sign-off body. */
         SignoffRequest: components["schemas"]["MutationParams"] & {
@@ -40950,6 +41235,97 @@ export interface operations {
             };
         };
     };
+    sign_off_consents_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateConsentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignOffConsent"];
+                };
+            };
+            /** @description missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not permitted on this board */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ticket or sign-off not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already captured, revoked, or a version collision */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sign_off_consents_current: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignOffConsent"];
+                };
+            };
+            /** @description missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not permitted */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     org_users_list: {
         parameters: {
             query?: {
@@ -49457,6 +49833,49 @@ export interface operations {
             };
         };
     };
+    sign_offs_payload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description the captured PNG bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
+                };
+            };
+            /** @description missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not permitted on this board */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description sign-off not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     sla_calendars_list: {
         parameters: {
             query?: never;
@@ -52242,6 +52661,169 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TicketRollup"];
                 };
+            };
+        };
+    };
+    sign_offs_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignOffView"][];
+                };
+            };
+            /** @description missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not permitted on this board */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ticket not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sign_offs_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSignOffRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignOff"];
+                };
+            };
+            /** @description missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not permitted on this board */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ticket or sign-off not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already captured, revoked, or a version collision */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sign_offs_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                sign_off_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeSignOffRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignOffRevocation"];
+                };
+            };
+            /** @description missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not permitted on this board */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ticket or sign-off not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already captured, revoked, or a version collision */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

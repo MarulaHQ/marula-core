@@ -123,6 +123,7 @@ pub mod secret_share;
 pub mod secrets;
 pub mod self_host;
 pub mod settings;
+pub mod sign_offs;
 pub mod similar_tickets;
 pub mod sla_admin;
 pub mod stock;
@@ -839,6 +840,30 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/attachments/{id}"),
             axum::routing::delete(attachments::remove),
+        )
+        // Customer sign-offs (Wave 43 track 2 lane 12, migration 0127):
+        // one JSON route carries the whole capture (base64 PNG + signer
+        // name + consent version), so an offline queue replay is a single
+        // op rather than bytes without their evidence row.
+        .route(
+            &rp("/tickets/{id}/sign-offs"),
+            get(sign_offs::list).post(sign_offs::create),
+        )
+        .route(
+            &rp("/tickets/{id}/sign-offs/{sign_off_id}/revoke"),
+            post(sign_offs::revoke),
+        )
+        .route(
+            &rp("/sign-offs/{id}/payload"),
+            get(sign_offs::payload),
+        )
+        .route(
+            &rp("/org/sign-off-consents/current"),
+            get(sign_offs::current_consent),
+        )
+        .route(
+            &rp("/org/sign-off-consents"),
+            post(sign_offs::create_consent),
         )
         // Transcription edge (Wave 22): the ADR 0008 registered
         // `transcription` plugin surface — audio attachments only, the

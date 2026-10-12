@@ -1,0 +1,21 @@
+{
+  "entity": "sign_off",
+  "event_type": "sign_off.created",
+  "payload": {
+    "attachment_id": "00000000-0000-0000-0000-00000000003d",
+    "captured_at": "2023-11-14T22:13:40Z",
+    "consent_version": 1,
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "sign_off_id": "00000000-0000-0000-0000-00000000003c",
+    "signer_kind": "customer",
+    "signer_name": "Dana Whitfield",
+    "size_bytes": 18432,
+    "supersedes_sign_off_id": null,
+    "ticket_id": "00000000-0000-0000-0000-000000000001",
+    "typed_agreement": false,
+    "witnessed_by_user_id": "00000000-0000-0000-0000-000000000005"
+  },
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "variant": "default"
+}

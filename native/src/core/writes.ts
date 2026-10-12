@@ -1064,6 +1064,127 @@ export const deleteTravelDraft: WriteOperation<TravelDraftIdArgs, TravelDraftDel
 };
 
 /** All operations the replay engine can reconstruct after relaunch. */
+// -- customer sign-offs (Wave 43 track 2 lane 12, migration 0127) -----------
+//
+// A captured signature is ONE op: the PNG bytes ride the body, so a tech at
+// the door with no signal queues the whole evidence row and it replays in
+// order with the same idempotency key. Splitting it (upload then reference)
+// would leave a stored object with no fact behind it if only half replayed.
+
+// -- the wrap-up's status leg -------------------------------------------------
+//
+// The pack's wrap-up primary is "Resolve and sync": the outcome the tech
+// picks on the segmented control is a board status change, so it is a queued
+// op like every other write. Captured on `entityKey: ticket:<id>` so it
+// cannot overtake the sign-off it was captured beside.
+
+export interface ChangeTicketStatusArgs {
+  ticketId: string;
+  /** Queue-label only; a deep link may not carry the ticket number. */
+  ticketNumber?: string | undefined;
+  statusId: string;
+  /** For the queue label and the sync note. */
+  statusName?: string | undefined;
+}
+
+export type ChangeTicketStatusBody = {
+  __path_id: string;
+  status_id: string;
+  idempotency_key: string;
+};
+
+export const changeTicketStatus: WriteOperation<ChangeTicketStatusArgs, ChangeTicketStatusBody> = {
+  kind: "ticket.change_status",
+  label: (args) => `Set ${args.ticketNumber ?? "ticket"} to ${args.statusName ?? "a new status"}`,
+  entityKey: (args) => `ticket:${args.ticketId}`,
+  entityId: (args) => `ticket:${args.ticketId}`,
+  method: "POST",
+  path: (args) => `/api/v1/tickets/${args.ticketId}/status`,
+  invalidate: (args) => [MODELS.ticket(args.ticketId), MODELS.myWork],
+  build: (args, base) => ({
+    __path_id: args.ticketId,
+    status_id: args.statusId,
+    idempotency_key: base.idempotencyKey,
+  }),
+  send: (client, body) =>
+    client.api.POST("/api/v1/tickets/{id}/status", {
+      params: { path: { id: body.__path_id } },
+      body: { status_id: body.status_id, idempotency_key: body.idempotency_key },
+    }),
+  // No optimistic render: a status move the server refuses (a workflow the
+  // board does not allow) must not appear to have happened.
+};
+
+export interface CaptureSignOffArgs {
+  ticketId: string;
+  /** Queue-label only; a deep link may not carry the ticket number. */
+  ticketNumber?: string | undefined;
+  /** Base64 PNG, or "" when the customer agreed by typing their name. */
+  imageBase64: string;
+  /** Who signed, as they typed it. The name is half the record. */
+  signerName: string;
+  /** Device-clock reading when the stroke finished. */
+  capturedAt: string;
+  /** Consent wording the signer saw, pinned by id + version. */
+  consentId: string;
+  consentVersion: number;
+  /** Set when this capture corrects an earlier sign-off. */
+  supersedesSignOffId?: string;
+}
+
+export type CaptureSignOffBody = {
+  /** Persisted so replay rebuilds the path without the original args. */
+  __path_id: string;
+  image_base64: string;
+  signer_name: string;
+  captured_at: string;
+  consent_id: string;
+  consent_version: number;
+  supersedes_sign_off_id?: string;
+  idempotency_key: string;
+};
+
+export const captureSignOff: WriteOperation<CaptureSignOffArgs, CaptureSignOffBody> = {
+  kind: "sign_off.capture",
+  label: (args) => `Sign-off on ${args.ticketNumber !== undefined ? args.ticketNumber : "ticket"}`,
+  // Per-ticket ordering: a correction can never overtake the capture it
+  // corrects, because both are ops on the same ticket.
+  entityKey: (args) => `ticket:${args.ticketId}`,
+  entityId: (args) => `ticket:${args.ticketId}`,
+  method: "POST",
+  path: (args) => `/api/v1/tickets/${args.ticketId}/sign-offs`,
+  invalidate: (args) => [MODELS.ticket(args.ticketId), MODELS.myWork],
+  build: (args, base) => ({
+    __path_id: args.ticketId,
+    image_base64: args.imageBase64,
+    signer_name: args.signerName,
+    captured_at: args.capturedAt,
+    consent_id: args.consentId,
+    consent_version: args.consentVersion,
+    ...(args.supersedesSignOffId !== undefined
+      ? { supersedes_sign_off_id: args.supersedesSignOffId }
+      : {}),
+    idempotency_key: base.idempotencyKey,
+  }),
+  send: (client, body) =>
+    client.api.POST("/api/v1/tickets/{id}/sign-offs", {
+      params: { path: { id: body.__path_id } },
+      body: {
+        image_base64: body.image_base64,
+        signer_name: body.signer_name,
+        captured_at: body.captured_at,
+        consent_id: body.consent_id,
+        consent_version: body.consent_version,
+        ...(body.supersedes_sign_off_id !== undefined
+          ? { supersedes_sign_off_id: body.supersedes_sign_off_id }
+          : {}),
+        idempotency_key: body.idempotency_key,
+      },
+    }),
+  // No optimistic render: a signature is evidence, and rendering a
+  // sign-off the server has not confirmed would be inventing a record.
+};
+
 export const WRITE_OPERATIONS = {
   [addTicketNote.kind]: addTicketNote,
   [startTimer.kind]: startTimer,
@@ -1084,6 +1205,8 @@ export const WRITE_OPERATIONS = {
   [createTravelDraft.kind]: createTravelDraft,
   [submitTravelDraft.kind]: submitTravelDraft,
   [deleteTravelDraft.kind]: deleteTravelDraft,
+  [captureSignOff.kind]: captureSignOff,
+  [changeTicketStatus.kind]: changeTicketStatus,
 } as const;
 
 export type WriteOperationKind = keyof typeof WRITE_OPERATIONS;
