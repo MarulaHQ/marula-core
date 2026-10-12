@@ -143,6 +143,7 @@ pub mod verification;
 pub mod webhook_admin;
 pub mod webhook_receiver;
 pub mod webhooks;
+pub mod workflow_nodes;
 pub mod workflow_overrides;
 
 use crate::auth::handlers as auth_handlers;
@@ -813,6 +814,18 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/automation-rules/{id}/test-run"),
             post(sla_admin::test_run_rule),
+        )
+        // The workflow node registry (Wave 43 lane 13): reads over
+        // DECLARATIONS, so they are any-authed-org-member like the plugin
+        // surface reads — no org data rides in a node type. The palette,
+        // the properties panel, the plugin-action picker and the LLM tool
+        // catalogue all read this one registry; there is no second one in
+        // TypeScript.
+        .route(&rp("/workflows/nodes"), get(workflow_nodes::list_nodes))
+        .route(&rp("/workflows/nodes/{id}"), get(workflow_nodes::get_node))
+        .route(
+            &rp("/workflows/plugin-nodes"),
+            get(workflow_nodes::list_plugin_nodes),
         )
         .route(
             &rp("/tickets/{id}/comments"),

@@ -802,6 +802,32 @@ pub struct SurfaceAction {
     /// Optional JSON-Schema subset for the action's params.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params_schema: Option<serde_json::Value>,
+    /// A2 (Wave 43 lane 13, `p43-node-registry`): what the action
+    /// RETURNS. Before this field a workflow could call a plugin action
+    /// but could not use what came back, which made a plugin node a
+    /// dead end for every downstream condition and reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<serde_json::Value>,
+    /// A2: repeating-safety. Defaults to false, because an undeclared
+    /// plugin action's retry-safety is unknown — `flow.retry` and the
+    /// operator retry both refuse a false until a plugin says otherwise.
+    #[serde(default)]
+    pub idempotent: bool,
+    /// A2: the event types this action can produce. Load-bearing: the
+    /// static loop refusal reads them, and a plugin that emits
+    /// `ticket.status_changed` then waits for it would otherwise deadlock
+    /// a workflow. Validated against the event-type registry at grant
+    /// time.
+    #[serde(default)]
+    pub emits: Vec<String>,
+    /// A2: who sees this entry. Undeclared stays `human`, so a plugin that
+    /// declares nothing never joins the LLM tool catalogue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<crate::node_registry::NodeAudience>,
+    /// A2: model-facing prose beside the human label. What makes LLM
+    /// authoring cheap enough to be the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_description: Option<String>,
 }
 
 /// One declared report render kind.
@@ -887,6 +913,22 @@ pub struct SurfaceRead {
     /// downstream node can use it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<serde_json::Value>,
+    /// A2 (Wave 43 lane 13): repeating-safety. False by default — a read
+    /// is rate-capped precisely because a loop over devices is cheap to
+    /// write, and retrying one is the same loop.
+    #[serde(default)]
+    pub idempotent: bool,
+    /// A2: the event types this read can produce. A read produces none of
+    /// its own, so this is normally empty; declaring one makes the loop
+    /// refusal able to see it.
+    #[serde(default)]
+    pub emits: Vec<String>,
+    /// A2: who sees this entry. Undeclared stays `human`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<crate::node_registry::NodeAudience>,
+    /// A2: model-facing prose beside the human label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_description: Option<String>,
     /// The caps this read runs under. Required — a read without declared
     /// guardrails refuses, so there is no silent unbounded default.
     pub guardrails: ReadGuardrails,
@@ -994,6 +1036,18 @@ impl PluginSurfaceProfile {
         Ok(())
     }
 
+    /// A one-line prose field (a description, an agent description): must
+    /// say something, and must fit the section's byte cap. Shared so a new
+    /// prose field cannot quietly skip the same gate the others pass.
+    fn validate_description(text: &str, what: &str) -> Result<(), crate::error::DomainError> {
+        if text.trim().is_empty() || text.len() > MAX_SURFACE_DESCRIPTION_BYTES {
+            return Err(crate::error::DomainError::Validation(format!(
+                "{what} must be 1..={MAX_SURFACE_DESCRIPTION_BYTES} bytes"
+            )));
+        }
+        Ok(())
+    }
+
     /// Validates the whole profile: per-section size caps, id/label
     /// shapes, unique ids, and the JSON-Schema subsets (props_schema,
     /// params_schema, validator schema) through the same
@@ -1076,6 +1130,22 @@ impl PluginSurfaceProfile {
             if let Some(schema) = &a.params_schema {
                 SettingsSchema::new(schema.clone())?;
             }
+            // A2 (Wave 43 lane 13): the output schema goes through the
+            // REGISTRY's subset gate, not SettingsSchema's — a node
+            // contract has to be the same shape the registry can honour,
+            // or a plugin could declare a keyword a first-party node
+            // cannot.
+            if let Some(schema) = &a.output_schema {
+                crate::node_registry::validate_declared_schema(schema)
+                    .map_err(|v| crate::error::DomainError::Validation(format!(
+                        "action {:?} output_schema is not inside the declared schema subset: {v}",
+                        a.id
+                    )))?;
+            }
+            Self::validate_emits(&a.id, "action", &a.emits)?;
+            if let Some(desc) = &a.agent_description {
+                Self::validate_description(desc, "action agent_description")?;
+            }
         }
         let mut seen_renders = std::collections::HashSet::new();
         for r in &self.render_kinds {
@@ -1142,8 +1212,44 @@ impl PluginSurfaceProfile {
                 SettingsSchema::new(schema.clone())?;
             }
             if let Some(schema) = &r.output_schema {
-                SettingsSchema::new(schema.clone())?;
+                // The registry's subset gate, not SettingsSchema's: the
+                // output schema is what a downstream value.reference and
+                // every condition gate on (A2), so it must be a shape the
+                // registry can actually resolve.
+                crate::node_registry::validate_declared_schema(schema)
+                    .map_err(|v| crate::error::DomainError::Validation(format!(
+                        "read {:?} output_schema is not inside the declared schema subset: {v}",
+                        r.id
+                    )))?;
             }
+            Self::validate_emits(&r.id, "read", &r.emits)?;
+            if let Some(desc) = &r.agent_description {
+                Self::validate_description(desc, "read agent_description")?;
+            }
+        }
+        Ok(())
+    }
+
+    /// A2 (Wave 43 lane 13): a node's declared emit list. The static loop
+    /// refusal reads these, so they are validated at consent time rather
+    /// than discovered as a deadlock. Each entry must be a platform event
+    /// type in the same grammar a trigger declares, and the list is
+    /// bounded — an unbounded array is a way to smuggle a long list
+    /// nobody reviewed.
+    fn validate_emits(
+        id: &str,
+        what: &str,
+        emits: &[String],
+    ) -> Result<(), crate::error::DomainError> {
+        if emits.len() > 32 {
+            return Err(crate::error::DomainError::Validation(format!(
+                "{what} {:?} declares {} emitted event types (max 32)",
+                id,
+                emits.len()
+            )));
+        }
+        for event in emits {
+            Self::validate_event_type(event, &format!("{what} {:?} emit", id))?;
         }
         Ok(())
     }
@@ -2249,6 +2355,17 @@ mod tests {
                     "type": "object",
                     "properties": {"body": {"type": "string", "maxLength": 500}}
                 })),
+                // A2: a declared output schema and emit list, so the
+                // action is usable downstream and visible to the loop
+                // refusal.
+                output_schema: Some(json!({
+                    "type": "object",
+                    "properties": {"comment_id": {"type": "string", "format": "uuid"}}
+                })),
+                idempotent: false,
+                emits: vec!["ticket.comment_added".into()],
+                audience: Some(crate::node_registry::NodeAudience::Both),
+                agent_description: Some("Adds the triage note to the ticket.".into()),
             }],
             render_kinds: vec![SurfaceRenderKind {
                 id: "gauges".into(),
@@ -2327,6 +2444,11 @@ mod tests {
                     description: "d".into(),
                     effect: SurfaceActionEffect::AddInternalComment,
                     params_schema: None,
+                    output_schema: None,
+                    idempotent: false,
+                    emits: Vec::new(),
+                    audience: None,
+                    agent_description: None,
                 },
                 SurfaceAction {
                     id: "a".into(),
@@ -2334,6 +2456,11 @@ mod tests {
                     description: "d".into(),
                     effect: SurfaceActionEffect::AddInternalComment,
                     params_schema: None,
+                    output_schema: None,
+                    idempotent: false,
+                    emits: Vec::new(),
+                    audience: None,
+                    agent_description: None,
                 },
             ],
             ..PluginSurfaceProfile::default()
@@ -2394,6 +2521,12 @@ mod tests {
             description: "A read.".into(),
             params_schema: None,
             output_schema: None,
+            // A2 defaults, matching the migration's: an undeclared read is
+            // retry-unsafe, emits nothing and stays off the model's view.
+            idempotent: false,
+            emits: Vec::new(),
+            audience: None,
+            agent_description: None,
             guardrails: ReadGuardrails {
                 max_calls_per_run: 5,
                 min_interval_secs: MIN_READ_INTERVAL_SECS,
@@ -2418,6 +2551,11 @@ mod tests {
                 description: "Adds a note.".into(),
                 effect: SurfaceActionEffect::AddInternalComment,
                 params_schema: None,
+                output_schema: None,
+                idempotent: false,
+                emits: Vec::new(),
+                audience: None,
+                agent_description: None,
             }],
             triggers: vec![trigger("offline", "rmm.device_offline")],
             reads: vec![read("devices")],
@@ -2496,6 +2634,174 @@ mod tests {
             let err = m.validate().expect_err(name).to_string();
             assert!(err.contains("in-product UI"), "{name}: {err}");
         }
+    }
+
+    #[test]
+    fn the_node_contract_fields_should_validate_as_a_registry_can_honour_them() {
+        // A2 (Wave 43 lane 13). The five fields that turn a surface entry
+        // into a workflow node go through the REGISTRY's schema gate, not
+        // SettingsSchema's: a plugin node and a first-party node must be
+        // declared in the same vocabulary, or one of them is lying.
+        let good = PluginSurfaceProfile {
+            actions: vec![SurfaceAction {
+                id: "push".into(),
+                label: "Push".into(),
+                description: "Pushes the ticket.".into(),
+                effect: SurfaceActionEffect::AddInternalComment,
+                params_schema: None,
+                output_schema: Some(json!({
+                    "type": "object",
+                    "properties": {"remote_id": {"type": "string"}},
+                    "required": ["remote_id"],
+                    "additionalProperties": false
+                })),
+                idempotent: true,
+                emits: vec!["rmm.ticket_pushed".into()],
+                audience: Some(crate::node_registry::NodeAudience::Both),
+                agent_description: Some("Pushes the ticket's summary to the vendor portal.".into()),
+            }],
+            ..PluginSurfaceProfile::default()
+        };
+        assert!(good.validate().is_ok());
+
+        // An output schema declaring a keyword the registry would ignore
+        // refuses: a contract that lies is worse than no contract.
+        let unsupported_keyword = PluginSurfaceProfile {
+            actions: vec![SurfaceAction {
+                output_schema: Some(json!({
+                    "type": "object",
+                    "patternProperties": {"^x": {"type": "string"}}
+                })),
+                ..SurfaceAction {
+                    id: "push".into(),
+                    label: "Push".into(),
+                    description: "Pushes the ticket.".into(),
+                    effect: SurfaceActionEffect::AddInternalComment,
+                    params_schema: None,
+                    output_schema: None,
+                    idempotent: false,
+                    emits: Vec::new(),
+                    audience: None,
+                    agent_description: None,
+                }
+            }],
+            ..PluginSurfaceProfile::default()
+        };
+        assert!(unsupported_keyword.validate().is_err());
+
+        // The emit list is the loop refusal's whole basis, so it is
+        // validated at consent time rather than discovered as a deadlock.
+        let bad_emit = PluginSurfaceProfile {
+            actions: vec![SurfaceAction {
+                emits: vec!["RMM.Device Offline".into()],
+                ..SurfaceAction {
+                    id: "push".into(),
+                    label: "Push".into(),
+                    description: "Pushes the ticket.".into(),
+                    effect: SurfaceActionEffect::AddInternalComment,
+                    params_schema: None,
+                    output_schema: None,
+                    idempotent: false,
+                    emits: Vec::new(),
+                    audience: None,
+                    agent_description: None,
+                }
+            }],
+            ..PluginSurfaceProfile::default()
+        };
+        assert!(bad_emit.validate().is_err());
+
+        let too_many_emits = PluginSurfaceProfile {
+            actions: vec![SurfaceAction {
+                emits: (0..33).map(|i| format!("plugin.event_{i}")).collect(),
+                ..SurfaceAction {
+                    id: "push".into(),
+                    label: "Push".into(),
+                    description: "Pushes the ticket.".into(),
+                    effect: SurfaceActionEffect::AddInternalComment,
+                    params_schema: None,
+                    output_schema: None,
+                    idempotent: false,
+                    emits: Vec::new(),
+                    audience: None,
+                    agent_description: None,
+                }
+            }],
+            ..PluginSurfaceProfile::default()
+        };
+        assert!(too_many_emits.validate().is_err());
+
+        // A read's output schema passes the same gate, and an empty agent
+        // description is refused rather than rendered as a blank row.
+        let blank_agent = PluginSurfaceProfile {
+            reads: vec![SurfaceRead {
+                agent_description: Some("   ".into()),
+                ..read("r")
+            }],
+            ..PluginSurfaceProfile::default()
+        };
+        assert!(blank_agent.validate().is_err());
+    }
+
+    #[test]
+    fn a_declared_node_contract_should_parse_into_the_registrys_own_shape() {
+        // The A2 seam: a manifest's declaration and the registry's
+        // PluginNodeContract must agree, because the palette, the picker
+        // and the LLM tool catalogue all read the registry's shape.
+        let action = SurfaceAction {
+            id: "push".into(),
+            label: "Push ticket".into(),
+            description: "Pushes the ticket.".into(),
+            effect: SurfaceActionEffect::AddInternalComment,
+            params_schema: Some(json!({
+                "type": "object",
+                "properties": {"ticket": {"type": "string"}},
+                "required": ["ticket"]
+            })),
+            output_schema: Some(json!({
+                "type": "object",
+                "properties": {"remote_id": {"type": "string"}}
+            })),
+            idempotent: true,
+            emits: vec!["rmm.ticket_pushed".into()],
+            audience: Some(crate::node_registry::NodeAudience::Both),
+            agent_description: Some("Pushes the ticket to the vendor portal.".into()),
+        };
+        let contract = crate::node_registry::PluginNodeContract::parse(
+            "automation_action",
+            &PluginSurfaceProfile::entry_key("acme-rmm", &action.id),
+            &action.label,
+            &json!({"params_schema": action.params_schema.clone()}),
+            action.output_schema.clone(),
+            action.idempotent,
+            &action.emits,
+            action.audience.map(|a| a.as_str()).unwrap_or("human"),
+            action.agent_description.as_deref(),
+        )
+        .expect("a declared contract parses");
+
+        assert_eq!(contract.kind, crate::node_registry::PluginNodeKind::Action);
+        assert_eq!(contract.node_id, "plugin.acme-rmm.push");
+        assert!(contract.idempotent);
+        assert_eq!(contract.emits, ["rmm.ticket_pushed"]);
+        assert_eq!(
+            contract.audience,
+            crate::node_registry::NodeAudience::Both
+        );
+        assert!(contract
+            .agent_description
+            .as_deref()
+            .is_some_and(|d| d.contains("vendor portal")));
+
+        let node = contract.as_node_type();
+        assert_eq!(node.tier, crate::node_registry::NodeTier::C);
+        assert_eq!(node.emits, ["rmm.ticket_pushed"]);
+        // The declared output schema is what makes the node referenceable
+        // downstream; a contract with none is not. A plugin contract is not
+        // in the first-party catalogue, so `output_schema` cannot resolve it
+        // — the declaration itself is the evidence.
+        assert!(contract.output_schema.is_some());
+        assert!(!node.output_schema.is_empty());
     }
 
     #[test]

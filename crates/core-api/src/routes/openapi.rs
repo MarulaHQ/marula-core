@@ -493,6 +493,10 @@ use utoipa::OpenApi;
         crate::routes::webhook_admin::remove,
         crate::routes::webhook_admin::deliveries,
         crate::routes::webhook_admin::test_fire,
+        // the workflow node registry (Wave 43 lane 13)
+        crate::routes::workflow_nodes::list_nodes,
+        crate::routes::workflow_nodes::get_node,
+        crate::routes::workflow_nodes::list_plugin_nodes,
         crate::routes::api_keys::list,
         crate::routes::api_keys::create,
         crate::routes::api_keys::revoke,
@@ -1682,6 +1686,11 @@ use utoipa::OpenApi;
         // §4.6 plugin surface registry (Wave 34 lane 4)
         crate::routes::plugin_surface::SurfaceEntryView,
         crate::routes::plugin_surface::SurfaceEntryList,
+        // the workflow node registry (Wave 43 lane 13)
+        crate::routes::workflow_nodes::NodeView,
+        crate::routes::workflow_nodes::NodeCatalogueView,
+        crate::routes::workflow_nodes::PluginNodeView,
+        crate::routes::workflow_nodes::PluginNodeListView,
         // ADR 0009 distribution lifecycle (Wave 16 lane 7) + Wave 24 theme packs
         crate::routes::plugin_distribution::ThemePackList,
         crate::routes::plugin_distribution::ThemePackView,

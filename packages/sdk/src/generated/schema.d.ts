@@ -12537,6 +12537,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflows/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/workflows/nodes — the catalogue, filtered. Declarations carry
+         *     no org data, so any authed org member may read; each consuming surface
+         *     keeps its own data gates.
+         */
+        get: operations["workflow_nodes_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflows/nodes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/workflows/nodes/{id} — one node with both schemas parsed.
+         *     The on-demand schema leg the authoring model uses, so exposing the
+         *     catalogue to a prompt costs one call per node it actually needs rather
+         *     than the whole catalogue inlined.
+         */
+        get: operations["workflow_nodes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflows/plugin-nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/workflows/plugin-nodes — the org's plugin-contributed
+         *     workflow nodes, parsed through the same contract the registry uses.
+         */
+        get: operations["workflow_plugin_nodes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -21002,6 +21065,68 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description Who a node is for. Decides palette visibility against the LLM tool
+         *     catalogue — a power user and the authoring model should not see the
+         *     same list. A plugin entry that declares nothing stays `human` until it
+         *     says otherwise (an undeclared node never auto-joins the model's view).
+         * @enum {string}
+         */
+        NodeAudience: "human" | "ai" | "both";
+        /**
+         * @description The catalogue read: version, digest, and the nodes the caller asked
+         *     for. The version and digest let a saved document say which release it
+         *     was validated against, and make two builds claiming the same release
+         *     with different declarations detectable.
+         */
+        NodeCatalogueView: {
+            digest: string;
+            node_count: number;
+            nodes: components["schemas"]["NodeView"][];
+            version: string;
+        };
+        /**
+         * @description Which part of the workflow surface a node belongs to. The palette groups
+         *     by family; the properties panel and the LLM tool catalogue both filter
+         *     on it.
+         * @enum {string}
+         */
+        NodeFamily: "trigger" | "decision" | "condition" | "action" | "control" | "value";
+        /**
+         * @description The catalogue's three tiers (docs/reference/workflow-node-catalogue.md).
+         *     Tier A is always visible and first in search; Tier B is the domain long
+         *     tail reached through the generic operation nodes; Tier C is
+         *     plugin-contributed.
+         * @enum {string}
+         */
+        NodeTier: "a" | "b" | "c";
+        /**
+         * @description One node as the web and the SDK consume it. Schemas ride as JSON so a
+         *     properties panel renders from them directly instead of hand-writing a
+         *     form per node.
+         */
+        NodeView: {
+            agent_description: string;
+            audience: components["schemas"]["NodeAudience"];
+            /**
+             * @description The event types this node can produce, the seam the static loop
+             *     refusal reads.
+             */
+            emits: string[];
+            /**
+             * @description The executor path this node rides: a closed domain operation for a
+             *     Tier A wrapper, the generic path for Tier B, the plugin surface
+             *     kind for Tier C.
+             */
+            executor: string;
+            family: components["schemas"]["NodeFamily"];
+            id: string;
+            idempotent: boolean;
+            input_schema: Record<string, never>;
+            label: string;
+            output_schema: Record<string, never>;
+            tier: components["schemas"]["NodeTier"];
+        };
         NoteDraftBody: {
             body: string;
             /**
@@ -22030,6 +22155,40 @@ export interface components {
             settings_schema?: unknown;
             surface_profile?: null | components["schemas"]["PluginSurfaceProfile"];
             version: string;
+        };
+        PluginNodeListView: {
+            /**
+             * @description The event types the org's plugins declare as triggers. They belong
+             *     to the trigger catalogue, not to this list, because a plugin
+             *     trigger arrives through the signed ingest and needs no surface
+             *     node at all.
+             */
+            declared_triggers: string[];
+            nodes: components["schemas"]["PluginNodeView"][];
+        };
+        /**
+         * @description One plugin-contributed node as the palette and the picker consume it.
+         *     Only live entries are listed — a revoked install's rows are gone, not
+         *     present-and-broken — and the entry carries its install so the canvas
+         *     can say whose node it is.
+         */
+        PluginNodeView: {
+            agent_description: string;
+            audience: components["schemas"]["NodeAudience"];
+            emits: string[];
+            idempotent: boolean;
+            input_schema?: Record<string, never> | null;
+            /** Format: uuid */
+            install_id: string;
+            /**
+             * @description `action`, `read` or `trigger`. A `trigger` is an EVENT TYPE the
+             *     connector declares through the signed ingest, not a node — the
+             *     trigger catalogue makes it subscribable.
+             */
+            kind: string;
+            label: string;
+            node_id: string;
+            output_schema?: Record<string, never> | null;
         };
         /**
          * @description `plugin.publisher_revoked` — the org-side vouch was withdrawn;
@@ -26491,17 +26650,44 @@ export interface components {
         };
         /** @description One declared automation action kind. */
         SurfaceAction: {
+            /**
+             * @description A2: model-facing prose beside the human label. What makes LLM
+             *     authoring cheap enough to be the default.
+             */
+            agent_description?: string | null;
+            audience?: null | components["schemas"]["NodeAudience"];
             /** @description One-line description shown in the editor and on consent. */
             description: string;
             /** @description The consented effect the engine executes. */
             effect: components["schemas"]["SurfaceActionEffect"];
             /**
+             * @description A2: the event types this action can produce. Load-bearing: the
+             *     static loop refusal reads them, and a plugin that emits
+             *     `ticket.status_changed` then waits for it would otherwise deadlock
+             *     a workflow. Validated against the event-type registry at grant
+             *     time.
+             */
+            emits?: string[];
+            /**
              * @description Plugin-local id, `[a-z][a-z0-9_]{0,63}`. Registry key:
              *     `plugin.<install-slug>.<id>`.
              */
             id: string;
+            /**
+             * @description A2: repeating-safety. Defaults to false, because an undeclared
+             *     plugin action's retry-safety is unknown — `flow.retry` and the
+             *     operator retry both refuse a false until a plugin says otherwise.
+             */
+            idempotent?: boolean;
             /** @description Label shown in the automations editor. */
             label: string;
+            /**
+             * @description A2 (Wave 43 lane 13, `p43-node-registry`): what the action
+             *     RETURNS. Before this field a workflow could call a plugin action
+             *     but could not use what came back, which made a plugin node a
+             *     dead end for every downstream condition and reference.
+             */
+            output_schema?: unknown;
             /** @description Optional JSON-Schema subset for the action's params. */
             params_schema?: unknown;
         };
@@ -26549,8 +26735,17 @@ export interface components {
          *     run ledger by megabytes.
          */
         SurfaceRead: {
+            /** @description A2: model-facing prose beside the human label. */
+            agent_description?: string | null;
+            audience?: null | components["schemas"]["NodeAudience"];
             /** @description One-line description shown in the editor and on consent. */
             description: string;
+            /**
+             * @description A2: the event types this read can produce. A read produces none of
+             *     its own, so this is normally empty; declaring one makes the loop
+             *     refusal able to see it.
+             */
+            emits?: string[];
             /**
              * @description The caps this read runs under. Required — a read without declared
              *     guardrails refuses, so there is no silent unbounded default.
@@ -26561,6 +26756,12 @@ export interface components {
              *     `plugin.<install-slug>.<id>`.
              */
             id: string;
+            /**
+             * @description A2 (Wave 43 lane 13): repeating-safety. False by default — a read
+             *     is rate-capped precisely because a loop over devices is cheap to
+             *     write, and retrying one is the same loop.
+             */
+            idempotent?: boolean;
             /** @description Label shown in the automations editor's read picker. */
             label: string;
             /**
@@ -54121,6 +54322,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OverrideRegistryResponse"];
+                };
+            };
+        };
+    };
+    workflow_nodes_list: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Which audience's slice to return: `human` (the palette) or `ai`
+                 *     (the LLM tool catalogue). Defaults to `human`.
+                 */
+                audience?: string | null;
+                /** @description Restrict to one tier: `a`, `b` or `c`. Defaults to every tier. */
+                tier?: string | null;
+                /**
+                 * @description Restrict to one family: `trigger`, `decision`, `condition`,
+                 *     `action`, `control` or `value`.
+                 */
+                family?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeCatalogueView"];
+                };
+            };
+        };
+    };
+    workflow_nodes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Node id, e.g. ticket.create */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeView"];
+                };
+            };
+        };
+    };
+    workflow_plugin_nodes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginNodeListView"];
                 };
             };
         };

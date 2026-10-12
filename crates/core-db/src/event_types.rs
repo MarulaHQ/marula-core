@@ -128,3 +128,34 @@ pub async fn find_unknown_types(
     .await?;
     Ok(unknown)
 }
+
+/// The event types the org's plugin installs declare as triggers
+/// (`source = 'plugin'`, their installs alive). These belong to the
+/// TRIGGER catalogue, not to the node palette: a plugin trigger arrives
+/// through lane 1's signed ingest and needs no workflow node at all
+/// (Wave 43 lane 13's catalogue decision). Separating them here is what
+/// stops a second trigger path being invented.
+pub async fn list_org_plugin_event_types<'e, E>(
+    executor: E,
+    org_id: Uuid,
+) -> DbResult<Vec<String>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let rows: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT DISTINCT et.event_type
+        FROM event_types et
+        JOIN plugin_installs i ON i.id = et.plugin_install_id
+        WHERE et.source = 'plugin'
+          AND i.org_id = $1
+          AND i.status = 'enabled'
+          AND i.revoked_at IS NULL
+        ORDER BY et.event_type
+        "#,
+    )
+    .bind(org_id)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows)
+}

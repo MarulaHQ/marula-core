@@ -109,6 +109,18 @@ pub fn derive_profile(
                     "description": a.description,
                     "effect": a.effect.as_str(),
                     "params_schema": a.params_schema.clone(),
+                    // A2 (Wave 43 lane 13): the node contract rides inside
+                    // the definition as well as in its own columns, so a
+                    // consumer reading the row directly sees the same five
+                    // facts the registry parses. `sync_surface_section`
+                    // lifts them into the columns.
+                    "node_contract": {
+                        "output_schema": a.output_schema.clone(),
+                        "idempotent": a.idempotent,
+                        "emits": a.emits.clone(),
+                        "audience": a.audience.map(|x| x.as_str()),
+                        "agent_description": a.agent_description.clone(),
+                    },
                 }),
             ));
         }
@@ -165,6 +177,15 @@ pub fn derive_profile(
                         "min_interval_secs": r.guardrails.min_interval_secs,
                         "max_output_bytes": r.guardrails.max_output_bytes,
                         "may_return_secrets": r.guardrails.may_return_secrets,
+                    },
+                    // A2 (Wave 43 lane 13): the four fields a read did not
+                    // have. `output_schema` already existed above and is
+                    // not duplicated here.
+                    "node_contract": {
+                        "idempotent": r.idempotent,
+                        "emits": r.emits.clone(),
+                        "audience": r.audience.map(|x| x.as_str()),
+                        "agent_description": r.agent_description.clone(),
                     },
                 }),
             ));
@@ -276,6 +297,11 @@ mod tests {
                 description: "Adds the triage note.".into(),
                 effect: SurfaceActionEffect::AddInternalComment,
                 params_schema: None,
+                output_schema: None,
+                idempotent: false,
+                emits: Vec::new(),
+                audience: None,
+                agent_description: None,
             }],
             render_kinds: vec![SurfaceRenderKind {
                 id: "gauges".into(),
@@ -300,6 +326,10 @@ mod tests {
                 description: "Fetches a site's device list.".into(),
                 params_schema: None,
                 output_schema: None,
+                idempotent: true,
+                emits: Vec::new(),
+                audience: None,
+                agent_description: None,
                 guardrails: ReadGuardrails {
                     max_calls_per_run: 5,
                     min_interval_secs: core_domain::entities::plugins::MIN_READ_INTERVAL_SECS,
@@ -383,6 +413,11 @@ mod tests {
                     description: "Adds the triage note.".into(),
                     effect: SurfaceActionEffect::AddInternalComment,
                     params_schema: None,
+                    output_schema: None,
+                    idempotent: false,
+                    emits: Vec::new(),
+                    audience: None,
+                    agent_description: None,
                 }],
                 triggers: profile().triggers,
                 reads: profile().reads,

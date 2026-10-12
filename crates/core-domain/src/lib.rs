@@ -24,6 +24,7 @@ pub mod import_core;
 pub mod labels;
 pub mod mentions;
 pub mod money;
+pub mod node_registry;
 pub mod notes;
 pub mod notifications;
 pub mod policy;

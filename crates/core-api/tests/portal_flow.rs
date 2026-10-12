@@ -260,7 +260,18 @@ async fn invite_portal_user(
     )
     .await;
     assert_eq!(response.status(), 200, "invite must succeed");
-    body_json(response).await
+    let body = body_json(response).await;
+    // This route answers with the portal user ITSELF — `body = PortalUser`
+    // in its OpenAPI annotation — so the row carries its own `id`. The
+    // `{"portal_user": {...}, "access_token": ...}` envelope is the LOGIN
+    // shape (`portal_login` below); reading one as the other is a bug that
+    // only shows up as an unwrap deep inside a test, so the helper pins the
+    // contract instead.
+    assert!(
+        body.get("id").and_then(Value::as_str).is_some(),
+        "the staff invite answers with the portal user itself, so it must carry its own id"
+    );
+    body
 }
 
 async fn portal_login(app: &Router, email: &str) -> Value {
@@ -283,12 +294,22 @@ async fn portal_flow_isolation_visibility_provenance_and_jwt_separation() {
     let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
     let org = seed_org(&app, &tag).await;
 
+    // Portal email is unique PER ORG (uq_portal_users_org_email), and
+    // `portal_resolve_login` resolves across orgs with an arbitrary
+    // LIMIT 1. Running this test twice against the same database would
+    // therefore log in as ANOTHER org's contact and assert against an
+    // identity this run never made. The run tag keeps every address
+    // provisioned here unique to this run.
+    let contact_a_email = format!("contact-{tag}@a.test");
+    let it_email = format!("it-{tag}@a.test");
+    let contact_b_email = format!("contact-b-{tag}@b.test");
+
     // --- staff-side provisioning ------------------------------------------
     let contact_a =
-        invite_portal_user(&app, &org.token, &org.client_a, "contact@a.test", "contact").await;
+        invite_portal_user(&app, &org.token, &org.client_a, &contact_a_email, "contact").await;
     assert_eq!(contact_a["status"], "invited");
-    invite_portal_user(&app, &org.token, &org.client_a, "it@a.test", "it_manager").await;
-    invite_portal_user(&app, &org.token, &org.client_b, "contact@b.test", "contact").await;
+    invite_portal_user(&app, &org.token, &org.client_a, &it_email, "it_manager").await;
+    invite_portal_user(&app, &org.token, &org.client_b, &contact_b_email, "contact").await;
 
     // Duplicate email under the same org is rejected cleanly.
     let dup = send(
@@ -297,7 +318,7 @@ async fn portal_flow_isolation_visibility_provenance_and_jwt_separation() {
         &format!("/api/clients/{}/portal-users", org.client_a),
         Some(&org.token),
         Some(json!({
-            "email": "CONTACT@a.test",
+            "email": contact_a_email.to_uppercase(),
             "display_name": "Dup",
             "password": "portal-passphrase-1",
             "role": "approver",
@@ -337,7 +358,7 @@ async fn portal_flow_isolation_visibility_provenance_and_jwt_separation() {
     assert_eq!(bad_status.status(), 422, "unknown status ids rejected");
 
     // --- login + profile ----------------------------------------------------
-    let contact = portal_login(&app, "contact@a.test").await;
+    let contact = portal_login(&app, &contact_a_email).await;
     assert_eq!(contact["portal_user"]["role"], "contact");
     assert_eq!(
         contact["portal_user"]["client_id"].as_str().unwrap(),
@@ -362,7 +383,7 @@ async fn portal_flow_isolation_visibility_provenance_and_jwt_separation() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|u| u["email"] == "contact@a.test")
+        .find(|u| u["email"] == contact_a_email.as_str())
         .unwrap();
     assert_eq!(invited_now_active["status"], "active");
 
@@ -482,7 +503,7 @@ async fn portal_flow_isolation_visibility_provenance_and_jwt_separation() {
         "cross-client reads are NotFound"
     );
 
-    let it = portal_login(&app, "it@a.test").await;
+    let it = portal_login(&app, &it_email).await;
     assert_eq!(it["portal_user"]["role"], "it_manager");
     let it_token = it["access_token"].as_str().unwrap().to_string();
     let it_view = detail(it_token.clone()).await;
@@ -500,7 +521,7 @@ async fn portal_flow_isolation_visibility_provenance_and_jwt_separation() {
     );
 
     // Client B has NO exposures: empty list, and ticket A is invisible.
-    let b = portal_login(&app, "contact@b.test").await;
+    let b = portal_login(&app, &contact_b_email).await;
     let b_token = b["access_token"].as_str().unwrap();
     let b_list = body_json(
         send(
@@ -630,9 +651,13 @@ async fn portal_refresh_rotates_and_replay_fails() {
     let app = core_api::routes::build_router(state.clone());
     let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
     let org = seed_org(&app, &tag).await;
+    // Run-unique so a rerun against the same database cannot resolve to
+    // another org's contact (portal email is unique per org, and the
+    // resolver picks across orgs).
+    let email = format!("rotate-{tag}@a.test");
 
-    invite_portal_user(&app, &org.token, &org.client_a, "rotate@a.test", "contact").await;
-    let login = portal_login(&app, "rotate@a.test").await;
+    invite_portal_user(&app, &org.token, &org.client_a, &email, "contact").await;
+    let login = portal_login(&app, &email).await;
     let refresh_token = login["refresh_token"].as_str().unwrap().to_string();
     let session_id = login["session_id"].as_str().unwrap().to_string();
 
@@ -674,7 +699,7 @@ async fn portal_refresh_rotates_and_replay_fails() {
         axum::http::Method::POST,
         "/api/portal/login",
         None,
-        Some(json!({"email": "rotate@a.test", "password": "definitely-wrong-password"})),
+        Some(json!({"email": email, "password": "definitely-wrong-password"})),
     )
     .await;
     assert_eq!(bad_password.status(), 401);
@@ -686,10 +711,11 @@ async fn portal_admin_can_disable_and_delete_portal_users() {
     let app = core_api::routes::build_router(state.clone());
     let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
     let org = seed_org(&app, &tag).await;
+    let email = format!("gate-{tag}@a.test");
 
-    let user = invite_portal_user(&app, &org.token, &org.client_a, "gate@a.test", "approver").await;
+    let user = invite_portal_user(&app, &org.token, &org.client_a, &email, "approver").await;
     // A first login so the delete step can prove outstanding tokens die.
-    let login = portal_login(&app, "gate@a.test").await;
+    let login = portal_login(&app, &email).await;
     let stale_access = login["access_token"].as_str().unwrap().to_string();
     let user_id = user["id"].as_str().unwrap().to_string();
 
@@ -708,7 +734,7 @@ async fn portal_admin_can_disable_and_delete_portal_users() {
         axum::http::Method::POST,
         "/api/portal/login",
         None,
-        Some(json!({"email": "gate@a.test", "password": "portal-passphrase-1"})),
+        Some(json!({"email": email, "password": "portal-passphrase-1"})),
     )
     .await;
     assert_eq!(blocked.status(), 401, "disabled identities cannot log in");
@@ -728,7 +754,7 @@ async fn portal_admin_can_disable_and_delete_portal_users() {
         axum::http::Method::POST,
         "/api/portal/login",
         None,
-        Some(json!({"email": "gate@a.test", "password": "brand-new-passphrase"})),
+        Some(json!({"email": email, "password": "brand-new-passphrase"})),
     )
     .await;
     assert_eq!(after_reset.status(), 200, "reset credential logs in");
@@ -787,17 +813,22 @@ async fn seed_portal_link(
     );
     use sha2::{Digest, Sha256};
     let hash = hex::encode(Sha256::digest(raw.as_bytes()));
-    sqlx::query(
+    // `expires` is a SQL EXPRESSION this file's own call sites write
+    // (`clock_timestamp() + interval '10 minutes'`), not a value:
+    // `expires_at` is timestamptz, so binding the text fails with a
+    // type error. Interpolating it is the only way the helper can mint a
+    // link that is already past, and it never touches anything
+    // user-supplied.
+    sqlx::query(&format!(
         "INSERT INTO portal_auth_one_use_tokens \
            (id, org_id, portal_user_id, kind, token_hash, expires_at) \
-         VALUES ($1, $2, $3, $4, $5, $6)",
-    )
+         VALUES ($1, $2, $3, $4, $5, {expires})",
+    ))
     .bind(Uuid::now_v7())
     .bind(org_id)
     .bind(portal_user_id)
     .bind(kind)
     .bind(&hash)
-    .bind(expires)
     .execute(pool)
     .await
     .expect("portal link row");
@@ -820,10 +851,13 @@ async fn portal_magic_link_is_single_use_portal_scoped_and_status_aware() {
     let app = core_api::routes::build_router(state.clone());
     let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
     let org = seed_org(&app, &tag).await;
-    let contact =
-        invite_portal_user(&app, &org.token, &org.client_a, "link@a.test", "contact").await;
-    let portal_user_id: Uuid =
-        Uuid::parse_str(contact["portal_user"]["id"].as_str().unwrap()).expect("uuid");
+    let link_email = format!("link-{tag}@a.test");
+    let contact = invite_portal_user(&app, &org.token, &org.client_a, &link_email, "contact").await;
+    // The staff invite answers with the portal user itself (`body =
+    // PortalUser` in the route's OpenAPI), not the login-shaped envelope
+    // that carries `access_token` beside `portal_user`. The delete test
+    // below reads the same response the same way.
+    let portal_user_id: Uuid = Uuid::parse_str(contact["id"].as_str().unwrap()).expect("uuid");
     // The org comes off the portal user row rather than a shared helper, so
     // this test needs no change to `seed_org`.
     let org_id: Uuid = sqlx::query_scalar("SELECT org_id FROM portal_users WHERE id = $1")
@@ -834,7 +868,7 @@ async fn portal_magic_link_is_single_use_portal_scoped_and_status_aware() {
 
     // (1) ENUMERATION. Every address gets the same answer, whether or not it
     //     belongs to a client of this service desk.
-    for address in ["link@a.test", "nobody@nowhere.test", "malformed"] {
+    for address in [link_email.as_str(), "nobody@nowhere.test", "malformed"] {
         let response = send(
             &app,
             axum::http::Method::POST,
@@ -857,25 +891,63 @@ async fn portal_magic_link_is_single_use_portal_scoped_and_status_aware() {
         .execute(&pool)
         .await
         .expect("disable");
+    // The enumeration pass above already minted this identity's one link
+    // while it was still `invited`, so the invariant is a DELTA: asking
+    // again must not add a link for an account that is now disabled. A
+    // mint also spends whatever is outstanding, so the earlier link staying
+    // unused is the second half of the proof.
+    let links_before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM portal_auth_one_use_tokens \
+         WHERE portal_user_id = $1 AND kind = 'portal_magic_link'",
+    )
+    .bind(portal_user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("count before disable");
+    let outstanding_before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM portal_auth_one_use_tokens \
+         WHERE portal_user_id = $1 AND kind = 'portal_magic_link' AND used_at IS NULL",
+    )
+    .bind(portal_user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("outstanding before disable");
+    assert_eq!(
+        outstanding_before, 1,
+        "the enumeration pass minted this identity one live link"
+    );
     let disabled = send(
         &app,
         axum::http::Method::POST,
         "/api/portal/magic-link/request",
         None,
-        Some(json!({ "email": "link@a.test" })),
+        Some(json!({ "email": link_email })),
     )
     .await;
     assert_eq!(disabled.status(), 200);
-    let minted_for_disabled: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM portal_auth_one_use_tokens WHERE portal_user_id = $1",
+    let links_after: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM portal_auth_one_use_tokens \
+         WHERE portal_user_id = $1 AND kind = 'portal_magic_link'",
     )
     .bind(portal_user_id)
     .fetch_one(&pool)
     .await
     .expect("count");
+    let outstanding_after: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM portal_auth_one_use_tokens \
+         WHERE portal_user_id = $1 AND kind = 'portal_magic_link' AND used_at IS NULL",
+    )
+    .bind(portal_user_id)
+    .fetch_one(&pool)
+    .await
+    .expect("outstanding after disable");
     assert_eq!(
-        minted_for_disabled, 0,
+        links_after, links_before,
         "a disabled contact must never be sent a sign-in link"
+    );
+    assert_eq!(
+        outstanding_after, outstanding_before,
+        "the request must not even spend the link the contact already had"
     );
     sqlx::query("UPDATE portal_users SET status = 'invited' WHERE id = $1")
         .bind(portal_user_id)
@@ -961,7 +1033,7 @@ async fn portal_magic_link_is_single_use_portal_scoped_and_status_aware() {
         .to_string();
     assert_eq!(
         body["portal_user"]["email"],
-        json!("link@a.test"),
+        json!(link_email),
         "the link resolves to the identity it was minted for"
     );
     // First sign-in through a link activates an invited contact, exactly as

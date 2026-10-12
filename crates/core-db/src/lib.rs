@@ -58,6 +58,7 @@ pub mod loans;
 pub mod manifest;
 pub mod mfa;
 pub mod note_drafts;
+pub mod node_registry;
 pub mod notifications;
 pub mod oidc;
 pub mod onboarding;
@@ -157,6 +158,30 @@ pub async fn connect(url: &str) -> DbResult<PgPool> {
 /// migrations are checksum-verified and skipped.
 pub async fn run_migrations(pool: &PgPool) -> DbResult<()> {
     sqlx::migrate!("./migrations").run(pool).await?;
+    // Record the node catalogue release this build runs: a workflow
+    // document can then say which release it was validated against, and
+    // two builds claiming the same version with different declarations
+    // stay detectable. It is BOOKKEEPING, not a schema invariant — the
+    // migrations above are what make the database correct, so a failed pin
+    // is logged and the boot continues rather than blaming the schema.
+    // `record_pin` refuses to rewrite a recorded release anyway.
+    if let Err(e) = record_catalogue_pin(pool).await {
+        tracing::debug!(error = %e, "node catalogue pin not recorded");
+    }
+    Ok(())
+}
+
+async fn record_catalogue_pin(pool: &PgPool) -> DbResult<()> {
+    let mut tx = pool.begin().await?;
+    node_registry::record_pin(
+        &mut tx,
+        core_domain::node_registry::CATALOGUE_VERSION,
+        &core_domain::node_registry::catalogue_digest(),
+        core_domain::node_registry::all().len() as i32,
+        Some("core-db::run_migrations"),
+    )
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 

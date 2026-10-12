@@ -524,6 +524,15 @@ impl From<core_domain::DomainError> for ApiError {
     }
 }
 
+/// The workflow node registry's typed refusals (Wave 43 lane 13). They
+/// ride the same validation posture as every other domain refusal, so a
+/// caller sees a 422 naming the node rather than a 500.
+impl From<core_domain::node_registry::NodeRegistryError> for ApiError {
+    fn from(e: core_domain::node_registry::NodeRegistryError) -> Self {
+        Self::from(core_domain::DomainError::from(e))
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, reason, message, extra) = match &self {
