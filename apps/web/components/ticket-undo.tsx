@@ -13,7 +13,12 @@
 // no undo for other entities in v1.
 "use client";
 
-import { Button, Label, Spinner, StatusTag, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Label,
+  Spinner,
+} from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
@@ -134,7 +139,7 @@ export function TicketUndo({
     <section className="grid gap-2" aria-label="Undo history">
       <div className="flex items-center gap-2">
         <Label>Undo</Label>
-        <Tag>{stack.mode === "open" ? "open record" : "closed · reverts only"}</Tag>
+        <Badge>{stack.mode === "open" ? "open record" : "closed · reverts only"}</Badge>
       </div>
 
       {stack.steps.length === 0 ? (
@@ -208,9 +213,9 @@ export function TicketUndo({
             <ol className="grid gap-1 text-xs" style={{ color: "var(--m-text-secondary)" }}>
               {stack.steps.map((s) => (
                 <li key={s.write_id} className="flex items-center gap-2">
-                  <StatusTag tone={s.restorable ? "neutral" : "warning"}>{`#${s.seq}`}</StatusTag>
+                  <Badge tone={s.restorable ? "neutral" : "warning"}>{`#${s.seq}`}</Badge>
                   <span>{describeStep(s)}</span>
-                  {!s.restorable ? <Tag>not value-restorable</Tag> : null}
+                  {!s.restorable ? <Badge>not value-restorable</Badge> : null}
                 </li>
               ))}
             </ol>

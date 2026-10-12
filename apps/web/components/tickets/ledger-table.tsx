@@ -32,6 +32,7 @@ import {
   slaReading,
   type TicketRow,
 } from "../../lib/ticket-ops";
+import "./ledger-chrome.css";
 
 /** Rows past this share entrance delay 0, so a full page is not still
  *  revealing while the reader is already on the last row. */

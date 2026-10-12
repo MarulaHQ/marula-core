@@ -15,7 +15,10 @@
 // DensitySwitch, Table, Tag, Badge, Button) stay independent, and a surface
 // uses only the ones it needs.
 import type { ReactNode } from "react";
-import { EmptyState, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  EmptyState,
+} from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 
 /* ---------- icons (the kit's one door, at the ledger's sizes) ---------- */
@@ -346,14 +349,14 @@ export function StatusPill({
   children: ReactNode;
 }): ReactNode {
   return (
-    <Tag tone={tone}>
+    <Badge tone={tone}>
       <span
         aria-hidden="true"
         className="inline-block h-2 w-2 rounded-full"
         style={{ background: "currentColor" }}
       />
       {children}
-    </Tag>
+    </Badge>
   );
 }
 

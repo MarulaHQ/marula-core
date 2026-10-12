@@ -13,6 +13,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -25,7 +26,6 @@ import {
   SelectValue,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -233,7 +233,7 @@ export default function AgentPlatformPage() {
                   {grants.map((g) => (
                     <Tr key={g.capability}>
                       <Td>
-                        <Tag>{g.capability}</Tag>
+                        <Badge>{g.capability}</Badge>
                       </Td>
                       <Td>{g.mode}</Td>
                       <Td>{new Date(g.updated_at).toLocaleString()}</Td>
@@ -315,7 +315,7 @@ export default function AgentPlatformPage() {
                     style={{ borderColor: "var(--m-border)" }}
                   >
                     <div className="flex flex-wrap items-center gap-2">
-                      <Tag>{p.status}</Tag>
+                      <Badge>{p.status}</Badge>
                       <span className="text-[13px] font-semibold">
                         {p.entity} · {p.op}
                       </span>
@@ -357,7 +357,7 @@ export default function AgentPlatformPage() {
                           </Button>
                         </>
                       ) : p.status === "declined" ? (
-                        <Tag>writes nothing</Tag>
+                        <Badge>writes nothing</Badge>
                       ) : null}
                     </div>
                     {openDiffId === p.id ? (

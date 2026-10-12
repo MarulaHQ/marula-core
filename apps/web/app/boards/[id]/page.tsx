@@ -16,6 +16,7 @@ import { rejectionText } from "../../../lib/error-copy";
 import { slaReading } from "../../../lib/ticket-ops";
 import type { components } from "@marula-core/sdk";
 import {
+  Badge,
   Button,
   Dialog,
   DialogActions,
@@ -30,9 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   SurfaceHeader,
-  Badge,
   Textarea,
 } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
@@ -394,9 +393,9 @@ function KanbanCard({
           <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
             {ticket.number}
           </span>
-          <StatusTag tone={priorityTone(ticket.priority)}>
+          <Badge tone={priorityTone(ticket.priority)}>
             {ticket.priority.toUpperCase()}
-          </StatusTag>
+          </Badge>
           <span className="ml-auto flex items-center gap-1">
             {(ticket.assignee_id ?? null) !== null && (
               <span
@@ -421,9 +420,9 @@ function KanbanCard({
         </button>
         {!compact && (
           <div className="flex flex-wrap items-center gap-1.5">
-            <StatusTag tone={tone}>
+            <Badge tone={tone}>
               {current?.name ?? humanCategoryLabel(ticket.category)}
-            </StatusTag>
+            </Badge>
             {/* The queue card's SLA reads as the ledger's SLA does (the same
                 `slaReading`, the same law): a breach is red with an alert icon
                 and a word, an at-risk clock takes the warning pair, and calm

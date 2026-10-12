@@ -14,6 +14,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   ColumnChooser,
   DataToolbar,
@@ -23,7 +24,6 @@ import {
   Spinner,
   SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -191,7 +191,7 @@ export default function ProvenancePage() {
         key: "actor",
         label: "Actor",
         sortValue: (r) => r.actorKind,
-        render: (r) => <Tag tone={ACTOR_TONE[r.actorKind] ?? "neutral"}>{r.actorKind}</Tag>,
+        render: (r) => <Badge tone={ACTOR_TONE[r.actorKind] ?? "neutral"}>{r.actorKind}</Badge>,
       },
       {
         key: "record",

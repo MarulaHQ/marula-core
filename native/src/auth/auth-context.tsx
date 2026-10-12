@@ -39,7 +39,7 @@ import { API_URL } from "@/config";
 import { fetchWithAuthRefresh } from "@/data/http";
 import { biometricPreference, sessionStore, tokenExpiresAt } from "@/data/secure-store";
 
-export type AuthStatus = "loading" | "locked" | "signedOut" | "mfa" | "signedIn";
+export type AuthStatus = "loading" | "biometric" | "signedOut" | "mfa" | "signedIn";
 
 export interface AuthContextValue {
   status: AuthStatus;
@@ -172,7 +172,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       sessionRef.current = { refreshToken: stored.refreshToken, sessionId: stored.sessionId };
       if (enabled && hardware && enrolled) {
-        setStatus("locked");
+        // The one gate this status means: the operator turned biometrics on,
+        // so the restored session waits on a Face ID check before it is
+        // handed to the app. It is not a device approval — nothing here asks
+        // anyone to approve anything (ADR 0021).
+        setStatus("biometric");
         return;
       }
       try {

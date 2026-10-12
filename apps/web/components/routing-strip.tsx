@@ -5,7 +5,9 @@
 // say (ADR 0010 visibly-absent posture): no provider hint, no empty
 // chrome, no nag. Suggestions never apply themselves; the dispatcher
 // moves blocks on the board.
-import { Tag } from "@marula-core/ui";
+import {
+  Badge,
+} from "@marula-core/ui";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 
@@ -99,9 +101,9 @@ export function RoutingStrip({ dayIso }: { dayIso: string }) {
       )}
       {blocking.length > 0 && (
         <span className="flex flex-wrap items-center gap-2">
-          <Tag tone="warning">
+          <Badge tone="warning">
             {blocking.length} travel {blocking.length === 1 ? "issue" : "issues"}
-          </Tag>
+          </Badge>
           {blocking.slice(0, 4).map((warning, index) => (
             <span
               key={`${warning.kind}-${warning.appointment_id ?? index}`}
@@ -118,7 +120,7 @@ export function RoutingStrip({ dayIso }: { dayIso: string }) {
       )}
       {suggestions.length > 0 && (
         <span className="flex flex-wrap items-center gap-2">
-          <Tag tone="neutral">Route suggestions</Tag>
+          <Badge tone="neutral">Route suggestions</Badge>
           {suggestions.slice(0, 3).map((suggestion, index) => (
             <span
               key={`${suggestion.kind}-${suggestion.appointment_id}-${index}`}

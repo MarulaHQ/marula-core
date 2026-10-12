@@ -37,12 +37,12 @@ import { resultErrorText } from "../../lib/error-copy";
 import { doubleDiff as diffSummary } from "../../lib/decision-diff";
 import type { components } from "@marula-core/sdk";
 import {
+  Badge,
   Button,
   Card,
   Input,
   Label,
   Spinner,
-  Tag,
 } from "@marula-core/ui";
 
 type SurfaceOverview = components["schemas"]["DecisionSurfaceOverview"];
@@ -290,9 +290,9 @@ export function DecisionSurfaceEditor({
         {/* Header + honest posture badges */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold">{surface.label}</h3>
-          <Tag>{surface.mode === "live" ? "LIVE" : "SHADOW"}</Tag>
+          <Badge>{surface.mode === "live" ? "LIVE" : "SHADOW"}</Badge>
           {surface.model_id != null ? (
-            <Tag>{`model: ${surface.model_id}`}</Tag>
+            <Badge>{`model: ${surface.model_id}`}</Badge>
           ) : (
             <DecisionModelUnknownPill curated={surface.decision_model_curated} />
           )}

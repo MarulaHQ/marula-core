@@ -9,6 +9,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -25,9 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -565,7 +564,7 @@ export default function VendorsPage(): ReactNode {
               vendor: (
                 <span className="flex items-center gap-1.5">
                   <span style={{ color: "var(--m-text)" }}>{vendor.name}</span>
-                  {vendor.website != null && vendor.website !== "" ? <Tag tone="outline">web</Tag> : null}
+                  {vendor.website != null && vendor.website !== "" ? <Badge tone="neutral">web</Badge> : null}
                 </span>
               ),
               code: <span className="text-xs">{vendor.code ?? "—"}</span>,

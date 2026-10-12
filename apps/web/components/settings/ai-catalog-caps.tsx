@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -21,7 +22,6 @@ import {
   SelectValue,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -203,7 +203,7 @@ export function CatalogCard({ onChanged }: { onChanged: () => void }) {
                 <Td>
                   <span className="flex flex-wrap gap-1">
                     {((e.capabilities ?? []) as string[]).sort().map((tag: string) => (
-                      <Tag key={tag}>{tag}</Tag>
+                      <Badge key={tag}>{tag}</Badge>
                     ))}
                   </span>
                 </Td>

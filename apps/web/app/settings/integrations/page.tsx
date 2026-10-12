@@ -17,6 +17,7 @@
 
 import { friendlyMutationText, resultErrorText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -31,7 +32,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useReducer, useState } from "react";
@@ -718,7 +718,7 @@ export default function IntegrationsSettingsPage() {
                       <span key={t} className="inline-flex items-center gap-1">
                         <code>{t}</code>
                         {eventTypeOrigin(t) === "grant" ? (
-                          <Tag tone="warning">needs grant</Tag>
+                          <Badge tone="warning">needs grant</Badge>
                         ) : null}
                       </span>
                     ))
@@ -765,7 +765,7 @@ export default function IntegrationsSettingsPage() {
                               <span style={{ color: "var(--m-text-secondary)" }}>
                                 {d.event_type} · attempt #{d.attempt}
                               </span>
-                              <Tag tone={verdict.tone}>{verdict.label}</Tag>
+                              <Badge tone={verdict.tone}>{verdict.label}</Badge>
                             </div>
                             <div className="flex items-center justify-between gap-2 tabular-nums" style={{ color: "var(--m-text-muted)" }}>
                               <span title={d.created_at}>{new Date(d.created_at).toLocaleString()}</span>
@@ -873,9 +873,9 @@ export default function IntegrationsSettingsPage() {
                         {source.name}
                       </span>
                       <span className="flex items-center gap-1.5">
-                        <Tag tone={profile.kind === "m2m" ? "neutral" : "outline"}>
+                        <Badge tone={profile.kind === "m2m" ? "neutral" : "outline"}>
                           {profile.label}
-                        </Tag>
+                        </Badge>
                         <span
                           className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-[var(--m-radius-container)]"
                           style={{
@@ -1165,7 +1165,7 @@ function CustomTypesBar({
             <label key={t} className="inline-flex items-center gap-1.5 text-[12px] py-0.5">
               <input type="checkbox" checked onChange={() => onToggle(t)} aria-label={t} />
               <code>{t}</code>
-              <Tag tone="warning">{eventTypeOriginLabel(t)}</Tag>
+              <Badge tone="warning">{eventTypeOriginLabel(t)}</Badge>
             </label>
           ))}
         </div>
@@ -1229,7 +1229,7 @@ function IngestLogPanel({
               <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                 {new Date(row.at).toLocaleString()}
               </span>
-              <Tag tone={row.tone}>{row.label}</Tag>
+              <Badge tone={row.tone}>{row.label}</Badge>
             </div>
             <div className="flex items-center justify-between gap-2 flex-wrap" style={{ color: "var(--m-text-muted)" }}>
               <span>

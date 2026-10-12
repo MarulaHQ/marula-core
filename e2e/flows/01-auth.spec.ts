@@ -14,7 +14,11 @@ import { expect, test } from "../helpers/harness";
 test("login page bootstraps the theme pre-paint and signs the demo owner in", async ({ page }) => {
   await page.goto("/login");
   // The bootstrap script ran before first paint (attribute on <html>).
-  await expect(page.locator("html")).toHaveAttribute("data-theme", /light|dark/, {
+  // The DOM deliberately carries the KIT's names: the app's `light` is
+  // written as `neutral` so the kit's cream block cannot win
+  // (packages/ui/src/theme.ts toDomTheme). The app's own vocabulary stays
+  // light/dark; only the attribute is translated.
+  await expect(page.locator("html")).toHaveAttribute("data-theme", /neutral|dark/, {
     timeout: 15_000,
   });
 
@@ -22,7 +26,10 @@ test("login page bootstraps the theme pre-paint and signs the demo owner in", as
   await page.fill('input[type="password"]', "demo-password-123");
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/today/, { timeout: 30_000 });
-  await expect(page.getByRole("heading", { name: "Today" })).toBeVisible({ timeout: 30_000 });
+  // The `/today` h1 is the time-of-day greeting ("Good afternoon, Fiona"),
+  // which no stable assertion can name, so the page's own section heading
+  // is the anchor instead.
+  await expect(page.getByRole("heading", { name: "Your day" })).toBeVisible({ timeout: 30_000 });
 });
 
 test("wrong password renders friendly error copy, not raw JSON", async ({ page }) => {
@@ -38,7 +45,8 @@ test("wrong password renders friendly error copy, not raw JSON", async ({ page }
 
 test("seeded theme preference persists for the authed session", async ({ authedPage }) => {
   await authedPage.goto("/today");
-  await expect(authedPage.getByRole("heading", { name: "Today" })).toBeVisible({ timeout: 30_000 });
+  // Same anchor as the sign-in test: the h1 is a greeting.
+  await expect(authedPage.getByRole("heading", { name: "Your day" })).toBeVisible({ timeout: 30_000 });
   const stored = await authedPage.evaluate(() => localStorage.getItem("marula-theme"));
   expect(["light", "dark"]).toContain(stored);
 });

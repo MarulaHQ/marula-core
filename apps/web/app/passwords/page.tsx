@@ -24,6 +24,7 @@
 import { rejectionText } from "../../lib/error-copy";
 import { friendlyMutationError } from "../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   ColumnChooser,
@@ -45,15 +46,14 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
   ViewSwitch,
   applyDensity,
   useDensity,
-  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -777,10 +777,10 @@ export default function VaultPage() {
                     </span>
                     <span>{KIND_LABELS[selectedFolderRow.kind] ?? selectedFolderRow.kind}</span>
                     {selectedFolderRow.restricted ? (
-                      <Tag tone="warning">restricted · reveal needs an edit grant</Tag>
+                      <Badge tone="warning">restricted · reveal needs an edit grant</Badge>
                     ) : null}
-                    {selectedFolderRow.is_default_seed ? <Tag tone="neutral">shipped seed</Tag> : null}
-                    {selectedFolderRow.forked_from !== null ? <Tag tone="neutral">forked seed</Tag> : null}
+                    {selectedFolderRow.is_default_seed ? <Badge tone="neutral">shipped seed</Badge> : null}
+                    {selectedFolderRow.forked_from !== null ? <Badge tone="neutral">forked seed</Badge> : null}
                   </div>
                 ) : null}
 
@@ -1142,9 +1142,9 @@ function VaultTree({
               </span>
             ) : null}
             {f.restricted ? (
-              <Tag tone="warning" className="ml-2">
+              <Badge tone="warning" className="ml-2">
                 restricted
-              </Tag>
+              </Badge>
             ) : null}
           </button>
           {f.is_default_seed ? (
@@ -1919,7 +1919,7 @@ function RecordLinksPanel({
               style={{ borderColor: "var(--m-border)" }}
             >
               <span className="min-w-0">
-                <Tag tone="outline">{l.to_kind.replaceAll("_", " ")}</Tag>{" "}
+                <Badge tone="neutral">{l.to_kind.replaceAll("_", " ")}</Badge>{" "}
                 {l.target_deleted ? (
                   <span style={{ color: "var(--m-status-danger-fg)" }}>deleted target</span>
                 ) : (

@@ -10,6 +10,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -26,9 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -574,9 +573,9 @@ export default function StockToolsPage(): ReactNode {
                     <Td className="text-xs">{kit.code ?? "—"}</Td>
                     <Td className="text-xs">{kit.note ?? "—"}</Td>
                     <Td>
-                      <StatusTag tone={kit.active ? "success" : "neutral"}>
+                      <Badge tone={kit.active ? "success" : "neutral"}>
                         {kit.active ? "active" : "archived"}
-                      </StatusTag>
+                      </Badge>
                     </Td>
                     <Td>
                       <div className="flex justify-end">
@@ -743,9 +742,9 @@ export default function StockToolsPage(): ReactNode {
             {kitAvailability !== null && (
               <Card className="grid gap-1 p-3" data-testid="tools-kit-availability">
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusTag tone={kitAvailability.ready ? "success" : "danger"}>
+                  <Badge tone={kitAvailability.ready ? "success" : "danger"}>
                     {kitAvailability.ready ? "ready" : "not ready"}
-                  </StatusTag>
+                  </Badge>
                   <span className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
                     {kitAvailability.ready
                       ? "Every member has enough in-stock units."

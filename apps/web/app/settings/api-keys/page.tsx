@@ -13,6 +13,7 @@
 
 import { friendlyMutationText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -22,7 +23,6 @@ import {
   FieldHint,
   Input,
   Label,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useMemo, useState } from "react";
@@ -294,9 +294,9 @@ export default function ApiKeysSettingsPage() {
                   <td className="p-2">
                     <span className="flex flex-wrap gap-1">
                       {k.scopes.map((s) => (
-                        <Tag key={s} tone="outline">
+                        <Badge key={s} tone="neutral">
                           {s}
-                        </Tag>
+                        </Badge>
                       ))}
                     </span>
                   </td>
@@ -308,9 +308,9 @@ export default function ApiKeysSettingsPage() {
                   </td>
                   <td className="p-2 text-right">
                     {k.revoked_at != null ? (
-                      <Tag tone="danger">revoked</Tag>
+                      <Badge tone="danger">revoked</Badge>
                     ) : (
-                      <Tag tone="success">active</Tag>
+                      <Badge tone="success">active</Badge>
                     )}
                   </td>
                   <td className="p-2 text-right">

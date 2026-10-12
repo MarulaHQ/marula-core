@@ -284,11 +284,6 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     crate::orgs::seed_default_taxonomy(&mut tx, DEMO_ORG_ID).await?;
     // Time-category taxonomy (Wave 39 lane 1): the ten standard slugs.
     crate::time_categories::seed_default_time_categories(&mut tx, DEMO_ORG_ID).await?;
-    // Customer sign-off consent, version 1 (Wave 43 track 2 lane 12, 0127).
-    // The migration's backfill only covers orgs that exist when it runs, and
-    // the demo org is created afterwards, so without this the pad has no
-    // wording to show and capture is unreachable.
-    crate::orgs::seed_default_sign_off_consent(&mut tx, DEMO_ORG_ID).await?;
 
     // --- builtin roles (fixed ids, shared permission sets) ----------------
     let mut role_ids: Vec<(String, Uuid)> = Vec::new();
@@ -1200,7 +1195,19 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     // below (the kit's own tool and the switch-firmware unit, one of them OVERDUE)
     // must be flagged or the tools board renders "No tool units yet" — the state
     // the fixture exists to draw would not exist.
-    let stock_specs: [(u64, &str, &str, &str, &str, &str, &str, bool); 6] = [
+    // Named row: an eight-field tuple written out in a binding reads as
+    // unreadable, so it gets a name. The literals below stay positional.
+    type StockSpecRow = (
+        u64,
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+        bool,
+    );
+    let stock_specs: [StockSpecRow; 6] = [
         (
             910,
             "Torque wrench set",
@@ -1648,7 +1655,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         serial
             .validate()
             .map_err(|e| DbError::Conflict(e.to_string()))?;
-        crate::stock::upsert_serial(&mut *tx, &serial).await?;
+        crate::stock::upsert_serial(&mut tx, &serial).await?;
         // The receive that put the unit on the shelf: the loan's OUT leg
         // decrements stock_levels through the real ledger guard, so the
         // level row (and its receive movement) must exist first or the
@@ -1709,7 +1716,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
                 device_asset_id: None,
             }],
         };
-        let outcome = crate::loans::issue_loan(&mut *tx, DEMO_ORG_ID, tech, &request).await?;
+        let outcome = crate::loans::issue_loan(&mut tx, DEMO_ORG_ID, tech, &request).await?;
         trail_system_write(
             &mut tx,
             "client_loan",
@@ -2868,6 +2875,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         &'static str,
         &'static str,
         &'static str,
+        Option<&'static str>,
     );
     let asset_specs: [AssetSpec; 6] = [
         (
@@ -2878,6 +2886,10 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "Dell Latitude 5540 — Dana Reeve",
             "laptop",
             "active",
+            // The mobile pack's scanned code. A 36-month horizon bought three
+            // years back, so its warranty is genuinely ending — the found
+            // sheet's third fact has real data instead of a null.
+            Some("ending"),
         ),
         (
             731,
@@ -2887,6 +2899,9 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "FortiGate 100F edge firewall",
             "network",
             "active",
+            // Same horizon, bought a couple of months earlier: the lapsed
+            // bucket, so both sides of the window exist in the demo.
+            Some("ended"),
         ),
         (
             732,
@@ -2896,6 +2911,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "Rented 48-port PoE switch (comms room)",
             "network",
             "rented",
+            None,
         ),
         (
             733,
@@ -2905,6 +2921,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "Exchange migration target host",
             "server",
             "active",
+            None,
         ),
         (
             734,
@@ -2914,6 +2931,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "MacBook Pro 14 — Priya Natarajan",
             "laptop",
             "active",
+            None,
         ),
         (
             735,
@@ -2923,14 +2941,15 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             "Zebra warehouse label printer",
             "printer",
             "retired",
+            None,
         ),
     ];
-    for (off, client, site, tag, name, kind, status) in asset_specs {
+    for (off, client, site, tag, name, kind, status, warranty) in asset_specs {
         sqlx::query(
             "INSERT INTO device_assets (id, org_id, client_id, site_id, tag, name, kind, status,
                                         purchase_date, purchase_cost_minor, purchase_currency,
-                                        depreciation_method)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'USD', $11)",
+                                        useful_life_months, depreciation_method)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'USD', $11, $12)",
         )
         .bind(demo_uuid(off))
         .bind(DEMO_ORG_ID)
@@ -2940,8 +2959,14 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         .bind(name)
         .bind(kind)
         .bind(status)
-        .bind(last_month_window(today).0) // stable recent-ish purchase date
+        .bind(match warranty {
+            // 36 months is a normal horizon; the purchase date is what puts
+            // the asset on one side of it or the other.
+            Some(_) => warranty_purchase_date(today, 36, warranty),
+            None => last_month_window(today).0, // stable recent-ish purchase date
+        })
         .bind(120_000_i64)
+        .bind(warranty.map(|_| 36_i32))
         .bind("straight_line")
         .execute(&mut *tx)
         .await?;
@@ -3845,6 +3870,20 @@ fn anchor_two_months_back(today: NaiveDate) -> NaiveDate {
     (last_month_start - Duration::days(1))
         .with_day(1)
         .unwrap_or(last_month_start)
+}
+
+/// A purchase date that puts an asset's warranty horizon on a known side of
+/// today, so the demo carries an asset whose warranty is ending and one whose
+/// has lapsed instead of a null every surface reads as "not set". Months are
+/// counted as 30 days: this is demo data, and a few days of calendar drift
+/// cannot move an asset across the 90-day callout window by accident.
+fn warranty_purchase_date(today: NaiveDate, life_months: i64, which: Option<&str>) -> NaiveDate {
+    let horizon = Duration::days(life_months * 30);
+    let owned = match which {
+        Some("ended") => horizon + Duration::days(45),
+        _ => horizon - Duration::days(31),
+    };
+    today - owned
 }
 
 /// Local helper: UTC datetime at `day` + hour:minute.

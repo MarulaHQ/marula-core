@@ -16,6 +16,7 @@
 
 import { rejectionText } from "../../lib/error-copy";
 import {
+  Badge,
   Button,
   ColumnChooser,
   DataToolbar,
@@ -36,15 +37,14 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
   ViewSwitch,
   applyDensity,
   useDensity,
-  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import {

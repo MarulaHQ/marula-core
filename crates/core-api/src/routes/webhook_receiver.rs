@@ -158,7 +158,7 @@ pub async fn webhook_ingest(
                 .await?;
         if recent >= RATE_MAX_PER_WINDOW {
             return Err(ApiError::RateLimited {
-                retry_after_secs: i32::from(RATE_WINDOW_SECS) as i64,
+                retry_after_secs: RATE_WINDOW_SECS as i64,
             });
         }
 

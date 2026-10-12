@@ -20,6 +20,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -35,9 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -553,17 +552,17 @@ export default function TeamSettingsPage() {
                           </SelectContent>
                         </Select>
                       ) : user.org_role === null || user.org_role === undefined ? (
-                        <Tag tone="outline">custom</Tag>
+                        <Badge tone="neutral">custom</Badge>
                       ) : (
-                        <Tag tone={roleTone(user.org_role)}>{user.org_role}</Tag>
+                        <Badge tone={roleTone(user.org_role)}>{user.org_role}</Badge>
                       )}
                     </Td>
                     <Td>
                       {user.is_active ? (
-                        <StatusTag tone="success">Active</StatusTag>
+                        <Badge tone="success">Active</Badge>
                       ) : (
                         <span className="inline-flex items-center gap-1">
-                          <StatusTag tone="neutral">Inactive</StatusTag>
+                          <Badge tone="neutral">Inactive</Badge>
                           <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                             invited or deactivated
                           </span>
@@ -795,9 +794,9 @@ export default function TeamSettingsPage() {
                     <Td className="text-[13px] font-medium">{tier.name}</Td>
                     <Td className="text-[13px]">
                       {tier.capabilities.map((c) => (
-                        <Tag key={c} tone="outline">
+                        <Badge key={c} tone="neutral">
                           {c}
-                        </Tag>
+                        </Badge>
                       ))}
                     </Td>
                   </Tr>

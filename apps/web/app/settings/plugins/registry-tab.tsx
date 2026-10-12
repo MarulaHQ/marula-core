@@ -11,7 +11,15 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Button, Card, EmptyState, Input, Label, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  Label,
+  Spinner,
+} from "@marula-core/ui";
 import { useState } from "react";
 import { api } from "../../../lib/api";
 import { envelopeOf, reasonCopy } from "../../../lib/error-copy";
@@ -111,9 +119,9 @@ export function RegistryTab({
                 <span className="font-mono text-[12px]">{entry.slug}</span>
                 <span className="text-[13px] font-semibold">{entry.name}</span>
                 {entry.latest_version !== null && entry.latest_version !== undefined ? (
-                  <Tag tone="outline">v{entry.latest_version}</Tag>
+                  <Badge tone="neutral">v{entry.latest_version}</Badge>
                 ) : null}
-                <Tag tone={entry.revoked ? "danger" : "success"}>{entry.revoked ? "revoked" : "available"}</Tag>
+                <Badge tone={entry.revoked ? "danger" : "success"}>{entry.revoked ? "revoked" : "available"}</Badge>
                 <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
                   by {entry.publisher}
                 </span>
@@ -121,13 +129,13 @@ export function RegistryTab({
                   {entry.description}
                 </span>
                 {installedSlugs.has(entry.slug) ? (
-                  <Tag tone="neutral" className="ml-auto">
+                  <Badge tone="neutral" className="ml-auto">
                     installed
-                  </Tag>
+                  </Badge>
                 ) : entry.revoked || !canManage ? (
-                  <Tag tone="neutral" className="ml-auto">
+                  <Badge tone="neutral" className="ml-auto">
                     {entry.revoked ? "cannot install" : "install needs admin"}
-                  </Tag>
+                  </Badge>
                 ) : (
                   <Button
                     size="sm"

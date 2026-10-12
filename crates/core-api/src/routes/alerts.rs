@@ -926,7 +926,7 @@ pub async fn sources_create(
                 board_id: req.board_id,
                 client_id: req.client_id,
                 correlation_window_secs: window,
-                event_type: event_type,
+                event_type,
                 payload_schema_ref: req.payload_schema_ref.as_deref(),
                 created_by: user_id,
             },

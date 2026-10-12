@@ -16,7 +16,9 @@
 // where per-ticket start lives.
 "use client";
 
-import { StatusTag } from "@marula-core/ui";
+import {
+  Badge,
+} from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import { useRouter } from "next/navigation";
@@ -215,7 +217,7 @@ export function TimerDock() {
       </span>
 
       <span className="hidden shrink-0 sm:contents">
-        <StatusTag tone={live ? "success" : "warning"}>{live ? "tracking" : (reason ?? "paused")}</StatusTag>
+        <Badge tone={live ? "success" : "warning"}>{live ? "tracking" : (reason ?? "paused")}</Badge>
       </span>
 
       <div className="ml-auto flex shrink-0 items-center gap-2">

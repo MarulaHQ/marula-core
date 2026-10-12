@@ -13,7 +13,11 @@
 // Tokens: docs/theme.md only; JetBrains Mono numerals; motion ≤120ms.
 
 import { useEffect, useState } from "react";
-import { Card, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Card,
+  Spinner,
+} from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { api } from "../../lib/api";
 
@@ -142,9 +146,9 @@ export function OrgUsageCard() {
             {Object.entries(usage.tokens_by_surface ?? {}).sort(([a], [b]) =>
               a.localeCompare(b),
             ).map(([surface, tokens]) => (
-              <Tag key={surface}>
+              <Badge key={surface}>
                 {surface}: {formatTokens(tokens)}
-              </Tag>
+              </Badge>
             ))}
           </div>
         )}

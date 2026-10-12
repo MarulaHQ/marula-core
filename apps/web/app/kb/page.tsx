@@ -20,6 +20,7 @@
 import { rejectionText } from "../../lib/error-copy";
 import { KbArticleEditor } from "../../lib/editor/kb-article-editor";
 import {
+  Badge,
   Button,
   Checkbox,
   ColumnChooser,
@@ -42,15 +43,14 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
   ViewSwitch,
   applyDensity,
   useDensity,
-  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -1225,15 +1225,15 @@ function ArticleViewer({
     <div className="grid gap-3 p-4">
       {article !== null ? (
         <div className="flex flex-wrap items-center gap-2 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-          <Tag tone={STATUS_TONE[article.status]}>{article.status}</Tag>
+          <Badge tone={STATUS_TONE[article.status]}>{article.status}</Badge>
           {category !== undefined ? (
-            <Tag tone="neutral">
+            <Badge tone="neutral">
               {category.name}
               {category.client_visible ? " · client-facing category" : ""}
-            </Tag>
+            </Badge>
           ) : null}
           {article.client_visible ? (
-            <Tag tone={category?.client_visible ? "success" : "warning"}>client-facing</Tag>
+            <Badge tone={category?.client_visible ? "success" : "warning"}>client-facing</Badge>
           ) : null}
           <span>
             /{article.slug} · created {new Date(article.created_at).toLocaleDateString()} · updated{" "}

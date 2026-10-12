@@ -8,7 +8,7 @@
  *
  * Drawn states covered (signature pad intentionally NOT drawn):
  *   board-list, ticket-detail, note-composer, time-day, stop-and-log,
- *   more, notifications, deep-linked-open, locked, login, mfa,
+ *   more, notifications, deep-linked-open, unlock, login, mfa,
  *   scan-camera, scan-found, scan-ambiguous, scan-unknown, camera-off,
  *   stock-item, stock-location, stock-serial, tool-checkout, tool-overdue,
  *   move + asset record (derived legs).
@@ -19,9 +19,6 @@
  * Wave 44 lane 11 (p44-ui-mobile-fidelity) added the scan surface's own
  * offline-save path: scan-offline-saved draws the pack's scan-10 sheet
  * (a code saved on the phone, "Saved for later · N waiting").
- * Wave 43 track 2 lane 12 (p43-signature-pad) added the signature pad, which
- * the pack DOES draw: wrap-up-empty is the pack's mobile state
- * 08-wrap-up-resolved and wrap-up-signed is 11-wrap-up-signed.
  *
  * Usage: boot the stack, start expo web (see capture-web.mjs header), then
  *   node native/scripts/capture-pack.mjs [--only=a,b] [--theme=light|dark]
@@ -188,41 +185,6 @@ const STATES = [
       await settle(page, '[data-testid="ticket-action-note"]', 1400, 120_000);
     }
   }],
-  ["wrap-up-empty", async (page) => {
-    // The pack's mobile state 08-wrap-up-resolved: on-site and travel time
-    // cards, the drafted notes, the Outcome segmented control, the DASHED
-    // signature pad, and the sync primary with an offline hint.
-    await gotoWrapUp(page);
-    await settle(page, '[data-testid="signature-placeholder"]', 1500, 60_000);
-  }],
-  ["wrap-up-signed", async (page) => {
-    // The pack's mobile state 11-wrap-up-signed: a mark drawn in the pad,
-    // the placeholder still under it, and Clear at the bottom-right.
-    await gotoWrapUp(page);
-    await settle(page, '[data-testid="signature-pad-surface"]', 1500, 60_000);
-    const pad = page.locator('[data-testid="signature-pad-surface"]').first();
-    const box = await pad.boundingBox();
-    if (box === null) return;
-    // A stroke across the upper two-thirds, the way the pack draws it, made
-    // of several small mouse steps so the SVG path is a continuous curve
-    // rather than one jump that rounds off into a dot.
-    const cx = box.x + box.width * 0.5;
-    const cy = box.y + box.height * 0.38;
-    const halfWidth = box.width * 0.3;
-    await page.mouse.move(cx - halfWidth, cy);
-    await page.mouse.down();
-    for (let i = 1; i <= 10; i += 1) {
-      const t = i / 10;
-      await page.mouse.move(
-        cx - halfWidth + 2 * halfWidth * t,
-        cy + Math.sin(t * Math.PI * 2.2) * box.height * 0.09,
-      );
-      await page.waitForTimeout(12);
-    }
-    await page.mouse.up();
-    await page.waitForTimeout(500);
-    await settle(page, '[data-testid="signature-clear"]', 600, 30_000);
-  }],
   ["note-composer", async (page) => {
     // Self-sufficient: reach a ticket first, so this state also captures on
     // its own with --only. Then open NOTE (not Reply) — the pack draws the
@@ -274,9 +236,23 @@ const STATES = [
       await settle(page, '[data-testid="ticket-from-notification"]', 1600, 120_000);
     }
   }],
-  ["locked", async (page) => {
-    await page.goto(`${WEB_URL}/locked`, { waitUntil: "domcontentloaded" });
-    await settle(page, '[data-testid="locked-screen"]', 900);
+  // DERIVED state, not the pack's 09-locked: the biometric gate on a restored
+  // session (ADR 0021). The gate only exists when the operator turned
+  // biometrics ON, so the capture seeds that preference or it photographs the
+  // Today screen — which is what the old `locked` capture did, leaving a file
+  // named after a state it never drew.
+  ["unlock", async (page) => {
+    await page.goto(`${WEB_URL}/unlock`, { waitUntil: "domcontentloaded" });
+    // Seed the preference AFTER the first navigation: localStorage is not
+    // readable on about:blank, which is where a bare page.evaluate lands.
+    await page
+      .evaluate(() => localStorage.setItem("marula.biometric-unlock.v1", "1"))
+      .catch(() => {});
+    await page.reload({ waitUntil: "domcontentloaded" });
+    // Strict on purpose. On web, expo-local-authentication reports no enrolled
+    // biometric, so the gate never opens and this state is a skip — not a
+    // screenshot of whatever the app redirected to.
+    await settleOrFail(page, '[data-testid="unlock-screen"]', 1200);
   }],
   ["login", async (page) => {
     await page.goto(`${WEB_URL}/login`, { waitUntil: "domcontentloaded" });
@@ -520,6 +496,26 @@ async function settle(page, selector, ms = 2500, anchorTimeout = 20_000) {
   await page.waitForTimeout(ms);
 }
 
+/**
+ * `settle` for a state whose screen is the point of the capture. It exists
+ * because the pack's `09-locked` / biometric screen silently captured as the
+ * Today screen for a whole lane: the seed never set the biometric preference
+ * and `expo-local-authentication` reports not-enrolled on web, so the gate
+ * never appeared — and `settle` swallowed it, so a file named after the state
+ * was written anyway. A mislabeled capture is worse than a missing one, so a
+ * named screen now has to actually appear or the state is skipped and says so.
+ */
+async function settleOrFail(page, selector, ms = 2500, anchorTimeout = 20_000) {
+  const found = await page
+    .waitForSelector(selector, { timeout: anchorTimeout })
+    .then(() => true)
+    .catch(() => false);
+  if (!found) {
+    throw new Error(`never reached ${selector} (last url: ${page.url()})`);
+  }
+  await page.waitForTimeout(ms);
+}
+
 async function goTab(page, route) {
   await page.goto(`${WEB_URL}${route}`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(600);
@@ -731,25 +727,6 @@ async function ownerTimePass(browser) {
     await stopRunningTimer(tokens.access_token, timerId);
   }
   return captured;
-}
-
-/** Reaches the wrap-up surface on a live ticket, so both pad states are
- *  runnable with `--only` rather than only after an earlier state. */
-async function gotoWrapUp(page) {
-  if ((await page.locator('[data-testid="wrap-up-sheet"]').count()) === 0) {
-    await page.goto(`${WEB_URL}/board`, { waitUntil: "domcontentloaded" });
-    await settle(page, '[data-testid="ticket-list"]', 1500);
-    const row = page.locator('[data-testid^="ticket-row-"]').first();
-    if ((await row.count()) > 0) {
-      await row.click();
-      await settle(page, '[data-testid="ticket-action-note"]', 1200, 120_000);
-    }
-    const wrap = page.locator('[data-testid="ticket-action-wrapup"]').first();
-    if ((await wrap.count()) > 0) {
-      await wrap.click({ force: true, timeout: 10_000 });
-      await settle(page, '[data-testid="wrap-up-sheet"]', 1200, 60_000);
-    }
-  }
 }
 
 async function main() {

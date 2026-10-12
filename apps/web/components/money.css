@@ -1,0 +1,699 @@
+/**
+ * Money-cluster chrome — co-located beside money.tsx, the single writer of
+ * these classes.
+ *
+ * This lived in `apps/web/app/globals.css` until the shared-chrome close-out
+ * (2026-10-12). Feature CSS belongs beside its feature: a shared stylesheet
+ * stops being shared once one feature owns every rule in it.
+ *
+ * Non-purpose: no fetching, no domain decisions. The words and numbers come
+ * from lib/money-ui.ts, the amounts from lib/format.ts, and every colour is a
+ * token, never a literal hex.
+ */
+
+.m-rise {
+  animation: m-rise 120ms cubic-bezier(0.2, 0, 0, 1) backwards;
+}
+
+.m-skel {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--m-mist) 22%, transparent);
+  animation: m-pulse 1.4s ease-in-out infinite;
+}
+
+.m-chart-fluid {
+  min-width: 0;
+}
+
+.m-chart-fluid > div, .m-chart-fluid svg {
+  width: 100% !important;
+  height: auto !important;
+}
+
+.m-shortcut-overlay > div {
+  animation: m-rise 100ms cubic-bezier(0.2, 0, 0, 1) backwards;
+}
+
+.m-money-page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 12px;
+}
+
+.m-money-head .m-surface-header-meta {
+  gap: 8px 14px;
+}
+
+.m-money-subnav {
+  display: flex;
+  gap: 2px;
+  margin-left: 6px;
+}
+
+.m-money-subnav a {
+  height: 36px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--m-radius-control);
+  color: var(--m-text-secondary);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 100ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.m-money-subnav a:hover {
+  background: var(--m-surface-2);
+}
+
+.m-money-subnav a[aria-current="page"] {
+  background: var(--m-surface-2);
+  color: var(--m-text);
+  font-weight: 600;
+}
+
+.m-money-stats {
+  display: flex;
+  gap: 8px;
+  margin-left: 8px;
+}
+
+.m-money-stat {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--m-border);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m-text);
+  cursor: pointer;
+  transition: background-color 100ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.m-money-stat:hover {
+  background: var(--m-surface-hover);
+}
+
+.m-money-stat[aria-pressed="true"] {
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  border-color: transparent;
+}
+
+.m-money-stat .m-money-stat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.m-money-stat-n {
+  font-variant-numeric: tabular-nums;
+}
+
+.m-money-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: 16px;
+  align-items: start;
+}
+
+.m-money-card {
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-container);
+  background: var(--m-surface);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.m-money-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  height: 44px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--m-border);
+  color: var(--m-text-secondary);
+  font-size: 13px;
+}
+
+.m-money-bar b {
+  color: var(--m-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.m-money-bar-sp {
+  flex: 1;
+}
+
+.m-money-linkbtn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m-accent-text);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.m-money-linkbtn:hover {
+  opacity: 0.85;
+}
+
+.m-money-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  min-height: 44px;
+  flex-shrink: 0;
+  background: var(--m-status-due-bg);
+  color: var(--m-status-due-fg);
+  font-weight: 500;
+}
+
+.m-money-strip-clean {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+}
+
+.m-money-strip-sp {
+  flex: 1;
+}
+
+.m-money-strip svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.m-money-bulkbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  min-height: 44px;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  font-size: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.m-money-bulkbar b {
+  font-variant-numeric: tabular-nums;
+}
+
+.m-money-scroll td {
+  overflow: hidden;
+}
+
+.m-money-scroll table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.m-money-row-selected > td {
+  background: var(--m-accent);
+  box-shadow: inset 3px 0 0 var(--m-gold);
+}
+
+.m-money-row-current > td {
+  box-shadow: inset 0 0 0 2px var(--m-focus-ring);
+}
+
+.m-money-row-selected.m-money-row-current > td:first-child {
+  box-shadow:
+    inset 3px 0 0 var(--m-accent-active),
+    inset 0 0 0 2px var(--m-focus-ring);
+}
+
+.m-money-verdict {
+  display: flex;
+  align-items: center;
+  gap: 6px 8px;
+  /* Wraps: a mark plus its fix button that cannot wrap sets the table's
+     min-content width, and the last column then pushes the table past its
+     container and clips its own button. */
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.m-money-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--m-status-due-bg);
+  color: var(--m-status-due-fg);
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.m-money-mark svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.m-money-fix {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--m-border);
+  background: var(--m-surface);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--m-text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 100ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.m-money-fix:hover {
+  background: var(--m-surface-2);
+}
+
+.m-money-pane-head {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--m-border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.m-money-pane-body {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 62vh;
+  overflow: auto;
+}
+
+.m-money-pane-foot {
+  padding: 14px 18px;
+  border-top: 1px solid var(--m-border);
+  display: flex;
+  gap: 10px;
+  background: var(--m-canvas);
+}
+
+.m-money-pane-foot > * {
+  flex: 1;
+  justify-content: center;
+}
+
+.m-money-lab {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--m-text-secondary);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.m-money-said {
+  background: var(--m-note);
+  color: var(--m-note-fg);
+  border-radius: var(--m-radius-control);
+  padding: 12px 14px;
+  line-height: 1.55;
+}
+
+.m-money-ticket {
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.m-money-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.m-money-kv > :first-child {
+  color: var(--m-text-secondary);
+}
+
+.m-money-kv > :last-child {
+  font-weight: 600;
+  text-align: right;
+}
+
+.m-money-act {
+  display: flex;
+  flex-direction: column;
+}
+
+.m-money-act > div {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+  padding: 6px 0;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-money-act > div:first-child {
+  border-top: none;
+}
+
+.m-money-act .m-money-act-tm {
+  /* Wide enough for an ISO date (2026-08-31) on one line — the first render
+     wrapped it to two and made the card look broken. */
+  width: 78px;
+  flex-shrink: 0;
+  color: var(--m-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.m-money-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.m-money-foot-sp {
+  flex: 1;
+}
+
+.m-money-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  padding: 48px 24px;
+}
+
+.m-money-empty h2 {
+  margin: 6px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--m-text);
+}
+
+.m-money-empty p {
+  margin: 0;
+  color: var(--m-text-secondary);
+  max-width: 380px;
+}
+
+.m-money-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.m-money-pill svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.m-money-pill-neutral {
+  background: var(--m-status-neutral-bg);
+  color: var(--m-status-neutral-fg);
+}
+
+.m-money-pill-gold {
+  background: var(--m-time);
+  color: var(--m-time-fg);
+}
+
+.m-money-pill-blush {
+  background: var(--m-status-due-bg);
+  color: var(--m-status-due-fg);
+}
+
+.m-money-pill-green {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+}
+
+.m-sla-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.m-bulk-head .m-bulk-head-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--m-text);
+  white-space: nowrap;
+}
+
+.m-bulk-head .m-bulk-head-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.m-take-it {
+  border: 1px dashed var(--m-border);
+  border-radius: var(--m-radius-control);
+  background: none;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--m-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.m-take-it:hover {
+  border-color: var(--m-gold);
+  color: var(--m-text);
+  background: var(--m-gold-soft);
+}
+
+.m-money-inv {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  gap: 16px;
+  align-content: start;
+}
+
+.m-money-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.m-money-crumbs a {
+  color: var(--m-text-secondary);
+  text-decoration: none;
+}
+
+.m-money-crumbs a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.m-money-invhead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 0 14px;
+}
+
+.m-money-invhead h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--m-text);
+}
+
+.m-money-invhead-sp {
+  flex: 1;
+}
+
+.m-money-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.m-money-count-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--m-gold);
+}
+
+.m-money-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px 110px 120px;
+  gap: 12px;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 18px;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-money-line-head {
+  min-height: 40px;
+  background: var(--m-canvas);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--m-text-secondary);
+  font-weight: 600;
+  border-top: none;
+}
+
+.m-money-line-r {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.m-money-tot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--m-border);
+  align-items: flex-end;
+}
+
+.m-money-tot > div {
+  display: flex;
+  gap: 40px;
+  min-width: 280px;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+
+.m-money-tot > div > :first-child {
+  color: var(--m-text-secondary);
+}
+
+.m-money-tot .m-money-tot-bal {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--m-text);
+  padding-top: 8px;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-money-note {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.m-money-note svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.m-money-note b {
+  color: var(--m-text);
+}
+
+.m-money-grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.m-money-price {
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-container);
+  background: var(--m-surface);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.m-money-price-amount {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--m-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+.m-rise {
+    animation: none;
+  }
+.m-skel {
+    animation: none;
+    opacity: 0.5;
+  }
+.m-shortcut-overlay > div {
+    animation: none;
+  }
+.m-money-subnav a, .m-money-stat, .m-money-fix {
+    transition: none;
+  }
+}
+
+@media (max-width: 1180px) {
+.m-money-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1080px) {
+.m-money-inv {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

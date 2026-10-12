@@ -16,6 +16,7 @@
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   ColumnChooser,
@@ -28,17 +29,15 @@ import {
   ExportControl,
   FilterBar,
   Input,
+  Kbd,
   Label,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Kbd,
   Spinner,
-  StatusTag,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -926,11 +925,11 @@ function CreditNotesInner() {
             ) : (
               <>
                 <div className="flex flex-wrap gap-2 text-[13px]">
-                  <StatusTag tone={lifecycleOf(detail).tone}>{lifecycleOf(detail).label}</StatusTag>
-                  <Tag>{money(detail.total_minor, detail.currency)}</Tag>
-                  <Tag tone="outline">applied {money(detail.applied_minor, detail.currency)}</Tag>
-                  <Tag tone="outline">refunded {money(detail.refunded_minor, detail.currency)}</Tag>
-                  <Tag tone="outline">remaining {money(detail.remaining_minor, detail.currency)}</Tag>
+                  <Badge tone={lifecycleOf(detail).tone}>{lifecycleOf(detail).label}</Badge>
+                  <Badge>{money(detail.total_minor, detail.currency)}</Badge>
+                  <Badge tone="neutral">applied {money(detail.applied_minor, detail.currency)}</Badge>
+                  <Badge tone="neutral">refunded {money(detail.refunded_minor, detail.currency)}</Badge>
+                  <Badge tone="neutral">remaining {money(detail.remaining_minor, detail.currency)}</Badge>
                 </div>
                 {detail.reason != null ? (
                   <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>

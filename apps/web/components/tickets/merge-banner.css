@@ -1,0 +1,61 @@
+/**
+ * MergeBanner chrome — co-located beside merge-banner.tsx, which writes these classes.
+ *
+ * Moved out of `packages/ui/src/components.css` by the shared-chrome close-out
+ * (2026-10-12): that sheet carries the kit's shared vocabulary, and these
+ * rules belong to a feature.
+ */
+
+.m-merge-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--m-status-neutral-bg);
+  color: var(--m-status-neutral-fg);
+  font-size: 12.5px;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-merge-banner-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--m-bark);
+}
+
+.m-merge-banner-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.m-merge-banner-link {
+  flex-shrink: 0;
+  color: var(--m-gold-text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.m-merge-banner-link.is-muted {
+  color: var(--m-text-muted);
+  font-weight: 400;
+  text-decoration: none;
+}
+
+.m-merged-flag {
+  flex-shrink: 0;
+  /* The pack's `.tag`: 12px, .06em, 1px 8px. It was 11px and 6px wide, which
+     made the word sit inside its pill rather than fill it. */
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--m-status-neutral-bg);
+  color: var(--m-status-neutral-fg);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.m-merge-row td {
+  padding: 0;
+}

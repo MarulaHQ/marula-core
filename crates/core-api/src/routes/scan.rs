@@ -18,6 +18,11 @@
 //!      physical items.
 //!   4. Nothing matches → `kind = "unknown"` with the raw input echoed. The
 //!      surface says so; it does not invent an entity.
+//!   5. A resolved device asset carries the three facts its found sheet
+//!      prints — client, location and warranty — so a surface never needs a
+//!      second read to show what it scanned. The fields are additive: every
+//!      other kind leaves them null, and a client written before they existed
+//!      reads the response unchanged.
 //!
 //! Resolution is READ-ONLY and has no side effects: a scan means the same
 //! thing wherever it is fired. What a surface DOES with the meaning (fill a
@@ -62,6 +67,14 @@ pub struct ScanCandidateView {
     pub secondary: Option<String>,
 }
 
+/// A device asset's warranty horizon, the same type the asset payloads carry
+/// (`DeviceAsset.warranty`). One warranty concept in the API: where the
+/// horizon is, which side of it today sits, and the whole days between.
+/// Surfaces compose their own sentence from these facts — the pack's "Ends in
+/// 41 days" pill — so the ending window stays a shared domain rule
+/// (`WARRANTY_ENDING_WINDOW_DAYS`) rather than copy each surface rewrites.
+pub use core_domain::entities::client::WarrantyWindow as ScanWarrantyView;
+
 /// The typed meaning of one scanned string. `entity_id` is the resolved
 /// entity: the stock item, the serialized unit, the location, or the device
 /// asset. `deep_link` is always the canonical link for that entity, so a
@@ -95,6 +108,19 @@ pub struct ScanResolutionView {
     /// Serialized units only: in_stock | out | checked_out | loaned.
     #[schema(nullable = true)]
     pub serial_status: Option<String>,
+    /// Device assets only: the client the asset belongs to. NULL for an
+    /// internal-org asset — the MSP's own fleet carries no client (ADR 0012).
+    #[schema(nullable = true)]
+    pub client_name: Option<String>,
+    /// Device assets only: the site the asset sits at.
+    #[schema(nullable = true)]
+    pub location_name: Option<String>,
+    /// Device assets only: the warranty horizon, when the asset carries
+    /// enough to derive one. Resolution is one read BECAUSE these ride
+    /// along: a found sheet prints the pack's three facts without a second
+    /// round trip.
+    #[schema(nullable = true)]
+    pub warranty: Option<ScanWarrantyView>,
     /// Populated when the winning kind matched more than one row.
     #[serde(default)]
     pub candidates: Vec<ScanCandidateView>,
@@ -122,8 +148,20 @@ fn unknown(input: &str) -> ScanResolutionView {
         is_tool: false,
         item_kind: None,
         serial_status: None,
+        client_name: None,
+        location_name: None,
+        warranty: None,
         candidates: vec![],
     }
+}
+
+/// Fills the device-asset facts a found sheet prints. One function for both
+/// resolution legs, so the deep-link path and the bare-code path cannot
+/// drift apart on what a resolved asset carries.
+fn fill_asset_facts(out: &mut ScanResolutionView, facts: core_db::labels::AssetFacts) {
+    out.client_name = facts.client_name;
+    out.location_name = facts.location_name;
+    out.warranty = facts.warranty;
 }
 
 /// Parses the canonical deep-link forms this product prints. Returns the
@@ -236,12 +274,14 @@ async fn resolve_by_id(
             else {
                 return Ok(out);
             };
+            let facts = core_db::labels::get_asset_facts(&mut *conn, org_id, id).await?;
             out.kind = "device_asset".into();
             out.entity_id = Some(asset.id);
             out.device_asset_id = Some(asset.id);
             out.display_name = asset.name.clone();
             out.secondary = Some(asset.tag.clone());
             out.deep_link = Some(deep_link("device_asset", asset.id));
+            fill_asset_facts(&mut out, facts);
         }
         "tool_kit" => {
             let Ok(kit) = core_db::tools::get_kit(&mut *conn, org_id, id).await else {
@@ -284,6 +324,9 @@ async fn resolve_by_code(
             is_tool: serial.is_tool,
             item_kind: Some(serial.item_kind.clone()),
             serial_status: Some(serial.status.clone()),
+            client_name: None,
+            location_name: None,
+            warranty: None,
             candidates: vec![],
         });
     }
@@ -321,6 +364,9 @@ async fn resolve_by_code(
             is_tool: item.is_tool,
             item_kind: Some(item.kind.clone()),
             serial_status: None,
+            client_name: None,
+            location_name: None,
+            warranty: None,
             candidates: vec![],
         });
     }
@@ -358,6 +404,9 @@ async fn resolve_by_code(
             is_tool: false,
             item_kind: None,
             serial_status: None,
+            client_name: None,
+            location_name: None,
+            warranty: None,
             candidates: vec![],
         });
     }
@@ -381,7 +430,8 @@ async fn resolve_by_code(
         core_db::labels::find_assets_by_tag(&mut *conn, org_id, text, CANDIDATE_LIMIT).await?;
     if assets.len() == 1 {
         let asset = &assets[0];
-        return Ok(ScanResolutionView {
+        let facts = core_db::labels::get_asset_facts(&mut *conn, org_id, asset.id).await?;
+        let mut out = ScanResolutionView {
             input: text.to_string(),
             kind: "device_asset".into(),
             entity_id: Some(asset.id),
@@ -395,8 +445,13 @@ async fn resolve_by_code(
             is_tool: false,
             item_kind: None,
             serial_status: None,
+            client_name: None,
+            location_name: None,
+            warranty: None,
             candidates: vec![],
-        });
+        };
+        fill_asset_facts(&mut out, facts);
+        return Ok(out);
     }
     if assets.len() > 1 {
         let mut out = unknown(text);
@@ -431,6 +486,9 @@ async fn resolve_by_code(
             is_tool: false,
             item_kind: None,
             serial_status: None,
+            client_name: None,
+            location_name: None,
+            warranty: None,
             candidates: vec![],
         });
     }

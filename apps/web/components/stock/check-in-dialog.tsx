@@ -11,6 +11,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Dialog,
   DialogActions,
@@ -25,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   Textarea,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
@@ -166,9 +166,9 @@ export function CheckInDialog({
           {detail !== null && checkout !== null && (
             <>
               <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--m-text-secondary)" }}>
-                <StatusTag tone={checkoutStatusTone(checkout.status, checkout.overdue)}>
+                <Badge tone={checkoutStatusTone(checkout.status, checkout.overdue)}>
                   {checkout.status === "returned" ? "returned" : "open"}
-                </StatusTag>
+                </Badge>
                 <span>Due {duePhrase(checkout.due_at)}</span>
                 {fromLocation !== undefined && <span>· from {fromLocation.name}</span>}
               </div>

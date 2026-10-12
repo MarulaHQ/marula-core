@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.name AS \"client_name?\",\n                  s.name AS \"location_name?\",\n                  a.fields,\n                  a.purchase_date,\n                  a.useful_life_months\n           FROM device_assets a\n           LEFT JOIN clients c ON c.id = a.client_id AND c.org_id = a.org_id\n           LEFT JOIN sites s ON s.id = a.site_id AND s.org_id = a.org_id\n           WHERE a.org_id = $1 AND a.id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "client_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "location_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "fields",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "purchase_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 4,
+        "name": "useful_life_months",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "3b43323b154fe692aca32a0fd3f7ea682766671f2bc7de3143ab3cac7dacf6b5"
+}

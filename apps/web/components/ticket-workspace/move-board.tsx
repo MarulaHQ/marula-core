@@ -13,7 +13,17 @@
 "use client";
 
 import { rejectionText } from "../../lib/error-copy";
-import { Button, Checkbox, Dialog, DialogActions, DialogContent, FieldHint, Label, Spinner, StatusTag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Checkbox,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  FieldHint,
+  Label,
+  Spinner,
+} from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../../lib/api";
@@ -308,7 +318,7 @@ export function MoveBoardDialog({
                     data-testid={`board-move-conflict-${s.category}`}
                     onClick={() => setStatusId(s.id)}
                   >
-                    <StatusTag tone={CATEGORY_TONE[s.category]}>{s.name}</StatusTag>
+                    <Badge tone={CATEGORY_TONE[s.category]}>{s.name}</Badge>
                   </Button>
                 ))}
               </div>

@@ -12,7 +12,14 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Button, Card, EmptyState, Input, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  Spinner,
+} from "@marula-core/ui";
 import { useEffect, useState } from "react";
 import { api } from "../../../lib/api";
 import { reasonCopy } from "../../../lib/error-copy";
@@ -116,7 +123,7 @@ function StagedRow({
       data-testid={`staged-row-${item.id}`}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <Tag tone={STATUS_TONE[item.status] ?? "neutral"}>{item.status}</Tag>
+        <Badge tone={STATUS_TONE[item.status] ?? "neutral"}>{item.status}</Badge>
         <span className="text-[13px] font-semibold">{item.artifact_kind}</span>
         <VerifiedBadge sourceUrl={item.source_url} />
         <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>

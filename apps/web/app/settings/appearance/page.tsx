@@ -18,8 +18,20 @@
  * table they describe, and they write their own key.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, DensitySwitch, FieldHint, Label, Tag } from "@marula-core/ui";
-import { BUILTIN_PRESETS, DEFAULT_DENSITY, isBuiltinPreset, type ThemePreset } from "@marula-core/ui";
+import {
+  Button,
+  Card,
+  DensitySwitch,
+  FieldHint,
+  Label,
+} from "@marula-core/ui";
+import {
+  BUILTIN_PRESETS,
+  Badge,
+  DEFAULT_DENSITY,
+  isBuiltinPreset,
+  type ThemePreset,
+} from "@marula-core/ui";
 import { api, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
@@ -266,7 +278,7 @@ export default function AppearanceSettingsPage() {
               >
                 <div className="grid min-w-40 gap-0.5">
                   <span className="text-[13px] font-semibold">
-                    {pack.name} <Tag tone="neutral">{`v${pack.version}`}</Tag>
+                    {pack.name} <Badge tone="neutral">{`v${pack.version}`}</Badge>
                   </span>
                   {pack.description ? (
                     <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>

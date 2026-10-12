@@ -13,7 +13,23 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Button, Card, Dialog, DialogActions, DialogContent, EmptyState, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  EmptyState,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Spinner,
+} from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
@@ -219,7 +235,7 @@ export function InstallDetail({
       <Card>
         <div className="flex flex-wrap items-center gap-2 p-4">
           <h3 className="text-sm font-semibold">Lifecycle</h3>
-          <Tag tone={install.status === "enabled" ? "success" : "warning"}>{install.status}</Tag>
+          <Badge tone={install.status === "enabled" ? "success" : "warning"}>{install.status}</Badge>
           {canManage ? (
             <Button
               size="sm"
@@ -293,9 +309,9 @@ export function InstallDetail({
         <div className="flex items-center justify-between p-4 pb-1">
           <h3 className="text-sm font-semibold">Settings</h3>
           {schema === null && settingsLoad === "ready" ? (
-            <Tag tone="neutral" data-testid="settings-less-posture">
+            <Badge tone="neutral" data-testid="settings-less-posture">
               consent/enable/disable only
-            </Tag>
+            </Badge>
           ) : null}
         </div>
         <div className="p-4 pt-2">
@@ -389,7 +405,7 @@ export function InstallDetail({
             <ol className="grid gap-2" data-testid="provenance-chain">
               {provenance.map((entry) => (
                 <li key={entry.id} className="flex flex-wrap items-baseline gap-x-2 text-[12px]">
-                  <Tag tone="outline">{entry.action}</Tag>
+                  <Badge tone="neutral">{entry.action}</Badge>
                   <span style={{ color: "var(--m-text-secondary)" }}>{entry.source_kind}</span>
                   {entry.fetched_ref !== null && entry.fetched_ref !== undefined ? (
                     <span className="font-mono" style={{ color: "var(--m-text-muted)" }}>

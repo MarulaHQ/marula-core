@@ -4,7 +4,10 @@ import { authedFetch } from "../helpers/api";
 
 test("billing page renders unbilled candidates + invoices", async ({ authedPage }) => {
   await authedPage.goto("/billing");
-  await expect(authedPage.getByText("Unbilled ticket candidates")).toBeVisible({ timeout: 30_000 });
+  // The heading and the empty-state copy share a stem, so name the role.
+  await expect(
+    authedPage.getByRole("heading", { name: "Unbilled candidates", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
 });
 
 test("credit notes page renders and issues a credit note against demo data", async ({

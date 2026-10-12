@@ -14,6 +14,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -31,7 +32,6 @@ import {
   SelectValue,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -384,8 +384,8 @@ export default function BoardAdminPage() {
                     )}
                   </Td>
                   <Td>
-                    {board.is_default ? <Tag>default</Tag> : null}
-                    {board.require_checklist_close ? <Tag>checklist enforced</Tag> : null}
+                    {board.is_default ? <Badge>default</Badge> : null}
+                    {board.require_checklist_close ? <Badge>checklist enforced</Badge> : null}
                   </Td>
                   <Td className="text-right">
                     <Button
@@ -432,7 +432,7 @@ export default function BoardAdminPage() {
                     <Tr key={member.user_id}>
                       <Td>{member.display_name}</Td>
                       <Td>
-                        <Tag>{member.role}</Tag>
+                        <Badge>{member.role}</Badge>
                       </Td>
                       {canAdmin ? (
                         <Td className="text-right">

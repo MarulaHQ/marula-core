@@ -33,12 +33,27 @@ const manifestArg = args[1];
 // (`../brand/packs/core-surface-pack` relative to this repo). Fall back to a
 // local gitignored copy under brand/marula-mockups/… when one exists.
 function defaultPackRoot() {
+  // An explicit override wins, so a lane with the pack elsewhere can point at it
+  // without editing this list.
+  if (process.env.MARULA_PACK_ROOT) return process.env.MARULA_PACK_ROOT;
   const candidates = [
     "../brand/packs/core-surface-pack",
     "brand/marula-mockups/marula-surface-pack",
   ];
   for (const c of candidates) {
     if (existsSync(resolve(process.cwd(), c, "manifest.json"))) return c;
+  }
+  // WALK UP from the cwd. A worktree lane runs from .kilo/worktrees/<lane>, so
+  // the org home is two or three levels up, not one. Hardcoded relative paths
+  // silently resolved the pack inside the worktree and reported a missing
+  // manifest while the pack was sitting right next to the repo.
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i += 1) {
+    const up = resolve(dir, "..");
+    for (const rel of ["brand/packs/core-surface-pack", "brand/marula-mockups/marula-surface-pack"]) {
+      if (existsSync(resolve(up, rel, "manifest.json"))) return rel === "brand/packs/core-surface-pack" ? resolve(up, rel) : rel;
+    }
+    dir = up;
   }
   return candidates[0];
 }
@@ -150,18 +165,25 @@ check(
 const tokensPath = join(root, "tokens.json");
 if (existsSync(tokensPath)) {
   const tokens = JSON.parse(readFileSync(tokensPath, "utf8"));
+  // The product treats `sand` and `cream` as aliases of `light` (theme.ts maps
+  // data-theme to neutral/dark/light, with sand and cream as light aliases), and
+  // the pack's tokens.json carries that cream column under `light`. Requiring a
+  // separate `sand` column would assert the pack is wrong for agreeing with the
+  // app it is drawn against.
+  const THEME_ALIAS = { sand: "light", cream: "light" };
+  const columnFor = (t) => tokens[t] ?? tokens[THEME_ALIAS[t]];
   const drawn = [...new Set(images.map((i) => i.theme))];
   for (const theme of drawn) {
     check(
-      tokens[theme] && Object.keys(tokens[theme]).length >= 40,
+      columnFor(theme) && Object.keys(columnFor(theme)).length >= 40,
       `tokens.json carries a full column for drawn theme '${theme}'`,
-      tokens[theme] ? `${Object.keys(tokens[theme]).length} keys` : "absent"
+      columnFor(theme) ? `${Object.keys(columnFor(theme)).length} keys` : "absent"
     );
   }
   // key parity across themes
-  const base = Object.keys(tokens[drawn[0]] ?? {}).sort();
+  const base = Object.keys(columnFor(drawn[0]) ?? {}).sort();
   for (const theme of drawn.slice(1)) {
-    const other = Object.keys(tokens[theme] ?? {}).sort();
+    const other = Object.keys(columnFor(theme) ?? {}).sort();
     check(
       JSON.stringify(base) === JSON.stringify(other),
       `tokens.json key parity '${drawn[0]}' vs '${theme}'`

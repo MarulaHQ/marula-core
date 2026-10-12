@@ -13,7 +13,9 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Tag } from "@marula-core/ui";
+import {
+  Badge,
+} from "@marula-core/ui";
 
 type ConsentView = components["schemas"]["ConsentView"];
 type ConsentDiffView = components["schemas"]["ConsentDiffView"];
@@ -102,7 +104,7 @@ function CapabilityList({
   title: string;
   variations: ("+" | "−" | "…" | undefined)[];
   values: string[];
-  tone: "success" | "danger" | "outline";
+  tone: "success" | "danger" | "outline" | "neutral";
 }) {
   if (values.length === 0) return null;
   return (
@@ -113,10 +115,10 @@ function CapabilityList({
       <ul className="mt-1 flex flex-wrap gap-1.5">
         {values.map((value, index) => (
           <li key={`${value}-${index}`} className="flex items-center">
-            <Tag tone={tone}>
+            <Badge tone={tone}>
               {variations[index] === "+" ? "+ " : variations[index] === "−" ? "− " : ""}
               {value}
-            </Tag>
+            </Badge>
           </li>
         ))}
       </ul>
@@ -377,7 +379,7 @@ export function ConsentSummary({
               title="Unchanged capabilities"
               variations={diff!.unchanged.map(() => "…" as const)}
               values={diff!.unchanged}
-              tone="outline"
+              tone="neutral"
             />
           </>
         ) : (
@@ -385,7 +387,7 @@ export function ConsentSummary({
             title="Declared capabilities"
             variations={artifact.declared_capabilities.map(() => undefined)}
             values={artifact.declared_capabilities}
-            tone="outline"
+            tone="neutral"
           />
         )}
         <CapabilityNotes capabilities={noteCapabilities} />

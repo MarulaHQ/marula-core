@@ -10,7 +10,14 @@
 "use client";
 
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Button, Card, FieldHint, Input, Label, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  FieldHint,
+  Input,
+  Label,
+} from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -586,12 +593,12 @@ export default function SecuritySettingsPage() {
                   aria-label={`${p.display_name} ${p.enabled ? "enabled" : "disabled"}`}
                   className="ml-auto shrink-0"
                 >
-                  <Tag
+                  <Badge
                     tone={p.enabled ? "success" : "outline"}
                     style={p.enabled ? undefined : { border: "1px solid var(--m-border)" }}
                   >
                     {p.enabled ? "enabled" : "disabled"}
-                  </Tag>
+                  </Badge>
                 </span>
               </li>
             ))}

@@ -13,6 +13,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -30,9 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -450,9 +449,9 @@ export default function StockItemDetailPage(): ReactNode {
             <RecordSection label="Item">
               <p className="text-[16px] font-semibold">{itemValue.name}</p>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <Tag tone="outline">{itemValue.kind}</Tag>
-                <Tag tone="outline">{itemValue.unit}</Tag>
-                {itemValue.is_tool ? <Tag tone="outline">tool</Tag> : null}
+                <Badge tone="neutral">{itemValue.kind}</Badge>
+                <Badge tone="neutral">{itemValue.unit}</Badge>
+                {itemValue.is_tool ? <Badge tone="neutral">tool</Badge> : null}
                 {itemValue.active ? (
                   <ReturnedMark label="Active" testId="stock-detail-state" />
                 ) : (
@@ -526,9 +525,9 @@ export default function StockItemDetailPage(): ReactNode {
                 <h1 className="m-ledger-title" data-testid="stock-detail-name">
                   {itemValue.name}
                 </h1>
-                <Tag tone="outline">{itemValue.kind}</Tag>
-                <Tag tone="outline">{itemValue.unit}</Tag>
-                {itemValue.is_tool ? <Tag tone="outline">tool</Tag> : null}
+                <Badge tone="neutral">{itemValue.kind}</Badge>
+                <Badge tone="neutral">{itemValue.unit}</Badge>
+                {itemValue.is_tool ? <Badge tone="neutral">tool</Badge> : null}
                 {itemValue.active ? (
                   <ReturnedMark label="Active" testId="stock-detail-state" />
                 ) : (
@@ -593,9 +592,9 @@ export default function StockItemDetailPage(): ReactNode {
                   </Td>
                   <Td>
                     {row.low ? (
-                      <StatusTag tone="warning">low</StatusTag>
+                      <Badge tone="warning">low</Badge>
                     ) : (
-                      <StatusTag tone="success">ok</StatusTag>
+                      <Badge tone="success">ok</Badge>
                     )}
                   </Td>
                   <Td>
@@ -650,7 +649,7 @@ export default function StockItemDetailPage(): ReactNode {
                   <Tr key={serial.id} className="row-hover" data-testid={`stock-serial-row-${serial.id}`}>
                     <Td className="text-xs">{serial.serial_number}</Td>
                     <Td>
-                      <StatusTag tone={serialStatusTone(serial.status)}>{serialStatusLabel(serial.status)}</StatusTag>
+                      <Badge tone={serialStatusTone(serial.status)}>{serialStatusLabel(serial.status)}</Badge>
                     </Td>
                     <Td className="text-xs">
                       {parts.length === 0 ? (
@@ -670,7 +669,7 @@ export default function StockItemDetailPage(): ReactNode {
                       ) : (
                         <span className="flex items-center gap-1">
                           {duePhrase(due)}
-                          {where?.overdue === true && <StatusTag tone="danger">overdue</StatusTag>}
+                          {where?.overdue === true && <Badge tone="danger">overdue</Badge>}
                         </span>
                       )}
                     </Td>
@@ -727,7 +726,7 @@ export default function StockItemDetailPage(): ReactNode {
                     <Td className="text-xs">
                       <span className="flex items-center gap-1">
                         {duePhrase(row.checkout.due_at)}
-                        {row.checkout.overdue && <StatusTag tone="danger">overdue</StatusTag>}
+                        {row.checkout.overdue && <Badge tone="danger">overdue</Badge>}
                       </span>
                     </Td>
                     <Td>

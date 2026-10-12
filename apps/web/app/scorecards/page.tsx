@@ -12,6 +12,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -20,7 +21,6 @@ import {
   Spinner,
   SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -394,9 +394,9 @@ export default function ScorecardsPage() {
                     <span className="truncate text-[16px] font-semibold" style={{ color: "var(--m-text)" }}>
                       {card.display_name}
                     </span>
-                    <Tag tone={attainmentTone(card.sla.response_attainment)}>
+                    <Badge tone={attainmentTone(card.sla.response_attainment)}>
                       Response {fmtPct(card.sla.response_attainment)}
-                    </Tag>
+                    </Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
                     <span>

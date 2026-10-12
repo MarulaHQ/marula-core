@@ -110,7 +110,7 @@ function ThemedStack() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="login" />
         <Stack.Screen name="mfa" />
-        <Stack.Screen name="locked" options={{ animation: "fade" }} />
+        <Stack.Screen name="unlock" options={{ animation: "fade" }} />
         <Stack.Screen name="notifications" />
         <Stack.Screen name="ticket/[id]" />
         <Stack.Screen name="stock-item/[id]" />

@@ -19,6 +19,7 @@
 
 import { friendlyMutationText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -31,7 +32,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useMemo, useReducer, useState } from "react";
@@ -386,7 +386,7 @@ export default function WorkflowSettingsPage() {
                   {gridStatuses.map((from) => (
                     <tr key={`row-${from.id}`}>
                       <th scope="row" className="p-1 pr-3 text-left font-medium whitespace-nowrap">
-                        <Tag tone={categoryTone(from.category)}>{from.name}</Tag>
+                        <Badge tone={categoryTone(from.category)}>{from.name}</Badge>
                       </th>
                       {gridStatuses.map((to) => {
                         const key = edgeKey(from.id, to.id);

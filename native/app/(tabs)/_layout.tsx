@@ -53,7 +53,7 @@ export default function TabsLayout() {
 
 
   if (status === "loading") return <BootScreen />;
-  if (status === "locked") return <Redirect href="/locked" />;
+  if (status === "biometric") return <Redirect href="/unlock" />;
   if (status === "mfa") return <Redirect href="/mfa" />;
   if (status === "signedOut") return <Redirect href="/login" />;
 

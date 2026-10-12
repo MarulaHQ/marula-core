@@ -19,6 +19,7 @@
 
 import { rejectionText } from "../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   ColumnChooser,
@@ -42,7 +43,6 @@ import {
   SelectValue,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -797,7 +797,7 @@ export default function BillingPage() {
                 {candidates.map((c) => (
                   <Tr key={c.line_id} className="row-hover">
                     <Td>
-                      <Tag tone={c.source === "cost" ? "neutral" : "success"}>{c.source}</Tag>
+                      <Badge tone={c.source === "cost" ? "neutral" : "success"}>{c.source}</Badge>
                     </Td>
                     <Td>{c.description}</Td>
                     <Td>

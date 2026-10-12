@@ -42,43 +42,27 @@ import type { FilterClause } from "@marula-core/ui";
 
 type Asset = components["schemas"]["DeviceAsset"];
 type Client = components["schemas"]["Client"];
+type Warranty = NonNullable<components["schemas"]["DeviceAsset"]["warranty"]>;
 
 const SURFACE = "assets-devices";
 
-/** Warranty is a BLUSH pill when it is about to end, never red (client record §3). */
-const WARRANTY_WINDOW_DAYS = 90;
-
-function daysUntil(iso: string | null | undefined, now: Date): number | null {
-  if (iso == null || iso === "") return null;
-  const at = new Date(iso.length === 10 ? `${iso}T23:59:59` : iso);
-  if (Number.isNaN(at.getTime())) return null;
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.round((startOfDue(at).getTime() - startOfToday.getTime()) / 86_400_000);
-}
-
-function startOfDue(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function warrantyMark(
-  purchaseDate: string | null | undefined,
-  usefulLifeMonths: number | null | undefined,
-  now: Date,
-): { kind: "ending" | "ended" | "none"; label: string } {
-  if (purchaseDate == null || purchaseDate === "" || usefulLifeMonths == null) {
-    return { kind: "none", label: "Not set" };
+/** Warranty is a BLUSH pill when it is about to end, never red (client record §3).
+ * The horizon itself arrives on the payload (`DeviceAsset.warranty`, derived
+ * once server-side through the shared domain rule) — this page composes the
+ * label and owns the words, nothing more. It used to re-derive the horizon
+ * from `purchase_date` + `useful_life_months`, which is how a ledger column
+ * and the mobile found sheet end up disagreeing about which side of the
+ * window an asset sits on. */
+function warrantyMark(warranty: Warranty | null | undefined): { state: string; label: string } {
+  if (warranty == null) return { state: "none", label: "Not set" };
+  const days = Math.round(warranty.days_remaining);
+  if (warranty.state === "ended") {
+    return { state: "ended", label: `Warranty ended ${Math.abs(days)}d ago` };
   }
-  const start = new Date(purchaseDate.length === 10 ? `${purchaseDate}T00:00:00` : purchaseDate);
-  if (Number.isNaN(start.getTime())) return { kind: "none", label: "Not set" };
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + usefulLifeMonths);
-  const days = daysUntil(end.toISOString(), now);
-  if (days == null) return { kind: "none", label: "Not set" };
-  if (days < 0) return { kind: "ended", label: `Warranty ended ${Math.abs(days)}d ago` };
-  if (days <= WARRANTY_WINDOW_DAYS) {
-    return { kind: "ending", label: `Warranty ends in ${days}d` };
+  if (warranty.state === "ending") {
+    return { state: "ending", label: `Warranty ends in ${days}d` };
   }
-  return { kind: "none", label: `Until ${end.toISOString().slice(0, 10)}` };
+  return { state: "active", label: `Until ${warranty.ends_on}` };
 }
 
 const COLUMNS: LedgerColumn[] = [
@@ -210,8 +194,8 @@ export default function AssetsPage() {
   const warrantyEnding = useMemo(
     () =>
       filtered.filter((asset) => {
-        const mark = warrantyMark(asset.purchase_date, asset.useful_life_months, now);
-        return mark.kind === "ending";
+        const mark = warrantyMark(asset.warranty);
+        return mark.state === "ending";
       }).length,
     [filtered, now],
   );
@@ -228,7 +212,7 @@ export default function AssetsPage() {
   const rows = useMemo(
     () =>
       filtered.filter((asset) => {
-        if (warrantyEndingOnly && warrantyMark(asset.purchase_date, asset.useful_life_months, now).kind !== "ending") {
+        if (warrantyEndingOnly && warrantyMark(asset.warranty).state !== "ending") {
           return false;
         }
         if (offlineOnly && !lastSeenPhrase(asset.updated_at, now).offline) return false;
@@ -329,7 +313,7 @@ export default function AssetsPage() {
             client: clientName(asset.client_id) ?? "Internal org asset",
             type: asset.kind,
             status: asset.status,
-            warranty: warrantyMark(asset.purchase_date, asset.useful_life_months, now).label,
+            warranty: warrantyMark(asset.warranty).label,
             last_seen: lastSeenPhrase(asset.updated_at, now).text,
             site: asset.site_id ?? "",
             tag: asset.tag,
@@ -371,7 +355,7 @@ export default function AssetsPage() {
     >
       {(columns) =>
         rows.map((asset) => {
-          const warranty = warrantyMark(asset.purchase_date, asset.useful_life_months, now);
+          const warranty = warrantyMark(asset.warranty);
           const seen = lastSeenPhrase(asset.updated_at, now);
           return (
             <LedgerRow
@@ -406,9 +390,9 @@ export default function AssetsPage() {
                 type: asset.kind,
                 status: <AssetStatusMark status={asset.status} />,
                 warranty:
-                  warranty.kind === "ending" ? (
+                  warranty.state === "ending" ? (
                     <DueSoonMark label={warranty.label} testId={`assets-warranty-${asset.id}`} />
-                  ) : warranty.kind === "ended" ? (
+                  ) : warranty.state === "ended" ? (
                     <NeutralMark label={warranty.label} icon={<ClockIcon />} />
                   ) : (
                     <span style={{ color: "var(--m-text-secondary)" }}>{warranty.label}</span>

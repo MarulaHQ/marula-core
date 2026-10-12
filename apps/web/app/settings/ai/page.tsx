@@ -37,7 +37,6 @@ import {
   SelectValue,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -286,7 +285,7 @@ function SurfacesMatrixCard({
                     </div>
                   </Td>
                   <Td>
-                    <Tag>{s.kind}</Tag>
+                    <Badge>{s.kind}</Badge>
                   </Td>
                   <Td>
                     <GrantEditor
@@ -374,11 +373,11 @@ function GrantEditor({
       ) : (
         grants.map((g) => (
           <span key={g.id} className="flex items-center gap-1 text-[12px]">
-            <Tag>
+            <Badge>
               {g.grantee_kind === "role"
                 ? `role ${roles.find((r) => r.id === g.role_id)?.display_name ?? roles.find((r) => r.id === g.role_id)?.name ?? g.role_id}`
                 : `user ${users.find((u) => u.id === g.user_id)?.name ?? g.user_id}`}
-            </Tag>
+            </Badge>
             <Button
               size="sm"
               variant="ghost"

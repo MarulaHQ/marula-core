@@ -14,6 +14,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -21,7 +22,6 @@ import {
   Input,
   Label,
   Spinner,
-  StatusTag,
   Table,
   Td,
   Th,
@@ -222,7 +222,7 @@ export default function FxPage(): ReactNode {
                 <Td>{r.rate}</Td>
                 <Td>{r.as_of_date}</Td>
                 <Td>
-                  <StatusTag tone={r.source === "manual" ? "neutral" : "success"}>{r.source}</StatusTag>
+                  <Badge tone={r.source === "manual" ? "neutral" : "success"}>{r.source}</Badge>
                 </Td>
                 <Td>{new Date(r.captured_at).toLocaleString()}</Td>
               </Tr>
@@ -256,7 +256,7 @@ export default function FxPage(): ReactNode {
             return (
               <div key={kind} className="grid gap-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusTag tone="neutral">{kind}</StatusTag>
+                  <Badge tone="neutral">{kind}</Badge>
                   <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                     {rows.length} fact{rows.length === 1 ? "" : "s"} · original currencies: {currencies.join(", ")}
                   </span>

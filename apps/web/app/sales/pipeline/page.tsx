@@ -18,6 +18,7 @@
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   DensitySwitch,
@@ -35,8 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
-  Tag,
   applyDensity,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
@@ -424,7 +423,7 @@ export default function PipelinePage(): ReactNode {
                     {stageDeals.length}
                   </span>
                 </div>
-                <StatusTag tone={STAGE_HEADER_TINT[stage.stage_type]}>{stage.stage_type}</StatusTag>
+                <Badge tone={STAGE_HEADER_TINT[stage.stage_type]}>{stage.stage_type}</Badge>
               </div>
               {value !== null ? (
  <p className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>

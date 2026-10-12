@@ -65,7 +65,6 @@ export * from "./components/input";
 export * from "./components/field";
 export * from "./components/checkbox";
 export * from "./components/badge";
-export * from "./components/tag";
 export * from "./components/assistant-card";
 export * from "./components/card";
 export * from "./components/separator";

@@ -14,6 +14,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   ColumnChooser,
@@ -34,15 +35,14 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
   ViewSwitch,
   applyDensity,
   useDensity,
-  SurfaceHeader,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -736,7 +736,7 @@ export default function AutomationsPage() {
                               {r.trigger_event}
                             </code>
                             {r.subject_kind === "board" ? (
-                              <Tag tone="outline">no ticket</Tag>
+                              <Badge tone="neutral">no ticket</Badge>
                             ) : null}
                           </span>
                         ) : null}

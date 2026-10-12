@@ -14,6 +14,7 @@
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   ColumnChooser,
@@ -36,9 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   Table,
-  Tag,
   Td,
   Th,
   Tr,

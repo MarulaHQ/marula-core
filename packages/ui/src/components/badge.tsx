@@ -18,8 +18,12 @@ import { Pill, PriorityChip, type Priority } from "../kit";
 import { cn } from "../lib/cn";
 
 /** The status families a badge can carry. `due` is the blush/amber "needs
- * attention soon" pair, which is deliberately NOT the warning pair. */
-export type BadgeTone = "success" | "warning" | "due" | "danger" | "neutral" | "offline";
+ * attention soon" pair, which is deliberately NOT the warning pair.
+ * `outline` is accepted as an alias for `neutral`: the retired `Tag` prop
+ * offered it, and the p41-ui-audit sweep (2026-10-12) found call sites whose
+ * local `Tone` unions still name it. It renders the neutral pair, exactly as
+ * `Tag` mapped it. */
+export type BadgeTone = "success" | "warning" | "due" | "danger" | "neutral" | "offline" | "outline";
 
 /** P1 is the only priority that takes red, per DESIGN-NOTES §5. */
 export type BadgePriority = "p1" | "p2" | "p3" | "p4";
@@ -37,6 +41,7 @@ const PILL_TONE = {
   danger: "breached",
   neutral: "neutral",
   offline: "neutral",
+  outline: "neutral",
 } as const satisfies Record<BadgeTone, "success" | "progress" | "attention" | "breached" | "neutral">;
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {

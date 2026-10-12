@@ -14,6 +14,7 @@
 
 import type { components } from "@marula-core/sdk";
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -29,8 +30,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
-  Tag,
 } from "@marula-core/ui";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -510,20 +509,20 @@ export default function DispatchSchedulingPage() {
                       <span className="dp-mt-title">{t.name}</span>
                       {t.description !== null && t.description !== "" && <span className="dp-mt-desc">{t.description}</span>}
                     </span>
-                    <Tag>{t.duration_minutes}m</Tag>
-                    <Tag>buffer {t.buffer_minutes}m</Tag>
-                    <Tag>window {t.booking_window_days}d</Tag>
-                    <Tag>{scopeLabel(t, users, groups)}</Tag>
+                    <Badge>{t.duration_minutes}m</Badge>
+                    <Badge>buffer {t.buffer_minutes}m</Badge>
+                    <Badge>window {t.booking_window_days}d</Badge>
+                    <Badge>{scopeLabel(t, users, groups)}</Badge>
                     {t.auto_email_enabled ? (
-                      <StatusTag tone="neutral">auto-email</StatusTag>
+                      <Badge tone="neutral">auto-email</Badge>
                     ) : (
-                      <Tag>link only</Tag>
+                      <Badge>link only</Badge>
                     )}
                     <span className="ml-auto" />
                     {t.is_active ? (
-                      <StatusTag tone="success">Active</StatusTag>
+                      <Badge tone="success">Active</Badge>
                     ) : (
-                      <StatusTag tone="warning">Paused</StatusTag>
+                      <Badge tone="warning">Paused</Badge>
                     )}
                     <Button
                       size="sm"

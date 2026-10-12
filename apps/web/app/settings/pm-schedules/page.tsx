@@ -14,6 +14,7 @@
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -28,7 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  StatusTag,
   Table,
   Td,
   Th,
@@ -460,7 +460,7 @@ export default function PmSchedulesSettingsPage() {
                     )}
                   </Td>
                   <Td>
-                    <StatusTag tone={s.enabled ? "success" : "neutral"}>{s.enabled ? "enabled" : "paused"}</StatusTag>
+                    <Badge tone={s.enabled ? "success" : "neutral"}>{s.enabled ? "enabled" : "paused"}</Badge>
                   </Td>
                   <Td className="text-right">
                     <div className="flex justify-end gap-1">
@@ -620,7 +620,7 @@ export default function PmSchedulesSettingsPage() {
                     <Tr key={r.id}>
                       <Td className="text-[12px] tabular-nums">{new Date(r.slot_at).toLocaleString()}</Td>
                       <Td>
-                        <StatusTag tone={r.status === "generated" ? "success" : "neutral"}>{r.status}</StatusTag>
+                        <Badge tone={r.status === "generated" ? "success" : "neutral"}>{r.status}</Badge>
                       </Td>
                       <Td className="text-[12px]">
                         {r.ticket_id != null ? (

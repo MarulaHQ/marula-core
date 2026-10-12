@@ -17,7 +17,12 @@
 // CLI probe), no secret values, no per-service status machinery.
 "use client";
 
-import { Button, Card, Spinner, Tag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  Spinner,
+} from "@marula-core/ui";
 import { useCallback, useEffect, useState } from "react";
 import {
   apiBaseUrl,
@@ -192,9 +197,9 @@ function LinkCard({
         <h3 className="text-[13px] font-semibold" style={{ color: "var(--m-text)" }}>
           {title}
         </h3>
-        <Tag tone={url !== null ? "success" : "outline"}>
+        <Badge tone={url !== null ? "success" : "outline"}>
           {url !== null ? "configured" : "not configured"}
-        </Tag>
+        </Badge>
       </div>
       <p className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
         {description}
@@ -346,7 +351,7 @@ export default function SelfHostSettingsPage() {
                   >
                     {service.detail ?? ""}
                   </span>
-                  <Tag tone={stateTone(service.state)}>{stateWord(service.state)}</Tag>
+                  <Badge tone={stateTone(service.state)}>{stateWord(service.state)}</Badge>
                 </div>
               </div>
             ))}
@@ -358,9 +363,9 @@ export default function SelfHostSettingsPage() {
               <h2 className="text-[13px] font-semibold" style={{ color: "var(--m-text)" }}>
                 Malware scanning (ClamAV)
               </h2>
-              <Tag tone={view.scan.provider === "none" ? "neutral" : "success"}>
+              <Badge tone={view.scan.provider === "none" ? "neutral" : "success"}>
                 {view.scan.provider === "none" ? "none mode" : view.scan.provider}
-              </Tag>
+              </Badge>
             </div>
             <div>
               <FactRow
@@ -400,7 +405,7 @@ export default function SelfHostSettingsPage() {
                         {detection.subject ?? "(no subject)"}
                       </span>
                       <div className="flex items-center gap-2">
-                        <Tag tone="danger">quarantined</Tag>
+                        <Badge tone="danger">quarantined</Badge>
                         <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                           {when(detection.occurred_at)}
                         </span>
@@ -439,9 +444,9 @@ export default function SelfHostSettingsPage() {
                   <h3 className="text-[13px] font-semibold" style={{ color: "var(--m-text)" }}>
                     GlitchTip
                   </h3>
-                  <Tag tone={view.links.glitchtip !== null ? "success" : "outline"}>
+                  <Badge tone={view.links.glitchtip !== null ? "success" : "outline"}>
                     {view.links.glitchtip !== null ? "configured" : "not configured"}
-                  </Tag>
+                  </Badge>
                 </div>
                 <p className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
                   Error tracking keeps its own UI; this deployment reports into it once
@@ -478,7 +483,7 @@ export default function SelfHostSettingsPage() {
                       <span className="text-xs font-mono" style={{ color: "var(--m-text-secondary)" }}>
                         {row.service}
                       </span>
-                      <Tag
+                      <Badge
                         tone={
                           row.state === "configured"
                             ? "success"
@@ -488,7 +493,7 @@ export default function SelfHostSettingsPage() {
                         }
                       >
                         {row.state}
-                      </Tag>
+                      </Badge>
                     </div>
                   ))}
                 </div>
@@ -538,9 +543,9 @@ export default function SelfHostSettingsPage() {
               <h2 className="text-[13px] font-semibold" style={{ color: "var(--m-text)" }}>
                 Garage object storage
               </h2>
-              <Tag tone={view.garage.s3_endpoint !== null ? "success" : "neutral"}>
+              <Badge tone={view.garage.s3_endpoint !== null ? "success" : "neutral"}>
                 {view.garage.s3_endpoint !== null ? "S3 mode" : "local fs mode"}
-              </Tag>
+              </Badge>
             </div>
             <p className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
               Garage&rsquo;s admin API is CLI-first, so this pane links out instead of forking

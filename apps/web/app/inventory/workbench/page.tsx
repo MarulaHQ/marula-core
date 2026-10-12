@@ -23,11 +23,11 @@
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
   Spinner,
-  StatusTag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -146,17 +146,17 @@ function RowCard({
             </span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <StatusTag tone={row.confidence >= 0.9 ? "success" : "warning"}>
+            <Badge tone={row.confidence >= 0.9 ? "success" : "warning"}>
               {`${Math.round(row.confidence * 100)}%`}
-            </StatusTag>
+            </Badge>
             {row.status !== "pending" && (
-              <StatusTag
+              <Badge
                 tone={
                   row.status === "deferred" ? "warning" : row.status === "rejected" ? "neutral" : "success"
                 }
               >
                 {row.status}
-              </StatusTag>
+              </Badge>
             )}
             <span className="truncate text-[11px]" style={{ color: "var(--m-text-muted)" }}>
               {row.reason}
@@ -793,9 +793,9 @@ function CiDetail({
           <span className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
             {c.primary_tag} ← {c.candidate_tag}
           </span>
-          <StatusTag tone={c.confidence >= 0.9 ? "success" : "warning"}>
+          <Badge tone={c.confidence >= 0.9 ? "success" : "warning"}>
             {`${Math.round(c.confidence * 100)}% confidence`}
-          </StatusTag>
+          </Badge>
           <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
             {c.reason}
           </span>
@@ -1045,9 +1045,9 @@ function EntityDetail({
           <span className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
             {c.primary_label} ← {c.candidate_label ?? "vendor org"}
           </span>
-          <StatusTag tone={c.confidence >= 0.9 ? "success" : "warning"}>
+          <Badge tone={c.confidence >= 0.9 ? "success" : "warning"}>
             {`${Math.round(c.confidence * 100)}% confidence`}
-          </StatusTag>
+          </Badge>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {isPending && (

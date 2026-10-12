@@ -24,7 +24,12 @@
 
 import type { components } from "@marula-core/sdk";
 import { snapshotOf } from "@marula-core/sdk";
-import { Spinner, StatusTag, Button, Badge, StatusStepper } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Spinner,
+  StatusStepper,
+} from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import { TranscribeControl } from "../../../components/attachments/transcribe-control";
 import Link from "next/link";
@@ -86,6 +91,7 @@ import { WrapUpSheet } from "../../../components/workbench-v2/wrap-up-sheet";
 import { TasksGateDialog, type GateBlocks } from "../../../components/notes/close-gate-dialog";
 import { registerWrapUpTarget } from "../../../components/workbench-v2/wrap-up-bridge";
 import "../../../components/workbench-v2/workbench.css";
+import "./wb-chrome.css";
 
 type BoardStatus = components["schemas"]["BoardStatus"];
 type StockMovementView = components["schemas"]["StockMovementView"];
@@ -1342,9 +1348,9 @@ async function changeStatus(statusId: string): Promise<void> {
                 (model?.comments ?? []).map((c) => (
                   <article key={c.id} className="grid gap-1 rounded-lg border p-2.5 text-xs" style={{ borderColor: "var(--m-border)" }}>
                     <header className="flex flex-wrap items-center gap-2">
-                      <StatusTag tone={c.kind === "client_visible" ? "success" : c.kind === "in_house_update" ? "warning" : "neutral"}>
+                      <Badge tone={c.kind === "client_visible" ? "success" : c.kind === "in_house_update" ? "warning" : "neutral"}>
                         {c.kind === "client_visible" ? "Client-visible" : c.kind === "in_house_update" ? "In-house" : "Internal"}
-                      </StatusTag>
+                      </Badge>
                       <span className="font-medium">{namesByUser.get(c.author_id ?? "") ?? "Unknown author"}</span>
                       <time className="ml-auto" style={{ color: "var(--m-text-muted)" }}>
                         {new Date(c.created_at).toLocaleString()}

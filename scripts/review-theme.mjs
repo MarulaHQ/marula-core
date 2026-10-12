@@ -5,16 +5,16 @@
  * Hardened review: parses the actual CSS variable declarations from
  * packages/ui/src/tokens.css and apps/web/app/globals.css and compares them
  * VALUE-BY-VALUE against the vendored canonical preset
- * (design/tangerine/tangerine.json). Substring greps cannot catch a wrong
+ * (design/marula/marula.json). Substring greps cannot catch a wrong
  * dark mode; this can.
  *
  * Checks:
  *  1. Preset fidelity — every shadcn variable in globals.css :root/.dark that
  *     the preset defines matches the preset's oklch/hsl value verbatim.
  *  2. Token anchors — tokens.css dark-mode canvas/surface/text/border resolve
- *     to the converted preset hex anchors (#1C2433 / #2A3040 / #E5E5E5 / #3D4354).
- *  3. Dark accent = light accent (preset keeps primary identical).
- *  4. Chart ramp — light #86A7C8/#EEA591/#5A7CA6/#466494/#334C82, dark chart-2 #E6A08F.
+ *     to the Marula anchors below, resolved through the kit's hex layer.
+ *  3. The primary FLIPS on mode (Marula inverts it; Tangerine did not).
+ *  4. Chart ramp — gold / canopy / blush / bark / lime (spec §4.4).
  *  5. Retired hexes — Workbench hexes must not appear in any scanned UI file
  *     (mirrors the CI blacklist).
  *  6. Pill tags, serif headings, "use client" coverage, motion law, mockup rules.
@@ -42,6 +42,46 @@ function check(condition, label, detail = "") {
 
 const read = (p) => readFileSync(p, "utf8");
 const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+/** Canonicalise a CSS colour to lowercase hex.
+ *
+ *  The brand preset ships oklch and the generated kit ships hex, so a raw
+ *  string compare fails on NOTATION even when the colour is identical. This
+ *  converts both sides to one canonical form so that a real value drift is
+ *  distinguishable from a different spelling of the same colour. */
+const OKLCH_RE = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)$/;
+const srgbEncode = (c) => {
+  const v = Math.max(0, Math.min(1, c));
+  return v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+};
+const toHex = (v) => {
+  if (typeof v !== "string") return null;
+  const t = v.trim().toLowerCase();
+  const m = t.match(OKLCH_RE);
+  if (m) {
+    const [L, C, H] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    const h = (H * Math.PI) / 180;
+    const a = C * Math.cos(h), b = C * Math.sin(h);
+    const l_ = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+    const m_ = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+    const s_ = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+    const r = 4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_;
+    const g = -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_;
+    const bl = -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_;
+    const q = (x) => Math.round(srgbEncode(x) * 255).toString(16).padStart(2, "0");
+    return `#${q(r)}${q(g)}${q(bl)}`;
+  }
+  const hex = t.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/);
+  if (!hex) return null;
+  const h = hex[1].length === 3 ? hex[1].replace(/./g, "$&$&") : hex[1];
+  return `#${h}`;
+};
+/** True when both sides are the same colour, allowing either spelling. */
+const sameColour = (a, b) => {
+  const x = toHex(a), y = toHex(b);
+  if (x === null || y === null) return a === b;
+  return x === y;
+};
 
 /** Parse custom-property declarations in a CSS string into a Map. */
 function parseVars(css) {
@@ -98,9 +138,62 @@ if (!existsSync(presetPath) || !existsSync(tokensCssPath) || !existsSync(globals
 const preset = JSON.parse(read(presetPath));
 const tokensCss = stripComments(read(tokensCssPath));
 const globalsCss = stripComments(read(globalsPath));
+// The semantic layer (tokens.css) is an ALIAS layer: every --m-* that has a kit
+// equivalent aliases it, and the hexes live in the generated tokens-kit.css.
+// Comparing the semantic layer's raw strings against hex values therefore fails
+// by construction, so the checks below resolve --m-* -> --mc-*/--* through
+// both layers before comparing. tokens.test.ts pins this two-layer contract.
+// Parsed BY BLOCK, not by slicing at the first dark selector. The kit declares
+// `neutral`, `dark` and `cream` theme blocks with the same 64 names, so a naive
+// slice would fold the later light/cream block over the dark one and read a
+// cream canvas out of dark mode.
+const kitCss = stripComments(read(resolve(root, "packages/ui/src/tokens-kit.css")));
+const kitBlocks = new Map();
+for (const m of kitCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+  const sel = m[1].trim().split(/\s+/).pop();
+  if (!sel.startsWith(":root")) continue;
+  const theme = sel.match(/data-theme="([a-z]+)"/)?.[1] ?? "base";
+  // MERGE, do not replace: the kit carries more than one `:root` block (the
+  // brand constants, then the density steps), and the later one must not erase
+  // the earlier one's names.
+  const prev = kitBlocks.get(theme) ?? new Map();
+  for (const [k, v] of parseVars(m[2])) prev.set(k, v);
+  kitBlocks.set(theme, prev);
+}
+const kitLight = new Map([...(kitBlocks.get("base") ?? new Map()), ...(kitBlocks.get("neutral") ?? new Map())]);
+const kitDark = kitBlocks.get("dark") ?? new Map();
+
+/** Resolve a semantic token to its hex, walking alias chains through both
+ *  layers. `mode` picks which half of each layer is preferred, because the
+ *  semantic layer declares the same `--m-*` name in both halves and the kit
+ *  declares it with different values. */
+const resolveToken = (raw, mode, depth = 0) => {
+  let v = raw;
+  for (let d = 0; d < 6; d += 1) {
+    if (typeof v !== "string") return v;
+    const m = v.match(/^var\((--[\w-]+)\)$/);
+    if (!m) return v;
+    const name = m[1];
+    const sem = mode === "dark" ? [tDark, tRoot] : [tRoot, tDark];
+    const kit = mode === "dark" ? [kitDark, kitLight] : [kitLight, kitDark];
+    const next = sem[0].get(name) ?? sem[1].get(name) ?? kit[0].get(name) ?? kit[1].get(name);
+    if (next === undefined || next === v) return v;
+    v = next;
+  }
+  return v;
+};
+const LIGHT = (name) => tRoot.get(name) ?? "";
+const DARK = (name) => tDark.get(name) ?? "";
+/** Resolve a semantic token in the light and dark halves of tokens.css. */
+const lr = (name) => resolveToken(LIGHT(name), "light");
+const dr = (name) => resolveToken(DARK(name), "dark");
+
 const tokensTs = read(tokensTsPath);
 const componentsCss = read(componentsPath);
 const mockup = read(mockupPath);
+
+const tRoot = parseVars(tokensCss.slice(0, tokensCss.indexOf('[data-theme="dark"]')));
+const tDark = parseVars(tokensCss.slice(tokensCss.indexOf('[data-theme="dark"]')));
 
 // ---------- 1. preset fidelity in globals.css ----------
 const gRoot = parseVars(blockOf(globalsCss, ":root"));
@@ -126,45 +219,53 @@ const MODE_INDEPENDENT = new Set(["--font-sans", "--font-serif", "--font-mono"])
  */
 const expectedInBlock = (vars) =>
   Object.keys(vars).filter((name) => !PRESET_BRIDGED.has(`--${name}`) && !MODE_INDEPENDENT.has(`--${name}`)).length;
+// The kit layer is where the shadcn-shaped hex/oklch declarations live now.
+// globals.css only carries the bridged `var(--m-*)` subset, so comparing
+// globals.css against the preset's oklch fails by construction.
 for (const [name, value] of Object.entries(preset.cssVars.light)) {
   if (PRESET_BRIDGED.has(`--${name}`) || MODE_INDEPENDENT.has(`--${name}`)) continue;
-  const actual = gRoot.get(`--${name}`);
-  if (actual === undefined) {
-    errors.push(`globals :root missing preset variable --${name}`);
-  } else if (actual !== value) {
-    errors.push(`globals :root --${name} = "${actual}" ≠ preset "${value}"`);
+  const actual = resolveToken(kitLight.get(`--${name}`) ?? gRoot.get(`--${name}`) ?? "", "light");
+  if (actual === undefined || actual === "") {
+    errors.push(`kit :root missing preset variable --${name}`);
+  } else if (!sameColour(actual, value)) {
+    errors.push(`kit :root --${name} = "${actual}" ≠ preset "${value}"`);
   } else {
     presetChecked++;
   }
 }
 check(expectedInBlock(preset.cssVars.light) === presetChecked,
-  `globals :root matches preset verbatim (${presetChecked}/${expectedInBlock(preset.cssVars.light)} non-bridged vars)`);
+  `kit :root matches preset verbatim (${presetChecked}/${expectedInBlock(preset.cssVars.light)} non-bridged vars)`);
 
 let presetDarkChecked = 0;
 for (const [name, value] of Object.entries(preset.cssVars.dark)) {
   if (PRESET_BRIDGED.has(`--${name}`) || MODE_INDEPENDENT.has(`--${name}`)) continue;
-  const actual = gDark.get(`--${name}`);
-  if (actual === undefined) {
-    errors.push(`globals dark block missing preset variable --${name}`);
-  } else if (actual !== value) {
-    errors.push(`globals dark --${name} = "${actual}" ≠ preset "${value}"`);
+  const actual = resolveToken(kitDark.get(`--${name}`) ?? gDark.get(`--${name}`) ?? "", "dark");
+  if (actual === undefined || actual === "") {
+    errors.push(`kit dark block missing preset variable --${name}`);
+  } else if (!sameColour(actual, value)) {
+    errors.push(`kit dark --${name} = "${actual}" ≠ preset "${value}"`);
   } else {
     presetDarkChecked++;
   }
 }
 check(expectedInBlock(preset.cssVars.dark) === presetDarkChecked,
-  `globals dark block matches preset verbatim (${presetDarkChecked}/${expectedInBlock(preset.cssVars.dark)} non-bridged vars)`);
+  `kit dark block matches preset verbatim (${presetDarkChecked}/${expectedInBlock(preset.cssVars.dark)} non-bridged vars)`);
 
 // bridged variables must reference the token layer, not redeclare hexes
 for (const name of PRESET_BRIDGED) {
-  const v = gRoot.get(name);
-  check(v !== undefined && (v.startsWith("var(--m-") || v === "0.75rem"),
-    `globals :root ${name} bridged to token layer`, v ?? "missing");
+  // Either globals.css still bridges it, or the semantic layer aliases the kit
+  // directly. Both satisfy the no-duplicated-hex rule; neither may redeclare a
+  // literal beside the kit that owns it.
+  const inGlobals = gRoot.get(name);
+  const inTokens = tRoot.get(name);
+  const inKit = kitLight.get(name);
+  const bridged = (inGlobals !== undefined && (inGlobals.startsWith("var(--m-") || inGlobals === "0.75rem"))
+    || (inTokens !== undefined && inTokens.startsWith("var(--"))
+    || (inKit !== undefined && inKit !== name);
+  check(bridged, `token layer bridges ${name} to the kit`, `${inGlobals ?? inTokens ?? "missing"}`);
 }
 
 // ---------- 2. token dark anchors (preset converted) ----------
-const tRoot = parseVars(tokensCss.slice(0, tokensCss.indexOf('[data-theme="dark"]')));
-const tDark = parseVars(tokensCss.slice(tokensCss.indexOf('[data-theme="dark"]')));
 
 // The Marula semantic anchors, lowercased. These are the values the brand
 // spec fixes, so a drift here is a drift from the brand, not a refactor.
@@ -179,8 +280,8 @@ const ANCHORS = {
   "--m-gold-text": "#9a5b0f",
 };
 for (const [name, hex] of Object.entries(ANCHORS)) {
-  check((tRoot.get(name) ?? "").toLowerCase() === hex,
-    `tokens.css ${name} = ${hex}`, tRoot.get(name) ?? "missing");
+  const resolved = (lr(name) || "").toLowerCase();
+  check(resolved === hex, `tokens.css ${name} resolves to ${hex}`, `${tRoot.get(name) ?? "missing"} -> ${resolved}`);
 }
 
 // semantic dark resolves through the anchors
@@ -189,32 +290,28 @@ const resolveDark = (v, depth = 0) => {
   if (!m || depth > 4) return v;
   return resolveDark(tDark.get(m[1]) ?? tRoot.get(m[1]), depth + 1);
 };
-check((resolveDark(tDark.get("--m-canvas")) ?? "").toLowerCase() === "#2b2a33",
-  "dark --m-canvas resolves to #2B2A33");
-check((resolveDark(tDark.get("--m-surface")) ?? "").toLowerCase() === "#34333d",
-  "dark --m-surface resolves to #34333D");
-check((resolveDark(tDark.get("--m-text")) ?? "").toLowerCase() === "#f6efd9",
-  "dark --m-text resolves to #F6EFD9");
-check((resolveDark(tDark.get("--m-border")) ?? "").toLowerCase() === "#43424d",
-  "dark --m-border resolves to #43424D");
+check(dr("--m-canvas").toLowerCase() === "#2b2a33", "dark --m-canvas resolves to #2B2A33");
+check(dr("--m-surface").toLowerCase() === "#34333d", "dark --m-surface resolves to #34333D");
+check(dr("--m-text").toLowerCase() === "#f6efd9", "dark --m-text resolves to #F6EFD9");
+check(dr("--m-border").toLowerCase() === "#43424d", "dark --m-border resolves to #43424D");
 
 // ---------- 3. the primary FLIPS on mode ----------
 // The retired Tangerine preset kept one accent in both modes. Marula inverts
 // it: ink with gold text in light, gold with ink text in dark. Asserted as a
 // pair, because "the dark primary is not the light primary" is the invariant
 // that a later mechanical pass breaks.
-const lightPrimary = (tRoot.get("--m-primary") ?? "").toLowerCase();
-const darkPrimary = (tDark.get("--m-primary") ?? "").toLowerCase();
+const lightPrimary = lr("--m-primary").toLowerCase();
+const darkPrimary = dr("--m-primary").toLowerCase();
 check(lightPrimary === "#2b2a33" && darkPrimary === "#e8b83a",
   "primary flips: ink in light, gold in dark",
   `${lightPrimary} / ${darkPrimary}`);
-check((tRoot.get("--m-on-primary") ?? "").toLowerCase() === "#e8b83a" &&
-    (tDark.get("--m-on-primary") ?? "").toLowerCase() === "#2b2a33",
+check(lr("--m-on-primary").toLowerCase() === "#e8b83a" &&
+    dr("--m-on-primary").toLowerCase() === "#2b2a33",
   "on-primary flips with it: gold in light, ink in dark");
 
 // The timer bar does NOT flip. It is declared once in :root and never
 // overridden, so a mechanical dark pass cannot paint it cream.
-check((tRoot.get("--m-bar") ?? "").toLowerCase() === "#2b2a33" && tDark.get("--m-bar") === undefined,
+check(lr("--m-bar").toLowerCase() === "#2b2a33" && tDark.get("--m-bar") === undefined,
   "the timer bar is ink in every theme and is never overridden in the dark block",
   `${tRoot.get("--m-bar")} / ${tDark.get("--m-bar")}`);
 
@@ -226,14 +323,14 @@ const CHARTS_LIGHT = {
   "--m-chart-4": "#7c746a", "--m-chart-5": "#a9c25d",
 };
 for (const [name, hex] of Object.entries(CHARTS_LIGHT)) {
-  check((tRoot.get(name) ?? "").toLowerCase() === hex, `chart ramp ${name} = ${hex}`);
+  check(lr(name).toLowerCase() === hex, `chart ramp ${name} resolves to ${hex}`);
 }
 const CHARTS_DARK = {
   "--m-chart-1": "#e8b83a", "--m-chart-2": "#a9c25d", "--m-chart-3": "#f0b27a",
   "--m-chart-4": "#beb5a2", "--m-chart-5": "#cdb38b",
 };
 for (const [name, hex] of Object.entries(CHARTS_DARK)) {
-  check((tDark.get(name) ?? "").toLowerCase() === hex, `dark chart ramp ${name} = ${hex}`);
+  check(dr(name).toLowerCase() === hex, `dark chart ramp ${name} resolves to ${hex}`);
 }
 
 // ---------- 5. retired hexes (CI blacklist) ----------
@@ -285,7 +382,10 @@ check(/--font-serif:\s*var\(--font-heading/.test(globalsCss),
   "Tailwind --font-serif maps to the Fraunces variable (no Times fallback)");
 // The scale root stays 0.75rem (12px, unchanged); controls render at 10px and
 // cards at 16px, so the control radius is NOT the scale root any more.
-check(/--m-radius-scale:\s*0\.75rem/.test(tokensCss), "tokens.css scale root 0.75rem (12px)");
+// The kit spells the scale root 12px; the semantic layer aliases it. Accept
+  // either spelling of the same value.
+  const scaleRoot = lr("--m-radius-scale").toLowerCase();
+  check(scaleRoot === "0.75rem" || scaleRoot === "12px", "tokens.css scale root resolves to 0.75rem (12px)", scaleRoot);
 check(/--m-radius-control:\s*10px/.test(tokensCss), "tokens.css control radius 10px");
 check(/--m-duration:\s*120ms/.test(tokensCss), "motion law token 120ms present");
 check(componentsCss.includes("prefers-reduced-motion"), "prefers-reduced-motion honored");
@@ -318,7 +418,9 @@ check(missingClient.length === 0, `all ${componentFiles.length} component files 
   missingClient.join(", "));
 
 // ---------- 7. PALETTE sync ----------
-const cssHexes = new Set([...tokensCss.matchAll(/#[0-9a-fA-F]{6}\b/g)].map((m) => m[0].toUpperCase()));
+// The semantic layer is alias-only, so its hex set is a subset of the
+// kit's by construction. The kit is the hex owner, so it is the sync partner.
+const cssHexes = new Set([...kitCss.matchAll(/#[0-9a-fA-F]{6}\b/g), ...tokensCss.matchAll(/#[0-9a-fA-F]{6}\b/g)].map((m) => m[0].toUpperCase()));
 const tsHexes = new Set([...tokensTs.matchAll(/"#[0-9a-fA-F]{6}"/g)].map((m) => m[0].slice(1, -1).toUpperCase()));
 check(cssHexes.size === tsHexes.size && [...cssHexes].every((h) => tsHexes.has(h)) &&
     [...tsHexes].every((h) => cssHexes.has(h)),

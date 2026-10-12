@@ -8,6 +8,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -26,7 +27,6 @@ import {
   SelectValue,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -444,9 +444,9 @@ export default function PortalAdminSettingsPage() {
                       </Select>
                     </Td>
                     <Td>
-                      <Tag tone={u.status === "active" || u.status === "invited" ? "success" : "danger"}>
+                      <Badge tone={u.status === "active" || u.status === "invited" ? "success" : "danger"}>
                         {u.status}
-                      </Tag>
+                      </Badge>
                     </Td>
                     <Td className="text-right">
                       <div className="flex justify-end gap-1">

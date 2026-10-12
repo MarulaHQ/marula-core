@@ -65,7 +65,7 @@ export default function LoginScreen() {
 
   if (status === "signedIn") return <Redirect href="/(tabs)" />;
   if (status === "mfa") return <Redirect href="/mfa" />;
-  if (status === "locked") return <Redirect href="/locked" />;
+  if (status === "biometric") return <Redirect href="/unlock" />;
 
   const canSubmit = email.trim().length > 0 && password.length > 0 && !busy;
 

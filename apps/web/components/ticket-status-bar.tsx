@@ -10,7 +10,10 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Button, StatusTag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+} from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -161,7 +164,7 @@ export function TicketStatusBar({
       >
         {current?.name ?? "Unknown status"}
       </span>
-      {badge !== null && <StatusTag tone={badge.tone}>{badge.label}</StatusTag>}
+      {badge !== null && <Badge tone={badge.tone}>{badge.label}</Badge>}
       <span className="min-w-0 flex-1 truncate text-xs" style={{ color: "var(--m-text-secondary)" }} title={title}>
         {title}
       </span>

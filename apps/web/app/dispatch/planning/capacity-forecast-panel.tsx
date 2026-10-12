@@ -18,12 +18,12 @@
 // keep.
 
 import {
+  Badge,
   Card,
   CardHeader,
   EmptyState,
   Spinner,
   Table,
-  Tag,
   Td,
   Th,
   Tr,
@@ -186,9 +186,9 @@ function ForecastRow({ entry }: { entry: ForecastEntry }) {
       <Td>
         {entry.display_name}
         {entry.over_allocated ? (
-          <Tag tone="danger" style={{ marginLeft: "6px" }}>
+          <Badge tone="danger" style={{ marginLeft: "6px" }}>
             over-allocated
-          </Tag>
+          </Badge>
         ) : null}
       </Td>
       <Td>{formatPercentDays(entry.committed_percent_days)}</Td>

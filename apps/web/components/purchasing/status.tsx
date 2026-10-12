@@ -3,7 +3,9 @@
 // order detail never disagree about what "partially received" looks like.
 "use client";
 
-import { StatusTag } from "@marula-core/ui";
+import {
+  Badge,
+} from "@marula-core/ui";
 import type { ReactNode } from "react";
 
 import type { Tone } from "../../lib/stock-format";
@@ -40,9 +42,9 @@ export function receiptStateTone(state: string): Tone {
 }
 
 export function OrderStatusTag({ status }: { status: string }): ReactNode {
-  return <StatusTag tone={orderStatusTone(status)}>{orderStatusLabel(status)}</StatusTag>;
+  return <Badge tone={orderStatusTone(status)}>{orderStatusLabel(status)}</Badge>;
 }
 
 export function ReceiptStateTag({ state }: { state: string }): ReactNode {
-  return <StatusTag tone={receiptStateTone(state)}>{state}</StatusTag>;
+  return <Badge tone={receiptStateTone(state)}>{state}</Badge>;
 }

@@ -21,10 +21,12 @@ import {
   Input,
   Label,
   Spinner,
-  Tag,
   Textarea,
 } from "@marula-core/ui";
-import { useTheme } from "@marula-core/ui";
+import {
+  Badge,
+  useTheme,
+} from "@marula-core/ui";
 import type { Theme } from "@marula-core/ui";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -233,7 +235,7 @@ function SignatureCard({ authed }: { authed: boolean }) {
           style={{ borderColor: "var(--m-border)", background: "var(--m-surface-muted)" }}
         >
           <div className="flex flex-wrap items-center gap-2">
-            <Tag tone="neutral">Locked to the organization</Tag>
+            <Badge tone="neutral">Locked to the organization</Badge>
             <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
               Your messages carry the workspace signature.
             </span>
@@ -352,12 +354,12 @@ function SignatureCard({ authed }: { authed: boolean }) {
               {previewSignature ?? "No signature configured — messages go out unsigned."}
             </pre>
             <div className="flex flex-wrap items-center gap-1.5">
-              <Tag tone="neutral">
+              <Badge tone="neutral">
                 Signature: {SOURCE_LABEL[envelope?.signature_source ?? "unset"] ?? "unset"}
-              </Tag>
-              <Tag tone="neutral">
+              </Badge>
+              <Badge tone="neutral">
                 Greeting: {SOURCE_LABEL[envelope?.greeting_source ?? "unset"] ?? "unset"}
-              </Tag>
+              </Badge>
             </div>
           </div>
         </div>

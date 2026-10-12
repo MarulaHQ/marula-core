@@ -19,6 +19,7 @@
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -34,7 +35,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -491,7 +491,7 @@ export default function AssetDetailPage() {
               <p className="text-[16px] font-semibold">{asset.name}</p>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <NeutralMark label={asset.status} testId="asset-detail-status" />
-                {layout !== undefined ? <Tag tone="outline">{layout.name}</Tag> : null}
+                {layout !== undefined ? <Badge tone="neutral">{layout.name}</Badge> : null}
               </div>
               {asset.tag !== "" ? (
                 <p className="mt-1.5 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
@@ -555,7 +555,7 @@ export default function AssetDetailPage() {
                   {asset.name}
                 </h1>
                 <NeutralMark label={asset.status} testId="asset-detail-status" />
-                {layout !== undefined ? <Tag tone="outline">{layout.name}</Tag> : null}
+                {layout !== undefined ? <Badge tone="neutral">{layout.name}</Badge> : null}
               </div>
             </div>
 
@@ -859,7 +859,7 @@ export default function AssetDetailPage() {
                 style={{ background: "var(--m-bg-raised)" }}
               >
                 <span className="text-[13px] font-medium">{i.connector_type}</span>
-                <Tag>linked</Tag>
+                <Badge>linked</Badge>
                 <span className="ml-auto text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                   linked {new Date(i.linked_at).toLocaleString()} · updated{" "}
                   {new Date(i.updated_at).toLocaleString()}
@@ -893,7 +893,7 @@ export default function AssetDetailPage() {
                 className="m-entity-row m-entity-rise flex flex-wrap items-center gap-3 rounded-[0.5rem] border p-3"
                 style={{ borderColor: "var(--m-border)", "--stagger-i": Math.min(i, 8) } as React.CSSProperties}
               >
-                <Tag tone="outline">{l.to_kind}</Tag>
+                <Badge tone="neutral">{l.to_kind}</Badge>
                 <span className="min-w-0 flex-1 truncate text-[13px]">
                   {l.target_deleted ? (
                     <span style={{ color: "var(--m-status-danger-fg)" }}>
@@ -1037,8 +1037,8 @@ export default function AssetDetailPage() {
                   <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                     {e.field}
                   </span>
-                  <Tag>{e.actor_kind}</Tag>
-                  {e.undo ? <Tag>undo</Tag> : null}
+                  <Badge>{e.actor_kind}</Badge>
+                  {e.undo ? <Badge>undo</Badge> : null}
                   <span className="ml-auto text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                     {new Date(e.occurred_at).toLocaleString()}
                   </span>

@@ -17,7 +17,13 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Button, Input, Label, Spinner, StatusTag } from "@marula-core/ui";
+import {
+  Badge,
+  Button,
+  Input,
+  Label,
+  Spinner,
+} from "@marula-core/ui";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";
@@ -221,7 +227,7 @@ export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): Re
                   data-testid={`scheduling-link-${link.id}`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <StatusTag tone={STATE_TONE[state] ?? "neutral"}>{state}</StatusTag>
+                    <Badge tone={STATE_TONE[state] ?? "neutral"}>{state}</Badge>
                     <span style={{ color: "var(--m-text-muted)" }}>
                       {link.view_count} view{link.view_count === 1 ? "" : "s"}
                     </span>

@@ -17,6 +17,7 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -31,7 +32,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  Tag,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
@@ -227,9 +227,9 @@ export function SecretSharePanel({
                   </span>
                 </span>
                 <span className="flex items-center gap-2">
-                  <Tag tone={state === "active" ? "outline" : "neutral"}>
+                  <Badge tone={state === "active" ? "outline" : "neutral"}>
                     {STATE_LABEL[state]}
-                  </Tag>
+                  </Badge>
                   {state === "active" && canManage ? (
                     <Button
                       variant="ghost"
@@ -382,7 +382,7 @@ export function PasswordLinksPanel({
               style={{ borderColor: "var(--m-border)" }}
             >
               <span className="min-w-0">
-                <Tag tone="outline">{l.to_kind.replaceAll("_", " ")}</Tag>{" "}
+                <Badge tone="neutral">{l.to_kind.replaceAll("_", " ")}</Badge>{" "}
                 {l.target_deleted ? (
                   <span style={{ color: "var(--m-status-danger-fg)" }}>deleted target</span>
                 ) : (
