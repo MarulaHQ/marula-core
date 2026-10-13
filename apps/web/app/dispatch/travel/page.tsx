@@ -468,8 +468,7 @@ export default function TravelDraftsPage() {
                 type="button"
                 aria-pressed={statusFilter === k}
                 onClick={() => setStatusFilter(k)}
-                className="dp-qfbtn"
-                style={{ height: 28, padding: "0 10px", borderRadius: 999, border: "1px solid var(--m-border)", fontSize: 13, fontWeight: 600 }}
+                                style={{ height: 28, padding: "0 10px", borderRadius: 999, border: "1px solid var(--m-border)", fontSize: 13, fontWeight: 600 }}
               >
                 {k === "all"
                   ? `All · ${(drafts ?? []).length}`

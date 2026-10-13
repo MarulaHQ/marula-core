@@ -460,7 +460,7 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
         </button>
       </div>
 
-      <div className="m-wb-agent-scroll min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         <p className="border-b pb-3 text-[11px] leading-relaxed" style={{ borderColor: "var(--m-border)", color: "var(--m-text-muted)" }}>
           Based on this ticket, customer history and documentation…
         </p>
@@ -473,7 +473,7 @@ export function WbAgentPanel({ ticket, comments, namesByUser, open, onClose, tak
         ) : articles.length > 0 ? (
           articles.map((a) => (
             <Link key={a.id} href={`/kb/${a.id}`} className="m-wb-linkrow flex items-start gap-2 py-1.5">
-              <span className="m-wb-source-icon grid h-6 w-6 shrink-0 place-items-center rounded-md border" style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text-muted)" }}>
+              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md border" style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text-muted)" }}>
                 <svg aria-hidden width="11" height="11" viewBox="0 0 18 18" fill="none">
                   <path d="M3 4.5c2-1 4-1 6 0v9c-2-1-4-1-6 0v-9Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
                   <path d="M15 4.5c-2-1-4-1-6 0v9c2-1 4-1 6 0v-9Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />

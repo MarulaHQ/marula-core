@@ -283,16 +283,22 @@ export default function SlaSettingsPage() {
           <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
             Loading…
           </p>
+        ) : calendars.length === 0 ? (
+          <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+            No calendars yet — create one to start timing SLAs.
+          </p>
         ) : (
-          <div role="table" aria-label="Calendars" className="grid gap-0">
-            {calendars.length === 0 && (
-              <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                No calendars yet — create one to start timing SLAs.
-              </p>
-            )}
+          // A `role="list"` owns only `listitem`s, so the empty state is
+          // rendered INSTEAD of the list rather than inside it — an empty
+          // list with a paragraph child reads as one nameless item.
+          <div role="list" aria-label="Calendars" className="grid gap-0">
             {calendars.map((cal) => (
+              // This is a list of actions, not a data grid, so it declares
+              // itself a list of items rather than a table — a `role="table"`
+              // here would owe every row a `cell` child, which this markup has
+              // none of.
+              <div key={cal.id} role="listitem">
               <button
-                key={cal.id}
                 type="button"
                 onClick={() => startEdit(cal)}
                 className="flex items-center justify-between gap-3 text-left px-2 py-2 rounded-[var(--m-radius-container)]"
@@ -318,6 +324,7 @@ export default function SlaSettingsPage() {
                     : "nothing"}
                 </span>
               </button>
+              </div>
             ))}
           </div>
         )}
@@ -353,12 +360,15 @@ export default function SlaSettingsPage() {
             <FieldHint>IANA zone name, e.g. Europe/Berlin.</FieldHint>
           </label>
 
-          <div role="table" aria-label="Weekly opening hours" className="grid gap-1 max-w-md">
+          <div role="list" aria-label="Weekly opening hours" className="grid gap-1 max-w-md">
             {WEEKDAY_LABELS.map((day, i) => {
               const window = calDraft.windows[i];
               const dayError = calErrors[`window-${i}`];
               return (
-                <div key={day} role="row" className="flex items-center gap-2">
+                <div key={day} role="listitem" className="flex items-center gap-2">
+                  {/* One listitem per weekday: the seven rows are a list of
+                      repeated field groups, not a grid, so the parent declares
+                      itself a list. */}
                   <label className="inline-flex items-center gap-2 text-[12px] w-32">
                     <Checkbox
                       checked={window != null}
@@ -490,9 +500,9 @@ export default function SlaSettingsPage() {
         ) : policies.length === 0 ? (
           <EmptyState message="No SLA policies are defined for this organization." />
         ) : (
-          <div role="table" aria-label="SLA policies" className="grid gap-0">
+          <div role="list" aria-label="SLA policies" className="grid gap-0">
             {policies.map((policy) => (
-              <div key={policy.id} role="row" className="grid gap-2 py-2" style={{ borderBottom: "1px solid var(--m-border)" }}>
+              <div key={policy.id} role="listitem" className="grid gap-2 py-2" style={{ borderBottom: "1px solid var(--m-border)" }}>
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2">
                     <span className="text-[13px]" style={{ color: "var(--m-text)" }}>
@@ -515,9 +525,9 @@ export default function SlaSettingsPage() {
                     <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                       Steps fire when consumed budget reaches their offset percent. {FIRE_ONCE_NOTE}
                     </p>
-                    <div role="table" aria-label={`Ladder for ${policy.name}`} className="grid gap-2">
+                    <div role="list" aria-label={`Ladder for ${policy.name}`} className="grid gap-2">
                       {ladder.rows.map((row: LadderRow, index) => (
-                        <div key={row.key} role="row" className="flex items-center gap-2 flex-wrap">
+                        <div key={row.key} role="listitem" className="flex items-center gap-2 flex-wrap">
                           <span className="text-[12px] tabular-nums w-4" style={{ color: "var(--m-text-muted)" }}>
                             {index + 1}.
                           </span>

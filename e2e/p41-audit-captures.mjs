@@ -31,7 +31,7 @@ import { join } from "node:path";
 
 const API = (process.env.E2E_API_URL ?? "http://localhost:28483").replace(/\/+$/, "");
 const WEB = (process.env.E2E_WEB_URL ?? "http://localhost:3001").replace(/\/+$/, "");
-const OUT = "design/qa-p41-ui-audit/captures";
+const OUT = "design/qa-p41-leftovers-closeout/captures";
 const EMAIL = "owner@demo.local";
 const PASSWORD = "demo-password-123";
 
@@ -63,6 +63,26 @@ const auth = async (path) => {
  * The route is a function of TICKET so the workbench states can all target the
  * same staged ticket and stay comparable to each other.
  */
+const openWrapUp = async (p) => {
+  const take = p.getByTestId("wb-take-it").first();
+  if (await take.count()) await take.click({ timeout: 8000 }).catch(() => {});
+  // By testid, not by role/name: the dock carries a second node whose accessible
+  // text also matches /wrap up/, and `.first()` was picking that one, so the
+  // sheet never opened and five states captured the plain workbench.
+  //
+  // WAIT for the button rather than testing `count()`. The dock is shell-level
+  // chrome and hydrates after the page, and the capture loop navigates then
+  // waits 2400ms before the stage runs, so at that moment `count()` can be 0 and
+  // the click was being skipped silently — which read as "the sheet does not
+  // open" when in fact nothing had been clicked.
+  const b = p.getByTestId("workbar-wrap-up").first();
+  await b.waitFor({ state: "visible", timeout: 20_000 }).catch(() => {});
+  await b.click({ timeout: 10_000 }).catch(() => {});
+  // The sheet is a React state flip on the page, not a route change; give it a
+  // beat to mount before the shot.
+  await p.waitForTimeout(1500);
+};
+
 const STATES = [
   // ---- workbench pack: the ticket workbench, neutral + dark ----
   { pack: "workbench", id: "01-workbench-reply-default", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"] },
@@ -87,10 +107,135 @@ const STATES = [
       const b = p.locator('[class*="note"], [data-testid*="note"]').filter({ hasText: /wrap|lines/i }).first();
       if (await b.count()) await b.click({ timeout: 5000 }).catch(() => {});
     } },
+/** Shared stage for every wrap-up state: the sheet only opens on a ticket with
+ *  a RUNNING timer (`timer-dock.tsx:157` returns early when `current === null`,
+ *  so the click silently does nothing otherwise), and the pack draws the sheet
+ *  over a live session. `wb-take-it` is the one control that self-assigns, moves
+ *  the ticket to In Progress and starts the timer in a single envelope write. */
+
   { pack: "workbench", id: "18-wrap-up-resolve", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
-      const b = p.getByRole("button", { name: /wrap up/i }).first();
-      if (await b.count()) await b.click({ timeout: 6000 }).catch(() => {});
+      // The pack draws the resolve choice selected, not the bare sheet. Selecting
+      // it also reveals the resolved status name under the label (the sheet shows
+      // `→ <target>` where a resolve target exists), which is what the pack PNG
+      // carries. The confirm is deliberately NOT clicked: state 22 is the after
+      // state, and confirming here would collapse the two.
+      await openWrapUp(p);
+      const r = p.getByTestId("wb-wrapup-choice-resolve").first();
+      if (await r.count()) await r.click({ timeout: 6000 }).catch(() => {});
     } },
+
+  // ---- Wave 41 lane 16 (`p41-leftovers-closeout`): the 14 workbench states the
+  // audit left unstaged. Every stage is fail-soft on purpose — a state whose
+  // control is not on the screen records a FAIL with the reason rather than
+  // throwing the whole battery off the run, which is how the audit found the
+  // states that were missing in the first place.
+  { pack: "workbench", id: "04-internal-note-added", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      const note = p.getByRole("button", { name: /internal note/i }).first();
+      if (await note.count()) await note.click({ timeout: 6000 }).catch(() => {});
+      const add = p.getByRole("button", { name: /^add note$/i }).first();
+      if (await add.count()) await add.click({ timeout: 6000 }).catch(() => {});
+    } },
+  { pack: "workbench", id: "05-reply-sent-status-waiting", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      const waiting = p.getByText(/set to waiting after send/i).first();
+      if (await waiting.count()) await waiting.click({ timeout: 6000 }).catch(() => {});
+      const send = p.getByRole("button", { name: /send reply/i }).first();
+      if (await send.count()) await send.click({ timeout: 8000 }).catch(() => {});
+    } },
+  { pack: "workbench", id: "06-status-set-resolved", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      const resolved = p.getByRole("button", { name: /^resolved$/i }).first();
+      if (await resolved.count()) await resolved.click({ timeout: 6000 }).catch(() => {});
+    } },
+  // 10 and 11 read the RECOMMENDED NEXT STEP card, so they only resolve if the
+  // filed proposal above actually landed — which is the point of staging it.
+  { pack: "workbench", id: "10-assistant-script-ran", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      const run = p.getByTestId("wb-agent-run").first();
+      if (await run.count()) await run.click({ timeout: 8000 }).catch(() => {});
+    } },
+  { pack: "workbench", id: "11-assistant-suggestion-dismissed", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      const notThis = p.getByTestId("wb-agent-not-this").first();
+      if (await notThis.count()) await notThis.click({ timeout: 8000 }).catch(() => {});
+    } },
+  { pack: "workbench", id: "12-assistant-question-answered", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      const chip = p.getByRole("button", { name: /likely cause/i }).first();
+      if (await chip.count()) await chip.click({ timeout: 6000 }).catch(() => {});
+      const ask = p.getByRole("button", { name: /ask|send/i }).first();
+      if (await ask.count()) await ask.click({ timeout: 8000 }).catch(() => {});
+    } },
+  { pack: "workbench", id: "13-timer-paused", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      const pause = p.getByRole("button", { name: /pause timer/i }).first();
+      if (await pause.count()) await pause.click({ timeout: 6000 }).catch(() => {});
+    } },
+  { pack: "workbench", id: "14-quick-note-typed", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      const field = p.getByTestId("workbar-note-input").first();
+      if (await field.count()) await field.fill("checked the switch uplink on site").catch(() => {});
+    } },
+  { pack: "workbench", id: "16-note-line-added", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      const field = p.getByTestId("workbar-note-input").first();
+      if (await field.count()) await field.fill("cable swap confirmed").catch(() => {});
+      await field.press("Enter").catch(() => {});
+    } },
+  { pack: "workbench", id: "17-keyboard-focus-on-send", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      // Keyboard focus only — the pack draws the ring, and a click would leave
+      // the pointer ring behind instead.
+      const send = p.getByRole("button", { name: /send reply/i }).first();
+      if (await send.count()) await send.focus().catch(() => {});
+    } },
+  { pack: "workbench", id: "19-wrap-up-waiting-on-client", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      await openWrapUp(p);
+      const w = p.getByRole("button", { name: /waiting on customer/i }).first();
+      if (await w.count()) await w.click({ timeout: 6000 }).catch(() => {});
+    } },
+  { pack: "workbench", id: "20-wrap-up-schedule-follow-up", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      await openWrapUp(p);
+      const s = p.getByRole("button", { name: /schedule/i }).first();
+      if (await s.count()) await s.click({ timeout: 6000 }).catch(() => {});
+    } },
+  { pack: "workbench", id: "21-wrap-up-keep-working", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      await openWrapUp(p);
+      const k = p.getByRole("button", { name: /keep working/i }).first();
+      if (await k.count()) await k.click({ timeout: 6000 }).catch(() => {});
+    } },
+  { pack: "workbench", id: "22-wrap-up-completed-resolved", route: (t) => `/tickets/${t}`, platform: "desktop", theme: ["neutral", "dark"], stage: async (p) => {
+      await openWrapUp(p);
+      const r = p.getByRole("button", { name: /^resolve$/i }).first();
+      if (await r.count()) await r.click({ timeout: 6000 }).catch(() => {});
+      const confirm = p.getByRole("button", { name: /resolve and open next/i }).first();
+      if (await confirm.count()) await confirm.click({ timeout: 8000 }).catch(() => {});
+    } },
+
+  // ---- density matrix — the render proof. check-theme-packs.mjs already proves
+  // the three steps at the token level (114/0); these captures are the
+  // rendered proof, which the audit's remainder asked for. They belong to no
+  // pack, so pack-diff scores nothing for them — they are read by vision.
+  { pack: "matrix", id: "density-comfortable-tickets", route: () => "/tickets", platform: "desktop", theme: ["neutral", "dark"], density: "comfortable" },
+  { pack: "matrix", id: "density-compact-tickets", route: () => "/tickets", platform: "desktop", theme: ["neutral", "dark"], density: "compact" },
+  { pack: "matrix", id: "density-dense-tickets", route: () => "/tickets", platform: "desktop", theme: ["neutral", "dark"], density: "dense" },
+  { pack: "matrix", id: "density-comfortable-dispatch", route: () => "/dispatch", platform: "desktop", theme: ["neutral", "dark"], density: "comfortable" },
+  { pack: "matrix", id: "density-compact-dispatch", route: () => "/dispatch", platform: "desktop", theme: ["neutral", "dark"], density: "compact" },
+  { pack: "matrix", id: "density-dense-dispatch", route: () => "/dispatch", platform: "desktop", theme: ["neutral", "dark"], density: "dense" },
+  { pack: "matrix", id: "density-comfortable-today", route: () => "/today", platform: "desktop", theme: ["neutral", "dark"], density: "comfortable" },
+  { pack: "matrix", id: "density-compact-today", route: () => "/today", platform: "desktop", theme: ["neutral", "dark"], density: "compact" },
+  { pack: "matrix", id: "density-dense-today", route: () => "/today", platform: "desktop", theme: ["neutral", "dark"], density: "dense" },
+  { pack: "matrix", id: "density-comfortable-settings", route: () => "/settings", platform: "desktop", theme: ["neutral", "dark"], density: "comfortable" },
+  { pack: "matrix", id: "density-compact-settings", route: () => "/settings", platform: "desktop", theme: ["neutral", "dark"], density: "compact" },
+  { pack: "matrix", id: "density-dense-settings", route: () => "/settings", platform: "desktop", theme: ["neutral", "dark"], density: "dense" },
+
+  // ---- theme matrix — the three shipped presets, both modes, on one
+  // representative surface each. Confirms the primary flip, the five status
+  // pairs and the assistant inversion do not move. `canopy` and `ripe` are not
+  // capturable: they do not exist (the plan said five, three ship).
+  { pack: "matrix", id: "theme-marula-light", route: () => "/tickets", platform: "desktop", theme: ["light"], preset: "marula" },
+  { pack: "matrix", id: "theme-marula-dark", route: () => "/tickets", platform: "desktop", theme: ["dark"], preset: "marula" },
+  { pack: "matrix", id: "theme-marula-warm-light", route: () => "/tickets", platform: "desktop", theme: ["light"], preset: "marula-warm" },
+  { pack: "matrix", id: "theme-marula-warm-dark", route: () => "/tickets", platform: "desktop", theme: ["dark"], preset: "marula-warm" },
+  { pack: "matrix", id: "theme-high-contrast-light", route: () => "/tickets", platform: "desktop", theme: ["light"], preset: "high_contrast" },
+  { pack: "matrix", id: "theme-high-contrast-dark", route: () => "/tickets", platform: "desktop", theme: ["dark"], preset: "high_contrast" },
+  { pack: "matrix", id: "theme-marula-light-dispatch", route: () => "/dispatch", platform: "desktop", theme: ["light"], preset: "marula" },
+  { pack: "matrix", id: "theme-marula-dark-dispatch", route: () => "/dispatch", platform: "desktop", theme: ["dark"], preset: "marula" },
+  { pack: "matrix", id: "theme-marula-warm-light-dispatch", route: () => "/dispatch", platform: "desktop", theme: ["light"], preset: "marula-warm" },
+  { pack: "matrix", id: "theme-marula-warm-dark-dispatch", route: () => "/dispatch", platform: "desktop", theme: ["dark"], preset: "marula-warm" },
+  { pack: "matrix", id: "theme-high-contrast-light-dispatch", route: () => "/dispatch", platform: "desktop", theme: ["light"], preset: "high_contrast" },
+  { pack: "matrix", id: "theme-high-contrast-dark-dispatch", route: () => "/dispatch", platform: "desktop", theme: ["dark"], preset: "high_contrast" },
 
   // ---- surface pack: the default (landing) state of every drawn surface ----
   { pack: "surface", id: "tickets-list", route: () => "/tickets", platform: "desktop", theme: ["neutral", "dark"] },
@@ -140,9 +285,80 @@ const dismissTour = async (page) => {
 // ---------- stage a ticket with a timeline ----------
 const tickets = await auth("/tickets?page=1");
 const list = Array.isArray(tickets) ? tickets : (tickets?.items ?? []);
-const TICKET = list[0]?.id;
+// The wrap-up states need a ticket the flow can actually close. The seed's
+// `list[0]` is DEMO-1004, which sits in the closed `Resolved` category, and
+// DEMO-1003 is `in_progress` — neither lets the sheet open, because
+// `timer-dock.tsx:157` returns early when there is no running timer, and the
+// only control that starts one (`wb-take-it`) is gated on
+// `app/tickets/[id]/page.tsx:364-372` to tickets whose category is `open` or
+// `waiting`.
+//
+// The list and detail endpoints expose `status_id` but no status NAME or
+// category (verified: no `status` field on either, and `/boards/{id}/statuses`
+// returns an empty list), so no request says "give me a pickupable ticket".
+// `seed-demo --force` is mechanical and deterministic — the stack script
+// reseeds identically before every run — so the stable rule is the seed's own
+// numbering: DEMO-1001 is the first ticket that is both category `open` and
+// already assigned to the demo owner. If the seed ever changes, this falls back
+// to `list[0]` and the wrap-up states record their own divergence rather than
+// throwing the battery.
+const OPEN_TICKET_NUMBER = "DEMO-1001";
+const TICKET = (list.find((t) => t.number === OPEN_TICKET_NUMBER) ?? list[0])?.id;
 if (!TICKET) throw new Error("no ticket to stage against");
-console.log(`staging against ticket ${TICKET}`);
+const TICKET_NUMBER = (list.find((t) => t.id === TICKET) ?? list[0])?.number ?? "?";
+console.log(`staging against ticket ${TICKET_NUMBER} (${TICKET})`);
+
+// ---------- stage the filed assistant proposal (the pack draws one) ----------
+// The workbench pack's "RECOMMENDED NEXT STEP" card carries a filed agent
+// triage proposal. Filing one through the real route is what makes it draw, so
+// this stages it rather than explaining the gap away. Idempotent: a ticket that
+// already has a `proposed` proposal is left alone, so re-running the battery
+// does not stack duplicates.
+//
+// The pack's "RECOMMENDED NEXT STEP" card draws a filed agent triage proposal, so
+// this files one through the real route rather than explaining the gap away.
+// Idempotent: a ticket that already has a `proposed` proposal is left alone, so
+// re-running the battery does not stack duplicates.
+//
+// HISTORY, kept because the measurement is the evidence. This staging used to
+// pin a far-future keyset cursor on every request, because
+// `GET /api/v1/agent-proposals` with no cursor could not return a first page
+// at all: `list_proposals` bound a cursor-less request to
+// `(created_at, id) < ('1970-01-01', Uuid::nil())`, which is false for every row
+// written after the epoch. Six proposals sat in the table, all `proposed`, and
+// both the API and that exact predicate returned 0. The audit's GAP-LEDGER
+// Section 3.12 read that as a missing demo fixture; it was an unreadable list,
+// and the panel that draws it could never read one. Fixed 2026-10-13 in
+// `crates/core-db/src/agent_platform.rs` with the same nullable guard
+// `emails.rs` already uses, so the cursor override is gone and the capture now
+// exercises the real first-page path.
+const RATIONALE =
+  "Same uplink fault the client logged Thursday. A remote session would confirm it before anyone drives out — suggest triaging from the desk first.";
+const existing = await auth(`/agent-proposals?limit=200`);
+const alreadyFiled = (existing?.proposals ?? []).some(
+  (p) => p.entity === "ticket" && p.entity_id === TICKET && p.status === "proposed",
+);
+if (alreadyFiled) {
+  console.log("assistant proposal already filed against this ticket");
+} else {
+  const filed = await req.post(`${API}/api/v1/agent-proposals`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: {
+      entity: "ticket",
+      entity_id: TICKET,
+      op: "update",
+      proposed_value: { next_step: "remote_triage_before_dispatch" },
+      classification: "internal",
+      rationale: RATIONALE,
+      skill_slug: "triage",
+    },
+  });
+  if (!filed.ok()) {
+    console.error(`could not file the assistant proposal: ${filed.status()} ${(await filed.text()).slice(0, 200)}`);
+  } else {
+    console.log(`filed assistant proposal for ticket ${TICKET}`);
+  }
+}
 
 // ---------- browser: ONE context, ONE login ----------
 const browser = await chromium.launch();
@@ -220,14 +436,19 @@ for (const st of STATES) {
         await target.setViewportSize(VIEWPORT[st.platform]);
       }
 
-      // Pin the mode before the bootstrap reads it (constraint 2 above).
-      await target.evaluate(({ mode, preset }) => {
+      // Pin the mode before the bootstrap reads it (constraint 2 above). The
+      // density step and the theme preset are pinned the same way: both are
+      // read from localStorage by the pre-paint bootstrap in app/layout.tsx,
+      // so a value set after navigation is already too late for the frame.
+      await target.evaluate(({ mode, preset, density }) => {
         try {
           localStorage.setItem("marula-theme", mode);
           if (preset) localStorage.setItem("marula-theme-preset", preset);
           else localStorage.removeItem("marula-theme-preset");
+          if (density) localStorage.setItem("marula-density", density);
+          else localStorage.removeItem("marula-density");
         } catch {}
-      }, { mode: mode === "dark" ? "dark" : "light", preset });
+      }, { mode: mode === "dark" ? "dark" : "light", preset: st.preset ?? preset, density: st.density ?? null });
 
       await target.goto(`${WEB}${st.route(TICKET)}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
       await target.waitForTimeout(2400);
@@ -255,8 +476,12 @@ for (const st of STATES) {
         }
       }
 
-      if (st.stage) { await st.stage(target); await target.waitForTimeout(1500); }
+      // The tour is dismissed BEFORE the stage, not after. It used to run after,
+      // and its `Escape` press plus its /^close$/i button sweep closed the
+      // wrap-up sheet the stage had just opened — which read as "the sheet does
+      // not open" when the staging was working and something was closing it.
       const tour = await dismissTour(target);
+      if (st.stage) { await st.stage(target); await target.waitForTimeout(1500); }
 
       await target.screenshot({ path: file, fullPage: false });
       ok = existsSync(file);

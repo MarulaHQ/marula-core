@@ -23,6 +23,16 @@ rm -rf apps/web/.next/standalone/.next/static apps/web/.next/standalone/public
 cp -r apps/web/.next/static apps/web/.next/standalone/.next/static
 cp -r apps/web/public apps/web/.next/standalone/public
 
+# Guard: a standalone tree missing its static assets serves HTML that points at
+# /_next/static files that are not there — every chunk 400s. Fail here instead
+# of letting the suite fail with an unreadable asset error. Same posture as the
+# guard in scripts/build-desktop.sh (which must leave this bundle consistent
+# too — it rebuilds the same .next tree).
+[ -n "$(find apps/web/.next/standalone/.next/static -name '*.js' -print -quit 2>/dev/null)" ] \
+  || { echo "[e2e-build-web] error: standalone .next/static has no JS after the build" >&2; exit 1; }
+[ -n "$(find apps/web/.next/standalone/.next/static -name '*.css' -print -quit 2>/dev/null)" ] \
+  || { echo "[e2e-build-web] error: standalone .next/static has no CSS after the build" >&2; exit 1; }
+
 # The standalone tree's node_modules entries are pnpm symlinks whose relative
 # targets only resolve inside the repo (pnpm hoists the virtual store to the
 # repo root, not under apps/web). Rewrite every symlink to an ABSOLUTE path —

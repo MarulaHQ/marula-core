@@ -507,7 +507,7 @@ export default function DocumentDetailPage() {
                     </Button>
                   )}
                 </div>
-                <Table className="m-versions" data-testid="document-versions">
+                <Table data-testid="document-versions">
                   <thead>
                     <tr>
                       <Th className={HEAD_CELL_CLASS}>Version</Th>

@@ -32,9 +32,41 @@
  *   - `"40ms"` stagger inline values: motion-law tokens (≤120ms) — motion
  *     values are legitimately JS-computed (stagger indexes), carved out and
  *     cross-checked by review-theme.mjs.
- *   Flip honesty: no-arbitrary-values cannot yet be `error` (the largest
- *   token-driven subfamily would take a surgical sweep); everything else
- *   exposing zero legacy findings after triage is at error below.
+ *
+ * RE-MEASURED 2026-10-12 (Wave 41 lane 16, `p41-leftovers-closeout`) — the
+ * counts above had moved, and one of them had moved for a reason nobody had
+ * measured. The plugin reads ONE stylesheet (`tailwind.css` in
+ * components.json) and follows its `@import` chain to learn which class names
+ * this project's Tailwind generates. `app/globals.css` imports `shell.css` and
+ * `ledger.css` and nothing else; the other thirteen feature sheets are pulled
+ * in by their own components with a plain `import "./x.css"`, which Next.js
+ * bundles but the linter never sees. So every class those sheets declared was
+ * "unknown": 1233 of the 1274 no-unknown-classes findings were class names that
+ * DO have CSS, sitting outside the one chain the plugin reads.
+ *   - The fix is `lint-theme.css` (lint-only, never bundled): it imports every
+ *     sheet in the app, and components.json now points at it. The count went
+ *     1274 → 40, and the residual 40 were real: one missing base class
+ *     (`entry-field`, the label/control stack on nine auth surfaces — without
+ *     it the inline label sits flush against the input) plus 20 vestigial
+ *     names left over from the kit sweep whose CSS had been renamed.
+ *   - It only works with `packages/ui/dist` built. Without dist the
+ *     `@marula-core/ui/*.css` imports do not resolve, the Tailwind bridge
+ *     fails and the rule falls back to the grammar bundled with the plugin —
+ *     which does not know `rounded-ctl`. Wave 25's own verification step
+ *     ("after a local `pnpm turbo run build --filter @marula-core/ui`") was
+ *     load-bearing for a reason nobody had written down.
+ *   - Re-measured counts, warn posture, over the whole apps/web surface:
+ *     no-unknown-classes 0 (was 51 at baseline, 1274 with the blind chain),
+ *     require-static-classes 20 / 9 files, no-inline-styles 1520 / 112 files,
+ *     no-arbitrary-values 2014 / 155 files.
+ * Flip honesty: no-unknown-classes now has a clean sweep behind it and is at
+ * error. require-static-classes does NOT flip — its 20 findings are all the
+ * same shape, `className={HEAD_CELL_CLASS}` on a `<Th>`/`<Tr>`, one imported
+ * identifier from `components/knowledge/ledger.tsx` that the rule does not
+ * resolve across modules. Inlining that constant into nine table pages would
+ * fragment one shared class string twenty ways to satisfy the linter, which is
+ * the wrong trade. no-arbitrary-values and no-inline-styles stay warn with the
+ * re-measured backlogs below.
  */
 import { plugin as shadcn } from "@shadcn/lint";
 import tsParser from "@typescript-eslint/parser";
@@ -101,18 +133,37 @@ export default defineConfig([
         },
       ],
       "shadcn/no-inline-styles": [
-        // Flippable to error once the 96-finding legacy sweep (~50 files) is
-        // done — token-driven dynamic values are the repo pattern; the sweep
-        // converts them to Tailwind v4 var() classes where statically
-        // expressible and files the rest as carve-outs. Wave 25 close-out.
+        // Re-measured 2026-10-12: 1520 findings / 112 files, and NOT the
+        // token-driven backlog the 96 baseline implied. The top properties are
+        // display 209, fontSize 168, gap 127, padding 115, fontWeight 98,
+        // alignItems 79, margin 74, borderRadius 73 — static layout and
+        // typography written inline, which the allowlist below (colour,
+        // token-driven values, motion) deliberately does not cover. Flipping
+        // requires the sweep to classes, not an allowlist widening; adding
+        // those props to `allow` would silence the rule instead of enforcing
+        // it. Recorded in design/qa-p41-leftovers-closeout/LANDING.md.
         "warn",
         // token-driven + motion-law carve-outs in one mechanical allowlist
         { allow: ["color", "background", "background-color", "background-image", "border-color", "border", "border-bottom", "border-top", "border-left", "border-right", "fill", "stroke", "grid-template-columns", "grid-template-rows", "grid-template-areas", "grid-column", "grid-row", "transform", "transition-duration", "animation-delay", "transition-delay", "width", "height", "max-height", "max-width", "top", "left", "right", "bottom", "position", "opacity", "z-index"] },
       ],
-      // Typed but not yet enforceable — documented backlog, flips after a
-      // full wave runs green (Wave 25 close-out follow-up #3).
+      // Re-measured 2026-10-12: 2014 findings / 155 files, of which ~1741 are
+      // off-scale font sizes (text-[13px] 594, text-[12px] 523, text-[11px]
+      // 300, text-[10px] 138, and sixteen other sizes down to text-[9px]). The
+      // Wave 25 prediction held: this is blocked on a type-scale decision plus
+      // a whole-scale migration, not on a lint fix. Stays warn.
       "shadcn/no-arbitrary-values": ["warn", { allow: ["rounded-[var(--m-radius-container)]", "rounded-[var(--m-radius-control)]", "rounded-[0.5rem]", "rounded-[0.75rem]"] }],
-      "shadcn/no-unknown-classes": "warn",
+      // PROMOTED 2026-10-12 (Wave 41 lane 16). The 1274 baseline findings were
+      // a tooling blind spot, not debt: the app's thirteen feature sheets sit
+      // outside the plugin's `@import` chain (see the header note). With
+      // lint-theme.css importing every sheet the count fell to 40 real
+      // findings, `entry-field` got the CSS it was missing, and 20 vestigial
+      // names from the kit sweep were dropped. Clean sweep at zero ⇒ error.
+      "shadcn/no-unknown-classes": "error",
+      // STAYS WARN (2026-10-12): 20 findings / 9 files, every one the same
+      // shape — `className={HEAD_CELL_CLASS}` on a table header cell, an
+      // imported identifier from components/knowledge/ledger.tsx that the rule
+      // does not resolve across modules. Inlining it into nine pages would
+      // fragment one shared class string; the code is already static in spirit.
       "shadcn/require-static-classes": "warn",
     },
   },

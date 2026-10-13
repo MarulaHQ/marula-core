@@ -357,6 +357,13 @@ pub async fn get_proposal(
 /// Cursor-paged proposal listing, newest first, optionally filtered by
 /// status. `after_created`/`after_id` carry the previous page's last row
 /// (both None for the first page).
+///
+/// The cursor guard must be nullable, not sentinel-valued. Binding a no-cursor
+/// request to `(epoch, Uuid::nil())` makes `(created_at, id) < (epoch, nil)`
+/// false for every row written after 1970, so the first page — the only page a
+/// caller with no `next_cursor` can ever ask for — comes back empty and the
+/// list is unreadable even when the table is full. `emails.rs` already carries
+/// this same guard shape; the two now agree.
 pub async fn list_proposals(
     executor: impl sqlx::Executor<'_, Database = Postgres>,
     org_id: Uuid,
@@ -369,15 +376,15 @@ pub async fn list_proposals(
         "SELECT {PROPOSAL_COLUMNS} FROM agent_proposals
          WHERE org_id = $1
            AND ($2::text IS NULL OR status = $2)
-           AND (created_at, id) < ($3, $4)
+           AND ($3::timestamptz IS NULL OR (created_at, id) < ($3, $4))
          ORDER BY created_at DESC, id DESC
          LIMIT $5"
     );
     let rows = sqlx::query_as::<_, AgentProposalRow>(&sql)
         .bind(org_id)
         .bind(status)
-        .bind(after_created.unwrap_or(DateTime::from_timestamp(0, 0).expect("epoch")))
-        .bind(after_id.unwrap_or(Uuid::nil()))
+        .bind(after_created)
+        .bind(after_id)
         .bind(limit)
         .fetch_all(executor)
         .await?;

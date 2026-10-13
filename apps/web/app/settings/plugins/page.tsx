@@ -116,7 +116,7 @@ export default function PluginsSettingsPage() {
                 type="button"
                 onClick={() => setTab(name)}
                 aria-current={tab === name ? "true" : undefined}
-                className="rounded-[var(--m-radius-container)] px-3 py-1.5 text-[13px] tab-button"
+                className="rounded-[var(--m-radius-container)] px-3 py-1.5 text-[13px]"
                 style={{
                   background: tab === name ? "var(--m-surface)" : "transparent",
                   color: tab === name ? "var(--m-text)" : "var(--m-text-secondary)",

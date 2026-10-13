@@ -132,6 +132,12 @@ export function DecisionSurfaces({
             {["Surface", "Access", "Mode", "Enabled", ""].map((header, index) => (
               <span
                 key={header + String(index)}
+                // A `role="table"` requires its `row`s to carry cells, so the
+                // header cells declare themselves `columnheader` and the body
+                // cells below declare themselves `cell`. Without them axe flags
+                // aria-required-children and a screen reader announces the
+                // whole row as one undifferentiated lump.
+                role="columnheader"
                 style={{
                   fontSize: 12,
                   letterSpacing: "0.06em",
@@ -164,6 +170,7 @@ export function DecisionSurfaces({
                 }}
               >
                 <span
+                  role="cell"
                   style={{
                     paddingLeft: 16,
                     paddingRight: 8,
@@ -186,7 +193,7 @@ export function DecisionSurfaces({
                     {surface.description}
                   </span>
                 </span>
-                <span style={{ paddingLeft: 8 }}>
+                <span role="cell" style={{ paddingLeft: 8 }}>
                   {internal ? (
                     <Badge tone="neutral">Internal</Badge>
                   ) : !featuresEnabled ? (
@@ -197,7 +204,7 @@ export function DecisionSurfaces({
                     <Badge tone="neutral">Not granted</Badge>
                   )}
                 </span>
-                <span style={{ paddingLeft: 8 }}>
+                <span role="cell" style={{ paddingLeft: 8 }}>
                   {internal ? (
                     <span style={{ color: "var(--m-text-secondary)", fontSize: 13 }}>Not set</span>
                   ) : !featuresEnabled || !granted ? (
@@ -208,7 +215,7 @@ export function DecisionSurfaces({
                     <Badge tone="warning">Shadow</Badge>
                   )}
                 </span>
-                <span style={{ paddingLeft: 8, display: "flex" }}>
+                <span role="cell" style={{ paddingLeft: 8, display: "flex" }}>
                   {featuresEnabled && granted && !internal ? (
                     <ToggleSwitch
                       on={surface.enabled}
@@ -224,7 +231,7 @@ export function DecisionSurfaces({
                     />
                   ) : null}
                 </span>
-                <span style={{ display: "flex", justifyContent: "flex-end", paddingRight: 12 }}>
+                <span role="cell" style={{ display: "flex", justifyContent: "flex-end", paddingRight: 12 }}>
                   {internal ? null : !featuresEnabled ? (
                     <span
                       style={{ fontSize: 12, color: "var(--m-text-secondary)" }}

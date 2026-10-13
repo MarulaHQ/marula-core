@@ -20,9 +20,27 @@ START_TS=$(date +%s)
 WEB_DIR=apps/web
 
 echo "==> [1/4] building the Next standalone bundle"
+# packages/ui must be built first: globals.css imports
+# @marula-core/ui/{tokens,theme,components}.css, which resolve to ./dist/*.css.
+# Without dist the import fails and the bundle ships without the token layer.
+pnpm --filter @marula-core/ui build
 pnpm --filter @marula-core/web build
 STANDALONE="$WEB_DIR/.next/standalone"
 [ -f "$STANDALONE/server.js" ] || { echo "error: $STANDALONE/server.js missing" >&2; exit 1; }
+
+# Leave the standalone bundle runnable. `next build` regenerates .next/standalone
+# WITHOUT .next/static or public — writeStandaloneDirectory in Next's build
+# copies the traced server files, pages/ and app/ only — so a build that does
+# not copy them back leaves the e2e web bundle with HTML that references
+# /_next/static assets that are not there (400s on every chunk until
+# scripts/e2e-build-web.sh runs again). Refresh them the same way
+# scripts/e2e-build-web.sh does: drop the stale copies first, since a surviving
+# directory would carry the PREVIOUS build's content-hashed filenames.
+rm -rf "$STANDALONE/.next/static" "$STANDALONE/public"
+cp -R "$WEB_DIR/.next/static" "$STANDALONE/.next/static"
+[ -d "$WEB_DIR/public" ] && cp -R "$WEB_DIR/public" "$STANDALONE/public"
+[ -n "$(find "$STANDALONE/.next/static" -name '*.css' -print -quit 2>/dev/null)" ] \
+  || { echo "error: $STANDALONE/.next/static has no CSS after the build" >&2; exit 1; }
 
 echo "==> [2/4] staging the standalone server into desktop/resources/web"
 # The standalone tree's node_modules entries are pnpm symlinks whose

@@ -205,7 +205,7 @@ export function TimerDock() {
       <button
         type="button"
         onClick={() => router.push(`/tickets/${current.ticket_id}`)}
-        className="m-workbar-meta hidden min-w-0 max-w-[380px] flex-shrink items-baseline gap-2.5 overflow-hidden text-left md:flex"
+        className="hidden min-w-0 max-w-[380px] flex-shrink items-baseline gap-2.5 overflow-hidden text-left md:flex"
       >
         <span className="m-workbar-number truncate text-[13px] font-semibold">
           {ticketNumber}

@@ -369,7 +369,7 @@ export function WorkbarNotesPanel({
               type="button"
               aria-label="Close notes and tasks panel"
               data-testid="workbar-panel-close"
-              className="workbar-panel-close ml-auto flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-[14px]"
+              className="ml-auto flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-[14px]"
               style={{ color: "var(--m-text-muted)" }}
               onClick={onClose}
             >
@@ -445,7 +445,7 @@ export function WorkbarNotesPanel({
           </div>
 
           {/* Composer pinned at the pad's bottom edge — visually "on the pad". */}
-          <div className="workbar-panel-composer border-t px-3 pb-1.5 pt-1" style={{ borderColor: "var(--m-border)" }}>
+          <div className="border-t px-3 pb-1.5 pt-1" style={{ borderColor: "var(--m-border)" }}>
             <p aria-live="polite" className="m-0 px-1 pb-0.5 text-[10.5px]" style={{ color: "var(--m-text-muted)" }} data-testid="workbar-panel-status">
               {status ?? rowError ?? ""}
             </p>
@@ -536,7 +536,7 @@ function TaskRow({ item, highlighted, revealed, busy, onComplete, onNa, onReopen
           Required
         </span>
       )}
-      <span className={`workbar-task-actions flex items-center gap-1 ${revealed ? "" : "workbar-task-hover"}`}>
+      <span className={`flex items-center gap-1 ${revealed ? "" : "workbar-task-hover"}`}>
         <button
           type="button"
           aria-label={`Mark ${item.text} completed`}
@@ -684,7 +684,7 @@ function NoteRow({ comment, authorName, inSession, staggerIndex }: NoteRowProps)
         {inSession && !isMachine && <span aria-hidden className="workbar-session-ring" />}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="workbar-note-body m-0 whitespace-pre-wrap text-[12px]" style={{ color: "var(--m-text)" }}>
+        <p className="m-0 whitespace-pre-wrap text-[12px]" style={{ color: "var(--m-text)" }}>
           {renderBoldLeads(comment.body)}
         </p>
         <p className="m-0 flex items-center gap-2 pt-0.5 text-[10px]" style={{ color: "var(--m-text-muted)" }}>

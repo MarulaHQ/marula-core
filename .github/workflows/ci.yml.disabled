@@ -254,6 +254,18 @@ jobs:
       - name: Build the web app (API URL inlined at build time)
         run: |
           NEXT_PUBLIC_API_URL=http://localhost:8080 pnpm --filter @marula-core/web build
+      # Wave 25 lane-1 close-out follow-up #1, landed 2026-10-12 (Wave 41
+      # lane 16). The `frontend` job already runs this transitively through
+      # `pnpm turbo run lint typecheck test`; the e2e gate carries it
+      # explicitly so a design-system regression cannot reach the flows that
+      # screenshot every core surface. Pinned to the post-rebrand filter name
+      # `@marula-core/web` (lane 1's rename changed `@meridian/web`).
+      # `turbo run lint` dependsOn ^build, so packages/ui is built first —
+      # without dist the `@marula-core/ui/*.css` imports do not resolve and
+      # the linter falls back to its bundled grammar, which reports real
+      # utilities like `rounded-ctl` as unknown.
+      - name: Lint the web app (design-system enforcement, @shadcn/lint)
+        run: pnpm turbo run lint --filter @marula-core/web
       - name: Run the 10 core flows in both themes
         run: pnpm exec playwright test --config=e2e/playwright.config.ts
       - name: Flake-gate verdict (budget from e2e/helpers/budget.ts)
