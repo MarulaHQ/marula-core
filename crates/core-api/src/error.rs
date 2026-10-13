@@ -24,6 +24,7 @@
 //! `migration_cursor_mismatch`, `migration_chunk_reused`, `rate_limited`, `auth_rate_limited`,
 //! `task_dependencies_unsatisfied`, `undo_reverts_only`,
 //! `time_entry_locked`,
+//! `run_retry_refused`,
 //! `service_unavailable`, `internal_error`.
 //!
 //! The vocabulary above IS the machine-readable reason-code registry
@@ -166,6 +167,18 @@ pub enum ApiError {
     /// silent rewrite of the whole record past the close.
     #[error("record is closed: only explicit per-field reverts are permitted")]
     UndoRevertsOnly,
+    /// Typed 409 for a workflow-run retry the ledger refused (Wave 43
+    /// lane 14). Either the run is not in a state an operator may re-run
+    /// (still going, still parked, or already succeeded), or re-running it
+    /// would repeat a step that declares `idempotent = false` — the
+    /// message names every offending node so the operator surface can say
+    /// exactly what stopped the retry instead of parsing prose.
+    #[error("workflow run retry refused: {message}")]
+    RunRetryRefused {
+        /// The refusal, with the offending node ids when it is a
+        /// double-apply refusal.
+        message: String,
+    },
     /// Typed 409 for an org-slug collision at registration (Wave 13 lane
     /// 1): carries a suggested available slug so the client can offer
     /// one-click accept instead of an opaque 409. The raw constraint name
@@ -690,6 +703,18 @@ impl IntoResponse for ApiError {
                 "record is closed: only explicit per-field reverts are permitted".to_string(),
                 None,
             ),
+            // Wave 43 lane 14 (run ledger): the retry decision is typed so
+            // a client can render exactly what stopped it. Two refusals
+            // reach this arm — the run is not in a retryable state, or
+            // re-running would repeat a step that declares
+            // `idempotent = false` — and the message names the nodes, so
+            // the client never has to parse prose to work out why.
+            ApiError::RunRetryRefused { message } => (
+                StatusCode::CONFLICT,
+                "run_retry_refused",
+                message.clone(),
+                None,
+            ),
             ApiError::MigrationCursorMismatch { expected, provided } => (
                 StatusCode::CONFLICT,
                 "migration_cursor_mismatch",
@@ -885,6 +910,12 @@ mod tests {
                 "task_dependencies_unsatisfied",
             ),
             (ApiError::UndoRevertsOnly, "undo_reverts_only"),
+            (
+                ApiError::RunRetryRefused {
+                    message: "email.send".into(),
+                },
+                "run_retry_refused",
+            ),
             (ApiError::SlugTaken { suggestion: None }, "org_slug_taken"),
             (
                 ApiError::UniqueConflict {

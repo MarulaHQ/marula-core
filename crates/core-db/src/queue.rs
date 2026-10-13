@@ -42,15 +42,36 @@ pub async fn enqueue<'e, E>(executor: E, job: &NewJob) -> DbResult<Uuid>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    enqueue_after(executor, job, chrono::Utc::now()).await
+}
+
+/// Enqueues one job due at a specific time (TASKLIST Wave 43 lane 14).
+///
+/// The run ledger's parked-workflow wakes need this: a run parked until a
+/// `flow.delay` deadline or a `flow.waitUntil` date is woken by a
+/// `workflow.resume` job that must NOT be claimed before its wake-at,
+/// which is what the `jobs.run_after` column already models. Enqueuing it
+/// due immediately and letting the claim path re-park would poll; forking
+/// a second queue for workflow wakes would be a second retry/dead-letter
+/// history to keep honest. This is the existing queue, used as designed.
+pub async fn enqueue_after<'e, E>(
+    executor: E,
+    job: &NewJob,
+    run_after: chrono::DateTime<chrono::Utc>,
+) -> DbResult<Uuid>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let id = Uuid::now_v7();
     sqlx::query!(
-        r#"INSERT INTO jobs (id, org_id, kind, payload, max_attempts)
-           VALUES ($1, $2, $3, $4, $5)"#,
+        r#"INSERT INTO jobs (id, org_id, kind, payload, max_attempts, run_after)
+           VALUES ($1, $2, $3, $4, $5, $6)"#,
         id,
         job.org_id,
         job.kind,
         job.payload,
         job.max_attempts,
+        run_after,
     )
     .execute(executor)
     .await?;

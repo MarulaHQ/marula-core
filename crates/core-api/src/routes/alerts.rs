@@ -1084,14 +1084,8 @@ pub async fn sources_patch(
                 client_id: req.client_id,
                 correlation_window_secs: req.correlation_window_secs,
                 enabled: req.enabled,
-                event_type: req
-                    .event_type
-                    .as_ref()
-                    .map(|opt| opt.as_deref()),
-                payload_schema_ref: req
-                    .payload_schema_ref
-                    .as_ref()
-                    .map(|opt| opt.as_deref()),
+                event_type: req.event_type.as_ref().map(|opt| opt.as_deref()),
+                payload_schema_ref: req.payload_schema_ref.as_ref().map(|opt| opt.as_deref()),
             },
         )
         .await

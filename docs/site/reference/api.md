@@ -3,7 +3,7 @@
 
 **Marula Core API 0.1.0** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**608 paths · 815 operations · 1267 schemas.**
+**622 paths · 830 operations · 1302 schemas.**
 
 ## agent-proposals
 
@@ -686,6 +686,8 @@
 | `GET` | `/api/v1/org/manifest` <a id="org_manifest"></a> | GET /api/org/manifest — the org's customization manifest. | — |
 | `GET` | `/api/v1/org/pod-visibility` <a id="org_pod_visibility_get"></a> | GET /api/org/pod-visibility — the org's stored matrix; `config` is `{}` when the org never customized (clients fall back to their registry defaults, defaults-first). | — |
 | `PUT` | `/api/v1/org/pod-visibility` <a id="org_pod_visibility_put"></a> | PUT /api/org/pod-visibility — rewrites the org's matrix (Admin:edit). Emits `org.pod_visibility_updated` + audit row in the same tx. | [PutPodVisibilityRequest](#schema-putpodvisibilityrequest) |
+| `POST` | `/api/v1/org/sign-off-consents` <a id="sign_off_consents_create"></a> | POST /api/org/sign-off-consents — append the next consent version. The version comes from the current max; existing sign-offs keep their own snapshot, so revising the wording never rewrites a past agreement. | [CreateConsentRequest](#schema-createconsentrequest) |
+| `GET` | `/api/v1/org/sign-off-consents/current` <a id="sign_off_consents_current"></a> | GET /api/org/sign-off-consents/current — the wording a pad must show. The pad fetches this before capture so the version it sends back is the one the signer actually read. | — |
 | `GET` | `/api/v1/org/users` <a id="org_users_list"></a> | GET /api/org/users — the staff directory (manager+). | — |
 | `POST` | `/api/v1/org/users` <a id="org_users_invite"></a> | POST /api/org/users — invite (create) a staff user. The row lands INACTIVE with an unusable password; the response carries a one-time setup token the invitee redeems at `POST /org/users/accept-invite`. | [InviteUserRequest](#schema-inviteuserrequest) |
 | `POST` | `/api/v1/org/users/{id}/email-verified` <a id="org_users_set_email_verified"></a> | POST /api/org/users/{id}/email-verified — the admin OVERRIDE for the email-verification gate (migration 0088). Audited both ways. | [SetEmailVerifiedRequest](#schema-setemailverifiedrequest) |
@@ -794,6 +796,8 @@
 | `GET` | `/api/v1/portal/kb/categories` <a id="portal_kb_categories"></a> | GET /api/portal/kb/categories — the client-visible category tree. | — |
 | `GET` | `/api/v1/portal/kb/search` <a id="portal_kb_search"></a> | GET /api/portal/kb/search — FTS over client-visible published articles only (websearch query + trigram fallback, ranked the same way the unified search ranks). | — |
 | `POST` | `/api/v1/portal/login` <a id="portal_login"></a> | POST /api/portal/login — argon2 verify against `portal_users`. No MFA in portal v1 (documented deferral). Disabled accounts resolve to nothing → uniform 401, never revealing which half failed. | [PortalLoginRequest](#schema-portalloginrequest) |
+| `POST` | `/api/v1/portal/magic-link/confirm` <a id="portal_magic_link_confirm"></a> | POST /api/portal/magic-link/confirm — spend the link, get portal tokens. | [PortalMagicLinkConfirm](#schema-portalmagiclinkconfirm) |
+| `POST` | `/api/v1/portal/magic-link/request` <a id="portal_magic_link_request"></a> | POST /api/portal/magic-link/request — mail a single-use sign-in link. | [PortalMagicLinkRequest](#schema-portalmagiclinkrequest) |
 | `GET` | `/api/v1/portal/me` <a id="portal_me"></a> | GET /api/portal/me — the signed-in portal identity. | — |
 | `GET` | `/api/v1/portal/quotes` <a id="portal_list_quotes"></a> | GET /api/portal/quotes — the caller's client's quotes (non-draft only), newest first. | — |
 | `GET` | `/api/v1/portal/quotes/{id}` <a id="portal_get_quote"></a> | GET /api/portal/quotes/{id} — one quote of the caller's client with its lines. A foreign quote or a draft is a bare 404 (no existence leak). | — |
@@ -1086,6 +1090,12 @@
 | `PUT` | `/api/v1/settings/user` <a id="settings_user_put"></a> | PUT /api/settings/user — upserts one of the CALLER's own user-scope overrides. No role requirement: everyone may tune their own preferences. | [UpdateSettingRequest](#schema-updatesettingrequest) |
 | `GET` | `/api/v1/settings/user/email-envelope` <a id="settings_user_email_envelope"></a> | GET /api/settings/user/email-envelope — the caller's resolved envelope, for the signature editor's live preview and the composer's prefill. | — |
 
+## sign-offs
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/sign-offs/{id}/payload` <a id="sign_offs_payload"></a> | GET /api/sign-offs/{id}/payload — streams the mark's bytes. Staff-only and audit-free by intent: reading evidence is not the same act as capturing it, and the row's own trail is the record of decisions. | — |
+
 ## sla
 
 | Method | Path | Operation | Request body |
@@ -1221,6 +1231,9 @@
 | `GET` | `/api/v1/tickets/{id}/presence` <a id="ticket_presence"></a> | GET /api/tickets/{id}/presence — current viewers/editors of the ticket, TTL-pruned. The ticket must exist in the caller's org (RLS); the roster is org-keyed, so it can never leak across orgs. | — |
 | `POST` | `/api/v1/tickets/{id}/revert` <a id="tickets_revert"></a> | POST /api/tickets/{id}/revert — undo one server-accepted edit by restoring its prior values as a NORMAL authorized idempotent write (IF1 envelope end to end). Appends a new trail row (op `revert`), emits `ticket.reverted` on the event bus, and writes the audited `ticket.reverted` trail row — the append-only history is never rewritten. | [RevertTicketRequest](#schema-revertticketrequest) |
 | `GET` | `/api/v1/tickets/{id}/rollup` <a id="tickets_rollup"></a> | GET /api/tickets/{id}/rollup — children/members + folded time + billable money. | — |
+| `GET` | `/api/v1/tickets/{id}/sign-offs` <a id="sign_offs_list"></a> | GET /api/tickets/{id}/sign-offs — the ticket's sign-offs with payload facts, revocation state and the correction relation. Renders a timeline row without ever moving the mark's bytes. | — |
+| `POST` | `/api/v1/tickets/{id}/sign-offs` <a id="sign_offs_create"></a> | POST /api/tickets/{id}/sign-offs — capture one signature. | [CreateSignOffRequest](#schema-createsignoffrequest) |
+| `POST` | `/api/v1/tickets/{id}/sign-offs/{sign_off_id}/revoke` <a id="sign_offs_revoke"></a> | POST /api/tickets/{id}/sign-offs/{sign_off_id}/revoke | [RevokeSignOffRequest](#schema-revokesignoffrequest) |
 | `GET` | `/api/v1/tickets/{id}/similar-tickets` <a id="tickets_similar_tickets"></a> | GET /api/tickets/{id}/similar-tickets — retrieval top-k + per-candidate relatedness Noul. Degrade-never-5xx: a quiet decision edge returns the plain retrieval list, never an error. | — |
 | `GET` | `/api/v1/tickets/{id}/sla` <a id="tickets_sla_status"></a> | GET /api/tickets/{id}/comments — optional kind filter; internal notes require ticket view. The portal surface must consume the dedicated client-visible read (`core-db::tickets::list_client_visible_comments`), never this staff endpoint. GET /api/tickets/{id}/sla — clock state plus a live business-time remaining estimate for the resolution budget (drives the UI badge). | — |
 | `POST` | `/api/v1/tickets/{id}/status` <a id="tickets_change_status"></a> | POST /api/tickets/{id}/status — the guarded lifecycle transition: domain transition rules, pre-close checklist enforcement (typed 409 listing the incomplete required items when the board enforces), SLA pause bookkeeping, and the `ticket.status_changed` event, all in one tx. Instant-first (IF1/IF2): idempotency-keyed, version-gated, read-your-write. | [ChangeStatusRequest](#schema-changestatusrequest) |
@@ -1349,6 +1362,18 @@
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/workflow-overrides/registry` <a id="workflow_overrides_registry"></a> | GET /api/workflow-overrides/registry — the closed set of overridable constructs with their typed value kinds (the UI renders the editor FROM this; policy §4.5: customizations are data against a typed registry). | — |
+
+## workflows
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/workflows/nodes` <a id="workflow_nodes_list"></a> | GET /api/workflows/nodes — the catalogue, filtered. Declarations carry no org data, so any authed org member may read; each consuming surface keeps its own data gates. | — |
+| `GET` | `/api/v1/workflows/nodes/{id}` <a id="workflow_nodes_get"></a> | GET /api/workflows/nodes/{id} — one node with both schemas parsed. The on-demand schema leg the authoring model uses, so exposing the catalogue to a prompt costs one call per node it actually needs rather than the whole catalogue inlined. | — |
+| `GET` | `/api/v1/workflows/plugin-nodes` <a id="workflow_plugin_nodes"></a> | GET /api/workflows/plugin-nodes — the org's plugin-contributed workflow nodes, parsed through the same contract the registry uses. | — |
+| `GET` | `/api/v1/workflows/runs` <a id="workflow_runs_list"></a> | GET /api/workflows/runs — the run ledger, newest first, filterable by status and by rule. Keyset-cursored on `(created_at, id)`, exactly like the webhook delivery ledger: the two logs page and behave alike. | — |
+| `GET` | `/api/v1/workflows/runs/{id}` <a id="workflow_run_detail"></a> | GET /api/workflows/runs/{id} — one run with its whole trace. | — |
+| `POST` | `/api/v1/workflows/runs/{id}/retry` <a id="workflow_run_retry"></a> | POST /api/workflows/runs/{id}/retry — re-run a failed run as a NEW row. | [RetryRunRequest](#schema-retryrunrequest) |
+| `GET` | `/api/v1/workflows/runs/{id}/steps` <a id="workflow_run_steps"></a> | GET /api/workflows/runs/{id}/steps — one run's step trace, paged. | — |
 
 ## Schemas
 
@@ -1610,6 +1635,7 @@
 | <a id="schema-createcheckoutrequest"></a>`CreateCheckoutRequest` | composite | POST /api/tool-checkouts. |
 | <a id="schema-createclientrequest"></a>`CreateClientRequest` | composite |  |
 | <a id="schema-createconnectionrequest"></a>`CreateConnectionRequest` | object |  |
+| <a id="schema-createconsentrequest"></a>`CreateConsentRequest` | object | POST /api/org/sign-off-consents |
 | <a id="schema-createcontactrequest"></a>`CreateContactRequest` | object |  |
 | <a id="schema-createcontractrequest"></a>`CreateContractRequest` | composite |  |
 | <a id="schema-createcostlinerequest"></a>`CreateCostLineRequest` | composite |  |
@@ -1653,6 +1679,7 @@
 | <a id="schema-createsecretfolderrequest"></a>`CreateSecretFolderRequest` | object |  |
 | <a id="schema-createsecretrecordrequest"></a>`CreateSecretRecordRequest` | composite |  |
 | <a id="schema-createsecretsharelinkrequest"></a>`CreateSecretShareLinkRequest` | object |  |
+| <a id="schema-createsignoffrequest"></a>`CreateSignOffRequest` | object | POST /api/tickets/{id}/sign-offs |
 | <a id="schema-createsiterequest"></a>`CreateSiteRequest` | object |  |
 | <a id="schema-createslacreditrequest"></a>`CreateSlaCreditRequest` | composite |  |
 | <a id="schema-createstagerequest"></a>`CreateStageRequest` | composite | POST /api/pipeline/stages body. |
@@ -1972,6 +1999,11 @@
 | <a id="schema-mutationmeta"></a>`MutationMeta` | object | Read-your-write metadata every mutation response carries (IF2), merged as the additive `mutation` object alongside the entity fields. |
 | <a id="schema-mutationparams"></a>`MutationParams` | object | The autosave mutation parameters every gated create/update body carries (flattened into the request struct — purely additive fields). |
 | <a id="schema-myworkitem"></a>`MyWorkItem` | object | One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the annotations the Today screen renders per the mockup. |
+| <a id="schema-nodeaudience"></a>`NodeAudience` | string | Who a node is for. Decides palette visibility against the LLM tool catalogue — a power user and the authoring model should not see the same list. A plugin entry that declares nothing stays `human` unt |
+| <a id="schema-nodecatalogueview"></a>`NodeCatalogueView` | object | The catalogue read: version, digest, and the nodes the caller asked for. The version and digest let a saved document say which release it was validated against, and make two builds claiming the same r |
+| <a id="schema-nodefamily"></a>`NodeFamily` | string | Which part of the workflow surface a node belongs to. The palette groups by family; the properties panel and the LLM tool catalogue both filter on it. |
+| <a id="schema-nodetier"></a>`NodeTier` | string | The catalogue's three tiers (docs/reference/workflow-node-catalogue.md). Tier A is always visible and first in search; Tier B is the domain long tail reached through the generic operation nodes; Tier  |
+| <a id="schema-nodeview"></a>`NodeView` | object | One node as the web and the SDK consume it. Schemas ride as JSON so a properties panel renders from them directly instead of hand-writing a form per node. |
 | <a id="schema-notedraftbody"></a>`NoteDraftBody` | object |  |
 | <a id="schema-notedraftresponse"></a>`NoteDraftResponse` | object |  |
 | <a id="schema-notekind"></a>`NoteKind` | string | Taxonomy of structured ticket notes (§1). |
@@ -2053,6 +2085,8 @@
 | <a id="schema-plugininstallstatus"></a>`PluginInstallStatus` | string | Install lifecycle. Deny-by-default: `Disabled` until an explicit admin enable; `Revoked` is terminal (registry revocation or explicit revoke) — a revoked install never runs again until re-installed. |
 | <a id="schema-pluginmanifestbody"></a>`PluginManifestBody` | object | The declarative manifest as submitted. `interface_version` is server-pinned (the runtime speaks exactly one version), so a caller cannot publish an entry the runtime would refuse. |
 | <a id="schema-pluginmanifestv2"></a>`PluginManifestV2` | object | The declarative v2 plugin manifest: name/version/capabilities — a DATA document describing what a plugin IS and what it may ask for. It is never executable content: the runtime executes nothing from a |
+| <a id="schema-pluginnodelistview"></a>`PluginNodeListView` | object |  |
+| <a id="schema-pluginnodeview"></a>`PluginNodeView` | object | One plugin-contributed node as the palette and the picker consume it. Only live entries are listed — a revoked install's rows are gone, not present-and-broken — and the entry carries its install so th |
 | <a id="schema-pluginpublisherrevoked"></a>`PluginPublisherRevoked` | object | `plugin.publisher_revoked` — the org-side vouch was withdrawn; the badge disappears and history is preserved. |
 | <a id="schema-pluginpublisherverification"></a>`PluginPublisherVerification` | object | Marketplace v2 verified-publisher registry row (Wave 22). A publisher is a NORMALIZED SOURCE IDENTITY; verification is per-org (this org vouches this publisher), admin-curated, and additive over the v |
 | <a id="schema-pluginpublisherverified"></a>`PluginPublisherVerified` | object | `plugin.publisher_verified` — Marketplace v2: an owner/admin vouched for a publisher identity on behalf of the org (per-org badge, never global). Additive over the v1 distribution surfaces. |
@@ -2083,6 +2117,8 @@
 | <a id="schema-portalkbsearchquery"></a>`PortalKbSearchQuery` | object |  |
 | <a id="schema-portalloginrequest"></a>`PortalLoginRequest` | object |  |
 | <a id="schema-portalloginresponse"></a>`PortalLoginResponse` | object |  |
+| <a id="schema-portalmagiclinkconfirm"></a>`PortalMagicLinkConfirm` | object |  |
+| <a id="schema-portalmagiclinkrequest"></a>`PortalMagicLinkRequest` | object |  |
 | <a id="schema-portalpaymentview"></a>`PortalPaymentView` | object | A payment receipt as the portal sees it. `created_by` stays internal (portal identities are not staff rows; the field is always NULL on portal-recorded rows anyway). |
 | <a id="schema-portalpayrequest"></a>`PortalPayRequest` | composite |  |
 | <a id="schema-portalpayresponse"></a>`PortalPayResponse` | object | Instant-first mutation response (IF2) for a portal payment: the receipt, the refreshed client-facing invoice, and the additive `mutation` metadata. Stored/replayed byte-identically under the key. |
@@ -2208,6 +2244,7 @@
 | <a id="schema-ratinglistview"></a>`RatingListView` | object |  |
 | <a id="schema-ratingmineview"></a>`RatingMineView` | object |  |
 | <a id="schema-ratingsummary"></a>`RatingSummary` | object |  |
+| <a id="schema-readguardrails"></a>`ReadGuardrails` | object | The guardrails a declared read runs under (ADR 0017 §5). Three of the four are ceilings a declaration may not exceed; the fourth is a promise that may only be declared one way. Validation applies the  |
 | <a id="schema-receiptmutationresponse"></a>`ReceiptMutationResponse` | object |  |
 | <a id="schema-receiptstate"></a>`ReceiptState` | string |  |
 | <a id="schema-receivelineinput"></a>`ReceiveLineInput` | object |  |
@@ -2267,10 +2304,12 @@
 | <a id="schema-restorerolerequest"></a>`RestoreRoleRequest` | composite |  |
 | <a id="schema-restoretemplaterequest"></a>`RestoreTemplateRequest` | composite |  |
 | <a id="schema-retiretaxonomynoderequest"></a>`RetireTaxonomyNodeRequest` | composite |  |
+| <a id="schema-retryrunrequest"></a>`RetryRunRequest` | composite | POST /api/workflows/runs/{id}/retry — the operator action. |
 | <a id="schema-returnloanrequest"></a>`ReturnLoanRequest` | composite | POST /api/client-loans/{id}/return. |
 | <a id="schema-revertdetail"></a>`RevertDetail` | object | What the revert restored. |
 | <a id="schema-revertticketrequest"></a>`RevertTicketRequest` | composite | POST /api/tickets/{id}/revert body. |
 | <a id="schema-revokecatalogentryrequest"></a>`RevokeCatalogEntryRequest` | object |  |
+| <a id="schema-revokesignoffrequest"></a>`RevokeSignOffRequest` | object | POST /api/sign-offs/{id}/revoke |
 | <a id="schema-rolemutationresponse"></a>`RoleMutationResponse` | composite | Instant-first mutation response (IF2): the role at the top level plus the additive `mutation` metadata. |
 | <a id="schema-roleslistresponse"></a>`RolesListResponse` | object |  |
 | <a id="schema-roleview"></a>`RoleView` | object | One org role row (preset or custom). `permissions` is the raw matrix vocabulary: `{"matrix": {"module", "action"}}` entries plus bare special strings (`"financial:read"`, `"special:manage_users"`, …). |
@@ -2285,8 +2324,16 @@
 | <a id="schema-rowspayload"></a>`RowsPayload` | object | The encoded row source shared by dry-run and chunk posts. |
 | <a id="schema-rulemutationresponse"></a>`RuleMutationResponse` | object |  |
 | <a id="schema-runbatchresponse"></a>`RunBatchResponse` | object | POST /imports/batches/{id}/run response: the batch is queued for the worker exactly once; poll the batch view for counters. |
+| <a id="schema-rundetailview"></a>`RunDetailView` | composite | A run plus the exact document it ran and the state it continues from. This is the response that makes the ledger an audit record: with it, a run explains itself without a second table. |
+| <a id="schema-runlistquery"></a>`RunListQuery` | object | Query for the run ledger listing. |
+| <a id="schema-runlistresponse"></a>`RunListResponse` | object |  |
 | <a id="schema-runreportresponse"></a>`RunReportResponse` | object | Per-row fate report — the D2 contract shape (`row_index → errors[] \| ok \| would_skip \| would_update`). |
+| <a id="schema-runretryresponse"></a>`RunRetryResponse` | object | The retry's response: the NEW run row (the continuation of the failed one) and the IF2 mutation metadata, on the same envelope every other mutation in the product answers with. |
 | <a id="schema-runspecrequest"></a>`RunSpecRequest` | object | POST /api/reports/run-spec body: an inline spec (validated through the same registry as stored definitions) plus the run window. This is the builder's PREVIEW-before-save surface — nothing is persiste |
+| <a id="schema-runsteplistquery"></a>`RunStepListQuery` | object | Query for one run's step trace. |
+| <a id="schema-runsteplistresponse"></a>`RunStepListResponse` | object |  |
+| <a id="schema-runstepview"></a>`RunStepView` | object | One step attempt inside a run. |
+| <a id="schema-runview"></a>`RunView` | object | A run as the operator surface reads it. The document snapshot is NOT here: it is large, it is write-once, and the operator does not need it to read a status. It is on the detail response, where an ope |
 | <a id="schema-runwindowview"></a>`RunWindowView` | object | One issued run window in the overlap warning. |
 | <a id="schema-scancandidateview"></a>`ScanCandidateView` | object | One candidate when a code matches more than one row of the same kind. |
 | <a id="schema-scanresolutionview"></a>`ScanResolutionView` | object | The typed meaning of one scanned string. `entity_id` is the resolved entity: the stock item, the serialized unit, the location, or the device asset. `deep_link` is always the canonical link for that e |
@@ -2349,9 +2396,14 @@
 | <a id="schema-shareclaimmaterial"></a>`ShareClaimMaterial` | object | The unified claim response: the material exactly once (the claim consumes the link). Mirrors `SecretReveal` / `PasswordReveal` contents under one shape — `fields` carries `field_key` → plaintext. |
 | <a id="schema-sharesubjectkind"></a>`ShareSubjectKind` | string | Which vault subject a share link or rotation refers to. One-time share links cover BOTH the native secret records and the legacy byte- compatible password entries; rotation mirrors the same pair. |
 | <a id="schema-shipoutrequest"></a>`ShipOutRequest` | composite |  |
+| <a id="schema-signoff"></a>`SignOff` | object | The evidence row. Immutable by design: there is no UPDATE path, so a correction is a second row linked by `supersedes_sign_off_id`. |
+| <a id="schema-signoffconsent"></a>`SignOffConsent` | object | Append-only consent wording per org. Revision N+1 never rewrites revision N. |
 | <a id="schema-signoffrequest"></a>`SignoffRequest` | composite | The close sign-off body. |
 | <a id="schema-signoffresponse"></a>`SignoffResponse` | object | The sign-off response. |
+| <a id="schema-signoffrevocation"></a>`SignOffRevocation` | object | One entry in a sign-off's revocation trail. The row and its bytes survive; "is revoked" is answered by the existence of one of these. |
+| <a id="schema-signoffsignerkind"></a>`SignOffSignerKind` | string | Who drew the mark. `PortalClient` is RESERVED: the API rejects it today so a future portal-signing lane needs no schema change, mirroring the reserved `Attachment::uploaded_by_portal_user_id` column. |
 | <a id="schema-signoffview"></a>`SignoffView` | object | The close checklist as recorded. |
+| <a id="schema-signoffview"></a>`SignOffView` | composite | A sign-off plus the facts a client renders on the timeline: the payload's storage facts, the current revocation state, and the correction relation. |
 | <a id="schema-similarticketcandidate"></a>`SimilarTicketCandidate` | object |  |
 | <a id="schema-similarticketsquery"></a>`SimilarTicketsQuery` | object |  |
 | <a id="schema-similarticketsresponse"></a>`SimilarTicketsResponse` | object |  |
@@ -2401,8 +2453,10 @@
 | <a id="schema-surfaceentrylist"></a>`SurfaceEntryList` | object |  |
 | <a id="schema-surfaceentryview"></a>`SurfaceEntryView` | object | One registered entry as the web consumes it. |
 | <a id="schema-surfacefieldvalidator"></a>`SurfaceFieldValidator` | object | One declared custom-field validator. |
+| <a id="schema-surfaceread"></a>`SurfaceRead` | object | One declared READ node (Wave 43 lane 4, ADR 0017 §5). `automation_action` is write-shaped, so before this kind a workflow could not FETCH from an external system at all — which is exactly the gap that |
 | <a id="schema-surfacerenderkind"></a>`SurfaceRenderKind` | object | One declared report render kind. |
 | <a id="schema-surfaceslot"></a>`SurfaceSlot` | string | Where a declared widget may render. Closed vocabulary. |
+| <a id="schema-surfacetrigger"></a>`SurfaceTrigger` | object | One declared TRIGGER source (Wave 43 lane 4, ADR 0017 §3): the event type a plugin emits, which a rule can then fire on. The trigger is a DECLARATION, not a dispatcher. It names the type it emits and  |
 | <a id="schema-surfacewidget"></a>`SurfaceWidget` | object | One declared widget. |
 | <a id="schema-surfacewidgetkind"></a>`SurfaceWidgetKind` | string | What a declared widget RENDERS AS. Closed vocabulary — each kind maps onto one trusted core component; a plugin cannot introduce a new render shape. |
 | <a id="schema-syncforcequery"></a>`SyncForceQuery` | object |  |
@@ -2602,6 +2656,8 @@
 | <a id="schema-voidinvoicerequest"></a>`VoidInvoiceRequest` | composite |  |
 | <a id="schema-voipcalllogrequest"></a>`VoipCallLogRequest` | object |  |
 | <a id="schema-voipcalllogresponse"></a>`VoipCallLogResponse` | object |  |
+| <a id="schema-warrantystate"></a>`WarrantyState` | string | Which side of the warranty horizon an asset sits on. |
+| <a id="schema-warrantywindow"></a>`WarrantyWindow` | object | The warranty horizon for one device asset: the end date, which side of it today falls, and how many whole days are left (negative once ended). |
 | <a id="schema-webauthnbeginresponse"></a>`WebauthnBeginResponse` | object |  |
 | <a id="schema-webauthncredentialinfo"></a>`WebauthnCredentialInfo` | object |  |
 | <a id="schema-webauthnloginfinishrequest"></a>`WebauthnLoginFinishRequest` | object |  |
@@ -2614,6 +2670,10 @@
 | <a id="schema-workbenchdecision"></a>`WorkbenchDecision` | object | The suggestion-grade `decision_record_dedupe` judgment for this candidate, read from the append-only decision store. `None` (and therefore silent in the UI) whenever the decision model is unconfigured |
 | <a id="schema-workbenchfieldrow"></a>`WorkbenchFieldRow` | object |  |
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
+| <a id="schema-workflowretrymode"></a>`WorkflowRetryMode` | string | How far back a retry re-executes. |
+| <a id="schema-workflowrunstatus"></a>`WorkflowRunStatus` | string | What one execution attempt is doing. `Waiting` is the parked state and is as terminal-as-nothing: it is waiting for a clock or an event, not for a worker. |
+| <a id="schema-workflowruntrigger"></a>`WorkflowRunTrigger` | string | Why a run row exists. The two chain kinds are pinned to their pointer in the database (`workflow_runs_trigger_shape`), so a row can never claim to be a resume without naming the run it continues. |
+| <a id="schema-workflowstepstatus"></a>`WorkflowStepStatus` | string | What one step attempt is doing. Wider than the run's because a step can be SKIPPED: a branch not taken is a recorded fact, not a step that never happened. |
 | <a id="schema-worknextentryview"></a>`WorkNextEntryView` | object | One row of a technician's curated queue, as the board renders it. |
 | <a id="schema-worknextmutation"></a>`WorkNextMutation` | object |  |
 | <a id="schema-worknextqueuequery"></a>`WorkNextQueueQuery` | object |  |
@@ -2622,4 +2682,4 @@
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 28 operation groups; schema count 1267 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 29 operation groups; schema count 1302 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

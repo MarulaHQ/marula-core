@@ -271,7 +271,8 @@ async fn ingest_auth_shell() {
     assert_eq!(res.status(), 404, "unknown source ref → 404");
 
     // Alert source exists, no signature → 401.
-    let (alert_ref, _alert_secret) = create_alert_source(&app, &token, board, &unique_ref("als")).await;
+    let (alert_ref, _alert_secret) =
+        create_alert_source(&app, &token, board, &unique_ref("als")).await;
     let res = send_raw(
         &app,
         &format!("/api/v1/alerts/ingest/{}", alert_ref),
@@ -282,7 +283,15 @@ async fn ingest_auth_shell() {
     assert_eq!(res.status(), 401, "known alert source, no sig → 401");
 
     // Generic source exists but no signature → 401.
-    let gs = create_generic_source(&app, &token, board, &unique_ref("ghook"), "my_event.received", None).await;
+    let gs = create_generic_source(
+        &app,
+        &token,
+        board,
+        &unique_ref("ghook"),
+        "my_event.received",
+        None,
+    )
+    .await;
     let res = send_raw(
         &app,
         &format!("/api/v1/webhooks/ingest/{}", gs.source_ref),
@@ -313,7 +322,10 @@ async fn ingest_auth_shell() {
     let res = send_raw(
         &app,
         &format!("/api/v1/webhooks/ingest/{}", gs.source_ref),
-        &[(core_api::routes::webhook_receiver::SIGNATURE_HEADER, real_sig)],
+        &[(
+            core_api::routes::webhook_receiver::SIGNATURE_HEADER,
+            real_sig,
+        )],
         &tampered_body,
     )
     .await;
@@ -325,7 +337,10 @@ async fn ingest_auth_shell() {
     let res = send_raw(
         &app,
         &format!("/api/v1/webhooks/ingest/{}", gs.source_ref),
-        &[(core_api::routes::webhook_receiver::SIGNATURE_HEADER, fake_sig)],
+        &[(
+            core_api::routes::webhook_receiver::SIGNATURE_HEADER,
+            fake_sig,
+        )],
         malformed_body,
     )
     .await;
@@ -342,14 +357,25 @@ async fn generic_ingest_emits_envelope() {
 
     let event_type = "order.created";
     let schema_ref = "acme-io/webhook-v1";
-    let gs = create_generic_source(&app, &token, board, &unique_ref("emit"), event_type, Some(schema_ref)).await;
+    let gs = create_generic_source(
+        &app,
+        &token,
+        board,
+        &unique_ref("emit"),
+        event_type,
+        Some(schema_ref),
+    )
+    .await;
 
     // Signed POST → 200 with "emitted".
-    let body = webhook_body("order-42", Some(json!({
-        "order_id": "ORD-42",
-        "amount": 999,
-        "currency": "USD"
-    })));
+    let body = webhook_body(
+        "order-42",
+        Some(json!({
+            "order_id": "ORD-42",
+            "amount": 999,
+            "currency": "USD"
+        })),
+    );
     let headers = signed(&gs, &body);
     let res = send_raw(
         &app,
@@ -377,11 +403,31 @@ async fn generic_ingest_emits_envelope() {
     let (et, entity, payload) = &rows[0];
     assert_eq!(et, event_type, "event_type matches source declaration");
     assert_eq!(entity, "webhook", "entity is 'webhook'");
-    assert_eq!(payload["board_id"], json!(board), "board_id carried in payload");
-    assert_eq!(payload["source_ref"], json!(gs.source_ref), "source_ref in payload");
-    assert_eq!(payload["entity_id"], json!("order-42"), "entity_id defaults to dedup_key");
-    assert_eq!(payload["data"]["order_id"], json!("ORD-42"), "provider data under 'data'");
-    assert_eq!(payload["data"]["amount"], json!(999), "provider data preserved");
+    assert_eq!(
+        payload["board_id"],
+        json!(board),
+        "board_id carried in payload"
+    );
+    assert_eq!(
+        payload["source_ref"],
+        json!(gs.source_ref),
+        "source_ref in payload"
+    );
+    assert_eq!(
+        payload["entity_id"],
+        json!("order-42"),
+        "entity_id defaults to dedup_key"
+    );
+    assert_eq!(
+        payload["data"]["order_id"],
+        json!("ORD-42"),
+        "provider data under 'data'"
+    );
+    assert_eq!(
+        payload["data"]["amount"],
+        json!(999),
+        "provider data preserved"
+    );
 }
 
 #[tokio::test]
@@ -391,7 +437,15 @@ async fn replay_returns_duplicate() {
     let slug = format!("webhook-dedup-{}", Uuid::now_v7().simple());
     let token = register_org(&app, &slug).await;
     let board = create_board(&app, &token, "Dedup Board").await;
-    let gs = create_generic_source(&app, &token, board, &unique_ref("dup"), "sync.user.created", None).await;
+    let gs = create_generic_source(
+        &app,
+        &token,
+        board,
+        &unique_ref("dup"),
+        "sync.user.created",
+        None,
+    )
+    .await;
 
     let body = webhook_body("user-1", Some(json!({ "email": "user@example.com" })));
     let headers = signed(&gs, &body);
@@ -436,7 +490,15 @@ async fn dual_mount_parity() {
     let slug = format!("webhook-parity-{}", Uuid::now_v7().simple());
     let token = register_org(&app, &slug).await;
     let board = create_board(&app, &token, "Parity Board").await;
-    let gs = create_generic_source(&app, &token, board, &unique_ref("par"), "thing.happened", None).await;
+    let gs = create_generic_source(
+        &app,
+        &token,
+        board,
+        &unique_ref("par"),
+        "thing.happened",
+        None,
+    )
+    .await;
 
     // The unversioned legacy alias hits the same handler: an unsigned request
     // is 401 (auth shell ran), NOT a default 404 (route missing).

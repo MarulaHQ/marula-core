@@ -502,16 +502,16 @@ use core_domain::events::{
     SecretRecordCreated, SecretRecordDeleted, SecretRecordUpdated, SecretRevealed,
     SecretRotationDue, SecretShareLinkClaimed, SecretShareLinkCreated, SignOffConsentCreated,
     SignOffCreated, SignOffRevoked, SignOffSuperseded, SiteCreated, SiteUpdated, StockItemArchived,
-    StockItemCreated, StockItemUpdated, StockLevelLow, StockMovementRecorded,
-    TagCreated, TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated,
-    TicketAssigned, TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded,
-    TicketCostLineAdded, TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded,
-    TicketExpenseRemoved, TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged,
-    TicketTagsChanged, TimeCategoryCreated, TimeCategoryUpdated, TimeEntryApprovalApproved,
-    TimeEntryApprovalRejected, TimeEntryApprovalSubmitted, TimeEntryCreated, TimerPaused,
-    TimerStarted, TimerStopped, ToolCheckinCompleted, ToolCheckoutCompleted, ToolKitCreated,
-    ToolKitUpdated, TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited,
-    UserRoleChanged, VendorCreated, VendorUpdated,
+    StockItemCreated, StockItemUpdated, StockLevelLow, StockMovementRecorded, TagCreated,
+    TagDeleted, TagUpdated, TemplateCreated, TemplateRemoved, TemplateUpdated, TicketAssigned,
+    TicketBoardMoved, TicketChecklistUpdated, TicketCommentAdded, TicketCostLineAdded,
+    TicketCostLineRemoved, TicketCreated, TicketExpenseRecorded, TicketExpenseRemoved,
+    TicketLinkChanged, TicketMerged, TicketReverted, TicketStatusChanged, TicketTagsChanged,
+    TimeCategoryCreated, TimeCategoryUpdated, TimeEntryApprovalApproved, TimeEntryApprovalRejected,
+    TimeEntryApprovalSubmitted, TimeEntryCreated, TimeEntryFixed, TimerPaused, TimerStarted,
+    TimerStopped, ToolCheckinCompleted, ToolCheckoutCompleted, ToolKitCreated, ToolKitUpdated,
+    TravelDraftSubmitted, UserActivated, UserDeactivated, UserInvited, UserRoleChanged,
+    VendorCreated, VendorUpdated,
 };
 use core_domain::money::{CurrencyCode, Money};
 use core_domain::policy::BoardRole;
@@ -1470,6 +1470,26 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                     unbillable_reason: None,
                     created_at: st(6),
                 },
+            }
+        ),
+    },
+    // Wave 43 lane 14 gate sweep: `time_entry.fixed` has a real emission
+    // site (`routes/approvals.rs` calls ctx.emit with the TimeEntryFixed
+    // typed shape) and has had one since the fix flow shipped. The constant
+    // was declared but never registered, so the conformance suite was red
+    // for a type the product already publishes. Registered with its golden.
+    PublishedEvent {
+        event_type: types::TIME_ENTRY_FIXED,
+        entity: "time_entry",
+        variant: "default",
+        shape: typed_shape!(
+            TimeEntryFixed,
+            TimeEntryFixed {
+                entry_id: su(17),
+                fixed_by: su(4),
+                description_changed: false,
+                minutes: 120,
+                fixed_at: st(7),
             }
         ),
     },
@@ -5038,6 +5058,12 @@ pub static RESERVED_EVENT_TYPES: &[&str] = &[
     types::ORG_CREATED,
     types::USER_CREATED,
     types::TIME_ENTRY_UPDATED,
+    // Wave 43 lane 14 gate sweep: `webhook.ingested` is an AUDIT-ACTION name
+    // (`routes/webhook_receiver.rs` writes it into audit_events with the
+    // connector actor), not a domain-event stream emission, so it is not a
+    // published payload shape. If an envelope ever rides the stream under
+    // this type, it moves to PUBLISHED_EVENTS with its golden.
+    types::WEBHOOK_INGESTED,
     // Wave 11 lane 7 (docs-platform) emission-site types are PUBLISHED
     // now (typed shapes + goldens registered; the lane-9 temporary
     // reservations were dropped 2026-09-10 by the backend-gaps lane).

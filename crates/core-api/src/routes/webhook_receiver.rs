@@ -29,8 +29,8 @@ use crate::state::AppState;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
-use axum::{Json, Router};
 use axum::routing::post;
+use axum::{Json, Router};
 use core_db::alerting;
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::events::types;
@@ -106,10 +106,7 @@ pub async fn webhook_ingest(
 
     // 3. Only generic M2M sources land here. An alert-source ref returns
     //    404 so the boundary is explicit — you must use /alerts/ingest.
-    let event_type = source
-        .r_event_type
-        .clone()
-        .ok_or(ApiError::NotFound)?;
+    let event_type = source.r_event_type.clone().ok_or(ApiError::NotFound)?;
 
     // 4. HMAC over the RAW body — tampering invalidates even a stale
     //    valid signature. Constant-time via core_mail::hmac.
@@ -151,88 +148,102 @@ pub async fn webhook_ingest(
     let source_ref_owned = source.r_source_ref.clone();
     let source_id = source.r_id;
 
-    let response = org_tx::with_org_tx(&state, source.r_org_id, source.r_org_id, |mut ctx| async move {
-        // 7. Rate limit — reject before burning the replay fence.
-        let recent =
-            alerting::count_recent_ingests(&mut *ctx.tx, source.r_org_id, source.r_id, RATE_WINDOW_SECS)
-                .await?;
-        if recent >= RATE_MAX_PER_WINDOW {
-            return Err(ApiError::RateLimited {
-                retry_after_secs: RATE_WINDOW_SECS as i64,
-            });
-        }
+    let response = org_tx::with_org_tx(
+        &state,
+        source.r_org_id,
+        source.r_org_id,
+        |mut ctx| async move {
+            // 7. Rate limit — reject before burning the replay fence.
+            let recent = alerting::count_recent_ingests(
+                &mut *ctx.tx,
+                source.r_org_id,
+                source.r_id,
+                RATE_WINDOW_SECS,
+            )
+            .await?;
+            if recent >= RATE_MAX_PER_WINDOW {
+                return Err(ApiError::RateLimited {
+                    retry_after_secs: RATE_WINDOW_SECS as i64,
+                });
+            }
 
-        // 8. Replay fence — UNIQUE (org, source, dedup_key) makes a
-        //    replayed delivery a no-op.
-        let was_new =
-            alerting::insert_webhook_dedup(&mut ctx.tx, source.r_org_id, source.r_id, &req.dedup_key, now)
-                .await?;
-        if !was_new {
-            return Ok((
+            // 8. Replay fence — UNIQUE (org, source, dedup_key) makes a
+            //    replayed delivery a no-op.
+            let was_new = alerting::insert_webhook_dedup(
+                &mut ctx.tx,
+                source.r_org_id,
+                source.r_id,
+                &req.dedup_key,
+                now,
+            )
+            .await?;
+            if !was_new {
+                return Ok((
+                    ctx,
+                    WebhookIngestResponse {
+                        status: "duplicate".into(),
+                        event_id: None,
+                        board_id: source.r_board_id,
+                    },
+                ));
+            }
+
+            // 9. Build the envelope payload. `board_id` is carried at the
+            //    top level so automation matching (automations.rs) and
+            //    ticket-less triggers (lane 3) can scope their rules. The
+            //    provider's data rides under `data`.
+            let envelope_payload = json!({
+                "board_id": source.r_board_id,
+                "source_ref": source.r_source_ref,
+                "source_id": source.r_id,
+                "entity_id": entity_id,
+                "data": req.payload,
+            });
+
+            // 10. Emit the domain event envelope into the outbox.
+            let event_id = Uuid::now_v7();
+            core_db::outbox::insert(
+                &mut ctx.tx,
+                event_id,
+                source.r_org_id,
+                event_type.as_str(),
+                "webhook",
+                Some(entity_id.as_str()),
+                &envelope_payload,
+            )
+            .await?;
+
+            // 11. Audit trail — `webhook.ingested` with the connector actor.
+            core_db::audit::insert(
+                &mut *ctx.tx,
+                &AuditEvent {
+                    id: Uuid::now_v7(),
+                    org_id: source.r_org_id,
+                    actor: Actor::Connector(format!("alert-source:{source_ref_owned}")),
+                    action: types::WEBHOOK_INGESTED.to_string(),
+                    entity_type: Some("webhook".into()),
+                    entity_id: Some(entity_id.clone()),
+                    detail: json!({
+                        "source_ref": source_ref_owned,
+                        "source_id": source_id,
+                        "dedup_key": req.dedup_key,
+                    }),
+                    ip: None,
+                    occurred_at: chrono::Utc::now(),
+                },
+            )
+            .await?;
+
+            Ok((
                 ctx,
                 WebhookIngestResponse {
-                    status: "duplicate".into(),
-                    event_id: None,
+                    status: "emitted".into(),
+                    event_id: Some(event_id),
                     board_id: source.r_board_id,
                 },
-            ));
-        }
-
-        // 9. Build the envelope payload. `board_id` is carried at the
-        //    top level so automation matching (automations.rs) and
-        //    ticket-less triggers (lane 3) can scope their rules. The
-        //    provider's data rides under `data`.
-        let envelope_payload = json!({
-            "board_id": source.r_board_id,
-            "source_ref": source.r_source_ref,
-            "source_id": source.r_id,
-            "entity_id": entity_id,
-            "data": req.payload,
-        });
-
-        // 10. Emit the domain event envelope into the outbox.
-        let event_id = Uuid::now_v7();
-        core_db::outbox::insert(
-            &mut ctx.tx,
-            event_id,
-            source.r_org_id,
-            event_type.as_str(),
-            "webhook",
-            Some(entity_id.as_str()),
-            &envelope_payload,
-        )
-        .await?;
-
-        // 11. Audit trail — `webhook.ingested` with the connector actor.
-        core_db::audit::insert(
-            &mut *ctx.tx,
-            &AuditEvent {
-                id: Uuid::now_v7(),
-                org_id: source.r_org_id,
-                actor: Actor::Connector(format!("alert-source:{source_ref_owned}")),
-                action: types::WEBHOOK_INGESTED.to_string(),
-                entity_type: Some("webhook".into()),
-                entity_id: Some(entity_id.clone()),
-                detail: json!({
-                    "source_ref": source_ref_owned,
-                    "source_id": source_id,
-                    "dedup_key": req.dedup_key,
-                }),
-                ip: None,
-                occurred_at: chrono::Utc::now(),
-            },
-        )
-        .await?;
-
-        Ok((
-            ctx,
-            WebhookIngestResponse {
-                status: "emitted".into(),
-                event_id: Some(event_id),
-                board_id: source.r_board_id,
-            },
-        ))
-    })
+            ))
+        },
+    )
     .await?;
 
     Ok(Json(response))

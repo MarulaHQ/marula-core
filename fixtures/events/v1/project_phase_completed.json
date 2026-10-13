@@ -9,6 +9,7 @@
       "completed_at": "2023-11-14T22:13:22Z",
       "created_at": "2023-11-14T22:13:21Z",
       "description": null,
+      "end_date": null,
       "id": "00000000-0000-0000-0000-000000000019",
       "is_milestone": true,
       "milestone_amount_minor": 150000,
@@ -17,6 +18,7 @@
       "org_id": "00000000-0000-0000-0000-000000000002",
       "project_id": "00000000-0000-0000-0000-000000000018",
       "sort_order": 1,
+      "start_date": null,
       "status": "completed",
       "updated_at": "2023-11-14T22:13:22Z"
     }

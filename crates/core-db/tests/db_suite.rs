@@ -7870,7 +7870,15 @@ async fn sign_off_capture_round_trips_with_its_consent_snapshot() {
         None,
     )
     .await;
-    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+    sign_off_attachment(
+        &mut tx,
+        s.org,
+        attachment_id,
+        ticket.id,
+        &sha256_ab(),
+        Some(witness),
+    )
+    .await;
 
     let written = sign_offs::insert_sign_off(
         &mut tx,
@@ -7930,7 +7938,15 @@ async fn sign_off_replay_of_the_same_idempotency_key_is_a_typed_conflict() {
         None,
     )
     .await;
-    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+    sign_off_attachment(
+        &mut tx,
+        s.org,
+        attachment_id,
+        ticket.id,
+        &sha256_ab(),
+        Some(witness),
+    )
+    .await;
 
     let args = |id: Uuid| sign_offs::NewSignOff {
         id,
@@ -7971,7 +7987,10 @@ async fn sign_off_replay_of_the_same_idempotency_key_is_a_typed_conflict() {
     .fetch_one(&mut *tx)
     .await
     .expect("count by key");
-    assert_eq!(live, 1, "the original row survives a replay rather than being duplicated");
+    assert_eq!(
+        live, 1,
+        "the original row survives a replay rather than being duplicated"
+    );
     let read_back = sign_offs::get_sign_off(&mut tx, s.org, original.id)
         .await
         .expect("read");
@@ -8110,7 +8129,15 @@ async fn sign_off_revocation_appends_seq_and_leaves_the_row_alone() {
         None,
     )
     .await;
-    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+    sign_off_attachment(
+        &mut tx,
+        s.org,
+        attachment_id,
+        ticket.id,
+        &sha256_ab(),
+        Some(witness),
+    )
+    .await;
     let before = sign_offs::insert_sign_off(
         &mut tx,
         sign_offs::NewSignOff {
@@ -8158,7 +8185,10 @@ async fn sign_off_revocation_appends_seq_and_leaves_the_row_alone() {
         .expect("views");
     let view = views.first().expect("view");
     assert_eq!(view.revocation.as_ref().map(|r| r.seq), Some(1));
-    assert_eq!(view.attachment_sha256.as_deref(), Some(sha256_ab().as_str()));
+    assert_eq!(
+        view.attachment_sha256.as_deref(),
+        Some(sha256_ab().as_str())
+    );
 
     tx.commit().await.expect("commit");
 }
@@ -8184,7 +8214,15 @@ async fn sign_off_payload_is_downloadable_only_for_a_drawn_mark() {
         None,
     )
     .await;
-    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+    sign_off_attachment(
+        &mut tx,
+        s.org,
+        attachment_id,
+        ticket.id,
+        &sha256_ab(),
+        Some(witness),
+    )
+    .await;
 
     // The drawn path.
     sign_offs::insert_sign_off(
@@ -8285,7 +8323,15 @@ async fn sign_off_consent_revision_leaves_an_existing_snapshot_alone() {
         None,
     )
     .await;
-    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+    sign_off_attachment(
+        &mut tx,
+        s.org,
+        attachment_id,
+        ticket.id,
+        &sha256_ab(),
+        Some(witness),
+    )
+    .await;
     sign_offs::insert_sign_off(
         &mut tx,
         sign_offs::NewSignOff {
@@ -8350,7 +8396,15 @@ async fn sign_off_conflict_reports_its_constraint_for_a_typed_conflict() {
         None,
     )
     .await;
-    sign_off_attachment(&mut tx, s.org, attachment_id, ticket.id, &sha256_ab(), Some(witness)).await;
+    sign_off_attachment(
+        &mut tx,
+        s.org,
+        attachment_id,
+        ticket.id,
+        &sha256_ab(),
+        Some(witness),
+    )
+    .await;
     tx.commit().await.expect("commit");
 
     // The key is a caller-supplied literal rather than a formatted string:
@@ -8390,10 +8444,15 @@ async fn sign_off_conflict_reports_its_constraint_for_a_typed_conflict() {
 
     // Both at once, refused by the same CHECK.
     let mut both_tx = org_tx(&db.app, s.org).await;
-    let both =
-        sign_offs::insert_sign_off(&mut both_tx, args(fixed_uuid(61605), Some(attachment_id), true, "capture-both")).await;
+    let both = sign_offs::insert_sign_off(
+        &mut both_tx,
+        args(fixed_uuid(61605), Some(attachment_id), true, "capture-both"),
+    )
+    .await;
     drop(both_tx);
-    assert!(is_constraint_violation(&both.expect_err("both paths must be refused")));
+    assert!(is_constraint_violation(
+        &both.expect_err("both paths must be refused")
+    ));
 
     // The reserved portal kind with a staff witness attached. The API rejects
     // this kind outright today; the signer-shape CHECK is the backstop.
@@ -8402,7 +8461,12 @@ async fn sign_off_conflict_reports_its_constraint_for_a_typed_conflict() {
         &mut portal_tx,
         sign_offs::NewSignOff {
             signer_kind: SignOffSignerKind::PortalClient,
-            ..args(fixed_uuid(61606), Some(attachment_id), false, "capture-portal")
+            ..args(
+                fixed_uuid(61606),
+                Some(attachment_id),
+                false,
+                "capture-portal",
+            )
         },
     )
     .await;
@@ -8419,7 +8483,12 @@ async fn sign_off_conflict_reports_its_constraint_for_a_typed_conflict() {
         sign_offs::NewSignOff {
             witnessed_by_user_id: None,
             signer_kind: SignOffSignerKind::PortalClient,
-            ..args(fixed_uuid(61607), Some(attachment_id), false, "capture-portal-ok")
+            ..args(
+                fixed_uuid(61607),
+                Some(attachment_id),
+                false,
+                "capture-portal-ok",
+            )
         },
     )
     .await
@@ -8429,15 +8498,13 @@ async fn sign_off_conflict_reports_its_constraint_for_a_typed_conflict() {
 
     // Nothing landed: all three refused shapes.
     let mut check = org_tx(&db.app, s.org).await;
-    let live: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sign_offs WHERE id IN ($1, $2, $3)",
-    )
-    .bind(fixed_uuid(61604))
-    .bind(fixed_uuid(61605))
-    .bind(fixed_uuid(61606))
-    .fetch_one(&mut *check)
-    .await
-    .expect("count");
+    let live: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sign_offs WHERE id IN ($1, $2, $3)")
+        .bind(fixed_uuid(61604))
+        .bind(fixed_uuid(61605))
+        .bind(fixed_uuid(61606))
+        .fetch_one(&mut *check)
+        .await
+        .expect("count");
     assert_eq!(live, 0);
     drop(check);
 }

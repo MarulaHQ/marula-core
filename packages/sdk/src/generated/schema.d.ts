@@ -12714,6 +12714,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflows/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/workflows/runs — the run ledger, newest first, filterable by
+         *     status and by rule. Keyset-cursored on `(created_at, id)`, exactly like
+         *     the webhook delivery ledger: the two logs page and behave alike.
+         */
+        get: operations["workflow_runs_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflows/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/workflows/runs/{id} — one run with its whole trace. */
+        get: operations["workflow_run_detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflows/runs/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/workflows/runs/{id}/retry — re-run a failed run as a NEW row.
+         * @description The refusal is the point: if re-running would repeat a step that
+         *     declares `idempotent = false`, the answer is a typed 409 that names every
+         *     offending node rather than a second ticket or a second email. The
+         *     idempotency key (IF1) is claimed before anything is written, so a
+         *     double-submit returns the first retry instead of queueing two.
+         */
+        post: operations["workflow_run_retry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflows/runs/{id}/steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/workflows/runs/{id}/steps — one run's step trace, paged. */
+        get: operations["workflow_run_steps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -25126,6 +25205,16 @@ export interface components {
         RestoreRoleRequest: components["schemas"]["MutationParams"];
         RestoreTemplateRequest: components["schemas"]["MutationParams"];
         RetireTaxonomyNodeRequest: components["schemas"]["MutationParams"];
+        /** @description POST /api/workflows/runs/{id}/retry — the operator action. */
+        RetryRunRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description How far back the re-run goes. `resume` (the default) starts at the
+             *     first step that did not succeed, so the steps before it are not run
+             *     again. `from_start` re-runs the whole document and is only allowed
+             *     when every step that already succeeded is safe to repeat.
+             */
+            mode?: components["schemas"]["WorkflowRetryMode"];
+        };
         /** @description POST /api/client-loans/{id}/return. */
         ReturnLoanRequest: components["schemas"]["MutationParams"] & {
             /** @description Lines to return; empty/absent = every outstanding device. */
@@ -25347,6 +25436,39 @@ export interface components {
             staged_chunks: number;
         };
         /**
+         * @description A run plus the exact document it ran and the state it continues from.
+         *     This is the response that makes the ledger an audit record: with it, a
+         *     run explains itself without a second table.
+         */
+        RunDetailView: components["schemas"]["RunView"] & {
+            resume_cursor?: unknown;
+            rule_definition: unknown;
+            /** @description The whole trace in execution order. */
+            steps: components["schemas"]["RunStepView"][];
+        };
+        /** @description Query for the run ledger listing. */
+        RunListQuery: {
+            /** @description Cursor from the previous page's `next_cursor`. */
+            cursor?: string | null;
+            /**
+             * Format: int64
+             * @description Page size (default 50, capped at 200).
+             */
+            limit?: number | null;
+            /**
+             * Format: uuid
+             * @description Optional rule filter: only that workflow's runs.
+             */
+            rule_id?: string | null;
+            /** @description Optional status filter: running | waiting | succeeded | failed | abandoned. */
+            status?: string | null;
+        };
+        RunListResponse: {
+            /** @description Opaque cursor for the next page; `null` on the last one. */
+            next_cursor?: string | null;
+            runs: components["schemas"]["RunView"][];
+        };
+        /**
          * @description Per-row fate report — the D2 contract shape
          *     (`row_index → errors[] | ok | would_skip | would_update`).
          */
@@ -25358,6 +25480,15 @@ export interface components {
             entity_kind: components["schemas"]["EntityKind"];
             rows: components["schemas"]["RowReport"][];
             summary: components["schemas"]["ChunkSummaryWire"];
+        };
+        /**
+         * @description The retry's response: the NEW run row (the continuation of the failed
+         *     one) and the IF2 mutation metadata, on the same envelope every other
+         *     mutation in the product answers with.
+         */
+        RunRetryResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            run: components["schemas"]["RunView"];
         };
         /**
          * @description POST /api/reports/run-spec body: an inline spec (validated through the
@@ -25382,6 +25513,93 @@ export interface components {
              * @description Inclusive window end (UTC day). Max span with `from`: 366 days.
              */
             to?: string | null;
+        };
+        /** @description Query for one run's step trace. */
+        RunStepListQuery: {
+            cursor?: string | null;
+            /** Format: int64 */
+            limit?: number | null;
+        };
+        RunStepListResponse: {
+            next_cursor?: string | null;
+            steps: components["schemas"]["RunStepView"][];
+        };
+        /** @description One step attempt inside a run. */
+        RunStepView: {
+            /** Format: int32 */
+            attempt: number;
+            error?: string | null;
+            error_code?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            input: unknown;
+            /** Format: int32 */
+            iteration?: number | null;
+            node_id: string;
+            node_label: string;
+            output?: unknown;
+            /** Format: date-time */
+            started_at: string;
+            status: components["schemas"]["WorkflowStepStatus"];
+            /** Format: int32 */
+            step_index: number;
+        };
+        /**
+         * @description A run as the operator surface reads it. The document snapshot is NOT
+         *     here: it is large, it is write-once, and the operator does not need it to
+         *     read a status. It is on the detail response, where an operator who wants
+         *     to know exactly what ran can find it.
+         */
+        RunView: {
+            catalogue_version: string;
+            /** Format: date-time */
+            created_at: string;
+            error?: string | null;
+            error_code?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The parked run this row continues. A row is an EXECUTION ATTEMPT;
+             *     a resume is a new row, never an edit of the parked one.
+             */
+            resumed_from?: string | null;
+            /** @description Derived, never stored: a later run re-runs this one. */
+            retried: boolean;
+            /**
+             * Format: uuid
+             * @description The failed run this row re-runs.
+             */
+            retry_of?: string | null;
+            /** Format: uuid */
+            rule_id?: string | null;
+            rule_name: string;
+            /** Format: int32 */
+            rule_version: number;
+            /** Format: date-time */
+            started_at: string;
+            status: components["schemas"]["WorkflowRunStatus"];
+            /**
+             * @description Derived, never stored: a later run continues this one. Storing the
+             *     flag would be a mutation of the parked row wearing a different name.
+             */
+            superseded: boolean;
+            trigger: components["schemas"]["WorkflowRunTrigger"];
+            /** Format: uuid */
+            trigger_event_id?: string | null;
+            /** Format: uuid */
+            trigger_job_id?: string | null;
+            /** Format: uuid */
+            trigger_user_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            wake_at?: string | null;
+            wake_on?: string | null;
         };
         /** @description One issued run window in the overlap warning. */
         RunWindowView: {
@@ -29715,6 +29933,32 @@ export interface components {
             identity_keys: unknown;
             observed_fields: unknown;
         };
+        /**
+         * @description How far back a retry re-executes.
+         * @enum {string}
+         */
+        WorkflowRetryMode: "resume" | "from_start";
+        /**
+         * @description What one execution attempt is doing. `Waiting` is the parked state and
+         *     is as terminal-as-nothing: it is waiting for a clock or an event, not
+         *     for a worker.
+         * @enum {string}
+         */
+        WorkflowRunStatus: "running" | "waiting" | "succeeded" | "failed" | "abandoned";
+        /**
+         * @description Why a run row exists. The two chain kinds are pinned to their pointer
+         *     in the database (`workflow_runs_trigger_shape`), so a row can never
+         *     claim to be a resume without naming the run it continues.
+         * @enum {string}
+         */
+        WorkflowRunTrigger: "event" | "resume" | "operator_retry" | "manual";
+        /**
+         * @description What one step attempt is doing. Wider than the run's because a step can
+         *     be SKIPPED: a branch not taken is a recorded fact, not a step that
+         *     never happened.
+         * @enum {string}
+         */
+        WorkflowStepStatus: "running" | "waiting" | "succeeded" | "failed" | "abandoned" | "skipped";
     };
     responses: never;
     parameters: never;
@@ -55003,6 +55247,139 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PluginNodeListView"];
                 };
+            };
+        };
+    };
+    workflow_runs_list: {
+        parameters: {
+            query?: {
+                /** @description Optional status filter: running | waiting | succeeded | failed | abandoned. */
+                status?: string | null;
+                /** @description Optional rule filter: only that workflow's runs. */
+                rule_id?: string | null;
+                /** @description Cursor from the previous page's `next_cursor`. */
+                cursor?: string | null;
+                /** @description Page size (default 50, capped at 200). */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunListResponse"];
+                };
+            };
+        };
+    };
+    workflow_run_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetailView"];
+                };
+            };
+            /** @description run not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    workflow_run_retry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryRunRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunRetryResponse"];
+                };
+            };
+            /** @description run not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not retryable, or a repeat would double-apply */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown retry mode */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    workflow_run_steps: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunStepListResponse"];
+                };
+            };
+            /** @description run not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

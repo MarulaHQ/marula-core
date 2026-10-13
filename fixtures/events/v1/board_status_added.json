@@ -9,6 +9,7 @@
     "status": {
       "board_id": "00000000-0000-0000-0000-000000000002",
       "category": "waiting",
+      "client_visible": true,
       "color": "#3b82f6",
       "id": "00000000-0000-0000-0000-00000000000d",
       "is_entry": false,

@@ -684,7 +684,11 @@ pub async fn create_record(
     // read path anchors it). Binding the calling org onto a client row
     // violates the table CHECK, which is the second half of why a
     // client-vault create could never land.
-    let row_org: Option<Uuid> = if client_id.is_some() { None } else { Some(org_id) };
+    let row_org: Option<Uuid> = if client_id.is_some() {
+        None
+    } else {
+        Some(org_id)
+    };
     sqlx::query(
         "INSERT INTO secret_records
            (id, org_id, client_id, folder_id, kind, title, expires_at, rotate_at,
@@ -749,7 +753,8 @@ pub async fn update_record(
            last_rotated_at = CASE WHEN $7::bool THEN now() ELSE last_rotated_at END,
            updated_by = $6,
            updated_at = now()
-         WHERE id = $2 AND ".to_string()
+         WHERE id = $2 AND "
+            .to_string()
             + &update_scope)
             .as_str(),
     )
@@ -828,7 +833,8 @@ pub async fn set_file_pointer(
         ("UPDATE secret_records AS sr SET
            object_key = $3, file_sha256 = $4, file_bytes = $5,
            updated_by = $6, updated_at = now()
-         WHERE id = $2 AND kind = 'document' AND ".to_string()
+         WHERE id = $2 AND kind = 'document' AND "
+            .to_string()
             + &doc_scope)
             .as_str(),
     )
@@ -857,7 +863,8 @@ pub async fn count_other_file_refs(
     let refs_scope = in_org_scope("sr", 1);
     let n: i64 = sqlx::query_scalar(
         ("SELECT COUNT(*) FROM secret_records sr
-         WHERE ".to_string()
+         WHERE "
+            .to_string()
             + &refs_scope
             + " AND sr.object_key = $2 AND sr.id <> $3")
             .as_str(),
@@ -875,10 +882,10 @@ pub async fn delete_record(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> D
     let r = sqlx::query(
         ("DELETE FROM secret_records sr WHERE id = $2 AND ".to_string() + &del_scope).as_str(),
     )
-        .bind(org_id)
-        .bind(id)
-        .execute(&mut *conn)
-        .await?;
+    .bind(org_id)
+    .bind(id)
+    .execute(&mut *conn)
+    .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
@@ -895,12 +902,13 @@ pub async fn list_sealed_fields(
     let reveal_scope = in_org_scope("sr", 1);
     let sql = ("SELECT f.field_key, f.value_ciphertext
                FROM secret_fields f
-               JOIN secret_records sr ON sr.id = f.record_id AND ".to_string()
+               JOIN secret_records sr ON sr.id = f.record_id AND "
+        .to_string()
         + &reveal_scope
         + "
                WHERE f.record_id = $2
                ORDER BY f.field_key")
-    .to_owned();
+        .to_owned();
     let rows = sqlx::query(&sql)
         .bind(org_id)
         .bind(record_id)

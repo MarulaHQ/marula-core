@@ -162,11 +162,11 @@ fn validate_url(url: &str) -> ApiResult<()> {
 /// all others (plugin-contributed, external, or truly unknown) require
 /// a row in `event_type_grants`.
 async fn validate_event_types(
-    pool: &sqlx::Pool<sqlx::Postgres>,
+    tx: &mut sqlx::PgConnection,
     org_id: Uuid,
     event_types: &[String],
 ) -> ApiResult<()> {
-    let ungranted = core_db::event_types::check_event_types(pool, org_id, event_types)
+    let ungranted = core_db::event_types::check_event_types_scoped(tx, org_id, event_types)
         .await
         .map_err(ApiError::from)?;
     if !ungranted.is_empty() {
@@ -219,7 +219,6 @@ pub async fn create(
     let user_id = authed.principal.user.id;
     let org_id = authed.principal.user.org_id;
     validate_url(&req.url)?;
-    validate_event_types(&state.pool, org_id, &req.event_types).await?;
 
     // Fresh 256-bit secret; sealed immediately, returned once.
     let raw_secret = format!("whsec_{}", uuid::Uuid::now_v7().simple());
@@ -228,6 +227,11 @@ pub async fn create(
 
     let id = Uuid::now_v7();
     let mut tx = org_tx::begin(&state, org_id, user_id).await?;
+    // The type check rides this same org-bound transaction. It used to ride
+    // the bare pool, where RLS's `org_id = current_setting(...)` resolved to
+    // NULL and every custom type read as ungranted — a refusal the org's own
+    // grants could never satisfy.
+    validate_event_types(&mut tx.tx, org_id, &req.event_types).await?;
     let row = core_db::webhooks::insert_webhook(
         &mut *tx.tx,
         id,
@@ -281,11 +285,11 @@ pub async fn update(
     if let Some(url) = &req.url {
         validate_url(url)?;
     }
-    if let Some(types_) = &req.event_types {
-        validate_event_types(&state.pool, org_id, types_).await?;
-    }
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org(&mut tx, org_id).await?;
+    if let Some(types_) = &req.event_types {
+        validate_event_types(&mut tx, org_id, types_).await?;
+    }
     let row = core_db::webhooks::update_webhook(
         &mut *tx,
         org_id,

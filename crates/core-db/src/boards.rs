@@ -6,12 +6,12 @@
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{Board, BoardFavorite, BoardGroup, BoardMember, BoardStatus};
-use serde_json::Value;
-use std::collections::HashMap;
 use core_domain::policy::BoardRole;
 use core_domain::status::TicketStatusCategory;
 use core_domain::workflow::TransitionEdge;
+use serde_json::Value;
 use sqlx::{PgConnection, Postgres};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[allow(clippy::too_many_arguments)]
@@ -185,7 +185,8 @@ fn status_from_row(row: sqlx::postgres::PgRow) -> DbResult<BoardStatus> {
     })
 }
 
-const STATUS_COLS: &str = "id, board_id, org_id, name, category, sort_order, is_entry, color, wip_limit, client_visible";
+const STATUS_COLS: &str =
+    "id, board_id, org_id, name, category, sort_order, is_entry, color, wip_limit, client_visible";
 
 pub async fn list_statuses<'e, E>(executor: E, board_id: Uuid) -> DbResult<Vec<BoardStatus>>
 where
@@ -861,8 +862,10 @@ pub async fn status_usage(
             StatusUsage {
                 status_id,
                 ticket_count: counts.get(&status_id).copied().unwrap_or(0),
-                automation_count: rule_text.iter().filter(|text| text.contains(&needle)).count()
-                    as i64,
+                automation_count: rule_text
+                    .iter()
+                    .filter(|text| text.contains(&needle))
+                    .count() as i64,
             }
         })
         .collect())

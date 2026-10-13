@@ -1136,11 +1136,12 @@ impl PluginSurfaceProfile {
             // or a plugin could declare a keyword a first-party node
             // cannot.
             if let Some(schema) = &a.output_schema {
-                crate::node_registry::validate_declared_schema(schema)
-                    .map_err(|v| crate::error::DomainError::Validation(format!(
+                crate::node_registry::validate_declared_schema(schema).map_err(|v| {
+                    crate::error::DomainError::Validation(format!(
                         "action {:?} output_schema is not inside the declared schema subset: {v}",
                         a.id
-                    )))?;
+                    ))
+                })?;
             }
             Self::validate_emits(&a.id, "action", &a.emits)?;
             if let Some(desc) = &a.agent_description {
@@ -1216,11 +1217,12 @@ impl PluginSurfaceProfile {
                 // output schema is what a downstream value.reference and
                 // every condition gate on (A2), so it must be a shape the
                 // registry can actually resolve.
-                crate::node_registry::validate_declared_schema(schema)
-                    .map_err(|v| crate::error::DomainError::Validation(format!(
+                crate::node_registry::validate_declared_schema(schema).map_err(|v| {
+                    crate::error::DomainError::Validation(format!(
                         "read {:?} output_schema is not inside the declared schema subset: {v}",
                         r.id
-                    )))?;
+                    ))
+                })?;
             }
             Self::validate_emits(&r.id, "read", &r.emits)?;
             if let Some(desc) = &r.agent_description {
@@ -2784,10 +2786,7 @@ mod tests {
         assert_eq!(contract.node_id, "plugin.acme-rmm.push");
         assert!(contract.idempotent);
         assert_eq!(contract.emits, ["rmm.ticket_pushed"]);
-        assert_eq!(
-            contract.audience,
-            crate::node_registry::NodeAudience::Both
-        );
+        assert_eq!(contract.audience, crate::node_registry::NodeAudience::Both);
         assert!(contract
             .agent_description
             .as_deref()

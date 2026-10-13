@@ -17,13 +17,18 @@
       "effective_until": null,
       "hourly_rate_minor": null,
       "id": "00000000-0000-0000-0000-000000000017",
+      "incident_price_minor": null,
+      "incident_priority": null,
       "included_minutes": null,
       "name": "Managed IT retainer",
       "notes": null,
       "number": "C-2026-001",
       "org_id": "00000000-0000-0000-0000-000000000002",
       "overage_rate_minor": null,
+      "po_number": null,
       "status": "active",
+      "unit_basis": null,
+      "unit_price_minor": null,
       "updated_at": "2023-11-14T22:13:21Z"
     }
   }

@@ -100,7 +100,9 @@ impl NodeFamily {
 /// Tier A is always visible and first in search; Tier B is the domain long
 /// tail reached through the generic operation nodes; Tier C is
 /// plugin-contributed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum NodeTier {
@@ -542,9 +544,9 @@ impl DomainOp {
             | Self::TicketMerge
             | Self::TicketMoveToBoard
             | Self::TicketSetField => "ticket",
-            Self::TimeEntryLog
-            | Self::TimeEntryUpdate
-            | Self::TimeEntrySubmitForApproval => "time_entry",
+            Self::TimeEntryLog | Self::TimeEntryUpdate | Self::TimeEntrySubmitForApproval => {
+                "time_entry"
+            }
             Self::TimerStart | Self::TimerStop => "timer",
             Self::ClientCreate | Self::ClientUpdate | Self::ClientAddNote => "client",
             Self::ContactCreate | Self::ContactUpdate => "contact",
@@ -917,10 +919,7 @@ pub fn palette() -> Vec<&'static NodeType> {
 /// 8 — Activepieces' `aiMetadata` pattern). Schemas are exposed ON DEMAND
 /// through the API, never inlined into a prompt.
 pub fn agent_catalogue() -> Vec<&'static NodeType> {
-    all()
-        .iter()
-        .filter(|n| n.audience.includes_ai())
-        .collect()
+    all().iter().filter(|n| n.audience.includes_ai()).collect()
 }
 
 /// The Tier A nodes — the only tier the simple rule builder exposes.
@@ -1039,12 +1038,11 @@ pub fn check_loop_safety(
 /// expressions or scripts.
 pub fn validate_params(node_id: &str, params: &Value) -> Result<(), NodeRegistryError> {
     let node = require(node_id)?;
-    let schema = parse_schema(node.input_schema).map_err(|detail| {
-        NodeRegistryError::SchemaViolation {
+    let schema =
+        parse_schema(node.input_schema).map_err(|detail| NodeRegistryError::SchemaViolation {
             id: node_id.to_string(),
             detail: format!("declared input schema is not valid JSON Schema: {detail}"),
-        }
-    })?;
+        })?;
     validate_against_schema(&schema, params).map_err(|violation| {
         NodeRegistryError::SchemaViolation {
             id: node_id.to_string(),
@@ -1124,10 +1122,7 @@ impl fmt::Display for SchemaViolation {
 /// Unsupported keywords are refused RATHER THAN IGNORED at declaration
 /// time by [`validate_declared_schema`] — a schema the validator cannot
 /// fully honour must not ship as if it could.
-pub fn validate_against_schema(
-    schema: &Value,
-    instance: &Value,
-) -> Result<(), SchemaViolation> {
+pub fn validate_against_schema(schema: &Value, instance: &Value) -> Result<(), SchemaViolation> {
     validate_at(schema, instance, "")
 }
 
@@ -1175,12 +1170,16 @@ fn validate_declared_at(schema: &Value, path: &str) -> Result<(), SchemaViolatio
             ));
         }
         if let Some(declared) = value.as_str() {
-            if !matches!(declared, "object" | "array" | "string" | "integer" | "number" | "boolean" | "null" | "uuid")
-                && !matches!(key.as_str(), "format")
+            if !matches!(
+                declared,
+                "object" | "array" | "string" | "integer" | "number" | "boolean" | "null" | "uuid"
+            ) && !matches!(key.as_str(), "format")
             {
                 return Err(violation(
                     path,
-                    &format!("keyword {key:?} declares {declared:?}, which the subset does not define"),
+                    &format!(
+                        "keyword {key:?} declares {declared:?}, which the subset does not define"
+                    ),
                 ));
             }
         }
@@ -1327,12 +1326,18 @@ fn validate_string(
     };
     if let Some(min) = spec.get("minLength").and_then(Value::as_u64) {
         if (text.chars().count() as u64) < min {
-            return Err(violation(path, &format!("must be at least {min} characters")));
+            return Err(violation(
+                path,
+                &format!("must be at least {min} characters"),
+            ));
         }
     }
     if let Some(max) = spec.get("maxLength").and_then(Value::as_u64) {
         if (text.chars().count() as u64) > max {
-            return Err(violation(path, &format!("must be at most {max} characters")));
+            return Err(violation(
+                path,
+                &format!("must be at most {max} characters"),
+            ));
         }
     }
     if spec.get("format").and_then(Value::as_str) == Some("uuid")
@@ -1466,12 +1471,11 @@ impl PluginNodeContract {
             .get("params_schema")
             .filter(|s| !s.is_null())
             .cloned();
-        let audience = NodeAudience::parse(audience).ok_or_else(|| {
-            NodeRegistryError::SchemaViolation {
+        let audience =
+            NodeAudience::parse(audience).ok_or_else(|| NodeRegistryError::SchemaViolation {
                 id: entry_key.to_string(),
                 detail: format!("audience {audience:?} is not human/ai/both"),
-            }
-        })?;
+            })?;
         Ok(Self {
             node_id: entry_key.to_string(),
             kind,

@@ -5,10 +5,10 @@
   "payload_schema_ref": "core-domain/v1",
   "pinned_in": "0.1.0",
   "payload": {
-    "ticket_id": "00000000-0000-0000-0000-000000000001",
     "client_id": "00000000-0000-0000-0000-000000000002",
-    "status": "sent",
+    "occurred_at": "2023-11-14T22:13:29+00:00",
     "skip_reason": null,
-    "occurred_at": "2026-09-26T12:00:00+00:00"
+    "status": "sent",
+    "ticket_id": "00000000-0000-0000-0000-000000000001"
   }
 }

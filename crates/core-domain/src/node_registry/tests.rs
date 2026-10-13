@@ -96,7 +96,9 @@ fn get_and_require_resolve_the_same_node() {
     assert!(get("nope").is_none());
     assert_eq!(
         require("nope"),
-        Err(NodeRegistryError::UnknownNode { id: "nope".to_string() })
+        Err(NodeRegistryError::UnknownNode {
+            id: "nope".to_string()
+        })
     );
 }
 
@@ -125,7 +127,8 @@ fn the_subset_gate_refuses_a_schema_the_validator_cannot_honour() {
     // lies, so declaring one is refused.
     let smuggled = json!({"type": "object", "patternProperties": {"^x": {"type": "string"}}});
     assert!(validate_declared_schema(&smuggled).is_err());
-    let honest = json!({"type": "object", "properties": {"id": {"type": "string", "format": "uuid"}}});
+    let honest =
+        json!({"type": "object", "properties": {"id": {"type": "string", "format": "uuid"}}});
     assert!(validate_declared_schema(&honest).is_ok());
     // An undeclared `type` value is refused for the same reason.
     let wrong = json!({"type": "object", "properties": {"at": {"type": "datetime"}}});
@@ -159,9 +162,21 @@ fn validate_params_accepts_a_well_formed_node_and_refuses_junk() {
 
 #[test]
 fn enums_and_formats_are_enforced() {
-    assert!(validate_params("ticket.setPriority", &json!({"ticketId": "3f2504e0-4f89-11d3-9a0c-0305e82c3301", "priority": "p1"})).is_ok());
-    assert!(validate_params("ticket.setPriority", &json!({"ticketId": "3f2504e0-4f89-11d3-9a0c-0305e82c3301", "priority": "p9"})).is_err());
-    assert!(validate_params("ticket.setPriority", &json!({"ticketId": "not-a-uuid", "priority": "p1"})).is_err());
+    assert!(validate_params(
+        "ticket.setPriority",
+        &json!({"ticketId": "3f2504e0-4f89-11d3-9a0c-0305e82c3301", "priority": "p1"})
+    )
+    .is_ok());
+    assert!(validate_params(
+        "ticket.setPriority",
+        &json!({"ticketId": "3f2504e0-4f89-11d3-9a0c-0305e82c3301", "priority": "p9"})
+    )
+    .is_err());
+    assert!(validate_params(
+        "ticket.setPriority",
+        &json!({"ticketId": "not-a-uuid", "priority": "p1"})
+    )
+    .is_err());
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +212,10 @@ fn creates_sends_and_ledger_moves_are_not_idempotent() {
         "decision.ask",
         "ai.completion",
     ] {
-        assert!(!get(id).unwrap().idempotent, "{id} must be unsafe to repeat");
+        assert!(
+            !get(id).unwrap().idempotent,
+            "{id} must be unsafe to repeat"
+        );
     }
     for id in [
         "ticket.update",
@@ -257,11 +275,22 @@ fn domain_update_resolves_its_seam_and_flag_per_operation() {
     // Tier B rides the same emit seam as Tier A — that is what makes the
     // loop refusal complete rather than approximate.
     let create = json!({"operation": "ticket.create"});
-    assert_eq!(emitted_event_types("domain.update", &create), vec!["ticket.created"]);
-    assert_eq!(retry_refusal("domain.update", &create), Err(NodeRegistryError::RetryRefused { id: "domain.update".to_string() }));
+    assert_eq!(
+        emitted_event_types("domain.update", &create),
+        vec!["ticket.created"]
+    );
+    assert_eq!(
+        retry_refusal("domain.update", &create),
+        Err(NodeRegistryError::RetryRefused {
+            id: "domain.update".to_string()
+        })
+    );
 
     let update = json!({"operation": "ticket.update"});
-    assert_eq!(emitted_event_types("domain.update", &update), vec!["ticket.updated"]);
+    assert_eq!(
+        emitted_event_types("domain.update", &update),
+        vec!["ticket.updated"]
+    );
     assert!(retry_refusal("domain.update", &update).is_ok());
 
     // An operation with no declared event can never be statically linked
@@ -274,15 +303,26 @@ fn domain_update_resolves_its_seam_and_flag_per_operation() {
 fn check_loop_safety_refuses_a_workflow_that_can_resume_itself() {
     let wait = json!({"eventTypes": ["ticket.status_changed"]});
     let notify = json!({"userIds": []});
-    let safe = [LoopCheckNode::first_party("flow.waitFor", &wait), LoopCheckNode::first_party("notification.send", &notify)];
-    assert!(check_loop_safety("flow.waitFor", &["ticket.status_changed".to_string()], &safe).is_ok());
+    let safe = [
+        LoopCheckNode::first_party("flow.waitFor", &wait),
+        LoopCheckNode::first_party("notification.send", &notify),
+    ];
+    assert!(check_loop_safety(
+        "flow.waitFor",
+        &["ticket.status_changed".to_string()],
+        &safe
+    )
+    .is_ok());
 
     // Tier A, through its own declaration.
     let close = json!({"ticketId": "3f2504e0-4f89-11d3-9a0c-0305e82c3301", "status": "closed"});
     let refused = check_loop_safety(
         "flow.waitFor",
         &["ticket.status_changed".to_string()],
-        &[LoopCheckNode::first_party("flow.waitFor", &wait), LoopCheckNode::first_party("ticket.transition", &close)],
+        &[
+            LoopCheckNode::first_party("flow.waitFor", &wait),
+            LoopCheckNode::first_party("ticket.transition", &close),
+        ],
     );
     assert_eq!(
         refused,
@@ -334,7 +374,10 @@ fn check_loop_safety_refuses_a_workflow_that_can_resume_itself() {
     assert!(check_loop_safety(
         "flow.waitFor",
         &["ticket.status_changed".to_string()],
-        &[LoopCheckNode::first_party("flow.waitFor", &wait), LoopCheckNode::first_party("flow.delay", &clock)],
+        &[
+            LoopCheckNode::first_party("flow.waitFor", &wait),
+            LoopCheckNode::first_party("flow.delay", &clock)
+        ],
     )
     .is_ok());
 }
@@ -377,8 +420,16 @@ fn the_internal_decision_surfaces_are_unnamable() {
             "{offered} is offered and must be nameable"
         );
     }
-    assert!(validate_params("decision.ask", &json!({"surface": "decision_tool_routing", "questionSet": {"source": "workflow"}})).is_err());
-    assert!(validate_params("decision.ask", &json!({"surface": "decision_ticket_triage", "questionSet": {"source": "workflow"}})).is_ok());
+    assert!(validate_params(
+        "decision.ask",
+        &json!({"surface": "decision_tool_routing", "questionSet": {"source": "workflow"}})
+    )
+    .is_err());
+    assert!(validate_params(
+        "decision.ask",
+        &json!({"surface": "decision_ticket_triage", "questionSet": {"source": "workflow"}})
+    )
+    .is_ok());
 }
 
 // ---------------------------------------------------------------------------
@@ -417,7 +468,11 @@ fn actions_and_decisions_declare_referenceable_outputs() {
 #[test]
 fn the_palette_is_tier_ordered_and_human_visible() {
     let palette = palette();
-    assert_eq!(palette.len(), all().len(), "first-party nodes are all human-visible");
+    assert_eq!(
+        palette.len(),
+        all().len(),
+        "first-party nodes are all human-visible"
+    );
     let mut last = NodeTier::A;
     for node in palette {
         assert!(node.audience.includes_human());
@@ -450,8 +505,14 @@ fn audience_parsing_is_total() {
 
 #[test]
 fn plugin_node_kinds_map_from_the_surface_vocabulary_only() {
-    assert_eq!(PluginNodeKind::from_surface("automation_action"), Some(PluginNodeKind::Action));
-    assert_eq!(PluginNodeKind::from_surface("read"), Some(PluginNodeKind::Read));
+    assert_eq!(
+        PluginNodeKind::from_surface("automation_action"),
+        Some(PluginNodeKind::Action)
+    );
+    assert_eq!(
+        PluginNodeKind::from_surface("read"),
+        Some(PluginNodeKind::Read)
+    );
     // The UI kinds are not workflow nodes and never become one.
     assert_eq!(PluginNodeKind::from_surface("widget"), None);
     assert_eq!(PluginNodeKind::from_surface("report_render"), None);
@@ -500,8 +561,15 @@ fn the_plugin_contract_defaults_point_the_conservative_way() {
     .unwrap();
 
     assert_eq!(contract.kind, PluginNodeKind::Read);
-    assert!(!contract.idempotent, "an undeclared plugin action is retry-unsafe");
-    assert_eq!(contract.audience, NodeAudience::Human, "a silent plugin stays off the model's view");
+    assert!(
+        !contract.idempotent,
+        "an undeclared plugin action is retry-unsafe"
+    );
+    assert_eq!(
+        contract.audience,
+        NodeAudience::Human,
+        "a silent plugin stays off the model's view"
+    );
     assert!(contract.agent_description.is_none());
     // The human label stands in for a missing agent description, so the
     // catalogue never renders a blank row.
@@ -516,8 +584,30 @@ fn the_plugin_contract_defaults_point_the_conservative_way() {
 #[test]
 fn the_plugin_contract_refuses_a_ui_surface_and_a_bad_audience() {
     let definition = json!({});
-    assert!(PluginNodeContract::parse("widget", "plugin.acme.widget", "Widget", &definition, None, true, &[], "human", None).is_err());
-    assert!(PluginNodeContract::parse("automation_action", "plugin.acme.act", "Act", &definition, None, true, &[], "everyone", None).is_err());
+    assert!(PluginNodeContract::parse(
+        "widget",
+        "plugin.acme.widget",
+        "Widget",
+        &definition,
+        None,
+        true,
+        &[],
+        "human",
+        None
+    )
+    .is_err());
+    assert!(PluginNodeContract::parse(
+        "automation_action",
+        "plugin.acme.act",
+        "Act",
+        &definition,
+        None,
+        true,
+        &[],
+        "everyone",
+        None
+    )
+    .is_err());
 }
 
 #[test]
@@ -544,10 +634,7 @@ fn a_plugin_entry_becomes_a_registry_shaped_node() {
     // A plugin's emits reach the loop refusal through LoopCheckNode, the
     // seam the caller fills from the install at author time.
     let plugin_emits = vec!["rmm.ticket_pushed".to_string()];
-    assert_eq!(
-        emitted_event_types(node.id, &json!({})),
-        Vec::<&str>::new()
-    );
+    assert_eq!(emitted_event_types(node.id, &json!({})), Vec::<&str>::new());
     assert!(check_loop_safety(
         "flow.waitFor",
         &["rmm.ticket_pushed".to_string()],
@@ -569,7 +656,11 @@ fn the_catalogue_digest_is_stable_and_well_formed() {
     let first = catalogue_digest();
     assert_eq!(first.len(), 64, "a sha256 hex digest");
     assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(first, catalogue_digest(), "the digest must be deterministic");
+    assert_eq!(
+        first,
+        catalogue_digest(),
+        "the digest must be deterministic"
+    );
     assert!(!CATALOGUE_VERSION.is_empty());
 }
 

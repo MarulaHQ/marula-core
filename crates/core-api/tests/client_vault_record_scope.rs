@@ -152,8 +152,16 @@ async fn a_record_creates_inside_a_client_scope_folder() {
         Some(json!({ "name": "Acme" })),
     )
     .await;
-    assert_eq!(response.status(), 200, "client create must succeed: {}", response.status());
-    let client_id = body_json(response).await["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        response.status(),
+        200,
+        "client create must succeed: {}",
+        response.status()
+    );
+    let client_id = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Fork the org folder into the client scope — the only sanctioned way a
     // client-scope category comes to exist.
@@ -165,7 +173,12 @@ async fn a_record_creates_inside_a_client_scope_folder() {
         Some(json!({ "client_id": client_id })),
     )
     .await;
-    assert_eq!(response.status(), 200, "fork must succeed: {}", response.status());
+    assert_eq!(
+        response.status(),
+        200,
+        "fork must succeed: {}",
+        response.status()
+    );
     let forked = body_json(response).await;
     let client_folder = forked[0]["id"].as_str().unwrap().to_string();
     assert!(forked[0]["client_id"].as_str() == Some(client_id.as_str()));

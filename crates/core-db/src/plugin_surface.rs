@@ -287,10 +287,7 @@ const NODE_SURFACES: [&str; 2] = ["automation_action", "read"];
 /// Lists the org's enabled plugin-contributed workflow nodes, with the
 /// five contract fields beside the entry. The caller parses them through
 /// `core_domain::node_registry::PluginNodeContract`.
-pub async fn list_node_entries<'e, E>(
-    executor: E,
-    org_id: Uuid,
-) -> DbResult<Vec<PluginNodeEntry>>
+pub async fn list_node_entries<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<PluginNodeEntry>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {

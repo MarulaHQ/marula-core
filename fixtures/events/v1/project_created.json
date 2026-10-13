@@ -6,6 +6,7 @@
   "pinned_in": "0.1.0",
   "payload": {
     "project": {
+      "billing_contract_id": null,
       "billing_method": "milestone",
       "budget_minor": null,
       "client_id": "00000000-0000-0000-0000-000000000003",

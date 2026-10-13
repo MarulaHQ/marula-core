@@ -550,6 +550,14 @@ pub const NOTIFICATIONS_CLIENT_EVENTS: &str = "notifications.client_events";
 /// may override it through the per-client workflow-override registry,
 /// including an explicit disable.
 pub const AUTOMATIONS_CLIENT_RULES: &str = "automations.client_rules";
+/// Wave 43 lane 14 (`p43-workflow-run-ledger`): how many days a FINISHED
+/// workflow run stays in `workflow_runs` before the retention sweep drops
+/// it. Runs are the highest-volume rows the workflow engine produces, so
+/// the window is a setting rather than an unbounded table: 30 days by
+/// default, bounded by `workflow_runs::RETENTION_MIN_DAYS` /
+/// `RETENTION_MAX_DAYS` (an out-of-range stored value falls back to the
+/// default at read time instead of silently extending the table).
+pub const WORKFLOW_RUN_RETENTION_DAYS: &str = "workflow.run_retention_days";
 /// Per-connector enable/disable toggles (Wave 15 lane 4): one org-scope
 /// Boolean per shipped connector family, default ON.
 pub const CONNECTORS_CI_FEEDERS: &str = "connectors.ci_feeders";
@@ -984,6 +992,24 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                 description: "Org default for running automation rules against a client's \
                              tickets. A client may override this through its workflow \
                              overrides, including an explicit disable.",
+            },
+            SettingDeclaration {
+                key: WORKFLOW_RUN_RETENTION_DAYS,
+                kind: SettingKind::Integer {
+                    min: crate::workflow_runs::RETENTION_MIN_DAYS,
+                    max: crate::workflow_runs::RETENTION_MAX_DAYS,
+                },
+                default: SettingValue::Integer(crate::workflow_runs::RETENTION_DEFAULT_DAYS),
+                scope: SettingScope::Org,
+                section: SettingSection::Integrations,
+                visibility: SettingVisibility::Ui,
+                label: "Keep workflow runs for (days)",
+                description: "How long a finished workflow run stays in the run ledger \
+                             before the retention sweep removes it. The run ledger is the \
+                             record an operator reads to see what a workflow actually did, \
+                             and it is also the highest-volume table the engine writes, so \
+                             the window is a setting rather than an unbounded table. Runs \
+                             still parked or still running are never swept.",
             },
             SettingDeclaration {
                 key: EMAIL_GREETING,
@@ -1735,6 +1761,32 @@ mod tests {
     }
 
     #[test]
+    fn the_run_retention_window_is_a_bounded_org_setting() {
+        // Wave 43 lane 14: runs are the highest-volume table the workflow
+        // engine produces, so their window is a setting — bounded, so an
+        // org cannot turn the ledger into an unbounded archive by typo.
+        let d = declaration(WORKFLOW_RUN_RETENTION_DAYS)
+            .unwrap_or_else(|| panic!("{WORKFLOW_RUN_RETENTION_DAYS} declared"));
+        assert_eq!(d.scope, SettingScope::Org);
+        assert_eq!(d.visibility, SettingVisibility::Ui);
+        assert_eq!(
+            d.default,
+            SettingValue::Integer(crate::workflow_runs::RETENTION_DEFAULT_DAYS)
+        );
+        // The bounds are the same constants the run-ledger module clamps
+        // with: the declaration and the reader cannot drift.
+        let (min, max) = match &d.kind {
+            SettingKind::Integer { min, max } => (*min, *max),
+            other => panic!("retention must be an integer, got {}", other.label()),
+        };
+        assert_eq!(min, crate::workflow_runs::RETENTION_MIN_DAYS);
+        assert_eq!(max, crate::workflow_runs::RETENTION_MAX_DAYS);
+        assert!(d.validate(&SettingValue::Integer(30)).is_ok());
+        assert!(d.validate(&SettingValue::Integer(1)).is_err());
+        assert!(d.validate(&SettingValue::Integer(99_999)).is_err());
+    }
+
+    #[test]
     fn lookups_resolve() {
         assert!(declaration(GENERAL_EOD_HOUR).is_some());
         assert!(declaration("nope.nope").is_none());
@@ -1771,7 +1823,10 @@ mod tests {
         // 55 → 57. Wave 42 added the org greeting and the org policy over
         // personal signatures, the two settings that make the resolution
         // chain governable (the personal signature itself is user scope).
-        assert_eq!(declarations_for(SettingScope::Org).len(), 57);
+        // 57 → 58. Wave 43 lane 14 added the workflow run-retention window:
+        // runs are the highest-volume rows the workflow engine produces, so
+        // their window is an org setting rather than an unbounded table.
+        assert_eq!(declarations_for(SettingScope::Org).len(), 58);
     }
 
     #[test]

@@ -8,12 +8,25 @@ pub async fn check_event_types(
     org_id: Uuid,
     event_types: &[String],
 ) -> DbResult<Vec<String>> {
+    let mut tx = pool.begin().await?;
+    set_org(&mut tx, org_id).await?;
+    check_event_types_scoped(&mut tx, org_id, event_types).await
+}
+
+/// The admission check on a connection the caller has ALREADY org-scoped.
+/// A route handler rides its own `set_org_and_user` transaction, so it calls
+/// this rather than `check_event_types`: the second form opens a fresh tx on
+/// the bare pool, which works only because it re-scopes itself internally,
+/// and a read that has to self-scope is a read the RLS gate cannot see
+/// through.
+pub async fn check_event_types_scoped(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    event_types: &[String],
+) -> DbResult<Vec<String>> {
     if event_types.is_empty() {
         return Ok(Vec::new());
     }
-
-    let mut tx = pool.begin().await?;
-    set_org(&mut tx, org_id).await?;
 
     let ungranted: Vec<String> = sqlx::query_scalar(
         r#"
@@ -34,7 +47,6 @@ pub async fn check_event_types(
     .fetch_all(&mut *tx)
     .await?;
 
-    tx.commit().await?;
     Ok(ungranted)
 }
 
@@ -107,10 +119,7 @@ pub async fn is_event_type_known(pool: &PgPool, event_type: &str) -> DbResult<bo
     Ok(found.is_some())
 }
 
-pub async fn find_unknown_types(
-    pool: &PgPool,
-    event_types: &[String],
-) -> DbResult<Vec<String>> {
+pub async fn find_unknown_types(pool: &PgPool, event_types: &[String]) -> DbResult<Vec<String>> {
     if event_types.is_empty() {
         return Ok(Vec::new());
     }
@@ -135,10 +144,7 @@ pub async fn find_unknown_types(
 /// through lane 1's signed ingest and needs no workflow node at all
 /// (Wave 43 lane 13's catalogue decision). Separating them here is what
 /// stops a second trigger path being invented.
-pub async fn list_org_plugin_event_types<'e, E>(
-    executor: E,
-    org_id: Uuid,
-) -> DbResult<Vec<String>>
+pub async fn list_org_plugin_event_types<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<String>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {

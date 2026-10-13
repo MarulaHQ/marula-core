@@ -142,6 +142,12 @@ pub struct WorkerConfig {
     /// (documented none mode — surfaces act exactly as they would
     /// without a decision model).
     pub decision_bot_user_id: Option<uuid::Uuid>,
+    /// Seconds between workflow run-ledger retention sweeps
+    /// (`RETENTION_SWEEP_SECS`). The window itself is an ORG SETTING
+    /// (`workflow.run_retention_days`, default 30 days); this is only how
+    /// often the table is checked against it. Retention is housekeeping,
+    /// not user-visible latency, so the default is hours, not seconds.
+    pub retention_sweep_secs: u64,
 }
 
 impl WorkerConfig {
@@ -258,6 +264,9 @@ impl WorkerConfig {
                 .unwrap_or(300),
             decision_bot_user_id: lookup("MARULA_DECISION_BOT_USER_ID")
                 .and_then(|v| v.parse().ok()),
+            retention_sweep_secs: lookup("RETENTION_SWEEP_SECS")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(6 * 60 * 60),
         }
     }
 }

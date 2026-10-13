@@ -19,7 +19,11 @@
       "status": "scheduled",
       "ticket_id": "00000000-0000-0000-0000-000000000001",
       "title": "On-site: swap firewall",
+      "travel_distance_meters": null,
+      "travel_from": null,
       "travel_minutes": 35,
+      "travel_provider": null,
+      "travel_quality": null,
       "updated_at": "2023-11-14T22:13:27Z",
       "user_id": "00000000-0000-0000-0000-000000000004"
     }

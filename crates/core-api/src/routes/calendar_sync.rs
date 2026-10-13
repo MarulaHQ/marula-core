@@ -1203,7 +1203,6 @@ pub async fn authorize_start(
     let connection = core_db::calendar_sync::get_connection(&mut tx, org_id, connection_id)
         .await
         .map_err(ApiError::from)?;
-    tx.commit().await.map_err(ApiError::from)?;
 
     let slot = sealed_slot(&connection.provider).ok_or_else(|| {
         ApiError::Validation(format!(
@@ -1226,9 +1225,10 @@ pub async fn authorize_start(
     .bind(&state_nonce)
     .bind(expires)
     .bind(connection_id)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await
     .map_err(ApiError::from)?;
+    tx.commit().await.map_err(ApiError::from)?;
 
     let redirect_uri = oauth_redirect_uri(&connection.provider);
     let url = if connection.provider == "google" {

@@ -57,8 +57,8 @@ pub mod labels;
 pub mod loans;
 pub mod manifest;
 pub mod mfa;
-pub mod note_drafts;
 pub mod node_registry;
+pub mod note_drafts;
 pub mod notifications;
 pub mod oidc;
 pub mod onboarding;
@@ -112,6 +112,7 @@ pub mod vault_scale;
 pub mod verification;
 pub mod webhooks;
 pub mod workflow_overrides;
+pub mod workflow_runs;
 
 use sqlx::{postgres::PgPoolOptions, PgPool, Postgres, Transaction};
 use uuid::Uuid;

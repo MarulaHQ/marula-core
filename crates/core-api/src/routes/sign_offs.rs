@@ -65,8 +65,7 @@ fn payload_filename(sign_off_id: Uuid) -> String {
 // ---------------------------------------------------------------------------
 
 /// POST /api/tickets/{id}/sign-offs
-#[derive(Debug, Deserialize)]
-#[derive(utoipa::ToSchema)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateSignOffRequest {
     /// Base64 PNG of the trimmed, ink-only mark.
     pub image_base64: String,
@@ -93,16 +92,14 @@ pub struct CreateSignOffRequest {
 }
 
 /// POST /api/sign-offs/{id}/revoke
-#[derive(Debug, Deserialize)]
-#[derive(utoipa::ToSchema)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct RevokeSignOffRequest {
     /// Why the sign-off no longer stands. Part of the audit record.
     pub reason: String,
 }
 
 /// POST /api/org/sign-off-consents
-#[derive(Debug, Deserialize)]
-#[derive(utoipa::ToSchema)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateConsentRequest {
     pub body: String,
 }
@@ -134,14 +131,10 @@ fn decode_payload(image_base64: &str) -> Result<Vec<u8>, ApiError> {
 fn validate_signer_name(raw: &str) -> Result<String, ApiError> {
     let name = raw.trim();
     if name.is_empty() {
-        return Err(ApiError::Validation(
-            "the signer's name is required".into(),
-        ));
+        return Err(ApiError::Validation("the signer's name is required".into()));
     }
     if name.chars().count() > 120 {
-        return Err(ApiError::Validation(
-            "the signer's name is too long".into(),
-        ));
+        return Err(ApiError::Validation("the signer's name is too long".into()));
     }
     Ok(name.to_string())
 }
@@ -286,7 +279,13 @@ pub async fn create(
         let size = bytes.len() as i64;
         // The store takes Bytes; converting once means the transaction owns
         // the only copy rather than cloning a Vec per attempt.
-        (filename, content_type, sha256_hex, size, Some(axum::body::Bytes::from(bytes)))
+        (
+            filename,
+            content_type,
+            sha256_hex,
+            size,
+            Some(axum::body::Bytes::from(bytes)),
+        )
     };
     let storage_key = core_store::attachment_key(org_id, &sha256_hex);
     let store = std::sync::Arc::clone(&state.store);
@@ -303,21 +302,22 @@ pub async fn create(
 
         // Pin the exact consent wording. Snapshot, not a live join, so an org
         // revising its wording can never rewrite what this signer agreed to.
-        let consent = resolve_consent(&mut ctx.tx, org_id, body.consent_version, body.consent_id)
-            .await?;
+        let consent =
+            resolve_consent(&mut ctx.tx, org_id, body.consent_version, body.consent_id).await?;
         let consent_version = consent.version;
         let consent_text_snapshot = consent.body.clone();
 
         if let Some(original_id) = body.supersedes_sign_off_id {
             // A correction must name an older sign-off on the SAME ticket.
-            let original_ticket = core_db::sign_offs::sign_off_ticket(&mut ctx.tx, org_id, original_id)
-                .await
-                .map_err(|e| match e {
-                    core_db::DbError::NotFound => {
-                        ApiError::Validation("the sign-off to correct does not exist".into())
-                    }
-                    other => ApiError::from(other),
-                })?;
+            let original_ticket =
+                core_db::sign_offs::sign_off_ticket(&mut ctx.tx, org_id, original_id)
+                    .await
+                    .map_err(|e| match e {
+                        core_db::DbError::NotFound => {
+                            ApiError::Validation("the sign-off to correct does not exist".into())
+                        }
+                        other => ApiError::from(other),
+                    })?;
             if original_ticket != id {
                 return Err(ApiError::Validation(
                     "a correction must target a sign-off on the same ticket".into(),
@@ -498,7 +498,7 @@ pub async fn list(
             other => ApiError::from(other),
         })?;
     authorize_board_op(&mut tx, &authed.principal, ticket.board_id, BoardOp::View).await?;
-    let views = core_db::sign_offs::list_sign_off_views_for_ticket(&mut *tx, org_id, id).await?;
+    let views = core_db::sign_offs::list_sign_off_views_for_ticket(&mut tx, org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(views))
 }
@@ -528,13 +528,13 @@ pub async fn payload(
 
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org(&mut tx, org_id).await?;
-    let payload = core_db::sign_offs::payload_for_sign_off(&mut *tx, org_id, sign_off_id)
+    let payload = core_db::sign_offs::payload_for_sign_off(&mut tx, org_id, sign_off_id)
         .await
         .map_err(|e| match e {
             core_db::DbError::NotFound => ApiError::NotFound,
             other => ApiError::from(other),
         })?;
-    let ticket_id = core_db::sign_offs::sign_off_ticket(&mut *tx, org_id, sign_off_id)
+    let ticket_id = core_db::sign_offs::sign_off_ticket(&mut tx, org_id, sign_off_id)
         .await
         .map_err(ApiError::from)?;
     let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, ticket_id)
@@ -689,7 +689,7 @@ pub async fn current_consent(
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org(&mut tx, org_id).await?;
-    let consent = core_db::sign_offs::current_consent(&mut *tx, org_id)
+    let consent = core_db::sign_offs::current_consent(&mut tx, org_id)
         .await
         .map_err(ApiError::from)?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -734,9 +734,7 @@ pub async fn create_consent(
         ));
     }
     if text.chars().count() > 2000 {
-        return Err(ApiError::Validation(
-            "consent wording is too long".into(),
-        ));
+        return Err(ApiError::Validation("consent wording is too long".into()));
     }
 
     let consent = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {

@@ -37,6 +37,7 @@ pub mod pm_sweep;
 pub mod project_billing;
 pub mod queue_runner;
 pub mod rotation_sweep;
+pub mod run_retention_sweep;
 pub mod search_indexer;
 pub mod sla_sweep;
 pub mod time;
@@ -308,6 +309,11 @@ pub async fn run(
     // Secret-rotation reminders (Wave 19 lane 3): claims due rotate_at
     // rows across both vault subjects, enqueues secrets.rotation jobs.
     let rotation_alive = Arc::new(AtomicBool::new(true));
+    // Workflow run-ledger retention (Wave 43 lane 14): one housekeeping pass
+    // per interval that prunes each org's finished runs past its own window.
+    // Declared here with the other liveness flags because /healthz reads it
+    // long after the block below has closed.
+    let retention_alive = Arc::new(AtomicBool::new(true));
     {
         let alive = Arc::clone(&rotation_alive);
         let rot_pool = pool.clone();
@@ -318,6 +324,27 @@ pub async fn run(
             alive.store(false, Ordering::Relaxed);
             tracing::error!("rotation sweep exited; reporting unhealthy");
         });
+        // Workflow run-ledger retention (Wave 43 lane 14): one housekeeping
+        // pass per interval that prunes each org's finished runs past its
+        // own window. No internal token and no effect calls — a purge is
+        // housekeeping, never a domain effect.
+        {
+            let alive = Arc::clone(&retention_alive);
+            let retention_pool = pool.clone();
+            let retention_shutdown = shutdown.clone();
+            let interval_secs = config.retention_sweep_secs;
+            tokio::spawn(async move {
+                run_retention_sweep::run_run_retention_sweep(
+                    retention_pool,
+                    interval_secs,
+                    retention_shutdown,
+                )
+                .await;
+                alive.store(false, Ordering::Relaxed);
+                tracing::error!("run retention sweep exited; reporting unhealthy");
+            });
+        }
+
         // Jev intelligent-dedupe scheduled passes (Wave 22 lane 2): claims due
         // `dedupe_workflows` orgs and dispatches the internal run seam (the
         // runner itself is core-api's; this loop never touches domain tables).
@@ -389,6 +416,7 @@ pub async fn run(
         delivery_alive,
         pm_alive,
         rotation_alive,
+        retention_alive,
     };
     // Unified-search indexing: consumes domain events and pushes index
     // writes through core-api's internal effect surface. Disabled cleanly
@@ -442,6 +470,7 @@ struct HealthFlags {
     delivery_alive: Arc<AtomicBool>,
     pm_alive: Arc<AtomicBool>,
     rotation_alive: Arc<AtomicBool>,
+    retention_alive: Arc<AtomicBool>,
 }
 
 async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Value> {
@@ -454,10 +483,11 @@ async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Valu
         && flags.webhooks_alive.load(Ordering::Relaxed)
         && flags.delivery_alive.load(Ordering::Relaxed)
         && flags.pm_alive.load(Ordering::Relaxed)
-        && flags.rotation_alive.load(Ordering::Relaxed);
+        && flags.rotation_alive.load(Ordering::Relaxed)
+        && flags.retention_alive.load(Ordering::Relaxed);
     if ok {
         Json(
-            json!({ "status": "ok", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER"), "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive", "rotation": "alive" }),
+            json!({ "status": "ok", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER"), "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive", "rotation": "alive", "retention": "alive" }),
         )
     } else {
         Json(json!({ "status": "unhealthy", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER") }))
@@ -499,6 +529,7 @@ mod tests {
             webhooks_alive: Arc::new(AtomicBool::new(true)),
             delivery_alive: Arc::new(AtomicBool::new(true)),
             pm_alive: Arc::new(AtomicBool::new(true)),
+            retention_alive: Arc::new(AtomicBool::new(true)),
         };
         let healthy = healthz(State(Arc::new(flags.clone()))).await;
         assert_eq!(healthy.0["relay"], "alive");

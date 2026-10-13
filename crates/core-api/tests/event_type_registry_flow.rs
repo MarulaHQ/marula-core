@@ -100,13 +100,11 @@ async fn register_org(app: &Router, slug: &str) -> String {
 
 async fn org_id_for(state: &AppState, slug: &str) -> uuid::Uuid {
     let email = format!("owner@{slug}.test");
-    let row: (uuid::Uuid,) = sqlx::query_as(
-        "SELECT org_id FROM users WHERE email = $1"
-    )
-    .bind(&email)
-    .fetch_one(&state.pool)
-    .await
-    .expect("org lookup for test");
+    let row: (uuid::Uuid,) = sqlx::query_as("SELECT org_id FROM users WHERE email = $1")
+        .bind(&email)
+        .fetch_one(&state.pool)
+        .await
+        .expect("org lookup for test");
     row.0
 }
 
@@ -119,7 +117,7 @@ async fn grant_event_type(state: &AppState, org_id: uuid::Uuid, event_type: &str
         .expect("set local org id");
     sqlx::query(
         "INSERT INTO event_type_grants (org_id, event_type, granted_by) VALUES ($1, $2, NULL) \
-         ON CONFLICT (org_id, event_type) DO NOTHING"
+         ON CONFLICT (org_id, event_type) DO NOTHING",
     )
     .bind(org_id)
     .bind(event_type)

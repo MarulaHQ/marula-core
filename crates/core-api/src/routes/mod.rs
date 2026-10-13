@@ -146,6 +146,7 @@ pub mod webhook_receiver;
 pub mod webhooks;
 pub mod workflow_nodes;
 pub mod workflow_overrides;
+pub mod workflow_runs;
 
 use crate::auth::handlers as auth_handlers;
 use crate::auth::mfa_handlers as mfa;
@@ -828,6 +829,29 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/workflows/plugin-nodes"),
             get(workflow_nodes::list_plugin_nodes),
         )
+        // --- the workflow run ledger (Wave 43 lane 14) ------------------------
+        //
+        // The two logs are deliberately symmetrical: the run ledger pages
+        // on the same keyset cursor, with the same opaque encoding and the
+        // same `next_cursor` field, as the webhook delivery ledger it sits
+        // beside. An operator who can read one can read the other.
+        //
+        // The retry is the one mutation here and it is an OPERATOR ACTION,
+        // not a queue flag: it enqueues a `workflow.resume` job on the
+        // EXISTING queue, records the new run with `retry_of`, and refuses
+        // (typed 409, naming the nodes) when re-running would repeat a step
+        // that declares `idempotent = false`. The reads are admin-scoped
+        // because the ledger is operator tooling, and the write is Edit.
+        .route(&rp("/workflows/runs"), get(workflow_runs::list))
+        .route(&rp("/workflows/runs/{id}"), get(workflow_runs::get))
+        .route(
+            &rp("/workflows/runs/{id}/steps"),
+            get(workflow_runs::list_steps),
+        )
+        .route(
+            &rp("/workflows/runs/{id}/retry"),
+            post(workflow_runs::retry),
+        )
         .route(
             &rp("/tickets/{id}/comments"),
             get(tickets::list_comments).post(tickets::add_comment),
@@ -866,10 +890,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/tickets/{id}/sign-offs/{sign_off_id}/revoke"),
             post(sign_offs::revoke),
         )
-        .route(
-            &rp("/sign-offs/{id}/payload"),
-            get(sign_offs::payload),
-        )
+        .route(&rp("/sign-offs/{id}/payload"), get(sign_offs::payload))
         .route(
             &rp("/org/sign-off-consents/current"),
             get(sign_offs::current_consent),

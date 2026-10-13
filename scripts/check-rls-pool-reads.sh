@@ -76,6 +76,10 @@ allowlist=(
   # info; identity resolves via the 0014 SECURITY DEFINER seam before any
   # session exists. All subsequent reads ride an org-bound tx.
   'alerts.rs:auth_lookup_source(&state.pool'
+  # The 0014 seam is shared: lane 1's generic signed ingest (webhook_receiver)
+  # resolves the same way before any session exists, for the same reason.
+  # Every read after the exchange rides an org-bound tx.
+  'webhook_receiver.rs:auth_lookup_source(&state.pool'
   # Pre-auth SSO (Wave 18 lane 2b + Wave 34 lane 6 re-anchor): provider /
   # code / public-list resolution via migration-seam SECURITY DEFINER
   # functions (no session yet); the callback then re-reads the provider
@@ -91,6 +95,12 @@ allowlist=(
   # and every read after ride set_org/set_org_and_user txs.
   'portal.rs:portal_resolve_login('
   'portal.rs:portal_resolve_session('
+  # Portal magic-link redemption (Wave 42 hardening): consume_portal_one_use_
+  # token is the `app_consume_portal_one_use_token` SECURITY DEFINER seam
+  # (migration 0021 family) and returns identity only — the same narrow
+  # cross-org shape as portal_resolve_login/session. Credential checks and
+  # every read after ride org-bound txs.
+  'portal.rs:consume_portal_one_use_token('
   # Self-host health probe (p36 selfhost-visibility): SELECT 1 liveness
   # only — no tenant column is read, nothing to scope.
   'self_host.rs:query_scalar::<_, i32>("SELECT 1")'

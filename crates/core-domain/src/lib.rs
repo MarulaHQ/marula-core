@@ -41,6 +41,7 @@ pub mod time_audit;
 pub mod webhooks;
 pub mod workflow;
 pub mod workflow_overrides;
+pub mod workflow_runs;
 
 pub use completion::{
     CompletionError, CompletionMessage, CompletionProvider, CompletionRequest, CompletionResponse,

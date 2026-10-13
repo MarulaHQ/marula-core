@@ -1174,7 +1174,11 @@ pub async fn get_decision_runs(
         });
     }
 
-    let acts: Vec<f64> = effective.questions.iter().map(|q| q.thresholds.act).collect();
+    let acts: Vec<f64> = effective
+        .questions
+        .iter()
+        .map(|q| q.thresholds.act)
+        .collect();
     let threshold = acts.iter().copied().fold(0.0f64, f64::max);
     let lowest_act = acts.iter().copied().fold(f64::INFINITY, f64::min);
     Ok(Json(DecisionRunsResponse {
@@ -1186,7 +1190,11 @@ pub async fn get_decision_runs(
             agreed,
             comparable,
             threshold,
-            lowest_threshold: if lowest_act.is_finite() { lowest_act } else { threshold },
+            lowest_threshold: if lowest_act.is_finite() {
+                lowest_act
+            } else {
+                threshold
+            },
             threshold_questions: acts.len(),
             has_evidence: !rows.is_empty(),
         },

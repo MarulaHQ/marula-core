@@ -497,6 +497,11 @@ use utoipa::OpenApi;
         crate::routes::workflow_nodes::list_nodes,
         crate::routes::workflow_nodes::get_node,
         crate::routes::workflow_nodes::list_plugin_nodes,
+        // the workflow run ledger (Wave 43 lane 14)
+        crate::routes::workflow_runs::list,
+        crate::routes::workflow_runs::get,
+        crate::routes::workflow_runs::list_steps,
+        crate::routes::workflow_runs::retry,
         crate::routes::api_keys::list,
         crate::routes::api_keys::create,
         crate::routes::api_keys::revoke,
@@ -1703,6 +1708,16 @@ use utoipa::OpenApi;
         crate::routes::workflow_nodes::NodeCatalogueView,
         crate::routes::workflow_nodes::PluginNodeView,
         crate::routes::workflow_nodes::PluginNodeListView,
+        // the workflow run ledger (Wave 43 lane 14)
+        crate::routes::workflow_runs::RunView,
+        crate::routes::workflow_runs::RunListResponse,
+        crate::routes::workflow_runs::RunStepView,
+        crate::routes::workflow_runs::RunStepListResponse,
+        crate::routes::workflow_runs::RunDetailView,
+        crate::routes::workflow_runs::RunListQuery,
+        crate::routes::workflow_runs::RunStepListQuery,
+        crate::routes::workflow_runs::RetryRunRequest,
+        crate::routes::workflow_runs::RunRetryResponse,
         // ADR 0009 distribution lifecycle (Wave 16 lane 7) + Wave 24 theme packs
         crate::routes::plugin_distribution::ThemePackList,
         crate::routes::plugin_distribution::ThemePackView,

@@ -15,9 +15,11 @@
       "minutes": 120,
       "notes": "On-site visit",
       "org_id": "00000000-0000-0000-0000-000000000000",
+      "phase_id": null,
       "started_at": "2023-11-14T22:13:24Z",
       "ticket_id": "00000000-0000-0000-0000-000000000001",
       "timer_session_id": "00000000-0000-0000-0000-00000000000f",
+      "unbillable_reason": null,
       "user_id": "00000000-0000-0000-0000-000000000004",
       "work_type": "onsite"
     }

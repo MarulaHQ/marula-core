@@ -11,7 +11,9 @@
 //! (core-domain), no authorization, and no cache.
 
 use crate::{DbError, DbResult};
-use core_domain::entities::{SignOff, SignOffConsent, SignOffRevocation, SignOffSignerKind, SignOffView};
+use core_domain::entities::{
+    SignOff, SignOffConsent, SignOffRevocation, SignOffSignerKind, SignOffView,
+};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
@@ -43,12 +45,12 @@ fn row_to_sign_off(row: sqlx::postgres::PgRow) -> Result<SignOff, sqlx::Error> {
         attachment_id: row.get("attachment_id"),
         typed_agreement: row.get("typed_agreement"),
         signer_name: row.get("signer_name"),
-        signer_kind: kind
-            .parse()
-            .map_err(|e: core_domain::DomainError| sqlx::Error::ColumnDecode {
+        signer_kind: kind.parse().map_err(|e: core_domain::DomainError| {
+            sqlx::Error::ColumnDecode {
                 index: "signer_kind".into(),
                 source: Box::new(e),
-            })?,
+            }
+        })?,
         witnessed_by_user_id: row.get("witnessed_by_user_id"),
         captured_at: row.get("captured_at"),
         consent_version: row.get("consent_version"),
@@ -336,22 +338,17 @@ pub async fn latest_revocation(
 
 /// A sign-off's immutable ticket subject. Used by the revoke route to prove
 /// the row belongs to the ticket named in the path before appending to the trail.
-pub async fn sign_off_ticket(
-    conn: &mut PgConnection,
-    org_id: Uuid,
-    id: Uuid,
-) -> DbResult<Uuid> {
-    let row: Uuid = sqlx::query_scalar(
-        "SELECT ticket_id FROM sign_offs WHERE org_id = $1 AND id = $2",
-    )
-    .bind(org_id)
-    .bind(id)
-    .fetch_one(conn)
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => DbError::NotFound,
-        other => other.into(),
-    })?;
+pub async fn sign_off_ticket(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> DbResult<Uuid> {
+    let row: Uuid =
+        sqlx::query_scalar("SELECT ticket_id FROM sign_offs WHERE org_id = $1 AND id = $2")
+            .bind(org_id)
+            .bind(id)
+            .fetch_one(conn)
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => DbError::NotFound,
+                other => other.into(),
+            })?;
     Ok(row)
 }
 

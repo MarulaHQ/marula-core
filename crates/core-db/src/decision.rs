@@ -335,12 +335,7 @@ where
 
 /// How many runs a surface has recorded in the window — the run-log's own
 /// count, so the summary never has to be computed by loading every row.
-pub async fn count_runs<'e, E>(
-    executor: E,
-    org_id: Uuid,
-    surface: &str,
-    days: i32,
-) -> DbResult<i64>
+pub async fn count_runs<'e, E>(executor: E, org_id: Uuid, surface: &str, days: i32) -> DbResult<i64>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
