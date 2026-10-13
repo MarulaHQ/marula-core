@@ -189,7 +189,7 @@ export function DecisionSuggestionsCard({
     <aside
       data-testid="wb-decision-card"
       aria-label="AI triage suggestions"
-      className="m-wb-slide-in rounded-xl border p-3"
+      className="rounded-xl border p-3"
       style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
     >
       <div className="mb-1.5 flex items-center justify-between gap-2">

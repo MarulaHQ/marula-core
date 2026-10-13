@@ -31,7 +31,7 @@ import "./money.css";
 // ---------------------------------------------------------------- icons ----
 
 function Icon({ name }: { name: "check" | "clock" | "alert" | "info" }) {
-  return <KitIcon name={name} size={14} className="m-money-ico" />;
+  return <KitIcon name={name} size={14} />;
 }
 
 // ---------------------------------------------------------------- header ----

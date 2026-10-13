@@ -509,7 +509,7 @@ export function FormField({
   testId,
 }: FormFieldProps): React.JSX.Element {
   return (
-    <div className="m-settings-field" data-testid={testId}>
+    <div data-testid={testId}>
       <label
         htmlFor={htmlFor}
         style={{ display: "block", fontSize: 14, fontWeight: 600, color: "var(--m-text)" }}
@@ -519,7 +519,7 @@ export function FormField({
       <div style={{ marginTop: 6 }}>{children}</div>
       {error === null || error === undefined ? (
         hint === undefined ? null : (
-          <p className="m-settings-hint" style={{ margin: "6px 0 0", fontSize: 13, color: "var(--m-text-secondary)" }}>
+          <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--m-text-secondary)" }}>
             {hint}
           </p>
         )

@@ -242,6 +242,16 @@
   color: var(--m-text-secondary);
 }
 
+/* One field: label, control, hint. A vertical stack, because the control is a
+   block that fills the column and the label is inline — without this the label
+   sits flush against the control with no gap between them. 6px reads as one
+   group against the 16px the card already puts between fields. */
+.entry-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* A validation error is BLUSH, with an icon and words. Never red. */
 .entry-field--error .entry-input {
   border: 2px solid var(--m-blush);

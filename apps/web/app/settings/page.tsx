@@ -31,9 +31,7 @@ export default function SettingsIndexPage(): React.JSX.Element {
           display: "grid",
           gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
           gap: 14,
-        }}
-        className="settings-index-grid"
-      >
+        }}      >
         {SETTINGS_GROUPS.map((group) => (
           <section
             key={group.id}

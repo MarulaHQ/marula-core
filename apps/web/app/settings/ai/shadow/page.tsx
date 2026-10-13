@@ -482,6 +482,9 @@ function RunTable({ runs }: { runs: DecisionRunView[] }): React.JSX.Element {
         {["When", "Ticket", "What it would have said", "Confidence", "The agent did"].map((header) => (
           <span
             key={header}
+            // `role="table"` requires its rows to carry cells; a screen reader
+            // otherwise reads each row as one undifferentiated lump.
+            role="columnheader"
             style={{
               fontSize: 12,
               letterSpacing: "0.06em",
@@ -510,6 +513,7 @@ function RunTable({ runs }: { runs: DecisionRunView[] }): React.JSX.Element {
           }}
         >
           <span
+            role="cell"
             style={{
               paddingLeft: 12,
               fontSize: 13,
@@ -539,7 +543,7 @@ function RunTable({ runs }: { runs: DecisionRunView[] }): React.JSX.Element {
               <span style={{ color: "var(--m-text-secondary)" }}> · {run.ticket_title}</span>
             )}
           </span>
-          <span style={{ paddingLeft: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>
+          <span role="cell" style={{ paddingLeft: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>
             {run.answers.length === 0 ? (
               <span style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>no answer</span>
             ) : (
@@ -570,7 +574,7 @@ function RunTable({ runs }: { runs: DecisionRunView[] }): React.JSX.Element {
               ))
             )}
           </span>
-          <span style={{ paddingLeft: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          <span role="cell" style={{ paddingLeft: 12, display: "flex", alignItems: "center", gap: 8 }}>
             {run.top_confidence === null || run.top_confidence === undefined ? (
               <span style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>—</span>
             ) : (
@@ -592,7 +596,7 @@ function RunTable({ runs }: { runs: DecisionRunView[] }): React.JSX.Element {
               </>
             )}
           </span>
-          <span style={{ paddingLeft: 12 }}>
+          <span role="cell" style={{ paddingLeft: 12 }}>
             {run.agreed === null || run.agreed === undefined ? (
               <span style={{ fontSize: 13, color: "var(--m-text-secondary)" }}>
                 not comparable

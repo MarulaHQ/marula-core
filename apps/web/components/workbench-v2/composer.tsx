@@ -139,7 +139,7 @@ export function WbComposer({ ticketId, disabled, busy, draftRef, onPost }: WbCom
   }
 
   return (
-    <div className="m-wb-composer pointer-events-none relative z-20 px-4 pb-3">
+    <div className="pointer-events-none relative z-20 px-4 pb-3">
       {/* Boundary fade: rows crossing the scroll edge melt into the composer
           band (mockup's floating-composer grammar; transform/opacity-only
           static gradient — no layout animation). */}

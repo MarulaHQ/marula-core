@@ -331,7 +331,7 @@ export function WbTimeline({ ticketId, comments, attachments, namesByUser, reloa
             return (
               <li key={row.id}>
                 {showDay && (
-                  <p className="m-wb-day mb-2 mt-4 text-[10px] font-bold uppercase tracking-[0.075em]" style={{ color: "var(--m-text-muted)" }}>
+                  <p className="mb-2 mt-4 text-[10px] font-bold uppercase tracking-[0.075em]" style={{ color: "var(--m-text-muted)" }}>
                     {day}
                   </p>
                 )}
@@ -340,7 +340,7 @@ export function WbTimeline({ ticketId, comments, attachments, namesByUser, reloa
                   style={{ "--stagger-i": Math.min(i, 8) } as React.CSSProperties}
                   data-testid={`wb-row-${row.kind}`}
                 >
-                  <div className="m-wb-event-time pt-1 text-right text-[10px]" style={{ color: "var(--m-text-muted)", fontVariantNumeric: "tabular-nums" }}>
+                  <div className="pt-1 text-right text-[10px]" style={{ color: "var(--m-text-muted)", fontVariantNumeric: "tabular-nums" }}>
                     {timeLabel(row.at)}
                   </div>
                   <div

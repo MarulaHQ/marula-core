@@ -23,7 +23,7 @@ PACKS = {
     "workbench": os.path.expanduser("~/Documents/GitHub/Marula/marula-core/design/mockups/marula-app-mockup-images"),
     "surface": "/Users/iordn/Documents/GitHub/Marula/brand/packs/core-surface-pack",
 }
-CAP = os.path.join(REPO, "design/qa-p41-ui-audit/captures")
+CAP = os.path.join(REPO, "design/qa-p41-leftovers-closeout/captures")
 
 
 def load(path):
@@ -78,11 +78,25 @@ def resolve_pack_png(pack, state_id):
         "01-workbench-reply-default": f"desktop/{t}/states/01-workbench-reply-default.png",
         "02-timeline-scrolled-to-top": f"desktop/{t}/states/02-timeline-scrolled-to-top.png",
         "03-composer-internal-note": f"desktop/{t}/states/03-composer-internal-note.png",
+        "04-internal-note-added": f"desktop/{t}/states/04-internal-note-added.png",
+        "05-reply-sent-status-waiting": f"desktop/{t}/states/05-reply-sent-status-waiting.png",
+        "06-status-set-resolved": f"desktop/{t}/states/06-status-set-resolved.png",
         "07-filter-client": f"desktop/{t}/states/07-filter-client.png",
         "08-filter-internal": f"desktop/{t}/states/08-filter-internal.png",
         "09-filter-agent": f"desktop/{t}/states/09-filter-agent.png",
+        "10-assistant-script-ran": f"desktop/{t}/states/10-assistant-script-ran.png",
+        "11-assistant-suggestion-dismissed": f"desktop/{t}/states/11-assistant-suggestion-dismissed.png",
+        "12-assistant-question-answered": f"desktop/{t}/states/12-assistant-question-answered.png",
+        "13-timer-paused": f"desktop/{t}/states/13-timer-paused.png",
+        "14-quick-note-typed": f"desktop/{t}/states/14-quick-note-typed.png",
         "15-note-lines-open": f"desktop/{t}/states/15-note-lines-open.png",
+        "16-note-line-added": f"desktop/{t}/states/16-note-line-added.png",
+        "17-keyboard-focus-on-send": f"desktop/{t}/states/17-keyboard-focus-on-send.png",
         "18-wrap-up-resolve": f"desktop/{t}/states/18-wrap-up-resolve.png",
+        "19-wrap-up-waiting-on-client": f"desktop/{t}/states/19-wrap-up-waiting-on-client.png",
+        "20-wrap-up-schedule-follow-up": f"desktop/{t}/states/20-wrap-up-schedule-follow-up.png",
+        "21-wrap-up-keep-working": f"desktop/{t}/states/21-wrap-up-keep-working.png",
+        "22-wrap-up-completed-resolved": f"desktop/{t}/states/22-wrap-up-completed-resolved.png",
     }
     if want in SURFACE:
         rel = SURFACE[want]

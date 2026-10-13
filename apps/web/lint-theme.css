@@ -1,0 +1,41 @@
+/* LINT-ONLY stylesheet — NOT bundled by the app. Never `import` this from JS.
+ *
+ * Why it exists: `@shadcn/lint` reads ONE stylesheet (the `tailwind.css` entry
+ * in components.json) and follows its `@import` chain to learn which class
+ * names this project's Tailwind actually generates. The app's real entry,
+ * `app/globals.css`, imports `shell.css` and `ledger.css` and nothing else:
+ * the other thirteen feature sheets (`components/money.css`,
+ * `app/dispatch/dispatch.css`, `components/auth/entry.css`, `app/portal/portal.css`,
+ * `components/workbench-v2/workbench.css`, ...) are pulled in by their own
+ * components with a plain `import "./x.css"`, which Next.js bundles but the
+ * linter never sees.
+ *
+ * Without this file the linter reported 1233 of its 1274 no-unknown-classes
+ * findings on classes that DO have CSS — the classes simply lived outside the
+ * one import chain it reads. This aggregator imports every sheet in the app so
+ * the class universe the linter checks against is the real one, which is the
+ * only way `no-unknown-classes` can be promoted to `error` honestly.
+ *
+ * Importing this file does not change runtime CSS: it is reachable from no
+ * module and from no Next.js entry, so it is never bundled. Its only consumer
+ * is components.json's `tailwind.css`.
+ */
+@import "tailwindcss";
+
+@import "./app/globals.css";
+
+@import "./app/calendar/calendar.css";
+@import "./app/dispatch/dispatch.css";
+@import "./app/portal/portal.css";
+@import "./app/share.css";
+@import "./app/shell.css";
+@import "./app/ledger.css";
+@import "./app/tickets/[id]/wb-chrome.css";
+@import "./components/auth/entry.css";
+@import "./components/insight/insight-table.css";
+@import "./components/money.css";
+@import "./components/ticket-workspace/ticket-fields.css";
+@import "./components/tickets/ledger-chrome.css";
+@import "./components/tickets/legacy-chrome.css";
+@import "./components/tickets/merge-banner.css";
+@import "./components/workbench-v2/workbench.css";

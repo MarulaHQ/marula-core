@@ -689,7 +689,7 @@ export function StatusesSection({
                 borderBottom: "1px solid var(--m-border)",
               }}
             >
-              <span style={{ paddingLeft: 12 }}>
+              <span role="columnheader" style={{ paddingLeft: 12 }}>
                 <input
                   type="checkbox"
                   aria-label="Select every status"
@@ -700,10 +700,11 @@ export function StatusesSection({
                   style={{ width: 18, height: 18, accentColor: "var(--m-primary)" }}
                 />
               </span>
-              <span />
+              <span role="columnheader" />
               {COLUMN_HEADERS.map((header) => (
                 <span
                   key={header}
+                  role="columnheader"
                   style={{
                     fontSize: 12,
                     letterSpacing: "0.06em",
@@ -737,7 +738,7 @@ export function StatusesSection({
                   boxShadow: isSelected ? "inset 3px 0 0 0 var(--m-primary)" : undefined,
                 }}
               >
-                <span style={{ paddingLeft: 12 }}>
+                <span role="cell" style={{ paddingLeft: 12 }}>
                   <input
                     type="checkbox"
                     aria-label={`Select ${row.name}`}
@@ -750,10 +751,11 @@ export function StatusesSection({
                     style={{ width: 18, height: 18, accentColor: "var(--m-primary)" }}
                   />
                 </span>
-                <span aria-hidden="true" style={{ color: "var(--m-text-secondary)", display: "flex" }}>
+                <span role="cell" aria-hidden="true" style={{ color: "var(--m-text-secondary)", display: "flex" }}>
                   <GripIcon />
                 </span>
                 <span
+                  role="cell"
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -785,10 +787,10 @@ export function StatusesSection({
                     </span>
                   ) : null}
                 </span>
-                <span style={{ paddingLeft: 8 }}>
+                <span role="cell" style={{ paddingLeft: 8 }}>
                   <KindPill category={category} />
                 </span>
-                <span style={{ paddingLeft: 8, display: "flex" }}>
+                <span role="cell" style={{ paddingLeft: 8, display: "flex" }}>
                   <ToggleSwitch
                     on={category === "waiting"}
                     disabled={!canEdit || category === "closed"}
@@ -797,7 +799,7 @@ export function StatusesSection({
                     onChange={(next) => stage([row.id], { category: next ? "waiting" : "open" })}
                   />
                 </span>
-                <span style={{ paddingLeft: 8, display: "flex" }}>
+                <span role="cell" style={{ paddingLeft: 8, display: "flex" }}>
                   <ToggleSwitch
                     on={clientVisibleOf(row)}
                     disabled={!canEdit}
@@ -807,6 +809,7 @@ export function StatusesSection({
                   />
                 </span>
                 <span
+                  role="cell"
                   data-testid={`status-tickets-${row.id}`}
                   style={{
                     paddingLeft: 8,
@@ -817,7 +820,7 @@ export function StatusesSection({
                 >
                   {usage[row.id]?.ticketCount ?? 0}
                 </span>
-                <span style={{ display: "flex", justifyContent: "flex-end" }}>
+                <span role="cell" style={{ display: "flex", justifyContent: "flex-end" }}>
                   {canEdit ? (
                     <button
                       type="button"

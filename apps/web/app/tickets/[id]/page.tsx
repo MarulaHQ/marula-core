@@ -923,7 +923,7 @@ async function changeStatus(statusId: string): Promise<void> {
       );
     }
     return (
-      <div className="m-wb-center relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Top color+text status bar (standing constraint) — transitions
             happen FROM the bar, popover grouped by semantic category. */}
         <TicketStatusBar
@@ -1204,7 +1204,7 @@ async function changeStatus(statusId: string): Promise<void> {
                 role="tab"
                 aria-selected={active}
                 data-testid={`detail-tab-${tab.id}`}
-                className="m-wb-tab cursor-pointer border-0 bg-transparent pb-2.5 text-[11px] font-semibold"
+                className="cursor-pointer border-0 bg-transparent pb-2.5 text-[11px] font-semibold"
                 style={{
                   color: active ? "var(--m-text)" : "var(--m-text-muted)",
                   borderBottom: active ? "2px solid var(--m-accent)" : "2px solid transparent",
