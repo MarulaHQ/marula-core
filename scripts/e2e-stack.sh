@@ -156,10 +156,16 @@ else
   export CORS_ORIGIN="http://localhost:${WEB_PORT}"
   export BIND_ADDR="0.0.0.0:${API_PORT}"
   export WEB_BASE_URL="http://localhost:${WEB_PORT}"
-  export MARULA_DEV_TOOLS=1
-  export SQLX_OFFLINE=1
-  MODE=isolated
-  echo "[e2e-stack] run $RUN_ID (isolated mode — unique DB/ports/names)"
+   export MARULA_DEV_TOOLS=1
+   export SQLX_OFFLINE=1
+   # Where the demo's attachment bytes live. The seeder needs this or it writes
+   # only metadata rows and every download 404s — the api reads whatever
+   # OBJECT_STORE_LOCAL_DIR points at, so the seed and the api must agree. This
+   # is the same pairing `scripts/demo-up.sh` sets (Wave 47 lanes B1/B3).
+   export OBJECT_STORE_LOCAL_DIR="${OBJECT_STORE_LOCAL_DIR:-./data/objects}"
+   MODE=isolated
+   echo "[e2e-stack] run $RUN_ID (isolated mode — unique DB/ports/names)"
+   echo "[e2e-stack] object store dir $OBJECT_STORE_LOCAL_DIR"
 fi
 
 pg_ready() { pg_isready -q -d "$1" 2>/dev/null; }
@@ -253,6 +259,7 @@ JWT_SECRET=$JWT_SECRET
 MARULA_SECRET_KEY=$MARULA_SECRET_KEY
 REDIS_URL=$REDIS_URL
 CORS_ORIGIN=$CORS_ORIGIN
+OBJECT_STORE_LOCAL_DIR=$OBJECT_STORE_LOCAL_DIR
 EOF
 chmod 600 "$ENV_FILE"
 echo "[e2e-stack] wrote $ENV_FILE (run $RUN_ID; shared with Playwright + e2e-build-web)"

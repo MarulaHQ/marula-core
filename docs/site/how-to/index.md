@@ -65,5 +65,6 @@ Every guide lists its target **Audience** (`admin`, `staff`, or `both`) right un
 - [Call the API](call-the-api.md) — Authenticate, read paged collections, handle optimistic write envelopes, and use `@marula-core/sdk`.
 - [Report against the read model](read-model.md) — Connect your BI tool or SQL client to the stable `ops.v1_*` reporting views.
 - [Watch your self-hosted services](admin-self-host-services.md) — Check container health probes, inspect ClamAV email quarantines, and link out to Grafana or Uptime Kuma.
+- [Run the local demo stack](local-demo-stack.md) — Boot a seeded demo on your own machine with one command, including the BYOK checklist and the desktop alternative that needs no Docker.
 - [Upgrade to the latest release](upgrade.md) — Run `marula upgrade --check`, back up PostgreSQL, and upgrade safely within the N-2 support window.
 - Also see the full [Reference section](../reference/index.md) for self-hosting runbooks and schema catalogs.
