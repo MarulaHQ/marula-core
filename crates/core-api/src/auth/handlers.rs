@@ -520,21 +520,31 @@ pub async fn refresh(
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
     req: Option<Json<RefreshRequest>>,
 ) -> ApiResult<axum::response::Response> {
-    // CSRF double-submit for the cookie-only path (bearer callers carry
-    // no ambient credential and pass by construction).
-    if !cookies::double_submit_ok(&headers) {
-        return Err(ApiError::Forbidden("csrf check failed".into()));
-    }
-
-    // Cookie fallback: browser clients may POST with no (or empty) body.
-    let refresh_token: Option<(Uuid, String)> = match req {
+    // Credential source FIRST, CSRF second. Resolve whether the caller
+    // presented the refresh secret in the JSON body (the bearer-mode
+    // shape) or is riding the ambient httpOnly session cookie: the CSRF
+    // gate applies ONLY to the cookie fallback, because that is the one
+    // shape a forged cross-site request can ride — a secret nobody
+    // else's JavaScript can read is not forgeable.
+    //
+    // Demanding the header on the body path rejected a valid rotation
+    // with `403 csrf check failed` in any credentialed setup where the
+    // app's JS cannot read the API origin's `marula_csrf` to echo it:
+    // the browser still SENDs the `SameSite=Lax` session cookie (ports
+    // never split a site, and neither does a sibling subdomain) and
+    // still stores the rotated `Set-Cookie`. That forced a re-auth on
+    // every access-token expiry (p41 B1).
+    let (body_pair, cookie_pair) = match req {
         Some(Json(RefreshRequest {
             refresh_token: Some(t),
             session_id: Some(sid),
-        })) => Some((sid, t)),
-        _ => cookies::session_refresh_pair_from(&headers),
+        })) if !t.is_empty() => (Some((sid, t)), None),
+        _ => (None, cookies::session_refresh_pair_from(&headers)),
     };
-    let Some((sid, secret)) = refresh_token else {
+    if body_pair.is_none() && cookie_pair.is_some() && !cookies::double_submit_ok(&headers) {
+        return Err(ApiError::Forbidden("csrf check failed".into()));
+    }
+    let Some((sid, secret)) = body_pair.or(cookie_pair) else {
         // Consistent pre-throttle answer: need a body or a cookie. The
         // caller presented NO credential AT ALL — gate counters exist to
         // throttle brute-force attempts against a presented token; an
@@ -671,19 +681,22 @@ pub async fn logout(
     headers: HeaderMap,
     req: Option<Json<RefreshRequest>>,
 ) -> ApiResult<axum::response::Response> {
-    // Cookie fallback: browser clients may POST with no (or empty) body
-    // — the httpOnly session cookie carries (session, secret).
-    let refresh_token = match req {
+    // Same credential-source-first ordering as `refresh` above: the CSRF
+    // double-submit gate guards the ambient-cookie fallback ONLY. A body
+    // credential is a secret cross-site JavaScript cannot read, so it is
+    // not forgeable — and gating it left a logout at 403 with the 30-day
+    // session still live (p41 B1 sibling).
+    let (body_pair, cookie_pair) = match req {
         Some(Json(RefreshRequest {
             refresh_token: Some(t),
             session_id: Some(sid),
-        })) => Some((sid, t)),
-        _ => cookies::session_refresh_pair_from(&headers),
+        })) if !t.is_empty() => (Some((sid, t)), None),
+        _ => (None, cookies::session_refresh_pair_from(&headers)),
     };
-    if !cookies::double_submit_ok(&headers) {
+    if body_pair.is_none() && cookie_pair.is_some() && !cookies::double_submit_ok(&headers) {
         return Err(ApiError::Forbidden("csrf check failed".into()));
     }
-    if let Some((sid, secret)) = refresh_token {
+    if let Some((sid, secret)) = body_pair.or(cookie_pair) {
         let presented_hash = jwt::hash_refresh_token(&secret);
         if let Ok(Some(resolution)) =
             core_db::users::resolve_refresh(&state.pool, sid, &presented_hash).await
