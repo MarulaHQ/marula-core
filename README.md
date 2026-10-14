@@ -9,7 +9,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/sdk%20%2F%20plugins-Apache--2.0-E8B83A" alt="The SDK, plugins and connectors are licensed under the Apache-2.0" height="20"></a>
 </p>
 
-**The open-source PSA that MSPs own.** Tickets, time, clients, dispatch, projects, invoicing, knowledge base — everything an IT service team runs on, self-hosted, in a database you control.
+**The open-source PSA that MSPs own.** Tickets, time, clients, dispatch, projects, invoicing, knowledge base: everything an IT service team runs on, self-hosted, in a database you control.
 
 > **Status:** Phase 3 (commercial engine) — alpha gate closed 2026-09-12; Wave 12 (quotes, catalog, pipeline, inventory + configuration identity, vector search, FX, per-client overrides, live collaboration) landed. See [Roadmap](#roadmap).
 
@@ -20,21 +20,30 @@
 
 ---
 
+## Who Marula is for
+
+Whether you run the service desk, coordinate the dispatch board, work tickets in the field, or send out monthly invoices, Marula gives your team one place to work:
+
+- **Technicians** keep a single active timer running, log customer-facing and internal notes, scan assets and parts from their phone, and close out day-end time gaps in a couple of minutes.
+- **Dispatchers and service leads** see real technician capacity on the calendar, spot SLA risk before a ticket breaches, and schedule visits with live drive-time estimates.
+- **Office managers and owners** review approved hours against client retainers and project milestones, issue invoices and credit notes directly from the work already logged, and give clients a clean self-service portal.
+- **Systems administrators** host the entire stack on standard PostgreSQL and Valkey, control AI and plugin permissions down to individual roles, and inspect a tamper-evident audit trail for every change.
+
 ## Why we're building this
 
 Every commercial PSA taxes tickets, locks the data, and bends your workflow to its roadmap. We got tired of it.
 
-Marula is complete on its own. Invoicing, knowledge base, CSAT, scheduling — all native, no third-party subscriptions required to run a real MSP.
+Marula is complete on its own. Native invoicing, quotes, knowledge base, CSAT surveys, and dispatch scheduling all come built in, with no third-party subscriptions required to run a real MSP.
 
 Some things we care about enough to enforce in CI:
 
-**Workflows that don't break.** Customize boards however you like. Every status maps to a semantic category underneath (open / in progress / waiting / closed), and SLA timers, billing, reports and automations bind to the category, never to your labels. Rename anything, and nothing else changes meaning.
+**Workflows that don't break.** Customize boards however your shop works. Every status maps to a core stage underneath (`open`, `in_progress`, `waiting`, or `closed`). SLA timers and billing rules, along with reports and automations, bind to that underlying stage rather than your custom label. Rename any column on your board, and your reports and SLA clocks keep working without a hitch.
 
-**Time that actually gets billed.** One active timer per tech. End-of-day missing-time audits. Approvals before invoices go out. The gap between hours worked and hours logged stops being a mystery.
+**Time that actually gets billed.** One active timer per tech. End-of-day missing-time checks. Approvals before invoices go out. The gap between hours worked and hours billed stops being a mystery.
 
-**Agents you can audit, and that default to asking.** Skills are versioned manifests, not prompt spaghetti. Guardrail rules evaluate in layers before every tool call. Agent-originated changes to a record default to *proposed, awaiting approval* — nothing silently rewrites your work, and client-visible or external actions never bypass a human. The audit log records who did what, human or agent, and it stays append-only. "Who changed this" is a query, not a sift. There's an MCP server too, so Claude, DeepSeek, or your own scripts can work inside the PSA under the same rules as everyone else. See [`docs/instant-first.md`](docs/instant-first.md) and [`docs/10-agent-platform.md`](docs/10-agent-platform.md).
+**Assistants that ask first and leave a paper trail.** Skills are versioned manifests, not prompt spaghetti. Guardrail rules run before every tool call. Assistant-suggested changes to a ticket or record wait as *proposed, awaiting approval*: nothing silently rewrites your team's work, and client-visible or external actions always require a human click. The audit log records who did what, person or assistant, and stays append-only. Answering "who changed this" takes one search. There is an MCP server too, so Claude, DeepSeek, or your own scripts can work inside the PSA under the same rules as everyone else. See [`docs/site/`](docs/site/index.md), [`docs/instant-first.md`](docs/instant-first.md), and [`docs/10-agent-platform.md`](docs/10-agent-platform.md).
 
-**Fast, measurably — and there's no Save button to slow you down.** Ticket list p95 under 150 ms at 50k tickets. WebSocket delivery under 100 ms. These are CI gates, not aspirations. The dominant path is autosave with optimistic render and rich undo: you never chase a Save button or a page reload to feel committed, and Ctrl/Cmd+Z walks back through edits the server already accepted.
+**Fast by default, with no Save button to chase.** Ticket list p95 stays under `150 ms` at `50k` tickets, and WebSocket delivery stays under `100 ms`. Those are CI gates, not aspirations. Edits save automatically with instant feedback and full undo, so you can press Ctrl/Cmd+Z to step back through changes the server already recorded.
 
 ## Quick start
 

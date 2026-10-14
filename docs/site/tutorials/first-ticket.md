@@ -3,78 +3,58 @@
 > **Audience:** both — MSP staff learning the workbench and admins learning
 > the product. No API knowledge required.
 
-## Prerequisites
-
-- A running stack with the console reachable (see
-  [self-host reference](../reference/self-host-local-stack.md) if you
-  brought up the compose stack yourself) — or the desktop test app, which
-  seeds the demo org on first run ([ADR
-  0005](../../adr/0005-local-desktop-test-app.md)).
-- The **seeded demo org**: sign in as `owner@demo.local` with password
-  `demo-password-123`. It comes with 16 open tickets, seeded boards
-  (Service Desk, Field Service), clients, and time entries — you start in
-  a real service desk, not an empty one.
-
-Working a ticket is the center of the product. The console is built so a
-ticket is one screen, not three:
+When a client calls or emails with a problem, you shouldn't have to bounce between a ticket tab, a separate stopwatch popup, and a timecard sheet at 5 PM. In Marula, you open the ticket, start the clock at the bottom of your screen, type what you did, and stop the clock. Stopping the timer logs your billable time entry on the spot.
 
 > "A ticket should take one screen, not three. Notes, timer, conversation,
 > calendar live in the same view, because they are the same job."
 > — [MANIFESTO.md](../../../MANIFESTO.md), quoted verbatim
 
-## 1. Land on the work queue
+## Prerequisites
 
-After sign-in you are on `/today` — the shared working dashboard. It shows
-the org's live posture as stat widgets (overdue, due-today, approvals),
-"16 open", and today's rows with P1–P4 priority chips, assignee initials,
-board column, and escalation/progress status chips. A hint at the bottom
-of the page points at the work bar: "no active timer — the work bar
-tracks it". This queue is your morning, and everything below starts
-here.
+- A running Marula workspace in your browser (see [self-host reference](../reference/self-host-local-stack.md) if you started Docker Compose yourself), or the desktop test app ([ADR 0005](../../adr/0005-local-desktop-test-app.md)).
+- The **seeded demo org**: sign in as `owner@demo.local` with password `demo-password-123`. It comes preloaded with 16 open tickets, two service boards (`Service Desk` and `Field Service`), sample clients, and existing time entries so you can practice on realistic work right away.
 
-## 2. Open a ticket
+## 1. Check your morning queue on Today
 
-Click any row (or filter by priority chip first). The ticket opens in the
-workbench: three panes. Left is **Ticket Context** (client, board, status,
-SLA ring, contextual documentation links to relevant KB articles). Center
-is **Activity** — the conversation and the composer. Right is the **Agent**
-panel with relevant knowledge sources and a recommended next step.
+After you sign in, you land on **Today** (`/today`). Think of this page as your morning standup sheet:
 
-Header controls: status/SLA ring, Close, Escalate, Link, and the Classic
-toggle (the legacy workspace is kept side-by-side during the transition).
+- Top summary counters show what needs attention first: overdue tickets, tickets due today, and items waiting for approval.
+- Below the counters sits the active queue (`16 open` in the demo org), showing each ticket's `P1`–`P4` priority badge, assigned technician initials, board column, and SLA countdown pill.
+- Along the bottom edge of the window sits the dark **work bar**. Right now it reads `no active timer — the work bar tracks it`. Whenever you start timing a ticket, that bar stays visible even if you click over to another page to look up a password or check stock.
 
-## 3. Work it: note, timer, time entry
+## 2. Open a ticket in the workbench
 
-Type an update in the composer — flip on the **Internal note** selector for
-anything the client should not read. Attach files, or use AI Assist if your
-org has granted it. Timer and composer live together: the timer you started
-from the work bar lands as a proper time entry event on the ticket's
-Activity feed (see the **Time Entries** tab) the moment you stop it — no
-separate time-entry screen, no post-hoc retype of what you did.
+Click any ticket row in the queue (or click a priority filter chip like `P1` first). The ticket opens in a three-column workbench so you can read the background and reply without scrolling away:
 
-That is the whole loop: context in, note in, timer out to a time entry.
+- **Left column — Ticket Context:** Who the client is, which board and status column the ticket sits in, the live SLA countdown ring, and links to matching Knowledge Base runbooks.
+- **Center column — Activity:** The full chronological thread of client emails, internal technician notes, and logged time entries, with the reply and note composer pinned at the top.
+- **Right column — Assistant & Related:** Relevant documentation sources and, if your admin has enabled AI assistance for your role, a suggested next step that waits for your review.
 
-## 4. See it become billable
+Along the top header you have quick action buttons to change status, **Close**, **Escalate**, **Link** related records, or flip the **Classic** layout toggle.
 
-Open **Approvals** (/approvals). Your ticket's time entry awaits in the
-queue. Approved time entries are the ones billing consumes — invoiced
-entries lock permanently. That is the path from "I worked this" to "the
-client is invoiced for it".
+## 3. Start the timer, write your note, and stop the clock
+
+1. Start the ticket timer from the bottom work bar (or press `t`). Only one timer can run for you at a time; if you were already timing another ticket, Marula pauses that one automatically so your hours never overlap.
+2. Click into the **Activity** composer. If you are writing a reply the customer should read, leave the mode on **Client reply**. If you are recording troubleshooting steps or serial numbers for your teammates only, switch the selector to **Internal note**.
+3. Type your update and post it.
+4. When you finish the work, click **Stop** on the bottom work bar.
+
+The moment you stop the timer, Marula creates a time entry attached to this ticket and lists it under the **Time Entries** tab in the Activity feed. There is no separate timesheet screen to fill out later.
+
+## 4. See where your hours go for billing
+
+Open **Approvals** (`/approvals`) from the left navigation. The time entry you just stopped is waiting in the approval queue for a service lead or manager to review.
+
+Once a manager approves a time entry, the billing engine picks it up on the next invoice run. Once that invoice is issued to the client, the time entry locks permanently so historical bills never shift under your feet.
 
 ## What you learned
 
-- The work queue (`/today`) and the ticket list (`/tickets`) are the two
-  launch points. The workbench is where the work happens.
-- Notes, timer, time entries, files, and (if granted) AI assistance share
-  one composer-centered pane.
-- The board's semantic status categories govern every downstream clock
-  ([more on why](../explanation/customizations-are-data.md)).
+- **Today** (`/today`) and **Tickets** (`/tickets`) show what needs work next, while the ticket workbench keeps client details, notes, and the timer on a single screen.
+- Stopping the work-bar timer logs your time entry directly on the ticket timeline.
+- Every board column maps to a core stage (`open`, `in_progress`, `waiting`, or `closed`) that drives the SLA clock automatically ([see why customizations are data](../explanation/customizations-are-data.md)).
 
 ## Where to next
 
-- Prefer the API? This same lesson exists as an [API edition
-  (first-ticket-api.md)](first-ticket-api.md) — every step worked with
-  `curl` against the real endpoints.
-- How a board move works for a dispatcher: [Dispatch from the
-  board](../how-to/staff-dispatch.md).
-- The full task view for staff: [Work a ticket](../how-to/staff-work-a-ticket.md).
+- Want to run the exact same workflow from a terminal or script? Try the [API edition (`first-ticket-api.md`)](first-ticket-api.md) using `curl`.
+- Scheduling technicians onto the calendar? Read [Dispatch from the board](../how-to/staff-dispatch.md).
+- Looking for a quick daily checklist for technicians? Open [Work a ticket](../how-to/staff-work-a-ticket.md).

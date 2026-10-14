@@ -2,49 +2,43 @@
 
 > **Audience:** both — developers and self-host operators calling the API directly.
 
-The REST API is the single write surface for Marula: all mutations flow
-through it and emit domain events.
+Every action in the Marula web app, desktop app, and mobile app goes through the same `/api/v1/…` REST API. You can call those exact same endpoints from your own scripts using `curl` or the typed TypeScript client (`@marula-core/sdk`).
 
 ## Prerequisites
 
-- A reachable core-api and a bearer token (the [API tutorial](../tutorials/first-ticket-api.md) obtains one); machine scopes come from [API keys](admin-api-keys.md).
+- A reachable `core-api` server and either a user bearer token (see the [API first-ticket tutorial](../tutorials/first-ticket-api.md)) or a scoped machine token from **Settings → API keys** ([see How to manage API keys](admin-api-keys.md)).
 
+## 1. Authenticate
 
-## Authenticate
+For interactive user scripts, send email and password to `POST /api/v1/auth/login` to receive an access/refresh token pair. For background scripts and integrations, create a scoped key in **Settings → API keys**.
 
-`POST /api/v1/auth/login` with email + password returns a token pair. Send
-the access token as `Authorization: Bearer …`. MFA-enrolled orgs gate login
-per org policy; federated (OIDC / edge-assertion) identities authenticate
-through their configured sources.
+Send your token on every request in the `Authorization` header:
 
-## Read
+```http
+Authorization: Bearer <your-token>
+```
 
-Reads are plain resource-oriented REST under `/api/v1/…`. Collections are
-paged (`?limit=&offset=`).
+## 2. Read paged collections
 
-## Mutate through the instant-first envelope
+Read endpoints use standard `GET /api/v1/…` routes and support pagination query parameters (`?limit=&offset=`).
 
-Every mutation returns the instant-first `mutation` envelope: a sequence
-number plus a version and an updated timestamp. Clients render optimistically and
-reconcile against the authoritative response — never poll to "check if it
-worked".
+## 3. Write data and handle the instant-first envelope
 
-On conflict you get a typed `version_conflict`, not a generic error:
-reconcile the copy, don't toast it.
+Every `POST`, `PATCH`, `PUT`, or `DELETE` mutation returns Marula's instant-first `mutation` envelope containing the updated record, its new `version`, a monotonic sequence number, and the updated timestamp.
 
-## Handle errors
+If someone else updated the same record at the same moment, the API returns a `409 Conflict` with code `version_conflict` so your client can reconcile cleanly without overwriting their edit ([see Instant-first doctrine](../explanation/instant-first.md)).
 
-Failures return the typed envelope (IF3): a machine-readable reason code
-plus a human-readable message. Never parse prose. Example reasons:
-`org_slug_taken` (with a verified-available `suggestion`),
-`already_seeded`, `board_move_status_conflict`, `slot no longer free`-style
-409s for booking conflicts.
+## 4. Handle structured error codes
 
-## Use the typed SDK
+When a request is rejected, Marula returns a structured error object with a machine-readable `reason` code and a clear human message—so your scripts never have to regex-match error text. Common examples include:
 
-[`@marula-core/sdk`](../../../packages/sdk/) is generated from the committed
-OpenAPI snapshot — the same one the [API reference](../reference/api.md) is
-generated from. If a route exists in the docs, it exists in the client.
+- `org_slug_taken` (includes a verified-available `suggestion` field)
+- `already_seeded`
+- `board_move_status_conflict`
+
+## 5. Use the typed TypeScript SDK
+
+[`@marula-core/sdk`](../../../packages/sdk/) is generated directly from the committed OpenAPI specification (the same spec that generates the [API reference](../reference/api.md)):
 
 ```ts
 import { createClient } from "@marula-core/sdk";
@@ -52,10 +46,6 @@ import { createClient } from "@marula-core/sdk";
 const client = createClient({ baseUrl: "https://your-host" });
 ```
 
-## Integrate
+## 6. Build external connectors
 
-Connectors are ordinary web applications over the versioned API and signed
-webhooks — the NinjaOne and Hudu connectors are the reference
-implementations. External-DMS parity is a design requirement: everything
-reachable in the console is reachable as plain REST plus registered
-`asset.*` / `document.*` contract events.
+External connectors are standard web services that call the `/api/v1/…` REST endpoints and receive HMAC-signed webhooks. Check `plugins/connectors/` (such as the NinjaOne and Hudu reference connectors) and [How to extend Marula with plugin surfaces](admin-plugin-surfaces.md) for working examples.

@@ -4,66 +4,53 @@
 > adjacent reporting task; staff pin widgets for themselves (the widget
 > grid is shared, the pins are yours).
 
+Marula gives service leads and owners three ways to track how the shop is running: live **Dashboards** (`/reports/dashboards`), a custom **Report Builder** (`/reports`), and private coaching **Scorecards** (`/reports/scorecards`). Every chart and table reads from the same versioned reporting views so numbers never disagree between screens.
+
 ## Prerequisites
 
-- Access to **Reports** (/reports) and **Dashboards**
-  (/reports/dashboards). Org-wide dashboards are shared, while a
-  schedule is an admin-managed row.
-- The tools mental model (compile-on-demand, versioned views) — this
-  how-to assumes it. The
-  [reporting explanation](../explanation/customizations-are-data.md)
-  companion covers the deeper why.
+- Access to **Reports** (`/reports`) and **Dashboards** (`/reports/dashboards`).
+- A quick look at [Why customizations are data](../explanation/customizations-are-data.md) if you want to know why reports query stable `v1_*` views rather than internal database tables.
 
-## 1. The widget is the only engine — accept it
+## 1. Use and customize live dashboards
 
-Dashboards are the **widget grid**, and the grid is the only engine:
-preset tabs (My day / Team load / SLA health) ship prepopulated widget
-cards, and **Add widget** composes more.
-("the widget grid is the only engine — widgets, not report builder",
-per the audit's own note) and pairs with the free-form builder one tab
-away.
+Open **Reports → Dashboards** (`/reports/dashboards`). Dashboards are built on a shared widget grid with preset tabs ready out of the box:
 
-## 2. What a widget bar can express
+- **My day:** Personal hours logged and tickets moved today.
+- **Team load:** Active queue distribution and technician capacity.
+- **SLA health:** First-response and resolution compliance across your boards.
 
-Dashboard widgets read the same versioned read model the report builder
-compiles against (`v1_*` views — "views, never raw tables"). A widget is
-a report with a chart attached to the grid, so widget authoring is report
-authoring with the constraints the builder imposes: group-bys, measures,
-filters, a window. If a widget needs a construction the builder cannot
-express, the widget cannot either — write the report, keep the dashboard
-honest.
+Click **Add widget** to place additional chart or counter cards onto the grid.
 
-## 3. Build and save reports in the builder
+## 2. How widgets and reports share the same engine
 
-**Reports→Builder**: Data (a "versioned operational read model… views
-only — never raw tables"), group-bys, measures, filters, chart,
-window. Compile-on-demand means **nothing is saved until you save the
-report** — the spec compiles server-side against read-model views at run
-time. Saved reports persist, and per-view depth lives in the
-[read model catalog](read-model.md).
+Every dashboard widget is backed by a report query over Marula's versioned operational read model (`ops.v1_*` views). When you configure a widget or a custom report, you pick from the same building blocks:
 
-## 4. Schedules: hand standing reports to standing readers
+- **Data source** (one of the `v1_*` views such as tickets, time entries, SLA outcomes, or invoices)
+- **Group-by fields** and **measures**
+- **Filters** and **date window**
+- **Chart type**
 
-**Reports→Schedules** manages scheduled sends (report delivery of a
-standing report on cadence — the seeded demo org carries a "Weekly
-ticket digest" row). Delivery rides notification surfaces and respects
-quiet hours the same way other email does — SLA breaches and escalations
-break through quiet hours, scheduled digests do not.
+## 3. Build and save custom reports
 
-## 5. Where metrics come from when you build these
+Open **Reports → Builder**. Choose your data view, grouping, measure, filter clauses, and chart style.
 
-- **Dashboards** preset tabs back onto the perf read model
-  (`my_time`, `my_throughput`, and friends from the seeded capture).
-- **Scorecards** (/reports/scorecards) are separate and coaching-shaped:
-  private by default ("you see your own card; owners and admins see the
-  team"), per-user SLA%/breached/first-response stats over a Last-30-days
-  window, opt-in gamification off by default, CSAT explicitly reserved
-  ("surveys land in a later release").
-- **Audit** and **provenance** are admin query surfaces, not widgets —
-  see [provenance vs audit](../explanation/provenance-vs-audit.md).
+The builder compiles and previews your query on demand without cluttering your saved list. When the numbers look right, click **Save** so your team can run the report anytime or attach it to an email schedule. For the exact columns available in each view, see [How to report against the read model](read-model.md).
+
+## 4. Schedule recurring email digests
+
+Open **Reports → Schedules** to send saved reports automatically on a recurring cadence (for example, the preloaded *"Weekly ticket digest"*). Scheduled report emails use your workspace email transport and respect each recipient's notification quiet hours.
+
+## 5. Review technician scorecards and CSAT
+
+Open **Reports → Scorecards** (`/reports/scorecards`) for individual performance and coaching metrics over the last 30 days:
+
+- **Privacy by default:** Each technician sees only their own scorecard, while owners and admins can view the full team.
+- **Metrics included:** SLA compliance percentage, breached count, average first-response time, and customer satisfaction (**CSAT**) averages and low-score counts once [CSAT surveys](admin-csat-surveys.md) are active.
+- **Opt-in gamification:** Leaderboard comparisons stay **Off** by default unless an admin turns them on.
+
+For field-by-field edit history or security event reviews, use the dedicated [Provenance and Audit screens](../explanation/provenance-vs-audit.md).
 
 ## What you learned
 
-- Widgets are the dashboard engine. Reports are the builder's product.
-  Schedules are standing sends. Three surfaces, one read model.
-- Compile-on-demand keeps unsaved drafts weightless. Save to persist.
+- **Dashboards** display live widget grids, **Builder** creates custom saved reports, and **Schedules** emails them out on a timer.
+- Every widget and report queries the stable `v1_*` read-model views so upgrades never break your saved reports.

@@ -38,7 +38,7 @@ async fn seed_org(db: &common::TestDb, n: u64, slug: &str) -> Uuid {
     orgs::insert_org(&mut *tx, org, "Proposal Co", slug, "MER")
         .await
         .expect("org insert");
-    orgs::seed_default_roles(&mut *tx, org).await.expect("roles");
+    orgs::seed_default_roles(&mut tx, org).await.expect("roles");
     tx.commit().await.expect("commit org");
     org
 }
@@ -113,7 +113,11 @@ async fn a_cursorless_listing_pages_forward() {
     let first = agent_platform::list_proposals(&mut *tx, org, None, None, None, 2)
         .await
         .expect("first page");
-    assert_eq!(first.len(), 2, "the cursorless first page must come back full");
+    assert_eq!(
+        first.len(),
+        2,
+        "the cursorless first page must come back full"
+    );
 
     // The cursor contract: paging forward from the first page's last row
     // yields exactly the rows the first page did not show — no row twice, none
@@ -123,10 +127,16 @@ async fn a_cursorless_listing_pages_forward() {
     // `created_at DESC, id DESC`, and `now()` is transaction-scoped, so rows
     // written back to back tie on `created_at` and the tie-break is the id.
     let last = first.last().expect("a last row on a full page");
-    let second =
-        agent_platform::list_proposals(&mut *tx, org, None, Some(last.created_at), Some(last.id), 2)
-            .await
-            .expect("second page");
+    let second = agent_platform::list_proposals(
+        &mut *tx,
+        org,
+        None,
+        Some(last.created_at),
+        Some(last.id),
+        2,
+    )
+    .await
+    .expect("second page");
 
     let all: Vec<String> = first
         .iter()
@@ -136,7 +146,11 @@ async fn a_cursorless_listing_pages_forward() {
     assert_eq!(all.len(), 3, "paging must cover every row exactly once");
     let distinct: std::collections::HashSet<&String> = all.iter().collect();
     assert_eq!(distinct.len(), 3, "no row may appear on both pages");
-    assert_eq!(second.len(), 1, "exactly one row remains after the first page");
+    assert_eq!(
+        second.len(),
+        1,
+        "exactly one row remains after the first page"
+    );
     tx.commit().await.expect("commit read");
 }
 
