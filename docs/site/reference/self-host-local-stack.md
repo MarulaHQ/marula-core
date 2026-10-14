@@ -29,6 +29,14 @@ and the [backup/restore runbook](backup-restore.md).
 
 ## Bring-up
 
+For a demo or a scratch box, `scripts/demo-up.sh` is the one-command
+path: Postgres + Valkey from this compose file on the ports below, the
+migrations, the seeded demo org, and core-api / realtime / worker / web
+on the host. [How to run the local demo stack](../how-to/local-demo-stack.md)
+walks it, including the desktop alternative that needs no Docker.
+
+To run every service in containers instead:
+
 ```sh
 git clone https://github.com/Marlin-Hofmeyer/marula && cd marula
 docker compose -f deploy/docker-compose.yml up --build
@@ -40,9 +48,11 @@ console bakes `NEXT_PUBLIC_API_URL` into the client bundle at build time —
 behind your own domain, set it to the browser-reachable API URL, not a
 container service name.
 
-First bring-up applies the full forward-only migration chain. The desktop
-test app additionally seeds the demo org the tutorials use
-([ADR 0005](../../adr/0005-local-desktop-test-app.md)).
+First bring-up applies the full forward-only migration chain. The demo
+script (`scripts/demo-up.sh`) and the desktop test app additionally seed
+the demo org the tutorials use
+([ADR 0005](../../adr/0005-local-desktop-test-app.md)), the script via
+`marula-core-cli seed-demo --force`.
 
 ## Profiles
 
