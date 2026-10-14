@@ -32,11 +32,42 @@ test.describe("theme preset matrix (shipped defaults only)", () => {
     // prove a real attribute round-trip through the pre-paint bootstrap.
     const tags = ["warm-preset-light", "warm-preset-dark", "high-contrast-preset-light", "high-contrast-preset-dark"];
     const isDefault = !tags.includes(testInfo.project.name);
+    // The direction the harness seeded for this project (the same rule
+    // e2e/helpers/harness.ts applies: the base project is named exactly
+    // `dark`, the preset projects suffix it). The assertion is the KIT's
+    // settled literal for that direction — `dark`, or `neutral` for the
+    // app's light (packages/ui/src/theme.ts toDomTheme), never the app's own
+    // `light`, which the kit reads as its cream block.
+    const expectedTheme =
+      testInfo.project.name === "dark" || testInfo.project.name.endsWith("-dark") ? "dark" : "neutral";
+    // The pre-paint record: an init script at document_start, ahead of the
+    // bootstrap script and all React code, samples `--m-canvas` on every
+    // animation frame. The spec's claim is about the FIRST paint — the
+    // seeded preset reaching the app pre-paint and restyling it — so the
+    // assertion reads the first resolved frame rather than the DOM after
+    // the account sync has had its say. On an authed route that sync lands
+    // (the org default appearance.theme is `marula`, AppearanceSync applies
+    // it once /api/v1/settings resolves), and a one-shot read of the live
+    // DOM races it: before the sync the preset's canvas is live, after it
+    // the org default is. The sampled frame is the value a person actually
+    // saw first, which is the thing under test.
+    await page.addInitScript(() => {
+      const frames = [];
+      const note = () => {
+        frames.push({
+          theme: document.documentElement.getAttribute("data-theme"),
+          preset: document.documentElement.getAttribute("data-preset"),
+          canvas: getComputedStyle(document.documentElement)
+            .getPropertyValue("--m-canvas")
+            .trim(),
+        });
+        if (frames.length < 600) requestAnimationFrame(note);
+      };
+      requestAnimationFrame(note);
+      window.__PAINT_FRAMES__ = frames;
+    });
     await page.goto("/");
-    // The DOM carries the kit's names: the app's `light` is written as
-    // `neutral` so the kit's cream block cannot win
-    // (packages/ui/src/theme.ts toDomTheme).
-    await expect(page.locator("html")).toHaveAttribute("data-theme", /neutral|dark/);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", expectedTheme);
     if (isDefault) {
       await expect(page.locator("html")).not.toHaveAttribute("data-preset");
     } else {
@@ -44,16 +75,19 @@ test.describe("theme preset matrix (shipped defaults only)", () => {
         "data-preset",
         /marula-warm|high_contrast/,
       );
-      // The preset actually restyles: the canvas is NOT the Neutral default.
-      // This is the D8 axis in one assertion — a preset may move the neutral,
-      // and the check is that it demonstrably did.
-      const canvas = await page.evaluate(
-        () =>
-          getComputedStyle(document.documentElement)
-            .getPropertyValue("--m-canvas")
-            .trim(),
-      );
-      expect(canvas.toLowerCase()).not.toBe(CANVAS_BY_PRESET.marula);
+      // The first frame with a resolved canvas carried the seeded preset's
+      // tokens: this is the D8 axis in one assertion — a preset may move the
+      // neutral, and the check is that it demonstrably did, on the frame
+      // the bootstrap script produced.
+      const firstPainted = await page.evaluate(() => {
+        const frames = (window.__PAINT_FRAMES__ ?? []) as {
+          preset: string | null;
+          canvas: string;
+        }[];
+        return frames.find((f) => f.canvas !== "") ?? null;
+      });
+      expect(firstPainted?.canvas.toLowerCase()).not.toBe(CANVAS_BY_PRESET.marula);
+      expect(firstPainted?.preset).toMatch(/marula-warm|high_contrast/);
     }
   });
 

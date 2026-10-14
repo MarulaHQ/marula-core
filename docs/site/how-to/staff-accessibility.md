@@ -47,16 +47,9 @@ is readable too.
 
 ## Themes
 
-**Settings → Appearance** holds the theme presets: Tangerine, Slate,
-Copper, or High contrast, each in light and dark. Every shipped preset
-passes WCAG AA contrast (4.5:1 for text, checked mechanically on every
-build), so pick the one that reads best and stay inside it. Admins can
-set a preset for the whole org from the same page; your personal override
-wins if both are set.
+**Settings → Appearance** holds the theme presets (`Marula` neutral, `Marula Warm`, or `High contrast`), each available in light and dark mode. You can also choose your preferred layout density (**Comfortable**, **Compact**, or **Dense**). Every built-in preset passes WCAG AA contrast (`4.5:1` for text, checked automatically in CI), so pick the combination that reads best for your eyes. Admins can set a default theme preset for the whole organization from the same page, while your personal override always takes priority for your account.
 
-If you need more than a preset offers, the High contrast preset is the
-place to start. Custom theme packs uploaded by an admin are checked
-against the same contrast floors before they install.
+If you need maximum legibility, switch to the **High contrast** preset. Custom theme packs uploaded by an admin are checked against the same contrast floors before they can be installed.
 
 ## If something is in the way
 

@@ -3,123 +3,82 @@
 > **Audience:** admin — staff contribute the billable time; this lesson
 > runs the review and the run that turn it into an invoice.
 
-Money follows one arrow: time entry → approval → verification → billing
-run → invoice. Wave 39 added the middle step, and the middle step is
-where a bill gets looked at before anyone sends it. This lesson walks
-the whole arrow on the seeded demo org (`owner@demo.local` /
-`demo-password-123`).
+Turning technician hours into a clean client bill follows five clear steps:
+
+1. A technician logs time with a **work category** (`remote`, `on_site`, `warranty`, etc.).
+2. A service lead **approves** the time entry.
+3. A manager or bookkeeper **verifies** the billing period to catch uncategorized time or apply courtesy write-downs before the invoice goes out.
+4. You run the **billing batch** to generate the invoice snapshot.
+5. If anything needs adjusting after an invoice is sent, you issue a **credit note** rather than editing a sent bill.
+
+This tutorial walks through the entire cycle using the preloaded demo organization (`owner@demo.local` / `demo-password-123`).
 
 ## Prerequisites
 
-- The seeded demo org, or your own stack with one client, one active
-  contract, and time entries sitting in the approvals queue.
-- Billing scope (admin or bookkeeper). Approving time is staff scope;
-  verifying and invoicing is not.
+- The seeded demo org, or your own workspace with at least one client, one active contract, and logged time entries sitting in the approvals queue.
+- Admin or billing permissions. (Service leads can approve daily time entries, while verifying a billing period and issuing invoices require billing access.)
 
-## 1. The time entry carries a category
+## 1. Check how work categories control billing
 
-Open **Time categories** (/settings/time-categories) and skim the list.
-Each row is a slug the capture surfaces write onto an entry: `on_site`,
-`remote`, `incident`, `warranty`. Two flags per row matter downstream —
-whether the category bills by default, and whether flipping an entry
-non-billable demands a typed reason. Reasons are a fixed set (warranty,
-courtesy, in_retainer_block, sla_covered, internal, mistake), so a
-non-billable entry with no reason is refused rather than stored blank.
+Open **Settings → Time categories** (`/settings/time-categories`). Every time entry a technician logs carries one of these categories, such as `on_site`, `remote`, `incident`, or `warranty`.
 
-Entries logged before the taxonomy existed still work: the free text
-normalizes through the legacy map, and anything unmapped is refused
-instead of guessed. [The how-to](../how-to/staff-time-categories.md)
-covers capture and the map.
+Each category has two rules that save you headaches at month-end:
 
-## 2. Approve the time
+- **Default billable status:** For example, `remote` and `on_site` default to billable, while `warranty` defaults to non-billable.
+- **Required non-billable reason:** When a technician or manager marks an entry non-billable, Marula requires choosing a reason from a fixed list (`warranty`, `courtesy`, `in_retainer_block`, `sla_covered`, `internal`, or `mistake`). Nobody can quietly zero out hours without explaining why.
 
-**Approvals** (/approvals) lists submitted entries. Billing consumes
-approved entries only. Once an entry is on an invoice it locks for
-good — there is no un-invoicing, only correction documents
-([corrections](../explanation/billing-corrections.md)).
+Older time entries imported from legacy tools normalize through a mapping table so nothing gets billed by guesswork. See [Capture and map time categories](../how-to/staff-time-categories.md) for the full setup.
 
-## 3. Verify the period
+## 2. Approve technician time
 
-Open **Billing → Billing verification** (/billing/verification). Pick the
-contract and the window; the Billing page links straight into the same
-window it was about to run, and a `contract_id` in the URL is honoured
-so a link into one contract never lands on somebody else's.
+Open **Approvals** (`/approvals`). This queue shows submitted time entries waiting for a manager's eyes.
 
-Read the counters first. They are the gate:
+Only **approved** entries can be picked up by an invoice run. Once an approved entry is billed on an invoice, it locks permanently so your historical hours always match the invoices your client received ([see why billing corrections use credit notes](../explanation/billing-corrections.md)).
 
-- **Undispositioned** — entries nobody has ruled on yet.
-- **Unclassified** — approved entries with no work-type slug.
-- **Not approved** — time that will not bill at all.
+## 3. Review the billing period before creating the invoice
 
-Every entry row opens an action dialog with six actions. Approve and
-reject move the entry through the same queue the Approvals page uses, so
-the two surfaces cannot disagree about what "approved" means.
-Adjust-minutes is the one that surprises people: it requires a reason
-and it only ever lowers a bill. Asking it to add minutes is refused with
-a 422, because adding minutes is an edit to the entry, not a review
-decision. Entries already on an invoice are locked — visible, labelled
-locked, and refusing every action with a 409.
+Before you generate invoices for the month, open **Billing → Billing verification** (`/billing/verification`) and select the client contract and date window you want to check. (Clicking **Verify period** from the main Billing page opens this exact contract and date range automatically.)
 
-Two numbers sit next to each other on purpose: the sum of what the
-table prices, and the engine's own preview for the same window. When
-they agree, the invoice will agree with the screen. When they differ,
-the gap is a charge the entry table cannot itemise. A base fee, a
-minimum commitment, a cap, a block sale — the note under the table says
-which.
+At the top of the screen, three counters tell you immediately if the period is ready to bill:
 
-If the contract has prepaid blocks, the block panel shows the balance
-honestly: minutes drawn before this window, minutes drawn in it, what is
-left, and any overage that spilled onto the overage card.
+- **Undispositioned:** Time entries that nobody has approved, rejected, or written off yet.
+- **Unclassified:** Approved entries that are missing a work category slug.
+- **Not approved:** Entries that will be skipped by the invoice run.
 
-## 4. Sign off the period
+Click any row to open the review dialog. From here you can approve or reject the entry, reclassify its work category, or **adjust minutes downward** with a required reason (for example, writing down 30 minutes of learning curve as a client courtesy). Note that verification only ever lowers billed minutes (`422` if you try to increase them), because raising someone's worked time belongs on the time entry itself, not during billing sign-off. Entries already attached to a past invoice show a `locked` badge and refuse edits (`409`).
 
-The close card lists three claims: every entry dispositioned, zero
-unclassified, preview read. The server re-derives all three against the
-live window before it stores anything, so a partial period cannot be
-signed. Your name, the moment, and any note you wrote are kept with it.
+Below the rows, compare the two totals side by side:
 
-A sign-off is evidence, not a lock. A run over an unverified window still
-issues — the run claims whatever sign-offs cover it, and that is how
-"who checked this period, and when" stays a single lookup later.
+- **Table sum:** The total of the individual time entries listed on screen.
+- **Engine preview:** What the full contract invoice will actually charge for this period.
+
+When those two numbers differ, the note underneath explains why: for example, your contract includes a monthly base retainer fee, a minimum commitment true-up, a price cap, or a prepaid block purchase that doesn't come from a single time entry. If the contract uses prepaid block hours, the block panel shows hours used prior to this period, hours drawn during this window, remaining balance, and any overage spilling into billable rates.
+
+## 4. Sign off on the period
+
+At the bottom of the verification page, the close card checks three conditions: every entry has been reviewed, zero entries are unclassified, and the preview has been loaded. When you click **Sign off**, the server verifies all three conditions against live data and records your name and timestamp alongside any note you wrote.
+
+Signing off creates an permanent audit trail showing who reviewed the pre-bill numbers and when.
 
 ## 5. Run the invoice
 
-Open **Billing** (/billing) and start a run against the same contract
-and dates. What the engine does at that moment:
+Open **Billing** (`/billing`) and run the invoice for that same contract and date window. Here is what happens under the hood:
 
-- **Draft contracts are skipped.** A draft previews; it never bills.
-- The run evaluates every line kind the contract has configured: time
-  from the rate card, block sales, cap behaviour, minimum true-ups,
-  escalator uplifts, approved change orders, service credits, and
-  project milestone releases. So do the metered kinds: block
-  draw-down, a per-unit line, a per-incident line.
-- Lines are **fixed at run**. The invoice is a snapshot of the numbers,
-  not a live re-render.
-- Everything the run consumed is marked consumed inside that run's own
-  transaction: the block balance it drew down, the service credit it
-  applied, the change order it billed, the milestone release it settled.
-  A replay cannot bill any of them twice.
+- **Draft contracts are skipped.** You can preview a draft contract, but it will never generate a real bill until activated.
+- **All contract line types are calculated together:** hourly time from the rate card, prepaid block draw-downs, monthly recurring fees, price caps, minimum commitments, annual escalator uplifts, approved change orders, service credits, and completed project milestones.
+- **Prices are snapshotted.** Once generated, invoice lines store the exact calculated amounts rather than recalculating later if you change your rate card next year.
+- **Consumed items are marked in the same database transaction.** Block hours drawn, service credits applied, change orders billed, and milestones released are all marked used at the exact moment the invoice is created, so running the batch twice can never double-bill a client.
 
-## 6. The issued invoice
+## 6. Work with the issued invoice
 
-The invoice is read-only once issued. What remains are corrections:
-issue a credit note, void it, record a payment, print, send a statement.
-Email in the demo mail mode is honest about being queued rather than
-sent.
+Once issued, an invoice is a read-only legal and accounting document. From the invoice detail view you can record a payment, print or download the PDF, queue an email statement, void the invoice, or issue a **credit note** if a line needs to be refunded or adjusted.
 
-## 7. Multi-currency stacks
+## 7. Multi-currency contracts
 
-If a contract is priced in a currency other than the org's base
-currency, the run snapshots FX rates. The rationale is in
-[FX additivity](../explanation/fx-additivity.md) and the mechanics in
-[the FX how-to](../how-to/admin-fx-rates.md). Mixed currencies in one
-run are refused rather than converted behind your back.
+If a contract bills in a currency different from your organization's base currency, the billing run records a snapshot of the foreign exchange rate on the invoice. See [Why FX snapshots are additive](../explanation/fx-additivity.md) and [Manage currencies and FX rates](../how-to/admin-fx-rates.md).
 
 ## What you learned
 
-- Categories decide billing semantics before anybody approves anything.
-- Verification lowers a bill, never raises one, and every action is
-  audited.
-- A run is a snapshot engine. It consumes what it bills, in one
-  transaction, and drafts never bill.
-- Corrections are additive documents, never edits to an issued invoice.
+- Work categories set default billing behavior and require clear reasons when hours are written off.
+- The **Billing verification** screen lets you catch unapproved or uncategorized time and apply courtesy write-downs before a client ever sees a bad bill.
+- Running an invoice snapshots every line and marks logged hours, service credits, change orders, and milestones consumed in one step so nothing is ever double-billed.

@@ -5,7 +5,8 @@
  * tokens.css reacts to the attribute on its own.
  */
 import { useSyncExternalStore } from "react";
-import { setThemePreset } from "./theme-pack-apply";
+import { resolveInitialPreset, setThemePreset } from "./theme-pack-apply";
+import { resolveInitialDensity } from "./density";
 
 export type Theme = "light" | "dark";
 
@@ -63,6 +64,43 @@ export function resolveInitialTheme(): Theme {
       : "light";
   }
   return "light";
+}
+
+/**
+ * Apply the RESOLVED theme (stored preference, else system preference) to the
+ * document root and persist nothing.
+ *
+ * This is the in-TypeScript twin of the pre-paint bootstrap script
+ * (`theme-bootstrap.ts`): same keys, same resolved value, same kit attribute
+ * literal. It exists because the script runs once, before first paint, and
+ * anything that later re-creates the <html> element (React's hydration
+ * recovery on an authed route) takes the attribute with it — the DOM is left
+ * on the tokens.css baseline until the next write, which is the wrong-mode
+ * flash on the staff app's login route. Callers that must never write a
+ * preference (public entry screens, the recovery leg) use this instead of
+ * `applyTheme`.
+ */
+export function applyResolvedTheme(): void {
+  if (typeof document === "undefined") return;
+  document.documentElement.setAttribute(ATTRIBUTE, toDomTheme(resolveInitialTheme()));
+}
+
+/**
+ * The full pre-paint contract, twin of `themeBootstrapScript`: resolved
+ * theme, preset and density attributes on <html>, nothing persisted. The
+ * preset and density legs reuse the shipped resolvers so one vocabulary
+ * covers the script, the recovery and the visible switchers.
+ */
+export function applyResolvedAppearance(): void {
+  if (typeof document === "undefined") return;
+  applyResolvedTheme();
+  const preset = resolveInitialPreset();
+  if (preset === null || preset === "") {
+    document.documentElement.removeAttribute("data-preset");
+  } else {
+    document.documentElement.setAttribute("data-preset", preset);
+  }
+  document.documentElement.setAttribute("data-density", resolveInitialDensity());
 }
 
 function subscribe(callback: () => void): () => void {

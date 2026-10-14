@@ -3,64 +3,33 @@
 > **Audience:** both — admins administer grants; every staff member
 > experiences the hidden-vs-dead distinction as security, not cosmetics.
 
-## Why they share a model: KB-class categories
+Your runbooks in the **Knowledge Base** (`/kb`) and your stored credentials in the **Secret Vault** (`/passwords`) use the exact same folder permission model ([ADR 0006](../../adr/0006-native-secrets-vault-and-request-portal-plugin-boundary.md)). Once you understand how access works on a Knowledge Base folder tree, you already know how it works in the password vault.
 
-ADR 0006 introduced the pattern these surfaces both apply — **KB-class
-categories**: categories that carry grants per category, and where the
-position of a record within a category tree is the access decision. The
-knowledge base (articles) and the secret vault (secret categories) both
-lean on the same model, and that is why a grant learned in one place
-predicts the other.
+## 1. Access is granted on the category folder tree
 
-"The vault record browser, per-category" and "the knowledge base,
-category-granted" are the same design problem seen twice: knowledge and
-credentials are sensitive exactly in proportion to which **chain** in the
-tree their record belongs to.
+Both documentation and credentials vary in sensitivity depending on where they sit: a general printer setup guide is fine for every technician to read, while a client's root domain controller credentials or an internal HR policy folder should be restricted to senior leads.
 
-How the surfaces render it:
+In Marula, you organize both `/kb` and `/passwords` into category trees (either organization-wide or scoped to a specific client) and attach access grants directly to the category chain:
 
-- **Knowledge base** (/kb): categories carry articles, and a
-  **client-facing flag** on articles; "articles flagged client-facing in
-  a client-facing category appear in the portal" — the portal sees only
-  the visible subset (and only that). The [portal-isolation design](portal-isolation.md)
-  picks up the portal-side story.
-- **Secret vault** (/passwords): "Secret categories are KB-class: org
-  level or per client, with restricted chains grant-gated behind the
-  scenes. Every reveal is audited." (The vault's own banner.)
+- **Knowledge Base (`/kb`):** Categories hold articles. In addition to staff access grants, articles inside a client-facing category can be marked **client-facing** so they appear in that customer's [Client Portal](portal-isolation.md).
+- **Secret Vault (`/passwords`):** Categories hold credentials at the organization level or per client, with restricted category chains gated by role or user grants. Every time an authorized user reveals a secret, Marula writes an entry to the audit log.
 
-## The one distinction you must keep: hidden, never dead
+## 2. Restricted items are completely hidden, never shown as locked rows
 
-The vault's empty-state copy is the whole discipline of ADR 0006's
-grants:
+The vault's permission rule is simple:
 
 > "you cannot access are hidden entirely, never rendered as dead entries"
 
-It matters at both ends of the grant decision:
+This protects your security posture in two ways:
 
-- **Where you lack access, absence is not an error.** Restricted chains
-  "hidden entirely" means a record simply does not render in your list —
-  there is no locked/dead row, no counting signal that something was
-  there and you were denied. Enumeration attempts are answered with
-  invisibility, not with a denial screen that confirms existence.
-- **Where you hold access, the reveal is a signed event.** "Every reveal
-  is audited" — reading a secret is itself a write to the audit ledger,
-  so the access surface and the audit surface never disagree on whether
-  a record was opened, and who did.
+- **No "Access Denied" teasers for ungranted staff:** If a technician does not have access to a restricted folder chain, those passwords or articles do not appear in their list or search results at all. There are no greyed-out rows or item counts hinting that a secret exists.
+- **Every password reveal is logged:** When a user *does* hold access to a vault category, viewing a secret writes a signed `secret.*` event to the [Audit ledger](provenance-vs-audit.md) recording who revealed it and when.
 
-## The editor side: one grant decision governs both reading and writing
+## 3. One permission governs reading and editing in a folder
 
-Because the grant boundary is the **category chain**, the authoring
-story stays single-decision: you compose an article or a secret into a
-chain whose grant you already hold, and nothing about the outline
-changes your rights. There is no separate "write access" or "read
-access" wobble for a chain — the chain's grant is the decision, and
-(quoting the client-facing flag's limits) portal exposure is a separate,
-explicit opt-in on the article.
+Because permissions attach to the category chain itself, you never have to juggle mismatched per-document read/write overrides. If your role has access to a category chain, you can read and maintain records in that folder; if an article should also be visible to customers in the portal, you flip the explicit **client-facing** opt-in on that article.
 
-## Related doctrine
+## Related guides
 
-- The same chain boundaries mirror the semantic-category discipline of
-  [workflow categories](../how-to/admin-workflow-categories.md).
-- The vault's brutish reveal auditing means a vault audit sweep is a
-  first-class record — [provenance vs audit](provenance-vs-audit.md)
-  ties the two together.
+- How ticket categories and workflow stages work: [How to set workflow categories](../how-to/admin-workflow-categories.md).
+- Reviewing secret reveal events in the security log: [Provenance vs audit](provenance-vs-audit.md).

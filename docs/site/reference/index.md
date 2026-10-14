@@ -1,41 +1,23 @@
 # Reference
 
-Reference material is descriptive and exhaustive: it tells you what is true,
-structured for lookup, with no narrative and no opinions.
+Reference pages give you exact endpoints, database view columns, environment variables, and operator runbooks for lookup. For step-by-step lessons, see [Tutorials](../tutorials/index.md). For task checklists, see [How-to guides](../how-to/index.md). For design reasoning, see [Explanation](../explanation/index.md).
 
-- [API reference](api.md) — every route in the Marula Core API, generated
-  from the committed OpenAPI snapshot
-- [The OpenAPI pin](openapi.md) — what the pin is, and the contract it
-  enforces
-- [Read model view catalog](read-model.md) — the stable `ops.v1_*` SQL views
-  (per-view docs under `docs/reference/read-model/`)
-- [Billing schema reference](billing-schemas.md) — the Wave 39 time
-  taxonomy, verification, contract-pricing, and project-billing tables,
-  and the rules an integrator needs before writing to them
-- [Routing & travel reference](routing.md) — provider config, settings keys,
-  warning kinds, reconciliation semantics
-- [Upgrade matrix](upgrade-matrix.md) — CI-proven upgrade paths per release
-  (the N−2 rule)
+## API, data views, and schema reference
 
-## Self-host & operations (runbook spine, authored per `deploy/runbooks/README.md`)
+- [API reference](api.md) — Every endpoint in `core-api`, generated directly from the committed OpenAPI specification.
+- [The OpenAPI pin](openapi.md) — How `packages/sdk/openapi.json` and `fixtures/openapi/v1/openapi.json` stay locked in sync.
+- [Read model view catalog](read-model.md) — The stable `ops.v1_*` SQL views for custom reports and external BI tools (with per-view column definitions in `docs/reference/read-model/`).
+- [Billing schema reference](billing-schemas.md) — Tables and constraints for work-type categories, billing verification, contract pricing, and project milestone billing.
+- [Routing & travel reference](routing.md) — Environment variables, organization settings keys, warning codes, and endpoints for technician travel estimates and mileage reimbursement.
+- [Upgrade matrix](upgrade-matrix.md) — Automated CI upgrade paths verified across releases under the N-2 support policy.
 
-- [The local stack](self-host-local-stack.md) — services, ports, profiles,
-  the migration-owner vs RLS-app role split, and secrets to override
-- [Observability](self-host-observability.md) — traces/logs/metrics,
-  off by default, the profile that turns them on
-- [Backup & restore runbook](backup-restore.md) — what to back up, how to
-  restore, how to rehearse
-- [Postgres 17 to 18 upgrade](pg18-upgrade.md) — the one-time volume cut
-  for stacks installed before the PG18 transition
-- [Reverse proxy & TLS runbook](reverse-proxy-tls.md) — what a production
-  proxy must serve and the seams it must survive
-- Desktop packaging & release workflow:
-  [`docs/desktop-release.md`](../../desktop-release.md) (canonical,
-  linked here and never forked)
-- Upgrade runbooks: the canonical scaffold lives at
-  `deploy/runbooks/` ([`deploy/runbooks/README.md`](../../../deploy/runbooks/README.md)).
-  Authored content lands in this directory.
+## Self-hosting and operations runbooks
 
-For the narrative *why* behind any of these, see
-[explanation](../explanation/index.md). For tasks, see
-[how-to](../how-to/index.md).
+- [The local stack](self-host-local-stack.md) — Docker Compose services, ports, optional profiles, the PostgreSQL migration-owner vs. RLS app-role split, container hardening, and required secrets.
+- [Local AI: transcription and embeddings on your own hardware](self-host-local-ai.md) — Why model weights stay outside the core container image and how the local `ollama` profile runs Whisper and 768-dimension embeddings.
+- [Observability](self-host-observability.md) — Optional OpenTelemetry export (`Tempo`, `Loki`, `Grafana`) plus `Uptime Kuma` status monitoring.
+- [Backup & restore runbook](backup-restore.md) — How to back up PostgreSQL and Garage object storage using `pg_dump`, `restic`, or `WAL-G` point-in-time recovery, and how to rehearse restores with `deploy/backup/restore.sh`.
+- [Postgres 17 to 18 upgrade](pg18-upgrade.md) — One-time data migration guide for deployments created before the PostgreSQL 18 transition.
+- [Reverse proxy & TLS runbook](reverse-proxy-tls.md) — Required upstream routes, WebSocket upgrade passthrough, upload size limits, and production secret checks.
+- Desktop packaging and release workflow: [`docs/desktop-release.md`](../../desktop-release.md).
+- Runbook scaffold index: [`deploy/runbooks/README.md`](../../../deploy/runbooks/README.md).

@@ -267,17 +267,34 @@ citation. Where it is code, the citation names the module or endpoint.
     shipped with hand-rolled SigV4; verified in the shipped transport UI
     2026-10-02 (`settings-email-transport-open.png`,
     `settings-email-ses-form.png`).
-11. **Portal signed-in session hardening** — **UNCHECKED.** The 2026-10-02
-    walk found the portal's signed-in surfaces unreachable on the shipped
-    build: (a) an in-page `login()` never updates `PortalAuthProvider`
-    (restore runs once at mount), so `useRequirePortalAuth` bounces the
-    freshly authenticated session back to `/portal/login`; (b)
-    `marula_csrf` ships HttpOnly contrary to the double-submit design
-    comment (`crates/core-api/src/auth/cookies.rs`), so the cookie-driven
-    `POST /api/v1/portal/refresh` can never pass `double_submit_ok` and a
-    full page load cannot re-auth. Owner: a web + core-api lane. Evidence:
-    `design/qa-p34-spec-verdict-sweep/REVIEW.md` batch 5 (captures show
-    the sign-in gate; probes + code spans named).
+11. **Portal signed-in session hardening** — **CLOSED 2026-10-13 by Wave 47
+    lane A1 (`p47-portal-session-hardening`).** The 2026-10-02 walk found the
+    portal's signed-in surfaces unreachable on the shipped build: (a) an
+    in-page `login()` never updates `PortalAuthProvider` (restore runs once at
+    mount), so `useRequirePortalAuth` bounces the freshly authenticated
+    session back to `/portal/login`; (b) `marula_csrf` ships HttpOnly contrary
+    to the double-submit design comment (`crates/core-api/src/auth/cookies.rs`),
+    so the cookie-driven `POST /api/v1/portal/refresh` can never pass
+    `double_submit_ok` and a full page load cannot re-auth. Owner: a web +
+    core-api lane. Evidence: `design/qa-p34-spec-verdict-sweep/REVIEW.md` batch
+    5 (captures show the sign-in gate; probes + code spans named).
+    Landing record and review: `design/qa-p47-portal-session-hardening/`
+    (36 captures in both themes, through the real in-page login plus a
+    mid-session reload). Decision of record for the cookie:
+    `docs/adr/0022-portal-cookie-double-submit.md`. The walk's two findings
+    were both real, and the cookie finding had three separate causes, each
+    pinned by tests that fail on the pre-fix tree: `marula_csrf` shipped
+    HttpOnly, it was scoped `Path=/api` so no application page could read it,
+    and the ambient-cookie detector filtered on a bare 64-character value the
+    shipped `{session_id}.{secret}` cookies never match, so `double_submit_ok`
+    took its "bearer mode, no check" branch for every caller. Proving it
+    surfaced two more defects in the same session path, both fixed and pinned:
+    a full page load raced its own rotation (a shared single-flight rotation
+    now), and the CSAT submit posted the ticket id instead of the survey
+    token, so no survey could ever be answered. Lane gates: web typecheck and
+    lint clean, portal vitest 15/15, `cargo fmt` and
+    `clippy -p core-api --all-targets` clean, and `portal_flow` plus
+    `auth_hardening_flow` 10/10 against a live seed.
 
 Deliberate documented decisions (NOT follow-ups): optional client
 approvals on time entries stay manager-only (owner decision recorded

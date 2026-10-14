@@ -401,6 +401,15 @@ async fn login_sets_the_hardened_cookie_trio() {
             .any(|c| c.starts_with("marula_session=") && c.contains("HttpOnly")),
         "httpOnly session cookie missing: {set_cookies:?}"
     );
+    // The double-submit value is the one cookie the browser's own
+    // JavaScript MUST read (ADR 0022) — HttpOnly here would break every
+    // cookie-driven refresh for a client that cannot echo the header.
+    assert!(
+        set_cookies
+            .iter()
+            .any(|c| c.starts_with("marula_csrf=") && !c.contains("HttpOnly")),
+        "the csrf double-submit value must stay readable to JavaScript: {set_cookies:?}"
+    );
     assert!(set_cookies.iter().any(|c| c.contains("SameSite=Lax")));
     assert!(set_cookies.iter().any(|c| c.contains("Path=/api")));
     assert!(set_cookies.iter().any(|c| c.starts_with("marula_csrf=")));

@@ -75,6 +75,49 @@ async fn send(
     app.clone().oneshot(request).await.unwrap()
 }
 
+/// `send` twin for the cookie-session flow: carries request headers (the
+/// browser's Cookie jar plus the echoed x-marula-csrf) and returns the
+/// response with its Set-Cookie heads intact.
+async fn send_with_headers(
+    app: &Router,
+    method: axum::http::Method,
+    uri: &str,
+    headers: &[(&str, &str)],
+    body: Option<Value>,
+) -> axum::response::Response {
+    let mut builder = axum::http::Request::builder().method(method).uri(uri);
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
+    }
+    let request = match body {
+        Some(v) => builder
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(v.to_string()))
+            .unwrap(),
+        None => builder.body(axum::body::Body::empty()).unwrap(),
+    };
+    app.clone().oneshot(request).await.unwrap()
+}
+
+/// Every Set-Cookie value on a response, in order.
+fn set_cookie_values(response: &axum::response::Response) -> Vec<String> {
+    response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok().map(String::from))
+        .collect()
+}
+
+/// One cookie's bare value out of a Set-Cookie head list.
+fn cookie_value(set_cookies: &[String], name: &str) -> String {
+    set_cookies
+        .iter()
+        .find_map(|c| c.strip_prefix(&format!("{name}=")))
+        .map(|c| c.split(';').next().unwrap_or("").to_string())
+        .unwrap_or_else(|| panic!("no {name} Set-Cookie among {set_cookies:?}"))
+}
+
 async fn body_json(response: axum::response::Response) -> Value {
     let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -703,6 +746,213 @@ async fn portal_refresh_rotates_and_replay_fails() {
     )
     .await;
     assert_eq!(bad_password.status(), 401);
+}
+
+// ---------------------------------------------------------------------------
+// Wave 47 lane A1 — the cookie-session CSRF contract (BUILD-PROMPT
+// follow-up 11b; decision of record docs/adr/0022-portal-cookie-double-submit.md)
+//
+// The documented design (crates/core-api/src/auth/cookies.rs, the module
+// comment, and docs/reference/auth-threat-model.md §A2) is double-submit:
+// the refresh secret rides an HttpOnly cookie, and a JS-READABLE
+// `marula_csrf` value is echoed back on `x-marula-csrf`. The browser can
+// read its own cookie and a foreign origin cannot, so only same-origin
+// JavaScript can produce the header. This test pins all three halves:
+//
+//   1. the shipped cookie flags (secret HttpOnly, csrf value NOT);
+//   2. the browser's full-page-load path — cookie-only rotation with the
+//      echoed header PASSES, so a reload re-auths;
+//   3. the check is ENFORCED, not deleted — a missing or wrong header is
+//      403 while an ambient session cookie is present.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn portal_cookie_session_double_submit_round_trip() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
+    let org = seed_org(&app, &tag).await;
+    let email = format!("cookie-{tag}@a.test");
+
+    invite_portal_user(&app, &org.token, &org.client_a, &email, "contact").await;
+
+    // --- login, and read the cookie pair the browser would store ----------
+    let login = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/login",
+        &[],
+        Some(json!({"email": email, "password": "portal-passphrase-1"})),
+    )
+    .await;
+    assert_eq!(login.status(), 200, "portal login for {email}");
+    let login_cookies = set_cookie_values(&login);
+
+    let csrf_head = login_cookies
+        .iter()
+        .find(|c| c.starts_with("marula_csrf="))
+        .unwrap_or_else(|| panic!("no marula_csrf Set-Cookie: {login_cookies:?}"));
+    assert!(
+        !csrf_head.contains("HttpOnly"),
+        "the double-submit value MUST be readable by the browser's own JavaScript \
+         — HttpOnly here is the follow-up 11b defect: {csrf_head}"
+    );
+    // Path scoping is the other half of readability: the app's pages live at
+    // /portal and friends, so a /api-scoped cookie never shows up in
+    // document.cookie and no client can echo the header (found live during
+    // the lane: HttpOnly alone was not enough on the split web/api ports).
+    assert!(
+        csrf_head.contains("Path=/") && !csrf_head.contains("Path=/api"),
+        "the csrf value must be host-wide so every page can read it: {csrf_head}"
+    );
+    assert!(csrf_head.contains("SameSite=Lax"), "{csrf_head}");
+    let portal_head = login_cookies
+        .iter()
+        .find(|c| c.starts_with("marula_portal="))
+        .unwrap_or_else(|| panic!("no marula_portal Set-Cookie: {login_cookies:?}"));
+    assert!(
+        portal_head.contains("HttpOnly"),
+        "the refresh secret stays unreadable to JavaScript: {portal_head}"
+    );
+    assert!(
+        portal_head.contains("Path=/api"),
+        "the session jar stays /api-scoped — it only ever needs to be SENT: {portal_head}"
+    );
+    // The readable value IS the double-submit secret: 64 hex chars, the
+    // same entropy class as the refresh tokens.
+    let csrf_value = cookie_value(&login_cookies, "marula_csrf");
+    assert_eq!(csrf_value.len(), 64, "csrf value is 32 random bytes");
+    assert!(csrf_value.chars().all(|c| c.is_ascii_hexdigit()));
+
+    // --- the browser's full-page-load path: jar only, no bearer ------------
+    // A reload has no in-memory tokens: the httpOnly jar carries the
+    // session, the readable csrf value rides the rotation header.
+    let jar = format!(
+        "marula_portal={}; marula_csrf={csrf_value}",
+        cookie_value(&login_cookies, "marula_portal")
+    );
+    let rotated = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/refresh",
+        &[
+            ("cookie", jar.as_str()),
+            ("x-marula-csrf", csrf_value.as_str()),
+        ],
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(
+        rotated.status(),
+        200,
+        "cookie-driven refresh with the echoed header must pass double_submit_ok"
+    );
+    let rotated_cookies = set_cookie_values(&rotated);
+    let csrf_2 = cookie_value(&rotated_cookies, "marula_csrf");
+    let jar_2 = format!(
+        "marula_portal={}; marula_csrf={csrf_2}",
+        cookie_value(&rotated_cookies, "marula_portal")
+    );
+
+    // --- the check is enforced, never deleted -------------------------------
+    let no_header = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/refresh",
+        &[("cookie", jar_2.as_str())],
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(
+        no_header.status(),
+        403,
+        "an ambient session cookie without the echoed header is a refused CSRF attempt"
+    );
+    let wrong_header = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/refresh",
+        &[
+            ("cookie", jar_2.as_str()),
+            ("x-marula-csrf", "not-the-cookie-value"),
+        ],
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(
+        wrong_header.status(),
+        403,
+        "a header that does not match the cookie is refused"
+    );
+    // The live pair still rotates once the correct header rides along.
+    let rotated_again = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/refresh",
+        &[
+            ("cookie", jar_2.as_str()),
+            ("x-marula-csrf", csrf_2.as_str()),
+        ],
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(rotated_again.status(), 200, "the good path still works");
+
+    // --- the bearer path is untouched (no ambient cookie ⇒ no check) ---------
+    let re_login = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/login",
+        &[],
+        Some(json!({"email": email, "password": "portal-passphrase-1"})),
+    )
+    .await;
+    assert_eq!(re_login.status(), 200);
+    let re_login_cookies = set_cookie_values(&re_login);
+    // Body credentials with NO Cookie header: cookie_authed is false, so the
+    // double-submit check passes by construction (bearer callers carry no
+    // ambient credential a forged request could ride).
+    let pair = body_json(re_login).await;
+    let bearer_rotated = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/refresh",
+        &[],
+        Some(json!({
+            "refresh_token": pair["refresh_token"].as_str().unwrap(),
+            "session_id": pair["session_id"].as_str().unwrap(),
+        })),
+    )
+    .await;
+    assert_eq!(
+        bearer_rotated.status(),
+        200,
+        "the bearer refresh path carries no ambient credential and never checks the header"
+    );
+    // Sanity: the same body, but with an ambient portal cookie and no header,
+    // is now refused — the gate keys on the jar, not on the body.
+    let mixed = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/refresh",
+        &[(
+            "cookie",
+            &format!(
+                "marula_portal={}",
+                cookie_value(&re_login_cookies, "marula_portal")
+            ),
+        )],
+        Some(json!({
+            "refresh_token": pair["refresh_token"].as_str().unwrap(),
+            "session_id": pair["session_id"].as_str().unwrap(),
+        })),
+    )
+    .await;
+    assert_eq!(
+        mixed.status(),
+        403,
+        "body credentials do not buy an exemption once the jar is ambient"
+    );
 }
 
 #[tokio::test]
