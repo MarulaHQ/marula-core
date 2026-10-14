@@ -18,6 +18,10 @@
       "types": "./dist/theme-tokens.d.ts",
       "import": "./dist/theme-tokens.js"
     },
+    "./theme-bootstrap": {
+      "types": "./dist/theme-bootstrap.d.ts",
+      "import": "./dist/theme-bootstrap.js"
+    },
     "./kit": {
       "types": "./dist/kit/index.d.ts",
       "import": "./dist/kit/index.js"
