@@ -35,6 +35,12 @@ e2e/.e2e-stack.env
 # Localhost demo stack state + logs (Wave 47 lane B1 scripts/demo-up.sh)
 .demo-up/
 
+# The object store the demo attachments are written into (scripts/e2e-stack.sh
+# and scripts/demo-up.sh both name OBJECT_STORE_LOCAL_DIR). Seeded attachment
+# bytes land here, so a stack boot is enough to populate it — it must never be
+# tracked, or the demo org's objects get committed as repo files.
+/data/objects/
+
 # Shared cargo target dir (agent worktree build cache)
 .kilo/target-shared/
 # Lane-drifted private target caches (DX6 violation artifacts, reclaimed at merge)
