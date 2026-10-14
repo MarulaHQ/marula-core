@@ -3,7 +3,7 @@
 
 **Marula Core API 0.1.0** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**622 paths · 830 operations · 1302 schemas.**
+**624 paths · 834 operations · 1306 schemas.**
 
 ## agent-proposals
 
@@ -694,6 +694,15 @@
 | `PATCH` | `/api/v1/org/users/{id}/role` <a id="org_users_set_role"></a> | PATCH /api/org/users/{id}/role — assign a builtin org role. Each change is audited; the last active owner cannot be demoted away from owner. | [SetUserRoleRequest](#schema-setuserrolerequest) |
 | `PATCH` | `/api/v1/org/users/{id}/status` <a id="org_users_set_status"></a> | PATCH /api/org/users/{id}/status — activate or deactivate. Deactivation revokes every live session and blocks login in the same commit. | [SetUserStatusRequest](#schema-setuserstatusrequest) |
 | `POST` | `/api/v1/org/users/accept-invite` <a id="org_users_accept_invite"></a> | POST /api/org/users/accept-invite — public invite redemption: set the first password and activate the account; returns a normal token pair. The token is single-use and expiring; an unknown, used, or expired token is an indistinguishable 404. | [AcceptInviteRequest](#schema-acceptinviterequest) |
+
+## orgs
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/orgs/{org_id}/service-accounts` <a id="service_accounts_list"></a> | GET /orgs/{org_id}/service-accounts — admin listing with derived cert status. | — |
+| `POST` | `/api/v1/orgs/{org_id}/service-accounts` <a id="service_accounts_create"></a> | POST /orgs/{org_id}/service-accounts — enroll a service account by pinning a certificate fingerprint with permission grants and an optional expiry. | [CreateServiceAccountRequest](#schema-createserviceaccountrequest) |
+| `DELETE` | `/api/v1/orgs/{org_id}/service-accounts/{id}` <a id="service_accounts_delete"></a> | DELETE /orgs/{org_id}/service-accounts/{id} — immediate, permanent revocation. Idempotent: a second delete of an already-revoked account stays successful (the row is present in-scope), so the surface is safe to retry. | — |
+| `PATCH` | `/api/v1/orgs/{org_id}/service-accounts/{id}` <a id="service_accounts_update"></a> | PATCH /orgs/{org_id}/service-accounts/{id} — update grants, expiry, or lifecycle status. The pinned fingerprint and org binding are immutable (a re-pin is a create + revoke). | [UpdateServiceAccountRequest](#schema-updateserviceaccountrequest) |
 
 ## passwords
 
@@ -1679,6 +1688,7 @@
 | <a id="schema-createsecretfolderrequest"></a>`CreateSecretFolderRequest` | object |  |
 | <a id="schema-createsecretrecordrequest"></a>`CreateSecretRecordRequest` | composite |  |
 | <a id="schema-createsecretsharelinkrequest"></a>`CreateSecretShareLinkRequest` | object |  |
+| <a id="schema-createserviceaccountrequest"></a>`CreateServiceAccountRequest` | object |  |
 | <a id="schema-createsignoffrequest"></a>`CreateSignOffRequest` | object | POST /api/tickets/{id}/sign-offs |
 | <a id="schema-createsiterequest"></a>`CreateSiteRequest` | object |  |
 | <a id="schema-createslacreditrequest"></a>`CreateSlaCreditRequest` | composite |  |
@@ -2378,6 +2388,8 @@
 | <a id="schema-sendstatementrequest"></a>`SendStatementRequest` | composite | POST /api/invoices/{id}/dunning/statement body. |
 | <a id="schema-sendstatementresponse"></a>`SendStatementResponse` | object | POST /api/invoices/{id}/dunning/statement response. |
 | <a id="schema-seriallistquery"></a>`SerialListQuery` | object |  |
+| <a id="schema-serviceaccountlist"></a>`ServiceAccountList` | object |  |
+| <a id="schema-serviceaccountview"></a>`ServiceAccountView` | object |  |
 | <a id="schema-serviceview"></a>`ServiceView` | object |  |
 | <a id="schema-sessioninfo"></a>`SessionInfo` | object |  |
 | <a id="schema-setchecklistitemrequest"></a>`SetChecklistItemRequest` | composite |  |
@@ -2613,6 +2625,7 @@
 | <a id="schema-updatescorecardsettingsrequest"></a>`UpdateScorecardSettingsRequest` | object |  |
 | <a id="schema-updatesecretfolderrequest"></a>`UpdateSecretFolderRequest` | object |  |
 | <a id="schema-updatesecretrecordrequest"></a>`UpdateSecretRecordRequest` | composite |  |
+| <a id="schema-updateserviceaccountrequest"></a>`UpdateServiceAccountRequest` | object |  |
 | <a id="schema-updatesettingrequest"></a>`UpdateSettingRequest` | object |  |
 | <a id="schema-updatesettingsrequest"></a>`UpdateSettingsRequest` | object |  |
 | <a id="schema-updatestagerequest"></a>`UpdateStageRequest` | composite | PATCH /api/pipeline/stages/{id} body. |
@@ -2682,4 +2695,4 @@
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 29 operation groups; schema count 1302 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 29 operation groups; schema count 1306 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
