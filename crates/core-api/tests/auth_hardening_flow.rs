@@ -417,3 +417,371 @@ async fn login_sets_the_hardened_cookie_trio() {
     let envelope = body_json(response).await;
     assert!(envelope["access_token"].is_string());
 }
+
+// ---------------------------------------------------------------------------
+// (6) Wave 47 lane A2 — the two-origin refresh (p41 B1)
+//
+// The shape under test: a credentialed POST that carries a body credential
+// AND an ambient `marula_session` cookie, but NO `x-marula-csrf` header.
+//
+// That is what a split-origin desktop shell and any cross-registrable-domain
+// API deployment produces. The browser still SENDs the `SameSite=Lax` session
+// cookie (ports never split a site, and neither does a sibling subdomain),
+// still accepts the rotated `Set-Cookie`, and the app's JavaScript still
+// cannot read the API origin's `marula_csrf` to echo it, because cookies are
+// host-scoped rather than port-scoped and this is a different host. Before
+// the fix, the refresh handler applied `double_submit_ok` BEFORE resolving
+// the credential source, so a perfectly valid (refresh_token, session_id)
+// pair in the JSON body was rejected with `403 csrf check failed` — a re-auth
+// loop for the whole life of the access token.
+//
+// These tests pin the split that keeps both halves honest: the body
+// credential is NOT gated (it cannot be forged cross-site), the ambient
+// cookie stays gated exactly as before (it can).
+//
+// Each test uses its own run-unique IP: the durable per-IP refresh gate is
+// shared, and sibling rotations in one binary must not bleed into this
+// chain's curve.
+//
+// The paths below use the unversioned `/api/auth/...` legacy alias
+// (`routes::ApiGeneration::LegacyAlias` — one builder, two mounts), which
+// dispatches the exact handlers the SDK hits at `/api/v1/auth/...`.
+// ---------------------------------------------------------------------------
+
+/// The `marula_session` cookie value a browser would hold after `login`.
+/// Shape is `{session_id}.{refresh_token}` (`cookies::session_cookie`).
+fn session_cookie_value(session_id: &str, refresh_token: &str) -> String {
+    format!("{session_id}.{refresh_token}")
+}
+
+/// A login that returns the token pair, its Set-Cookie heads, and the
+/// session cookie value a browser would have stored from it.
+async fn login_with_cookies(app: &axum::Router, slug: &str) -> (Value, String, Vec<String>) {
+    register_org(app, slug).await;
+    let response = send(
+        app,
+        Method::POST,
+        "/api/auth/login",
+        None,
+        &[],
+        Some(json!({
+            "email": format!("owner@{slug}.test"),
+            "password": "correct-horse-battery-11",
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let set_cookies: Vec<String> = response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok().map(String::from))
+        .collect();
+    let session_head = set_cookies
+        .iter()
+        .find(|c| c.starts_with("marula_session="))
+        .unwrap_or_else(|| panic!("no marula_session Set-Cookie: {set_cookies:?}"));
+    let jar = session_head
+        .trim_start_matches("marula_session=")
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let envelope = body_json(response).await;
+    (envelope, jar, set_cookies)
+}
+
+/// One refresh POST. The two-origin shape is the ambient session cookie
+/// with NO `x-marula-csrf` header: the app's JS cannot read the API
+/// origin's csrf cookie, so it has nothing to echo.
+///
+/// `jar` is the cookie VALUE (`{session_id}.{secret}`); the request
+/// header carries it the way a browser would, as `marula_session=<jar>`.
+async fn two_origin_refresh(
+    app: &axum::Router,
+    ip: &str,
+    jar: &str,
+    body: Value,
+) -> axum::response::Response {
+    let cookie = format!("marula_session={jar}");
+    send(
+        app,
+        Method::POST,
+        "/api/auth/refresh",
+        None,
+        &[("x-forwarded-for", ip), ("cookie", cookie.as_str())],
+        Some(body),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn body_credential_refresh_with_an_ambient_session_cookie_and_no_csrf_header_succeeds() {
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
+    let app = core_api::router(test_state(&admin_url).await);
+    let ip = format!("114.70.10.{}", Uuid::now_v7());
+    let ip = ip.as_str();
+    let slug = format!("twoorg-{}", Uuid::now_v7().simple());
+    let (seeded, jar, _) = login_with_cookies(&app, &slug).await;
+    let refresh = seeded["refresh_token"].as_str().unwrap().to_string();
+    let session = seeded["session_id"].as_str().unwrap().to_string();
+    assert_eq!(
+        jar,
+        session_cookie_value(&session, &refresh),
+        "the ambient jar is the (session_id, secret) pair the browser stored"
+    );
+
+    // THE defect: a valid body credential + the ambient jar, no
+    // x-marula-csrf header. Before the fix this answered
+    // `403 Forbidden "csrf check failed"`.
+    let rotated = two_origin_refresh(
+        &app,
+        ip,
+        jar.as_str(),
+        json!({ "refresh_token": refresh, "session_id": session }),
+    )
+    .await;
+    assert_eq!(
+        rotated.status(),
+        axum::http::StatusCode::OK,
+        "a body credential is not forgeable cross-site, so the double-submit gate must not apply to it"
+    );
+    // Read the Set-Cookie heads BEFORE the body consumes the response:
+    // the browser must receive a rotated jar entry, or the next
+    // cookie-mode refresh would present the consumed parent and trip
+    // reuse detection for a perfectly live session.
+    let rotated_jars: Vec<String> = rotated
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok().map(String::from))
+        .collect();
+    let rotated_jar = rotated_jars
+        .iter()
+        .find(|c| c.starts_with("marula_session="))
+        .map(|c| {
+            c.trim_start_matches("marula_session=")
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        })
+        .unwrap_or_else(|| panic!("no rotated marula_session Set-Cookie: {rotated_jars:?}"));
+    let pair = body_json(rotated).await;
+    let new_refresh = pair["refresh_token"].as_str().unwrap().to_string();
+    let new_session = pair["session_id"].as_str().unwrap().to_string();
+    let new_access = pair["access_token"].as_str().unwrap().to_string();
+    assert_ne!(new_refresh, seeded["refresh_token"].as_str().unwrap());
+    assert_ne!(new_session, session);
+    assert_ne!(new_access, seeded["access_token"].as_str().unwrap());
+
+    // The rotated Set-Cookie jar entry IS the new pair the browser just
+    // stored — so a later cookie-mode refresh presents a live pair.
+    assert_eq!(
+        rotated_jar,
+        session_cookie_value(&new_session, &new_refresh),
+        "the rotated Set-Cookie must carry the new (session_id, secret) pair"
+    );
+
+    // The kept credential rotates again in the same two-origin shape.
+    let second = two_origin_refresh(
+        &app,
+        ip,
+        rotated_jar.as_str(),
+        json!({ "refresh_token": new_refresh, "session_id": new_session }),
+    )
+    .await;
+    assert_eq!(
+        second.status(),
+        axum::http::StatusCode::OK,
+        "the rotated pair keeps refreshing in the same two-origin shape"
+    );
+}
+
+#[tokio::test]
+async fn cookie_only_refresh_without_the_csrf_header_is_still_403() {
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
+    let app = core_api::router(test_state(&admin_url).await);
+    let ip = format!("114.70.11.{}", Uuid::now_v7());
+    let ip = ip.as_str();
+    let slug = format!("cookieonly-{}", Uuid::now_v7().simple());
+    let (seeded, jar, set_cookies) = login_with_cookies(&app, &slug).await;
+
+    // ...with NO body credential at all.
+    let no_header = two_origin_refresh(&app, ip, jar.as_str(), json!({})).await;
+    assert_eq!(
+        no_header.status(),
+        axum::http::StatusCode::FORBIDDEN,
+        "an ambient session cookie with no echoed header is still a refused CSRF attempt"
+    );
+
+    // ...and with a header that does not match the cookie.
+    let csrf = set_cookies
+        .iter()
+        .find(|c| c.starts_with("marula_csrf="))
+        .map(|c| {
+            c.trim_start_matches("marula_csrf=")
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        })
+        .unwrap_or_default();
+    assert_eq!(csrf.len(), 64, "the csrf jar is 32 random bytes");
+    // A browser holds BOTH cookies and sends both. The double-submit needs
+    // the csrf cookie in the jar AND the echoed header to match it.
+    let jar_head = format!("marula_session={jar}; marula_csrf={csrf}");
+    let wrong_header = send(
+        &app,
+        Method::POST,
+        "/api/auth/refresh",
+        None,
+        &[
+            ("x-forwarded-for", ip),
+            ("cookie", jar_head.as_str()),
+            ("x-marula-csrf", "not-the-cookie"),
+        ],
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(
+        wrong_header.status(),
+        axum::http::StatusCode::FORBIDDEN,
+        "a mismatched header is refused on the cookie path too"
+    );
+
+    // PROOF the check is enforced, not deleted: the RIGHT header still
+    // passes, and the pair still rotates.
+    let good = send(
+        &app,
+        Method::POST,
+        "/api/auth/refresh",
+        None,
+        &[
+            ("x-forwarded-for", ip),
+            ("cookie", jar_head.as_str()),
+            ("x-marula-csrf", csrf.as_str()),
+        ],
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(
+        good.status(),
+        axum::http::StatusCode::OK,
+        "the cookie-mode path with the echoed header must keep working"
+    );
+    let rotated = body_json(good).await;
+    assert_ne!(
+        rotated["refresh_token"].as_str().unwrap(),
+        seeded["refresh_token"].as_str().unwrap(),
+        "rotation still issues a fresh refresh token"
+    );
+}
+
+#[tokio::test]
+async fn successive_two_origin_refreshes_never_trip_reuse_detection() {
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
+    let app = core_api::router(test_state(&admin_url).await);
+    let ip = format!("114.70.12.{}", Uuid::now_v7());
+    let ip = ip.as_str();
+    let slug = format!("chain-{}", Uuid::now_v7().simple());
+    let (seeded, _, _) = login_with_cookies(&app, &slug).await;
+    let mut refresh = seeded["refresh_token"].as_str().unwrap().to_string();
+    let mut session = seeded["session_id"].as_str().unwrap().to_string();
+
+    // Several access-token lifetimes: every rotation carries the ambient
+    // jar and no csrf header, which is exactly the shape a long-running
+    // two-origin session takes. If ANY of these wrongly tripped reuse
+    // detection, the whole chain would die and the session would need a
+    // re-auth — the defect's user-visible symptom.
+    for lifetime in 0..4 {
+        let jar = session_cookie_value(&session, &refresh);
+        let response = two_origin_refresh(
+            &app,
+            ip,
+            jar.as_str(),
+            json!({ "refresh_token": refresh, "session_id": session }),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::OK,
+            "rotation {lifetime} of the chain must not be refused"
+        );
+        let pair = body_json(response).await;
+        let next_refresh = pair["refresh_token"].as_str().unwrap().to_string();
+        let next_session = pair["session_id"].as_str().unwrap().to_string();
+        assert_ne!(
+            next_refresh, refresh,
+            "every rotation issues a fresh secret (a repeated secret would mean no rotation)"
+        );
+        assert_ne!(
+            next_session, session,
+            "every rotation is a new session node"
+        );
+        refresh = next_refresh;
+        session = next_session;
+    }
+
+    // The chain survived four lifetimes — proof there was no false reuse
+    // revocation along the way.
+    let final_check = two_origin_refresh(
+        &app,
+        ip,
+        &session_cookie_value(&session, &refresh),
+        json!({ "refresh_token": refresh, "session_id": session }),
+    )
+    .await;
+    assert_eq!(final_check.status(), axum::http::StatusCode::OK);
+}
+
+#[tokio::test]
+async fn logout_with_an_ambient_session_cookie_and_no_csrf_header_succeeds() {
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
+    let app = core_api::router(test_state(&admin_url).await);
+    let ip = format!("114.70.13.{}", Uuid::now_v7());
+    let ip = ip.as_str();
+    let slug = format!("logout-{}", Uuid::now_v7().simple());
+    let (seeded, _jar, _) = login_with_cookies(&app, &slug).await;
+    let refresh = seeded["refresh_token"].as_str().unwrap().to_string();
+    let session = seeded["session_id"].as_str().unwrap().to_string();
+
+    // The same credential-source-first split on the sibling surface:
+    // presenting the secret in the body is not forgeable, so the gate
+    // does not gate it (before the fix this was a 403 with the 30-day
+    // session still live).
+    let response = send(
+        &app,
+        Method::POST,
+        "/api/auth/logout",
+        None,
+        &[("x-forwarded-for", ip)],
+        Some(json!({ "refresh_token": refresh, "session_id": session })),
+    )
+    .await;
+    assert_eq!(response.status(), axum::http::StatusCode::NO_CONTENT);
+
+    // The revoked session cannot rotate again — the revocation landed.
+    let after = send(
+        &app,
+        Method::POST,
+        "/api/auth/refresh",
+        None,
+        &[("x-forwarded-for", ip)],
+        Some(json!({ "refresh_token": refresh, "session_id": session })),
+    )
+    .await;
+    assert_eq!(
+        after.status(),
+        axum::http::StatusCode::UNAUTHORIZED,
+        "a logged-out session must not rotate"
+    );
+}
