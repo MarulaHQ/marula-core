@@ -3,70 +3,63 @@
 > **Audience:** admin — enrollment and grants are admin settings. The
 > run itself produces evidence anyone can read.
 
-An agent in Marula is not a chat toy left loose in your tenant. Its tool
-runs are always scoped to a client, cataloged on its ledger, and stay
-reviewable after they finish. This lesson takes one agent from enrollment
-to a reviewed ledger entry, on the seeded demo org.
+In many tools, turning on AI means letting a bot rewrite tickets or email clients behind your back. Marula works differently: AI is off by default, and any enrolled agent must lay out a plan, get a human approval click, and record every action on an append-only ledger scoped to a single client.
+
+This tutorial walks you through enrolling an agent, reviewing its plan, running it once under your supervision, and inspecting the audit trail on the seeded demo org.
 
 ## Prerequisites
 
-- Admin access (Settings is yours).
-- The org's master AI switch awareness — see step 1 of the access part or
-  the [deny-by-default explanation](../explanation/ai-deny-by-default.md).
+- Admin access so you can open **Settings**.
+- A quick read of [Why AI is deny-by-default](../explanation/ai-deny-by-default.md) if you want the background on how master switches and role grants work.
 
 ## 1. Enroll the agent
 
-Open **Settings→Agent platform**. The page centers on the **agent ledger**
-table (Agent, Session, Status, Evidence, Perspective, Actions) and states
-its lifecycle in seven steps, which is exactly the path of this tutorial:
-enroll → show the workbench → plan & approve → run once → wire to
-automations → connectors → review the ledger.
+Open **Settings → Agent platform**. The center of this page is the **agent ledger** table (**Agent**, **Session**, **Status**, **Evidence**, **Perspective**, and **Actions**). Above the table, Marula lists the seven-step safety ladder every agent follows:
 
-Step 1: enroll by pasting an enrollment token. Nothing runs yet — enroll
-places the agent on the ladder. It cannot act until a plan exists.
+1. Enroll the agent
+2. Scope it to a workbench session
+3. Review and approve its plan
+4. Trigger a single supervised run
+5. Wire it to automation rules
+6. Connect external tools
+7. Audit the ledger
 
-## 2. Show the workbench and plan
+Paste an enrollment token to complete step 1. Enrolling registers the agent's identity, and nothing executes yet.
 
-Give the agent a session and a workbench. The agent produces a **plan**: the steps it intends to take, laid out.
-Agents plan. Humans approve.
+## 2. Assign a workbench session and read the plan
 
-## 3. Approve, then run once
+Give the agent a ticket or workbench session scoped to one client. Instead of changing records immediately, the agent produces a written **plan** listing the exact steps and tool calls it wants to run.
 
-Approve the plan (step 3), then manually trigger one run (step 4). The run
-executes against its scoped client, and every tool call lands as evidence
-rows on the agent ledger. This run-once gate exists so you can see exactly
-what an agent's automation wiring would do later, with a human behind the
-trigger.
+Agents propose. People approve.
 
-## 4. Wire to automations and connectors (later, deliberately)
+## 3. Approve the plan and run it once
 
-Steps 5–6 of the ladder are where the run-once discipline pays off: once
-you trust the evidence, attach the agent to automations and connectors.
-Automation rules can invoke agents just like any other action — see
-[automation rules](../how-to/admin-automation-rules.md).
+Click **Approve** on the plan (step 3), then trigger a **single supervised run** (step 4).
 
-## 5. Read the ledger
+The agent executes its approved steps for that single client while recording each tool call and its inputs and outputs as an evidence row on the ledger. Requiring a manual single run before you attach an agent to background automations lets you verify what it actually does on real tickets.
 
-Open **Settings→Agent platform** and inspect the ledger rows: agent,
-session, status, evidence, perspective. Provenance is field-level, so any
-record an agent touched shows `agent` in the actor chips of
-[/provenance](../explanation/provenance-vs-audit.md) — alongside
-`human` and `import`. Agents never blur into history, and their writes
-stay attributed and reviewable after completion.
+## 4. Connect to automations only when you trust the output
 
-## Turning an AI surface on for one role (companion task)
+Steps 5 and 6 on the ladder let you wire a proven agent into your [automation rules](../how-to/admin-automation-rules.md) or external connectors. Even when triggered by an automation rule, client-visible replies and external side effects remain gated by your policy rules.
 
-While you are in Settings, note the split: Settings→Agent platform governs
-agents. Settings→AI governs the org's AI surfaces. To switch one surface on
-for one role: open Settings→AI, confirm the org-wide **AI features**
-master switch is ON (default OFF), then grant the surface
-(doc_drafting, ticket_note_assist, …) to the role. Only then does it
-become audible for those users. Full procedure: [manage AI access](../how-to/admin-ai-access.md).
+## 5. Inspect the audit ledger and field history
+
+Return to **Settings → Agent platform** and click into the ledger row for your run. You can see which session ran, which client it was scoped to, and the exact evidence captured at each step.
+
+Every field an agent updates also carries an `agent` actor badge in the [Provenance view](../explanation/provenance-vs-audit.md) right alongside `human` and `import` changes, so your team can always tell whether a person or an assistant updated a ticket field.
+
+## Companion task: turning on an in-app AI helper for one role
+
+Notice that Marula separates autonomous background agents (**Settings → Agent platform**) from in-app writing and triage helpers (**Settings → AI**):
+
+1. Open **Settings → AI**.
+2. Flip the organization-wide **AI features** master switch to **ON** (it ships **OFF**).
+3. Grant a specific helper surface (such as `ticket_note_assist` or `doc_drafting`) to the staff role that should see it.
+
+Roles without a grant never even see AI buttons in the interface. For the full walkthrough, see [Manage AI access](../how-to/admin-ai-access.md).
 
 ## What you learned
 
-- The 7-step ladder is the canonical agent sequence. Nothing executes
-  without a plan, an approval, and a run-once observation.
-- Agent tool runs are client-scoped and ledger-cataloged, forever.
-- Master switch OFF means zero ledger rows and zero side effects — the
-  pre-AI product, exact.
+- Every agent follows the seven-step ladder: enroll, plan, human approval, and a supervised single run before any automation wiring.
+- Agent runs are locked to one client at a time and leave a permanent, field-level audit trail.
+- Leaving the master AI switch **OFF** removes all AI helpers and background runs cleanly.

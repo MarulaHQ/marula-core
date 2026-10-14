@@ -1,41 +1,30 @@
 # Instant-first interaction
 
-> The binding doctrine lives in [`docs/instant-first.md`](../../instant-first.md)
-> (doctrines #7–#9 in [`docs/STRATEGY.md`](../../STRATEGY.md) point at it). This
-> page explains what it means and why the product is built this way.
+> The full technical specification lives in [`docs/instant-first.md`](../../instant-first.md)
+> (doctrines #7–#9 in [`docs/STRATEGY.md`](../../STRATEGY.md)). This page
+> explains what it means for your daily work and why the product is built this way.
 
-## The idea
+## What you feel in the app: no Save button, instant feedback, real undo
 
-Software for people doing real work must never make them wait to *see* their
-own action. Marula renders the intended outcome immediately (optimistic
-render) and then reconciles against the authoritative response from the
-server. The UI never polls to "check if it worked" — the mutation response
-is the truth.
+When you are on the phone with a customer and updating a ticket's priority or assignee, you shouldn't have to hunt for a Save button at the bottom of a form or wait for a loading spinner to see your own change.
 
-## What the core must provide (the support contract)
+In Marula, edits apply on screen the instant you click or press a key, and the app confirms the change with the server in the background. If you change your mind or click the wrong status, press `Ctrl+Z` (`Cmd+Z` on a Mac) to undo the change cleanly—even after the server has already saved it.
 
-For the UI to be able to promise instant, the core provides:
+## How the server backs that up
 
-1. A typed `mutation` envelope on every mutation (sequence, version,
-   updated-at) so clients can reconcile deterministically.
-2. A typed error envelope (IF3) with machine-readable reason codes, so
-   failure is as renderable as success.
-3. A transactional outbox emitting domain events once per mutation, with a
-   live stream (`GET /api/events/stream`) for push updates.
-4. Undo as the escape hatch — [v1-undo-stacks](../../reference/read-model/v1-undo-stacks.md)
-   backs reversible operations.
+To make instant updates safe for a team working the same board at once, the backend provides four guarantees on every write:
 
-## Agent changes default to approval
+1. **A versioned `mutation` envelope:** Every write returns a sequence number, the record's new version, and the server timestamp so your browser reconciles immediately without polling.
+2. **Structured error reasons (`IF3`):** If a change cannot be saved (or collides with a teammate's edit made a half-second earlier), the API returns a machine-readable code like `version_conflict` so the UI can show you the exact conflict instead of a generic error toast.
+3. **Live push updates:** Every database write records a domain event in the transactional outbox and pushes it over WebSockets (`GET /api/events/stream`) in under `100 ms`, so dispatchers and technicians looking at the same ticket see updates live.
+4. **Server-backed undo history:** Reversible actions are tracked in the undo stack ([`v1-undo-stacks`](../../reference/read-model/v1-undo-stacks.md)) so stepping backward is a real, audited database action.
 
-Agent-authored changes require approval by default (doctrine #8). The agent
-platform is an extension surface, not a parallel write path: proposals land
-as typed artifacts (`/api/v1/agent-proposals`) a human approves, declines,
-or withdraws. Humans make the human decisions; AI makes the mechanical
-things go faster.
+## Assistant changes always wait for human approval
 
-## The core's data stays queryable
+While human clicks apply immediately, changes suggested by an AI assistant or background agent follow the opposite rule (doctrine #8): **they wait for a person to approve them**.
 
-Doctrine #9: the core's data stays queryable. The [read
-model](../reference/read-model.md) is a supported interface, not an
-implementation detail — which is also why "leave any day" (the manifesto's
-promise) is a property of the architecture, not a marketing line.
+Agent suggestions land as explicit proposals (`/api/v1/agent-proposals`) that a technician or admin can approve, decline, or dismiss. Nothing silently rewrites a ticket or emails a customer behind your back.
+
+## Your operational data stays easy to query
+
+Doctrine #9 guarantees that your data is never trapped behind an opaque application cache. The versioned SQL views in the [read model](../reference/read-model.md) let you query your tickets, time entries, SLA outcomes, and invoices directly with standard SQL or any BI tool.

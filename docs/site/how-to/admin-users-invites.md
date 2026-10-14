@@ -3,60 +3,41 @@
 > **Audience:** admin — invitations and access are settings-owner
 > work, as are the account-security baselines below.
 
+Instead of creating temporary passwords and reading them over the phone, you invite teammates from **Settings → Team**. Each person gets a single-use setup link where they can set a password or sign in with passwordless email links, enroll two-factor authentication, and set their notification hours.
+
 ## Prerequisites
 
-- Admin access to **Settings→Team** (PEOPLE & ACCESS).
-- A sign-up email the invitee can reach, **or** a magic-link-capable
-  mailbox. Marula's passwordless parity means you can invite without
-  choosing anyone's password: magic-link sign-ins are "the same full
-  sessions a password sign-in issues" (the auth surface says this
-  explicitly — never treat passwordless accounts as second-class).
+- Admin access to **Settings → Team** (under **People & Access**).
+- A working email address for the teammate you are inviting. Passwordless magic-link sign-ins create the exact same full session as a password login, so staff never have to manage a password if your team prefers email links.
 
-## 1. Invite the member
+## 1. Send the team invitation
 
-From Settings→Team, invite by email. The member receives a
-**setup link**,
-the acceptance page is gated on it ("This page needs the setup link your
-administrator sent you (…/accept-invite?token=…)") and direct navigation
-explains the precondition honestly.
+Open **Settings → Team** and invite the new team member by email. Marula generates a unique **setup link** (`/accept-invite?token=…`). If someone opens `/accept-invite` without a valid token in the URL, the page explains that they need the setup link from their administrator.
 
-## 2. Member completes setup
+## 2. Teammate accepts and verifies their email
 
-They open the setup link, set their method (password or the
-magic-link/email path), and land signed in. Email verification is a
-separate concern with its own lifetime: verification links are
-**single-use and valid 24 hours**, with a resend flow. Verification
-(confirms the mailbox) is not password recovery (resets access) — the two
-flows answer different prompts.
+When the invitee opens their setup link, they choose their sign-in method (password or magic link) and land directly in the workspace.
 
-## 3. Give each account its own recovery story
+Email verification links are **single-use and valid for 24 hours**, with a one-click resend option if the link expires. Note that email verification (confirming ownership of a mailbox) is separate from password reset (recovering a locked account).
 
-- Password reset issues a **single-use reset link**.
-- Portal users are explicitly excluded from staff reset — portal
-  passwords are reset by the service desk per the portal surface's own
-  copy ("Your service desk provisions accounts and can reset this
-  password"). See [portal setup](admin-portal-setup.md).
+## 3. Password recovery for staff vs. portal clients
 
-## 4. Harden the account
+- **Staff accounts:** Requesting a password reset sends a single-use recovery link to the staff member's email.
+- **Client portal accounts:** Portal users are excluded from the staff password-reset flow so the two login systems never mix. Your service desk resets portal passwords or sends portal sign-in links from **Settings → Portal** (see [Set up the portal](admin-portal-setup.md)).
 
-Lives in each user's own **Settings→Security**, and admins should direct
-every member there at onboarding:
+## 4. Turn on two-factor authentication and passkeys
 
-- **TOTP** two-factor setup (start setup from the card).
-- **Sensitive changes gate**: disabling TOTP or regenerating recovery
-  codes requires the account password **plus** the current code — even
-  the account owner cannot silence MFA without the second factor.
-- **Passkeys** (Touch ID / Windows Hello / security keys). Removal
-  also requires the password + second factor.
-- **Sessions**: the page lists live refresh-token chains, so stale
-  devices are visible and actable.
+Have every new team member open **Settings → Security** on their first day to lock down their account:
 
-## 5. Notifications per member, not per org
+- **Authenticator app (TOTP):** Scan the QR code to enable 6-digit verification codes and save the backup recovery codes.
+- **Protected security changes:** Turning off TOTP or regenerating recovery codes requires entering the account password **and** a live 2FA code, so an unattended laptop cannot be stripped of MFA.
+- **Passkeys:** Register Touch ID, Face ID, Windows Hello, or a hardware security key. Removing a passkey also requires re-verifying with password and second factor.
+- **Active sessions:** Review signed-in devices and revoke any old refresh-token sessions immediately.
 
-Per-user event matrix at **Settings→Notifications**: in-app/email toggles
-with quiet-from/until/timezone rows. Quiet hours hold non-critical email
-during the window — **SLA breaches and escalations always break through**.
-Known rough edge, so you are not surprised: a few shipped events render as
-raw slugs (`report_delivery`, `ai_cap_warn`, `secret_rotation`) without
-friendly labels yet. The semantic names are honest even when the labels
-are bare: report delivery, AI capacity warnings, secret rotation.
+## 5. Set personal notification preferences and quiet hours
+
+Each team member controls their own alert schedule under **Settings → Notifications**:
+
+- Toggle **In-app** and **Email** delivery per event type.
+- Set **Quiet hours** (start time, end time, and timezone) to hold routine email notifications overnight.
+- **Urgent alerts always break through:** SLA breaches and priority escalations bypass quiet hours so an on-call lead never misses an emergency.

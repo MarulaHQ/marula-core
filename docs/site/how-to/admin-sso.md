@@ -3,77 +3,53 @@
 > **Audience:** admin — IdP wiring is a settings-owner decision; every
 > staff and portal account experiences the round-trip you configure here.
 
+Single Sign-On (SSO) lets your staff sign in to Marula through your company's identity provider (such as Google Workspace, Microsoft Entra ID, Okta, or Keycloak) using the same credentials and security keys they already use for email.
+
 ## Prerequisites
 
-- Admin access to the authentication provider configuration (Settings,
-  under the auth surface family) and a worked relationship with your
-  chosen IdP.
-- The
-  [auth provider contract](../../reference/auth-provider-contract.md) —
-  this page is the operator walk-through. The contract supplies the
-  wire-level truth.
+- Admin access to **Settings** (authentication provider configuration) and admin permissions in your identity provider (IdP) to register an OIDC client.
+- If you want the wire-level OIDC specification and claim rules, see the [auth provider contract](../../reference/auth-provider-contract.md).
 
-## What the round-trip actually is
+## How the SSO sign-in round-trip works
 
-The SSO surface itself demonstrates the loop's failure mode honestly:
-deep-linking the SSO page without an IdP handoff renders the explainable
-error **"Missing handoff code"**. There is no shortcut SSO — the flow is
-always:
+Every SSO login follows a three-step redirect handshake:
 
-1. **Initiate at login.** The user starts sign-in at Marula's login
-   surface, which redirects to your IdP.
-2. **IdP authenticates.** Whatever your IdP requires (password, passkey,
-   its own MFA) happens on its site, not Marula's.
-3. **Handoff back.** The IdP returns a handoff code to Marula, and
-   the SSO completion exchanges that code for a Marula session.
+1. **Start at Marula's login page:** The staff member clicks your SSO provider on `/login`, and Marula redirects their browser to your IdP. (Bookmarking or opening the internal SSO callback URL directly without starting at login shows `"Missing handoff code"` because no sign-in state was started.)
+2. **Authenticate at your IdP:** Your IdP verifies the user's password or passkey along with corporate MFA policies.
+3. **Return with a one-time handoff code:** Your IdP redirects back to Marula with a short-lived code, which Marula exchanges for a full staff session.
 
-## 1. Configure the provider
+## 1. Configure your identity provider
 
-Wire the provider settings in the auth configuration surface: client
-credentials or metadata your IdP defines, redirect URIs pointing back at
-your deployment. Deployments behind a reverse proxy should keep the
-redirect URIs consistent with the [TLS runbook's](../reference/reverse-proxy-tls.md)
-public URL — redirect mismatches fail at the IdP, not at Marula.
+Open the authentication provider settings in Marula and enter the client ID, client secret, and redirect URI registered in your IdP. If you run Marula behind a reverse proxy, make sure your public hostname matches the redirect URI in your IdP (see the [Reverse proxy & TLS reference](../reference/reverse-proxy-tls.md)).
 
-### Presets save the URL typing
+### Use a built-in provider preset
 
-The provider catalog carries declarative presets — Google Workspace,
-Microsoft Entra ID, Okta, and Keycloak. Pick one and fill its parameters
-(Entra takes a tenant, Okta a domain, Keycloak a host and `realm`)
-instead of typing issuer and discovery URLs by hand. Marula derives
-both and pins the issuer at verification time.
+Instead of copying OIDC discovery and issuer URLs by hand, pick one of the built-in presets:
 
-Anything else that speaks standard OIDC (an Ory Kratos deployment behind
-Hydra or Ory Network, for example) works without a preset: pin its issuer
-and discovery URL yourself. A bare Ory Kratos (no OIDC front) has no
-discovery document to point at, and the [provider
-contract](../../reference/auth-provider-contract.md) records that native
-support as not built.
+- **Google Workspace**
+- **Microsoft Entra ID** (enter your tenant ID)
+- **Okta** (enter your Okta domain)
+- **Keycloak** (enter your host URL and `realm`)
 
-## 2. Verify the whole loop, not half of it
+Marula derives the discovery endpoints automatically and pins the issuer URL for token verification.
 
-Test with a real account:
+If you use another standard OpenID Connect provider (such as Ory Hydra, Ory Network, or Authentik), choose the custom OIDC option and supply the issuer and discovery URLs directly. (Note that a bare Ory Kratos instance without an OIDC layer does not publish an OIDC discovery document; see the [auth provider contract](../../reference/auth-provider-contract.md).)
 
-- sign-in start from the login page (not a deep-linked SSO URL — that is
-  the "Missing handoff code" path),
-- IdP completes,
-- the redirected handoff lands the user back signed in with the same
-  session behavior as normal staff sign-ins.
+## 2. Test the full sign-in loop
 
-## 3. What SSO does NOT change
+Open a private browser window and verify the entire flow:
 
-- **MFA is not bypassed by other means**: sensitive changes keep the
-  password + current-code gate inside [Settings→Security]
-  (admin-users-invites.md#4-harden-the-account) regardless of SSO.
-- **Passwordless parity holds**: magic-link and SSO both issue
-  "the same full sessions a password sign-in issues" — no second-class
-  sessions on either path.
-- **Portal auth stays separate**: IdP wiring for staff sign-in is not a
-  portal identity migration — portal provisioning and resets remain
-  service-desk-side ([portal setup](admin-portal-setup.md)).
+1. Start from `/login` and click your SSO button.
+2. Complete sign-in at your IdP.
+3. Confirm you land in the Marula workspace with your expected staff role.
+
+## 3. What SSO does and does not change
+
+- **Full session parity:** Sessions started via SSO or passwordless magic links have the exact same capabilities as password sign-ins.
+- **In-app security changes still require verification:** Changing two-factor settings or recovery codes inside [Settings → Security](admin-users-invites.md#4-turn-on-two-factor-authentication-and-passkeys) stays protected.
+- **Client portal accounts remain separate:** Staff SSO applies to your internal team. Client portal logins stay isolated per client organization under [Settings → Portal](admin-portal-setup.md).
 
 ## What you learned
 
-- SSO is a redirect round-trip and nothing else in Marula's posture.
-  Handoff codes are the proof, and their absence fails closed.
-- The provider contract document is authoritative for anything wire-level.
+- Built-in presets for Google Workspace, Entra ID, Okta, and Keycloak configure your OIDC endpoints automatically.
+- Always start SSO sign-ins from `/login` so Marula can verify the round-trip handoff code.

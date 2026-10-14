@@ -12,3 +12,10 @@ target-dir = "/Users/iordn/Documents/GitHub/Marula/marula-core/.kilo/target-shar
 # ignored, so incremental stayed ON and the caches kept regrowing). The
 # correct `build.incremental` key is used below.
 incremental = false
+
+[env]
+# Point macOS SDK resolution at CommandLineTools so `tauri-build` / `swift-rs`
+# inside `marula-desktop`'s build script never fails when full Xcode.app has a
+# pending license prompt (`xcrun --sdk macosx --show-sdk-path` exit 69).
+DEVELOPER_DIR = { value = "/Library/Developer/CommandLineTools", force = false }
+

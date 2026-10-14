@@ -1,40 +1,24 @@
 # Customizations are data, not code
 
-Everything an organization configures (custom fields, board statuses,
-automations, webhook subscriptions, settings registry values) lives as
-declarative rows bound to stable semantic primitives. This is the
-[`docs/upgrade-compatibility-policy.md`](../../upgrade-compatibility-policy.md)
-§5 position, and it is the load-bearing idea behind Marula's upgrade
-story.
+Every MSP runs its service desk a little differently: you have your own board column names, custom client fields, SLA rules, and ticket automations. In Marula, every one of those customizations is stored as structured database rows tied to fixed underlying stages rather than custom scripts. That design choice ([`docs/upgrade-compatibility-policy.md`](../../upgrade-compatibility-policy.md) §5) is why you can customize your workspace freely and still upgrade to new versions without things breaking.
 
-## The problem it solves
+## Why traditional PSA customizations make upgrades painful
 
-Modular, customizable systems acquire a reputation for being painful to
-upgrade exactly when customization is implemented as *forked logic*: code
-the customer owns that the vendor must either preserve forever or break.
-Forked logic is why "upgrades are boring" fails elsewhere.
+Heavily customizable platforms usually get a reputation for terrifying upgrades when customizations are built as custom code or brittle string-matching rules. The moment you rename a status column from `"In Progress"` to `"Bench Repair"`, any report or SLA script looking for the text `"In Progress"` silently breaks.
 
-## The defaults-first doctrine
+## How Marula separates your labels from system behavior
 
-Semantic status categories, the settings registry, and seeded system rows
-are not UX conveniences — they are what keeps customization expressible
-*without* forkable logic. When a board status is bound to a semantic
-category, renaming it cannot change SLA, billing, automation, or reporting
-behavior, because all of those bind to the category. Custom workflow
-changes are therefore not breaking changes.
+In Marula, every custom board status maps to one of four core workflow categories (`open`, `in_progress`, `waiting`, or `closed`).
 
-## The two tools this enables
+SLA timers and billing rules, along with automations and reports, all bind to those four underlying categories rather than the display label on your board. When a service desk lead renames a column or adds a new `"Waiting on Vendor"` status mapped to `waiting`, the SLA clock knows immediately to pause. Your custom workflow changes never break reporting or billing.
 
-1. **Customization manifest** — a canonical, versioned export describing
-   everything an org has customized. It doubles as backup documentation and
-   as the input to the upgrade preflight.
-2. **Upgrade preflight** — `marula upgrade --check` runs offline against
-   a manifest + database copy and reports exactly which customizations touch
-   constructs deprecated in the target version.
+## Two practical tools this gives administrators
 
-## What this costs, honestly
+Because your customizations are structured data rows:
 
-Data-bound customization is less expressive than arbitrary code. Marula
-deliberately trades the last few percent of "do literally anything" for the
-property that every org can always leave, upgrade, or fork — which the
-[manifesto](why-marula.md) names as the point.
+1. **Customization manifest:** You can export a single versioned file describing everything your organization has customized (boards, custom fields, workflow categories, and automation rules). It serves as both human-readable backup documentation and the input to upgrade checks.
+2. **Offline upgrade preflight (`marula upgrade --check`):** Before you upgrade your server, you can run the preflight check against your customization manifest and a database copy. It tells you ahead of time if any of your custom fields or rules touch a construct scheduled for deprecation.
+
+## The trade-off
+
+Storing customizations as structured data means you configure rules from validated building blocks rather than injecting arbitrary scripts into the ticket page. When you do need custom external logic, you build it cleanly through [plugin surfaces](../how-to/admin-plugin-surfaces.md) or the [REST API and webhooks](../how-to/call-the-api.md), keeping your core database easy to upgrade and [yours to leave with any day](why-marula.md).

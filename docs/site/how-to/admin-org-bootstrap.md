@@ -2,52 +2,44 @@
 
 > **Audience:** admin — you are creating the org you will administer.
 
+When you launch a fresh Marula install, you create your organization and first administrator account right from the sign-in screen. Once inside, you set your company name, ticket numbering prefix, default timezone, and base currency before inviting the rest of your team.
+
 ## Prerequisites
 
-- A reachable Marula deployment (self-hosted console or the desktop app
-  — see [self-host reference](../reference/self-host-local-stack.md)).
-- No existing session in the target deployment, or awareness that one
-  account belongs to one org.
+- A reachable Marula server in your browser (or the desktop app — see [Self-host local stack reference](../reference/self-host-local-stack.md)).
+- Each user account belongs to one organization.
 
-## 1. Find the create-org toggle
+## 1. Switch to Create org on the sign-in page
 
-The landing page at `/login` carries both entry modes side by side:
-"Sign in to your service desk, or create your organization" with a
-**Sign in / Create org segmented toggle**. Choose **Create org**.
+Open `/login`. Beneath the heading *"Sign in to your service desk, or create your organization"*, switch the segmented toggle from **Sign in** to **Create org**.
 
-## 2. Register
+## 2. Register your organization and owner account
 
-Registration creates both the organization and its owning principal.
-Slugs are unique: if the org slug is taken, the API returns a typed `409`
-with reason `org_slug_taken` and a verified-available `suggestion` you can
-accept. (The same registration flow works via
-`POST /api/v1/register` — see the [API edition tutorial](../tutorials/first-ticket-api.md).)
+Fill in your organization name, desired URL slug, and owner login details. Organization slugs must be unique; if a slug is already taken, the server returns `409 Conflict` (`org_slug_taken`) along with an available `suggestion` you can accept with one click. (You can also register via `POST /api/v1/register` as shown in the [API tutorial](../tutorials/first-ticket-api.md).)
 
-## 3. Set the tenant identity
+## 3. Set your company identity and base currency
 
-Sign in and open **Settings→General**. Here you fix the things that are
-painful to change later: org name, ticket prefix, workspace slug, and the
-**base currency** (ISO 4217). Two warnings from the surface itself:
+Sign in and open **Settings → General**. Set these four values first, before your team starts logging tickets or invoices:
 
-- Changes apply immediately after saving and are recorded in the audit
-  log.
-- Changing the base currency is **refused** while FX conversion snapshots
-  exist — record rates first, or reset rate history deliberately (see
-  [FX](admin-fx-rates.md)).
+- **Organization name**
+- **Ticket prefix** (for example, `INC` or `MSP`)
+- **Workspace slug**
+- **Base currency** (ISO 4217 code such as `USD`, `GBP`, `EUR`, or `ZAR`)
 
-Org defaults down the page: end-of-day hour (drives missing-time
-detection and EOD nudges), default timezone, first day of week.
+Two safeguards to keep in mind:
 
-## 4. Shape identity plumbing deliberately
+- Every change takes effect immediately and writes an entry to the audit log.
+- Once your organization has recorded foreign-exchange conversion snapshots on invoices or stock receipts, Marula blocks changing the **base currency** so historical financial totals stay accurate. Set your base currency first (see [Manage FX rates](admin-fx-rates.md)).
 
-- Theme and appearance: **Settings→Appearance** carries the theme presets
-  (Tangerine default) org-wide, with per-user override on Preferences.
-- Optional SSO via IdP: [connect an IdP](admin-sso.md).
-- Every later user is an invite: [users & invites](admin-users-invites.md).
+Further down **Settings → General**, set your **end-of-day hour** (which controls when end-of-day missing-time reminders trigger), **default timezone**, and **first day of the week**.
+
+## 4. Choose your theme and invite your team
+
+- **Theme and density:** Open **Settings → Appearance** to pick your organization's default theme preset (`Marula` neutral, `Marula Warm`, or `High contrast`). Individual team members can still pick their own theme or density under **Preferences**.
+- **Single sign-on (optional):** Connect Google Workspace, Microsoft Entra ID, Okta, or Keycloak using [Connect an IdP (SSO)](admin-sso.md).
+- **Invite staff:** Send setup links to your technicians and dispatchers (plus your bookkeepers) via [Manage users and invites](admin-users-invites.md).
 
 ## Related
 
-- The seeded demo org (`owner@demo.local` / `demo-password-123`) exists so
-  tutorials skip this step — this page is how you leave the demo behind.
-- [SLA calendars](admin-sla-calendars.md) before your first ticket wave,
-  so clocks run on the right calendar.
+- If you are just exploring locally, the preloaded demo organization (`owner@demo.local` / `demo-password-123`) already has these steps completed.
+- Before opening your boards to live customer traffic, configure your business hours in [Configure SLA calendars & escalation ladders](admin-sla-calendars.md).
