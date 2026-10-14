@@ -717,11 +717,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     // signs in to an empty ticket list — which reads as a broken portal
     // rather than as a deliberate choice. Each client already carries
     // service-desk tickets, so all three lists are populated.
-    for (id_offset, client) in [
-        (52u64, acme),
-        (55, northwind),
-        (56, globex),
-    ] {
+    for (id_offset, client) in [(52u64, acme), (55, northwind), (56, globex)] {
         sqlx::query(
             "INSERT INTO board_portal_exposure (id, org_id, board_id, client_id, exposed)
              VALUES ($1, $2, $3, $4, true)",
@@ -4308,12 +4304,13 @@ you go, because the escalation record is what the SLA credit claim is read from 
 
         // Content-addressed dedup, identical to the route: skip the PUT when
         // the org already holds these exact bytes.
-        let existing: Option<String> =
-            sqlx::query_scalar("SELECT storage_key FROM attachments WHERE org_id = $1 AND sha256 = $2")
-                .bind(DEMO_ORG_ID)
-                .bind(&sha256)
-                .fetch_optional(&mut *tx)
-                .await?;
+        let existing: Option<String> = sqlx::query_scalar(
+            "SELECT storage_key FROM attachments WHERE org_id = $1 AND sha256 = $2",
+        )
+        .bind(DEMO_ORG_ID)
+        .bind(&sha256)
+        .fetch_optional(&mut *tx)
+        .await?;
         if existing.is_none() {
             if let Some(store) = &attachment_store {
                 store
@@ -4328,11 +4325,13 @@ you go, because the escalation record is what the SLA credit claim is read from 
         }
 
         crate::attachments::insert(
-            &mut *tx,
+            &mut tx,
             crate::attachments::NewAttachment {
                 id: demo_uuid(spec.id_offset),
                 org_id: DEMO_ORG_ID,
-                kind: spec.kind.parse()
+                kind: spec
+                    .kind
+                    .parse()
                     .map_err(|e: core_domain::DomainError| DbError::Conflict(e.to_string()))?,
                 ticket_id: spec.ticket_index.map(|index| demo_uuid(100 + index)),
                 ticket_comment_id: spec.ticket_comment_id,
@@ -4405,12 +4404,13 @@ you go, because the escalation record is what the SLA credit claim is read from 
         .map_err(|e| DbError::Conflict(e.to_string()))?;
         let sha256 = sha256_hex(&bytes);
         let storage_key = core_store::attachment_key(DEMO_ORG_ID, &sha256);
-        let existing: Option<String> =
-            sqlx::query_scalar("SELECT storage_key FROM attachments WHERE org_id = $1 AND sha256 = $2")
-                .bind(DEMO_ORG_ID)
-                .bind(&sha256)
-                .fetch_optional(&mut *tx)
-                .await?;
+        let existing: Option<String> = sqlx::query_scalar(
+            "SELECT storage_key FROM attachments WHERE org_id = $1 AND sha256 = $2",
+        )
+        .bind(DEMO_ORG_ID)
+        .bind(&sha256)
+        .fetch_optional(&mut *tx)
+        .await?;
         if existing.is_none() {
             if let Some(store) = &attachment_store {
                 store
@@ -4653,20 +4653,30 @@ you go, because the escalation record is what the SLA credit claim is read from 
     // email), so a digest of a demo string is honest about it.
     let csat_specs: [(u64, u64, i16, Option<&str>); 3] = [
         // Responded. Ticket 7 is Acme's licence export, resolved.
-        (1260, 7, 5, Some("Spot on — backup verified inside the hour.")),
+        (
+            1260,
+            7,
+            5,
+            Some("Spot on — backup verified inside the hour."),
+        ),
         // Responded. Ticket 13 is Acme's laptop fan, resolved.
-        (1261, 13, 4, Some("Fixed next day. Would have liked a heads-up that the box was running hot.")),
+        (
+            1261,
+            13,
+            4,
+            Some("Fixed next day. Would have liked a heads-up that the box was running hot."),
+        ),
         // Sent, awaiting a response. Ticket 9 is Acme's Wi-Fi P3.
         (1262, 9, 0, None),
     ];
     let mut csat_count = 0usize;
     for (id_offset, ticket_index, score, comment) in csat_specs {
         let responded = comment.is_some();
-        let client_id = match ticket_index as u64 {
+        let client_id = match ticket_index {
             7 | 13 | 9 => acme,
             _ => acme,
         };
-        let contact = match ticket_index as u64 {
+        let contact = match ticket_index {
             7 => "d.reeve@acme.example",
             13 => "j.okafor@acme.example",
             _ => "a.patel@northwind.example",
@@ -4681,7 +4691,7 @@ you go, because the escalation record is what the SLA credit claim is read from 
         )
         .bind(demo_uuid(id_offset))
         .bind(DEMO_ORG_ID)
-        .bind(demo_uuid(100 + ticket_index as u64))
+        .bind(demo_uuid(100 + ticket_index))
         .bind(client_id)
         .bind(contact)
         // A 64-char SHA-256 of a demo string: the column is opaque and the
@@ -4699,7 +4709,7 @@ you go, because the escalation record is what the SLA credit claim is read from 
         } else {
             Some(at(today - Duration::days(2), 9, 5))
         })
-        .bind(i16::try_from(score).ok().filter(|s| *s > 0))
+        .bind((score > 0).then_some(score))
         .bind(comment)
         .execute(&mut *tx)
         .await?;
@@ -4721,8 +4731,7 @@ you go, because the escalation record is what the SLA credit claim is read from 
     // Seeding this way means the category tree, the restricted defaults and
     // the grants are all exercised rather than hand-written.
     crate::secret_vault::seed_default_secret_folders(&mut tx, DEMO_ORG_ID, owner).await?;
-    let secret_folders =
-        crate::secret_vault::list_all_org_folders(&mut tx, DEMO_ORG_ID).await?;
+    let secret_folders = crate::secret_vault::list_all_org_folders(&mut tx, DEMO_ORG_ID).await?;
     let folder_of = |slug: &str| -> Uuid {
         secret_folders
             .iter()
@@ -4760,7 +4769,10 @@ you go, because the escalation record is what the SLA credit claim is read from 
             folder_slug: "api-keys",
             kind: "api-key",
             title: "Ticketing connector key",
-            fields: &[("api_key", "tk_live_demo_northwind_4f2a"), ("scopes", "tickets:read tickets:write")],
+            fields: &[
+                ("api_key", "tk_live_demo_northwind_4f2a"),
+                ("scopes", "tickets:read tickets:write"),
+            ],
             expires_days: None,
         },
         DemoSecretRecord {
@@ -4797,7 +4809,10 @@ you go, because the escalation record is what the SLA credit claim is read from 
         .bind(folder_of(spec.folder_slug))
         .bind(spec.kind)
         .bind(spec.title)
-        .bind(spec.expires_days.map(|days| at(today + Duration::days(days), 0, 0)))
+        .bind(
+            spec.expires_days
+                .map(|days| at(today + Duration::days(days), 0, 0)),
+        )
         .bind(owner)
         .execute(&mut *tx)
         .await?;
@@ -5036,20 +5051,107 @@ you go, because the escalation record is what the SLA credit claim is read from 
     // here (identical slugs, labels, flags and positions as the migration),
     // idempotent on (org_id, slug) so a rerun cannot diverge.
     let time_categories: [(&str, &str, &str, bool, bool, bool, i32); 10] = [
-        ("remote", "Remote", "Work done remotely (phone, email, remote tools)", true, false, true, 0),
-        ("on_site", "On-site", "Work at the client location", true, false, true, 10),
-        ("depot", "Depot", "Bench / workshop repair work", true, false, true, 20),
-        ("travel", "Travel", "Travel time to or from client sites", true, false, false, 30),
-        ("incident", "Incident", "Time against incident response or emergencies", true, false, true, 40),
-        ("project", "Project", "Time against project phases rather than tickets", true, false, true, 50),
-        ("internal", "Internal", "Internal admin, meetings, and own-system work", false, false, false, 60),
-        ("warranty", "Warranty", "Work covered by warranty — not billable to the client", false, true, false, 70),
-        ("training", "Training", "Training and enablement time", false, false, false, 80),
-        ("admin", "Admin", "Administrative time not attributable to client work", false, false, false, 90),
+        (
+            "remote",
+            "Remote",
+            "Work done remotely (phone, email, remote tools)",
+            true,
+            false,
+            true,
+            0,
+        ),
+        (
+            "on_site",
+            "On-site",
+            "Work at the client location",
+            true,
+            false,
+            true,
+            10,
+        ),
+        (
+            "depot",
+            "Depot",
+            "Bench / workshop repair work",
+            true,
+            false,
+            true,
+            20,
+        ),
+        (
+            "travel",
+            "Travel",
+            "Travel time to or from client sites",
+            true,
+            false,
+            false,
+            30,
+        ),
+        (
+            "incident",
+            "Incident",
+            "Time against incident response or emergencies",
+            true,
+            false,
+            true,
+            40,
+        ),
+        (
+            "project",
+            "Project",
+            "Time against project phases rather than tickets",
+            true,
+            false,
+            true,
+            50,
+        ),
+        (
+            "internal",
+            "Internal",
+            "Internal admin, meetings, and own-system work",
+            false,
+            false,
+            false,
+            60,
+        ),
+        (
+            "warranty",
+            "Warranty",
+            "Work covered by warranty — not billable to the client",
+            false,
+            true,
+            false,
+            70,
+        ),
+        (
+            "training",
+            "Training",
+            "Training and enablement time",
+            false,
+            false,
+            false,
+            80,
+        ),
+        (
+            "admin",
+            "Admin",
+            "Administrative time not attributable to client work",
+            false,
+            false,
+            false,
+            90,
+        ),
     ];
     let mut time_category_count = 0usize;
-    for (slug, label, description, default_billable, requires_unbillable_reason,
-         rate_card_affinity, position) in time_categories
+    for (
+        slug,
+        label,
+        description,
+        default_billable,
+        requires_unbillable_reason,
+        rate_card_affinity,
+        position,
+    ) in time_categories
     {
         sqlx::query(
             "INSERT INTO time_categories (id, org_id, slug, label, description, default_billable,
@@ -5259,7 +5361,7 @@ you go, because the escalation record is what the SLA credit claim is read from 
         )
         .await?;
 
-        crate::purchasing::bump_line_received(&mut *tx, DEMO_ORG_ID, line_id, qty_milli, false)
+        crate::purchasing::bump_line_received(&mut tx, DEMO_ORG_ID, line_id, qty_milli, false)
             .await?;
         crate::purchasing::advance_order_receipt_status(&mut *tx, DEMO_ORG_ID, *po_id).await?;
         trail_system_write(
@@ -5417,7 +5519,7 @@ you go, because the escalation record is what the SLA credit claim is read from 
         client_loans: client_loan_count,
         attachments: attachment_count,
         document_attachments: document_attachment_count,
-        attachment_store_bytes: attachment_store_bytes,
+        attachment_store_bytes,
         email_messages: email_count,
         email_outbound: email_outbound_count,
         csat_surveys: csat_count,
@@ -5563,13 +5665,14 @@ fn png_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
 /// the attachment list shows a believable size badge.
 fn demo_png(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
     let row_len = 1 + width as usize * 3;
-    let mut raw = Vec::with_capacity(row_len * height as usize);
-    for _ in 0..height {
-        raw.push(0); // filter type 0 (None)
-        for _ in 0..width {
-            raw.extend_from_slice(&rgb);
-        }
+    // One scanline: the filter byte (type 0, None) then `width` flat pixels.
+    let mut row = Vec::with_capacity(row_len);
+    row.push(0);
+    for _ in 0..width {
+        row.extend_from_slice(&rgb);
     }
+    // A flat-colour image is that same scanline repeated `height` times.
+    let raw = row.repeat(height as usize);
     let mut ihdr = Vec::with_capacity(13);
     ihdr.extend_from_slice(&width.to_be_bytes());
     ihdr.extend_from_slice(&height.to_be_bytes());
@@ -5615,12 +5718,18 @@ fn demo_pdf(lines: &[String]) -> Vec<u8> {
         offset_of.push(out.len());
         push(
             &mut out,
-            &format!("{index_plus_one} 0 obj\n{body}\nendobj\n", index_plus_one = index + 1),
+            &format!(
+                "{index_plus_one} 0 obj\n{body}\nendobj\n",
+                index_plus_one = index + 1
+            ),
         );
     }
 
     offset_of.push(out.len());
-    push(&mut out, &format!("5 0 obj\n<< /Length {} >>\nstream\n", stream.len()));
+    push(
+        &mut out,
+        &format!("5 0 obj\n<< /Length {} >>\nstream\n", stream.len()),
+    );
     out.extend_from_slice(&stream);
     push(&mut out, "endstream\nendobj\n");
 
@@ -5786,11 +5895,7 @@ fn seal_stable(key: &[u8; 32], plaintext: &[u8]) -> DemoResult<Vec<u8>> {
 /// Sealed bytes for one demo secret-field value. The plaintext the app opens
 /// back is the value with its record title appended, so a reveal shows
 /// something recognisable rather than a bare random string.
-fn secret_field_ciphertext(
-    key: &[u8; 32],
-    record_title: &str,
-    value: &str,
-) -> DemoResult<Vec<u8>> {
+fn secret_field_ciphertext(key: &[u8; 32], record_title: &str, value: &str) -> DemoResult<Vec<u8>> {
     let plaintext = format!("{value} [{record_title}]");
     seal_stable(key, plaintext.as_bytes())
 }

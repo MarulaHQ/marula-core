@@ -107,26 +107,44 @@ async fn reset_reseed_loop_converges_to_the_same_shape() {
     assert_eq!(count(&db, "SELECT count(*) FROM kb_articles").await, 6);
     // The remaining PSA surfaces, now populated.
     assert_eq!(count(&db, "SELECT count(*) FROM attachments").await, 5);
-    assert_eq!(count(&db, "SELECT count(*) FROM documents_attachments").await, 2);
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM documents_attachments").await,
+        2
+    );
     assert_eq!(count(&db, "SELECT count(*) FROM email_messages").await, 6);
     assert_eq!(count(&db, "SELECT count(*) FROM email_outbound").await, 3);
     assert_eq!(count(&db, "SELECT count(*) FROM csat_surveys").await, 3);
     assert_eq!(count(&db, "SELECT count(*) FROM secret_records").await, 4);
     assert_eq!(count(&db, "SELECT count(*) FROM secret_folders").await, 5);
-    assert_eq!(count(&db, "SELECT count(*) FROM contract_change_orders").await, 2);
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM contract_change_orders").await,
+        2
+    );
     // The canonical ten categories from migration 0110, which only seeded
     // the orgs that existed when it ran — a freshly reset org gets them from
     // the seed itself.
     assert_eq!(count(&db, "SELECT count(*) FROM time_categories").await, 10);
-    assert_eq!(count(&db, "SELECT count(*) FROM purchase_receipts").await, 3);
-    assert_eq!(count(&db, "SELECT count(*) FROM purchase_receipt_lines").await, 3);
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM purchase_receipts").await,
+        3
+    );
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM purchase_receipt_lines").await,
+        3
+    );
     assert_eq!(count(&db, "SELECT count(*) FROM purchase_bills").await, 3);
-    assert_eq!(count(&db, "SELECT count(*) FROM client_loan_lines").await, 3);
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM client_loan_lines").await,
+        3
+    );
     // 3 hand-written ledger legs + 3 loanable "Opening stock" receives +
     // 3 the PO receipt legs post.
     assert_eq!(count(&db, "SELECT count(*) FROM stock_movements").await, 12);
     assert_eq!(count(&db, "SELECT count(*) FROM portal_users").await, 3);
-    assert_eq!(count(&db, "SELECT count(*) FROM board_portal_exposure").await, 3);
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM board_portal_exposure").await,
+        3
+    );
     // The eight `asset_specs` rows plus the three the client loans
     // instantiate through the real write path.
     assert_eq!(count(&db, "SELECT count(*) FROM device_assets").await, 11);
@@ -134,7 +152,10 @@ async fn reset_reseed_loop_converges_to_the_same_shape() {
     // spread over the bulk queue, and one guaranteed row per priority tier.
     // Every open tier therefore renders a live countdown, which is what the
     // ticket board's pills need.
-    assert_eq!(count(&db, "SELECT count(*) FROM ticket_sla_state").await, 25);
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM ticket_sla_state").await,
+        25
+    );
     for tier in ["p1", "p2", "p3", "p4"] {
         let live = sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM tickets t
@@ -310,13 +331,11 @@ async fn wave47_sales_story_survives_the_seed() {
 
     // --- invoices: draft, sent, paid, overdue -----------------------------
     for status in ["draft", "issued", "paid"] {
-        let n = sqlx::query_scalar::<_, i64>(
-            "SELECT count(*) FROM invoices WHERE status = $1",
-        )
-        .bind(status)
-        .fetch_one(&db.admin)
-        .await
-        .unwrap();
+        let n = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM invoices WHERE status = $1")
+            .bind(status)
+            .fetch_one(&db.admin)
+            .await
+            .unwrap();
         assert!(n >= 1, "the seed must carry an invoice in '{status}' state");
     }
     // "Overdue" is derived, not a status: issued, past its due date, with
@@ -329,7 +348,10 @@ async fn wave47_sales_story_survives_the_seed() {
     .fetch_one(&db.admin)
     .await
     .unwrap();
-    assert!(overdue >= 1, "at least one issued invoice must be past its due date");
+    assert!(
+        overdue >= 1,
+        "at least one issued invoice must be past its due date"
+    );
     let overdue_dunned = sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM invoices WHERE dunning_state = 'overdue'",
     )
@@ -361,15 +383,16 @@ async fn wave47_sales_story_survives_the_seed() {
     }
     // The clock each tier shows comes from the org's own policy targets, so
     // the countdown and the published ladder cannot disagree.
-    let p1_row = sqlx::query_as::<_, (chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
-        "SELECT first_response_due, resolution_due FROM ticket_sla_state s
+    let p1_row =
+        sqlx::query_as::<_, (chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(
+            "SELECT first_response_due, resolution_due FROM ticket_sla_state s
            JOIN tickets t ON t.id = s.ticket_id
           WHERE t.priority = 'p1' AND s.resolution_due > now()
           ORDER BY s.resolution_due LIMIT 1",
-    )
-    .fetch_one(&db.admin)
-    .await
-    .unwrap();
+        )
+        .fetch_one(&db.admin)
+        .await
+        .unwrap();
     let p1_budget = p1_row.1 - p1_row.0;
     assert!(
         p1_budget <= chrono::Duration::hours(8),
@@ -389,8 +412,14 @@ async fn wave47_sales_story_survives_the_seed() {
         "one time entry must sit in the manager queue as 'submitted'"
     );
     for (_, submitted_by, submitted_at) in &awaiting {
-        assert!(!submitted_by.is_nil(), "a submitted entry names who submitted it");
-        assert!(*submitted_at <= chrono::Utc::now(), "submitted_at is in the past");
+        assert!(
+            !submitted_by.is_nil(),
+            "a submitted entry names who submitted it"
+        );
+        assert!(
+            *submitted_at <= chrono::Utc::now(),
+            "submitted_at is in the past"
+        );
     }
     // The approval trail walks an entry that agrees with what it describes.
     let trail = sqlx::query_scalar::<_, i64>(
@@ -402,13 +431,17 @@ async fn wave47_sales_story_survives_the_seed() {
     .fetch_one(&db.admin)
     .await
     .unwrap();
-    assert!(trail >= 2, "the decided entry's trail has its hops recorded");
+    assert!(
+        trail >= 2,
+        "the decided entry's trail has its hops recorded"
+    );
 
     // --- a quote awaiting client approval ---------------------------------
-    let acme: uuid::Uuid = sqlx::query_scalar("SELECT id FROM clients WHERE name = 'Acme Manufacturing'")
-        .fetch_one(&db.admin)
-        .await
-        .unwrap();
+    let acme: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM clients WHERE name = 'Acme Manufacturing'")
+            .fetch_one(&db.admin)
+            .await
+            .unwrap();
     let sent_to_acme = sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM quotes WHERE client_id = $1 AND status = 'sent' AND valid_until > CURRENT_DATE",
     )
@@ -427,12 +460,11 @@ async fn wave47_sales_story_survives_the_seed() {
         ("Northwind Legal", "portal@northwind.demo"),
         ("Globex Foods", "portal@globex.demo"),
     ] {
-        let client: uuid::Uuid =
-            sqlx::query_scalar("SELECT id FROM clients WHERE name = $1")
-                .bind(client_name)
-                .fetch_one(&db.admin)
-                .await
-                .unwrap();
+        let client: uuid::Uuid = sqlx::query_scalar("SELECT id FROM clients WHERE name = $1")
+            .bind(client_name)
+            .fetch_one(&db.admin)
+            .await
+            .unwrap();
         let seats = sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM portal_users WHERE client_id = $1 AND status = 'active'",
         )
@@ -440,7 +472,10 @@ async fn wave47_sales_story_survives_the_seed() {
         .fetch_one(&db.admin)
         .await
         .unwrap();
-        assert_eq!(seats, 1, "{client_name} needs exactly one active portal user");
+        assert_eq!(
+            seats, 1,
+            "{client_name} needs exactly one active portal user"
+        );
         assert!(
             sqlx::query_scalar::<_, i64>("SELECT count(*) FROM portal_users WHERE email = $1")
                 .bind(email)
@@ -474,14 +509,20 @@ async fn wave47_sales_story_survives_the_seed() {
     .fetch_one(&db.admin)
     .await
     .unwrap();
-    assert!(published >= 5, "the portal KB needs real client-facing articles");
+    assert!(
+        published >= 5,
+        "the portal KB needs real client-facing articles"
+    );
     let internal = sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM kb_articles WHERE status = 'draft' AND NOT client_visible",
     )
     .fetch_one(&db.admin)
     .await
     .unwrap();
-    assert!(internal >= 1, "the internal escalation ladder stays unpublished");
+    assert!(
+        internal >= 1,
+        "the internal escalation ladder stays unpublished"
+    );
     // A client-facing article is not a one-line stub. `length()` returns INT4,
     // so the scalar has to be decoded as that.
     let shortest = sqlx::query_scalar::<_, i32>(
@@ -507,27 +548,26 @@ async fn wave47_sales_story_survives_the_seed() {
         internal_assets >= 1,
         "the MSP's own equipment rides scope='internal_org' with no client"
     );
-    let asset_rows = sqlx::query_as::<_, (
-        uuid::Uuid,
-        Option<chrono::NaiveDate>,
-        Option<i32>,
-        String,
-        serde_json::Value,
-    )>(
-        "SELECT id, purchase_date, useful_life_months, tag, fields FROM device_assets",
-    )
-    .fetch_all(&db.admin)
-    .await
-    .unwrap();
+    let asset_rows =
+        sqlx::query_as::<
+            _,
+            (
+                uuid::Uuid,
+                Option<chrono::NaiveDate>,
+                Option<i32>,
+                String,
+                serde_json::Value,
+            ),
+        >("SELECT id, purchase_date, useful_life_months, tag, fields FROM device_assets")
+        .fetch_all(&db.admin)
+        .await
+        .unwrap();
     let today = chrono::Utc::now().date_naive();
     let mut states: Vec<String> = asset_rows
         .iter()
         .filter_map(|(_, purchase, life, _, fields)| {
             core_domain::entities::client::asset_warranty_from_fields(
-                fields,
-                *purchase,
-                *life,
-                today,
+                fields, *purchase, *life, today,
             )
             .map(|w| format!("{:?}", w.state))
         })
