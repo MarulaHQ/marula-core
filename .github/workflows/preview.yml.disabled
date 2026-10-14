@@ -99,6 +99,24 @@ jobs:
       PREVIEW_PUBLIC_URL: ${{ vars.PREVIEW_PUBLIC_URL }}
       PREVIEW_API_URL: ${{ vars.PREVIEW_API_URL }}
       PREVIEW_CORS_ORIGIN: ${{ vars.PREVIEW_CORS_ORIGIN }}
+      # TLS front door (Wave 47 lane V2). EMPTY boots the raw-port stack
+      # this file has always booted. `direct` | `cf-origin` | `cf-dns01`
+      # layers deploy/edge/compose.edge.yml LAST on every compose command,
+      # which is what makes the proxy the only published surface — its
+      # `ports: !override []` only wins when it is the final file.
+      PREVIEW_TLS_MODE: ${{ vars.PREVIEW_TLS_MODE }}
+      # The wildcard zone the per-PR hostname is minted from, e.g.
+      # preview.example.com. Used only when PREVIEW_TLS_MODE is set.
+      PREVIEW_DOMAIN: ${{ vars.PREVIEW_DOMAIN }}
+      # ACME contact for the two ACME modes. The DNS-01 token is the only
+      # credential involved, so it is the only one that lives in secrets
+      # (Zone:DNS:Edit on that one zone — nothing else).
+      PREVIEW_ACME_EMAIL: ${{ vars.PREVIEW_ACME_EMAIL }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      # The host the edge answers for: one subdomain of the wildcard zone
+      # per PR, so every branch gets a stable URL and the certificate is
+      # minted for exactly that host. Empty when PREVIEW_TLS_MODE is empty.
+      MARULA_DOMAIN: pr-${{ github.event.pull_request.number }}.${{ vars.PREVIEW_DOMAIN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -122,6 +140,39 @@ jobs:
           if [ "$missing" -ne 0 ]; then
             echo "::error::See deploy/preview/README.md — the two publishing options and what each one needs from you."
             exit 1
+          fi
+          # The TLS front door is opt-in, but once asked for it needs the
+          # zone its per-PR hostname is minted from, and the two ACME modes
+          # need a contact address for the Let's Encrypt account. cf-origin
+          # needs neither: Cloudflare signs an Origin CA certificate that
+          # never touches a CA, and the operator drops the files into
+          # deploy/edge/certs on the host (see deploy/edge/README.md).
+          case "${PREVIEW_TLS_MODE:-}" in
+            ""|direct|cf-origin|cf-dns01) ;;
+            *) echo "::error::PREVIEW_TLS_MODE must be empty, direct, cf-origin or cf-dns01 — see deploy/edge/README.md"; exit 1 ;;
+          esac
+          if [ -n "${PREVIEW_TLS_MODE:-}" ]; then
+            for v in PREVIEW_DOMAIN PREVIEW_TLS_MODE; do
+              if [ -z "${!v:-}" ]; then
+                echo "::error::$v is required when PREVIEW_TLS_MODE is set (the wildcard zone, and the mode itself)."
+                missing=1
+              fi
+            done
+            case "${PREVIEW_TLS_MODE:-}" in
+              direct|cf-dns01)
+                if [ -z "${PREVIEW_ACME_EMAIL:-}" ]; then
+                  echo "::error::PREVIEW_ACME_EMAIL is required for the ACME modes (direct, cf-dns01)."
+                  missing=1
+                fi
+                ;;
+            esac
+            if [ "${PREVIEW_TLS_MODE:-}" = "cf-dns01" ] && [ -z "${CF_API_TOKEN:-}" ]; then
+              echo "::error::CF_API_TOKEN secret is required for cf-dns01 (Zone:DNS:Edit on that zone, nothing else)."
+              missing=1
+            fi
+            if [ "$missing" -ne 0 ]; then
+              exit 1
+            fi
           fi
 
       - name: Generate per-PR secrets (never reused across PRs)
@@ -149,8 +200,8 @@ jobs:
         # No explicit migrate step: the base compose's `migrate` service is
         # a one-shot that core-api depends on with
         # `condition: service_completed_successfully`, so `up -d` blocks
-        # until the schema is at HEAD. A separate migrate call here would be
-        # a second way to do the same thing, and the two would drift.
+        # until the schema is at HEAD. A separate migrate call here would
+        # be a second way to do the same thing, and the two would drift.
         env:
           PREVIEW_JWT_SECRET: ${{ env.PREVIEW_JWT_SECRET }}
           PREVIEW_MARULA_SECRET_KEY: ${{ env.PREVIEW_MARULA_SECRET_KEY }}
@@ -160,6 +211,9 @@ jobs:
           PREVIEW_WEB_PORT: ${{ env.PREVIEW_WEB_PORT }}
           PREVIEW_CORS_ORIGIN: ${{ env.PREVIEW_CORS_ORIGIN }}
           PREVIEW_PUBLIC_URL: ${{ env.PREVIEW_PUBLIC_URL }}
+          PREVIEW_TLS_MODE: ${{ env.PREVIEW_TLS_MODE }}
+          PREVIEW_ACME_EMAIL: ${{ env.PREVIEW_ACME_EMAIL }}
+          MARULA_DOMAIN: ${{ env.MARULA_DOMAIN }}
         run: |
           # The generated keys live in this runner's environment; `ssh host
           # bash -s` forwards stdin, NOT the environment. Exporting them
@@ -172,31 +226,80 @@ jobs:
           # process list for the life of the build. For a disposable
           # per-PR stack that is the right trade; a long-lived host you
           # share with anyone else wants these piped over stdin instead.
+          #
+          # CF_API_TOKEN rides the same channel, which deserves the same
+          # honesty: a Zone:DNS:Edit token can do more damage than a
+          # per-run preview key. The runner is ephemeral and the token is
+          # one-zone scoped, so the exposure is the host's process list for
+          # the life of the build. `ssh -o SetEnv=...` or a stdin pipe of
+          # the token are the stricter variants, at the cost of a more
+          # fragile definition.
           ssh "$PREVIEW_HOST" bash -s -- \
             "$PREVIEW_JWT_SECRET" "$PREVIEW_MARULA_SECRET_KEY" \
             "$PREVIEW_API_URL" "$PREVIEW_API_PORT" \
             "$PREVIEW_WS_PORT" "$PREVIEW_WEB_PORT" \
-            "$PREVIEW_CORS_ORIGIN" "$PREVIEW_PUBLIC_URL" <<'REMOTE'
+            "$PREVIEW_CORS_ORIGIN" "$PREVIEW_PUBLIC_URL" \
+            "$PREVIEW_TLS_MODE" "${CF_API_TOKEN:-}" \
+            "${MARULA_DOMAIN:-}" <<'REMOTE'
           set -euo pipefail
           PREVIEW_JWT_SECRET="$1"; PREVIEW_MARULA_SECRET_KEY="$2"
           PREVIEW_API_URL="$3"; PREVIEW_API_PORT="$4"
           PREVIEW_WS_PORT="$5"; PREVIEW_WEB_PORT="$6"
           PREVIEW_CORS_ORIGIN="$7"; PREVIEW_PUBLIC_URL="$8"
+          PREVIEW_TLS_MODE="$9"; CF_API_TOKEN="${10}"
+          MARULA_DOMAIN="${11}"
           export PREVIEW_JWT_SECRET PREVIEW_MARULA_SECRET_KEY PREVIEW_API_URL \
                  PREVIEW_API_PORT PREVIEW_WS_PORT PREVIEW_WEB_PORT \
-                 PREVIEW_CORS_ORIGIN PREVIEW_PUBLIC_URL
+                 PREVIEW_CORS_ORIGIN PREVIEW_PUBLIC_URL CF_API_TOKEN \
+                 MARULA_DOMAIN
           cd "$PREVIEW_CHECKOUT"
-          docker compose -f deploy/docker-compose.yml \
-                         -f deploy/preview/compose.preview.yml \
-                         up --build -d
+
+          # The TLS front door, when asked for. The edge overlay is LAST:
+          # its `ports: !override []` on core-api/realtime/web is what
+          # takes the raw ports off the network, and compose only applies
+          # that replacement when the file carrying it comes last. Layered
+          # first it would be a decoration over the same published ports.
+          COMPOSE_FILES=(-f deploy/docker-compose.yml -f deploy/preview/compose.preview.yml)
+          PROFILE_ARGS=()
+          if [ -n "$PREVIEW_TLS_MODE" ]; then
+            COMPOSE_FILES+=(-f deploy/edge/compose.edge.yml)
+            PROFILE_ARGS+=(--profile edge)
+            # ACME_EMAIL and CF_API_TOKEN are only read by the Caddyfiles
+            # for the two modes that need them; cf-origin reads neither and
+            # takes its certificate from deploy/edge/certs on the host.
+            export MARULA_TLS_MODE="$PREVIEW_TLS_MODE"
+            export ACME_EMAIL="${PREVIEW_ACME_EMAIL:-}"
+            # The edge removes the raw 8081, so the socket has to be dialled
+            # through the proxy path or the browser fails to connect.
+            export PREVIEW_WS_URL="wss://${MARULA_DOMAIN}/ws"
+          fi
+          docker compose "${COMPOSE_FILES[@]}" "${PROFILE_ARGS[@]}" up --build -d
+
           # Same readiness shape the CI conformance job uses: poll, then
           # assert, so a slow boot fails as a timeout with a reason rather
           # than as a connection error in whatever ran next.
-          for i in $(seq 1 120); do
-            curl -fsS http://localhost:8080/healthz >/dev/null 2>&1 && break
-            sleep 2
-          done
-          curl -fsS http://localhost:8080/healthz
+          if [ -n "$PREVIEW_TLS_MODE" ]; then
+            # Through the proxy, with SNI pointing at the per-PR host so the
+            # certificate the edge just minted is the one being validated.
+            # -k because the origin's certificate is for MARULA_DOMAIN, not
+            # for 127.0.0.1; --resolve is what makes the name match.
+            for i in $(seq 1 120); do
+              curl -fsS --resolve "${MARULA_DOMAIN}:443:127.0.0.1" \
+                "https://${MARULA_DOMAIN}/healthz" >/dev/null 2>&1 && break
+              sleep 2
+            done
+            curl -fsS --resolve "${MARULA_DOMAIN}:443:127.0.0.1" \
+              "https://${MARULA_DOMAIN}/healthz"
+          else
+            # /api/health, not /healthz: core-api's liveness route lives
+            # under the API base (routes/mod.rs registers {base}/health), so a
+            # bare /healthz answers 404 and this poll would never break.
+            for i in $(seq 1 120); do
+              curl -fsS http://localhost:8080/api/health >/dev/null 2>&1 && break
+              sleep 2
+            done
+            curl -fsS http://localhost:8080/api/health
+          fi
           REMOTE
 
       - name: Seed the demo org
@@ -215,6 +318,11 @@ jobs:
           ssh "$PREVIEW_HOST" bash -s <<'REMOTE'
           set -euo pipefail
           cd "$PREVIEW_CHECKOUT"
+          # Two files, not three: the edge overlay changes the proxy and the
+          # published ports, and this one-shot is neither. Adding it here
+          # would also drag MARULA_DOMAIN into a shell that has no use for
+          # it, which is a failure mode with no upside. The stack it joins
+          # was already booted with the full file set by the step above.
           docker compose -f deploy/docker-compose.yml \
                          -f deploy/preview/compose.preview.yml \
                          run --rm -e MARULA_DEV_TOOLS=1 migrate seed-demo --force
@@ -236,6 +344,7 @@ jobs:
           | API | $PREVIEW_API_URL |
           | Seed | demo org, \`seed-demo --force\` |
           | Mail | EMAIL_TRANSPORT=none — nothing is sent from a preview |
+          | TLS | ${PREVIEW_TLS_MODE:-none — raw ports} (deploy/edge/compose.edge.yml) |
 
           Disposable stack, demo data. Do not put real customer data in it,
           and do not treat anything you create as durable.

@@ -1,0 +1,195 @@
+# The edge overlay — the public front door.
+#
+# Layered on top of the base stack (and optionally the preview overlay),
+# this file adds the TLS-terminating proxy and takes the raw service ports
+# back off the network:
+#
+#   docker compose -f deploy/docker-compose.yml \
+#                  -f deploy/edge/compose.edge.yml \
+#                  --profile edge up --build -d
+#
+# Everything a browser, a Let's Encrypt validator or Cloudflare's edge can
+# reach goes through the `edge` service. core-api, realtime and web stay on
+# the compose network and are addressed by service name. Valkey stays
+# loopback-only; Postgres's 15432 and the worker health port publish on all
+# interfaces today and get cleared below — a database on a published
+# interface is the fastest way to turn a small deployment mistake into a
+# data incident, and RLS is not an authentication layer for the database
+# itself.
+#
+# TLS mode (see deploy/edge/README.md for the whole decision):
+#   direct    MARULA_TLS_MODE=direct     ACME HTTP-01 / TLS-ALPN-01, the
+#                                       proxy holds the certificate itself
+#   cf-origin MARULA_TLS_MODE=cf-origin  Cloudflare Origin CA certificate,
+#                                       SSL/TLS mode Full (strict)
+#   cf-dns01  MARULA_TLS_MODE=cf-dns01   ACME DNS-01 through a Cloudflare
+#                                       API token (Zone:DNS:Edit)
+# MARULA_TLS_MODE picks both the Caddyfile and the certificate strategy, so
+# all three modes run the same service definition.
+#
+# The base file comes FIRST in every compose command here. Compose resolves
+# relative paths in an overlay against the first file's directory, so the
+# `./edge` build context and the `./edge/*` mounts only mean
+# `deploy/edge/*` while the base file leads. Put this file first and they
+# point at `deploy/edge/edge`.
+#
+# Required env:
+#   MARULA_DOMAIN     the public hostname. Compose refuses to start without
+#                     it, which is deliberate: an unnamed edge is a proxy
+#                     that cannot terminate TLS or issue a certificate.
+# Per mode:
+#   ACME_EMAIL        direct and cf-dns01 only — Let's Encrypt contact
+#   CF_API_TOKEN      cf-dns01 only — Zone:DNS:Edit, nothing else
+#   Caddyfile.cf-origin reads origin.crt/origin.key from ./edge/certs
+# Optional:
+#   ACME_CA           an alternate ACME directory (staging while proving the
+#                     wiring out, so a typo does not burn a rate limit)
+#   MARULA_TRUSTED_PROXIES  core-api's trusted-peer CIDRs; the default below
+#                     is Cloudflare's published ranges plus the private
+#                     ranges this compose network lives on
+#   MARULA_MAX_UPLOAD_MB   must match core-api's value (default 25)
+#   MARULA_EDGE_HTTP_PORT / MARULA_EDGE_HTTPS_PORT  host-side ports for the
+#                     proxy (defaults 80 and 443)
+
+name: marula
+
+# Least-privilege baseline, restated rather than inherited: compose parses
+# each overlay file on its own, so an anchor from the base file is not
+# visible here and an alias to it would fail to resolve.
+x-edge-cap-common: &edge-cap-common
+  cap_drop: ["ALL"]
+  security_opt: ["no-new-privileges"]
+
+services:
+  edge:
+    # Built from a pinned builder + a pinned runtime stage rather than the
+    # stock Caddy image, because cf-dns01 needs the Cloudflare DNS provider
+    # module compiled in and the official image does not ship it. Direct
+    # and Origin-CA modes use none of it. One image for all three modes is
+    # the trade: no `image:` line to switch per mode, so the mode can never
+    # disagree with the image that happens to be on the host. The one-line
+    # switch to the stock image (with its digest) is documented in
+    # deploy/edge/README.md for operators who never use DNS-01.
+    build:
+      context: ./edge
+      dockerfile: Dockerfile.caddy-dns
+    image: marula-edge-caddy:2.9.1-cloudflare
+    # Opt-in, like every other non-default slot in this stack: `up` without
+    # --profile edge boots the same local stack as before.
+    profiles: ["edge"]
+    restart: unless-stopped
+    <<: *edge-cap-common
+    # EXEMPTION (capabilities): the image ships no USER, so the container
+    # runs as root and binds 80/443 itself. NET_BIND_SERVICE is the single
+    # capability that requires, added back on top of cap_drop ALL, and it
+    # is what makes `read_only` survivable — nothing here needs to write
+    # anywhere but /data (the ACME certificate store) and /tmp.
+    cap_add: ["NET_BIND_SERVICE"]
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      MARULA_DOMAIN: ${MARULA_DOMAIN:?set MARULA_DOMAIN — the public hostname}
+      # Only read by the direct / cf-dns01 Caddyfiles.
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      ACME_CA: ${ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}
+      # Only read by cf-dns01; the token lives in the container's
+      # environment and nowhere else. Never write it into a Caddyfile.
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
+      MARULA_MAX_UPLOAD_MB: ${MARULA_MAX_UPLOAD_MB:-25}
+      CADDY_CERTS_DIR: /etc/caddy/certs
+      # Upstreams default to the compose service names. Override them for a
+      # split deployment where the proxy is not on the app's network; the
+      # port is part of the value for that reason.
+      CORE_API_UPSTREAM: ${CORE_API_UPSTREAM:-core-api:8080}
+      REALTIME_UPSTREAM: ${REALTIME_UPSTREAM:-realtime:8081}
+      WEB_UPSTREAM: ${WEB_UPSTREAM:-web:3000}
+    ports:
+      - "${MARULA_EDGE_HTTP_PORT:-80}:80"
+      - "${MARULA_EDGE_HTTPS_PORT:-443}:443"
+    volumes:
+      # The mode selects the file; each one imports marula-routes.caddy so
+      # the routing table stays in one place.
+      - ./edge/Caddyfile.${MARULA_TLS_MODE:-direct}:/etc/caddy/Caddyfile:ro
+      - ./edge/marula-routes.caddy:/etc/caddy/marula-routes.caddy:ro
+      # Empty in every mode except cf-origin. Docker creates the directory
+      # if it is missing, so the mount never fails; Caddy fails at startup
+      # with a missing-certificate error that names the file, which is the
+      # operator step to take.
+      - ./edge/certs:/etc/caddy/certs:ro
+      # The ACME certificate store (default XDG_DATA_HOME). Survives
+      # container restarts; back it up if you care about being able to
+      # renew without re-issuing.
+      - edgedata:/data
+    healthcheck:
+      # Caddy's admin API on loopback — proves the process is serving, not
+      # that the app behind it is healthy. The app's answer is /healthz on
+      # the public origin.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      core-api:
+        condition: service_started
+      realtime:
+        condition: service_started
+      web:
+        condition: service_started
+
+  # ---- Origin lockdown: take the raw ports back ---------------------------
+  # `!override` replaces the base file's published list outright. Omitting
+  # the key would MERGE it: compose appends overlay ports to the base list,
+  # so core-api's 8080 would stay reachable and the proxy would be a
+  # decoration rather than a boundary.
+  core-api:
+    ports: !override []
+    environment:
+      # Cookie flags come from here: core-api derives `Secure` from
+      # PUBLIC_BASE_URL starting with https (crates/core-api/src/auth/
+      # cookies.rs). Set it to the internal service name and every session
+      # cookie drops its Secure flag on a public deployment.
+      PUBLIC_BASE_URL: https://${MARULA_DOMAIN}
+      # Outbound links the app renders — client portal invites, ticket
+      # links in email — must be the browser-reachable origin too.
+      WEB_BASE_URL: https://${MARULA_DOMAIN}
+      CORS_ORIGIN: https://${MARULA_DOMAIN}
+      # WebAuthn binds the ceremony to one origin and one RP id.
+      WEBAUTHN_RP_ID: ${MARULA_DOMAIN}
+      WEBAUTHN_ORIGIN: https://${MARULA_DOMAIN}
+      # Who may speak for someone else. Default: Cloudflare's published
+      # ranges (harmless in Direct mode — they cannot be your peer) plus
+      # the private ranges this compose network lives on, because the walk
+      # has to skip the Caddy hop to reach the client the edge named.
+      # Override when the topology differs, e.g. host networking.
+      TRUSTED_PROXIES: ${MARULA_TRUSTED_PROXIES:-127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7,173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22,2400:cb00::/32,2606:4700::/32,2803:f800::/32,2405:b500::/32,2405:8100::/32,2a06:98c0::/29,2c0f:f248::/32}
+      MARULA_MAX_UPLOAD_MB: ${MARULA_MAX_UPLOAD_MB:-25}
+
+  realtime:
+    ports: !override []
+
+  web:
+    ports: !override []
+    build:
+      # Baked into the client bundle at BUILD time. Both values are the
+      # browser-reachable origin: the API is same-origin behind this proxy
+      # (the app appends /api), and the WS URL has to be the proxied /ws
+      # path — without NEXT_PUBLIC_WS_URL the client would dial
+      # wss://<domain>:8081, which is the origin's raw port and the whole
+      # point of this overlay is that there isn't one.
+      args:
+        NEXT_PUBLIC_API_URL: https://${MARULA_DOMAIN}
+        NEXT_PUBLIC_WS_URL: wss://${MARULA_DOMAIN}/ws
+
+  postgres:
+    # The base file publishes 15432 for local tooling. On a public host
+    # that is a database listening on every interface.
+    ports: !override []
+
+  worker:
+    # 8082 is a liveness signal for the compose network.
+    ports: !override []
+
+volumes:
+  edgedata:

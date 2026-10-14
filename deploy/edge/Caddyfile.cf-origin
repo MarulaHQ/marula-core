@@ -1,0 +1,56 @@
+# Edge mode, choice (i): Cloudflare Origin CA certificate.
+#
+# When DNS sits behind Cloudflare with the orange cloud on, ACME cannot
+# reach your origin — the edge answers the HTTP-01 challenge for a hostname
+# that no longer resolves to you. The fix people reach for first is to turn
+# SSL/TLS off or set it to Flexible. Do not: Flexible means the browser sees
+# https and the edge talks to your origin in plaintext over the public
+# internet, which is a downgrade any observer on the path can replay.
+#
+# The right answer is a Cloudflare Origin CA certificate: Cloudflare signs it
+# as its own CA, it is valid only between the edge and your origin, it needs
+# no ACME and no inbound port 80, and it pairs with SSL/TLS mode **Full
+# (strict)** so the edge validates the certificate rather than accepting
+# anything. Cloudflare renews it on its own schedule — you re-issue from the
+# dashboard every 15 years, which is the long expiry it ships with.
+#
+# Use choice (ii) (Caddyfile.cf-dns01) instead when a publicly trusted
+# certificate is required at the origin — for example a second proxy or a
+# monitoring agent that refuses a private CA, or an origin you want reachable
+# directly without the edge in the path.
+#
+# Required env:
+#   MARULA_DOMAIN     the public hostname
+# Files (mounted read-only at /etc/caddy/certs):
+#   origin.crt        the certificate Cloudflare issued (PEM, with the leaf
+#                     first — Caddy accepts the full chain in one file)
+#   origin.key        the matching private key (PEM)
+# Optional:
+#   MARULA_MAX_UPLOAD_MB  must match core-api's value (default 25).
+{
+	# No ACME section at all: this mode never talks to a public CA.
+	# Pinned to IPv4 loopback on purpose: busybox wget resolves
+	# `localhost` to ::1 first, and a healthcheck that cannot connect is a
+	# container that reports unhealthy forever.
+	# IPv4 loopback, pinned: busybox wget resolves `localhost` to ::1
+	# first, so a `localhost` admin address makes the container's own
+	# healthcheck fail forever.
+	admin 127.0.0.1:2019
+
+	# Port 80 still gets the https redirect for anything that arrives over
+	# plaintext (a bookmarked URL, a bot that ignores the redirect). It is
+	# not a challenge endpoint in this mode; you can close 80 at the host
+	# firewall and keep the redirect as belt-and-braces for the local
+	# network.
+}
+
+https://{$MARULA_DOMAIN:marula.localhost} {
+	import marula-routes.caddy
+
+	# Caddy serves these files and never asks a CA for anything. Cloudflare
+	# validates them against its own root, which is what Full (strict)
+	# means. The certificate's SAN has to list MARULA_DOMAIN exactly — a
+	# wildcard *.example.com covers marula.example.com, a dedicated
+	# origin certificate for the host covers only that host.
+	tls {$CADDY_CERTS_DIR:/etc/caddy/certs}/origin.crt {$CADDY_CERTS_DIR:/etc/caddy/certs}/origin.key
+}

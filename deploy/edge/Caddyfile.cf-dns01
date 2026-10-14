@@ -1,0 +1,70 @@
+# Edge mode, choice (ii): DNS-01 challenge through a Cloudflare API token.
+#
+# The other answer to "Cloudflare is in the way": do not fight the edge for
+# the challenge, use the one channel the edge cannot intercept — your DNS
+# zone. Caddy asks Let's Encrypt for a certificate, answers the DNS-01
+# challenge by creating a _acme-challenge TXT record through the Cloudflare
+# API, and the edge passes the query through to Cloudflare's authoritative
+# nameservers, which hold the record it just created. The result is a
+# publicly trusted Let's Encrypt certificate on your origin, valid whether
+# or not the orange cloud is on.
+#
+# Use choice (i) (Caddyfile.cf-origin) instead when you want the simplest
+# possible origin — no ACME account, no API token, no renewal anything. You
+# only need this mode when a public CA has to sign the certificate at the
+# origin (private monitoring, a second proxy in front, a compliance rule
+# about certificate chains, or an origin you intend to expose directly).
+#
+# Required env:
+#   MARULA_DOMAIN     the public hostname
+#   CF_API_TOKEN      a Cloudflare API token, scoped to the zone containing
+#                     MARULA_DOMAIN, with Zone.DNS:Edit and nothing else
+# Optional:
+#   ACME_EMAIL        the ACME account contact (renewal notices)
+#   ACME_CA           a different ACME directory (staging while proving the
+#                     wiring out). Default: Let's Encrypt production.
+#   MARULA_MAX_UPLOAD_MB  must match core-api's value (default 25).
+#
+# The Plaintext/DNS-01 constraint worth knowing: the _acme-challenge TXT
+# record must propagate before the challenge is answered, and Cloudflare's
+# API returns before the record is live everywhere. If issuance fails with
+# "no TXT record found", the propagation delay value below is the dial that
+# fixes it — Caddy waits that long after creating the record.
+{
+	email {$ACME_EMAIL:}
+	# Pinned to IPv4 loopback on purpose: busybox wget resolves
+	# `localhost` to ::1 first, and a healthcheck that cannot connect is a
+	# container that reports unhealthy forever.
+	# IPv4 loopback, pinned: busybox wget resolves `localhost` to ::1
+	# first, so a `localhost` admin address makes the container's own
+	# healthcheck fail forever.
+	admin 127.0.0.1:2019
+	acme_ca {$ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+
+	# Cloudflare DNS-01 needs the `cloudflare` DNS provider compiled into
+	# the Caddy binary. The official image does not ship it, so the compose
+	# stack in deploy/edge/compose.edge.yml builds this image from
+	# Dockerfile.caddy-dns (caddy:2-builder + the caddy-dns/cloudflare
+	# module, both digest-pinned). That build cost is the whole reason
+	# choice (i) exists.
+}
+
+https://{$MARULA_DOMAIN:marula.localhost} {
+	import marula-routes.caddy
+
+	tls {
+		# The token only ever reaches Caddy's environment; it is never
+		# written into this file or the image.
+		dns cloudflare {env.CF_API_TOKEN}
+		# Cloudflare's API answers before its authoritative nameservers
+		# are consistent, and a race here fails the challenge rather than
+		# retrying it. 120s is the conservative setting; 30s works for most
+		# zones.
+		propagation_delay 120s
+		# Re-answer the challenge every 30 days instead of only when the
+		# certificate is close to expiry. A DNS record that quietly
+		# disappears is the failure that turns a 90-day certificate into a
+		# 3-day emergency.
+		resolvers 1.1.1.1
+	}
+}

@@ -1,0 +1,40 @@
+# Caddy with the Cloudflare DNS provider compiled in.
+#
+# Why this file exists: the official Caddy image ships the standard module
+# set, and DNS-01 through Cloudflare (deploy/edge/Caddyfile.cf-dns01) needs
+# github.com/caddy-dns/cloudflare. Building one image that carries the
+# module means the three TLS modes can run the SAME service definition —
+# no `image:` line to switch per mode, so a mode can never disagree with
+# the binary that happens to be on the host.
+#
+# If you never use cf-dns01, the stock image works for Direct and Origin-CA
+# mode: drop `build:` from the edge service in deploy/edge/compose.edge.yml
+# and set
+#   image: caddy:2.9.1-alpine@sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0
+# (the p38 digest-pinning posture: exact tag AND registry digest).
+#
+# Both stages are pinned to exact tag + registry digest — the digest
+# enforces, the tag is the human reference, and both move together on a
+# version bump.
+# syntax=docker/dockerfile:1
+
+FROM caddy:2.9.1-builder-alpine@sha256:0d51ab53402e144be9cab449f5adfec681b87d481dcd175230813427d5e00f00 AS builder
+
+# xcaddy build with the module pinned to a release tag rather than a branch
+# or a floating main: a build that silently changes what it links against is
+# not a reproducible build. --output puts the binary at a known path for the
+# copy below (the builder's default output is its working directory).
+RUN xcaddy build v2.9.1 \
+    --with github.com/caddy-dns/cloudflare@v0.2.4 \
+    --output /usr/local/bin/caddy
+
+FROM caddy:2.9.1-alpine@sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0
+
+# Same binary path the official image uses, so the stock CMD and the
+# published binary agree on one location.
+COPY --from=builder /usr/local/bin/caddy /usr/local/bin/caddy
+
+# The runtime stage keeps the stock image's identity (no USER, root, binds
+# 80/443 under a documented NET_BIND_SERVICE exemption in
+# deploy/edge/compose.edge.yml). No other change: the stock CMD, ports,
+# XDG paths and ca-certificates all stay as Docker Hub published them.

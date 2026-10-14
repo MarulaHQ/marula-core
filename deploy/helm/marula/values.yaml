@@ -104,6 +104,13 @@ coreApi:
   corsOrigin: ""
   publicBaseUrl: ""
   maxUploadMb: 25
+  # Who may speak for someone else. Unset ⇒ the narrow default (loopback +
+  # RFC1918 + IPv6 ULA) the resolver falls back to — see
+  # docs/site/reference/reverse-proxy-tls.md §"Telling the API which proxy
+  # to believe". Behind an internet-reachable edge, list BOTH the edge's
+  # published ranges AND the ingress controller's, because the real-client
+  # walk skips every trusted hop and the controller is one.
+  trustedProxies: ""
   resources: {}
   extraEnv: []
 
@@ -122,8 +129,14 @@ web:
   enabled: true
   replicaCount: 1
   # Baked into the browser bundle at build time — must be the URL the
-  # USER'S BROWSER uses to reach the API.
+  # USER'S BROWSER uses to reach the API. Same-origin behind an ingress it
+  # is https://<ingress.host>; the app appends /api itself.
   nextPublicApiUrl: ""
+  # The realtime socket, baked the same way. Left empty the client derives
+  # it from the API base and port 8081 — correct for a raw-port stack,
+  # wrong behind an ingress that publishes only 443, where it would dial a
+  # port nobody serves. Set it to wss://<ingress.host>/ws.
+  nextPublicWsUrl: ""
   resources: {}
   extraEnv: []
 
@@ -202,7 +215,41 @@ ingress:
   enabled: false
   className: ""
   host: ""
-  tls: false
+  # TLS mode, matching the compose lane's three modes:
+  #   direct  — the controller (or cert-manager in front of it) obtains and
+  #             renews the certificate itself. Add a cert-manager
+  #             cluster-issuer through ingress.annotations and let the
+  #             ingress's own issuer handle HTTP-01.
+  #   edge    — TLS is terminated further out: the operator supplies the
+  #             certificate in tlsSecretName (Cloudflare Origin CA with
+  #             SSL/TLS Full (strict), or a cert-manager DNS-01 certificate
+  #             for Cloudflare). The controller passes the TLS handshake
+  #             through without validating against a public CA.
+  # The full decision, and the Cloudflare dashboard steps behind the edge
+  # mode, are in docs/site/reference/reverse-proxy-tls.md.
+  tlsMode: direct
+  # Secret holding the TLS key/cert pair. Required in edge mode; in direct
+  # mode it is the name the controller's certificate lands in.
+  tlsSecretName: marula-tls
+  # Proxy tuning for Marula's seams. The defaults below are what the
+  # ingress-nginx annotations for body size, streaming and timeouts are set
+  # to; they are exposed here so an operator on a different controller has
+  # one place to look rather than a wall of annotations to reverse-engineer.
+  proxy:
+    # Aligned with coreApi.maxUploadMb — the same number core-api enforces
+    # per route. A body over either is refused by the ingress.
+    bodySizeMb: 25
+    # WebSocket / streaming path. nginx's 60s default read timeout kills a
+    # long-lived socket; presence heartbeats run every 25s and the client's
+    # own silence window is 60s, so anything at or below that is a
+    # reconnect storm waiting for a quiet minute.
+    readTimeoutSeconds: 3600
+    sendTimeoutSeconds: 3600
+    # Buffering off: a response frame held in a proxy buffer is a frame the
+    # board never rendered.
+    buffering: "off"
+  # Extra controller annotations, merged OVER the tuned defaults above.
+  # Annotations set here win.
   annotations: {}
 
 podSecurityContext:

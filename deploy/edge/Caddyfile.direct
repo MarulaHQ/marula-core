@@ -1,0 +1,58 @@
+# Direct mode — the proxy holds the public certificate itself.
+#
+# Use this when your DNS points at this host: an A/AAAA record for
+# MARULA_DOMAIN resolves to this machine's address and nothing sits in
+# front of it. Caddy obtains and renews the certificate through ACME with
+# both of Let's Encrypt's port-80/443 challenges — HTTP-01 by default,
+# TLS-ALPN-01 as the fallback when port 80 is not available to the
+# internet (Caddy picks whichever one the connection shape allows; both are
+# enabled by the default `tls` directive with no arguments).
+#
+# Do NOT use this file when DNS sits behind Cloudflare with the orange
+# cloud on: the edge answers the HTTP-01 challenge on its own address and
+# captures TLS-ALPN, so the certificate can never be issued. That
+# deployment is Edge mode — see Caddyfile.cf-origin (Origin CA certificate)
+# or Caddyfile.cf-dns01 (DNS-01 through a Cloudflare API token).
+#
+# Required env:
+#   MARULA_DOMAIN     the public hostname, e.g. marula.example.com
+#   ACME_EMAIL        the contact address Let's Encrypt registers the
+#                     account under (renewal notices land here)
+# Optional:
+#   ACME_CA           a different ACME directory; point it at the staging
+#                     endpoint while you are proving the wiring out, so a
+#                     misconfigured domain does not burn the rate limit.
+#                     Default: Let's Encrypt production.
+#   MARULA_MAX_UPLOAD_MB  must match core-api's value (default 25).
+#
+# Port 80 must reach this container. Caddy answers the challenge on it and
+# redirects everything else to https.
+{
+	# The ACME account contact for every certificate Caddy manages here.
+	email {$ACME_EMAIL:}
+
+	# The admin API is how the container healthcheck proves Caddy is alive
+	# (loopback inside the container, never published). TLS is the answer to
+	# "is the app healthy", which is what the public /healthz is for, and
+	# that route rewrites onto core-api's own /api/health.
+	#
+	# IPv4 loopback, pinned: busybox wget resolves `localhost` to ::1 first,
+	# so a `localhost` admin address makes the container's own healthcheck
+	# fail forever.
+	admin 127.0.0.1:2019
+
+	# Staging endpoint while proving the wiring; production by default.
+	acme_ca {$ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+}
+
+https://{$MARULA_DOMAIN:marula.localhost} {
+	import marula-routes.caddy
+
+	# Deliberately NO `tls` stanza: on a site with a real hostname, Caddy's
+	# automatic HTTPS is the default, and it is what starts the ACME client
+	# with both the HTTP-01 and TLS-ALPN-01 challenges enabled. A bare
+	# `tls` line is a Caddyfile parse error (the directive requires an
+	# argument: an email, `internal`, or a certificate pair), and
+	# `tls {$ACME_EMAIL}` would be redundant with the global `email` above.
+	# Renewal runs on Caddy's own schedule with no cron job.
+}

@@ -1,21 +1,46 @@
 {{- if .Values.ingress.enabled -}}
 {{- $apiPort := .Values.service.coreApi.port -}}
 {{- $webPort := .Values.service.web.port -}}
+{{- $wsPort := .Values.service.realtime.port -}}
+{{- /*
+Proxy annotations for Marula's seams. The tuned defaults come first and
+ingress.annotations wins: an operator adding their own controller
+annotations must not have to re-state the body ceiling or the WebSocket
+timeouts to keep them.
+*/}}
+{{- $annotations := dict
+  "nginx.ingress.kubernetes.io/proxy-body-size" (printf "%dMi" (int .Values.ingress.proxy.bodySizeMb))
+  "nginx.ingress.kubernetes.io/proxy-read-timeout" (printf "%d" (int .Values.ingress.proxy.readTimeoutSeconds))
+  "nginx.ingress.kubernetes.io/proxy-send-timeout" (printf "%d" (int .Values.ingress.proxy.sendTimeoutSeconds))
+  "nginx.ingress.kubernetes.io/proxy-buffering" .Values.ingress.proxy.buffering
+-}}
+{{- range $k, $v := .Values.ingress.annotations }}
+{{- $_ := set $annotations $k $v }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "marula.fullname" . }}
   labels:
     {{- include "marula.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
-  annotations: {{- toYaml . | nindent 4 }}
-  {{- end }}
+  annotations: {{- toYaml $annotations | nindent 4 }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
-  {{- if .Values.ingress.tls }}
+  {{- /*
+  TLS. Both modes terminate TLS at the controller with a secret that
+  already exists; what differs is who fills it. direct → the controller's
+  own ACME (cert-manager issuer added through ingress.annotations), or a
+  certificate the operator uploads. edge → the operator uploads it:
+  a Cloudflare Origin CA pair (SSL/TLS mode Full (strict)), or a cert-manager
+  DNS-01 certificate when a publicly trusted chain is required at the
+  origin. The yaml is identical, which is the point: the mode is a
+  deployment decision, not a template one.
+  */}}
+  {{- if .Values.ingress.tlsSecretName }}
   tls:
     - hosts:
         - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tlsSecretName }}
   {{- end }}
   rules:
     - host: {{ required "ingress.host required" .Values.ingress.host | quote }}
@@ -35,6 +60,32 @@ spec:
                 name: {{ include "marula.fullname" . }}-core-api
                 port:
                   number: {{ $apiPort }}
+          {{- /*
+          Liveness for anything probing from outside the cluster (a load
+          balancer, Uptime Kuma). The route is core-api's own: {base}/health,
+          which is /api/health (and /api/v1/health on the canonical mount),
+          already covered by the /api prefix above. A bare /healthz is NOT
+          routed here, deliberately: core-api answers it 404, realtime is the
+          service that serves /healthz on its own port, and an ingress cannot
+          rewrite a path onto /api/health without a controller-specific
+          annotation that then applies to every path in this resource.
+          Configure probes for /api/health and read a real answer.
+          */}}
+          {{- /*
+          The realtime seam. Routed to the hub, not to web: a GET /ws with no
+          upgrade header has to reach the upgrade handler (which replies 400
+          from axum's WebSocketUpgrade extractor, not a 404 from the console).
+          nginx-ingress handles the upgrade itself once the path reaches it,
+          which is why no extra annotation is needed and why the long
+          timeouts matter more than the route.
+          */}}
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "marula.fullname" . }}-realtime
+                port:
+                  number: {{ $wsPort }}
           - path: /
             pathType: Prefix
             backend:

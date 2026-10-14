@@ -4,7 +4,11 @@
 # standalone output — no dev dependencies ship in the runtime layer.
 # NEXT_PUBLIC_API_URL is baked at BUILD time and must be the URL the user's
 # BROWSER uses to reach core-api (not an internal service name), because the
-# app calls the API directly from the client.
+# app calls the API directly from the client. NEXT_PUBLIC_WS_URL is baked
+# the same way for the same reason: the realtime socket. Without it the
+# client derives the WS address from the API base and port 8081, which is
+# the origin's raw port — exactly what a TLS-terminating proxy exists to
+# remove from the internet (Wave 47 lane V2).
 #
 # Non-purpose: no SSR data fetching beyond what apps/web implements; no
 # static asset CDN — this targets local/dev/demo stacks.
@@ -35,6 +39,12 @@ WORKDIR /repo/apps/web
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_API_URL=http://localhost:8080
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+# Empty by default: the client falls back to deriving the socket address
+# from the API base (host + port 8081), which is correct for a raw-port
+# stack and wrong behind a proxy. Set it to wss://<domain>/ws when the
+# edge overlay terminates TLS.
+ARG NEXT_PUBLIC_WS_URL=
+ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 COPY deploy/web-standalone-remap.cjs /remap.cjs
 RUN pnpm --filter @marula/web build && node /remap.cjs
 

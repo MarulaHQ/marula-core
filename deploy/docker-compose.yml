@@ -10,7 +10,11 @@
 # its grants are provisioned by migration 0001 itself).
 #
 # Non-purpose: no TLS, no secrets management, no volume backup jobs — this
-# file targets local development and demo stacks, not production.
+# file targets local development and demo stacks, not production. The
+# production front door is an overlay, not a fork: deploy/edge/ adds the
+# Caddy proxy that terminates TLS (Direct mode, or Cloudflare Edge mode with
+# an Origin CA certificate or a DNS-01 token) and pulls the raw ports back
+# off the network. See deploy/edge/README.md.
 #
 # Usage:
 #   docker compose -f deploy/docker-compose.yml up --build
