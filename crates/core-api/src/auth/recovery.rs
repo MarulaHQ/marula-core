@@ -22,9 +22,14 @@
 
 use crate::auth::hardening::{enforce_gate, GateSubject};
 use crate::auth::{cookies, handlers, jwt, password};
+use crate::client_ip::ClientIp;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
-use axum::{extract::State, http::HeaderMap, Json};
+use axum::{
+    extract::{Extension, State},
+    http::HeaderMap,
+    Json,
+};
 use core_db::hardening as tokens;
 use core_domain::entities::{Actor, AuditEvent};
 use serde::{Deserialize, Serialize};
@@ -204,13 +209,13 @@ fn uniform_ok() -> ApiResult<Json<serde_json::Value>> {
     (status = 429, description = "flood throttle")))]
 pub async fn password_reset_request(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<PasswordResetRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
     enforce_gate(
         &state,
         tokens::gate_kind::PASSWORD_RESET,
-        &headers,
+        &client_ip,
         GateSubject::Email(&req.email),
         false,
     )
@@ -255,13 +260,13 @@ pub async fn password_reset_request(
     (status = 422, description = "validation error"), (status = 429)))]
 pub async fn password_reset_confirm(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<PasswordResetConfirm>,
 ) -> ApiResult<Json<serde_json::Value>> {
     enforce_gate(
         &state,
         tokens::gate_kind::PASSWORD_RESET,
-        &headers,
+        &client_ip,
         GateSubject::IpOnly,
         false,
     )
@@ -316,13 +321,13 @@ pub async fn password_reset_confirm(
     request_body = EmailVerifyRequest, responses((status = 200, body = UniformOk), (status = 429)))]
 pub async fn email_verification_request(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<EmailVerifyRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
     enforce_gate(
         &state,
         tokens::gate_kind::EMAIL_VERIFY,
-        &headers,
+        &client_ip,
         GateSubject::Email(&req.email),
         false,
     )
@@ -366,13 +371,13 @@ pub async fn email_verification_request(
     (status = 401, description = "invalid or expired token"), (status = 429)))]
 pub async fn email_verification_confirm(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<TokenRequest>,
 ) -> ApiResult<Json<VerifyStatus>> {
     enforce_gate(
         &state,
         tokens::gate_kind::EMAIL_VERIFY,
-        &headers,
+        &client_ip,
         GateSubject::IpOnly,
         false,
     )
@@ -425,13 +430,13 @@ pub async fn email_verification_confirm(
     request_body = EmailVerifyRequest, responses((status = 200, body = UniformOk), (status = 429)))]
 pub async fn magic_link_request(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<EmailVerifyRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
     enforce_gate(
         &state,
         tokens::gate_kind::MAGIC_LINK,
-        &headers,
+        &client_ip,
         GateSubject::Email(&req.email),
         false,
     )
@@ -475,6 +480,7 @@ pub async fn magic_link_request(
 pub async fn magic_link_confirm(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<MagicLinkConfirm>,
 ) -> ApiResult<axum::response::Response> {
     if !cookies::double_submit_ok(&headers) {
@@ -483,7 +489,7 @@ pub async fn magic_link_confirm(
     enforce_gate(
         &state,
         tokens::gate_kind::MAGIC_LINK,
-        &headers,
+        &client_ip,
         GateSubject::IpOnly,
         false,
     )
