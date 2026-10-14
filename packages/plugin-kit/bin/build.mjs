@@ -17,6 +17,20 @@ import { readFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, join } from "node:path";
 
+//
+// The closed vocabulary is `PluginCapability` in
+// crates/core-domain/src/entities/plugins.rs — the HOST is the source of
+// truth. This Set is a hand-maintained mirror of it (27 entries today), and
+// the mirror MUST agree with the host: a capability in the host but missing
+// here means a valid manifest is rejected by this local pre-validation while
+// the host's `PluginCapability::parse` accepts it, so the two disagree about
+// what a valid plugin is. That drift already happened once (the Wave 43
+// executor trio) and is why the three entries below are listed even though
+// no lane in this worktree added them — the lane closing that gap should own
+// the parity check, not the list.
+//
+// KEEP IN SYNC with the Rust enum; adding a capability there without adding
+// its wire string here is a bug, not a TODO.
 const KNOWN_CAPABILITIES = new Set([
   "tickets.read", "tickets.write", "clients.read", "clients.write",
   "time.read", "time.write", "projects.read", "projects.write",
@@ -24,6 +38,11 @@ const KNOWN_CAPABILITIES = new Set([
   "reporting.read", "financial.read", "vault:ingress",
   "routing.matrix", "routing.route", "routing.geocode", "routing.isochrone",
   "ui.widgets", "automation.actions", "reports.render", "fields.validate",
+  // Wave 43 executor trio, Wave 47 A9 service-account surface, and the
+  // Wave 47 A6 usage scope. The count must match `PluginCapability::ALL`
+  // (28 today).
+  "automation.triggers", "automation.reads", "events.emit",
+  "service_accounts.manage", "org_usage.read",
 ]);
 const SLOTS = new Set(["dashboard", "ticket_pane"]);
 const WIDGET_KINDS = new Set(["stat", "metric", "list"]);

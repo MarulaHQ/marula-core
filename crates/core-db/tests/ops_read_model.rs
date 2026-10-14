@@ -48,6 +48,13 @@ const EXPECTED_V1_VIEWS: &[&str] = &[
     // 0081 AI availability matrix (ADR 0008, Wave 18 lane 1)
     "v1_ai_usage_user_progress",
     "v1_ai_usage_org_progress",
+    // 0131 org resource usage for hosted-tier monitoring (Wave 47 lane A6).
+    // Registered here so the exact-catalog count, the `security_invoker`
+    // reloptions check, and the default-deny-without-`app.org_id` sweep below
+    // all cover it — the one tenant-scoped `ops` view this surface adds must
+    // carry the same mechanical tenancy proof as the other sixteen, since
+    // `marula_app` reads it directly (0131's GRANT).
+    "v1_org_usage",
 ];
 
 /// (view, [(column, data_type)]) — the 0059 tranche column contracts,
@@ -159,6 +166,28 @@ const TRANCHE_CONTRACTS: &[(&str, &[(&str, &str)])] = &[
             ("amount_minor", "bigint"),
             ("currency", "text"),
             ("position", "integer"),
+        ],
+    ),
+    (
+        // 0131 org usage: one row per org, counts only. `org_id` leads and
+        // is the tenancy seam; the rest are the metrics the materialized
+        // table mirrors. Column contract asserted here so the API's view
+        // cannot drift from what `OrgUsageRow` reads.
+        "v1_org_usage",
+        &[
+            ("org_id", "uuid"),
+            ("active_users", "bigint"),
+            ("tickets_open", "bigint"),
+            ("tickets_in_progress", "bigint"),
+            ("tickets_waiting", "bigint"),
+            ("tickets_closed", "bigint"),
+            ("managed_devices", "bigint"),
+            ("object_store_bytes", "bigint"),
+            ("automation_runs", "bigint"),
+            ("automation_runs_24h", "bigint"),
+            ("webhook_deliveries", "bigint"),
+            ("webhook_deliveries_24h", "bigint"),
+            ("audit_events_24h", "bigint"),
         ],
     ),
 ];

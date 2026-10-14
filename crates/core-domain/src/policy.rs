@@ -131,6 +131,7 @@ pub enum Permission {
     ManageApiKeys,
     ViewAuditLog,
     PortalAdmin,
+    ViewOrgUsage,
 }
 
 impl Permission {
@@ -155,6 +156,16 @@ impl Permission {
                 Permission::ManageApiKeys => "special:manage_api_keys".into(),
                 Permission::ViewAuditLog => "special:view_audit_log".into(),
                 Permission::PortalAdmin => "special:portal_admin".into(),
+                // Wave 47 lane A6 (org usage/quota read API): the wire key
+                // mirrors the `financial:read` precedent — module-
+                // namespaced rather than `special:`-prefixed — because
+                // orgs legitimately fork this read-only reporting grant
+                // into custom roles beside its Reporting matrix peers. A
+                // human member reads their own org's usage through their
+                // membership, so the permission exists for SERVICE ACCOUNTS
+                // and custom roles; no shipped preset carries it, and
+                // nothing anywhere enforces what the numbers say.
+                Permission::ViewOrgUsage => "org_usage:read".into(),
                 Permission::Matrix { .. } => unreachable!(),
             },
         }
@@ -1006,6 +1017,25 @@ mod tests {
     #[test]
     fn financial_permission_carries_the_financial_read_key() {
         assert_eq!(Permission::ViewFinancials.key(), "financial:read");
+    }
+
+    /// Wave 47 lane A6: org usage is read by org members through their own
+    /// membership (the endpoint needs no permission for a human), so the
+    /// `org_usage:read` permission exists for SERVICE ACCOUNTS and custom
+    /// roles — which is exactly why no shipped preset carries it. An owner
+    /// or admin reads usage as a member like everyone else. Pinned because
+    /// a preset grant here would read as "humans need a special grant to
+    /// see their own usage", and the next lane copying the pattern from a
+    /// preset would make that true.
+    #[test]
+    fn org_usage_read_is_a_machine_grant_no_preset_carries_it() {
+        assert_eq!(Permission::ViewOrgUsage.key(), "org_usage:read");
+        for role in BuiltinRole::PRESETS {
+            assert!(
+                !role.permissions().contains(&Permission::ViewOrgUsage),
+                "{role:?} must not carry org_usage:read by default"
+            );
+        }
     }
 
     // --- RB1 portal tier roster -------------------------------------------

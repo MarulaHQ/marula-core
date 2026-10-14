@@ -38,6 +38,7 @@ pub mod status;
 pub mod templates;
 pub mod theme_pack;
 pub mod time_audit;
+pub mod usage;
 pub mod webhooks;
 pub mod workflow;
 pub mod workflow_overrides;

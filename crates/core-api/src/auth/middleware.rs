@@ -4,13 +4,13 @@
 
 use crate::auth::AuthedUser;
 use crate::error::{ApiError, ApiResult};
+use axum::extract::connect_info::ConnectInfo;
 use axum::{
     extract::{Request, State},
     http::header::AUTHORIZATION,
     middleware::Next,
     response::Response,
 };
-use axum::extract::connect_info::ConnectInfo;
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::policy::{BuiltinRole, Permission};
 use std::net::SocketAddr;
@@ -236,7 +236,10 @@ pub async fn require_auth(
 /// is the IF8 machine flow: agents file proposals (never direct writes)
 /// through keys, gated by the capability registry inside the handlers.
 /// `/api/migration` is the D3 connector surface (push + pull), scoped by
-/// `migration:*` keys.
+/// `migration:*` keys. `/api/orgs` is the Wave 47 A6 usage/quota monitoring
+/// read (scoped by `org_usage:read`). An allowance is not a grant: each of
+/// these prefixes is JWT-reachable too, and the handlers' permission checks
+/// still run.
 /// Canonical `/api/v1/...` requests match through their legacy-form twin.
 const API_KEY_PATHS: &[&str] = &[
     "/api/tickets",
@@ -249,6 +252,12 @@ const API_KEY_PATHS: &[&str] = &[
     // The dispatch connector (Wave 9 lane 9): scoped schedule reads +
     // field-service status pushes; handlers gate on `dispatch:*` scopes.
     "/api/dispatch-connector",
+    // Org resource usage + quotas (Wave 47 lane A6): READ-only monitoring
+    // reports for hosted-tier plugins. A key on these paths carries
+    // `org_usage:read` (Permission::ViewOrgUsage) and nothing else useful
+    // — the handler's own permission check is the gate, and the read is
+    // org-bound exactly like a human member's.
+    "/api/orgs",
     // The CI feeders (Wave 12 lane 8, ADR 0003 CI7): RMM/NMS/docs feeders
     // write through /api/config-items/feed-upsert with `clients:write`
     // keys — the handler's Clients-matrix permission check stays the
@@ -261,6 +270,17 @@ const API_KEY_PATHS: &[&str] = &[
 fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permission> {
     use core_domain::policy::{Action, Module, Permission};
     let mut out = Vec::new();
+    // Org usage monitoring (Wave 47 lane A6): the narrowest grant in the
+    // table — ONE read-only permission that unlocks ONE read-only report.
+    // It deliberately does NOT map onto the Reporting matrix, so a
+    // monitoring key gains no report definitions, no schedules, and no
+    // delivery of its own. Handled before the scope loop because the loop's
+    // `push` closure already borrows `out` mutably.
+    if scopes.iter().any(|s| s.as_str() == "org_usage:read")
+        && !out.contains(&Permission::ViewOrgUsage)
+    {
+        out.push(Permission::ViewOrgUsage);
+    }
     let mut push = |module: Module, actions: &[Action]| {
         for a in actions {
             let p = Permission::Matrix { module, action: *a };
@@ -399,7 +419,8 @@ async fn client_cert_identity(
     // trusted peer is REQUIRED (a malformed value is a 401, not a silent
     // fall-through — the proxy verified a cert, not this string). One shared
     // normalizer owns enroll-vs-auth parity (routes::service_accounts).
-    let Some(fingerprint) = crate::routes::service_accounts::normalize_fingerprint(&presentation.raw)
+    let Some(fingerprint) =
+        crate::routes::service_accounts::normalize_fingerprint(&presentation.raw)
     else {
         return Err(ApiError::Unauthorized(
             "malformed client certificate fingerprint".into(),

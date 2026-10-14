@@ -28,7 +28,10 @@ use uuid::Uuid;
 
 /// Capability scopes a machine key may hold. Kept deliberately small for
 /// v1: read/write on the three data modules connectors actually need, plus
-/// the D3 migration connector's broad push/pull grants.
+/// the D3 migration connector's broad push/pull grants, the dispatch
+/// connector's schedule plane, and the narrowest grant in the list —
+/// `org_usage:read` (Wave 47 lane A6), which unlocks exactly one read-only
+/// monitoring report and nothing else.
 pub const KNOWN_SCOPES: &[&str] = &[
     "tickets:read",
     "tickets:write",
@@ -40,6 +43,7 @@ pub const KNOWN_SCOPES: &[&str] = &[
     "migration:write",
     "dispatch:read",
     "dispatch:write",
+    "org_usage:read",
 ];
 
 // --- hashing ------------------------------------------------------------------

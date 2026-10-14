@@ -8508,3 +8508,629 @@ async fn sign_off_conflict_reports_its_constraint_for_a_typed_conflict() {
     assert_eq!(live, 0);
     drop(check);
 }
+
+/// Org usage materialization (TASKLIST Wave 47 lane A6, migration 0131).
+///
+/// The lane's three load-bearing behaviours, in the order a caller meets
+/// them: an org with no row reads as ABSENT (not as zeros, which would read
+/// as a measured empty org), a refresh is IDEMPOTENT (the org_id primary
+/// key makes a replay the same row), and RLS keeps the surface
+/// org-private through the app role — org B's transaction cannot read org
+/// A's row, and a pool that never bound an org sees nothing at all.
+#[tokio::test]
+async fn org_usage_row_is_absent_until_refreshed_idempotent_and_rls_isolated() {
+    let db = test_db().await;
+    // Fixed ids in a band no other lane in this suite touches.
+    let a = seed_org(&db.app, 7001).await;
+    let b = seed_org(&db.app, 7002).await;
+    seed_user(&db.app, &a, 7101).await;
+    let disabled = seed_user(&db.app, &a, 7102).await;
+
+    // --- absent before any refresh -----------------------------------------
+    let mut tx = org_tx(&db.app, a.org).await;
+    assert!(
+        core_db::org_usage::get_usage(&mut *tx, a.org)
+            .await
+            .expect("read")
+            .is_none(),
+        "an org the sweep has never reached has NO row — zero counts would be \
+         indistinguishable from a measured empty org"
+    );
+    // ...and the sweep's claim says exactly that.
+    let due = core_db::org_usage::claim_stale_orgs(&mut *tx, 300, 50)
+        .await
+        .expect("claim");
+    assert!(
+        due.contains(&a.org),
+        "an org with no usage row is stale by definition"
+    );
+    drop(tx);
+
+    // --- real rows to count: one disabled account + one ticket per category
+    let mut tx = org_tx(&db.app, a.org).await;
+    sqlx::query("UPDATE users SET is_active = false WHERE id = $1")
+        .bind(disabled)
+        .execute(&mut *tx)
+        .await
+        .expect("deactivate");
+    create_ticket(
+        &mut tx,
+        &a,
+        fixed_uuid(7103),
+        "open one",
+        Priority::P3,
+        a.entry_status,
+        None,
+    )
+    .await;
+    create_ticket(
+        &mut tx,
+        &a,
+        fixed_uuid(7104),
+        "waiting one",
+        Priority::P3,
+        a.waiting_status,
+        None,
+    )
+    .await;
+    create_ticket(
+        &mut tx,
+        &a,
+        fixed_uuid(7105),
+        "resolved one",
+        Priority::P3,
+        a.resolved_status,
+        None,
+    )
+    .await;
+    // COMMIT, not drop: dropping an sqlx Transaction rolls back, and this
+    // transaction holds the writes the assertions below count (the disabled
+    // account and the three tickets).
+    tx.commit().await.expect("commit seed rows");
+
+    // --- refresh: exact counts, not estimates ------------------------------
+    // The owner pool is the worker's posture: the sweep refreshes across
+    // orgs and binds no app.org_id, so the write must not depend on one.
+    let row = core_db::org_usage::refresh_orgs(&db.admin, &[a.org])
+        .await
+        .expect("refresh")
+        .into_iter()
+        .next()
+        .expect("a real org produces a row");
+    assert_eq!(row.org_id, a.org);
+    assert_eq!(
+        row.active_users, 1,
+        "the disabled account is not using anything"
+    );
+    assert_eq!(row.tickets_open, 1);
+    assert_eq!(row.tickets_waiting, 1);
+    assert_eq!(row.tickets_closed, 1);
+    assert_eq!(row.tickets_in_progress, 0);
+    assert_eq!(row.tickets_total(), 3);
+    assert_eq!(row.automation_runs, 0);
+    assert_eq!(row.webhook_deliveries, 0);
+    assert!(row.refreshed_at <= chrono::Utc::now());
+
+    // --- idempotency: the same row, updated ---------------------------------
+    let again = core_db::org_usage::refresh_orgs(&db.admin, &[a.org])
+        .await
+        .expect("second refresh")
+        .into_iter()
+        .next()
+        .expect("row");
+    assert_eq!(again.org_id, row.org_id, "the primary key is the identity");
+    assert_eq!(again.active_users, row.active_users);
+    assert_eq!(again.tickets_total(), row.tickets_total());
+    assert_eq!(again.object_store_bytes, row.object_store_bytes);
+    assert!(
+        again.refreshed_at >= row.refreshed_at,
+        "a replay updates the row's timestamp, it never forks a second row"
+    );
+    let live: i64 = sqlx::query_scalar("SELECT count(*) FROM org_usage WHERE org_id = $1")
+        .bind(a.org)
+        .fetch_one(&db.admin)
+        .await
+        .expect("count");
+    assert_eq!(live, 1, "one org, one row, forever");
+
+    // A second org is claimed and refreshed while the first row stands.
+    let fresh = core_db::org_usage::refresh_orgs(&db.admin, &[b.org])
+        .await
+        .expect("second org refresh")
+        .into_iter()
+        .next()
+        .expect("row");
+    assert_eq!(fresh.org_id, b.org);
+    assert_eq!(fresh.active_users, 0);
+
+    // --- the claim is staleness-ordered, not org-id-ordered ----------------
+    // `a` was refreshed first (so its row is older by construction here only
+    // A deterministic age gap is what proves the ordering: age BOTH rows by
+    // different amounts, then assert the older one is claimed first.
+    // Age BOTH rows, with `a` older than `b`, so both are genuinely stale
+    // and the claim's ordering is what decides their sequence. Aging only
+    // `a` would leave `b` fresh (refreshed seconds ago, inside the 300s
+    // window) and the ordering assertion would be testing nothing — the
+    // first version of this test asserted `b` was claimed while the comment
+    // beside it said `b` was the most recent refresh, which is why it failed.
+    sqlx::query("UPDATE org_usage SET refreshed_at = now() - interval '2 hours' WHERE org_id = $1")
+        .bind(a.org)
+        .execute(&db.admin)
+        .await
+        .expect("age a");
+    sqlx::query("UPDATE org_usage SET refreshed_at = now() - interval '1 hours' WHERE org_id = $1")
+        .bind(b.org)
+        .execute(&db.admin)
+        .await
+        .expect("age b");
+    // A third org with NO row at all sorts before both (never measured is
+    // the stalest state there is), and it is created by the claim itself.
+    let c = seed_org(&db.app, 7005).await;
+    // A limit large enough to cover every stale org in the shared database:
+    // the suite has no per-test reset, so other tests' never-refreshed orgs
+    // are also due, and a production-sized 50 would push THIS test's orgs
+    // out of the window entirely (which is exactly what the first version
+    // did — `mine` came back empty and the ordering assertion was comparing
+    // against nothing).
+    let due = core_db::org_usage::claim_stale_orgs(&db.admin, 300, 100_000)
+        .await
+        .expect("claim with an unmeasured org");
+    // Scope the assertions to THIS test's orgs. The suite shares one
+    // database with no per-test reset, so another test's never-refreshed
+    // org is legitimately in the same claim — asserting on the fleet-wide
+    // first entry couples this test to whatever else has run.
+    let mine: Vec<Uuid> = due
+        .iter()
+        .copied()
+        .filter(|id| *id == a.org || *id == b.org || *id == c.org)
+        .collect();
+    assert_eq!(
+        mine.first().copied(),
+        Some(c.org),
+        "an org with no row is the stalest of this test's entries"
+    );
+    let stale_a = mine
+        .iter()
+        .position(|id| *id == a.org)
+        .expect("a is stale and must be claimed");
+    let stale_b = mine
+        .iter()
+        .position(|id| *id == b.org)
+        .expect("b is stale and must be claimed");
+    assert!(
+        stale_a < stale_b,
+        "the older row is claimed before the newer one, whatever the org ids"
+    );
+
+    // A row refreshed INSIDE the interval is not due, whichever arm the
+    // optimizer picks. This is the property the whole sweep depends on: the
+    // two-arm claim (index range scan for stale rows, anti-join for missing
+    // ones) must not start returning fresh rows, or a short interval would
+    // re-refresh a quiet tenant forever.
+    let rows_now = core_db::org_usage::refresh_orgs(&db.admin, &due)
+        .await
+        .expect("drain the backlog");
+    let quiet = core_db::org_usage::claim_stale_orgs(&db.admin, 300, 100_000)
+        .await
+        .expect("claim after a drain");
+    // Scoped to this test's orgs, for the same reason the claim above is: the
+    // suite shares one database with no per-test reset and other tests run in
+    // parallel, so the fleet-wide claim is legitimately non-empty when this
+    // runs. What must hold is that THIS test's just-refreshed orgs are gone
+    // from it — asserting globally made this flaky the moment a sibling test
+    // committed an org between the two claims.
+    let still_due: Vec<Uuid> = quiet
+        .iter()
+        .copied()
+        .filter(|id| *id == a.org || *id == b.org || *id == c.org)
+        .collect();
+    assert!(
+        still_due.is_empty(),
+        "an org refreshed seconds ago is not stale — otherwise the sweep would \
+         re-do work on a quiet tenant every tick"
+    );
+    assert_eq!(
+        rows_now.len(),
+        due.len(),
+        "every claimed org got a row out of the batch refresh"
+    );
+
+    // --- the batch refresh writes every org in one statement ---------------
+    // The sweep's path: one round-trip per batch rather than per org.
+    let rows = core_db::org_usage::refresh_orgs(&db.admin, &[a.org, b.org, c.org])
+        .await
+        .expect("batch refresh");
+    assert_eq!(rows.len(), 3, "every real org in the batch gets a row");
+    let mut written: Vec<Uuid> = rows.iter().map(|r| r.org_id).collect();
+    written.sort();
+    let mut expected = vec![a.org, b.org, c.org];
+    expected.sort();
+    assert_eq!(written, expected);
+    // Nonexistent orgs are simply absent, not an error — a batch that spans
+    // a deletion writes fewer rows than it was given.
+    let surviving = core_db::org_usage::refresh_orgs(&db.admin, &[a.org, fixed_uuid(999_001)])
+        .await
+        .expect("batch with a deleted org");
+    assert_eq!(
+        surviving.len(),
+        1,
+        "a vanished org writes nothing, silently"
+    );
+    assert_eq!(surviving[0].org_id, a.org);
+    // An empty batch is a no-op rather than a round-trip.
+    let none = core_db::org_usage::refresh_orgs(&db.admin, &[])
+        .await
+        .expect("empty batch");
+    assert!(none.is_empty(), "an empty batch writes nothing");
+
+    // --- RLS isolation ------------------------------------------------------
+    let mut tx_b = org_tx(&db.app, b.org).await;
+    let own = core_db::org_usage::get_usage(&mut *tx_b, b.org)
+        .await
+        .expect("own read");
+    assert_eq!(
+        own.expect("own row").org_id,
+        b.org,
+        "an org reads its own materialized row"
+    );
+    assert!(
+        core_db::org_usage::get_usage(&mut *tx_b, a.org)
+            .await
+            .expect("cross-org read")
+            .is_none(),
+        "org B must not be able to read org A's usage row"
+    );
+    drop(tx_b);
+
+    // An app pool that has NEVER bound an org sees nothing at all.
+    let unscoped = db.fresh_app_pool().await;
+    let none_seen: i64 = sqlx::query_scalar("SELECT count(*) FROM org_usage")
+        .fetch_one(&unscoped)
+        .await
+        .expect("unscoped read");
+    assert_eq!(none_seen, 0, "no app.org_id binding ⇒ default deny");
+}
+
+/// Configured quota limits are org-scope SETTINGS data — one key per
+/// metric — and the family is closed plus typed: a key outside it and a
+/// value that is not an integer both configure NOTHING rather than
+/// accidentally constraining a metric. The pairing the quota surface
+/// renders (metric → usage column → percentage) is checked against the
+/// materialized row, so the percentages a dashboard shows are the ones the
+/// API computes from the same functions.
+#[tokio::test]
+async fn configured_quota_limits_are_org_settings_and_pair_with_usage() {
+    use core_domain::usage::{percent_of, UsageMetric};
+
+    let db = test_db().await;
+    let a = seed_org(&db.app, 7003).await;
+    let b = seed_org(&db.app, 7004).await;
+    seed_user(&db.app, &a, 7106).await;
+    seed_user(&db.app, &a, 7107).await;
+    core_db::org_usage::refresh_orgs(&db.admin, &[a.org])
+        .await
+        .expect("refresh")
+        .into_iter()
+        .next()
+        .expect("row");
+
+    let mut tx = org_tx(&db.app, a.org).await;
+    for (key, value) in [
+        // Three real limits...
+        ("usage_quota.active_users", serde_json::json!(10)),
+        ("usage_quota.managed_devices", serde_json::json!(5)),
+        ("usage_quota.tickets", serde_json::json!(50)),
+        // ...a key outside the closed family (a teapot quota)...
+        ("usage_quota.teapots", serde_json::json!(3)),
+        // ...and a value that is not an integer (a limit counts a real
+        // thing; a word is a provisioning error, not a limit).
+        ("usage_quota.webhook_deliveries", serde_json::json!("many")),
+    ] {
+        core_db::settings::upsert_org_setting(&mut tx, a.org, key, &value, fixed_uuid(7106))
+            .await
+            .expect("limit setting");
+    }
+    let limits = core_db::org_usage::list_configured_limits(&mut *tx, a.org)
+        .await
+        .expect("limits");
+    assert_eq!(
+        limits,
+        vec![
+            (UsageMetric::ActiveUsers, 10),
+            (UsageMetric::Tickets, 50),
+            (UsageMetric::ManagedDevices, 5),
+        ],
+        "only whole-number limits in the family survive, in metric order"
+    );
+    assert!(
+        core_db::org_usage::list_configured_limits(&mut *tx, b.org)
+            .await
+            .expect("other org limits")
+            .is_empty(),
+        "an org that configured nothing has no limits — there is no default"
+    );
+    drop(tx);
+
+    // The pairing: the materialized row supplies each metric's usage and
+    // the pure percentage arithmetic turns the pair into a report.
+    let usage = core_db::org_usage::get_usage(&db.admin, a.org)
+        .await
+        .expect("read")
+        .expect("row");
+    let limit_for = |metric: UsageMetric| {
+        limits
+            .iter()
+            .find(|(m, _)| *m == metric)
+            .map(|(_, limit)| *limit)
+    };
+    assert_eq!(usage.metric_value(UsageMetric::ActiveUsers), 2);
+    assert_eq!(
+        percent_of(2, limit_for(UsageMetric::ActiveUsers)),
+        Some(20.0)
+    );
+    assert_eq!(usage.tickets_total(), 0);
+    assert_eq!(
+        percent_of(usage.tickets_total(), limit_for(UsageMetric::Tickets)),
+        Some(0.0)
+    );
+    // A metric with no configured limit has no percentage, in the API and
+    // in the arithmetic that backs it.
+    assert_eq!(
+        percent_of(0, limit_for(UsageMetric::ObjectStoreBytes)),
+        None
+    );
+}
+
+/// The object-store byte sum's two vault arms (migration 0131, the
+/// highest-risk part of the read model): every client-scope record is
+/// attributed to its org exactly once, and no org-scope record is counted
+/// twice.
+///
+/// `secret_records` carries `CHECK (num_nonnulls(org_id, client_id) = 1)`
+/// (0078), so the view's split into an org-scope arm and a client-scope arm
+/// is provably disjoint IF that invariant holds — which is exactly what this
+/// pins. A future edit to either arm, a dropped constraint, or a `client_id`
+/// outliving its org would otherwise mis-attribute bytes silently, because
+/// nothing else in the suite touches `secret_records`.
+///
+/// Also pins the per-row `GREATEST(file_bytes, 0)` clamp: a malformed
+/// negative row must contribute 0 rather than cancelling its siblings' real
+/// bytes (a net-sum clamp would report a plausible 0 while real objects are
+/// stored, and still pass the `object_store_bytes >= 0` CHECK).
+#[tokio::test]
+async fn org_usage_object_store_bytes_sum_both_vault_arms_once_each() {
+    let db = test_db().await;
+    let a = seed_org(&db.app, 7006).await;
+    let other = seed_org(&db.app, 7007).await;
+    seed_user(&db.app, &a, 7108).await;
+
+    // A client in EACH org, so the client-scope arm has something to
+    // attribute in both directions — including the "this client belongs to
+    // the OTHER org" case that would leak bytes across the seam.
+    //
+    // Own-org writes first, in a transaction bound to org A.
+    let mut tx = org_tx(&db.app, a.org).await;
+    core_db::clients::create_client(&mut *tx, a.org, fixed_uuid(7109), "Owned Client", None)
+        .await
+        .expect("own client");
+    // One folder per scope: the record's FK requires one, and the folder's
+    // own scope pair mirrors the record's (equality enforced in the write
+    // path, so a cross-scope insert would be rejected rather than silently
+    // attributed).
+    let own_folder = seed_secret_folder(&mut tx, FolderScope::Org(a.org), 9610, "documents").await;
+    let own_client_folder = seed_secret_folder(
+        &mut tx,
+        FolderScope::Client(fixed_uuid(7109)),
+        9611,
+        "documents",
+    )
+    .await;
+
+    // Org-scope record: 100 bytes, attributed by `sr.org_id`.
+    seed_secret_document(
+        &mut tx,
+        fixed_uuid(7111),
+        Some(a.org),
+        None,
+        own_folder,
+        Some(100),
+    )
+    .await;
+    // Client-scope record for a client of THIS org: 30 bytes, attributed
+    // through the client. This is the arm that must NOT be dropped.
+    seed_secret_document(
+        &mut tx,
+        fixed_uuid(7112),
+        None,
+        Some(fixed_uuid(7109)),
+        own_client_folder,
+        Some(30),
+    )
+    .await;
+    // A null-`file_bytes` row (a non-document record with no object): must
+    // contribute nothing, and must not turn the sum NULL.
+    seed_secret_document(
+        &mut tx,
+        fixed_uuid(7113),
+        Some(a.org),
+        None,
+        own_folder,
+        None,
+    )
+    .await;
+    // A malformed NEGATIVE row: contributes 0, never a cancellation of the
+    // sibling's real bytes.
+    seed_secret_document(
+        &mut tx,
+        fixed_uuid(7114),
+        Some(a.org),
+        None,
+        own_folder,
+        Some(-500),
+    )
+    .await;
+    // COMMIT, not drop: an sqlx Transaction rolls back when it is dropped,
+    // and this one holds the vault writes the assertions below count.
+    tx.commit().await.expect("commit vault seed rows");
+
+    // A client-scope record belonging to the OTHER org, so a leak reads as a
+    // difference rather than as an unmeasurable number. The foreign client
+    // and its folder are created HERE, in a transaction bound to the other
+    // org, because RLS refuses a cross-org insert: seeding them from org A's
+    // transaction (where this test first put them) fails with 42501.
+    let mut tx_other = org_tx(&db.app, other.org).await;
+    core_db::clients::create_client(
+        &mut *tx_other,
+        other.org,
+        fixed_uuid(7110),
+        "Foreign Client",
+        None,
+    )
+    .await
+    .expect("foreign client");
+    let foreign_client_folder = seed_secret_folder(
+        &mut tx_other,
+        FolderScope::Client(fixed_uuid(7110)),
+        9612,
+        "documents",
+    )
+    .await;
+    seed_secret_folder(
+        &mut tx_other,
+        FolderScope::Org(other.org),
+        9613,
+        "documents",
+    )
+    .await;
+    seed_secret_document(
+        &mut tx_other,
+        fixed_uuid(7115),
+        None,
+        Some(fixed_uuid(7110)),
+        foreign_client_folder,
+        Some(7000),
+    )
+    .await;
+    // COMMIT, not drop: an sqlx Transaction rolls back when it is dropped,
+    // and this one holds the vault writes the assertions below count.
+    tx_other.commit().await.expect("commit vault seed rows");
+
+    let row = core_db::org_usage::refresh_orgs(&db.admin, &[a.org])
+        .await
+        .expect("refresh")
+        .into_iter()
+        .next()
+        .expect("row");
+    // 100 (org arm) + 30 (client arm); the null row adds nothing and the
+    // -500 row adds 0 instead of subtracting.
+    assert_eq!(
+        row.object_store_bytes, 130,
+        "both vault arms counted exactly once each, clamped per row"
+    );
+
+    // The other org sees only its own client-scope bytes — no leakage across
+    // the seam in either direction.
+    let foreign = core_db::org_usage::refresh_orgs(&db.admin, &[other.org])
+        .await
+        .expect("refresh foreign")
+        .into_iter()
+        .next()
+        .expect("row");
+    assert_eq!(
+        foreign.object_store_bytes, 7000,
+        "a client-scope record is attributed to its client's org, not leaked"
+    );
+
+    // And an org with no vault records at all reports 0, not NULL — the
+    // COALESCE inside each term is what keeps the CHECK satisfied.
+    let bare = seed_org(&db.app, 7008).await;
+    let empty = core_db::org_usage::refresh_orgs(&db.admin, &[bare.org])
+        .await
+        .expect("refresh empty")
+        .into_iter()
+        .next()
+        .expect("row");
+    assert_eq!(empty.object_store_bytes, 0);
+}
+
+/// A vault folder's scope. `secret_folders` carries
+/// `CHECK (num_nonnulls(org_id, client_id) = 1)`, so a folder is org-scoped
+/// OR client-scoped, never both — this type makes the illegal combination
+/// unrepresentable instead of relying on the caller to pass the right shape.
+#[derive(Clone, Copy)]
+enum FolderScope {
+    Org(Uuid),
+    Client(Uuid),
+}
+
+impl FolderScope {
+    fn org_id(self) -> Option<Uuid> {
+        match self {
+            FolderScope::Org(id) => Some(id),
+            FolderScope::Client(_) => None,
+        }
+    }
+    fn client_id(self) -> Option<Uuid> {
+        match self {
+            FolderScope::Org(_) => None,
+            FolderScope::Client(id) => Some(id),
+        }
+    }
+}
+
+/// Seeds a vault folder in the given scope, mirroring the folder/record
+/// scope-pair equality the write path enforces.
+async fn seed_secret_folder(
+    tx: &mut sqlx::PgConnection,
+    scope: FolderScope,
+    folder_slot: u64,
+    kind: &str,
+) -> Uuid {
+    // Distinct slot per folder: the ids are fixed so parallel rows in this
+    // suite never collide, and the folders must be distinct because the
+    // (scope, parent, slug) unique index is what a real vault enforces.
+    let id = fixed_uuid(folder_slot);
+    sqlx::query(
+        "INSERT INTO secret_folders (id, org_id, client_id, slug, label, kind) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(id)
+    .bind(scope.org_id())
+    .bind(scope.client_id())
+    .bind(format!("folder-{id}"))
+    .bind("Documents")
+    .bind(kind)
+    .execute(&mut *tx)
+    .await
+    .expect("folder insert");
+    id
+}
+
+/// Seeds one vault document record in the given scope. `file_bytes` is the
+/// recorded payload size (None for a record with no object in the store).
+async fn seed_secret_document(
+    tx: &mut sqlx::PgConnection,
+    id: Uuid,
+    org_id: Option<Uuid>,
+    client_id: Option<Uuid>,
+    folder_id: Uuid,
+    file_bytes: Option<i64>,
+) {
+    sqlx::query(
+        r#"INSERT INTO secret_records
+             (id, org_id, client_id, folder_id, kind, title, object_key,
+              file_sha256, file_bytes)
+           VALUES ($1, $2, $3, $4, 'document', $5, $6, $7, $8)"#,
+    )
+    .bind(id)
+    .bind(org_id)
+    .bind(client_id)
+    .bind(folder_id)
+    .bind(format!("doc-{id}"))
+    .bind(file_bytes.map(|_| format!("vault/object/{id}")))
+    .bind(file_bytes.map(|_| "0".repeat(64)))
+    .bind(file_bytes)
+    .execute(&mut *tx)
+    .await
+    .expect("secret record insert");
+}

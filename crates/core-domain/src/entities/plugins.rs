@@ -114,10 +114,17 @@ pub enum PluginCapability {
     /// gate (like the other registration-only executor kinds), never onto
     /// an admin special.
     ServiceAccountManage,
+    /// Wave 47 lane A6 (org usage/quota read API): org-level resource
+    /// usage for hosted-tier monitoring. The grant resolves onto the new
+    /// `org_usage:read` permission — a read of the materialized usage row
+    /// and nothing else. Usage is a REPORT: holding this capability
+    /// changes what a plugin can observe about an org's consumption, never
+    /// what that org is allowed to do, and there is no quota to enforce.
+    OrgUsageRead,
 }
 
 impl PluginCapability {
-    pub const ALL: [PluginCapability; 27] = [
+    pub const ALL: [PluginCapability; 28] = [
         PluginCapability::TicketsRead,
         PluginCapability::TicketsWrite,
         PluginCapability::ClientsRead,
@@ -145,6 +152,7 @@ impl PluginCapability {
         PluginCapability::AutomationReads,
         PluginCapability::EventsEmit,
         PluginCapability::ServiceAccountManage,
+        PluginCapability::OrgUsageRead,
     ];
 
     /// The capability key as declared in a manifest / grant list.
@@ -181,6 +189,7 @@ impl PluginCapability {
             PluginCapability::AutomationReads => "automation.reads",
             PluginCapability::EventsEmit => "events.emit",
             PluginCapability::ServiceAccountManage => "service_accounts.manage",
+            PluginCapability::OrgUsageRead => "org_usage.read",
         }
     }
 
@@ -319,6 +328,11 @@ impl PluginCapability {
                 module: Module::Plugins,
                 action: Action::View,
             },
+            // Wave 47 lane A6: usage is a REPORT, so the capability
+            // resolves onto its OWN read-only permission rather than onto
+            // the Reporting matrix — a plugin that reads usage gains
+            // nothing else the reporting module holds.
+            PluginCapability::OrgUsageRead => Permission::ViewOrgUsage,
         }
     }
 }
@@ -2940,6 +2954,28 @@ mod tests {
         for key in ["automation.triggers", "automation.reads", "events.emit"] {
             assert!(PluginCapability::parse(key).is_some(), "{key}");
         }
+    }
+
+    /// Wave 47 lane A6: the usage capability resolves onto its OWN
+    /// read-only permission, NOT the Reporting matrix — a plugin that reads
+    /// an org's usage counts gains nothing else the reporting module
+    /// holds. Pinned here because the cheap default would have been to
+    /// file it under `ReportingRead`'s existing mapping, which would have
+    /// handed a monitoring plugin every report definition too.
+    #[test]
+    fn org_usage_capability_resolves_onto_its_own_read_only_permission() {
+        use crate::policy::Permission;
+        assert_eq!(PluginCapability::OrgUsageRead.as_str(), "org_usage.read");
+        assert_eq!(
+            PluginCapability::OrgUsageRead.permission(),
+            Permission::ViewOrgUsage
+        );
+        // The wire key round-trips, so a manifest naming the capability
+        // resolves rather than being rejected as unknown.
+        assert_eq!(
+            PluginCapability::parse("org_usage.read"),
+            Some(PluginCapability::OrgUsageRead)
+        );
     }
 
     #[test]

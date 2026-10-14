@@ -148,6 +148,13 @@ pub struct WorkerConfig {
     /// often the table is checked against it. Retention is housekeeping,
     /// not user-visible latency, so the default is hours, not seconds.
     pub retention_sweep_secs: u64,
+    /// Seconds between org usage refreshes (`USAGE_REFRESH_SECS`). The
+    /// usage table is MATERIALIZED (migration 0131), so this is how far
+    /// behind a monitoring view can be before the numbers are recomputed;
+    /// the payload carries its own `refreshed_at` either way. Minutes, not
+    /// seconds: a usage row is a report an operator reads, and the per-org
+    /// work is one aggregate.
+    pub usage_refresh_secs: u64,
 }
 
 impl WorkerConfig {
@@ -267,6 +274,9 @@ impl WorkerConfig {
             retention_sweep_secs: lookup("RETENTION_SWEEP_SECS")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(6 * 60 * 60),
+            usage_refresh_secs: lookup("USAGE_REFRESH_SECS")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(crate::usage_refresh_sweep::DEFAULT_INTERVAL_SECS),
         }
     }
 }

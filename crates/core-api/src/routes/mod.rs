@@ -93,6 +93,7 @@ pub mod oidc;
 pub mod onboarding;
 pub mod openapi;
 pub mod org_config;
+pub mod org_usage;
 pub mod org_users;
 pub mod passwords;
 pub mod pipeline;
@@ -1578,6 +1579,15 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // customization manifest (TASKLIST U5): admin-gated canonical
         // export; owner/admin checked inside the handler (policy §5).
         .route(&rp("/org/manifest"), get(manifest::get))
+        // Org resource usage + quotas (Wave 47 lane A6, migration 0131):
+        // read-only monitoring reports. Usage is a REPORT — no code path
+        // in the core reads a quota to limit behaviour, so a percentage
+        // over 100 renders and does not bite. Any human member reads their
+        // own org; a service account additionally holds
+        // `org_usage:read` (`Permission::ViewOrgUsage`) — the gate the
+        // `org_usage.read` plugin capability resolves onto.
+        .route(&rp("/orgs/{org_id}/usage"), get(org_usage::get_org_usage))
+        .route(&rp("/orgs/{org_id}/quotas"), get(org_usage::get_org_quotas))
         // email inbound routing settings (admin)
         .route(
             &rp("/email/inbound-settings"),

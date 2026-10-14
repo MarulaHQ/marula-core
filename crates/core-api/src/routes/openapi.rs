@@ -307,6 +307,14 @@ use utoipa::OpenApi;
         // org-scoped pod-visibility matrix (Wave 12 lane 6)
         crate::routes::org_config::pod_visibility_get,
         crate::routes::org_config::pod_visibility_put,
+        // org resource usage + quotas (Wave 47 lane A6): read-only
+        // monitoring reports. Registered on the CANONICAL generation only
+        // — the `canonicalize_paths` pass rewrites their `/api/...`
+        // literals onto the `/api/v1` twin, so the legacy alias mount
+        // serves them without a second documented operation (the two-mount
+        // rule lives in build_router).
+        crate::routes::org_usage::get_org_usage,
+        crate::routes::org_usage::get_org_quotas,
         // self-host services visibility (Wave 36 lane 3): owner/admin read
         // of the ops stack — health sweep, detections, link-out cards.
         crate::routes::self_host::get,
