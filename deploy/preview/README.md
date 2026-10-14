@@ -17,6 +17,7 @@ loudly until you do rather than to improvise them.
 | File | What it is |
 | --- | --- |
 | `compose.preview.yml` | Compose overlay: sizing, published interfaces, secrets posture |
+| `../edge/compose.edge.yml` | The optional TLS front door, layered last for a public preview |
 | `../.github/workflows/preview.yml.disabled` | The CI definition (user-gated, like every other disabled workflow) |
 
 ## Why an overlay and not a second compose file
@@ -54,18 +55,59 @@ at this" in a channel with six people.
 ### 2. Wildcard DNS + TLS (real per-PR URLs)
 
 A domain like `*.preview.example.com` pointing at the preview host, with
-a wildcard certificate, gives every PR a stable URL:
-`https://pr-482.preview.example.com`. This is what the workflow
-definition assumes, and what the `PREVIEW_PUBLIC_URL` /
-`PREVIEW_API_URL` / `PREVIEW_CORS_ORIGIN` variables are for.
+the TLS-terminating proxy from `deploy/edge/` in front, gives every PR a
+stable URL: `https://pr-482.preview.example.com`. This is the option the
+CI definition is written to wire, and the reason
+`PREVIEW_PUBLIC_URL` / `PREVIEW_API_URL` / `PREVIEW_CORS_ORIGIN` exist as
+variables rather than defaults.
 
-What it costs: the wildcard DNS record, a certificate that renews
-itself, and a decision about access. A wildcard certificate on a
-per-PR subdomain means every branch a developer opens is potentially
-reachable by anyone who guesses the URL — so put authentication in front
-of it, or accept that preview data is public. Preview data is demo data,
-so that trade is often fine; it stops being fine the moment someone
-connects a real customer's data, which is the rule to write on the wall.
+The edge overlay is layered **last**, after this directory's overlay:
+
+```sh
+export PREVIEW_JWT_SECRET=$(openssl rand -hex 32)
+export PREVIEW_MARULA_SECRET_KEY=$(openssl rand -hex 32)
+export MARULA_DOMAIN=pr-482.preview.example.com   # per-PR host
+export MARULA_TLS_MODE=direct                      # or cf-origin / cf-dns01
+export ACME_EMAIL=ops@example.com                  # direct and cf-dns01 only
+export PREVIEW_PUBLIC_URL=https://pr-482.preview.example.com
+export PREVIEW_API_URL=https://pr-482.preview.example.com
+export PREVIEW_CORS_ORIGIN=https://pr-482.preview.example.com
+export PREVIEW_WS_URL=wss://pr-482.preview.example.com/ws
+
+docker compose -f deploy/docker-compose.yml \
+               -f deploy/preview/compose.preview.yml \
+               -f deploy/edge/compose.edge.yml \
+               --profile edge up --build -d
+```
+
+Three things about that command that are easy to get wrong:
+
+- **Order.** The edge overlay clears the raw ports with
+  `ports: !override []`, and compose applies that replacement only if the
+  edge file comes last. Layered first, the proxy is a decoration and
+  8080/8081/3000 stay published.
+- **One URL for all three.** When TLS is on, the browser reaches the API
+  and the socket through the same origin as the console. That is what
+  makes `PREVIEW_API_URL` equal `PREVIEW_PUBLIC_URL` here, and why
+  `PREVIEW_WS_URL` is a `wss://` path instead of a port.
+- **The build arg is baked.** `NEXT_PUBLIC_API_URL` and
+  `NEXT_PUBLIC_WS_URL` are compiled into the client bundle, so changing
+  either after `up --build` changes nothing until you rebuild.
+
+Which TLS mode fits a preview host depends on how the wildcard domain is
+managed, exactly as it does for a real instance — the full decision and the
+Cloudflare dashboard steps are in `deploy/edge/README.md`. A wildcard
+`*.preview.example.com` works with all three: Direct mode minting a
+per-hostname ACME certificate, an Origin CA certificate issued for the
+wildcard, or DNS-01 minting per-hostname certificates through your zone.
+
+What it costs: the wildcard DNS record, a certificate that renews itself,
+and a decision about access. A wildcard certificate on a per-PR subdomain
+means every branch a developer opens is potentially reachable by anyone
+who guesses the URL — so put authentication in front of it, or accept that
+preview data is public. Preview data is demo data, so that trade is often
+fine; it stops being fine the moment someone connects a real customer's
+data, which is the rule to write on the wall.
 
 ## Booting one by hand
 
@@ -90,10 +132,10 @@ docker compose -f deploy/docker-compose.yml \
 ```
 
 The three URLs have to agree with each other and with what the browser
-uses. `NEXT_PUBLIC_API_URL` is baked into the client bundle at build
-time, so changing `PREVIEW_API_URL` after `up --build` changes nothing
-until you rebuild — the most common reason a preview "points at the
-wrong place".
+uses. `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` are baked into the
+client bundle at build time, so changing either after `up --build` changes
+nothing until you rebuild — the most common reason a preview "points at
+the wrong place".
 
 ## What the overlay deliberately changes
 
@@ -136,9 +178,14 @@ serving `main` makes every reviewer believe their change broke nothing.
 User-gated, like every workflow in `.github/workflows/*.disabled`:
 
 1. Rename `preview.yml.disabled` to `preview.yml`.
-2. Add four repository **variables** (not secrets — none is a
-   credential): `PREVIEW_HOST`, `PREVIEW_PUBLIC_URL`, `PREVIEW_API_URL`,
-   `PREVIEW_CORS_ORIGIN`.
+2. Add the repository **variables** (not secrets — none is a credential):
+   `PREVIEW_HOST`, `PREVIEW_PUBLIC_URL`, `PREVIEW_API_URL`,
+   `PREVIEW_CORS_ORIGIN`. For a TLS front door, add `PREVIEW_TLS_MODE`
+   (`direct`, `cf-origin` or `cf-dns01`), `PREVIEW_DOMAIN` (the wildcard
+   zone) and, for the two ACME modes, `PREVIEW_ACME_EMAIL`. Leave
+   `PREVIEW_TLS_MODE` empty and the job boots the raw-port stack above.
+   The DNS-01 token is the only credential, so it goes in secrets as
+   `CF_API_TOKEN`, scoped to Zone:DNS:Edit on the one zone.
 3. Fill in the two placeholder steps: host provisioning and teardown.
    They are deliberately `exit 1` with a message rather than a plausible
    guess, because a teardown that is not wired is how previews outlive
@@ -154,13 +201,17 @@ deploy must never be the reason a preview stays up.
 
 ```sh
 docker compose -f deploy/docker-compose.yml \
-               -f deploy/preview/compose.preview.yml down -v
+               -f deploy/preview/compose.preview.yml \
+               -f deploy/edge/compose.edge.yml down -v
 ```
 
 `-v` takes the volumes with it, which is what you want for a preview
 whose whole value is being disposable. A preview that survives its PR is
 a stale branch on the network at a URL people remember, so tear it down
-even when nothing is wrong with the branch.
+even when nothing is wrong with the branch. The edge overlay is optional
+in the teardown — including it also removes the `edgedata` volume, which
+holds the proxy's certificates. Leaving it off tears down the stack and
+keeps the certificates; including it is the honest "nothing survives" form.
 
 ## Related
 

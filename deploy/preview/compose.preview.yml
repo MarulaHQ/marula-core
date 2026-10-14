@@ -69,6 +69,13 @@ services:
     # fastest way to turn "review the branch" into "drop the preview
     # database", and the RLS layer that isolates tenants does not protect
     # the role itself.
+    #
+    # These publishes are the raw-port stack. A public, TLS-fronted preview
+    # layers deploy/edge/compose.edge.yml LAST, and that overlay's
+    # `ports: !override []` on core-api, realtime and web replaces these
+    # outright: the proxy becomes the only published surface. Which overlay
+    # wins a `ports` key is decided by order, which is why the edge file is
+    # always last.
     ports:
       - "0.0.0.0:${PREVIEW_API_PORT:-8080}:8080"
     # ---- secrets posture -------------------------------------------------
@@ -137,3 +144,10 @@ services:
       # env "works" for its author and is broken for everyone else.
       args:
         NEXT_PUBLIC_API_URL: ${PREVIEW_API_URL:-http://localhost:8080}
+        # Empty unless TLS is in play. Left empty, the client derives the
+        # socket address from the API base and port 8081, which is right
+        # for the raw-port stack this overlay publishes. For the wildcard +
+        # edge path in deploy/preview/README.md, set it to
+        # wss://pr-482.preview.example.com/ws: the edge overlay removes the
+        # raw 8081, so a derived URL would point at a port nobody serves.
+        NEXT_PUBLIC_WS_URL: ${PREVIEW_WS_URL:-}

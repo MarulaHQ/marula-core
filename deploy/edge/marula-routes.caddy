@@ -1,0 +1,126 @@
+# Marula's public routing table, shared by all three TLS modes.
+#
+# This file holds the DIRECTIVES that live inside a site block. The three
+# mode files (Caddyfile.direct, Caddyfile.cf-origin, Caddyfile.cf-dns01)
+# import it, so the routing table exists in exactly one place. A route that
+# appears in one mode and is missing from the others is how a temporary
+# override becomes a permanent hole; the modes differ ONLY in the `tls`
+# stanza they add, never in what they route.
+#
+# Route map (verified against the running binaries, not against the docs):
+#   /            -> web:3000      Next.js standalone, incl. /_next/* assets
+#   /api, /api/* -> core-api:8080 REST + instant-first envelopes, canonical
+#                                /api/v1 and legacy /api mounts (routes/mod.rs)
+#   /openapi.json-> core-api:8080 the SDK contract
+#   /healthz     -> core-api:8080 liveness, REWRITTEN to /api/health (see
+#                                below — core-api's liveness route is
+#                                {base}/health, so /api/health and
+#                                /api/v1/health answer, and a bare /healthz
+#                                is a 404 with an empty body. realtime and
+#                                the worker are the services that serve
+#                                /healthz, on their own ports.)
+#   /ws          -> realtime:8081 the WebSocket upgrade (realtime/src/lib.rs)
+#
+# Deliberately NOT routed: /internal/* — the worker<->core effect seam is a
+# private boundary with its own token (routes/internal.rs). An unmatched
+# path falls through to web, which answers 404. That is the correct answer.
+
+# Client body ceiling, aligned with MARULA_MAX_UPLOAD_MB (default 25).
+#
+# MiB, not MB. This is not a style choice: core-api converts its value with
+# mb * 1024 * 1024 (crates/core-api/src/config.rs), while Caddy's `MB` is
+# decimal — 25MB is 25,000,000 bytes and 25MiB is 26,214,400. Writing `MB`
+# here silently caps the proxy ~1.2 MB below the limit the API enforces, so
+# an upload the app would accept is refused at the edge with a 413 that
+# blames the wrong layer. The gate run caught exactly that (a 24 MiB body is
+# over 25MB and under 25MiB).
+#
+# The same number core-api raises axum's 2 MB default to on the upload and
+# import-chunk posts, so an oversized body is refused at the proxy instead
+# of being read, buffered and rejected by the API. Raise the value in BOTH
+# places.
+request_body {
+	max_size {$MARULA_MAX_UPLOAD_MB:25}MiB
+}
+
+# The public liveness route. It rewrites onto core-api's real health route
+# rather than answering for itself: an edge that returns 200 while the app
+# behind it is dead is worse than no probe, because it is a green light
+# nobody can trust.
+@edge_health path /healthz
+handle @edge_health {
+	rewrite * /api/health
+	reverse_proxy {$CORE_API_UPSTREAM:core-api:8080} {
+		trusted_proxies private_ranges
+	}
+}
+
+@api {
+	path /api /api/* /openapi.json
+}
+
+# The realtime upgrade, matched on the path and not on the Connection
+# header: Caddy performs the upgrade itself, and a plain GET /ws with no
+# upgrade header has to reach the hub (it answers 401 with a typed body),
+# not be routed to the web console.
+@ws {
+	path /ws
+}
+
+# ---- WebSocket seam -------------------------------------------------------
+# The three upstreams default to the compose service names and are
+# overridable, because "the proxy runs in the app's compose network" is the
+# common case and not the only one: a split deployment (proxy on its own
+# host) and a gate run against a stack booted outside compose both need to
+# name the addresses. Ports stay in the value on purpose — a split
+# deployment is exactly where they stop matching.
+reverse_proxy @ws {$REALTIME_UPSTREAM:realtime:8081} {
+	# -1 disables response buffering. A frame sitting in a proxy buffer is
+	# a frame the board never rendered: presence, typing indicators and
+	# event envelopes are latency, not throughput.
+	flush_interval -1
+	# No stream timeout. The liveness contract is the client's own: a 25s
+	# heartbeat with a 60s silence window (native/src/core/realtime.ts).
+	# A proxy that reaps an idle-but-healthy socket turns a network blip
+	# into a reconnect storm, which is exactly the failure the presence
+	# ledger is sensitive to.
+	stream_timeout 0
+	# A config reload (or an operator's `caddy reload`) must not drop live
+	# sockets; the delay lets each client reconnect on its own schedule.
+	stream_close_delay 60s
+	# Append, never clobber. Caddy keeps an inbound X-Forwarded-For only
+	# when the direct peer is trusted, and it always appends the peer it
+	# actually saw. Behind Cloudflare that produces "<client>, <cf-edge>",
+	# which core-api walks right-to-left through its trusted set
+	# (crates/core-api/src/client_ip.rs). The Docker bridge peers are the
+	# private ranges here: publishing a host port lands the request on the
+	# bridge gateway, and trusting that one hop is what preserves the edge's
+	# client value instead of collapsing every request onto the gateway.
+	# X-Forwarded-For is Caddy's business: it appends the peer it saw and
+	# keeps an inbound value only from a trusted peer (see trusted_proxies
+	# below). X-Forwarded-Proto is NOT delegated: it is set from the actual
+	# connection, so a client cannot tell the app it arrived over https when
+	# it did not. Appending a caller-supplied scheme has no use — unlike XFF
+	# there is no upstream edge whose value we want to preserve (an edge in
+	# front of Caddy also terminates TLS, so {scheme} is already https).
+	# X-Forwarded-Host is left to Caddy, which sets it from the request Host.
+	trusted_proxies private_ranges
+	header_up X-Forwarded-Proto {scheme}
+}
+
+# ---- REST seam ------------------------------------------------------------
+reverse_proxy @api {$CORE_API_UPSTREAM:core-api:8080} {
+	trusted_proxies private_ranges
+	header_up X-Forwarded-Proto {scheme}
+}
+
+# ---- Everything else: the web console ------------------------------------
+# Next.js owns the routes, the static assets and the 404s. Nothing here is
+# Marula's business to re-implement.
+reverse_proxy {$WEB_UPSTREAM:web:3000}
+
+# HSTS belongs to the origin that speaks TLS: Cloudflare's own HSTS header
+# is a different setting (SSL/TLS -> Edge Certificates) and would not cover
+# a Direct-mode deployment at all. Browsers only honour this over HTTPS,
+# which is the only scheme the proxy listens on here.
+header Strict-Transport-Security "max-age=31536000"

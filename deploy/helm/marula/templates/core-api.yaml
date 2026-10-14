@@ -118,6 +118,17 @@ spec:
             - name: PUBLIC_BASE_URL
               value: {{ .Values.coreApi.publicBaseUrl | quote }}
             {{- end }}
+            {{- /*
+            Real-client-IP posture (Wave 47 lane A10). Set when the ingress
+            — or an edge in front of it — speaks for the client; unset
+            leaves the narrow default (loopback + RFC1918 + IPv6 ULA), which
+            on an internet-reachable deployment collapses every real client
+            onto the edge address and logs a warning at boot naming this.
+            */}}
+            {{- if .Values.coreApi.trustedProxies }}
+            - name: TRUSTED_PROXIES
+              value: {{ .Values.coreApi.trustedProxies | quote }}
+            {{- end }}
             - name: MARULA_MAX_UPLOAD_MB
               value: {{ .Values.coreApi.maxUploadMb | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
