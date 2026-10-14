@@ -11,6 +11,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+bytes = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
@@ -23,6 +24,10 @@ hex = { workspace = true }
 hmac = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
+# Demo attachments write real bytes into the same object store core-api
+# reads from, so a prospect who clicks "download" in the demo gets a file
+# rather than a 500. Only the `LocalFsStore` adapter is used here.
+core-store = { path = "../core-store" }
 
 [dev-dependencies]
 aes-gcm = { workspace = true }

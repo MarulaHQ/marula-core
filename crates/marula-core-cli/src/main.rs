@@ -328,7 +328,18 @@ fn dev_seal_key() -> anyhow::Result<core_db::demo::DemoSeedOptions> {
             core_db::demo::derive_dev_seal_key(&jwt)
         }
     };
-    Ok(core_db::demo::DemoSeedOptions { seal_key: key })
+    // Demo attachments are stored beside the ones a real upload would use,
+    // so the download endpoint finds them. Same env var core-api's config
+    // reads for the local object store; unset leaves the seeded rows
+    // metadata-only, which the route reports as a missing object.
+    let object_store_dir = std::env::var("OBJECT_STORE_LOCAL_DIR")
+        .ok()
+        .filter(|d| !d.trim().is_empty())
+        .map(std::path::PathBuf::from);
+    Ok(core_db::demo::DemoSeedOptions {
+        seal_key: key,
+        object_store_dir,
+    })
 }
 
 /// Seeds (or reseeds, with `--force`) the demo org and prints the summary
@@ -378,6 +389,7 @@ fn print_seed_summary(report: &core_db::demo::DemoSeedReport) {
         ("org", format!("{} ({})", report.org_name, report.slug)),
         ("users", report.users.to_string()),
         ("clients (sites/contacts)", report.clients.to_string()),
+        ("portal logins (one per client)", report.portal_users.to_string()),
         ("boards", report.boards.to_string()),
         ("tickets", report.tickets.to_string()),
         (
@@ -440,6 +452,37 @@ fn print_seed_summary(report: &core_db::demo::DemoSeedReport) {
                 report.vendors, report.purchase_orders, report.client_loans
             ),
         ),
+        (
+            "receipts / bills / vendor contacts",
+            format!(
+                "{} / {} / {}",
+                report.purchase_receipts, report.purchase_bills, report.vendors
+            ),
+        ),
+        (
+            "attachments (ticket / document)",
+            format!(
+                "{} / {} ({:.1} KiB stored)",
+                report.attachments,
+                report.document_attachments,
+                report.attachment_store_bytes as f64 / 1024.0
+            ),
+        ),
+        (
+            "email (messages / outbound)",
+            format!("{} / {}", report.email_messages, report.email_outbound),
+        ),
+        (
+            "csat / secrets / change orders",
+            format!(
+                "{} / {} / {}",
+                report.csat_surveys, report.secret_records, report.contract_change_orders
+            ),
+        ),
+        (
+            "time categories",
+            report.time_categories.to_string(),
+        ),
     ];
     println!();
     println!("demo org seeded");
@@ -451,6 +494,14 @@ fn print_seed_summary(report: &core_db::demo::DemoSeedReport) {
     println!("logins (password: {}):", report.password);
     for (email, role) in &report.logins {
         println!("  {email:<26} {role}");
+    }
+    // Portal seats are printed too: the portal is the half of the demo a
+    // prospect's own staff touches, and an operator has to be able to hand
+    // over a client login without digging through the database.
+    println!();
+    println!("portal logins (client view, same password):");
+    for (email, client_name) in &report.portal_logins {
+        println!("  {email:<26} {client_name}");
     }
     println!();
     println!(

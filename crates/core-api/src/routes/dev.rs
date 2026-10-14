@@ -86,6 +86,18 @@ pub struct TimeTravelRequest {
     pub hours: i64,
 }
 
+/// The local object-store directory the demo's attachment bytes belong in, or
+/// `None` when this instance is not on a local store. On S3 the seeder writes
+/// no bytes (it has no credentials): the rows still land, and the frontend's
+/// type badges and size labels render; only the byte fetch reports a missing
+/// object instead of opening a file.
+fn demo_object_store_dir(state: &AppState) -> Option<std::path::PathBuf> {
+    match &state.config.object_store {
+        core_store::StoreChoice::Local(dir) => Some(std::path::PathBuf::from(dir)),
+        core_store::StoreChoice::S3(_) => None,
+    }
+}
+
 /// POST /api/dev/seed — runs the DX1 seeder. 409 when the demo org already
 /// exists unless `?force=1`, which wipes + reseeds instead.
 pub async fn seed(
@@ -94,6 +106,7 @@ pub async fn seed(
 ) -> ApiResult<Json<core_db::demo::DemoSeedReport>> {
     let seal_opts = core_db::demo::DemoSeedOptions {
         seal_key: state.config.secret_key.0,
+        object_store_dir: demo_object_store_dir(&state),
     };
     let force = params.force.unwrap_or(false);
     let result = if force {
@@ -127,6 +140,7 @@ pub async fn reset_org(
 ) -> ApiResult<Json<core_db::demo::DemoSeedReport>> {
     let seal_opts = core_db::demo::DemoSeedOptions {
         seal_key: state.config.secret_key.0,
+        object_store_dir: demo_object_store_dir(&state),
     };
     let report = core_db::demo::reset(&state.pool, &seal_opts)
         .await

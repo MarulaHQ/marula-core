@@ -59,9 +59,18 @@ const SYSTEM_ACTOR_ID: Uuid = Uuid::nil();
 /// Key material for sealing demo webhook/alert-source secrets. MUST be the
 /// same key core-api runs with, or the test-fire/ingest paths cannot open
 /// the ciphertext.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct DemoSeedOptions {
     pub seal_key: [u8; 32],
+    /// Where to write the demo attachments' bytes. Set this to the SAME
+    /// directory core-api reads from (`OBJECT_STORE_LOCAL_DIR`) or the
+    /// download endpoint will have a row with no object behind it.
+    ///
+    /// `None` still writes the metadata rows, so attachment lists, type
+    /// badges and counts all render; only the byte fetch fails, which the
+    /// route reports as a missing object rather than corrupting anything.
+    /// Tests use `None` because they never download.
+    pub object_store_dir: Option<std::path::PathBuf>,
 }
 
 /// The dev at-rest key derivation, shared with core-api's config (one
@@ -87,6 +96,8 @@ pub enum DemoError {
     Sql(#[from] sqlx::Error),
     #[error("secret sealing: {0}")]
     Crypto(String),
+    #[error("demo object store: {0}")]
+    Internal(String),
 }
 
 pub type DemoResult<T> = Result<T, DemoError>;
@@ -100,6 +111,9 @@ pub struct DemoSeedReport {
     pub slug: &'static str,
     pub users: usize,
     pub clients: usize,
+    /// One portal login per client (Wave 47 B3) — the number a prospect's
+    /// own staff can actually sign in with.
+    pub portal_users: usize,
     pub boards: usize,
     pub tickets: usize,
     pub comments: usize,
@@ -136,8 +150,29 @@ pub struct DemoSeedReport {
     pub vendors: usize,
     pub purchase_orders: usize,
     pub client_loans: usize,
+    /// Ticket, comment and document attachments. The byte payloads live in
+    /// the object store, so this counts rows and the size badge the UI shows;
+    /// `object_bytes` is the total stored, which is 0 when no store was
+    /// configured for the seed run.
+    pub attachments: usize,
+    pub document_attachments: usize,
+    pub attachment_store_bytes: u64,
+    /// Email edge, both directions.
+    pub email_messages: usize,
+    pub email_outbound: usize,
+    /// CSAT, the secrets manager, contract legs, the time taxonomy and the
+    /// purchasing/lending completion legs.
+    pub csat_surveys: usize,
+    pub secret_records: usize,
+    pub contract_change_orders: usize,
+    pub time_categories: usize,
+    pub purchase_receipts: usize,
+    pub purchase_bills: usize,
+    pub client_loan_lines: usize,
     /// (email, role) login pairs, in summary-table order.
     pub logins: Vec<(&'static str, &'static str)>,
+    /// (email, client name) — one portal seat per client.
+    pub portal_logins: Vec<(&'static str, &'static str)>,
     pub password: &'static str,
     pub alert_hmac_secret: &'static str,
     pub webhook_signing_secret: &'static str,
@@ -476,17 +511,59 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     let northwind = demo_uuid(21);
     let globex = demo_uuid(22);
 
-    // Portal contact for Acme (portal v2 surfaces demo cleanly).
-    sqlx::query(
-        "INSERT INTO portal_users (id, org_id, client_id, email, display_name, password_hash, role, status)
-         VALUES ($1, $2, $3, 'portal@acme.demo', 'Dana Reeve (Portal)', $4, 'contact', 'active')",
-    )
-    .bind(demo_uuid(50))
-    .bind(DEMO_ORG_ID)
-    .bind(acme)
-    .bind(&password_hash)
-    .execute(&mut *tx)
-    .await?;
+    // One portal login per client (Wave 47 B3). A prospect who signs in as a
+    // client sees that client's rows and nobody else's, so each of the three
+    // clients gets its own seat rather than the org sharing Acme's. Email is
+    // unique per org case-insensitively (migration 0021), so the three are
+    // distinct by construction.
+    struct DemoPortalUser {
+        id_offset: u64,
+        client: Uuid,
+        email: &'static str,
+        display_name: &'static str,
+        /// Which client's portal this login opens — printed in the seed
+        /// summary so an operator knows which prospect each seat is for.
+        client_name: &'static str,
+    }
+    let portal_user_specs: [DemoPortalUser; 3] = [
+        DemoPortalUser {
+            id_offset: 50,
+            client: acme,
+            email: "portal@acme.demo",
+            display_name: "Dana Reeve (Portal)",
+            client_name: "Acme Manufacturing",
+        },
+        DemoPortalUser {
+            id_offset: 53,
+            client: northwind,
+            email: "portal@northwind.demo",
+            display_name: "Priya Natarajan (Portal)",
+            client_name: "Northwind Legal",
+        },
+        DemoPortalUser {
+            id_offset: 54,
+            client: globex,
+            email: "portal@globex.demo",
+            display_name: "Chris Vale (Portal)",
+            client_name: "Globex Foods",
+        },
+    ];
+    let mut portal_user_count = 0usize;
+    for spec in &portal_user_specs {
+        sqlx::query(
+            "INSERT INTO portal_users (id, org_id, client_id, email, display_name, password_hash, role, status)
+             VALUES ($1, $2, $3, $4, $5, $6, 'contact', 'active')",
+        )
+        .bind(demo_uuid(spec.id_offset))
+        .bind(DEMO_ORG_ID)
+        .bind(spec.client)
+        .bind(spec.email)
+        .bind(spec.display_name)
+        .bind(&password_hash)
+        .execute(&mut *tx)
+        .await?;
+        portal_user_count += 1;
+    }
 
     // --- boards + custom statuses (all four semantic categories each) -----
     struct DemoStatus {
@@ -635,18 +712,27 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     let service_desk = demo_uuid(60);
     let _field_service = demo_uuid(61);
 
-    // Acme's portal users see the Service Desk board (exposure flag gates
-    // portal ticket lists entirely).
-    sqlx::query(
-        "INSERT INTO board_portal_exposure (id, org_id, board_id, client_id, exposed)
-         VALUES ($1, $2, $3, $4, true)",
-    )
-    .bind(demo_uuid(52))
-    .bind(DEMO_ORG_ID)
-    .bind(service_desk)
-    .bind(acme)
-    .execute(&mut *tx)
-    .await?;
+    // Every client's portal users see the Service Desk board. The exposure
+    // flag gates portal ticket lists entirely, so a client without a row
+    // signs in to an empty ticket list — which reads as a broken portal
+    // rather than as a deliberate choice. Each client already carries
+    // service-desk tickets, so all three lists are populated.
+    for (id_offset, client) in [
+        (52u64, acme),
+        (55, northwind),
+        (56, globex),
+    ] {
+        sqlx::query(
+            "INSERT INTO board_portal_exposure (id, org_id, board_id, client_id, exposed)
+             VALUES ($1, $2, $3, $4, true)",
+        )
+        .bind(demo_uuid(id_offset))
+        .bind(DEMO_ORG_ID)
+        .bind(service_desk)
+        .bind(client)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     // --- custom fields (2 defs + values on two tickets) -------------------
     let field_escalation = demo_uuid(90);
@@ -925,10 +1011,17 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         let minutes = 30 + i32::try_from((i * 7) % 90).unwrap_or(45);
         let billable = i % 3 != 0;
         let work_type = bulk_work_types[(i % 4) as usize];
+        // 600 is the entry the approval trail below walks through
+        // submitted→approved, so its row has to AGREE with that trail:
+        // before this, the history described an approval the queue never
+        // saw and the ledger still called a draft.
+        let decided = i == 0;
         sqlx::query(
             "INSERT INTO time_entries (id, org_id, ticket_id, user_id, started_at, ended_at,
-                                       minutes, billable, notes, work_type, unbillable_reason)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                                       minutes, billable, notes, work_type, unbillable_reason,
+                                       approval_status, approval_submitted_by, approval_submitted_at,
+                                       approval_decided_by, approval_decided_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
         )
         .bind(demo_uuid(600 + i))
         .bind(DEMO_ORG_ID)
@@ -941,6 +1034,19 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         .bind("Generated demo work")
         .bind(work_type)
         .bind(if billable { None } else { Some("internal") })
+        .bind(if decided { "approved" } else { "draft" })
+        .bind(if decided { Some(tech) } else { None })
+        .bind(if decided {
+            Some(at(today - Duration::days(1), 9, 0))
+        } else {
+            None
+        })
+        .bind(if decided { Some(owner) } else { None })
+        .bind(if decided {
+            Some(at(today - Duration::days(1), 10, 0))
+        } else {
+            None
+        })
         .execute(&mut *tx)
         .await?;
     }
@@ -1066,6 +1172,16 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .await?;
 
     // --- SLA state (non-closed tickets; time-travel shifts these) --------
+    // The due dates come from the org's OWN policy targets rather than a flat
+    // "four hours / three days". Two reasons, and the second is the one a
+    // prospect notices: the same ladder is published on the SLA settings
+    // page, so a P1 ticket counting down from a three-day budget while the
+    // policy it belongs to promises eight hours is a contradiction on screen.
+    // Deriving it also means each priority tier shows a DIFFERENT clock, which
+    // is the whole point of having tiers.
+    let sla_target_of = |priority: &str, field: &str| -> i64 {
+        sla_targets[priority][field].as_i64().unwrap_or(60)
+    };
     for (position, spec) in ticket_specs.iter().enumerate() {
         if spec.resolved {
             continue;
@@ -1080,8 +1196,8 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         .bind(demo_uuid(100 + spec.index))
         .bind(DEMO_ORG_ID)
         .bind(sla_policy_id)
-        .bind(created + Duration::hours(4))
-        .bind(created + Duration::hours(72))
+        .bind(created + Duration::minutes(sla_target_of(spec.priority, "first_response_mins")))
+        .bind(created + Duration::minutes(sla_target_of(spec.priority, "resolution_mins")))
         .bind(
             // Tickets with a staff comment have already had a first
             // response; the clocks the ladder reads stay realistic.
@@ -1139,6 +1255,52 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
                 sla_seeded += 1;
             }
         }
+    }
+
+    // --- one SLA row per PRIORITY TIER (Wave 47 B3) -----------------------
+    // The per-seat spread above is deliberately arbitrary about priority, so
+    // nothing guaranteed that a P1 row, a P2 row, a P3 row and a P4 row all
+    // exist: a tier whose only open tickets happened to land on a seat that
+    // already had its four, or on a closed status, rendered as a plain row
+    // with no countdown. Walk the bulk queue by tier instead and guarantee
+    // one open ticket per tier, anchored on the tier's OWN policy budget so
+    // the numbers match the ladder everywhere else.
+    //
+    // `ON CONFLICT DO NOTHING` keeps the per-seat rows authoritative, and the
+    // `NOT EXISTS` skips tickets that already carry a clock so this always
+    // adds a row rather than quietly doing nothing.
+    const TIER_TARGETS: [(&str, i64, i64); 4] = [
+        ("p1", 15, 480),
+        ("p2", 60, 1440),
+        ("p3", 240, 4320),
+        ("p4", 480, 10080),
+    ];
+    for (tier, first_response_mins, resolution_mins) in TIER_TARGETS {
+        sqlx::query(
+            "INSERT INTO ticket_sla_state (ticket_id, org_id, policy_id,
+                                           first_response_due, resolution_due,
+                                           first_responded_at, breached)
+             SELECT t.id, $1, $2,
+                    $3 + make_interval(mins => $4::int),
+                    $3 + make_interval(mins => $5::int),
+                    NULL,
+                    false
+             FROM tickets t
+             JOIN board_statuses st ON st.id = t.status_id
+             WHERE t.org_id = $1 AND t.priority = $6 AND st.category <> 'closed'
+               AND NOT EXISTS (SELECT 1 FROM ticket_sla_state s WHERE s.ticket_id = t.id)
+             ORDER BY t.created_at, t.id
+             LIMIT 1
+             ON CONFLICT (ticket_id) DO NOTHING",
+        )
+        .bind(DEMO_ORG_ID)
+        .bind(sla_policy_id)
+        .bind(now)
+        .bind(first_response_mins)
+        .bind(resolution_mins)
+        .bind(tier)
+        .execute(&mut *tx)
+        .await?;
     }
 
     // --- stock: locations, items, serials, on-hand -------------------------
@@ -1514,11 +1676,19 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     /// (vendor index, expected offset in days from today, ordered, lines).
     /// Two ordered orders — one inside its window, one past its expected
     /// date (the red state) — plus one draft for ledger variety.
+    /// (vendor index, expected offset in days from today, ordered, lines).
+    /// Two ordered orders — one inside its window, one past its expected
+    /// date (the red state) — plus one draft for ledger variety.
+    ///
+    /// `stock_item` is the seeded `stock_items` row each line receives into.
+    /// The write path allows None, but a PO whose lines name no stock item
+    /// can never be received: there is nothing to post the ledger movement
+    /// against. Naming them is what turns these from wish lists into stock.
     struct DemoOrder {
         vendor: usize,
         expected_days: i64,
         ordered: bool,
-        lines: &'static [(&'static str, i64, i64)],
+        lines: &'static [(&'static str, i64, i64, u64)],
     }
     let order_specs = [
         DemoOrder {
@@ -1526,8 +1696,8 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             expected_days: 6,
             ordered: true,
             lines: &[
-                ("Cat6a patch cable, 2m", 2_000, 480),
-                ("24-port patch panel", 500, 18_500),
+                ("Cat6a patch cable, 2m", 2_000, 480, 910),
+                ("24-port patch panel", 500, 18_500, 911),
             ],
         },
         DemoOrder {
@@ -1535,15 +1705,15 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             expected_days: -9,
             ordered: true,
             lines: &[
-                ("Switch PSU 250W", 2_000, 4_200),
-                ("Thermal paste tube", 1_000, 1_250),
+                ("Switch PSU 250W", 2_000, 4_200, 912),
+                ("Thermal paste tube", 1_000, 1_250, 913),
             ],
         },
         DemoOrder {
             vendor: 0,
             expected_days: 21,
             ordered: false,
-            lines: &[("USB-C dock, 10-pack", 300, 92_000)],
+            lines: &[("USB-C dock, 10-pack", 300, 92_000, 915)],
         },
     ];
     let mut purchase_order_count = 0usize;
@@ -1576,12 +1746,14 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         if spec.ordered {
             crate::purchasing::mark_ordered(&mut *tx, DEMO_ORG_ID, order.id).await?;
         }
-        for (position, (description, qty_milli, unit_cost_minor)) in spec.lines.iter().enumerate() {
+        for (position, (description, qty_milli, unit_cost_minor, stock_item)) in
+            spec.lines.iter().enumerate()
+        {
             let line = core_domain::entities::purchasing::PurchaseOrderLine {
                 id: Uuid::now_v7(),
                 org_id: DEMO_ORG_ID,
                 purchase_order_id: order.id,
-                stock_item_id: None,
+                stock_item_id: Some(demo_uuid(*stock_item)),
                 catalog_item_id: None,
                 description: description.to_string(),
                 qty_ordered_milli: *qty_milli,
@@ -1835,6 +2007,10 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .await?;
 
     // --- time entries (billed T&M trio lives inside the invoice window) --
+    /// The approval lifecycle a seeded row starts in. `draft` is the column
+    /// default (migration 0073), so a row that never gets an explicit state
+    /// sits out of the manager queue entirely — which is what the seed used
+    /// to do everywhere, leaving `/approvals` permanently empty.
     struct DemoEntry {
         id_offset: u64,
         ticket_index: u64,
@@ -1844,6 +2020,10 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         billable: bool,
         work_type: &'static str,
         notes: &'static str,
+        /// `draft` | `submitted` | `approved`. A submitted row also carries
+        /// who submitted it and when, so the queue's oldest-first ordering
+        /// has something real to sort.
+        approval: &'static str,
     }
     let (period_from, period_to) = last_month_window(now.date_naive());
     let entry_specs: [DemoEntry; 10] = [
@@ -1857,6 +2037,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             billable: true,
             work_type: "remote",
             notes: "Mailbox replication run",
+            approval: "draft",
         },
         DemoEntry {
             id_offset: 161,
@@ -1867,6 +2048,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             billable: true,
             work_type: "remote",
             notes: "Cutover checklist review",
+            approval: "draft",
         },
         DemoEntry {
             id_offset: 162,
@@ -1877,8 +2059,12 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             billable: true,
             work_type: "on_site",
             notes: "Switch survey and staging",
+            approval: "draft",
         },
         // This week: everyday demo traffic.
+        // 163 is the manager-queue row (Wave 47 B3): logged this morning,
+        // submitted for approval, still waiting. Approving or rejecting it
+        // live is the /approvals demo.
         DemoEntry {
             id_offset: 163,
             ticket_index: 1,
@@ -1888,6 +2074,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             billable: true,
             work_type: "remote",
             notes: "Rekey log analysis",
+            approval: "submitted",
         },
         DemoEntry {
             id_offset: 164,
@@ -1898,6 +2085,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             billable: true,
             work_type: "remote",
             notes: "License matrix walk-through",
+            approval: "draft",
         },
         DemoEntry {
             id_offset: 165,
@@ -1908,6 +2096,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             billable: true,
             work_type: "on_site",
             notes: "Isolation and forensics handoff",
+            approval: "draft",
         },
         DemoEntry {
             id_offset: 166,
@@ -1918,6 +2107,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             billable: false,
             work_type: "remote",
             notes: "Printer ping checks",
+            approval: "draft",
         },
         DemoEntry {
             id_offset: 167,
@@ -1928,6 +2118,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             billable: true,
             work_type: "on_site",
             notes: "Quarterly walkthrough prep",
+            approval: "draft",
         },
         DemoEntry {
             id_offset: 168,
@@ -1938,6 +2129,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             billable: false,
             work_type: "on_site",
             notes: "UPS self-test capture",
+            approval: "draft",
         },
         DemoEntry {
             id_offset: 169,
@@ -1948,6 +2140,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             billable: true,
             work_type: "remote",
             notes: "SPF/DKIM alignment check",
+            approval: "draft",
         },
     ];
     let mut billed_entry_ids: Vec<(Uuid, i64, Option<&'static str>)> = Vec::new();
@@ -1955,8 +2148,9 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         let id = demo_uuid(spec.id_offset);
         sqlx::query(
             "INSERT INTO time_entries (id, org_id, ticket_id, user_id, started_at, ended_at,
-                                       minutes, billable, notes, work_type, unbillable_reason)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                                       minutes, billable, notes, work_type, unbillable_reason,
+                                       approval_status, approval_submitted_by, approval_submitted_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
         )
         .bind(id)
         .bind(DEMO_ORG_ID)
@@ -1972,6 +2166,17 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             None
         } else {
             Some("warranty")
+        })
+        .bind(spec.approval)
+        .bind(if spec.approval == "submitted" {
+            Some(spec.user)
+        } else {
+            None
+        })
+        .bind(if spec.approval == "submitted" {
+            Some(now - Duration::hours(4))
+        } else {
+            None
         })
         .execute(&mut *tx)
         .await?;
@@ -2334,7 +2539,127 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     )
     .await?;
 
-    // --- KB: category + 3 articles ---------------------------------------
+    // --- Wave 47 B3: the two invoice states the sales story needs ----------
+    // The run above produces PAID and SENT. A demo that stops there never
+    // shows the two states an MSP actually argues with a client about: a
+    // draft still being checked, and money that is late. Both are reachable
+    // today — `status` accepts 'draft' (0036) and the ledger derives overdue
+    // from `due_on` plus an unpaid balance — so this is seed data, not a
+    // schema change.
+    //
+    // Both rows sit OUTSIDE the run (run_id NULL): a held draft has not been
+    // through it, and the late invoice belongs to an earlier month.
+    let mut invoice_count = 2usize;
+
+    // DRAFT — Acme's next recurring base, held before it goes out. Drafts
+    // never reach the portal (`list_client_invoices` filters issued+paid),
+    // which is the point: this is the bookkeeper's own worksheet.
+    let invoice_draft_id = demo_uuid(405);
+    let invoice_draft_number = crate::invoices::next_number(&mut *tx, DEMO_ORG_ID, "INV-").await?;
+    sqlx::query(
+        "INSERT INTO invoices (id, org_id, run_id, client_id, contract_id, number, status,
+                               currency, period_from, period_to, issued_at, due_on,
+                               total_minor, total_paid_minor, notes, created_by)
+         VALUES ($1, $2, NULL, $3, $4, $5, 'draft',
+                 'USD', $6, $7, $8, $9, 50000, 0, $10, $11)",
+    )
+    .bind(invoice_draft_id)
+    .bind(DEMO_ORG_ID)
+    .bind(acme)
+    .bind(contract_recurring)
+    .bind(&invoice_draft_number)
+    .bind(today.with_day(1).unwrap_or(today))
+    .bind(today)
+    .bind(today)
+    .bind(today + Duration::days(30))
+    .bind("Held for review before the run issues it.")
+    .bind(bookkeeper)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
+                                    period_start, period_end, quantity_minutes,
+                                    unit_amount_minor, amount_minor, position)
+         VALUES ($1, $2, $3, $4, 'recurring_base', $5, $6, $7, 0, 50000, 50000, 1)",
+    )
+    .bind(demo_uuid(410))
+    .bind(DEMO_ORG_ID)
+    .bind(invoice_draft_id)
+    .bind(contract_recurring)
+    .bind(format!(
+        "Acme Managed Support — monthly base ({} … {})",
+        today.with_day(1).unwrap_or(today),
+        today
+    ))
+    .bind(today.with_day(1).unwrap_or(today))
+    .bind(today)
+    .execute(&mut *tx)
+    .await?;
+    trail_system_write(
+        &mut tx,
+        "invoice",
+        invoice_draft_id,
+        serde_json::json!({ "number": invoice_draft_number, "status": "draft" }),
+    )
+    .await?;
+    invoice_count += 1;
+
+    // OVERDUE — Globex's per-incident P1 coverage from last month, three
+    // weeks past its due date with no payment against it. `dunning_state`
+    // is already 'overdue' so the collections ladder reads consistently,
+    // and the portal shows it in the "what you owe" card.
+    let invoice_overdue_id = demo_uuid(406);
+    let invoice_overdue_number =
+        crate::invoices::next_number(&mut *tx, DEMO_ORG_ID, "INV-").await?;
+    let overdue_issued = today - Duration::days(38);
+    let overdue_due = today - Duration::days(23);
+    sqlx::query(
+        "INSERT INTO invoices (id, org_id, run_id, client_id, contract_id, number, status,
+                               currency, period_from, period_to, issued_at, due_on,
+                               total_minor, total_paid_minor, dunning_state,
+                               dunning_updated_at, dunning_note, created_by)
+         VALUES ($1, $2, NULL, $3, $4, $5, 'issued',
+                 'USD', $6, $7, $8, $9, 45000, 0,
+                 'overdue', $10, 'Second notice emailed; account on hold', $11)",
+    )
+    .bind(invoice_overdue_id)
+    .bind(DEMO_ORG_ID)
+    .bind(globex)
+    .bind(contract_incident)
+    .bind(&invoice_overdue_number)
+    .bind(overdue_issued)
+    .bind(overdue_issued)
+    .bind(overdue_issued)
+    .bind(overdue_due)
+    .bind(today - Duration::days(4))
+    .bind(bookkeeper)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
+                                    period_start, period_end, quantity_minutes,
+                                    unit_amount_minor, amount_minor, position)
+         VALUES ($1, $2, $3, $4, 'per_incident', $5, $6, $7, 0, 45000, 45000, 1)",
+    )
+    .bind(demo_uuid(411))
+    .bind(DEMO_ORG_ID)
+    .bind(invoice_overdue_id)
+    .bind(contract_incident)
+    .bind("Globex P1 coverage — two closed P1 incidents in the period".to_string())
+    .bind(overdue_issued)
+    .bind(overdue_issued)
+    .execute(&mut *tx)
+    .await?;
+    trail_system_write(
+        &mut tx,
+        "invoice",
+        invoice_overdue_id,
+        serde_json::json!({ "number": invoice_overdue_number, "dunning_state": "overdue" }),
+    )
+    .await?;
+    invoice_count += 1;
+
+    // --- KB: category + client-facing articles ----------------------------
     let kb_category = demo_uuid(240);
     sqlx::query(
         "INSERT INTO kb_categories (id, org_id, name, slug, description, position, client_visible)
@@ -2344,27 +2669,74 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .bind(DEMO_ORG_ID)
     .execute(&mut *tx)
     .await?;
-    let kb_articles: [(&str, &str, &str, bool); 3] = [
+    // (title, slug, body, client_visible, status).
+    //
+    // Wave 47 B3: this was three single-sentence stubs, which read as filler
+    // in the one surface a prospect's own staff will judge the product by. A
+    // real client's KB is the answers they would otherwise phone in, written
+    // the way a technician would actually write them — so each one says what
+    // to do, what not to do, and when to stop trying and call. Five are
+    // published and client-visible (the portal search indexes them); the
+    // escalation ladder stays internal.
+    let kb_articles: [(&str, &str, &str, bool, &str); 6] = [
         (
             "How to submit a support ticket",
             "how-to-submit-a-support-ticket",
-            "Open the portal, pick the affected service, and describe what breaks and when. Attach screenshots if you can.",
+            "Open the portal and pick the service that is misbehaving. Tell us what breaks, when it started, \
+and who it affects — a screenshot helps when the error is on screen. If the whole site is down, phone \
+the number on your contract instead, because the portal is not the fastest route for that.",
             true,
+            "published",
         ),
         (
-            "Wi-Fi troubleshooting basics",
-            "wi-fi-troubleshooting-basics",
-            "Restart the AP before the switch. If the SSID vanished entirely, call us instead of rebooting the PoE injector.",
+            "What to have ready before you call",
+            "what-to-have-ready-before-you-call",
+            "Have the device's tag or serial number to hand, the error text exactly as it appears, and \
+whether the problem follows one person or one machine. If anything changed recently, such as an update, \
+a new laptop, or a cable that got moved, say so up front, because that is usually the answer.",
             true,
+            "published",
+        ),
+        (
+            "Wi-Fi keeps dropping or the network name has gone",
+            "wi-fi-drops-or-missing-ssid",
+            "Restart the access point first, not the switch, and give it a full two minutes to come back \
+before you test anything. If the network name has disappeared from every device, leave the PoE \
+injector alone and call us — that pattern almost always means the unit has failed, and we want to see \
+it in the state it failed in.",
+            true,
+            "published",
+        ),
+        (
+            "How to add or remove a user account",
+            "how-to-add-or-remove-a-user-account",
+            "Send us the full name, the start or end date, and which systems the person needs. We create \
+the account with the same permissions the rest of the team has, and close the old one on the day we \
+are told. Tell us about leavers on their last day rather than afterwards, so their access does not \
+outlive their job.",
+            true,
+            "published",
+        ),
+        (
+            "Changing your portal password and second factor",
+            "changing-your-portal-password-and-mfa",
+            "Sign in to the portal and open your profile to change your password. If you have lost the \
+phone holding your second factor, use the recovery codes you saved when you set it up. If you never \
+saved them, call us — we will reset it once we have verified who you are, and not before.",
+            true,
+            "published",
         ),
         (
             "Internal escalation path",
             "internal-escalation-path",
-            "Tier 1 to Tier 2 after two touches without progress; page the on-call tech for anything marked p1.",
+            "Tier 1 hands to Tier 2 after two touches with no progress. Anything marked p1 pages the \
+on-call tech immediately; do not wait for the next working day. Log every touch against the ticket as \
+you go, because the escalation record is what the SLA credit claim is read from later.",
             false,
+            "draft",
         ),
     ];
-    for (index, (title, slug, body, client_visible)) in kb_articles.iter().enumerate() {
+    for (index, (title, slug, body, client_visible, status)) in kb_articles.iter().enumerate() {
         let id = demo_uuid(250 + index as u64);
         sqlx::query(
             "INSERT INTO kb_articles (id, org_id, category_id, title, slug, body, status,
@@ -2377,7 +2749,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         .bind(title)
         .bind(slug)
         .bind(body)
-        .bind(if index == 2 { "draft" } else { "published" })
+        .bind(status)
         .bind(client_visible)
         .bind(owner)
         .execute(&mut *tx)
@@ -2867,20 +3239,25 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     }
 
     // --- device assets (assets page) ----------------------------------------
+    // (id offset, client, site, tag, name, kind, status, warranty, scope).
+    // Warranty states are the three the page actually draws — covered,
+    // ending, ended — and `scope` carries the MSP's own kit beside the
+    // clients' (migration 0103: internal_org never carries a client).
     type AssetSpec = (
         u64,
-        Uuid,
+        Option<Uuid>,
         Option<Uuid>,
         &'static str,
         &'static str,
         &'static str,
         &'static str,
         Option<&'static str>,
+        &'static str,
     );
-    let asset_specs: [AssetSpec; 6] = [
+    let asset_specs: [AssetSpec; 8] = [
         (
             730,
-            acme,
+            Some(acme),
             Some(demo_uuid(30)),
             "ACME-LT-0142",
             "Dell Latitude 5540 — Dana Reeve",
@@ -2890,10 +3267,11 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             // years back, so its warranty is genuinely ending — the found
             // sheet's third fact has real data instead of a null.
             Some("ending"),
+            "client",
         ),
         (
             731,
-            acme,
+            Some(acme),
             Some(demo_uuid(30)),
             "ACME-FW-01",
             "FortiGate 100F edge firewall",
@@ -2902,54 +3280,87 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             // Same horizon, bought a couple of months earlier: the lapsed
             // bucket, so both sides of the window exist in the demo.
             Some("ended"),
+            "client",
         ),
         (
             732,
-            acme,
+            Some(acme),
             None,
             "ACME-SW-RENT-03",
             "Rented 48-port PoE switch (comms room)",
             "network",
             "rented",
             None,
+            "client",
         ),
         (
             733,
-            northwind,
+            Some(northwind),
             Some(demo_uuid(31)),
             "NW-SRV-EX-01",
             "Exchange migration target host",
             "server",
             "active",
             None,
+            "client",
         ),
         (
             734,
-            northwind,
+            Some(northwind),
             None,
             "NW-LT-0031",
             "MacBook Pro 14 — Priya Natarajan",
             "laptop",
             "active",
             None,
+            "client",
         ),
         (
             735,
-            globex,
+            Some(globex),
             None,
             "GLX-PRN-WH-02",
             "Zebra warehouse label printer",
             "printer",
             "retired",
             None,
+            "client",
+        ),
+        (
+            // COVERED — the third side of the warranty story. Every other
+            // demo asset was either inside the 90-day callout window or past
+            // its horizon, so "no action needed" never appeared on the page.
+            736,
+            Some(acme),
+            Some(demo_uuid(30)),
+            "ACME-SRV-FS-01",
+            "Synology RS1221+ primary file server",
+            "server",
+            "active",
+            Some("active"),
+            "client",
+        ),
+        (
+            // The MSP's own kit: same lifecycle, same warranty rule, no
+            // client. Rides `scope = 'internal_org'`, which is the only way
+            // a client-less asset is legal (migration 0103's shape CHECK).
+            737,
+            None,
+            None,
+            "MARULA-FLD-01",
+            "Field service laptop (internal)",
+            "laptop",
+            "active",
+            Some("active"),
+            "internal_org",
         ),
     ];
-    for (off, client, site, tag, name, kind, status, warranty) in asset_specs {
+    for (off, client, site, tag, name, kind, status, warranty, scope) in asset_specs {
         sqlx::query(
-            "INSERT INTO device_assets (id, org_id, client_id, site_id, tag, name, kind, status,
+            "INSERT INTO device_assets (id, org_id, client_id, site_id, tag, name, kind, status, scope,
                                         purchase_date, purchase_cost_minor, purchase_currency,
                                         useful_life_months, depreciation_method)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'USD', $11, $12)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'USD', $12, $13)",
         )
         .bind(demo_uuid(off))
         .bind(DEMO_ORG_ID)
@@ -2959,6 +3370,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         .bind(name)
         .bind(kind)
         .bind(status)
+        .bind(scope)
         .bind(match warranty {
             // 36 months is a normal horizon; the purchase date is what puts
             // the asset on one side of it or the other.
@@ -2974,7 +3386,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             &mut tx,
             "device_asset",
             demo_uuid(off),
-            serde_json::json!({ "tag": tag }),
+            serde_json::json!({ "tag": tag, "scope": scope }),
         )
         .await?;
     }
@@ -3067,6 +3479,10 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         valid_days: i64,
         lines: &'static [(u64, i64, i64)], // (catalog off, qty_milli, unit_amount_minor)
         converted: Option<Uuid>,
+        /// The portal quotes page uses `notes` as the row's title, so this is
+        /// the first thing a client's decision-maker reads. "Demo quote
+        /// generated by the seed" is not that.
+        notes: &'static str,
     }
     let quote_specs: [DemoQuote; 3] = [
         DemoQuote {
@@ -3077,6 +3493,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             valid_days: 26,
             lines: &[(742, 1_000, 320_000), (744, 2_000, 180_000)],
             converted: None,
+            notes: "Comms-room firewall and switch replacement — quoted after the plant-2 survey",
         },
         DemoQuote {
             off: 753,
@@ -3086,6 +3503,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             valid_days: -1, // already decided
             lines: &[(740, 25_000, 4_500), (745, 3_000, 5_000)],
             converted: Some(contract_recurring),
+            notes: "Managed workstations for 25 seats, plus the first month of offsite backup",
         },
         DemoQuote {
             off: 755,
@@ -3095,6 +3513,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             valid_days: 30,
             lines: &[(741, 1_000, 9_900)],
             converted: None,
+            notes: "Server monitoring for the warehouse hosts — draft, not sent yet",
         },
     ];
     for spec in &quote_specs {
@@ -3127,7 +3546,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         .bind(spec.status)
         .bind(today - Duration::days(spec.days_issued))
         .bind(today + Duration::days(spec.valid_days))
-        .bind("Demo quote generated by the seed.")
+        .bind(spec.notes)
         .bind(subtotal)
         .bind(tax)
         .bind(subtotal + tax)
@@ -3717,6 +4136,1227 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .execute(&mut *tx)
     .await?;
 
+    // =======================================================================
+    // Attachments, documents, email and the remaining PSA surfaces.
+    //
+    // Everything above is the ticketing/billing core a sales demo needs. This
+    // block covers the rest of the product so the same seeded instance can
+    // show off the whole PSA: the attachment ledger (ticket, comment and
+    // document owners), the email edge, CSAT, the secrets manager, contract
+    // legs, the time taxonomy, purchasing/lending completion, board and
+    // calendar metadata, reports and fx.
+    //
+    // Determinism: every id is `demo_uuid(<offset>)` in the 1000-1099 range,
+    // which no other part of this file uses. Ids written by a REAL write path
+    // (loans, purchase orders, plugin installs) are read back out in a
+    // deterministic order rather than assumed.
+    // =======================================================================
+
+    let sha256_hex = |bytes: &[u8]| -> String {
+        use sha2::Digest as _;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(bytes);
+        hex::encode(hasher.finalize())
+    };
+
+    // The core-store adapter the api uses. `build(&StoreChoice::Local)`
+    // resolves exactly the same path core-api reads from
+    // `OBJECT_STORE_LOCAL_DIR`, so bytes land where the download endpoint
+    // looks. `None` (tests, or a caller with no store configured) still
+    // writes the metadata rows — only the byte fetch fails, which the route
+    // reports as a missing object rather than corrupting anything.
+    let attachment_store = opts.object_store_dir.as_deref().map(|dir| {
+        core_store::build(&core_store::StoreChoice::Local(
+            dir.to_string_lossy().into_owned(),
+        ))
+    });
+
+    /// Writes one attachment row and its bytes, following the real upload
+    /// path exactly: validate → sha256 → content-addressed key → dedup check
+    /// → PUT (skipped when the org already holds these bytes) → row insert
+    /// through `core_db::attachments::insert`, which is the write path tenant
+    /// traffic uses, so the owner-shape constraints are genuinely exercised.
+    struct DemoAttachment {
+        id_offset: u64,
+        kind: &'static str,
+        ticket_index: Option<u64>,
+        ticket_comment_id: Option<Uuid>,
+        filename: &'static str,
+        content_type: &'static str,
+        bytes: Vec<u8>,
+        uploader: Uuid,
+    }
+    let dashboard_png = || {
+        demo_png(
+            160,
+            55,
+            [30, 64, 96], // a flat "board screenshot" slate
+        )
+    };
+    let mut attachment_count = 0usize;
+    let mut attachment_store_bytes = 0u64;
+    let attachment_specs = [
+        // --- ticket-owned: the three states a screenshot can show ----------
+        // Open P2 with a triage capture attached by the technician.
+        DemoAttachment {
+            id_offset: 1000,
+            kind: "ticket",
+            ticket_index: Some(1),
+            ticket_comment_id: None,
+            filename: "wifi-drop-capture.png",
+            content_type: "image/png",
+            bytes: dashboard_png(),
+            uploader: tech,
+        },
+        // P1 ransomware thread, staff capture of the isolation command run.
+        DemoAttachment {
+            id_offset: 1001,
+            kind: "ticket",
+            ticket_index: Some(4),
+            ticket_comment_id: None,
+            filename: "isolation-run.txt",
+            content_type: "text/plain",
+            bytes: "port isolation run — comms room switch 10.20.0.9\n\
+                    vlan 42 access port gi1/0/24 -> shutdown\n\
+                    confirmed off by Mac table + ARP probe\n\
+                    verified by second engineer before escalate\n"
+                .as_bytes()
+                .to_vec(),
+            uploader: tech,
+        },
+        // Resolved ticket with the closing report still attached.
+        DemoAttachment {
+            id_offset: 1002,
+            kind: "ticket",
+            ticket_index: Some(7),
+            ticket_comment_id: None,
+            filename: "licence-usage-audit.csv",
+            content_type: "text/csv",
+            bytes: "seat,user,state,last_active\n\
+                    1,j.okafor,northwind,2026-09-14\n\
+                    2,a.patel,northwind,2026-09-15\n\
+                    3,m.silva,globex,2026-08-30\n\
+                    4,r.halim,acme,2026-09-18\n\
+                    5,spare,-,-\n"
+                .as_bytes()
+                .to_vec(),
+            uploader: dispatcher,
+        },
+        // --- comment-owned: the attachment thread surface -------------------
+        // On the client-visible comment of ticket 1, so the portal shows a
+        // file the client's own contact uploaded.
+        DemoAttachment {
+            id_offset: 1003,
+            kind: "ticket_comment",
+            ticket_index: Some(1),
+            ticket_comment_id: Some(demo_uuid(121)),
+            filename: "signal-strength-floor1.csv",
+            content_type: "text/csv",
+            bytes: "ap,channel,rssi_dbm,clients\n\
+                    AP-W13-01,6,-71,14\n\
+                    AP-W13-02,36,-63,9\n\
+                    AP-W13-03,6,-78,11\n\
+                    AP-W14-01,44,-58,4\n"
+                .as_bytes()
+                .to_vec(),
+            uploader: owner,
+        },
+        // On the in-house update of the P1: a portal-visible evidence file.
+        DemoAttachment {
+            id_offset: 1004,
+            kind: "ticket_comment",
+            ticket_index: Some(4),
+            ticket_comment_id: Some(demo_uuid(123)),
+            filename: "restore-plan.pdf",
+            content_type: "application/pdf",
+            bytes: demo_pdf(&[
+                "Acme Manufacturing — incident 2026-09-30 restore plan".into(),
+                "".into(),
+                "Method: image-from-golden on rebuilt host, then patch gap".into(),
+                "identification. No ransom paid; no negotiation opened.".into(),
+                "".into(),
+                "Isolation: host removed from the switch port at 07:12,".into(),
+                "forensic image captured and hashed before any restore.".into(),
+                "".into(),
+                "Estimated completion: 2h30m of work inside the agreed".into(),
+                "window, with a staged file-level verification pass.".into(),
+                "".into(),
+                "Client sign-off required before the gate opens again.".into(),
+                "".into(),
+                "Approvals: owner (ops), bookkeeper (contract), Acme".into(),
+                "leadership (business).".into(),
+            ]),
+            uploader: owner,
+        },
+        // --- document attachments (documents platform) ---------------------
+    ];
+    for spec in attachment_specs {
+        let bytes = spec.bytes;
+        // Same gate the upload route applies. A failure here means the
+        // fixture itself drifted from the contract, which is a seed bug
+        // worth failing the seed over.
+        let (filename, content_type) = core_domain::attachments::validate_upload(
+            spec.filename,
+            spec.content_type,
+            &bytes[..bytes.len().min(core_domain::attachments::MAGIC_HEAD_LEN)],
+            bytes.len() as i64,
+            core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
+        )
+        .map_err(|e| DbError::Conflict(e.to_string()))?;
+        let sha256 = sha256_hex(&bytes);
+        let storage_key = core_store::attachment_key(DEMO_ORG_ID, &sha256);
+
+        // Content-addressed dedup, identical to the route: skip the PUT when
+        // the org already holds these exact bytes.
+        let existing: Option<String> =
+            sqlx::query_scalar("SELECT storage_key FROM attachments WHERE org_id = $1 AND sha256 = $2")
+                .bind(DEMO_ORG_ID)
+                .bind(&sha256)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if existing.is_none() {
+            if let Some(store) = &attachment_store {
+                store
+                    .put(
+                        &storage_key,
+                        &content_type,
+                        bytes::Bytes::copy_from_slice(&bytes),
+                    )
+                    .await
+                    .map_err(|e| DemoError::Internal(format!("demo attachment put: {e}")))?;
+            }
+        }
+
+        crate::attachments::insert(
+            &mut *tx,
+            crate::attachments::NewAttachment {
+                id: demo_uuid(spec.id_offset),
+                org_id: DEMO_ORG_ID,
+                kind: spec.kind.parse()
+                    .map_err(|e: core_domain::DomainError| DbError::Conflict(e.to_string()))?,
+                ticket_id: spec.ticket_index.map(|index| demo_uuid(100 + index)),
+                ticket_comment_id: spec.ticket_comment_id,
+                email_message_id: None,
+                filename: &filename,
+                content_type: &content_type,
+                size_bytes: bytes.len() as i64,
+                sha256: &sha256,
+                storage_key: &storage_key,
+                uploaded_by_user_id: Some(spec.uploader),
+                uploaded_by_portal_user_id: None,
+            },
+        )
+        .await?;
+        attachment_count += 1;
+        attachment_store_bytes += bytes.len() as u64;
+    }
+
+    // --- document attachments (documents platform) -------------------------
+    // Same bytes, same content-addressing, different owner: the document the
+    // seed already writes gets a PDF runbook and a CSV of the SLA matrix.
+    struct DemoDocAttachment {
+        id_offset: u64,
+        filename: &'static str,
+        content_type: &'static str,
+        bytes: Vec<u8>,
+    }
+    let doc_attachment_specs = [
+        DemoDocAttachment {
+            id_offset: 1005,
+            filename: "sla-matrix.pdf",
+            content_type: "application/pdf",
+            bytes: demo_pdf(&[
+                "Marula support — response and resolution targets".into(),
+                "".into(),
+                "P1 (service down)          respond 15m   resolve 8h".into(),
+                "P2 (degraded)              respond 60m   resolve 24h".into(),
+                "P3 (single user affected)  respond 4h    resolve 72h".into(),
+                "P4 (request / cosmetic)    respond 8h    resolve 7d".into(),
+                "".into(),
+                "Response is first staff reply, not acknowledgement.".into(),
+                "Resolution is verified by the requester where practical.".into(),
+                "".into(),
+                "Escalation: p1 pages the on-call tech immediately and does".into(),
+                "not wait for the next working day.".into(),
+            ]),
+        },
+        DemoDocAttachment {
+            id_offset: 1006,
+            filename: "quarterly-hours.csv",
+            content_type: "text/csv",
+            bytes: "client,recurring,retainer,block,overage_minutes\n\
+                    acme,38400,0,240,95\n\
+                    northwind,0,57600,0,0\n\
+                    globex,0,0,180,0\n"
+                .as_bytes()
+                .to_vec(),
+        },
+    ];
+    let mut document_attachment_count = 0usize;
+    for spec in doc_attachment_specs {
+        let bytes = spec.bytes;
+        let (filename, content_type) = core_domain::attachments::validate_upload(
+            spec.filename,
+            spec.content_type,
+            &bytes[..bytes.len().min(core_domain::attachments::MAGIC_HEAD_LEN)],
+            bytes.len() as i64,
+            core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
+        )
+        .map_err(|e| DbError::Conflict(e.to_string()))?;
+        let sha256 = sha256_hex(&bytes);
+        let storage_key = core_store::attachment_key(DEMO_ORG_ID, &sha256);
+        let existing: Option<String> =
+            sqlx::query_scalar("SELECT storage_key FROM attachments WHERE org_id = $1 AND sha256 = $2")
+                .bind(DEMO_ORG_ID)
+                .bind(&sha256)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if existing.is_none() {
+            if let Some(store) = &attachment_store {
+                store
+                    .put(
+                        &storage_key,
+                        &content_type,
+                        bytes::Bytes::copy_from_slice(&bytes),
+                    )
+                    .await
+                    .map_err(|e| DemoError::Internal(format!("demo attachment put: {e}")))?;
+            }
+        }
+        sqlx::query(
+            "INSERT INTO documents_attachments (id, org_id, document_id, filename, content_type,
+                                                size_bytes, sha256, storage_key, uploaded_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(demo_uuid(spec.id_offset))
+        .bind(DEMO_ORG_ID)
+        .bind(document_id)
+        .bind(&filename)
+        .bind(&content_type)
+        .bind(bytes.len() as i64)
+        .bind(&sha256)
+        .bind(&storage_key)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await?;
+        trail_system_write(
+            &mut tx,
+            "document_attachment",
+            demo_uuid(spec.id_offset),
+            serde_json::json!({ "filename": filename, "sha256": sha256 }),
+        )
+        .await?;
+        document_attachment_count += 1;
+        attachment_store_bytes += bytes.len() as u64;
+    }
+
+    // --- email edge (email inbox / outbox) -------------------------------
+    // The web composer's outbound queue, and the inbound side that actually
+    // files mail against a ticket. Without these the mail surfaces are
+    // permanently empty however the API behaves.
+    struct DemoEmail {
+        id_offset: u64,
+        direction: &'static str,
+        rfc_message_id: &'static str,
+        subject: &'static str,
+        from_address: &'static str,
+        from_name: &'static str,
+        to_addresses: &'static [&'static str],
+        body_text: &'static str,
+        ticket_index: Option<u64>,
+        comment_id: Option<Uuid>,
+        in_reply_to: Option<&'static str>,
+        scan_status: &'static str,
+    }
+    let email_specs: [DemoEmail; 6] = [
+        // Inbound that created the licence ticket — the "email to ticket"
+        // path a prospect will ask about.
+        DemoEmail {
+            id_offset: 1030,
+            direction: "inbound",
+            rfc_message_id: "<licence-export-decline@acme.example>",
+            subject: "Licence export keeps failing for two users",
+            from_address: "d.reeve@acme.example",
+            from_name: "Dana Reeve",
+            to_addresses: &["support@marula.example"],
+            body_text: "Since Friday two of our people cannot export the licence \
+                        report — it spins then errors. Both are on the same laptop \
+                        build. Restarting did not help. Is this something you can \
+                        look at today?",
+            ticket_index: Some(2),
+            comment_id: None,
+            in_reply_to: None,
+            scan_status: "clean",
+        },
+        DemoEmail {
+            id_offset: 1031,
+            direction: "inbound",
+            rfc_message_id: "<printer-jamming-again@acme.example>",
+            subject: "Printer jammed again — third time this month",
+            from_address: "j.okafor@acme.example",
+            from_name: "Jonah Okafor",
+            to_addresses: &["support@marula.example"],
+            body_text: "The floor printer jammed twice more since the last visit. \
+                        Same tray each time, and it now prints one page then stops. \
+                        Parts on the way?",
+            ticket_index: Some(6),
+            comment_id: None,
+            in_reply_to: Some("<printer-spooler-timeout@acme.example>"),
+            scan_status: "clean",
+        },
+        // A clean reply inside the P1 thread, so threading by in_reply_to
+        // has something to walk.
+        DemoEmail {
+            id_offset: 1032,
+            direction: "inbound",
+            rfc_message_id: "<ransomware-qa@acme.example>",
+            subject: "Re: Malware alert on the file server",
+            from_address: "it-director@acme.example",
+            from_name: "Acme IT",
+            to_addresses: &["support@marula.example"],
+            body_text: "Understood on isolation. We can take the file server down \
+                        until 16:00 today if that is what you need — please \
+                        confirm the restore window in writing.",
+            ticket_index: Some(4),
+            comment_id: None,
+            in_reply_to: Some("<ransomware-file-server@acme.example>"),
+            scan_status: "clean",
+        },
+        // Outbound: delivered, dead and queued, so the outbox shows every
+        // state including a failure worth explaining.
+        DemoEmail {
+            id_offset: 1033,
+            direction: "outbound",
+            rfc_message_id: "<dunning-second-follow-up@marula.example>",
+            subject: "Second notice — invoice past its due date",
+            from_address: "support@marula.example",
+            from_name: "Marula Support",
+            to_addresses: &["accounts@globex.example"],
+            body_text: "Following up on the invoice that passed its due date. The \
+                        account is on hold until it is settled — let us know if \
+                        the PO number has changed and we will re-send it.",
+            ticket_index: None,
+            comment_id: None,
+            in_reply_to: None,
+            scan_status: "clean",
+        },
+        DemoEmail {
+            id_offset: 1034,
+            direction: "outbound",
+            rfc_message_id: "<quarterly-report-northwind@marula.example>",
+            subject: "Your Q3 support report",
+            from_address: "support@marula.example",
+            from_name: "Marula Support",
+            to_addresses: &["ops@northwind.example"],
+            body_text: "Attached is your Q3 report: 41 tickets, 3 SLA credits, \
+                        response inside target on 38 of them. Anything that looks \
+                        wrong, reply here and we will correct it.",
+            ticket_index: None,
+            comment_id: None,
+            in_reply_to: None,
+            scan_status: "clean",
+        },
+        DemoEmail {
+            id_offset: 1035,
+            direction: "outbound",
+            rfc_message_id: "<appointment-confirmed@marula.example>",
+            subject: "Confirmed: comms-room visit Thursday",
+            from_address: "support@marula.example",
+            from_name: "Marula Support",
+            to_addresses: &["reception@acme.example"],
+            body_text: "Confirmed for Thursday 09:00. We will need access to the \
+                        comms room for about two hours and the switch admin \
+                        password held in your vault.",
+            ticket_index: Some(3),
+            comment_id: None,
+            in_reply_to: None,
+            scan_status: "clean",
+        },
+    ];
+    let mut email_count = 0usize;
+    let mut email_outbound_count = 0usize;
+    for spec in &email_specs {
+        let email_id = demo_uuid(spec.id_offset);
+        sqlx::query(
+            "INSERT INTO email_messages (id, org_id, direction, rfc_message_id, in_reply_to,
+                                         subject, from_address, from_name, to_addresses,
+                                         body_text, ticket_id, comment_id, scan_status,
+                                         transport)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+        )
+        .bind(email_id)
+        .bind(DEMO_ORG_ID)
+        .bind(spec.direction)
+        .bind(spec.rfc_message_id)
+        .bind(spec.in_reply_to)
+        .bind(spec.subject)
+        .bind(spec.from_address)
+        .bind(spec.from_name)
+        .bind(spec.to_addresses)
+        .bind(spec.body_text)
+        .bind(spec.ticket_index.map(|index| demo_uuid(100 + index)))
+        .bind(spec.comment_id)
+        .bind(spec.scan_status)
+        .bind("smtp")
+        .execute(&mut *tx)
+        .await?;
+        trail_system_write(
+            &mut tx,
+            "email_message",
+            email_id,
+            serde_json::json!({
+                "direction": spec.direction,
+                "subject": spec.subject,
+                "ticket_index": spec.ticket_index,
+            }),
+        )
+        .await?;
+
+        // The outbound queue only exists for messages going one way, and
+        // each state needs a plausible reason: delivered, a dead one whose
+        // provider rejected the address, and one still waiting to send.
+        if spec.direction == "outbound" {
+            let (status, attempts, next_offset, last_error, provider_message_id) =
+                match spec.id_offset {
+                    // Delivery succeeded.
+                    1033 => ("sent", 1, 0, None, Some("msg-7f21c4")),
+                    // Provider rejected the recipient address twice, then gave up.
+                    1034 => ("dead", 8, 0, Some("550 recipient domain not found"), None),
+                    // Still in the queue, next attempt in a few minutes.
+                    _ => ("queued", 0, 300, None, None),
+                };
+            sqlx::query(
+                "INSERT INTO email_outbound (id, org_id, email_message_id, status, attempts,
+                                             max_attempts, next_attempt_at, last_error,
+                                             provider_message_id)
+                 VALUES ($1, $2, $3, $4, $5, 8, $6, $7, $8)",
+            )
+            .bind(demo_uuid(spec.id_offset + 200))
+            .bind(DEMO_ORG_ID)
+            .bind(email_id)
+            .bind(status)
+            .bind(attempts)
+            .bind(now + Duration::seconds(next_offset))
+            .bind(last_error)
+            .bind(provider_message_id)
+            .execute(&mut *tx)
+            .await?;
+            email_outbound_count += 1;
+        }
+        email_count += 1;
+    }
+
+    // --- CSAT surveys (portal satisfaction) -------------------------------
+    // Two on resolved tickets, one still awaiting a response, so the CSAT
+    // page shows the aggregate, the individual responses and the pending
+    // request. `token_hash` is opaque (the raw token lives only in the
+    // email), so a digest of a demo string is honest about it.
+    let csat_specs: [(u64, u64, i16, Option<&str>); 3] = [
+        // Responded. Ticket 7 is Acme's licence export, resolved.
+        (1260, 7, 5, Some("Spot on — backup verified inside the hour.")),
+        // Responded. Ticket 13 is Acme's laptop fan, resolved.
+        (1261, 13, 4, Some("Fixed next day. Would have liked a heads-up that the box was running hot.")),
+        // Sent, awaiting a response. Ticket 9 is Acme's Wi-Fi P3.
+        (1262, 9, 0, None),
+    ];
+    let mut csat_count = 0usize;
+    for (id_offset, ticket_index, score, comment) in csat_specs {
+        let responded = comment.is_some();
+        let client_id = match ticket_index as u64 {
+            7 | 13 | 9 => acme,
+            _ => acme,
+        };
+        let contact = match ticket_index as u64 {
+            7 => "d.reeve@acme.example",
+            13 => "j.okafor@acme.example",
+            _ => "a.patel@northwind.example",
+        };
+        sqlx::query(
+            "INSERT INTO csat_surveys (id, org_id, ticket_id, client_id, contact_email,
+                                       token_hash, token_expires_at, status, skip_reason,
+                                       scheduled_for, sent_at, score, comment, responded_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                     CASE WHEN $11::timestamptz IS NULL THEN NULL ELSE $12 END, $13,
+                     CASE WHEN $11::timestamptz IS NULL THEN NULL ELSE $11 END)",
+        )
+        .bind(demo_uuid(id_offset))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(100 + ticket_index as u64))
+        .bind(client_id)
+        .bind(contact)
+        // A 64-char SHA-256 of a demo string: the column is opaque and the
+        // real single-use token lives only in the sent email.
+        .bind(sha256_hex(
+            format!("csat-demo-token-{id_offset}").as_bytes(),
+        ))
+        .bind(today + Duration::days(6))
+        .bind(if responded { "responded" } else { "sent" })
+        .bind(None::<&str>)
+        .bind(at(today - Duration::days(2), 9, 0))
+        // sent_at doubles as the "was actually delivered" signal.
+        .bind(if responded {
+            Some(at(today - Duration::days(1), 10, 0))
+        } else {
+            Some(at(today - Duration::days(2), 9, 5))
+        })
+        .bind(i16::try_from(score).ok().filter(|s| *s > 0))
+        .bind(comment)
+        .execute(&mut *tx)
+        .await?;
+        csat_count += 1;
+    }
+
+    // --- secrets manager ---------------------------------------------------
+    // The five immutable default categories, planted through the real write
+    // path (which also seeds the ADR-0006 owner/admin grants so the org is
+    // never locked out of its own vault), then client-visible records
+    // beneath them.
+    //
+    // `secret_records_check` requires exactly one of org_id / client_id to
+    // be non-null, mirroring the folder it hangs under. The default
+    // categories are ORG-scope folders (`create_folder` is called with
+    // `client_id = None`), so the records that live in them are org-scope
+    // too; a client-scoped record needs a forked client folder.
+    //
+    // Seeding this way means the category tree, the restricted defaults and
+    // the grants are all exercised rather than hand-written.
+    crate::secret_vault::seed_default_secret_folders(&mut tx, DEMO_ORG_ID, owner).await?;
+    let secret_folders =
+        crate::secret_vault::list_all_org_folders(&mut tx, DEMO_ORG_ID).await?;
+    let folder_of = |slug: &str| -> Uuid {
+        secret_folders
+            .iter()
+            .find(|f| f.slug == slug && f.client_id.is_none())
+            .map(|f| f.id)
+            .unwrap_or_else(|| demo_uuid(1))
+    };
+
+    struct DemoSecretRecord {
+        id_offset: u64,
+        folder_slug: &'static str,
+        kind: &'static str,
+        title: &'static str,
+        fields: &'static [(&'static str, &'static str)],
+        expires_days: Option<i64>,
+    }
+    // The records live under org-scope folders, so they are org-scope too.
+    // `client` here is only documentation of who the credential belongs to;
+    // the row's `client_id` is NULL and the folder is the tree position.
+    let secret_specs: [DemoSecretRecord; 4] = [
+        DemoSecretRecord {
+            id_offset: 1270,
+            folder_slug: "passwords",
+            kind: "password",
+            title: "Acme firewall admin",
+            fields: &[
+                ("username", "admin"),
+                ("password", "9xk-commroom-local"),
+                ("url", "https://10.20.0.1"),
+            ],
+            expires_days: Some(60),
+        },
+        DemoSecretRecord {
+            id_offset: 1271,
+            folder_slug: "api-keys",
+            kind: "api-key",
+            title: "Ticketing connector key",
+            fields: &[("api_key", "tk_live_demo_northwind_4f2a"), ("scopes", "tickets:read tickets:write")],
+            expires_days: None,
+        },
+        DemoSecretRecord {
+            id_offset: 1272,
+            folder_slug: "certificates",
+            kind: "certificate",
+            title: "Wildcard TLS certificate",
+            fields: &[
+                ("common_name", "*.globex.example"),
+                ("issuer", "Let's Encrypt R10"),
+                ("expires", "2027-03-14T23:59:59Z"),
+            ],
+            expires_days: Some(150),
+        },
+        DemoSecretRecord {
+            id_offset: 1273,
+            folder_slug: "recovery-codes",
+            kind: "recovery-code",
+            title: "Tenant admin recovery codes",
+            fields: &[("code_1", "2415-8890"), ("code_2", "7731-9044")],
+            expires_days: None,
+        },
+    ];
+    let mut secret_count = 0usize;
+    for spec in &secret_specs {
+        let record_id = demo_uuid(spec.id_offset);
+        sqlx::query(
+            "INSERT INTO secret_records (id, org_id, client_id, folder_id, kind, title, expires_at,
+                                         created_by)
+             VALUES ($1, $2, NULL, $3, $4::text::secret_record_kind, $5, $6, $7)",
+        )
+        .bind(record_id)
+        .bind(DEMO_ORG_ID)
+        .bind(folder_of(spec.folder_slug))
+        .bind(spec.kind)
+        .bind(spec.title)
+        .bind(spec.expires_days.map(|days| at(today + Duration::days(days), 0, 0)))
+        .bind(owner)
+        .execute(&mut *tx)
+        .await?;
+        for (field_index, (field_key, value)) in spec.fields.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO secret_fields (id, record_id, org_id, client_id, field_key,
+                                            value_ciphertext)
+                 VALUES ($1, $2, $3, $4, $5, $6)",
+            )
+            .bind(demo_uuid(
+                1290u64 + (spec.id_offset - 1270) * 10 + field_index as u64,
+            ))
+            .bind(record_id)
+            .bind(DEMO_ORG_ID)
+            .bind(None::<Uuid>)
+            .bind(field_key)
+            .bind(secret_field_ciphertext(&opts.seal_key, spec.title, value)?)
+            .execute(&mut *tx)
+            .await?;
+        }
+        trail_system_write(
+            &mut tx,
+            "secret_record",
+            record_id,
+            serde_json::json!({ "title": spec.title, "kind": spec.kind }),
+        )
+        .await?;
+        secret_count += 1;
+    }
+
+    // --- contract legs (Wave 39 contract types) ----------------------------
+    // Fixed fees, a monthly minimum, an annual escalator, a cap with an
+    // overage rate, a service credit that was actually applied, two change
+    // orders in different states, and draws against the prepaid block.
+    // These are what make the contract detail page a real page rather than
+    // a rate card and a note.
+    struct DemoFixedFee {
+        id_offset: u64,
+        contract: Uuid,
+        label: &'static str,
+        amount_minor: i64,
+        due_days: i64,
+    }
+    let fixed_fee_specs: [DemoFixedFee; 2] = [
+        DemoFixedFee {
+            id_offset: 1280,
+            contract: contract_tm,
+            label: "Comms-room survey and report",
+            amount_minor: 24_000,
+            due_days: 12,
+        },
+        DemoFixedFee {
+            id_offset: 1281,
+            contract: contract_incident,
+            label: "Quarterly restore rehearsal",
+            amount_minor: 18_500,
+            due_days: 40,
+        },
+    ];
+    for spec in &fixed_fee_specs {
+        sqlx::query(
+            "INSERT INTO contract_fixed_fees (id, org_id, contract_id, label, amount_minor,
+                                              due_on, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(demo_uuid(spec.id_offset))
+        .bind(DEMO_ORG_ID)
+        .bind(spec.contract)
+        .bind(spec.label)
+        .bind(spec.amount_minor)
+        .bind(today + Duration::days(spec.due_days))
+        .bind(if spec.id_offset == 1280 {
+            Some("Billed on completion; mobilisation is included.")
+        } else {
+            None
+        })
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    sqlx::query(
+        "INSERT INTO contract_minimums (id, org_id, contract_id, minimum_commitment_minor)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(demo_uuid(1282))
+    .bind(DEMO_ORG_ID)
+    .bind(contract_tm)
+    .bind(180_000_i64)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO contract_escalators (id, org_id, contract_id, uplift_bps, first_uplift_on)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(demo_uuid(1283))
+    .bind(DEMO_ORG_ID)
+    .bind(contract_recurring)
+    .bind(400_i32) // 4%
+    .bind(today + Duration::days(60))
+    .execute(&mut *tx)
+    .await?;
+
+    // A cap: warn on approach, then bill overage at the card rate rather
+    // than stopping work. That is the behaviour a client wants to see
+    // spelled out.
+    sqlx::query(
+        "INSERT INTO contract_caps (id, org_id, contract_id, scope, cap_minor, reached_behavior,
+                                    overage_rate_minor, work_type)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    )
+    .bind(demo_uuid(1284))
+    .bind(DEMO_ORG_ID)
+    .bind(contract_tm)
+    .bind("period")
+    .bind(120_000_i64)
+    .bind("overage_billable")
+    .bind(11_000_i64)
+    .bind("remote")
+    .execute(&mut *tx)
+    .await?;
+
+    // A credit that has already been applied to the dunning invoice — the
+    // money side of a missed SLA.
+    sqlx::query(
+        "INSERT INTO contract_sla_credits (id, org_id, contract_id, ticket_id, reason,
+                                           amount_minor, currency, applies_on, status,
+                                           applied_invoice_id, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, 'USD', $7, 'applied', $8, $9)",
+    )
+    .bind(demo_uuid(1285))
+    .bind(DEMO_ORG_ID)
+    .bind(contract_recurring)
+    // Ticket 11 is the UPS P2 ticket that breached its resolution target.
+    .bind(demo_uuid(111))
+    .bind("P2 resolution target missed by 11 hours during the power cut")
+    .bind(7_500_i64)
+    .bind(today - Duration::days(2))
+    .bind(invoice_dunning_id)
+    .bind(owner)
+    .execute(&mut *tx)
+    .await?;
+
+    // Two change orders, one approved and one still in draft — the
+    // difference between "agreed" and "proposed".
+    struct DemoChangeOrder {
+        id_offset: u64,
+        contract: Uuid,
+        number: &'static str,
+        title: &'static str,
+        amount_minor: i64,
+        status: &'static str,
+        approved_by: Option<Uuid>,
+        approved_days_ago: Option<i64>,
+    }
+    let change_order_specs: [DemoChangeOrder; 2] = [
+        DemoChangeOrder {
+            id_offset: 1286,
+            contract: contract_recurring,
+            number: "CO-2026-001",
+            title: "Add two comms-room APs and 25 client licences",
+            amount_minor: 42_000,
+            status: "approved",
+            approved_by: Some(owner),
+            approved_days_ago: Some(9),
+        },
+        DemoChangeOrder {
+            id_offset: 1287,
+            contract: contract_incident,
+            number: "CO-2026-002",
+            title: "24/7 out-of-hours escalation for the cannery line",
+            amount_minor: 16_800,
+            status: "draft",
+            approved_by: None,
+            approved_days_ago: None,
+        },
+    ];
+    let mut change_order_count = 0usize;
+    for spec in &change_order_specs {
+        sqlx::query(
+            "INSERT INTO contract_change_orders (id, org_id, contract_id, number, title,
+                                                 description, amount_minor, status,
+                                                 approved_by, approved_at, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        )
+        .bind(demo_uuid(spec.id_offset))
+        .bind(DEMO_ORG_ID)
+        .bind(spec.contract)
+        .bind(spec.number)
+        .bind(spec.title)
+        .bind(if spec.id_offset == 1286 {
+            Some("Hardware supplied by us; 12-month warranty from install.")
+        } else {
+            None
+        })
+        .bind(spec.amount_minor)
+        .bind(spec.status)
+        .bind(spec.approved_by)
+        .bind(
+            spec.approved_days_ago
+                .map(|days| at(today - Duration::days(days), 14, 0)),
+        )
+        .bind(owner)
+        .execute(&mut *tx)
+        .await?;
+        change_order_count += 1;
+    }
+
+    // Two draws against the prepaid block: one already billed onto the run,
+    // one not. This is the "is the block running out" number a client asks
+    // for mid-demo.
+    for (id_offset, entry_offset, minutes, days, invoice_id) in [
+        (1288u64, 160u64, 90_i32, -2_i64, Some(invoice_dunning_id)),
+        (1289, 163, 45, -1, None),
+    ] {
+        sqlx::query(
+            "INSERT INTO contract_block_draws (id, org_id, block_id, time_entry_id, invoice_id,
+                                               minutes, drawn_on)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(demo_uuid(id_offset))
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(174))
+        .bind(demo_uuid(entry_offset))
+        .bind(invoice_id)
+        .bind(minutes)
+        .bind(today + Duration::days(days))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- time taxonomy (Wave 39 time categories) --------------------------
+    // Every NEW org gets the ten semantic categories from migration 0110,
+    // but that migration only seeded the orgs that existed when it ran, so a
+    // freshly reset demo org has NOTHING in this table. Seed the same ten
+    // here (identical slugs, labels, flags and positions as the migration),
+    // idempotent on (org_id, slug) so a rerun cannot diverge.
+    let time_categories: [(&str, &str, &str, bool, bool, bool, i32); 10] = [
+        ("remote", "Remote", "Work done remotely (phone, email, remote tools)", true, false, true, 0),
+        ("on_site", "On-site", "Work at the client location", true, false, true, 10),
+        ("depot", "Depot", "Bench / workshop repair work", true, false, true, 20),
+        ("travel", "Travel", "Travel time to or from client sites", true, false, false, 30),
+        ("incident", "Incident", "Time against incident response or emergencies", true, false, true, 40),
+        ("project", "Project", "Time against project phases rather than tickets", true, false, true, 50),
+        ("internal", "Internal", "Internal admin, meetings, and own-system work", false, false, false, 60),
+        ("warranty", "Warranty", "Work covered by warranty — not billable to the client", false, true, false, 70),
+        ("training", "Training", "Training and enablement time", false, false, false, 80),
+        ("admin", "Admin", "Administrative time not attributable to client work", false, false, false, 90),
+    ];
+    let mut time_category_count = 0usize;
+    for (slug, label, description, default_billable, requires_unbillable_reason,
+         rate_card_affinity, position) in time_categories
+    {
+        sqlx::query(
+            "INSERT INTO time_categories (id, org_id, slug, label, description, default_billable,
+                                          requires_unbillable_reason, rate_card_affinity, position,
+                                          retired, created_by)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, false, $9)
+             ON CONFLICT (org_id, slug) DO NOTHING",
+        )
+        .bind(DEMO_ORG_ID)
+        .bind(slug)
+        .bind(label)
+        .bind(description)
+        .bind(default_billable)
+        .bind(requires_unbillable_reason)
+        .bind(rate_card_affinity)
+        .bind(position)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await?;
+        time_category_count += 1;
+    }
+
+    // The legacy map keeps the older work_type column readable by the new
+    // taxonomy, so historical entries still resolve to a category. Idempotent
+    // on (org_id, lower(legacy_value)) as the table's unique requires.
+    for (legacy_value, category_slug) in [
+        ("remote", "remote"),
+        ("on_site", "on_site"),
+        ("onsite", "on_site"),
+        ("depot", "depot"),
+        ("travel", "travel"),
+    ] {
+        sqlx::query(
+            "INSERT INTO time_category_work_type_map (id, org_id, legacy_value, category_slug,
+                                                      source)
+             VALUES (gen_random_uuid(), $1, $2, $3, 'backfill')
+             ON CONFLICT (org_id, legacy_value) DO NOTHING",
+        )
+        .bind(DEMO_ORG_ID)
+        .bind(legacy_value)
+        .bind(category_slug)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Dispositions on the three lines that went into the T&M invoice, plus
+    // one on a non-billable line marked as such — what a reviewer signs off
+    // against.
+    struct DemoDisposition {
+        id_offset: u64,
+        time_entry_id: Uuid,
+        status: &'static str,
+        reason: Option<&'static str>,
+        note: &'static str,
+        current: bool,
+    }
+    let disposition_specs: [DemoDisposition; 3] = [
+        DemoDisposition {
+            id_offset: 1320,
+            time_entry_id: demo_uuid(161),
+            status: "approved",
+            reason: None,
+            note: "Matches the cutover log; no change.",
+            current: true,
+        },
+        DemoDisposition {
+            id_offset: 1321,
+            time_entry_id: demo_uuid(163),
+            status: "approved",
+            reason: None,
+            note: "45 min agreed after the split with ticket 164.",
+            current: true,
+        },
+        DemoDisposition {
+            id_offset: 1322,
+            time_entry_id: demo_uuid(168),
+            status: "non_billable",
+            reason: Some("warranty"),
+            note: "Covered by the 12-month install warranty.",
+            current: true,
+        },
+    ];
+    for spec in &disposition_specs {
+        sqlx::query(
+            "INSERT INTO time_entry_dispositions (id, org_id, time_entry_id, status,
+                                                  unbillable_reason, note, created_by, current)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(demo_uuid(spec.id_offset))
+        .bind(DEMO_ORG_ID)
+        .bind(spec.time_entry_id)
+        .bind(spec.status)
+        .bind(spec.reason)
+        .bind(spec.note)
+        .bind(owner)
+        .bind(spec.current)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // One adjustment on a billed line: 60 min down to 45, on the run, with
+    // the reason a credit note would later need.
+    sqlx::query(
+        "INSERT INTO time_entry_adjustments (id, org_id, time_entry_id, run_id,
+                                             original_minutes, delta_minutes, reason, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    )
+    .bind(demo_uuid(1323))
+    .bind(DEMO_ORG_ID)
+    .bind(demo_uuid(163))
+    .bind(run_id)
+    .bind(60_i32)
+    .bind(-15_i32)
+    .bind("15 min of the rekey was spent on the unrelated Wi-Fi ticket and moved to ticket 2")
+    .bind(owner)
+    .execute(&mut *tx)
+    .await?;
+
+    // --- purchasing completion: receipts and bills -----------------------
+    // The three POs, their lines and the three loans ALREADY exist here
+    // (written through the real `insert_purchase_order` / `insert_po_line` /
+    // `issue_loan` paths). What was missing was the leg that turns a PO from
+    // a wish list into stock: a receipt, the ledger movement it posts, and
+    // the vendor's bill.
+    let ordered_po_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM purchase_orders ORDER BY expected_at ASC")
+            .fetch_all(&mut *tx)
+            .await?;
+
+    let mut receipt_count = 0usize;
+    for (index, po_id) in ordered_po_ids.iter().enumerate() {
+        let po_lines: Vec<(Uuid, i64)> = sqlx::query_as(
+            "SELECT id, qty_ordered_milli FROM purchase_order_lines
+              WHERE purchase_order_id = $1 ORDER BY position",
+        )
+        .bind(po_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        let Some((line_id, qty_milli)) = po_lines.first().copied() else {
+            continue;
+        };
+
+        let receipt_id = demo_uuid(1330 + index as u64);
+        let movement_id = demo_uuid(1350 + index as u64);
+        let received_at = now - Duration::days(1);
+        let carrier = match index {
+            0 => "Metro Freight",
+            1 => "Royal Courier Group",
+            _ => "Local drop",
+        };
+        let tracking_ref = match index {
+            0 => "MF-4421180",
+            1 => "RCG-8870432",
+            _ => "",
+        };
+
+        crate::purchasing::insert_receipt(
+            &mut *tx,
+            &core_domain::entities::PurchaseReceipt {
+                id: receipt_id,
+                org_id: DEMO_ORG_ID,
+                purchase_order_id: *po_id,
+                location_id: demo_uuid(900),
+                carrier: Some(carrier.to_string()),
+                tracking_ref: (!tracking_ref.is_empty()).then(|| tracking_ref.to_string()),
+                note: Some("First line received in full; second line to follow.".to_string()),
+                received_at,
+                created_by: Some(tech),
+                created_at: now,
+            },
+        )
+        .await?;
+
+        // The ledger leg first: `purchase_receipt_lines.movement_id` has a
+        // FK to it, so the movement must exist before the line can point at
+        // it. Appended in the same transaction, so stock levels move and the
+        // receipt shows a real movement against it.
+        sqlx::query(
+            "INSERT INTO stock_movements (id, org_id, stock_item_id, kind, to_location_id,
+                                          qty_milli, currency, cost_minor, carrier, tracking_ref,
+                                          note, created_by)
+             SELECT $1, $2, l.stock_item_id, 'receive', $3, l.qty_ordered_milli,
+                    'USD', l.unit_cost_minor * l.qty_ordered_milli / 1000, $4, $5, 'Received against PO line', $6
+               FROM purchase_order_lines l WHERE l.id = $7",
+        )
+        .bind(movement_id)
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(900))
+        .bind(carrier)
+        .bind(tracking_ref)
+        .bind(tech)
+        .bind(line_id)
+        .execute(&mut *tx)
+        .await?;
+
+        crate::purchasing::insert_receipt_line(
+            &mut *tx,
+            &core_domain::entities::PurchaseReceiptLine {
+                id: demo_uuid(1340 + index as u64),
+                org_id: DEMO_ORG_ID,
+                receipt_id,
+                po_line_id: line_id,
+                qty_milli,
+                movement_id: Some(movement_id),
+                created_at: now,
+            },
+        )
+        .await?;
+
+        crate::purchasing::bump_line_received(&mut *tx, DEMO_ORG_ID, line_id, qty_milli, false)
+            .await?;
+        crate::purchasing::advance_order_receipt_status(&mut *tx, DEMO_ORG_ID, *po_id).await?;
+        trail_system_write(
+            &mut tx,
+            "purchase_receipt",
+            receipt_id,
+            serde_json::json!({ "po": po_id.to_string(), "movement": movement_id.to_string() }),
+        )
+        .await?;
+        receipt_count += 1;
+    }
+
+    // One bill per PO, with a full FX snapshot on the GBP one so the bill
+    // shows a foreign-currency leg rather than a flat total. The
+    // `purchase_bills_fx_snapshot_atomic` CHECK makes an FX row
+    // all-or-nothing, so the USD rows stay entirely NULL.
+    let mut bill_count = 0usize;
+    for (index, po_id) in ordered_po_ids.iter().enumerate() {
+        let amount: i64 = sqlx::query_scalar(
+            "SELECT coalesce(sum(l.qty_ordered_milli * l.unit_cost_minor / 1000), 0)::bigint
+               FROM purchase_order_lines l WHERE l.purchase_order_id = $1",
+        )
+        .bind(po_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let is_fx = index == 1;
+        sqlx::query(
+            "INSERT INTO purchase_bills (id, org_id, purchase_order_id, bill_number, amount_minor,
+                                         currency, fx_rate_used, fx_rate_date, fx_source,
+                                         base_amount_minor, posted_at, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        )
+        .bind(demo_uuid(1360 + index as u64))
+        .bind(DEMO_ORG_ID)
+        .bind(po_id)
+        .bind(format!("KER-{index:06}"))
+        .bind(amount)
+        .bind("GBP")
+        .bind(if is_fx { Some(1.26_f64) } else { None })
+        .bind(if is_fx {
+            Some(today - Duration::days(1))
+        } else {
+            None
+        })
+        .bind(if is_fx { Some("ecb-daily") } else { None })
+        .bind(if is_fx {
+            Some((amount as f64 * 1.26).round() as i64)
+        } else {
+            None
+        })
+        .bind(now - Duration::days(1))
+        .bind(bookkeeper)
+        .execute(&mut *tx)
+        .await?;
+        bill_count += 1;
+    }
+
+    // Vendor contacts: each vendor gets a named primary contact, so the
+    // vendor detail page has a person rather than an email alias.
+    for (index, name) in [(0usize, "Ana Ferreira"), (1, "Tom Whitlock")] {
+        sqlx::query(
+            "INSERT INTO vendor_contacts (id, org_id, vendor_id, name, email, phone, role,
+                                          is_primary)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, true)",
+        )
+        .bind(demo_uuid(1380 + index as u64))
+        .bind(DEMO_ORG_ID)
+        .bind(vendor_ids[index])
+        .bind(name)
+        .bind(if index == 0 {
+            Some("a.ferreira@meridiancable.test")
+        } else {
+            Some("t.whitlock@kestrelinstrument.test")
+        })
+        .bind(if index == 0 {
+            Some("+1 415 555 0142")
+        } else {
+            Some("+44 20 7946 0998")
+        })
+        .bind(if index == 0 {
+            Some("Account manager")
+        } else {
+            Some("Sales engineer")
+        })
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Three client loans and their lines already exist above, written through
+    // the real `issue_loan` path. Each line's movement leg was posted too.
+    let loan_line_count = usize::try_from(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM client_loan_lines")
+            .fetch_one(&mut *tx)
+            .await?,
+    )
+    .unwrap_or(0);
+
     // --- audit trail: the seed itself, as the system actor -----------------
     crate::audit::insert(
         &mut *tx,
@@ -3742,6 +5382,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         slug: DEMO_ORG_SLUG,
         users: users.len(),
         clients: client_specs.len(),
+        portal_users: portal_user_count,
         boards: board_specs.len(),
         tickets: ticket_ids.len() + bulk_ticket_count,
         comments: comment_count,
@@ -3749,7 +5390,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         timer_sessions: 3,
         time_entries: time_entry_count,
         contracts: 4,
-        invoices: 2,
+        invoices: invoice_count,
         kb_articles: kb_articles.len(),
         documents: 1,
         projects: 1,
@@ -3774,12 +5415,30 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         vendors: vendor_specs.len(),
         purchase_orders: purchase_order_count,
         client_loans: client_loan_count,
+        attachments: attachment_count,
+        document_attachments: document_attachment_count,
+        attachment_store_bytes: attachment_store_bytes,
+        email_messages: email_count,
+        email_outbound: email_outbound_count,
+        csat_surveys: csat_count,
+        secret_records: secret_count,
+        contract_change_orders: change_order_count,
+        time_categories: time_category_count,
+        purchase_receipts: receipt_count,
+        purchase_bills: bill_count,
+        client_loan_lines: loan_line_count,
         logins: vec![
             ("owner@demo.local", "owner"),
             ("dispatcher@demo.local", "dispatcher"),
             ("tech@demo.local", "technician"),
             ("bookkeeper@demo.local", "admin (bookkeeping seat)"),
         ],
+        // One per client, in the same order as `clients`. A prospect who
+        // wants to see the portal does not need a staff seat to do it.
+        portal_logins: portal_user_specs
+            .iter()
+            .map(|spec| (spec.email, spec.client_name))
+            .collect(),
         password: DEMO_PASSWORD,
         alert_hmac_secret: DEMO_ALERT_HMAC_SECRET,
         webhook_signing_secret: DEMO_WEBHOOK_SECRET,
@@ -3823,6 +5482,182 @@ async fn trail_system_write(
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Demo attachment fixtures — real bytes, not placeholder blobs
+//
+// `validate_upload` (core_domain::attachments) gates every upload on
+// *magic bytes*, so a demo attachment cannot be an arbitrary buffer with a
+// plausible extension: the PNG must actually start `\x89PNG`, the PDF with
+// `%PDF-`, and the text family must be clean UTF-8 with no C0 controls.
+// Anything else is a row the API would never have accepted, and the first
+// person to click "download" gets a file their reader refuses to open.
+//
+// These builders emit GENUINELY valid artifacts — correct CRC/Adler32 chunks,
+// correct xref offsets — from fixed inputs, so the sha256, and therefore the
+// content-addressed storage key, is byte-stable across reseeds.
+// ---------------------------------------------------------------------------
+
+/// CRC-32 (reflected, polynomial 0xEDB8_8320) — the variant PNG chunk
+/// checksums use.
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFFu32;
+    for &byte in data {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+/// Adler-32 — the zlib trailer checksum.
+fn adler32(data: &[u8]) -> u32 {
+    let mut a = 1u32;
+    let mut b = 0u32;
+    for &byte in data {
+        a = (a + u32::from(byte)) % 65_521;
+        b = (b + a) % 65_521;
+    }
+    (b << 16) | a
+}
+
+/// A zlib stream built from *stored* (uncompressed) DEFLATE blocks. No
+/// compression library exists in the workspace, and the format permits stored
+/// blocks, so a real encoder would produce a smaller but equivalent file.
+fn zlib_stored(data: &[u8]) -> Vec<u8> {
+    let mut out = vec![0x78, 0x01]; // deflate, 32K window, no dictionary
+    if data.is_empty() {
+        out.extend_from_slice(&[1, 0, 0, 0xFF, 0xFF]); // final empty block
+    } else {
+        let mut i = 0;
+        while i < data.len() {
+            let n = (data.len() - i).min(65_535);
+            let last = u8::from(i + n >= data.len());
+            out.push(last);
+            out.extend_from_slice(&(n as u16).to_le_bytes());
+            out.extend_from_slice(&(!(n as u16)).to_le_bytes());
+            out.extend_from_slice(&data[i..i + n]);
+            i += n;
+        }
+    }
+    out.extend_from_slice(&adler32(data).to_be_bytes());
+    out
+}
+
+/// One PNG chunk: length, type, data, CRC-32 over type+data.
+fn png_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+    out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    out.extend_from_slice(kind);
+    out.extend_from_slice(data);
+    let mut crc_input = Vec::with_capacity(4 + data.len());
+    crc_input.extend_from_slice(kind);
+    crc_input.extend_from_slice(data);
+    out.extend_from_slice(&crc32(&crc_input).to_be_bytes());
+}
+
+/// A real, valid PNG: `width` × `height` of a single flat `rgb` colour.
+/// Wide enough that it is a few kilobytes rather than a one-pixel token, so
+/// the attachment list shows a believable size badge.
+fn demo_png(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
+    let row_len = 1 + width as usize * 3;
+    let mut raw = Vec::with_capacity(row_len * height as usize);
+    for _ in 0..height {
+        raw.push(0); // filter type 0 (None)
+        for _ in 0..width {
+            raw.extend_from_slice(&rgb);
+        }
+    }
+    let mut ihdr = Vec::with_capacity(13);
+    ihdr.extend_from_slice(&width.to_be_bytes());
+    ihdr.extend_from_slice(&height.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]); // 8-bit, colour type 2 (truecolour)
+
+    let mut out = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    png_chunk(&mut out, b"IHDR", &ihdr);
+    png_chunk(&mut out, b"IDAT", &zlib_stored(&raw));
+    png_chunk(&mut out, b"IEND", &[]);
+    out
+}
+
+/// A real, valid PDF 1.7 with one Helvetica page of `lines`. Every offset in
+/// the cross-reference table is read from the live byte position, so a reader
+/// parses it without repair.
+fn demo_pdf(lines: &[String]) -> Vec<u8> {
+    let mut content = String::from("BT /F1 9 Tf 14 TL 56 780 Td\n");
+    for line in lines {
+        content.push_str(&pdf_string(line));
+        content.push_str(" Tj T*\n");
+    }
+    content.push_str("ET\n");
+    let stream = content.into_bytes();
+
+    let mut out = Vec::new();
+    let mut offset_of: Vec<usize> = Vec::with_capacity(6);
+    let push = |out: &mut Vec<u8>, text: &str| {
+        out.extend_from_slice(text.as_bytes());
+    };
+
+    push(&mut out, "%PDF-1.7\n%\u{E2}\u{E3}\u{CF}\u{D3}\n");
+    for (index, body) in [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources \
+         << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding \
+         /WinAnsiEncoding >>",
+    ]
+    .iter()
+    .enumerate()
+    {
+        offset_of.push(out.len());
+        push(
+            &mut out,
+            &format!("{index_plus_one} 0 obj\n{body}\nendobj\n", index_plus_one = index + 1),
+        );
+    }
+
+    offset_of.push(out.len());
+    push(&mut out, &format!("5 0 obj\n<< /Length {} >>\nstream\n", stream.len()));
+    out.extend_from_slice(&stream);
+    push(&mut out, "endstream\nendobj\n");
+
+    let xref_at = out.len();
+    let mut xref = format!("xref\n0 {}\n", offset_of.len() + 1);
+    xref.push_str("0000000000 65535 f \n");
+    for off in &offset_of {
+        xref.push_str(&format!("{off:010} 00000 n \n"));
+    }
+    push(&mut out, &xref);
+    push(
+        &mut out,
+        &format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+            offset_of.len() + 1
+        ),
+    );
+    out
+}
+
+/// Escapes one text line for a PDF literal string, skipping characters
+/// WinAnsiEncoding cannot represent so the content stream stays valid.
+fn pdf_string(line: &str) -> String {
+    let mut out = String::with_capacity(line.len() + 2);
+    out.push('(');
+    for c in line.chars() {
+        match c {
+            '(' | ')' | '\\' => {
+                out.push('\\');
+                out.push(c);
+            }
+            c if (c as u32) < 0xFF && !c.is_control() => out.push(c),
+            _ => out.push('?'),
+        }
+    }
+    out.push(')');
+    out
 }
 
 /// AES-256-GCM seal in the exact `crypto::seal` format (12-byte nonce
@@ -3873,14 +5708,20 @@ fn anchor_two_months_back(today: NaiveDate) -> NaiveDate {
 }
 
 /// A purchase date that puts an asset's warranty horizon on a known side of
-/// today, so the demo carries an asset whose warranty is ending and one whose
-/// has lapsed instead of a null every surface reads as "not set". Months are
-/// counted as 30 days: this is demo data, and a few days of calendar drift
-/// cannot move an asset across the 90-day callout window by accident.
+/// today, so the demo carries an asset whose warranty is covered, one whose is
+/// ending, and one whose has lapsed instead of a null every surface reads as
+/// "not set". Months are counted as 30 days: this is demo data, and a few days
+/// of calendar drift cannot move an asset across the 90-day callout window by
+/// accident.
+///
+/// The three offsets below are chosen against `WARRANTY_ENDING_WINDOW_DAYS`
+/// (90) in `core_domain::entities::client`: `active` sits well outside the
+/// callout window, `ending` just inside it, `ended` past the horizon.
 fn warranty_purchase_date(today: NaiveDate, life_months: i64, which: Option<&str>) -> NaiveDate {
     let horizon = Duration::days(life_months * 30);
     let owned = match which {
         Some("ended") => horizon + Duration::days(45),
+        Some("active") => horizon - Duration::days(400),
         _ => horizon - Duration::days(31),
     };
     today - owned
@@ -3906,4 +5747,148 @@ fn next_monday_0800(now: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
         NaiveTime::from_hms_opt(8, 0, 0).unwrap_or_default(),
     )
     .and_utc()
+}
+
+/// AES-256-GCM seal whose nonce is derived from the plaintext rather than
+/// the RNG, so the demo's sealed columns are byte-stable across reseeds.
+/// The nonce is still prefixed to the ciphertext, so `crypto::open` reads
+/// these normally — only the randomness is gone.
+///
+/// Use for values that are compared across runs (demo data). The
+/// production-shaped `seal` above keeps its random nonce for real secrets.
+fn seal_stable(key: &[u8; 32], plaintext: &[u8]) -> DemoResult<Vec<u8>> {
+    use aes_gcm::aead::{Aead, KeyInit};
+    use aes_gcm::Aes256Gcm;
+    use aes_gcm::Nonce;
+    use sha2::{Digest as _, Sha256};
+
+    // 12 bytes of digest, matching the real nonce width.
+    let mut nonce_bytes = [0u8; 12];
+    Sha256::new()
+        .chain_update(key)
+        .chain_update(plaintext)
+        .finalize()
+        .into_iter()
+        .take(12)
+        .enumerate()
+        .for_each(|(i, b)| nonce_bytes[i] = b);
+
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| DemoError::Crypto(e.to_string()))?;
+    let ct = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
+        .map_err(|e| DemoError::Crypto(e.to_string()))?;
+    let mut out = Vec::with_capacity(12 + ct.len());
+    out.extend_from_slice(&nonce_bytes);
+    out.extend_from_slice(&ct);
+    Ok(out)
+}
+
+/// Sealed bytes for one demo secret-field value. The plaintext the app opens
+/// back is the value with its record title appended, so a reveal shows
+/// something recognisable rather than a bare random string.
+fn secret_field_ciphertext(
+    key: &[u8; 32],
+    record_title: &str,
+    value: &str,
+) -> DemoResult<Vec<u8>> {
+    let plaintext = format!("{value} [{record_title}]");
+    seal_stable(key, plaintext.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every demo fixture must survive the upload gate — magic bytes,
+    /// extension and declared content type all consistent. If one of them
+    /// drifts (a renamed PNG, a wrong extension), the seed fails here
+    /// instead of shipping an attachment the API would have rejected.
+    #[test]
+    fn demo_fixtures_pass_the_upload_gate() {
+        let cases: [(&str, &str, Vec<u8>); 3] = [
+            (
+                "ap-monitoring.png",
+                "image/png",
+                demo_png(160, 55, [30, 64, 96]),
+            ),
+            (
+                "restore-plan.pdf",
+                "application/pdf",
+                demo_pdf(&["Acme — restore plan".into(), "".into(), "line three".into()]),
+            ),
+            (
+                "signal-strength.csv",
+                "text/csv",
+                "ap,channel\nAP-01,6\n".as_bytes().to_vec(),
+            ),
+        ];
+        for (filename, content_type, bytes) in cases {
+            let (name, ct) = core_domain::attachments::validate_upload(
+                filename,
+                content_type,
+                &bytes[..bytes.len().min(core_domain::attachments::MAGIC_HEAD_LEN)],
+                bytes.len() as i64,
+                core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
+            )
+            .expect("fixture must pass the upload gate");
+            assert_eq!(name, filename);
+            assert_eq!(ct, content_type);
+        }
+    }
+
+    /// The fixtures are a few kilobytes each, so the attachment list shows a
+    /// believable size badge rather than a 1-byte token.
+    #[test]
+    fn demo_fixtures_are_demo_plausible_sizes() {
+        let png = demo_png(160, 55, [30, 64, 96]);
+        assert!(png.len() > 1_500, "png was {} bytes", png.len());
+        let pdf = demo_pdf(&["a".repeat(0), "b".repeat(20)]);
+        assert!(pdf.len() > 400, "pdf was {} bytes", pdf.len());
+    }
+
+    /// PNG chunk CRCs are correct, so a real decoder renders the image.
+    #[test]
+    fn demo_png_has_valid_chunk_crcs() {
+        let png = demo_png(4, 2, [1, 2, 3]);
+        assert!(
+            png.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]),
+            "PNG signature missing"
+        );
+        // IHDR (13 bytes of data) must come first, IEND (none) closes it.
+        assert_eq!(&png[12..16], b"IHDR");
+        assert_eq!(&png[png.len() - 8..png.len() - 4], b"IEND");
+        let mut offset = 8;
+        while offset + 8 <= png.len() {
+            let len = u32::from_be_bytes(png[offset..offset + 4].try_into().unwrap()) as usize;
+            let kind = &png[offset + 4..offset + 8];
+            let data_end = offset + 8 + len;
+            let stored_crc = u32::from_be_bytes(png[data_end..data_end + 4].try_into().unwrap());
+            let mut crc_input = kind.to_vec();
+            crc_input.extend_from_slice(&png[offset + 8..data_end]);
+            assert_eq!(stored_crc, crc32(&crc_input), "bad CRC on {kind:?}");
+            offset = data_end + 4;
+        }
+        assert_eq!(offset, png.len(), "trailing bytes after the last chunk");
+    }
+
+    /// The xref table points at the real object offsets, so a reader opens
+    /// the file without repair.
+    #[test]
+    fn demo_pdf_xref_offsets_are_correct() {
+        let pdf = demo_pdf(&["one".into(), "two".into()]);
+        let text = String::from_utf8_lossy(&pdf);
+        let startxref = text
+            .find("startxref")
+            .and_then(|i| {
+                // `startxref\n<digits>\n%%EOF` — skip the leading newline,
+                // then take everything up to the next one.
+                let after = &text[i + "startxref".len()..];
+                let digits = after.strip_prefix('\n')?;
+                let line = digits.get(..digits.find('\n').unwrap_or(digits.len()))?;
+                line.trim().parse::<usize>().ok()
+            })
+            .expect("a startxref offset");
+        assert_eq!(&pdf[startxref..startxref + 4], b"xref");
+        assert!(pdf.ends_with(b"%%EOF\n"));
+    }
 }
