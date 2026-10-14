@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE service_accounts\n            SET revoked_at = COALESCE(revoked_at, now()),\n                revocation_reason = COALESCE($3, revocation_reason),\n                updated_at = now()\n            WHERE id = $1 AND org_id = $2 AND revoked_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "35705ea2f21bc61ff3877f6d7626d794ffd0f5bab43d7469f50d0b77d24f3db3"
+}

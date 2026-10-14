@@ -122,6 +122,7 @@ pub mod search;
 pub mod secret_share;
 pub mod secrets;
 pub mod self_host;
+pub mod service_accounts;
 pub mod settings;
 pub mod sign_offs;
 pub mod similar_tickets;
@@ -1425,6 +1426,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/api-keys/{id}"),
             axum::routing::delete(api_keys::revoke),
         )
+        // service accounts + client-certificate auth (Wave 47 lane A9):
+        // org-scoped admin CRUD; the cert branch of require_auth (above)
+        // authenticates these accounts before JWT/API key.
+        .merge(service_accounts::routes(gen))
         // settings hub: typed registry + org/user scoped values + org profile
         .route(&rp("/settings/registry"), get(settings::get_registry))
         // self-hoster visibility (Wave 36 lane 3): one owner/admin read of

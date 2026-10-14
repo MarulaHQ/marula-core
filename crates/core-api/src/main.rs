@@ -123,6 +123,15 @@ async fn main() -> anyhow::Result<()> {
     .await
     .context("binding listener")?;
     tracing::info!("core-api listening");
-    axum::serve(listener, app).await?;
+    // ConnectInfo<SocketAddr> is exposed to middleware so the trusted-peer
+    // predicate (crate::trust) can gate client-supplied network identity
+    // (the forwarded client-cert fingerprint, and forwarded client IP).
+    // Absent ConnectInfo ⇒ no trustworthy peer ⇒ such headers are ignored,
+    // so raw `oneshot`/test routers opt out safely.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }

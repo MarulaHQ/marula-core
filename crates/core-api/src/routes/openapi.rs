@@ -505,6 +505,11 @@ use utoipa::OpenApi;
         crate::routes::api_keys::list,
         crate::routes::api_keys::create,
         crate::routes::api_keys::revoke,
+        // service accounts + client-certificate auth (Wave 47 lane A9)
+        crate::routes::service_accounts::list,
+        crate::routes::service_accounts::create,
+        crate::routes::service_accounts::update,
+        crate::routes::service_accounts::remove,
         crate::routes::scheduling::create_appointment,
         crate::routes::scheduling::get_appointment,
         crate::routes::scheduling::patch_appointment,
@@ -1660,6 +1665,11 @@ use utoipa::OpenApi;
         crate::routes::api_keys::ApiKeyList,
         crate::routes::api_keys::CreateApiKeyRequest,
         crate::routes::api_keys::ApiKeyCreatedResponse,
+        // service accounts + client-certificate auth (Wave 47 lane A9)
+        crate::routes::service_accounts::ServiceAccountView,
+        crate::routes::service_accounts::ServiceAccountList,
+        crate::routes::service_accounts::CreateServiceAccountRequest,
+        crate::routes::service_accounts::UpdateServiceAccountRequest,
         // scheduling (TASKLIST 2.12)
         core_domain::entities::Appointment,
         core_domain::entities::AppointmentKind,

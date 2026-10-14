@@ -13,6 +13,7 @@ pub mod realtime;
 pub mod routes;
 pub mod routing;
 pub mod state;
+pub mod trust;
 pub mod vault_scale;
 
 use axum::Router;

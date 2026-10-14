@@ -104,10 +104,20 @@ pub enum PluginCapability {
     /// generic signed ingest needs no surface at all, and the authoring
     /// guide says so first.
     EventsEmit,
+    /// Wave 47 lane A9 (client-certificate auth): the capability that
+    /// declares a runtime MAY present the service-account SURFACE.
+    /// Registration/declaration only — a plugin never enrolls, revokes, or
+    /// authenticates a service account through this capability; enrolling
+    /// and revocation remain HUMAN API-key-admin actions, and a certified
+    /// service-account's authority comes from its write-time permission
+    /// grants, not from this key. It resolves onto the plugins-surface VIEW
+    /// gate (like the other registration-only executor kinds), never onto
+    /// an admin special.
+    ServiceAccountManage,
 }
 
 impl PluginCapability {
-    pub const ALL: [PluginCapability; 26] = [
+    pub const ALL: [PluginCapability; 27] = [
         PluginCapability::TicketsRead,
         PluginCapability::TicketsWrite,
         PluginCapability::ClientsRead,
@@ -134,6 +144,7 @@ impl PluginCapability {
         PluginCapability::AutomationTriggers,
         PluginCapability::AutomationReads,
         PluginCapability::EventsEmit,
+        PluginCapability::ServiceAccountManage,
     ];
 
     /// The capability key as declared in a manifest / grant list.
@@ -169,6 +180,7 @@ impl PluginCapability {
             PluginCapability::AutomationTriggers => "automation.triggers",
             PluginCapability::AutomationReads => "automation.reads",
             PluginCapability::EventsEmit => "events.emit",
+            PluginCapability::ServiceAccountManage => "service_accounts.manage",
         }
     }
 
@@ -292,6 +304,18 @@ impl PluginCapability {
             PluginCapability::AutomationTriggers
             | PluginCapability::AutomationReads
             | PluginCapability::EventsEmit => Permission::Matrix {
+                module: Module::Plugins,
+                action: Action::View,
+            },
+            // Registration/declaration only — resolves onto the plugins-
+            // surface VIEW gate, the same gate the other registration-only
+            // capabilities (AutomationTriggers/Reads/EventsEmit) land on.
+            // It deliberately does NOT resolve to `special:manage_api_keys`:
+            // the capability vocabulary never grants an admin special to a
+            // plugin (deny-by-default). Enrolling/revoking a service account
+            // stays a HUMAN API-key-admin action; this capability only lets a
+            // runtime declare the service-account SURFACE.
+            PluginCapability::ServiceAccountManage => Permission::Matrix {
                 module: Module::Plugins,
                 action: Action::View,
             },

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE service_accounts\n            SET scopes = $3::jsonb, expires_at = $4, status = $5,\n                updated_at = now()\n            WHERE id = $1 AND org_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Jsonb",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cd8fc71f6ea3037516fa50e34b8c24869f2c9a72c10cb620b724f7481568d631"
+}

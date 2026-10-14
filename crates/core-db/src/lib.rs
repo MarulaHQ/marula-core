@@ -91,6 +91,7 @@ pub mod scorecards;
 pub mod search;
 pub mod search_pins;
 pub mod secret_vault;
+pub mod service_accounts;
 pub mod settings;
 pub mod share_links;
 pub mod sign_offs;

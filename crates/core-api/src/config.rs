@@ -153,6 +153,16 @@ pub struct Config {
     /// `ROUTING_PROVIDER` = `none` (default; built-in heuristic) | `osrm`
     /// | `ors` | `mapbox` | `contract`.
     pub routing: RoutingChoice,
+    /// Trusted-peer list for client-supplied network identity (Wave 47
+    /// `p47-client-cert-auth`): the IPs/CIDRs whose FORWARDED assertions
+    /// about the caller (the presented client certificate, and the
+    /// client-IP trust decision) core-api believes. Env
+    /// `MARULA_TRUSTED_PROXIES` (comma-separated IPs/CIDRs). An EMPTY list
+    /// means the built-in default (loopback + RFC1918 private ranges); a
+    /// NON-empty list replaces it. The predicate lives in `crate::trust`
+    /// and treats an untrusted peer's forged header as no assertion at
+    /// all (deny-by-default). See design/qa-p47-client-cert-auth/LANDING.md.
+    pub trusted_proxies: Vec<String>,
 }
 
 /// Which distance/duration provider the process registers (Wave 32 lane 7).
@@ -337,6 +347,9 @@ impl Config {
             // Desktop/test profile: NONE mode — never dials a routing
             // service the operator did not configure.
             routing: RoutingChoice::None,
+            // Binds loopback only, so the empty list (default loopback +
+            // private) is exactly the trusted set this profile needs.
+            trusted_proxies: Vec::new(),
         }
     }
 
@@ -519,7 +532,25 @@ impl Config {
                 .filter(|v| !v.trim().is_empty()),
             dev_tools,
             routing: routing_from_env(),
+            trusted_proxies: Self::trusted_proxies_from_env(),
         })
+    }
+
+    /// The trusted-peer list for client-supplied network identity (Wave 47
+    /// `p47-client-cert-auth`). `MARULA_TRUSTED_PROXIES` is a comma-separated
+    /// list of IPs/CIDRs; empty/absent yields an empty list, which
+    /// `crate::trust` interprets as the built-in loopback+private default.
+    fn trusted_proxies_from_env() -> Vec<String> {
+        std::env::var("MARULA_TRUSTED_PROXIES")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| {
+                v.split(',')
+                    .map(|e| e.trim().to_string())
+                    .filter(|e| !e.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -752,6 +783,7 @@ impl Config {
             plugin_signing_keys: None,
             dev_tools: false,
             routing: RoutingChoice::None,
+            trusted_proxies: Vec::new(),
         }
     }
 }

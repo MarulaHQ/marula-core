@@ -10,7 +10,14 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use axum::extract::connect_info::ConnectInfo;
+use core_domain::entities::{Actor, AuditEvent};
 use core_domain::policy::{BuiltinRole, Permission};
+use std::net::SocketAddr;
+
+/// Header carrying the SHA-256 fingerprint of the client certificate the
+/// edge proxy verified on the (m)TLS connection and forwarded.
+const CLIENT_CERT_FP_HEADER: &str = "x-marula-client-cert";
 
 /// Resolves a user's effective permission set: the union of every role's
 /// grants, expanded from builtin defaults where applicable.
@@ -51,19 +58,45 @@ pub fn resolve_permissions(roles: &[core_domain::entities::Role]) -> Vec<Permiss
     out
 }
 
-/// Axum middleware: `Authorization: Bearer <jwt>` for humans, with a
-/// scoped machine path via `x-api-key` (TASKLIST 2.15).
+/// Axum middleware: `Authorization: Bearer <jwt>` for humans, a scoped
+/// machine path via `x-api-key` (TASKLIST 2.15), and client-certificate
+/// authentication for service accounts (Wave 47 A9).
 ///
 /// The API-key branch is deliberately NARROW: only read-only public data
 /// prefixes accept keys, scopes are enforced against plugin capability
 /// names, and the synthesized principal is read-only by construction
 /// (`is_machine` + empty roles). Self-scoped surfaces (notifications,
 /// timers) reject keys outright — a key id is not a user id.
+///
+/// The client-certificate branch runs FIRST and is the ONE machine path
+/// that is NOT narrowed to the API-key prefix allowlist: it is a distinct
+/// principal type — an org-enrolled service account whose authority is
+/// EXACTLY its write-time permission grants (resolved through the standard
+/// policy matrix), so a cert account is authorized by its grants, not by a
+/// URL prefix. For attribution it reuses the same `via_api_key` machine
+/// flag an API-key principal sets, so pre-existing import/connector paths
+/// label the machine actor `api-key:<id>` / `created_by_kind = "api_key"`
+/// while the service-account module's own audit rows label it
+/// `service-account:<id>`. That label split is intentional and recorded in
+/// design/qa-p47-client-cert-auth/LANDING.md (a dedicated machine-kind
+/// discriminator is a follow-up).
 pub async fn require_auth(
     State(state): State<crate::state::AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
+    // Client-certificate authentication runs FIRST (before x-api-key and
+    // JWT) per Wave 47 A9. The cert header value and peer are lifted into
+    // OWNED values by `cert_presentation` BEFORE any `.await` —
+    // `axum::body::Body` is not `Sync`, so a live `&Request` borrow held
+    // across an await would make this future `!Send`.
+    if let Some(presentation) = cert_presentation(&request) {
+        if let Some(authed) = client_cert_identity(&state, presentation).await? {
+            request.extensions_mut().insert(authed);
+            return Ok(next.run(request).await);
+        }
+    }
+
     if let Some(raw_key) = request
         .headers()
         .get("x-api-key")
@@ -309,4 +342,183 @@ pub fn require_permission(
     core_domain::policy::check(&principal.permissions, required)
         .expect()
         .map_err(ApiError::Forbidden)
+}
+
+/// The client-certificate presentation lifted into OWNED values so no
+/// borrow of `Request` (whose body type is `!Sync`) is held across an
+/// `.await`. Extracted synchronously from the request before any await.
+struct CertPresentation {
+    /// Raw forwarded fingerprint header value (owned).
+    raw: String,
+    /// The connecting peer IP, if `ConnectInfo` is present.
+    peer: Option<std::net::IpAddr>,
+}
+
+/// Synchronously lifts the cert header value and peer out of the request
+/// into an owned [`CertPresentation`]. Returns `None` when no cert header
+/// is presented (⇒ not a cert-auth request ⇒ fall through unchanged).
+fn cert_presentation(request: &Request) -> Option<CertPresentation> {
+    let raw = request
+        .headers()
+        .get(CLIENT_CERT_FP_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())?
+        .to_string();
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.0.ip());
+    Some(CertPresentation { raw, peer })
+}
+
+/// Resolves the client-certificate presentation to an authenticated
+/// service-account principal, or `None` when the request is not a
+/// certificate-authentication attempt (no header) or the forwarding peer is
+/// untrusted (the header is ignored so a forged fingerprint cannot
+/// authenticate). Takes OWNED data so the future is `Send`.
+async fn client_cert_identity(
+    state: &crate::state::AppState,
+    presentation: CertPresentation,
+) -> ApiResult<Option<AuthedUser>> {
+    // Trust gate: only a peer inside the operator's (default loopback +
+    // private) trust set may assert the client's certificate. No
+    // `ConnectInfo` (raw `oneshot` tests) means no trustworthy peer, so the
+    // assertion is ignored rather than believed.
+    let trusted = presentation
+        .peer
+        .is_some_and(|ip| crate::trust::peer_is_trusted(&state.config.trusted_proxies, ip));
+    if !trusted {
+        tracing::debug!("client-certificate header from an untrusted peer ignored");
+        return Ok(None);
+    }
+
+    // Normalize to lowercase hex SHA-256; a well-formed fingerprint from a
+    // trusted peer is REQUIRED (a malformed value is a 401, not a silent
+    // fall-through — the proxy verified a cert, not this string). One shared
+    // normalizer owns enroll-vs-auth parity (crate::trust).
+    let Some(fingerprint) = crate::trust::normalize_fingerprint(&presentation.raw) else {
+        return Err(ApiError::Unauthorized(
+            "malformed client certificate fingerprint".into(),
+        ));
+    };
+
+    // One transaction carries lookup → touch → audit, so a request is a
+    // single pool checkout rather than three. Lookup and touch ride their
+    // SECURITY DEFINER seams (no org scope needed); the audit row is written
+    // under the resolved org's RLS. Any early return drops the tx (rollback),
+    // so a rejected fingerprint writes nothing.
+    let mut tx = match state.pool.begin().await {
+        Ok(tx) => tx,
+        Err(error) => {
+            tracing::warn!(%error, "cert-auth: could not acquire a connection");
+            return Err(ApiError::Unauthorized("client certificate rejected".into()));
+        }
+    };
+
+    let account = match core_db::service_accounts::find_active_service_account_by_fingerprint(
+        &mut *tx,
+        &fingerprint,
+    )
+    .await
+    {
+        Ok(Some(account)) => account,
+        Ok(None) => {
+            return Err(ApiError::Unauthorized(
+                "client certificate not enrolled".into(),
+            ));
+        }
+        Err(error) => {
+            tracing::warn!(%error, "cert-auth: lookup failed");
+            return Err(ApiError::Unauthorized("client certificate rejected".into()));
+        }
+    };
+
+    // Defense-in-depth: the SQL lookup already filters revoked/suspended/
+    // expired rows; re-assert against the row so a schema drift cannot
+    // silently widen acceptance.
+    if !account.is_authenticatable(chrono::Utc::now()) {
+        return Err(ApiError::Unauthorized(
+            "client certificate is not active".into(),
+        ));
+    }
+
+    let permissions = crate::routes::service_accounts::resolve_scope_permissions(&account.scopes);
+    if permissions.is_empty() {
+        return Err(ApiError::Forbidden(
+            "service account carries no usable scopes".into(),
+        ));
+    }
+
+    // The last-used stamp and the audit row SHARE one throttle window: audit
+    // at most once per ~60s per account, so `audit_events` grows at ~1 row
+    // per minute per machine account rather than per request (matching the
+    // API-key seam, which does not audit per request). The decision reads the
+    // row's previous stamp, so it adds no query.
+    let now = chrono::Utc::now();
+    let audit_this_auth = account
+        .last_used_at
+        .is_none_or(|t| now - t >= chrono::Duration::seconds(60));
+
+    if let Err(error) =
+        core_db::service_accounts::touch_service_account_last_used(&mut *tx, account.id, 60).await
+    {
+        tracing::warn!(%error, "service account last-used touch failed");
+    }
+
+    if audit_this_auth {
+        let event = AuditEvent {
+            id: uuid::Uuid::now_v7(),
+            org_id: account.org_id,
+            actor: Actor::Agent(format!("service-account:{}", account.id)),
+            action: "service_account.authenticated".into(),
+            entity_type: Some("service_account".into()),
+            entity_id: Some(account.id.to_string()),
+            // The fingerprint is an identifier, never a secret; the cert body
+            // is out of scope here.
+            detail: serde_json::json!({ "cert_fingerprint": fingerprint }),
+            ip: None,
+            occurred_at: now,
+        };
+        if let Err(error) = core_db::set_org(&mut tx, account.org_id).await {
+            tracing::warn!(%error, "cert-auth audit: could not bind org scope");
+        } else if let Err(error) = core_db::audit::insert(&mut *tx, &event).await {
+            tracing::warn!(%error, "cert-auth audit: insert failed");
+        }
+    }
+
+    if let Err(error) = tx.commit().await {
+        tracing::warn!(%error, "cert-auth: commit failed");
+    }
+
+    Ok(Some(AuthedUser {
+        principal: core_domain::entities::Principal {
+            user: service_account_user(account.id, account.org_id, &account.name),
+            roles: vec![],
+            permissions,
+        },
+        session_id: None,
+        via_api_key: true,
+    }))
+}
+
+/// Synthetic principal user for a certified service account: the account
+/// id stands in as the actor id (audit rows attribute to it, exactly like
+/// the API-key principal); no email/timezone exist for a machine identity.
+fn service_account_user(
+    account_id: uuid::Uuid,
+    org_id: uuid::Uuid,
+    name: &str,
+) -> core_domain::entities::User {
+    core_domain::entities::User {
+        id: account_id,
+        org_id,
+        email: String::new(),
+        display_name: format!("service-account:{name}"),
+        timezone: "UTC".into(),
+        is_active: true,
+        mfa_totp_secret: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    }
 }
