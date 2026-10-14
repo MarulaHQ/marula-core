@@ -12,7 +12,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { resolveApiBaseUrl } from "./api";
@@ -118,6 +118,59 @@ export function clearPortalTokens(): void {
 const API_BASE = resolveApiBaseUrl();
 
 /**
+ * One rotation, shared. A full page load fires several bearer-less calls at
+ * once — the provider's /portal/me restore probe plus the page's first data
+ * fetch. Every 401 rotates the same cookie-only pair, and the server retires
+ * the pair on first use, so each concurrent loser draws a replay 401 and the
+ * session reads as dead: either the provider flips to anonymous (the guard
+ * then bounces a perfectly good session to /portal/login) or the page's
+ * first fetch fails. Callers share the single in-flight rotation and each
+ * retries its own request with the fresh bearer (Wave 47 lane A1).
+ */
+let rotationInFlight: Promise<PortalTokens> | null = null;
+
+function rotateSession(stored: PortalTokens | null): Promise<PortalTokens> {
+  if (rotationInFlight !== null) return rotationInFlight;
+  const attempt = (async () => {
+    // Single rotation attempt; a second 401 means truly logged out. The
+    // body credential is used when held; otherwise the httpOnly cookie
+    // pair drives the rotation (empty body). The rotation is attempted on
+    // EVERY 401 rather than gated on a visible cookie check: the real
+    // session cookie is httpOnly, so document.cookie never reports it and
+    // such a gate would disable the only recovery path a full page load
+    // has (Wave 34 row 11b). A browser with no session simply gets a 401
+    // back, which is the same answer it had before.
+    const rotated = await fetch(`${API_BASE}/api/v1/portal/refresh`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+        ...(csrfHeader() ? { "x-marula-csrf": csrfHeader() as string } : {}),
+      },
+      body: JSON.stringify(
+        stored?.refresh_token
+          ? {
+              refresh_token: stored.refresh_token,
+              session_id: stored.session_id,
+            }
+          : {},
+      ),
+    });
+    if (!rotated.ok) throw new PortalError("unauthorized", 401);
+    const next = (await rotated.json()) as PortalTokens & { portal_user: PortalProfile };
+    saveTokens(next);
+    return next;
+  })();
+  rotationInFlight = attempt;
+  // Free the slot once settled; every awaiter already holds the resolved
+  // tokens (or the shared rejection) in the promise value.
+  void attempt.finally(() => {
+    if (rotationInFlight === attempt) rotationInFlight = null;
+  });
+  return attempt;
+}
+
+/**
  * One fetch wrapper for every portal call: attaches the access token,
  * rotates the refresh token once on 401, and clears state on hard logout.
  */
@@ -148,45 +201,22 @@ async function portalFetch<T>(
     },
   });
   if (response.status === 401) {
-    // Single rotation attempt; a second 401 means truly logged out. The
-    // body credential is used when held; otherwise the httpOnly cookie
-    // pair drives the rotation (empty body). The rotation is attempted on
-    // EVERY 401 rather than gated on a visible cookie check: the real
-    // session cookie is httpOnly, so document.cookie never reports it and
-    // such a gate would disable the only recovery path a full page load
-    // has (Wave 34 row 11b). A browser with no session simply gets a 401
-    // back, which is the same answer it had before.
-    const rotated = await fetch(`${API_BASE}/api/v1/portal/refresh`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "content-type": "application/json",
-        ...(csrfHeader() ? { "x-marula-csrf": csrfHeader() as string } : {}),
-      },
-      body: JSON.stringify(
-        stored?.refresh_token
-          ? {
-              refresh_token: stored.refresh_token,
-              session_id: stored.session_id,
-            }
-          : {},
-      ),
-    });
-    if (rotated.ok) {
-      const next = (await rotated.json()) as PortalTokens & { portal_user: PortalProfile };
-      saveTokens(next);
-      const retryHeaders: Record<string, string> = {
-        "content-type": "application/json",
-        authorization: `Bearer ${next.access_token}`,
-        ...(rest.headers as Record<string, string> | undefined),
-      };
-      if (csrfHeader()) retryHeaders["x-marula-csrf"] = csrfHeader() as string;
+    try {
+      const next = await rotateSession(stored);
       const retry = await fetch(`${API_BASE}${path}`, {
         ...rest,
         credentials: "include",
-        headers: retryHeaders,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${next.access_token}`,
+          ...(rest.headers as Record<string, string> | undefined),
+          ...(csrfHeader() ? { "x-marula-csrf": csrfHeader() as string } : {}),
+        },
       });
       if (retry.ok) return (await retry.json()) as T;
+    } catch {
+      // The shared rotation failed (genuinely logged out, or a sibling
+      // tab already retired the pair): fall through to the hard logout.
     }
     clearPortalTokens();
     throw new PortalError("unauthorized", 401);
@@ -555,9 +585,21 @@ const PortalAuthContext = createContext<PortalAuthState>({
 export function PortalAuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<PortalProfile | null>(null);
   const [status, setStatus] = useState<PortalAuthState["status"]>("loading");
+  // Session-generation guard (Wave 47 lane A1, follow-up 11a). The mount-time
+  // restore probe below can still be in flight when a sign-in lands — a cold
+  // first load, a slow API, a paste-and-submit faster than the probe. Its
+  // answer describes the session as it was BEFORE the login, so applying it
+  // afterwards would publish `anonymous` over a session the provider had
+  // already accepted, and useRequirePortalAuth would bounce the freshly
+  // signed-in client straight back to /portal/login. Every signIn/signOut
+  // bumps the generation; a restore result only lands when its generation is
+  // still current. The guard itself is untouched — a restore that settles
+  // with no session still publishes `anonymous` and still bounces.
+  const sessionGeneration = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const generation = sessionGeneration.current;
     async function restore() {
       // No local short-circuit: the auth cookie is HttpOnly, so it never
       // shows up in document.cookie — the /portal/me probe below is the
@@ -568,11 +610,11 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
       // and the retry lands signed-in.
       try {
         const profile = await portalApi.me();
-        if (cancelled) return;
+        if (cancelled || generation !== sessionGeneration.current) return;
         setMe(profile);
         setStatus("authed");
       } catch {
-        if (cancelled) return;
+        if (cancelled || generation !== sessionGeneration.current) return;
         setStatus("anonymous");
       }
     }
@@ -584,12 +626,15 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (email: string, password: string) => {
     const result = await portalApi.login(email, password);
+    // Any restore still in flight is now stale: it predates this session.
+    sessionGeneration.current += 1;
     setMe(result.portal_user);
     setStatus("authed");
   }, []);
 
   const signOut = useCallback(() => {
     clearPortalTokens();
+    sessionGeneration.current += 1;
     setMe(null);
     setStatus("anonymous");
   }, []);
