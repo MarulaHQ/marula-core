@@ -2,35 +2,36 @@
 
 ![Marula logo lockup](../../design/marula/logo/lockup-ink@2x.png)
 
-Marula is an open-source PSA (professional services automation) core for
-MSPs: tickets, clients, billing, scheduling, docs, agents — self-hostable
-and extensible, yours to leave with at any time.
+Marula is an open-source PSA (professional services automation) platform for IT service teams and MSPs. It runs your tickets, timers, client records, dispatch schedule, project billing, and client portal in one place on a database you own and control.
 
 > "The core is open source. Host it yourself, fork it, break it, rebuild it.
 > You can leave with your whole system on any given day and you can extend it
 > any which way and make it entirely your own."
 > — [MANIFESTO.md](../../MANIFESTO.md), quoted verbatim
 
-These docs follow [Diátaxis](https://diataxis.fr/): each page lives in exactly
-one quadrant, and the quadrants stay in their lanes.
+## Start by role
 
-| Quadrant | Answers | Start here |
+- **Technicians and service desk staff:** Start with [Your first ticket](tutorials/first-ticket.md), then check [Work a ticket](how-to/staff-work-a-ticket.md), [Run a field service day](how-to/technician-service-day.md), and [Close your day with the day pack](how-to/staff-day-pack.md).
+- **Dispatchers and service leads:** Jump to [Dispatch from the board](how-to/staff-dispatch.md), [Set up SLA policies and business-hours calendars](how-to/admin-sla-calendars.md), and [Build dashboards and scheduled reports](how-to/admin-dashboards-reports.md).
+- **Office managers and bookkeepers:** Walk through [Your first invoice](tutorials/first-invoice.md), [Set up contract billing models](how-to/admin-contract-types.md), [Verify a billing period before invoicing](how-to/admin-billing-verification.md), and [Portal onboarding](tutorials/portal-onboarding.md).
+- **Systems administrators and developers:** See [Self-host local stack reference](reference/self-host-local-stack.md), [Upgrade to the latest release](how-to/upgrade.md), and [Call the API from TypeScript or curl](how-to/call-the-api.md).
+
+## Browse by section
+
+These docs follow [Diátaxis](https://diataxis.fr/). Each page belongs to one of four sections so step-by-step lessons, quick task checklists, technical specs, and design background stay easy to find.
+
+| Section | Answers | Start here |
 |---|---|---|
-| [Tutorials](tutorials/index.md) | "Take me through it, step by step" | [Your first ticket](tutorials/first-ticket.md) |
-| [How-to guides](how-to/index.md) | "How do I do this specific thing?" | [Upgrade to the latest release](how-to/upgrade.md) |
-| [Reference](reference/index.md) | "What exactly is it?" | [API reference](reference/api.md) |
-| [Explanation](explanation/index.md) | "Why is it this way?" | [Why we're building Marula](explanation/why-marula.md) |
+| [Tutorials](tutorials/index.md) | "Take me through a full workflow, step by step" | [Your first ticket](tutorials/first-ticket.md) |
+| [How-to guides](how-to/index.md) | "How do I get this specific job done?" | [How-to index by role](how-to/index.md) |
+| [Reference](reference/index.md) | "What are the exact schemas and endpoints?" | [API reference](reference/api.md) |
+| [Explanation](explanation/index.md) | "Why does Marula work this way?" | [Why we're building Marula](explanation/why-marula.md) |
 
 ## Where the rest lives
 
 - Architecture decision records: [`docs/adr/`](../adr/)
 - Instant-first interaction doctrine: [`docs/instant-first.md`](../instant-first.md)
-- Upgrade & compatibility policy: [`docs/upgrade-compatibility-policy.md`](../upgrade-compatibility-policy.md)
-- Operator runbooks: canonical scaffold lives at `deploy/runbooks/`
-  (`deploy/runbooks/README.md`); authored runbook content lives in the site
-  under [reference/](reference/index.md) — see the
-  [coverage audit](DOCS-COVERAGE.md)
-- Docs coverage audit & IA plan: [`DOCS-COVERAGE.md`](DOCS-COVERAGE.md)
-- Public waitlist/marketing site: the separate `website/` package — product
-  positioning is quoted there and here from `MANIFESTO.md` verbatim, never
-  re-synthesized.
+- Upgrade and compatibility policy: [`docs/upgrade-compatibility-policy.md`](../upgrade-compatibility-policy.md)
+- Operator runbooks: canonical scaffold lives at `deploy/runbooks/` (`deploy/runbooks/README.md`), while authored runbook content lives in the site under [reference/](reference/index.md) (see the [coverage audit](DOCS-COVERAGE.md))
+- Docs coverage audit and IA plan: [`DOCS-COVERAGE.md`](DOCS-COVERAGE.md)
+- Public waitlist and marketing site: the separate `website/` package. Product positioning is quoted there and here from `MANIFESTO.md` verbatim, never re-synthesized.

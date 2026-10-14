@@ -2,65 +2,53 @@
 
 > **Audience:** admin — machine credentials are settings-owner work.
 
+When an external script, monitoring tool, or custom integration needs to call Marula's API without a human signing in, you issue a scoped **API key** under **Settings → API keys**. Every key is shown once when you create it, limited to only the permissions you select, and rotated by creating a replacement key before revoking the old one.
+
 ## Prerequisites
 
-- Admin access to **Settings→API keys**.
-- Knowledge of what the integration will actually call, because scopes
-  are per-resource and per-verb. The pain of revoking later outweighs
-  the two minutes of scoping now.
+- Admin access to **Settings → API keys**.
+- A list of which resources the integration actually needs to read or write (for example, reading tickets vs. creating tickets).
 
-## The lifetime, in the surface's own words
+## The API key lifecycle
+
+**Settings → API keys** summarizes the security rule:
 
 > "Bearer credentials for machine integrations. Secrets are shown once at
 > creation; to rotate, create a replacement key then revoke this one."
 
-So the lifecycle is strictly **show once → rotate by replacement →
-revoke** — there is no re-display and no edit-in-place anywhere in the
-product.
+There is no "view secret again" button and no editing scopes on a live key. The lifecycle is always: **create and copy once → rotate by creating a replacement → revoke the old key**.
 
-## 1. Create the key with the narrowest scopes
+## 1. Create a key with the narrowest permissions
 
-The scope picker lists the platform's resource:verb pairs
-(`tickets:read/write`, `clients:read/write`, `timers:read/write`) and
-carries its own instruction: "pick the narrowest set the integration
-needs". Two keys with different scopes beat one key with wide scopes for
-anything that must not write.
+Click to create a new key and select only the `resource:verb` scopes the integration requires (such as `tickets:read`, `tickets:write`, `clients:read`, or `timers:read`).
 
-## 2. Store the secret once
+If you run two separate scripts (one that reads ticket queues for a wallboard and another that creates tickets from an alert script), create two separate keys so the wallboard key can never modify data.
 
-The full secret is displayed exactly once at creation. The table keeps
-only the **prefix** (`mrp_dem…`) plus scopes and last-used, safe to
-screenshot and useless to an attacker. Copy the secret into the
-integration's secret store at this point. If it lands anywhere logs can
-reach, treat it as leaked and rotate immediately.
+## 2. Copy and store the secret immediately
 
-## 3. Rotate by replacement, not by edit
+Marula displays the full bearer token **exactly once** right after creation. Copy it directly into your integration's secret manager or environment file.
 
-When a rotation is due: create a **replacement** key with the same or
-adjusted scopes, deploy it to the integration, verify it authenticates,
-then revoke the old key. Deleting before the replacement is live is how
-integrations go dark — the ordering is deliberate in the UI copy.
+After you close the creation dialog, the table shows only the key's short **prefix** (such as `mrp_dem…`), its granted scopes, and its **last-used** timestamp. Because the full token is never shown again, taking a screenshot of the API keys table for a security review is always safe.
 
-## 4. Revoke on suspicion or retirement
+## 3. Rotate keys without downtime
 
-Every row has **Revoke**. Revoke on: staff-offboarding touching the
-integration, a leaked secret, an integration being unplugged, or rotation
-completion. "Last used" is on the row, so an unused key_candidate for
-revocation is trivially evidenced.
+When it is time to rotate a key:
 
-## 5. Audit posture
+1. Create a **new replacement key** with the needed scopes.
+2. Update your external integration with the new token and confirm its requests succeed.
+3. Click **Revoke** on the old key row.
 
-Key creation and revocation land in the
-[audit trail](../explanation/provenance-vs-audit.md) like every other
-administrative event. If your SOP requires periodic reviews, the API keys
-table itself is the review surface: prefix, scopes, last used, one row
-each, no proliferation.
+Creating the replacement before revoking the old key keeps your integration running without a single dropped request.
 
-## Related machine integration surfaces
+## 4. Revoke unused or compromised keys
 
-- Signed **webhooks** (HMAC-signed, retried with backoff, every attempt in
-  the delivery log) live under Settings→Integrations with their own
-  Disable / Send test / Rotate / Delivery log / Delete actions — see
-  [automation rules](admin-automation-rules.md) for what can trigger them.
-- Connectors and plugin capabilities are separate grants. See
-  [plugin consent](admin-plugin-consent.md).
+Click **Revoke** on any row whenever an integration is retired, a staff member who handled the secret leaves, or a token may have been exposed in logs. Check the **Last used** column to spot forgotten keys that are no longer active.
+
+## 5. Audit log visibility
+
+Every key creation and revocation is recorded in the [audit trail](../explanation/provenance-vs-audit.md) with the administrator's name and timestamp.
+
+## Related machine integration guides
+
+- **Webhooks:** Configure HMAC-signed outbound webhooks and inbound event receivers under **Settings → Integrations** (see [Author automation rules](admin-automation-rules.md)).
+- **Plugins and connectors:** Manage capability consent for installed plugins in [Configure the plugin consent flow](admin-plugin-consent.md).

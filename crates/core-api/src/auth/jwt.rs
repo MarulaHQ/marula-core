@@ -290,7 +290,9 @@ MCowBQYDK2VwAyEACifTR92KS0nfpnia/3uCznrkBrmzfHxV+nqX3Xhxw0w=
             internal_token: None,
             object_store: core_store::StoreChoice::Local("./data/objects-test".into()),
             max_upload_bytes: core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
-            trusted_proxies: Vec::new(),
+            // Unit-test profile: no env reads, so the narrow default trust
+            // set (loopback + RFC1918) is what these tokens are issued under.
+            trusted_proxies: crate::client_ip::TrustedProxies::default(),
         }
     }
 

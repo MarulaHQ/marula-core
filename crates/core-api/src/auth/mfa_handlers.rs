@@ -17,12 +17,13 @@ use crate::auth::{
     webauthn_service::{self, CeremonyContext},
     AuthedUser,
 };
+use crate::client_ip::ClientIp;
 use crate::error::{ApiError, ApiResult};
 use crate::routes::openapi::TokenPair;
 use crate::state::AppState;
 use axum::{
-    extract::State,
-    http::{Extensions, HeaderMap},
+    extract::{Extension, State},
+    http::Extensions,
     Json,
 };
 use core_domain::entities::{Actor, AuditEvent};
@@ -380,7 +381,7 @@ pub struct MfaVerifyRequest {
     responses((status = 200, body = TokenPair), (status = 401)))]
 pub async fn mfa_verify(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<MfaVerifyRequest>,
 ) -> ApiResult<axum::response::Response> {
     let (user_id, org_id) = jwt::verify_mfa_pending_token(&state.config, &req.mfa_token)
@@ -402,7 +403,7 @@ pub async fn mfa_verify(
     enforce_gate(
         &state,
         crate::auth::hardening::kinds::MFA_VERIFY,
-        &headers,
+        &client_ip,
         GateSubject::User(user_id),
         false,
     )
@@ -446,7 +447,7 @@ pub async fn mfa_verify(
                 let _ = record_success(
                     &state,
                     crate::auth::hardening::kinds::MFA_VERIFY,
-                    &headers,
+                    &client_ip,
                     GateSubject::User(user_id),
                 )
                 .await;
@@ -460,7 +461,7 @@ pub async fn mfa_verify(
                 let _ = record_failure(
                     &state,
                     crate::auth::hardening::kinds::MFA_VERIFY,
-                    &headers,
+                    &client_ip,
                     GateSubject::User(user_id),
                 )
                 .await;
@@ -818,7 +819,7 @@ pub async fn webauthn_credential_remove(
     responses((status = 200, body = WebauthnBeginResponse), (status = 401)))]
 pub async fn webauthn_login_begin(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<MfaTokenRequest>,
 ) -> ApiResult<Json<WebauthnBeginResponse>> {
     let (user_id, org_id) = jwt::verify_mfa_pending_token(&state.config, &req.mfa_token)
@@ -827,7 +828,7 @@ pub async fn webauthn_login_begin(
     enforce_gate(
         &state,
         crate::auth::hardening::kinds::WEBAUTHN_BEGIN,
-        &headers,
+        &client_ip,
         GateSubject::User(user_id),
         false,
     )
@@ -902,7 +903,7 @@ pub struct WebauthnLoginFinishRequest {
     responses((status = 200, body = TokenPair), (status = 401)))]
 pub async fn webauthn_login_finish(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<WebauthnLoginFinishRequest>,
 ) -> ApiResult<axum::response::Response> {
     let (user_id, org_id, challenge_id) =
@@ -911,7 +912,7 @@ pub async fn webauthn_login_finish(
     enforce_gate(
         &state,
         crate::auth::hardening::kinds::WEBAUTHN_LOGIN,
-        &headers,
+        &client_ip,
         GateSubject::User(user_id),
         false,
     )
@@ -938,7 +939,7 @@ pub async fn webauthn_login_finish(
             let _ignored = record_failure(
                 &state,
                 crate::auth::hardening::kinds::WEBAUTHN_LOGIN,
-                &headers,
+                &client_ip,
                 GateSubject::User(user_id),
             )
             .await;
@@ -962,7 +963,7 @@ pub async fn webauthn_login_finish(
     let _ = record_success(
         &state,
         crate::auth::hardening::kinds::WEBAUTHN_LOGIN,
-        &headers,
+        &client_ip,
         GateSubject::User(user_id),
     )
     .await;

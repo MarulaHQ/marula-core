@@ -1,22 +1,19 @@
 # Tutorial: your first ticket
 
-This lesson walks you from an empty machine to a worked ticket with a time
-entry, using the real API. It takes about 20 minutes.
+> **Audience:** developer — the API edition of the first-ticket lesson.
+
+If you prefer exploring a system from the terminal or want to build an integration script, this tutorial walks through the exact same workflow as [Your first ticket (in the UI)](first-ticket.md) using `curl` against the REST API. It takes about 15 minutes.
 
 ## What you'll build
 
-A running Marula stack, an organization with one client, one ticket, a
-timer that turns into a time entry, and the domain events those actions
-emitted.
-
-> **Audience:** developer — the API edition of the first-ticket lesson.
+You will boot a local Marula stack, register an organization, sign in for a bearer token, create a client and a high-priority ticket, log work, and read the resulting domain events from `/api/v1/events`.
 
 ## Prerequisites
 
-- Docker (for Postgres+pgvector, Redis (Valkey), object storage (Garage, stage2))
-- Rust toolchain (see `rust-toolchain.toml`) and Node + pnpm
+- Docker (runs PostgreSQL with `pgvector`, Valkey, and local object storage)
+- Rust toolchain (pinned in `rust-toolchain.toml`) and Node.js with `pnpm`
 
-## 1. Start the stack
+## 1. Start the local stack
 
 ```sh
 git clone https://github.com/Marlin-Hofmeyer/marula && cd marula
@@ -25,16 +22,13 @@ cargo install --path crates/marula-core-cli
 marula dev
 ```
 
-`marula dev` runs migrations, starts the core API and worker, and serves
-the web console.
+`marula dev` runs all database migrations, starts `core-api` and `worker`, and serves the web workspace.
 
 ## 2. Register an organization
 
-Registration is `POST /api/v1/register`. The org slug must be unique; if it
-is taken the API returns a typed `409` with reason `org_slug_taken` and a
-verified-available `suggestion` you can accept.
+Send a `POST` request to `/api/v1/register`. Each organization has a unique URL slug; if your chosen slug is already taken, the API returns `409 Conflict` with reason `org_slug_taken` and a verified-available `suggestion` field you can use right away.
 
-## 3. Log in
+## 3. Sign in for an access token
 
 ```sh
 curl -s -X POST localhost:8080/api/v1/auth/login \
@@ -42,10 +36,11 @@ curl -s -X POST localhost:8080/api/v1/auth/login \
   -d '{"email":"you@example.com","password":"…"}'
 ```
 
-The response is a token pair; send the access token as `Authorization:
-Bearer …` on every subsequent call.
+Copy the access token from the response and pass it as `Authorization: Bearer $TOKEN` on subsequent calls.
 
-## 4. Create a client and a ticket
+## 4. Create a client and open a ticket
+
+First, create the client company:
 
 ```sh
 curl -s -X POST localhost:8080/api/v1/clients \
@@ -53,7 +48,7 @@ curl -s -X POST localhost:8080/api/v1/clients \
   -d '{"name":"Acme Corp"}'
 ```
 
-Then create the ticket:
+Next, create a ticket using the returned client ID:
 
 ```sh
 curl -s -X POST localhost:8080/api/v1/tickets \
@@ -61,35 +56,28 @@ curl -s -X POST localhost:8080/api/v1/tickets \
   -d '{"client_id":"…","title":"Printer on fire","priority":"high"}'
 ```
 
-## 5. Work it
+## 5. Start and stop the timer
 
-In the web console, the ticket is one screen: notes, timer, conversation,
-calendar live together in that one view. Start the timer, add a note, stop the
-timer.
-The rough notes become a proper time entry — no separate time-entry screen
-hunt.
+In the web UI, a technician starts the work-bar timer, types their troubleshooting notes, and stops the timer on a single screen. Stopping the timer creates the billable time entry automatically.
 
 > "A ticket should take one screen, not three. Notes, timer, conversation,
 > calendar live in the same view, because they are the same job."
 > — [MANIFESTO.md](../../../MANIFESTO.md), quoted verbatim
 
-## 6. Watch the events
+## 6. Inspect the emitted domain events
 
-Every mutation emits a domain event from the transactional outbox:
+Every write in `core-api` commits a versioned event to the transactional outbox in the same database transaction:
 
 ```sh
 curl -s "localhost:8080/api/v1/events?limit=5" \
   -H "authorization: Bearer $TOKEN"
 ```
 
-You should see `ticket.created` plus a timer/time-entry event.
+You will see `ticket.created` along with the timer and time-entry events ready for webhooks, automation rules, and the WebSocket hub.
 
 ## What you learned
 
-- The API is the single write surface; the console and SDK are clients of it.
-- Mutations flow through the instant-first envelope (optimistic render,
-  authoritative reconcile).
-- Domain events are the audit trail — and the integration seam.
+- `core-api` is the single writer for the database; the web app, mobile app, CLI, and TypeScript SDK all call the same endpoints.
+- Every write returns an instant-first response envelope and records a domain event in the outbox.
 
-Next: [How to call the API](../how-to/call-the-api.md) for the typed client,
-or the [API reference](../reference/api.md) for the full surface.
+Next: Read [How to call the API](../how-to/call-the-api.md) to use the typed `@marula-core/sdk` client, or browse the full [API reference](../reference/api.md).

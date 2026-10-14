@@ -66,9 +66,10 @@ function CsatInner() {
     setBusy(true);
     setError(null);
     try {
-      setView(
-        await portalApi.csatSubmit(view.ticket_id, score, comment.trim() === "" ? undefined : comment.trim()),
-      );
+      // The token, not the ticket id: the survey endpoint is tokenized and
+      // single-use, and the ticket id is not a token (Wave 47 lane A1 — the
+      // submit used to 404 against /portal/csat/{ticket_id}).
+      setView(await portalApi.csatSubmit(ticket, score, comment.trim() === "" ? undefined : comment.trim()));
     } catch (err) {
       setError(
         friendlyMutationText(err, "We couldn't send that. Your answer is kept below, try again."),

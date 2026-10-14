@@ -3,69 +3,43 @@
 > **Audience:** both — staff read provenance during disputes; admins own
 > both surfaces and the query posture.
 
-Marula keeps **two** permanent records, and both are append-only. They
-are different tools that answer different questions, and confusing them
-is the most common documentation question the surfaces generate. This
-page keeps them distinct. (Their mechanics, provenance as a field-level write record and audit
-as an event-level ledger, complement the
-[customizations-are-data](customizations-are-data.md) doctrine: both
-ledgers exist *because* nothing else gets rewritten.)
+When an owner or service lead asks *"Who changed this client's billing rate?"* or *"Who viewed that domain admin password yesterday?"*, you need a straight answer—not a shrug. Marula keeps two permanent, append-only history ledgers that answer those two different questions: **Provenance** (`/provenance`) tracks field-by-field value changes on records, while **Audit** (`/audit`) tracks security and administrative events across your organization.
 
-## Provenance: field-level, per applied write
+## 1. Provenance (`/provenance`): Who changed this specific field?
 
-`/provenance`'s own banner scopes it, quoted in full to keep every
-verified word:
+Open `/provenance` whenever you are investigating a specific record (a ticket, client, contract, or asset) and want to see how a field got its current value:
 
 > "field-level provenance query — who changed what, field by field,
 > across every applied write — including agent sessions and imports…
 > never rewrites history"
 
-Concretely: provenance answers **"how did this field get to its current
-value, and through which applied write?"** The query rows carry
-Before→After value chips plus a Seq (sequence) and an **actor kind**. The
-actor kinds are explicit: `human`, `agent`, `import` — who did the write
-as a first-class column, no guessing about "somehow the row changed".
+Every row in Provenance shows:
 
-Use it when the question is about **a record**: how a client's address
-moved from A to B, who wrote an asset's field, whether an agent or a
-human performed a change.
+- The **Before → After** values for the field that changed
+- The monotonic **sequence number** (`Seq`) and timestamp of the edit
+- The **actor kind** chip: `human` (a staff member), `agent` (an AI assistant run), or `import` (a CSV/JSON batch or connector sync)
 
-## Audit: event-level, per security lifecycle event
+Use **Provenance** when a client disputes when a ticket priority changed, when you want to see whether a person or an import updated a device serial number, or when you need to trace every edit made during a batch import.
 
-`/audit` carries a different sentence:
+## 2. Audit (`/audit`): What security or admin events happened?
+
+Open `/audit` when you are reviewing security, access, or system lifecycle events across the workspace:
 
 > "Append-only ledger of security, administrative and domain lifecycle events for the org."
 
-Event-level, with filters that show the shape. Action-prefix chips
-(`auth.*`, `secret.*`, `plugin.*`, `portal.*`, `billing.*`), an actor
-UUID-or-prefix filter, a from/to date range, and Apply/Clear. Rows carry
-human/system actor chips plus an Inspect detail expander and pagination.
+The Audit screen lets you filter by action category (`auth.*`, `secret.*`, `plugin.*`, `portal.*`, `billing.*`), actor ID, and date range. Each row shows `human` or `system` actor badges and expands to show full event metadata.
 
-Audit answers **"what happened in the life of this org, as events"** —
-sign-ins and their outcomes, plugin mutations, billing events, invites,
-secrets access. It is the administrative and security record, not a
-field-by-field history of config items.
+Use **Audit** during a security review to check login attempts, password vault reveals (`secret.*`), plugin consent grants (`plugin.*`), API key creations and revocations, or billing period sign-offs.
 
-## The granularity divide in one table
+## Quick comparison
 
-| | Provenance | Audit |
+| Question | Use Provenance (`/provenance`) | Use Audit (`/audit`) |
 |---|---|---|
-| Unit | one applied write | one event |
-| Scope | every applied write, field by field | lifecycle- and security-shaped events |
-| Actor kinds | human / agent / import | human / system |
-| Question it answers | "who changed this field, from what, to what, when" | "what security/administrative/domain events happened" |
-| Natural consumer | a record's dispute or lineage | a compliance or forensics sweep |
+| **What does it record?** | Every field-by-field value change (`Before → After`) | Security, login, vault reveal, and admin lifecycle events |
+| **Actor badges** | `human`, `agent`, `import` | `human`, `system` |
+| **Typical question** | *"Who changed this contract's hourly rate from $150 to $175?"* | *"Who revealed the firewall password on Tuesday?"* |
+| **Best for** | Billing or ticket history checks and import troubleshooting | Security audits, compliance reviews, and access checks |
 
-## The shared promise: append-only, never rewritten
+## Both ledgers are append-only
 
-Both records share one guarantee the products lean on: **nothing in
-either ledger is rewritten**. Corrections do not edit history; later
-writes append. That is why downstream surfaces (the FX rate book, the
-issue ladder, time-entry locks) can all make their own "never rewrites
-history" claims and not contradict anything: no one in the stack edits
-the record of the past anywhere.
-
-Agents and imports being provenance actor kinds (not audit-only noise)
-is the same promise applied to non-human writers: when an agent session
-runs a tool, or a batch import writes rows, each applied write lands with
-its actor kind — treated like any other write, no shadow trail.
+Neither Provenance nor Audit can be edited or cleared from the UI. New changes always append new rows, and actions taken by AI agents or bulk imports are tagged right alongside human actions so nothing ever happens off the books.

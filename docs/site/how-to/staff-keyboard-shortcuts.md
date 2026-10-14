@@ -1,81 +1,55 @@
 # How to use the keyboard shortcuts
 
 > **Audience:** both — every signed-in staff member (owners, dispatchers,
-> technicians, bookkeepers) can drive the app from the keyboard; admins
-> additionally control nothing here, the profile is per account.
+> technicians, bookkeepers) can drive the app from the keyboard. Shortcut
+> settings apply to your personal account only.
+
+You can navigate boards, create tickets, copy record links, and search across Marula without taking your hands off the keyboard. If you forget a shortcut, hold down `Alt` anywhere outside a text box to see an on-screen guide for the page you are viewing.
 
 ## Prerequisites
 
-- A signed-in session on the web app. New? The tutorial
-  [your first ticket](../tutorials/first-ticket.md) walks the loop on the
-  seeded demo org (`owner@demo.local` / `demo-password-123`).
-- A physical keyboard. The shortcuts are desktop-oriented; on touch-only
-  devices the same actions stay reachable by clicking.
+- A signed-in session on the web or desktop app. New to Marula? Walk through [Your first ticket](../tutorials/first-ticket.md) on the seeded demo org (`owner@demo.local` / `demo-password-123`).
+- A physical keyboard. On touchscreens, every action has a matching button on screen.
 
 ## The activation key: Alt
 
-**Alt is the activation key.** Alt+letter and Alt+digit chords carry
-commands; chords that OSes and browsers reserve (Ctrl+T/W/L, Cmd+Q,
-Alt+Tab/F4, browser history with Alt+arrows) are deliberately absent, and
-a consistency check in the repository fails the tests if a future command
-collides with them. One documented exception: the search palette keeps
-⌘K / Ctrl+K, the chord it shipped with before this registry existed.
+Marula uses `Alt` plus a letter or number (`Alt+N`, `Alt+1`, etc.) for workspace actions. Standard browser and operating system shortcuts (`Ctrl+T`, `Ctrl+W`, `Cmd+Q`, `Alt+Tab`, and browser back/forward) are never overridden. The one exception is the global search palette, which keeps the familiar `Cmd+K` / `Ctrl+K` shortcut.
 
-## The two views
+## Two ways to check available shortcuts
 
-1. **Hold-Alt overlay** — press and HOLD Alt anywhere in the app (not in
-   a text field) and a small layer appears listing every shortcut valid on
-   the surface you are on: typed command labels, the key chord, and a
-   scope badge (Global, or the surface family). Release Alt and it
-   dismisses. Rows execute nothing by themselves — they document you.
-2. **? cheat sheet** — press `?` to open the FULL registry dialog: every
-   command across every surface, grouped (Everywhere / Navigation /
-   On specific surfaces) with descriptions. Escape or the Close button
-   dismisses it. It stays readable even when shortcuts are switched off,
-   because it is reference, not an action.
+1. **Hold `Alt` for the live page overlay:** Press and hold `Alt` anywhere on a page (when your cursor is not inside a text input). A small overlay lists every shortcut active on the current screen, along with its key combination and scope badge (`Global` or current surface). Let go of `Alt` to hide it.
+2. **Press `?` for the full cheat sheet:** Press `?` (`Shift+/`) to open a reference dialog listing every keyboard command across the entire app, grouped by **Everywhere**, **Navigation**, and **On specific surfaces**. Press `Escape` or `Alt+X` to close it. The `?` cheat sheet still opens even if you disable active shortcuts in your preferences.
 
-## The chords that ship today
+## Built-in keyboard shortcuts
 
-| Chord | Command | Where |
+| Shortcut | Action | Where it works |
 |---|---|---|
-| Alt+N | New record (client / ticket on a board) | the surfaces that have a create control |
-| Alt+1…7 | Jump to a rail section | everywhere |
-| ⌘K / Ctrl+K | Command palette (unified search) | everywhere |
-| Alt+J | Next page within the current rail section | everywhere |
-| Alt+C | Copy the record's link | ticket / client / device detail |
-| Alt+X | Close the topmost overlay | everywhere |
-| ? | Open the cheat sheet | everywhere (even all-off) |
+| `Alt+N` | Create a new record (for example, a new client or a new ticket) | Any screen with a create button |
+| `Alt+1` … `Alt+7` | Jump directly to a left-navigation section | Everywhere |
+| `Cmd+K` / `Ctrl+K` | Open the command palette and unified search | Everywhere |
+| `Alt+J` | Cycle to the next sub-page within the current navigation section | Everywhere |
+| `Alt+C` | Copy a direct link to the open record | Ticket and client detail pages (plus device detail) |
+| `Alt+X` | Close the topmost dialog or overlay | Everywhere |
+| `?` | Open the full keyboard shortcut cheat sheet | Everywhere (even when shortcuts are turned off) |
 
-The same chord means the same command on every surface — Alt+N is "new
-record" whether you are on clients or on a ticket board, and a chord is
-never split into per-surface different meanings. Similar actions share one
-command by design; that is the standard this registry enforces at
-authoring time.
+Each shortcut always performs the same kind of action. `Alt+N` always means "create new" on both the client directory and a service board.
 
-## Click parity — what a chord can and cannot do
+## Keyboard shortcuts respect your permissions
 
-Commands are built to behave exactly like the click they mirror: Alt+N
-opens the same create dialog the New client / New ticket button opens,
-Alt+1..7 land on the same pages the rail icons navigate to. A chord never
-does anything the corresponding click cannot: disabled surfaces, RBAC
-walls, and guarded routes stay exactly as guarded for the keyboard. The
-Alt-N command is absent on surfaces without a create control — the overlay
-simply does not list it there.
+Every keyboard shortcut triggers the exact same action as clicking the button on screen:
 
-## Turning shortcuts off
+- `Alt+N` opens the same creation dialog as clicking **New client** or **New ticket**. If a page has no create button, `Alt+N` does nothing and is hidden from the `Alt` overlay.
+- Role permissions and disabled buttons apply identically for both mouse clicks and keyboard shortcuts.
 
-Settings → Shortcuts → Keyboard shortcuts profile:
+## Turning keyboard shortcuts off
 
-- **Default** — chords + the hold-Alt overlay are active.
-- **All off** — chords and the hold-Alt overlay are off for your account
-  (useful for presentations and readers). Pressing ? still opens the
-  cheat sheet, which is read-only.
+If a shortcut conflicts with assistive software or your personal workflow, you can turn shortcuts off for your account under **Settings → Shortcuts → Keyboard shortcuts profile**:
 
-Choosing a profile is a per-user setting; other members are unaffected.
-Per-command remapping is planned to arrive later in the same place.
+- **Default:** All `Alt` shortcuts and the hold-`Alt` overlay are active.
+- **All off:** Disables `Alt` shortcuts and the hold-`Alt` overlay for your user account (handy during screen shares or presentations). Pressing `?` still opens the read-only cheat sheet.
 
 ## Where to go from here
 
-- Admins configuring boards and workflows that the chords mirror: see
-  [How to set workflow categories](admin-workflow-categories.md).
-- The ticket loop itself: [How to work a ticket](staff-work-a-ticket.md).
+- Customizing the board columns and statuses you jump between: [How to set workflow categories](admin-workflow-categories.md).
+- Screen reader announcements and high-contrast themes: [How to use Marula with a keyboard, a screen reader, and themes](staff-accessibility.md).
+- Daily ticket workflow: [How to work a ticket](staff-work-a-ticket.md).

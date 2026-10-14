@@ -13,18 +13,20 @@
 // 2. It takes a concrete value, so the caller has to decide light or dark
 //    rather than deferring to the device.
 //
-// So this sets the SAME `data-theme` attribute `applyTheme` sets, resolves the
-// DEVICE's preference, and persists nothing. The staff app's own preference
-// resolution (`resolveInitialTheme`) is untouched: a signed-in user still gets
-// their stored choice, and a public page never writes over it.
+// So this delegates to the SHARED pre-paint resolution in
+// `@marula-core/ui` — the same stored-then-system resolution and the same KIT
+// attribute literal (`neutral` for the app's light) the layout's inline
+// bootstrap writes, because a public page inheriting the machine's stored
+// choice leaks nothing (only a WRITE would leak a preference). This file used
+// to resolve the system preference alone and write the app's own `light`
+// literal, which the kit reads as its CREAM block: every entry screen on a
+// light machine painted cream, and a visitor whose stored preference was dark
+// had it overridden on the door. Writing `light` here is what broke that.
 "use client";
 
-/** Follows the operating system's light/dark setting, and stores nothing. */
+import { applyResolvedAppearance } from "@marula-core/ui";
+
+/** Follows the same resolution the pre-paint bootstrap uses, and stores nothing. */
 export function applyEntryTheme(): void {
-  if (typeof document === "undefined") return;
-  let dark = false;
-  if (typeof window !== "undefined" && window.matchMedia) {
-    dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  }
-  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  applyResolvedAppearance();
 }

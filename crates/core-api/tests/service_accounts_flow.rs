@@ -59,10 +59,10 @@ async fn connect(url: &str) -> Result<sqlx::PgPool, sqlx::Error> {
         .await
 }
 
-/// Builds an AppState. `trusted_proxies` is passed through to
-/// `Config.trusted_proxies` (empty ⇒ the built-in loopback + private
-/// default, which trust a loopback test peer).
-async fn test_state(trusted_proxies: Vec<String>) -> AppState {
+/// Builds an AppState. `trusted_proxies` is the trusted-proxy posture
+/// (shared with the real-client-IP lane); `TrustedProxies::default()` is the
+/// narrow loopback + RFC1918 set that trusts the loopback test peer.
+async fn test_state(trusted_proxies: core_api::client_ip::TrustedProxies) -> AppState {
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
@@ -223,7 +223,7 @@ async fn insert_expired_account(org_id: &str, admin_id: &str, fingerprint: &str)
 #[tokio::test]
 #[serial_test::serial]
 async fn an_enrolled_certificate_authenticates_a_scoped_service_account() {
-    let base = spawn_router(test_state(Vec::new()).await).await;
+    let base = spawn_router(test_state(core_api::client_ip::TrustedProxies::default()).await).await;
     let (token, org_id, _admin) = register_org(&base, "cert-happy").await;
     let fingerprint = fp(0x11);
     let account_id = create_account(
@@ -264,7 +264,7 @@ async fn an_enrolled_certificate_authenticates_a_scoped_service_account() {
 #[tokio::test]
 #[serial_test::serial]
 async fn an_unknown_certificate_is_refused() {
-    let base = spawn_router(test_state(Vec::new()).await).await;
+    let base = spawn_router(test_state(core_api::client_ip::TrustedProxies::default()).await).await;
     let _ = register_org(&base, "cert-unknown").await;
     // A well-formed 64-hex fingerprint that is NOT enrolled.
     let resp = me_with_cert(&base, &fp(0xff)).await;
@@ -274,7 +274,7 @@ async fn an_unknown_certificate_is_refused() {
 #[tokio::test]
 #[serial_test::serial]
 async fn a_revoked_service_account_is_refused() {
-    let base = spawn_router(test_state(Vec::new()).await).await;
+    let base = spawn_router(test_state(core_api::client_ip::TrustedProxies::default()).await).await;
     let (token, org_id, _admin) = register_org(&base, "cert-revoked").await;
     let fingerprint = fp(0x22);
     let account_id = create_account(
@@ -313,7 +313,7 @@ async fn a_revoked_service_account_is_refused() {
 #[tokio::test]
 #[serial_test::serial]
 async fn an_expired_service_account_is_refused() {
-    let base = spawn_router(test_state(Vec::new()).await).await;
+    let base = spawn_router(test_state(core_api::client_ip::TrustedProxies::default()).await).await;
     let (_token, org_id, admin_id) = register_org(&base, "cert-expired").await;
     let fingerprint = fp(0x33);
 
@@ -331,7 +331,7 @@ async fn an_expired_service_account_is_refused() {
 #[tokio::test]
 #[serial_test::serial]
 async fn an_org_a_certificate_cannot_act_on_org_b() {
-    let base = spawn_router(test_state(Vec::new()).await).await;
+    let base = spawn_router(test_state(core_api::client_ip::TrustedProxies::default()).await).await;
     let (token_a, org_a, _admin_a) = register_org(&base, "cert-org-a").await;
     let (token_b, org_b, _admin_b) = register_org(&base, "cert-org-b").await;
 
@@ -384,7 +384,13 @@ async fn an_org_a_certificate_cannot_act_on_org_b() {
 async fn a_forged_header_from_an_untrusted_peer_is_ignored() {
     // Narrow the trust set to a range that EXCLUDES the loopback test peer,
     // so a forwarded cert header is treated as no assertion at all.
-    let base = spawn_router(test_state(vec!["203.0.113.0/24".to_string()]).await).await;
+    let narrowed = core_api::client_ip::TrustedProxies::from_ranges(
+        vec![core_api::client_ip::Cidr::parse("203.0.113.0/24").expect("cidr")],
+        "",
+        core_api::client_ip::CfConnectingIp::Never,
+        false,
+    );
+    let base = spawn_router(test_state(narrowed).await).await;
     let (token, org_id, _admin) = register_org(&base, "cert-untrusted").await;
     let fingerprint = fp(0x55);
     create_account(
@@ -411,7 +417,7 @@ async fn a_forged_header_from_an_untrusted_peer_is_ignored() {
 #[tokio::test]
 #[serial_test::serial]
 async fn requests_without_a_certificate_are_unaffected() {
-    let base = spawn_router(test_state(Vec::new()).await).await;
+    let base = spawn_router(test_state(core_api::client_ip::TrustedProxies::default()).await).await;
     let _ = register_org(&base, "cert-plain").await;
 
     // The ordinary bearer/JWT chain still works on the connect-info router:
@@ -441,7 +447,7 @@ async fn requests_without_a_certificate_are_unaffected() {
 #[tokio::test]
 #[serial_test::serial]
 async fn a_service_account_without_manage_api_keys_is_forbidden() {
-    let base = spawn_router(test_state(Vec::new()).await).await;
+    let base = spawn_router(test_state(core_api::client_ip::TrustedProxies::default()).await).await;
     let (token, org_id, _admin) = register_org(&base, "cert-no-admin").await;
     let fingerprint = fp(0x66);
     // Scope is a data read the cert CAN use, but NOT service-account admin.
@@ -477,7 +483,7 @@ async fn a_service_account_without_manage_api_keys_is_forbidden() {
 #[tokio::test]
 #[serial_test::serial]
 async fn admin_crud_is_refused_for_unknown_grants_and_bad_fingerprints() {
-    let base = spawn_router(test_state(Vec::new()).await).await;
+    let base = spawn_router(test_state(core_api::client_ip::TrustedProxies::default()).await).await;
     let (token, org_id, _admin) = register_org(&base, "cert-validation").await;
 
     // Unknown grant key is refused (typed 400), not silently stored.
@@ -522,7 +528,7 @@ fn org_uuid(s: &str) -> Uuid {
 #[tokio::test]
 #[serial_test::serial]
 async fn a_patch_updates_scopes_status_and_expiry_through_one_lifecycle_owner() {
-    let base = spawn_router(test_state(Vec::new()).await).await;
+    let base = spawn_router(test_state(core_api::client_ip::TrustedProxies::default()).await).await;
     let (token, org_id, admin_id) = register_org(&base, "cert-patch").await;
     let fingerprint = fp(0x88);
     let account_id = create_account(
@@ -589,7 +595,7 @@ async fn a_patch_updates_scopes_status_and_expiry_through_one_lifecycle_owner() 
 #[tokio::test]
 #[serial_test::serial]
 async fn a_revoke_reason_is_recorded_and_surfaced() {
-    let base = spawn_router(test_state(Vec::new()).await).await;
+    let base = spawn_router(test_state(core_api::client_ip::TrustedProxies::default()).await).await;
     let (token, org_id, _admin) = register_org(&base, "cert-reason").await;
     let fingerprint = fp(0x99);
     let account_id = create_account(

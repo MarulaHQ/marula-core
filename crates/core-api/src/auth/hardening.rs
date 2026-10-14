@@ -13,10 +13,18 @@
 //! proves possession of something (a valid mfa_pending bridge, a live
 //! session id), so the code cannot fingerprint lockout state of an
 //! account the caller does not already control.
+//!
+//! Per-IP keys (Wave 47 lane A10): the IP half of the key is the REAL
+//! client IP, resolved once per request by the `client_ip` middleware
+//! from the direct peer and the trusted-proxy chain
+//! (`crate::client_ip`). Gates take the resolved value as a parameter —
+//! none of them reads a header, so a spoofed `X-Forwarded-For` from an
+//! untrusted peer cannot choose its own bucket. The value stays NOISE:
+//! per-actor keys are what lock an account, so this lane buys honest
+//! attribution for throttles and audits, not new enforcement.
 
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
-use axum::http::HeaderMap;
 pub use core_db::hardening::gate_kind as kinds;
 use core_db::hardening::{gate_check, gate_clear, gate_fail};
 use sha2::{Digest, Sha256};
@@ -28,21 +36,6 @@ pub enum GateSubject<'a> {
     User(Uuid),
     /// Refresh validates before any user identity exists: IP only.
     IpOnly,
-}
-
-/// Best-effort client IP: the first X-Forwarded-For hop when a proxy set
-/// one, else a shared "unknown" bucket. Deliberately NOT trusting this
-/// as a fresh identity — the per-IP keys are noise to an attacker, while
-/// per-actor keys (email/user) stay authoritative; IP rotation cannot
-/// bypass an account lock because the per-actor key locks too.
-pub fn client_ip(headers: &HeaderMap) -> String {
-    let forwarded = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty());
-    forwarded.unwrap_or_else(|| "unknown".into())
 }
 
 /// Salted sha256 of the IP — raw IPs are PII and the surface stores
@@ -76,15 +69,18 @@ fn lock_keys(state: &AppState, ip: &str, subject: &GateSubject<'_>) -> Vec<Strin
 /// envelope-shape identical to a wrong-password answer (no typed 429, no
 /// reason-code divergence — typed throttles on login would let an
 /// attacker probe the lockout state of arbitrary accounts).
+///
+/// `client_ip` is the already-resolved real client IP published by the
+/// `client_ip` middleware (peer + trusted-proxy chain). A gate never
+/// reads a proxy header itself.
 pub async fn enforce_gate(
     state: &AppState,
     kind: &str,
-    headers: &HeaderMap,
+    client_ip: &str,
     subject: GateSubject<'_>,
     uniform_401: bool,
 ) -> ApiResult<()> {
-    let ip = client_ip(headers);
-    let keys = lock_keys(state, &ip, &subject);
+    let keys = lock_keys(state, client_ip, &subject);
     let remaining = gate_check(&state.pool, kind, &keys)
         .await
         .map_err(ApiError::from)?;
@@ -105,11 +101,10 @@ pub async fn enforce_gate(
 pub async fn record_failure(
     state: &AppState,
     kind: &str,
-    headers: &HeaderMap,
+    client_ip: &str,
     subject: GateSubject<'_>,
 ) -> ApiResult<()> {
-    let ip = client_ip(headers);
-    let keys = lock_keys(state, &ip, &subject);
+    let keys = lock_keys(state, client_ip, &subject);
     let subject_key = match subject {
         GateSubject::Email(email) => Some(email_fingerprint(email)),
         GateSubject::User(id) => Some(format!("user:{id}")),
@@ -121,7 +116,7 @@ pub async fn record_failure(
         &keys,
         None,
         subject_key.as_deref(),
-        Some(&ip_fingerprint(state, &ip)),
+        Some(&ip_fingerprint(state, client_ip)),
     )
     .await
     .map_err(ApiError::from)?;
@@ -133,11 +128,10 @@ pub async fn record_failure(
 pub async fn record_success(
     state: &AppState,
     kind: &str,
-    headers: &HeaderMap,
+    client_ip: &str,
     subject: GateSubject<'_>,
 ) -> ApiResult<()> {
-    let ip = client_ip(headers);
-    let keys = lock_keys(state, &ip, &subject);
+    let keys = lock_keys(state, client_ip, &subject);
     gate_clear(&state.pool, kind, &keys)
         .await
         .map_err(ApiError::from)

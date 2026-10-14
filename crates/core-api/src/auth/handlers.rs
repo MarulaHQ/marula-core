@@ -5,11 +5,12 @@
 use crate::auth::cookies;
 use crate::auth::hardening::{enforce_gate, record_failure, record_success, GateSubject};
 use crate::auth::{jwt, password, AccessClaims, AuthedUser};
+use crate::client_ip::ClientIp;
 use crate::error::{ApiError, ApiResult};
 use crate::routes::openapi::TokenPair;
 use crate::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     http::{header, Extensions, HeaderMap, HeaderName, HeaderValue},
     response::IntoResponse,
     Json,
@@ -165,6 +166,7 @@ async fn slug_conflict_with_suggestion(
 ))]
 pub async fn register(
     State(state): State<AppState>,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<RegisterRequest>,
 ) -> ApiResult<Json<TokenPair>> {
     validate_email(&req.email)?;
@@ -272,7 +274,9 @@ pub async fn register(
     {
         let outcome = super::recovery::email_verification_request(
             State(state.clone()),
-            axum::http::HeaderMap::new(),
+            // Same resolved caller IP the surrounding register request
+            // carried; the internal re-entry must not invent its own.
+            Extension(ClientIp(client_ip.clone())),
             Json(super::recovery::EmailVerifyRequest { email: req.email }),
         )
         .await;
@@ -296,7 +300,7 @@ pub async fn register(
 ))]
 pub async fn login(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<LoginRequest>,
 ) -> ApiResult<axum::response::Response> {
     // Durable per-IP + per-actor deny-by-default gate BEFORE any
@@ -305,7 +309,7 @@ pub async fn login(
     enforce_gate(
         &state,
         crate::auth::hardening::kinds::PASSWORD_LOGIN,
-        &headers,
+        &client_ip,
         GateSubject::Email(&req.email),
         true,
     )
@@ -344,7 +348,7 @@ pub async fn login(
         let _ = record_failure(
             &state,
             crate::auth::hardening::kinds::PASSWORD_LOGIN,
-            &headers,
+            &client_ip,
             GateSubject::Email(&req.email),
         )
         .await;
@@ -397,7 +401,7 @@ pub async fn login(
     let _ = record_success(
         &state,
         crate::auth::hardening::kinds::PASSWORD_LOGIN,
-        &headers,
+        &client_ip,
         GateSubject::Email(&req.email),
     )
     .await;
@@ -513,6 +517,7 @@ pub(crate) fn mfa_cookie_response(state: &AppState, tokens: TokenPair) -> axum::
 pub async fn refresh(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     req: Option<Json<RefreshRequest>>,
 ) -> ApiResult<axum::response::Response> {
     // CSRF double-submit for the cookie-only path (bearer callers carry
@@ -544,7 +549,7 @@ pub async fn refresh(
     enforce_gate(
         &state,
         crate::auth::hardening::kinds::REFRESH,
-        &headers,
+        &client_ip,
         GateSubject::IpOnly,
         false,
     )
@@ -564,7 +569,7 @@ pub async fn refresh(
             let _ = record_failure(
                 &state,
                 crate::auth::hardening::kinds::REFRESH,
-                &headers,
+                &client_ip,
                 GateSubject::IpOnly,
             )
             .await;
@@ -604,7 +609,7 @@ pub async fn refresh(
         let _ = record_failure(
             &state,
             crate::auth::hardening::kinds::REFRESH,
-            &headers,
+            &client_ip,
             GateSubject::IpOnly,
         )
         .await;

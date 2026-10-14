@@ -5,7 +5,8 @@
 //! path is UNCHANGED for MCP/desktop/connectors/e2e helpers — cookies are
 //! additive, never a replacement.
 //!
-//! CSRF choice (documented, docs/reference/auth-threat-model.md §A2):
+//! CSRF choice (documented, docs/reference/auth-threat-model.md §A2;
+//! decision of record ADR 0022):
 //! * `SameSite=Lax` is the baseline (cross-site fetches never carry the
 //!   cookie) — ports do not split a site, so same-host different-port
 //!   dev stacks (web :3000 / api :8080) still deliver the cookie.
@@ -32,39 +33,75 @@ pub const CSRF_COOKIE: &str = "marula_csrf";
 pub const CSRF_HEADER: &str = "x-marula-csrf";
 
 const COOKIE_PATH: &str = "/api";
+/// The double-submit value is read by the APPLICATION's own JavaScript
+/// (that is the mechanism), so it must sit where the app's documents live —
+/// the web app serves /portal, /tickets and friends, never /api. Scoping it
+/// to /api (as the session jars are) hides it from every page that needs to
+/// echo it on x-marula-csrf, which breaks the cookie-driven refresh on any
+/// split deployment. The value is a fresh random secret that authenticates
+/// nothing by itself, so a host-wide path weakens nothing: a foreign origin
+/// still cannot read it (ADR 0022).
+const CSRF_COOKIE_PATH: &str = "/";
 
 /// Builds a `Set-Cookie` value honoring the config-derived flags.
+///
+/// `http_only` is per-cookie and deliberate (ADR 0022): the session secrets
+/// are unreadable to JavaScript; the double-submit csrf value MUST NOT be,
+/// because the browser's own script echoing it on `x-marula-csrf` is the
+/// entire mechanism.
 pub fn session_cookie(secure: bool, value: &str, max_age: i64) -> String {
-    cookie_string(SESSION_COOKIE, value, max_age, secure)
+    cookie_string(SESSION_COOKIE, value, max_age, secure, true)
 }
 
 /// Portal twin.
 pub fn portal_cookie(secure: bool, value: &str, max_age: i64) -> String {
-    cookie_string(PORTAL_COOKIE, value, max_age, secure)
+    cookie_string(PORTAL_COOKIE, value, max_age, secure, true)
 }
 
 /// The double-submit CSRF value handed out with any cookie-bearing auth
 /// response (non-httpOnly by design — double-submit REQUIRES it).
 pub fn csrf_cookie(secure: bool, value: &str) -> String {
-    cookie_string(CSRF_COOKIE, value, 86_400 * 7, secure)
+    cookie_string_at(
+        CSRF_COOKIE,
+        value,
+        86_400 * 7,
+        secure,
+        false,
+        CSRF_COOKIE_PATH,
+    )
 }
 
-fn cookie_string(name: &str, value: &str, max_age: i64, secure: bool) -> String {
+fn cookie_string(name: &str, value: &str, max_age: i64, secure: bool, http_only: bool) -> String {
+    cookie_string_at(name, value, max_age, secure, http_only, COOKIE_PATH)
+}
+
+fn cookie_string_at(
+    name: &str,
+    value: &str,
+    max_age: i64,
+    secure: bool,
+    http_only: bool,
+    path: &str,
+) -> String {
     let tail = if secure { " Secure" } else { "" };
-    format!("{name}={value}; Path={COOKIE_PATH}; Max-Age={max_age}; HttpOnly; SameSite=Lax{tail}")
+    let http_only = if http_only { "; HttpOnly" } else { "" };
+    format!("{name}={value}; Path={path}; Max-Age={max_age}{http_only}; SameSite=Lax{tail}")
 }
 
 /// Clears a cookie (Max-Age=0).
 pub fn clear_session_cookie(secure: bool) -> String {
-    cookie_string(SESSION_COOKIE, "", 0, secure)
+    cookie_string(SESSION_COOKIE, "", 0, secure, true)
 }
 
 pub fn clear_portal_cookie(secure: bool) -> String {
-    cookie_string(PORTAL_COOKIE, "", 0, secure)
+    cookie_string(PORTAL_COOKIE, "", 0, secure, true)
 }
 
+/// The csrf clear matches the set flags exactly (no HttpOnly, host-wide
+/// path) so the browser expires the same cookie the setter wrote — a clear
+/// scoped differently silently leaves the old value in the jar.
 pub fn clear_csrf_cookie(secure: bool) -> String {
-    cookie_string(CSRF_COOKIE, "", 0, secure)
+    cookie_string_at(CSRF_COOKIE, "", 0, secure, false, CSRF_COOKIE_PATH)
 }
 
 /// Same entropy class as refresh tokens.
@@ -85,17 +122,6 @@ fn cookie_from(headers: &HeaderMap, name: &str) -> Option<String> {
                 (key == name && !val.is_empty()).then(|| val.to_string())
             })
         })
-}
-
-/// Extracts the refresh secret from the staff session cookie (hex
-/// 64-char; anything else is malformed → treated as absent).
-pub fn session_refresh_from(headers: &HeaderMap) -> Option<String> {
-    cookie_from(headers, SESSION_COOKIE).filter(|v| v.len() == 64)
-}
-
-/// Portal twin.
-pub fn portal_refresh_from(headers: &HeaderMap) -> Option<String> {
-    cookie_from(headers, PORTAL_COOKIE).filter(|v| v.len() == 64)
 }
 
 /// The staff cookie carries `{session_id}.{refresh}` — split here so the
@@ -121,8 +147,15 @@ pub fn portal_refresh_pair_from(headers: &HeaderMap) -> Option<(uuid::Uuid, Stri
 
 /// True when an ambient session cookie exists on the request (staff or
 /// portal) — the trigger for enforcing the CSRF contract.
+///
+/// The detection goes through the PAIR parsers because the cookies carry
+/// `{session_id}.{refresh_secret}` (~101 chars), not a bare 64-char secret.
+/// Before ADR 0022 this filtered on `len() == 64`, which the shipped cookie
+/// shape never satisfies, so `cookie_authed` answered false for every real
+/// session and `double_submit_ok` silently degraded to "bearer mode, no
+/// check" — the documented CSRF contract was never enforced at all.
 pub fn cookie_authed(headers: &HeaderMap) -> bool {
-    session_refresh_from(headers).is_some() || portal_refresh_from(headers).is_some()
+    session_refresh_pair_from(headers).is_some() || portal_refresh_pair_from(headers).is_some()
 }
 
 /// Double-submit check for a cookie-authenticated call: BOTH the

@@ -3,68 +3,60 @@
 > **Audience:** admin — plugin installation, consent, and cap grants are
 > settings-owner security decisions.
 
+Installing a plugin or external connector in an MSP platform is a high-trust security decision. In Marula, plugins never run code on arrival: every package must pass a cryptographic digest check, land in a **Disabled** state first, and wait for an administrator to review and approve its exact list of requested permissions under **Settings → Plugins**.
+
 ## Prerequisites
 
-- Admin access to **Settings→Plugins** ("Plugins & agent skills").
-- Acceptance of one mental fact first: every install is a
-  supply-chain decision, and the product treats it that way.
+- Admin access to **Settings → Plugins** (*"Plugins & agent skills"*).
 
-## The posture, in the surface's own words
+## How the plugin safety gate works
 
 > "Nothing executes that did not arrive digest-verified with provenance
 > and pass admin consent. Installs start DISABLED; updates pin the old
 > version until the consent diff is approved."
 
-So the flow always travels: verified distribution → disabled install →
-consent diff → enabled. An update is really a new consent, exactly like
-the first install.
+Every plugin or connector follows the same path: **digest-verified import → installed as Disabled → admin reviews permission diff → enabled**. When a plugin releases a new version later, Marula keeps running your current approved version until an admin inspects and approves the update's permission diff.
 
-## 1. Get the plugin legitimately
+## 1. Choose a verified plugin source
 
-The **Registry** tab is the supported distribution source, with GitHub
-and zip import reserved for audited in-house plugins. Distribution itself carries the
-verification: plugins arrive digest-verified with provenance — the
-[distribution rationale](../explanation/ai-deny-by-default.md) intro
-applies to skills and plugins alike (or see ADR 0009 for the plugin/
-skill distribution model).
+Open **Settings → Plugins**:
 
-## 2. Install lands DISABLED
+- **Registry tab:** Browse and install signed plugins from the marketplace catalog.
+- **GitHub release tag or local `.zip` upload:** Import audited internal plugins. Every source records an append-only provenance chain (`source_kind`, `source_url`, `fetched_ref`, `artifact_digest`, and `uploader`).
 
-The install lands **disabled** — the state is deliberate and worth
-respecting even if you "trust" the sample (the shipped
-`sample-stock-ticker@1.0.0` sits enabled with its granted caps in the
-demo org for study). A disabled plugin consumes nothing, grants nothing,
-runs nothing.
+## 2. Newly installed plugins start Disabled
 
-## 3. Read the consent diff, then consent
+When you import or install a plugin, it lands in a **Disabled** state (or **Staged** if uploaded by a non-admin team member). A disabled plugin cannot run background jobs, receive webhooks, or display widgets until an administrator explicitly consents and enables it.
 
-Before enabling: read the consent diff of capabilities and surfaces the
-plugin requests. This is the same deny-by-default grant decision you make
-elsewhere — the plugin tells you the exact smallest list it needs and
-nothing more arrives unasked. Approving consents <strong>that
-version</strong>, while the very next update re-asserts the old
-version and re-pins it until you approve the new diff.
+(In the preloaded demo org, `sample-stock-ticker@1.0.0` is pre-enabled so you can inspect a live consent record right away.)
 
-## 4. Grant caps
+## 3. Review the permission diff before enabling
 
-Consent grants caps per the diff. The tabbed surface
-(WASM / HTTP connectors / Agent skills / Registry / Approvals) organizes
-the installed kinds. The **Approvals** tab is your pending-consent work
-queue.
+Open the **Approvals** tab (or click the pending install) to inspect the **consent screen**. It lists everything the plugin asks for:
 
-## 5. Revoke or retire (the same gate in reverse)
+- Requested capabilities (such as `ui.widgets`, `automation.actions`, `automation.triggers`, or `automation.reads`)
+- Outbound webhook endpoints that will be seeded on enable
+- Declared UI widgets, automation nodes, or custom field validators
+- Configuration settings schema
 
-Consent is a grant, not a marriage: removing the plugin removes the
-capability grants with it, and the distribution ledger's provenance stays
-for review. Capability surfaces table and capability kinds are listed in
-[reference/plugin capability surfaces](../reference/index.md) when you
-script against them.
+Approve the consent diff to enable that exact version digest. If an update arrives later requesting new capabilities or endpoints, your workspace stays pinned to the previously approved version until you review and approve the new diff.
+
+## 4. Manage installed tabs
+
+**Settings → Plugins** organizes extensions into clear tabs:
+
+- **WASM** (sandboxed in-process plugins)
+- **HTTP connectors** (external RMM, documentation, and accounting integrations)
+- **Agent skills** (versioned prompt and rule playbooks)
+- **Registry** (marketplace catalog)
+- **Approvals** (staged installs and updates waiting for admin consent)
+
+## 5. Disable, revoke, or uninstall at any time
+
+Disabling or uninstalling a plugin immediately revokes its capability grants and tears down any outbound webhook subscriptions it seeded, while leaving your organization's core tickets and assets intact. To see what UI and automation surfaces a plugin can register, read [How to extend Marula with plugin surfaces](admin-plugin-surfaces.md).
 
 ## What you learned
 
-- Install start disabled, approve diff, grant caps — the same order
-  every time.
-- Updates re-pin the old version until the new diff is approved.
-  Nothing self-upgrades runtime behavior you haven't consented to.
-- For agents, the same posture governs skills (ADR 0008) — see
-  [manage AI access](admin-ai-access.md) for the sibling AI surfaces.
+- Every plugin starts **Disabled** and requires explicit admin consent over its capability list and SHA-256 digest before running.
+- Plugin updates never auto-escalate permissions; the previous version stays pinned until you approve the update diff.
+- For managing AI assistant permissions across roles, see [How to manage AI access](admin-ai-access.md).

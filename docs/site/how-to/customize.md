@@ -2,54 +2,44 @@
 
 > **Audience:** both — admins declare the customization; staff experience the result.
 
-Everything an organization configures lives as declarative rows bound to
-stable semantic primitives — customizations are data, not code. That is what
-makes them migratable and fork-safe.
+Every MSP names its ticket columns, client fields, and routing rules a little differently. In Marula, you can add custom fields, rename board columns, and build automation rules directly in **Settings** without writing code or worrying that the next software update will break your setup.
 
 ## Prerequisites
 
-- A signed-in admin (settings access) or an API client with the customization scopes.
+- An administrator account with **Settings** access (or an API token with customization scopes).
 
+## 1. Add custom fields to clients, contacts, tickets, or assets
 
-## Add a custom field
+You can add custom fields to core record types using a fixed set of validated field types:
 
-Custom fields are declared per entity (client, contact, asset, …) with a
-typed schema (`text | number | date | bool | select | url | email`).
-Use the console (Settings) or the API under `/api/v1/…custom-fields` — see
-the [API reference](../reference/api.md) for the exact routes.
+- `text`, `number`, `date`, `bool`, `select`, `url`, and `email`
 
-## Reshape a board safely
+Create custom fields in **Settings** (or via `/api/v1/…custom-fields` in the [API reference](../reference/api.md)). If you install a plugin that provides a custom field validator, you can also attach JSON Schema validation to board fields.
 
-Board statuses are always bound to semantic categories. Renaming boards,
-statuses, or workflows never alters SLA, billing, automation, or reporting
-behavior, because those bind to categories, not labels. Custom workflow
-changes are therefore **not** breaking changes.
+## 2. Rename and reorganize board columns safely
 
-Rules of thumb:
+Every status column on a ticket board maps to one of four core workflow stages (`open`, `in_progress`, `waiting`, or `closed`).
 
-- Statuses map to semantic categories; behavior follows the category.
-- A board move (`POST /tickets/{id}/move-board`) remaps status through the
-  semantic categories and is audited.
+Because SLA timers and billing rules, along with automations and reports, bind to those four underlying stages rather than your display labels, you can rename columns or boards anytime without breaking a single report or SLA clock. When a technician moves a ticket to a different board (`POST /tickets/{id}/move-board`), Marula maps the status across the underlying stages automatically and records the move in the audit log. See [How to set workflow categories](admin-workflow-categories.md).
 
-## Automate
+## 3. Build declarative automation rules
 
-Automations are declarative trigger/action rows, migrated as data under the
-same rules as any other customization. Configure them in the console or via
-the API.
+Automation rules are stored as structured trigger-and-action rows rather than brittle custom scripts. Configure and dry-run test them in **Settings → Automations** ([see How to author automation rules](admin-automation-rules.md)).
 
-## What this buys you at upgrade time
+## 4. Why your customizations survive upgrades cleanly
 
-Because customizations are rows bound to stable primitives:
+Because custom fields, board workflows, and automation rules are stored as structured data rows ([see Why customizations are data](../explanation/customizations-are-data.md)):
 
-1. Migrations that touch customized constructs carry the transform for those
-   rows in the same transaction.
-2. The [upgrade preflight](upgrade.md) can tell you, before you upgrade,
-   exactly which of your customizations touch anything deprecated in the
-   target version.
+1. Database migrations automatically carry your custom rows forward during version upgrades.
+2. Running `marula upgrade --check` before an upgrade scans your customizations and warns you ahead of time if any rule or field references a feature scheduled for deprecation ([see How to upgrade](upgrade.md)).
 
-## What is NOT a customization surface
+## 5. What stays internal
 
-Anything past the four stable boundaries (REST + WebSocket API, domain
-events & webhooks, plugin API, declared customizations) is explicitly not
-stable, ever: not physical tables, not internal crate APIs, not worker
-payloads.
+Marula guarantees stability across four public boundaries:
+
+- The REST and WebSocket APIs (`/api/v1/…`)
+- Versioned domain events and webhooks
+- The plugin manifest contract
+- Declared customizations and `ops.v1_*` reporting views
+
+Internal PostgreSQL table layouts and internal Rust crate modules are not customization surfaces and may change between releases.

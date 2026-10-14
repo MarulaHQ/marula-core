@@ -131,6 +131,23 @@ fn validate_status(status: &str) -> ApiResult<()> {
     }
 }
 
+/// The single normalizer for a client-certificate fingerprint, shared by
+/// BOTH the enrollment side (`create`) and the auth side
+/// (`auth::middleware::cert_presentation`). One owner keeps the two ends of
+/// the enroll-vs-auth invariant coupled: the key enrollment stores is
+/// exactly the key authentication looks up. Separators and whitespace are
+/// stripped so the common `AB:CD:…`/spaced encodings land on the same key,
+/// and the result must be exactly 64 lowercase hex digits (a SHA-256
+/// digest); anything else is rejected.
+pub fn normalize_fingerprint(raw: &str) -> Option<String> {
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    (cleaned.len() == 64).then_some(cleaned)
+}
+
 // --- wire shapes ---------------------------------------------------------------
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -296,7 +313,7 @@ pub async fn create(
         )));
     }
     validate_grants(&req.scopes)?;
-    let fingerprint = crate::trust::normalize_fingerprint(&req.cert_fingerprint).ok_or_else(|| {
+    let fingerprint = normalize_fingerprint(&req.cert_fingerprint).ok_or_else(|| {
         ApiError::Validation("cert_fingerprint must be a 64-char hex SHA-256 digest".into())
     })?;
     if req.expires_at.is_some_and(|exp| exp <= Utc::now()) {
@@ -571,4 +588,73 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
             &format!("{base}/orgs/{{org_id}}/service-accounts/{{id}}"),
             axum::routing::patch(update).delete(remove),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_fingerprint_keeps_enroll_auth_parity() {
+        // The contiguous key both sides reduce to.
+        let base = "ab12cd34ef56ab78";
+        let raw = format!("{base}{base}{base}{base}"); // 64 hex, lowercase
+        let canonical = normalize_fingerprint(&raw).expect("64-hex is valid");
+
+        // Every wire encoding a proxy actually emits reduces to the SAME key,
+        // so what enrollment stored is what authentication looks up. (A `0x`
+        // prefix is deliberately NOT a form: stripping its `x` leaves a stray
+        // `0` and would corrupt the digest.)
+        let colon = raw
+            .chars()
+            .collect::<Vec<_>>()
+            .chunks(2)
+            .map(|c| c.iter().collect::<String>())
+            .collect::<Vec<_>>()
+            .join(":");
+        let spaced = colon.replace(':', " ");
+        let upper = raw.to_uppercase();
+        let colon_upper = colon.to_uppercase();
+        for form in [raw.clone(), colon, spaced, upper, colon_upper] {
+            assert_eq!(
+                normalize_fingerprint(&form).as_deref(),
+                Some(canonical.as_str()),
+                "form must normalize to the enrolled key"
+            );
+        }
+        assert_eq!(canonical, raw);
+    }
+
+    #[test]
+    fn normalize_fingerprint_rejects_wrong_length_or_non_hex() {
+        assert!(normalize_fingerprint("short").is_none());
+        assert!(normalize_fingerprint(&"zz".repeat(32)).is_none()); // 64 non-hex
+        assert!(normalize_fingerprint(&"ab".repeat(31)).is_none()); // 62 hex
+        assert!(normalize_fingerprint("").is_none());
+    }
+
+    #[test]
+    fn permission_from_key_covers_the_matrix_and_specials() {
+        // Matrix grants decompose into module + action.
+        assert_eq!(
+            permission_from_key("tickets:view"),
+            Some(Permission::Matrix {
+                module: core_domain::policy::Module::Tickets,
+                action: core_domain::policy::Action::View,
+            })
+        );
+        // Operational specials resolve to their variants.
+        assert_eq!(
+            permission_from_key("special:manage_api_keys"),
+            Some(Permission::ManageApiKeys)
+        );
+        // ADR 0004 RB2: financial visibility sits outside `special:`.
+        assert_eq!(
+            permission_from_key("financial:read"),
+            Some(Permission::ViewFinancials)
+        );
+        // Unknown keys are refused at write time (typed validation).
+        assert!(permission_from_key("not:real").is_none());
+        assert!(permission_from_key("tickets:reade").is_none());
+    }
 }

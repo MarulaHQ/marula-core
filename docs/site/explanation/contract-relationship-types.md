@@ -84,8 +84,8 @@ boundary: no tax engine on invoices, totals are line sums, and tax is
 an accounting-export concern configured in QuickBooks or Xero where the
 operator's accountant controls it. That boundary still stands. Quotes
 carry a tax estimate for the sales moment only. Invoices do not. The
-corrections side of the same boundary — why every fix is a new document
-rather than an edit — is in [billing corrections](billing-corrections.md).
+corrections side of the same boundary (why every fix is a new document
+rather than an edit) is in [billing corrections](billing-corrections.md).
 The task path for configuring these shapes is [how to price a service
 contract](../how-to/admin-contract-types.md).
 

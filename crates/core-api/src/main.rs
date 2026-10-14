@@ -17,6 +17,11 @@ async fn main() -> anyhow::Result<()> {
             .expect("configuration fail-closed (from_env): see the operator copy above"),
     );
     tracing::info!(addr = %config.bind_addr, "starting core-api");
+    // Trusted-proxy posture (Wave 47 lane A10): warns — never fails — when
+    // an internet-reachable bind runs on the narrow default trust set, so
+    // an edge deployment learns that public peers' proxy headers are
+    // ignored before it misreads its own throttle keys.
+    config.warn_trusted_proxy_posture();
     // Plugin distribution trust posture at boot (Wave 19 lane 2, ADR 0009
     // rotation semantics): an empty static trust set = structural
     // signature verification only — ACCEPTABLE DEV POSTURE, never
@@ -117,17 +122,15 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(origin = %origin, "CORS enabled");
     }
 
+    // Served WITH connect info so every request carries its direct peer
+    // address: real-client-IP resolution (Wave 47 lane A10) keys off the
+    // peer, never off the caller-supplied `X-Forwarded-For` first hop.
     let listener = tokio::net::TcpListener::bind(
         &std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
     )
     .await
     .context("binding listener")?;
     tracing::info!("core-api listening");
-    // ConnectInfo<SocketAddr> is exposed to middleware so the trusted-peer
-    // predicate (crate::trust) can gate client-supplied network identity
-    // (the forwarded client-cert fingerprint, and forwarded client IP).
-    // Absent ConnectInfo ⇒ no trustworthy peer ⇒ such headers are ignored,
-    // so raw `oneshot`/test routers opt out safely.
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),

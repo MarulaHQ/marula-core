@@ -381,13 +381,15 @@ async fn client_cert_identity(
     state: &crate::state::AppState,
     presentation: CertPresentation,
 ) -> ApiResult<Option<AuthedUser>> {
-    // Trust gate: only a peer inside the operator's (default loopback +
-    // private) trust set may assert the client's certificate. No
-    // `ConnectInfo` (raw `oneshot` tests) means no trustworthy peer, so the
-    // assertion is ignored rather than believed.
+    // Trust gate: only a peer inside the operator's trusted-proxy set may
+    // assert the client's certificate. No `ConnectInfo` (raw `oneshot`
+    // tests) means no trustworthy peer, so the assertion is ignored rather
+    // than believed. The predicate is the trusted-proxy lane's shared one
+    // (`crate::client_ip::TrustedProxies::is_trusted`), so the forwarded
+    // client-cert trust and the real-client-IP trust cannot drift apart.
     let trusted = presentation
         .peer
-        .is_some_and(|ip| crate::trust::peer_is_trusted(&state.config.trusted_proxies, ip));
+        .is_some_and(|ip| state.config.trusted_proxies.is_trusted(ip));
     if !trusted {
         tracing::debug!("client-certificate header from an untrusted peer ignored");
         return Ok(None);
@@ -396,8 +398,9 @@ async fn client_cert_identity(
     // Normalize to lowercase hex SHA-256; a well-formed fingerprint from a
     // trusted peer is REQUIRED (a malformed value is a 401, not a silent
     // fall-through — the proxy verified a cert, not this string). One shared
-    // normalizer owns enroll-vs-auth parity (crate::trust).
-    let Some(fingerprint) = crate::trust::normalize_fingerprint(&presentation.raw) else {
+    // normalizer owns enroll-vs-auth parity (routes::service_accounts).
+    let Some(fingerprint) = crate::routes::service_accounts::normalize_fingerprint(&presentation.raw)
+    else {
         return Err(ApiError::Unauthorized(
             "malformed client certificate fingerprint".into(),
         ));

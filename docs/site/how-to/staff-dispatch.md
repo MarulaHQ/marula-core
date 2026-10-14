@@ -3,61 +3,53 @@
 > **Audience:** both — dispatch is the dispatcher's surface and every
 > technician's morning board read.
 
+The **Dispatch** board (`/dispatch`) gives dispatchers and technicians a single view of who is booked where, which tickets are waiting for an owner, and how much drive time sits between on-site visits.
+
 ## Prerequisites
 
-- A signed-in session with **Dispatch** (/dispatch) open.
-- Board membership and the coached-out, deployed org (boards like Field
-  Service show as a technician world only when the org has people to be
-  on it).
-- Slots you will be moving into: appointments and ticket-deadline chips
-  from the calendar side today (the calendar surface renders both).
+- A signed-in session with **Dispatch** (`/dispatch`) open.
+- Team members assigned to your service boards (such as `Service Desk` or `Field Service`).
 
-## 1. Read the dispatch board
+## 1. Read the dispatch board layout
 
-Left to right: the **day-grid per technician** (each row's booked
-percentage, a 06:00–19:00 axis). The **TEAM roster** shows each
-technician's load (0:00 / 8h markers), and the right **UNASSIGNED**
-queue carries ticket work narrowed by the P1–P4 filter chips. Footer: Queue /
-Conflicts / Presence, Auto-assign (Off by default), Time zone: UTC axis.
+Reading from left to right:
 
-## 2. Move a request onto a person
+- **Team Roster:** Lists every technician along with their booked hours for the day (`0:00 / 8h` capacity bar) and utilization percentage.
+- **Day Grid (`06:00`–`19:00`):** Shows each technician's timeline with booked appointments, travel time blocks, and ticket SLA deadline markers.
+- **Unassigned Queue (right column):** Tickets that still need an owner or a scheduled slot. Click the `P1`–`P4` chips at the top of the queue to filter by priority.
+- **Status Footer (bottom bar):** Quick toggles for **Queue**, **Conflicts**, and live team **Presence**, plus the **Auto-assign** indicator (`Off` by default) and the active timezone axis.
 
-Drag on the grid (or the Move menu for keyboard-dispatched actions) —
-unassigned work onto a technician's slot on the day grid. Appointments
-and ticket-deadline chips render per day, so what you move snaps
-visibly into whatever the day already holds.
+## 2. Assign a ticket to a technician's schedule
 
-## 3. Conflicts, queue, presence
+To schedule a job:
 
-- **Queue** — the unassigned backlog in its own footer slot, filterable
-  by priority chip.
-- **Conflicts** — where moves collided (two bookings over one slot).
-  Resolve by moving one side.
-- **Presence** — realtime presence of the team on the same footer.
-- **Auto-assign** remains **Off** unless and until deliberately
-  enabled. Nothing moves itself silently.
+1. Find the ticket in the **Unassigned** queue on the right.
+2. Drag the ticket card onto a technician's row at the hour you want them to work it (or use the card's **Move** menu if you prefer working from the keyboard).
+3. The booking snaps into place on the timeline alongside any existing appointments and SLA deadline chips for that day.
 
-## 4. The scheduling surfaces beneath
+## 3. Spot and fix scheduling conflicts
 
-- **/dispatch/scheduling** — meeting types you configure (duration,
-  buffer, window, user scope, link-only, Active flag) and scheduling
-  groups (the pools auto-assignment reads from).
-- **Planning and travel surfaces** (/dispatch/planning, /dispatch/travel)
-  carry the day's thin planning views.
-- **Public scheduling links** are a calendar-side booking mechanism: the
-  standalone logged-out render ("This scheduling link is not available.")
-  covers the invalid case. Valid links book normally, and the same
-  connect card in Calendar shows where two-way sync connects.
+The bottom bar helps you catch problems before a technician is double-booked:
 
-## 5. When the board is where the day starts
+- **Queue:** Shows how many unassigned tickets are still waiting.
+- **Conflicts:** Highlights any overlapping bookings on a technician's timeline. Click the conflict indicator to jump to the overlap and drag one of the appointments to an open window.
+- **Presence:** Shows which teammates are currently active in the workspace.
+- **Auto-assign:** Stays **Off** unless your administrator explicitly enables automatic routing for a scheduling group. Marula never moves tickets behind a dispatcher's back.
 
-Queue → pick the highest priority → move it onto the right tech → next
-shuffle. The dispatch board does not replace the ticket workbench. You
-still arrive at [the ticket loop](staff-work-a-ticket.md) for the
-actual work: notes, timers, approvals.
+## 4. Related scheduling and travel views
+
+Under the Dispatch section you can also open:
+
+- **Scheduling (`/dispatch/scheduling`):** Set up appointment types (duration, buffer minutes before/after, booking window, and active status) and **scheduling groups** (the technician pools used when a client books a slot).
+- **Planning and Travel (`/dispatch/planning` and `/dispatch/travel`):** Check multi-day capacity, review route drive times between stops, and approve technician mileage drafts (see [Turn on travel time & mileage reconciliation](admin-routing-travel.md)).
+- **Client booking links:** Clients can pick an open slot using your published scheduling links or from the **Schedule** tab in the client portal. If someone opens an expired or disabled booking link, Marula shows a clear `"This scheduling link is not available."` message.
+
+## 5. Moving from Dispatch to working the ticket
+
+Once a job is on the calendar, the technician opens the ticket in the workbench (or on the mobile app's **Today** screen) to run the timer and post notes. See [How to work a ticket](staff-work-a-ticket.md) and [How to run a service day from the phone](technician-service-day.md).
 
 ## What you learned
 
-- The dispatch board is the whole workforce in one day-grid: booked %,
-  unassigned queue, conflicts, presence, auto-assign off by default.
-- Scheduling groups and meeting types are the config surfaces beneath.
+- The Dispatch board puts technician capacity, the `06:00`–`19:00` timeline, the unassigned queue, and double-booking conflict alerts on one screen.
+- You can schedule work by dragging a ticket onto a slot or by using the keyboard **Move** menu.
+- Appointment types and technician pools live under `/dispatch/scheduling`.

@@ -9,8 +9,14 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+// The pre-paint theme bootstrap: one source of truth shared with the app's
+// TS resolution (packages/ui/src/theme-bootstrap.ts). Inlined into <head> so
+// the resolved mode — stored preference, else the system's — is the first
+// thing the browser paints, ahead of the CSS it selects.
+import { themeBootstrapScript } from "@marula-core/ui/theme-bootstrap";
 import { AuthProvider } from "../lib/api";
 import { AppShell } from "../components/shell/app-shell";
+import { ThemeBootstrap } from "../components/theme-bootstrap";
 import { cn } from "@/lib/utils";
 import { builtinPresetCss } from "@marula-core/ui/theme-tokens";
 import { ToastHost } from "../components/toast-host";
@@ -96,7 +102,7 @@ export const viewport: Viewport = {
   ],
 };
 
-const themeBootstrap =`(function(){try{var t=localStorage.getItem("marula-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.dataset.theme=(t==="light"?"neutral":"dark");var p=localStorage.getItem("marula-theme-preset");if(p){document.documentElement.dataset.preset=p;}var d=localStorage.getItem("marula-density");if(d==="compact"||d==="dense"||d==="comfortable"){document.documentElement.dataset.density=d;}else{document.documentElement.dataset.density="comfortable";}}catch(e){}})();`;
+const themeBootstrap = themeBootstrapScript();
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -106,6 +112,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <style id="m-theme-presets" dangerouslySetInnerHTML={{ __html: presetCss }} />
       </head>
       <body>
+        <ThemeBootstrap />
         <AuthProvider>
           <AppShell>{children}</AppShell>
         </AuthProvider>

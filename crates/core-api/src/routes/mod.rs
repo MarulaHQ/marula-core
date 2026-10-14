@@ -250,6 +250,14 @@ pub fn build_router(state: AppState) -> Router {
     // gets a `correlation_id` span field + an echoed `x-correlation-id`
     // response header, so a client-reported failure pairs with exactly one
     // grep-able server log line.
+    //
+    // Real-client-IP resolution (Wave 47 lane A10) sits just inside those
+    // and outside EVERY route: one resolver walks the trusted-proxy chain
+    // from the direct peer and publishes the answer as a `ClientIp`
+    // extension, so no handler re-derives an IP from headers. It is
+    // outermost-of-the-route-layers because the peer (axum `ConnectInfo`)
+    // only exists once the connection is accepted, and inner surfaces such
+    // as the auth throttle gates must read the same resolved value.
     let app = Router::new()
         .merge(api)
         .merge(internal)
@@ -258,6 +266,10 @@ pub fn build_router(state: AppState) -> Router {
         .layer(middleware::from_fn(crate::otel_http::correlate))
         .layer(middleware::from_fn(crate::error::typed_rejections))
         .layer(middleware::from_fn(crate::otel_http::track))
+        .layer(middleware::from_fn_with_state(
+            state.config.trusted_proxies.clone(),
+            crate::client_ip::stash,
+        ))
         .with_state(state);
     // ChatRunner (Wave 18 lane 2) stamps the composed router on every
     // build so its wardrobe tool self-calls ride the REAL middleware
