@@ -17,11 +17,12 @@
 use crate::auth::cookies;
 use crate::auth::jwt;
 use crate::auth::PortalAuthed;
+use crate::client_ip::ClientIp;
 use crate::error::{ApiError, ApiResult};
 use crate::org_tx;
 use crate::state::AppState;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::{header::AUTHORIZATION, Extensions},
     middleware::Next,
     response::IntoResponse,
@@ -126,7 +127,7 @@ pub struct PortalProfile {
 ))]
 pub async fn login(
     State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<PortalLoginRequest>,
 ) -> ApiResult<axum::response::Response> {
     // Narrow SECURITY DEFINER bridge (migration 0021): identity only.
@@ -163,7 +164,7 @@ pub async fn login(
         let _ = crate::auth::hardening::record_failure(
             &state,
             crate::auth::hardening::kinds::PASSWORD_LOGIN,
-            &headers,
+            &client_ip,
             crate::auth::hardening::GateSubject::Email(&req.email),
         )
         .await;
@@ -187,7 +188,8 @@ pub async fn login(
     let _ = crate::auth::hardening::record_success(
         &state,
         crate::auth::hardening::kinds::PASSWORD_LOGIN,
-        &headers,
+        &client_ip,
+
         crate::auth::hardening::GateSubject::Email(&req.email),
     )
     .await;
@@ -221,6 +223,7 @@ pub struct PortalRefreshRequest {
 pub async fn refresh(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     req: Option<Json<PortalRefreshRequest>>,
 ) -> ApiResult<axum::response::Response> {
     if !cookies::double_submit_ok(&headers) {
@@ -231,7 +234,8 @@ pub async fn refresh(
     crate::auth::hardening::enforce_gate(
         &state,
         crate::auth::hardening::kinds::REFRESH,
-        &headers,
+        &client_ip,
+
         crate::auth::hardening::GateSubject::IpOnly,
         false,
     )
@@ -330,14 +334,15 @@ pub struct PortalMagicLinkRequest {
     ))]
 pub async fn magic_link_request(
     State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<PortalMagicLinkRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let email = req.email.trim();
     crate::auth::hardening::enforce_gate(
         &state,
         crate::auth::hardening::kinds::PORTAL_MAGIC_LINK,
-        &headers,
+        &client_ip,
+
         crate::auth::hardening::GateSubject::Email(email),
         false,
     )
@@ -445,13 +450,14 @@ pub struct PortalMagicLinkConfirm {
     ))]
 pub async fn magic_link_confirm(
     State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<PortalMagicLinkConfirm>,
 ) -> ApiResult<axum::response::Response> {
     crate::auth::hardening::enforce_gate(
         &state,
         crate::auth::hardening::kinds::PORTAL_MAGIC_LINK,
-        &headers,
+        &client_ip,
+
         crate::auth::hardening::GateSubject::IpOnly,
         false,
     )

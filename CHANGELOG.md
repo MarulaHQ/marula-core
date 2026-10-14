@@ -67,6 +67,16 @@ Every change lands as a reviewed pull request. Contributions follow
 - Documentation moved to a deterministic publishing pipeline: one renderer,
   byte-identical output, verified links, published straight from the markdown
   in this repository.
+- Behind a proxy, the API now identifies the calling client from the address
+  the connection actually came from, and only trusts `X-Forwarded-For` or
+  `CF-Connecting-IP` from a proxy you declared with `TRUSTED_PROXIES` (default:
+  loopback and private networks). A caller that reaches the API directly can no
+  longer pick the address its throttling and audit entries are recorded under.
+  A deploy that is reachable from the internet but still uses that default logs
+  a warning at startup naming the fix; the reverse-proxy runbook carries the
+  Cloudflare recipe. Rate limits and locks still hang off the account, not the
+  address — this changes whose name is on the record, not what the record
+  blocks.
 
 ### Security
 

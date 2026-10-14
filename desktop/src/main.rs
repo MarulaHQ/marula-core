@@ -523,7 +523,14 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", api_port)).await?;
     tracing::info!(%api_url, "core-api mounted for the desktop app");
     tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app).await {
+        // Connect info, matching the core-api binary: the real-client-IP
+        // resolver (Wave 47 lane A10) keys off the direct peer, never off a
+        // caller-supplied `X-Forwarded-For`. Loopback-only bind, so the
+        // narrow default trust set is the right posture here.
+        if let Err(e) =
+            axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
+                .await
+        {
             tracing::error!("api server stopped: {e}");
         }
     });

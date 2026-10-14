@@ -153,6 +153,24 @@ pub struct Config {
     /// `ROUTING_PROVIDER` = `none` (default; built-in heuristic) | `osrm`
     /// | `ors` | `mapbox` | `contract`.
     pub routing: RoutingChoice,
+    /// Trusted-proxy posture for real-client-IP resolution (Wave 47 lane
+    /// A10): which direct peers may speak for another address, which
+    /// peers are Cloudflare edges, and how much authority
+    /// `CF-Connecting-IP` carries. Env:
+    /// * `TRUSTED_PROXIES` — comma-separated CIDRs. UNSET ⇒ the narrow
+    ///   default set (loopback + RFC1918 + IPv6 ULA), which keeps same-host
+    ///   and in-VPC proxies working; an explicit list REPLACES it, which is
+    ///   what an edge deployment does.
+    /// * `CF_CONNECTING_IP` — `auto` (default: believe the header only
+    ///   from a trusted Cloudflare range) | `true` (believe it from any
+    ///   trusted peer) | `false` (ignore it).
+    /// * `CF_IP_RANGES` — comma-separated CIDRs that EXTEND the versioned
+    ///   Cloudflare range constant in `crate::client_ip` (Cloudflare
+    ///   publishes new ranges between releases).
+    ///
+    /// Malformed entries are dropped loudly at boot and never fail it.
+    /// See [`crate::client_ip`] for the resolution algorithm.
+    pub trusted_proxies: crate::client_ip::TrustedProxies,
 }
 
 /// Which distance/duration provider the process registers (Wave 32 lane 7).
@@ -337,6 +355,9 @@ impl Config {
             // Desktop/test profile: NONE mode — never dials a routing
             // service the operator did not configure.
             routing: RoutingChoice::None,
+            // Loopback-only bind: the default trust set (loopback +
+            // RFC1918) is already correct for a same-host proxy.
+            trusted_proxies: crate::client_ip::TrustedProxies::default(),
         }
     }
 
@@ -346,6 +367,37 @@ impl Config {
             Some(addr) => ScanChoice::Clamd(addr.clone()),
             None => ScanChoice::None,
         }
+    }
+
+    /// First-boot sanity check for the trusted-proxy posture (Wave 47 lane
+    /// A10). WARNS, never fails — the same posture as the banned-defaults
+    /// and plugin-signing-key checks in the binary's startup sequence: an
+    /// operator must be told about the spoofing implication, not locked
+    /// out of booting while they read about it.
+    ///
+    /// Fires when the bind is internet-reachable while only the narrow
+    /// default trust set is configured. The default set trusts loopback and
+    /// RFC1918 space, which is right for compose and in-VPC proxies and
+    /// wrong for an edge deployment: a Cloudflare (or any public) peer is
+    /// then untrusted, so `X-Forwarded-For` from that path carries no
+    /// authority and every real client collapses onto the edge IP for the
+    /// per-IP throttle keys. Naming the fix in the warning is the point.
+    pub fn warn_trusted_proxy_posture(&self) {
+        if !self.trusted_proxies.is_default() {
+            return;
+        }
+        if !crate::client_ip::bind_is_internet_reachable(&self.bind_addr) {
+            return;
+        }
+        tracing::warn!(
+            bind = %self.bind_addr,
+            "TRUSTED_PROXIES is unset on an internet-reachable bind: the default trust set \
+             (loopback + RFC1918) is in force, so proxy headers from PUBLIC peers are ignored \
+             and every request resolves to its direct peer address. Behind Cloudflare or any \
+             public load balancer that poisons the per-IP throttle keys (the per-actor keys stay \
+             authoritative) — set TRUSTED_PROXIES to your edge CIDRs (Cloudflare's are listed in \
+             crates/core-api/src/client_ip.rs) and, for Cloudflare, keep CF_CONNECTING_IP=auto."
+        );
     }
 
     /// Returns the error that closes the confirmed 2026-09-16
@@ -519,6 +571,7 @@ impl Config {
                 .filter(|v| !v.trim().is_empty()),
             dev_tools,
             routing: routing_from_env(),
+            trusted_proxies: crate::client_ip::TrustedProxies::from_env(),
         })
     }
 }
@@ -752,6 +805,7 @@ impl Config {
             plugin_signing_keys: None,
             dev_tools: false,
             routing: RoutingChoice::None,
+            trusted_proxies: crate::client_ip::TrustedProxies::from_env(),
         }
     }
 }
