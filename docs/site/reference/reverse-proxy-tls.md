@@ -98,6 +98,37 @@ Cloudflare DNS module, which is why the edge image is built in-lane
 it, drop the build and pin the stock image — the Dockerfile header names
 it.
 
+### The records a custom domain needs
+
+Marula's per-org custom domain is verified with a DNS TXT challenge, which
+every provider supports and which the edge never intercepts:
+
+| Record | Value | Proxy |
+|---|---|---|
+| `_marula-verify.<domain>` `TXT` | the token core-api issues when you set the domain | always off |
+| `<domain>` `A` / `AAAA` / `CNAME` | the platform edge host you declared | your call |
+
+Core resolves the TXT record through the system resolver and compares the
+token, so verification works at Cloudflare, Route 53, Gandi, Azure DNS, a
+self-hosted nameserver, or anywhere else. The A/AAAA/CNAME check tolerates
+an orange-cloud record because a proxied record resolves to the edge's IPs
+rather than yours — the TXT token stays the ownership authority. Keep the
+TXT record unproxied anyway; that keeps the challenge path free of one
+variable.
+
+Paste both records by hand if you like to. That is the complete path, and
+no Core endpoint requires a DNS plugin.
+
+If you host DNS at Cloudflare, `plugins/connectors/cloudflare/` writes both
+records for you with an operator-created API token (`Zone:DNS:Edit`, stored
+in Core's org-settings/BYOK surface): it discovers the zone by walking the
+domain's labels down to the apex, creates the TXT challenge unproxied, and
+upserts the edge record with `proxied` on or off as you declared. It also
+reads the zone's SSL/TLS mode, the Origin CA certificate inventory, and
+whether the hostname is orange-clouded, so the checklist in this runbook can
+be checked instead of guessed. Those reads never write anything: an SSL mode
+change, a certificate, or a proxy toggle stays an operator action.
+
 ## Telling the API which proxy to believe
 
 Once you terminate TLS at a proxy, core-api no longer sees the caller's

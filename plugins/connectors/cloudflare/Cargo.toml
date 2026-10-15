@@ -1,0 +1,19 @@
+[package]
+name = "cloudflare"
+version = "0.1.0"
+edition.workspace = true
+license = "Apache-2.0"
+description = "First-party Cloudflare DNS and edge-posture connector for Project Marula — custom-domain TXT verification, proxy-aware A/AAAA/CNAME upserts, and read-only SSL/Origin CA posture checks over adapters-core (Apache-2.0, ADR 0013 standard set)"
+
+[dependencies]
+adapters-core = { path = "../adapters-core" }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }

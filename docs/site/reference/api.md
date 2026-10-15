@@ -3,7 +3,7 @@
 
 **Marula Core API 0.1.0** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**624 paths · 834 operations · 1306 schemas.**
+**632 paths · 842 operations · 1323 schemas.**
 
 ## agent-proposals
 
@@ -250,7 +250,7 @@
 | `POST` | `/api/v1/calendar-sync/{id}/rotate-token` <a id="calendar_sync_rotate_token"></a> | POST /api/calendar-sync/{id}/rotate-token — invalidates the old outbound feed URL and returns the new raw token once. | — |
 | `POST` | `/api/v1/calendar-sync/{id}/sync` <a id="calendar_sync_run"></a> | POST /api/calendar-sync/{id}/sync — poll now (manual trigger; the worker lane calls the same seam on its schedule). Network fetch happens OUTSIDE the transaction; the apply + poll-state record + event emission run inside ONE org transaction. | — |
 | `GET` | `/api/v1/calendar-sync/{provider}/callback` <a id="calendar_sync_oauth_callback"></a> | GET /api/calendar-sync/{provider}/callback — the vendor's redirect target. | — |
-| `GET` | `/api/v1/calendar-sync/feed/{token}` <a id="public_calendar_sync_feed"></a> | GET /api/calendar-sync/feed/{token} — the OUTBOUND direction: the user's live appointments as a subscribable iCalendar document. Unauthenticated but token-scoped and rate-limited (the scheduling-links pattern); the token resolves org + user, then the read is org-scoped. | — |
+| `GET` | `/api/v1/calendar-sync/feed/{token}` <a id="public_calendar_sync_feed"></a> | GET /api/calendar-sync/feed/{token} — the OUTBOUND direction: the user's live appointments as a subscribable iCalendar document. Unauthenticated but token-scoped and rate-limited (the scheduling-links pattern); the token resolves org + user, then the read is org-scoped. The token-to-org resolution runs through the `app_resolve_calendar_feed_target` SECURITY DEFINER bridge (migration 0132) — the token is in the URL with no session, so the row is default-deny off the bare pool under RLS. | — |
 
 ## catalog
 
@@ -699,10 +699,12 @@
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
+| `GET` | `/api/v1/orgs/{org_id}/quotas` <a id="org_quotas_get"></a> | GET /api/v1/orgs/{org_id}/quotas — usage beside configured limits. | — |
 | `GET` | `/api/v1/orgs/{org_id}/service-accounts` <a id="service_accounts_list"></a> | GET /orgs/{org_id}/service-accounts — admin listing with derived cert status. | — |
 | `POST` | `/api/v1/orgs/{org_id}/service-accounts` <a id="service_accounts_create"></a> | POST /orgs/{org_id}/service-accounts — enroll a service account by pinning a certificate fingerprint with permission grants and an optional expiry. | [CreateServiceAccountRequest](#schema-createserviceaccountrequest) |
 | `DELETE` | `/api/v1/orgs/{org_id}/service-accounts/{id}` <a id="service_accounts_delete"></a> | DELETE /orgs/{org_id}/service-accounts/{id} — immediate, permanent revocation. Idempotent: a second delete of an already-revoked account stays successful (the row is present in-scope), so the surface is safe to retry. | — |
 | `PATCH` | `/api/v1/orgs/{org_id}/service-accounts/{id}` <a id="service_accounts_update"></a> | PATCH /orgs/{org_id}/service-accounts/{id} — update grants, expiry, or lifecycle status. The pinned fingerprint and org binding are immutable (a re-pin is a create + revoke). | [UpdateServiceAccountRequest](#schema-updateserviceaccountrequest) |
+| `GET` | `/api/v1/orgs/{org_id}/usage` <a id="org_usage_get"></a> | GET /api/v1/orgs/{org_id}/usage — the org's current usage counts. | — |
 
 ## passwords
 
@@ -924,6 +926,17 @@
 | `POST` | `/api/v1/quotes/{id}/decline` <a id="quotes_decline"></a> | POST /api/quotes/{id}/decline — sent → declined. Terminal. | [QuoteLifecycleRequest](#schema-quotelifecyclerequest) |
 | `POST` | `/api/v1/quotes/{id}/expire` <a id="quotes_expire"></a> | POST /api/quotes/{id}/expire — explicitly expire a quote PAST its validity window (decline is the in-window exit). | [QuoteLifecycleRequest](#schema-quotelifecyclerequest) |
 | `POST` | `/api/v1/quotes/{id}/send` <a id="quotes_send"></a> | One lifecycle leg: shared shape for send/accept/decline (expire has a POST /api/quotes/{id}/send — draft → sent. Locks the document. | [QuoteLifecycleRequest](#schema-quotelifecyclerequest) |
+
+## rag
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `POST` | `/api/v1/rag/chunks` <a id="rag_chunks_ingest"></a> | POST /api/v1/rag/chunks — batch upsert of RAG passage and media chunks. | [RagIngestRequest](#schema-ragingestrequest) |
+| `POST` | `/api/v1/rag/delete` <a id="rag_source_delete_post"></a> | POST /api/v1/rag/delete — deletes all chunks for `(namespace, source_kind, source_id)` and returns a verifiable deletion receipt (supports arbitrary URI/slash `source_id` values and the IF1–IF3 idempotency envelope). | [RagDeleteSourceRequest](#schema-ragdeletesourcerequest) |
+| `GET` | `/api/v1/rag/deletion-receipts` <a id="rag_deletion_receipts_list"></a> | GET /api/v1/rag/deletion-receipts — lists verifiable deletion receipts for the caller's org (including receipts minted automatically by core entity deletion cascades). | — |
+| `GET` | `/api/v1/rag/deletion-receipts/{id}` <a id="rag_deletion_receipt_get"></a> | GET /api/v1/rag/deletion-receipts/{id} — fetches a single verifiable deletion receipt by `receipt_id` under RLS. | — |
+| `POST` | `/api/v1/rag/query` <a id="rag_query"></a> | POST /api/v1/rag/query — hybrid BM25 + exact-KNN vector query with RRF fusion and mandatory source attribution. | [RagQueryRequest](#schema-ragqueryrequest) |
+| `DELETE` | `/api/v1/rag/sources/{source_kind}/{source_id}` <a id="rag_source_delete"></a> | DELETE /api/v1/rag/sources/{source_kind}/{source_id} — deletes all chunks for `(namespace, source_kind, source_id)` and returns a verifiable deletion receipt. | — |
 
 ## reply-snippets
 
@@ -2042,8 +2055,10 @@
 | <a id="schema-orgdefaultsresponse"></a>`OrgDefaultsResponse` | object |  |
 | <a id="schema-orgdefaultview"></a>`OrgDefaultView` | object |  |
 | <a id="schema-orgprofileresponse"></a>`OrgProfileResponse` | object |  |
+| <a id="schema-orgquotaview"></a>`OrgQuotaView` | object | One metric beside its configured limit, if any, and the percentage of it in use. |
 | <a id="schema-orgreconcilerequest"></a>`OrgReconcileRequest` | composite |  |
 | <a id="schema-orgreconcileresponse"></a>`OrgReconcileResponse` | object |  |
+| <a id="schema-orgusageview"></a>`OrgUsageView` | object | The org's current usage, one field per recorded metric. |
 | <a id="schema-orguser"></a>`OrgUser` | object | Directory view of one staff user (route-level DTO; `org_role` is the user's highest-precedence builtin role, `null` for custom-only). |
 | <a id="schema-orguserlistresponse"></a>`OrgUserListResponse` | object |  |
 | <a id="schema-orgusermutationresponse"></a>`OrgUserMutationResponse` | composite | Instant-first mutation response (IF2): the invited (still inactive) user at the top level plus the one-time setup token and the additive `mutation` metadata. |
@@ -2239,6 +2254,7 @@
 | <a id="schema-queuedticket"></a>`QueuedTicket` | composite | One queued ticket: the day-view's queue row shape plus the explicit override when one exists. |
 | <a id="schema-queuemutationresponse"></a>`QueueMutationResponse` | object | Queue mutation envelope (set + clear share the shape; clears carry `cleared: true` and null note). |
 | <a id="schema-queuequery"></a>`QueueQuery` | object |  |
+| <a id="schema-quotametricview"></a>`QuotaMetricView` | object | A single metric's reading: the measured usage, the configured limit (when one exists), and the percentage of the limit in use. |
 | <a id="schema-quote"></a>`Quote` | object | The quote document. `subtotal/tax/total` are persisted roll-ups of the lines, recomputed on every draft edit. |
 | <a id="schema-quotedetail"></a>`QuoteDetail` | composite | The quote aggregate: document + lines. |
 | <a id="schema-quotelifecyclerequest"></a>`QuoteLifecycleRequest` | composite | A lifecycle leg body (send/accept/decline/expire): envelope params only; the target status is the URL. |
@@ -2247,6 +2263,18 @@
 | <a id="schema-quotelistquery"></a>`QuoteListQuery` | object | GET /api/quotes query. |
 | <a id="schema-quotemutationresponse"></a>`QuoteMutationResponse` | composite | Instant-first mutation response (IF2) for quote mutations. |
 | <a id="schema-quotestatus"></a>`QuoteStatus` | string | Lifecycle of a quote. `accepted` / `declined` / `expired` are terminal. |
+| <a id="schema-ragchunkinput"></a>`RagChunkInput` | object | Input chunk in a batch ingest request before provider embedding resolution. |
+| <a id="schema-ragchunkkey"></a>`RagChunkKey` | object | Composite chunk identity within an org + namespace: `(source_kind, source_id, chunk_index, modality)`. |
+| <a id="schema-ragdeletesourcerequest"></a>`RagDeleteSourceRequest` | composite | Request body for `POST /api/v1/rag/delete`. |
+| <a id="schema-ragdeletesourceresponse"></a>`RagDeleteSourceResponse` | object | Response from deleting a source's chunks in a namespace. |
+| <a id="schema-ragdeletionreceipt"></a>`RagDeletionReceipt` | object | Provable deletion receipt recorded when a source's chunks are removed from `rag_embeddings` (ADR 0020 §6). |
+| <a id="schema-ragdeletionreceiptlist"></a>`RagDeletionReceiptList` | object | Response from `GET /api/v1/rag/deletion-receipts`. |
+| <a id="schema-ragingestrequest"></a>`RagIngestRequest` | composite | Batch upsert request for `/api/v1/rag/chunks`. |
+| <a id="schema-ragingestresponse"></a>`RagIngestResponse` | object | Response from `POST /api/v1/rag/chunks`. |
+| <a id="schema-ragmodality"></a>`RagModality` | string | First-class modality of a stored chunk or query filter (ADR 0020 §3). |
+| <a id="schema-ragqueryhit"></a>`RagQueryHit` | object | Ranked RAG hit with mandatory source attribution (ADR 0020 §4). |
+| <a id="schema-ragqueryrequest"></a>`RagQueryRequest` | object | Hybrid BM25 + exact-KNN query request for `POST /api/v1/rag/query`. |
+| <a id="schema-ragqueryresponse"></a>`RagQueryResponse` | object | Ranked response from `POST /api/v1/rag/query`. |
 | <a id="schema-rangeparams"></a>`RangeParams` | object |  |
 | <a id="schema-ratelistquery"></a>`RateListQuery` | object |  |
 | <a id="schema-ratemutationresponse"></a>`RateMutationResponse` | composite |  |
@@ -2528,6 +2556,7 @@
 | <a id="schema-ticketpickview"></a>`TicketPickView` | object |  |
 | <a id="schema-ticketrevertresponse"></a>`TicketRevertResponse` | composite | The reverted ticket with the mutation envelope, plus what was reverted. Deserializable so an IF1 idempotent replay can reconstruct the exact stored response. |
 | <a id="schema-ticketrollup"></a>`TicketRollup` | object | Rollup over the children/members pointing at one ticket, plus the ticket's own billable money lines. |
+| <a id="schema-ticketsbycategory"></a>`TicketsByCategory` | object | Tickets by workflow category. The status NAME is per-board and repeats across boards, so a name-keyed map would merge different statuses; `category` is the closed vocabulary the workflow layer owns. |
 | <a id="schema-ticketskillsmutationresponse"></a>`TicketSkillsMutationResponse` | composite | The full-replace mutation envelope (IF2). |
 | <a id="schema-ticketskillsview"></a>`TicketSkillsView` | object |  |
 | <a id="schema-ticketslastate"></a>`TicketSlaState` | object | Per-ticket SLA clock state. Accumulates paused business seconds so a Waiting stretch does not consume the resolution budget. |
@@ -2583,6 +2612,7 @@
 | <a id="schema-travelplaceview"></a>`TravelPlaceView` | object |  |
 | <a id="schema-travelsuggestionview"></a>`TravelSuggestionView` | object |  |
 | <a id="schema-travelwarningview"></a>`TravelWarningView` | object |  |
+| <a id="schema-unavailablemetric"></a>`UnavailableMetric` | object | A metric the core does not report, and why. The reason is prose for a HUMAN operator reading the surface; `metric` is the stable token a dashboard can group on. |
 | <a id="schema-unbillablereason"></a>`UnbillableReason` | string | Why an entry is not billable (report V3). Typed values only — the verification run and scoring reports aggregate on these codes. |
 | <a id="schema-undofieldstep"></a>`UndoFieldStep` | object | One field of one applied write — per-field undo granularity. |
 | <a id="schema-undomode"></a>`UndoMode` | string | The record's undo posture: `open` = near-total undo; `reverts_only` = explicit actioned per-field reverts only (record is closed). |
@@ -2695,4 +2725,4 @@
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 29 operation groups; schema count 1306 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 30 operation groups; schema count 1323 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

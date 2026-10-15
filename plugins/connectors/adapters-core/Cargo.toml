@@ -6,6 +6,7 @@ license = "Apache-2.0"
 description = "Shared live-REST transport primitives for Project Marula's first-party connector adapters — vendor auth (api key / bearer / OAuth2 client credentials), native pagination flows, and vendor-org → Marula-client mapping (Apache-2.0)"
 
 [dependencies]
+async-trait = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

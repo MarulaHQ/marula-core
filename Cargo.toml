@@ -54,6 +54,10 @@ members = [
     # Wave 32 lane 7 (p32-dispatch-routing): first-party Mapbox routing
     # provider (ADR 0013 standard set) behind the core-routing seam.
     "plugins/connectors/mapbox",
+    # Wave 47 lane A11 (p47-cloudflare-plugin): reference Cloudflare DNS &
+    # edge posture connector (ADR 0013 standard set) behind the custom-domain
+    # DNS-record-management seam.
+    "plugins/connectors/cloudflare",
 ]
 
 # Desktop lane (2026-09-13, ADR 0005): lighter release profile for the
