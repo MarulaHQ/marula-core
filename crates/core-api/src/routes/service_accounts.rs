@@ -77,6 +77,23 @@ pub fn permission_from_key(key: &str) -> Option<Permission> {
         // ADR 0004 RB2: financial visibility sits outside the `special:`
         // namespace deliberately.
         "financial:read" => return Some(Permission::ViewFinancials),
+        // Wave 47 lane A6: org usage read-only monitoring grant.
+        "org_usage:read" => return Some(Permission::ViewOrgUsage),
+        // Wave 45 lane 1 (ADR 0020): RAG capability aliases resolve onto the
+        // Kb matrix (`kb:view` / `kb:edit`), matching `PluginCapability::RagRead`
+        // and `PluginCapability::RagWrite`.
+        "rag:read" | "rag.read" => {
+            return Some(Permission::Matrix {
+                module: Module::Kb,
+                action: Action::View,
+            })
+        }
+        "rag:write" | "rag.write" => {
+            return Some(Permission::Matrix {
+                module: Module::Kb,
+                action: Action::Edit,
+            })
+        }
         _ => {}
     }
     let (module_key, action_key) = key.split_once(':')?;

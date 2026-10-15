@@ -80,6 +80,7 @@ pub mod provenance;
 pub mod purchasing;
 pub mod queue;
 pub mod quotes;
+pub mod rag;
 pub mod recurring;
 pub mod reply_snippets;
 pub mod report_defs;

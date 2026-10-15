@@ -108,6 +108,7 @@ pub mod projects;
 pub mod provenance;
 pub mod purchasing;
 pub mod quotes;
+pub mod rag;
 pub mod recurring;
 pub mod reply_snippets;
 pub mod report_defs;
@@ -2134,6 +2135,24 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/dispatch/travel-drafts/{id}/expense"),
             post(routing::travel_draft_expense),
+        )
+        // RAG and media vector namespace (ADR 0020; Wave 45 lane 1, migration 0132):
+        // batch chunk ingest, hybrid BM25 + exact-KNN RRF query, and source
+        // deletion with provable receipts.
+        .route(&rp("/rag/chunks"), post(rag::ingest_chunks))
+        .route(&rp("/rag/query"), post(rag::query_namespace))
+        .route(&rp("/rag/delete"), post(rag::delete_source_post))
+        .route(
+            &rp("/rag/sources/{source_kind}/{source_id}"),
+            delete(rag::delete_source_path),
+        )
+        .route(
+            &rp("/rag/deletion-receipts"),
+            get(rag::list_deletion_receipts),
+        )
+        .route(
+            &rp("/rag/deletion-receipts/{id}"),
+            get(rag::get_deletion_receipt),
         )
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 

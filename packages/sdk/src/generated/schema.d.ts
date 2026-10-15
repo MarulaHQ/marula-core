@@ -6373,6 +6373,104 @@ export interface paths {
         patch: operations["org_users_set_status"];
         trace?: never;
     };
+    "/api/v1/orgs/{org_id}/quotas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/v1/orgs/{org_id}/quotas — usage beside configured limits.
+         * @description Informational by construction: a percentage here is a measurement, and
+         *     nothing in the core reads this endpoint to limit anything. `limits`
+         *     is a real configuration read — an org that has configured none reports
+         *     `false`, because a default limit is a fake gate.
+         */
+        get: operations["org_quotas_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orgs/{org_id}/service-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /orgs/{org_id}/service-accounts — admin listing with derived cert
+         *     status.
+         */
+        get: operations["service_accounts_list"];
+        put?: never;
+        /**
+         * POST /orgs/{org_id}/service-accounts — enroll a service account by
+         *     pinning a certificate fingerprint with permission grants and an
+         *     optional expiry.
+         */
+        post: operations["service_accounts_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orgs/{org_id}/service-accounts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /orgs/{org_id}/service-accounts/{id} — immediate, permanent
+         *     revocation. Idempotent: a second delete of an already-revoked account
+         *     stays successful (the row is present in-scope), so the surface is safe
+         *     to retry.
+         */
+        delete: operations["service_accounts_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /orgs/{org_id}/service-accounts/{id} — update grants, expiry, or
+         *     lifecycle status. The pinned fingerprint and org binding are immutable
+         *     (a re-pin is a create + revoke).
+         */
+        patch: operations["service_accounts_update"];
+        trace?: never;
+    };
+    "/api/v1/orgs/{org_id}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/v1/orgs/{org_id}/usage — the org's current usage counts.
+         * @description `refreshed_at` is when the numbers were computed; a consumer that
+         *     needs fresh numbers reads the row's own timestamp instead of assuming.
+         *     `unavailable` names every metric this build cannot compute honestly,
+         *     with the reason — it is a real, renderable list, not a placeholder.
+         */
+        get: operations["org_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/passwords": {
         parameters: {
             query?: never;
@@ -8772,6 +8870,126 @@ export interface paths {
          */
         post: operations["quotes_send"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/chunks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/v1/rag/chunks — batch upsert of RAG passage and media chunks. */
+        post: operations["rag_chunks_ingest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/rag/delete — deletes all chunks for `(namespace, source_kind,
+         *     source_id)` and returns a verifiable deletion receipt (supports arbitrary
+         *     URI/slash `source_id` values and the IF1–IF3 idempotency envelope).
+         */
+        post: operations["rag_source_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/deletion-receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/v1/rag/deletion-receipts — lists verifiable deletion receipts for
+         *     the caller's org (including receipts minted automatically by core entity
+         *     deletion cascades).
+         */
+        get: operations["rag_deletion_receipts_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/deletion-receipts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/v1/rag/deletion-receipts/{id} — fetches a single verifiable
+         *     deletion receipt by `receipt_id` under RLS.
+         */
+        get: operations["rag_deletion_receipt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/rag/query — hybrid BM25 + exact-KNN vector query with RRF
+         *     fusion and mandatory source attribution.
+         */
+        post: operations["rag_query"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/sources/{source_kind}/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/v1/rag/sources/{source_kind}/{source_id} — deletes all chunks
+         *     for `(namespace, source_kind, source_id)` and returns a verifiable deletion
+         *     receipt.
+         */
+        delete: operations["rag_source_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -16913,6 +17131,20 @@ export interface components {
              */
             label?: string;
         };
+        CreateServiceAccountRequest: {
+            /** @description Lowercase hex SHA-256 of the client certificate to pin. */
+            cert_fingerprint: string;
+            /** @description Optional display-only subject DN. */
+            cert_subject?: string | null;
+            /**
+             * Format: date-time
+             * @description Optional expiry; must be in the future when provided.
+             */
+            expires_at?: string | null;
+            name: string;
+            /** @description Permission-grant keys (validated against the policy matrix). */
+            scopes: string[];
+        };
         /** @description POST /api/tickets/{id}/sign-offs */
         CreateSignOffRequest: {
             /**
@@ -21614,6 +21846,33 @@ export interface components {
             slug: string;
             ticket_prefix: string;
         };
+        /**
+         * @description One metric beside its configured limit, if any, and the percentage of
+         *     it in use.
+         */
+        OrgQuotaView: {
+            /**
+             * @description Whether the org configured ANY limit. `false` means every
+             *     `percent` below is `None` because there is nothing to measure
+             *     against — the answer for an unconfigured org, not a default.
+             */
+            limits_configured: boolean;
+            /**
+             * @description Every reportable metric in a stable order, whether or not a limit
+             *     is configured for it.
+             */
+            metrics: components["schemas"]["QuotaMetricView"][];
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: date-time
+             * @description When the usage figures were computed. `None` while the org's row has
+             *     never been refreshed. Note that `UsageMetric::AutomationRuns` and
+             *     `WebhookDeliveries` read their all-time totals from this row, so the
+             *     totals are as of this instant rather than as of the request.
+             */
+            refreshed_at?: string | null;
+        };
         OrgReconcileRequest: components["schemas"]["MutationParams"] & {
             source_system: string;
             vendor_label?: string | null;
@@ -21624,6 +21883,109 @@ export interface components {
             already_mapped: boolean;
             mutation: components["schemas"]["MutationMeta"];
             queued_candidates: components["schemas"]["EntityCandidateView"][];
+        };
+        /** @description The org's current usage, one field per recorded metric. */
+        OrgUsageView: {
+            /**
+             * Format: int64
+             * @description Staff accounts that can still sign in. A disabled account is not
+             *     using anything, so it is not counted here.
+             * @example 14
+             */
+            active_users: number;
+            /**
+             * Format: int64
+             * @description Audit events within `[refreshed_at - 24h, refreshed_at]` — the closest
+             *     honest per-org proxy for API activity the core records. NOT an
+             *     API-call count: reads are not audited and writes are audited
+             *     best-effort, so this counts the mutations the core chose to record,
+             *     not the requests that arrived. The window is closed at refresh time,
+             *     as with the other `_24h` fields.
+             * @example 300
+             */
+            audit_events_24h: number;
+            /**
+             * Format: int64
+             * @description Ledgered automation execution attempts since the org's first run.
+             *     This is an ALL-TIME total, so it does not carry the staleness rule
+             *     the `_24h` fields do — but it is still only as current as
+             *     `refreshed_at`, since the row is written once per refresh.
+             * @example 120
+             */
+            automation_runs: number;
+            /**
+             * Format: int64
+             * @description Ledgered automation execution attempts within
+             *     `[refreshed_at - 24h, refreshed_at]`. The window is CLOSED at
+             *     refresh time, so it ages with the row rather than sliding to the
+             *     moment of the read; compare against `refreshed_at` before treating
+             *     this as current.
+             * @example 12
+             */
+            automation_runs_24h: number;
+            /**
+             * Format: int64
+             * @description Active managed client devices. This is an ACTIVE-INVENTORY count:
+             *     `device_assets` has no connectivity or last-seen signal, so it cannot
+             *     measure "connected" clients. Status is connector-compatibility free
+             *     text matched case-insensitively, so orgs whose connectors store a
+             *     different status string under-report — this is a floor, not a census.
+             * @example 9
+             */
+            managed_devices: number;
+            /**
+             * Format: int64
+             * @description Recorded object-store payload bytes (a floor; see the method note in
+             *     migration 0131 — staged import chunks record no size).
+             * @example 2147483648
+             */
+            object_store_bytes: number;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: date-time
+             * @description When these numbers were computed (the materialized row's own
+             *     timestamp). `None` while the refresh sweep has not reached the org
+             *     yet, which is exactly when the counts should not be trusted. Every
+             *     `_24h` field below is a window that ENDS at this instant; as the row
+             *     ages, so does the window, so read this before trusting those fields.
+             */
+            refreshed_at?: string | null;
+            /**
+             * @description Tickets per workflow category (the closed vocabulary). Category,
+             *     not board status name: names are per-board and repeat across boards,
+             *     so a name-keyed map would collapse distinct statuses.
+             */
+            tickets_by_category: components["schemas"]["TicketsByCategory"];
+            /**
+             * Format: int64
+             * @description Tickets across every category — the total an inventory limit
+             *     constrains.
+             * @example 64
+             */
+            tickets_total: number;
+            /**
+             * @description Metrics this build cannot compute honestly, each with the reason.
+             *     Empty is not possible today; the list exists so a monitoring
+             *     surface can render the gap rather than silently miss a column.
+             */
+            unavailable: components["schemas"]["UnavailableMetric"][];
+            /**
+             * Format: int64
+             * @description Ledgered webhook delivery attempts since the org's first. One row per
+             *     ATTEMPT, so a retried delivery counts three times. All-time, so no
+             *     window rule — only the row's own `refreshed_at` currency.
+             * @example 540
+             */
+            webhook_deliveries: number;
+            /**
+             * Format: int64
+             * @description Ledgered webhook delivery attempts within
+             *     `[refreshed_at - 24h, refreshed_at]` — the same CLOSED,
+             *     refresh-time-frozen window as `automation_runs_24h`.
+             * @example 40
+             */
+            webhook_deliveries_24h: number;
         };
         /**
          * @description Directory view of one staff user (route-level DTO; `org_role` is the
@@ -22330,7 +22692,7 @@ export interface components {
          *     no key for them).
          * @enum {string}
          */
-        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate" | "AutomationTriggers" | "AutomationReads" | "EventsEmit";
+        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate" | "AutomationTriggers" | "AutomationReads" | "EventsEmit" | "ServiceAccountManage" | "OrgUsageRead" | "RagRead" | "RagWrite";
         /**
          * @description Install lifecycle. Deny-by-default: `Disabled` until an explicit
          *     admin enable; `Revoked` is terminal (registry revocation or explicit
@@ -24384,6 +24746,34 @@ export interface components {
             rank_override?: number | null;
         };
         /**
+         * @description A single metric's reading: the measured usage, the configured limit
+         *     (when one exists), and the percentage of the limit in use.
+         */
+        QuotaMetricView: {
+            /**
+             * Format: int64
+             * @description The configured limit, or `None` when the org configured none.
+             */
+            limit?: number | null;
+            /** @description Stable metric token (SDK-visible). */
+            metric: string;
+            /**
+             * Format: double
+             * @description `usage` as a percentage of `limit`, to one decimal. `None` whenever
+             *     there is no limit to measure against (or the limit is zero), never
+             *     an error and never clamped: 300.0 is a valid, reportable reading.
+             */
+            percent?: number | null;
+            /** @description The org-settings key the limit is read from. */
+            setting_key: string;
+            /**
+             * Format: int64
+             * @description The measured value, or `None` when the org's usage row has never
+             *     been refreshed — an unmeasured org is not a zero org.
+             */
+            usage?: number | null;
+        };
+        /**
          * @description The quote document. `subtotal/tax/total` are persisted roll-ups of the
          *     lines, recomputed on every draft edit.
          */
@@ -24520,6 +24910,200 @@ export interface components {
          * @enum {string}
          */
         QuoteStatus: "draft" | "sent" | "accepted" | "declined" | "expired";
+        /** @description Input chunk in a batch ingest request before provider embedding resolution. */
+        RagChunkInput: {
+            /**
+             * Format: int32
+             * @description Zero-based passage or frame/segment index within the source.
+             */
+            chunk_index: number;
+            /**
+             * @description Content hash for idempotent re-ingest provenance. Computed
+             *     deterministically as SHA-256 hex when omitted.
+             */
+            content_hash?: string | null;
+            /**
+             * @description Passage text (required when `modality == text` and `embedding` is
+             *     omitted; optional caption/transcript snippet for media chunks to
+             *     participate in the lexical BM25 leg).
+             */
+            content_text?: string | null;
+            /**
+             * @description Precomputed 768-dim vector. Required for `image | video | audio`
+             *     modalities; optional for `text` chunks when the org has an active
+             *     embedding provider.
+             */
+            embedding?: number[] | null;
+            /**
+             * @description Attribution metadata (title, uri/locator, span/page/timecode,
+             *     mime_type, etc.) returned on every query hit. Defaults to `{}`.
+             */
+            metadata?: Record<string, never>;
+            /** @description Modality of this chunk (`text | image | video | audio`). */
+            modality: components["schemas"]["RagModality"];
+            /**
+             * @description Embedding model identifier. Required when `embedding` is supplied;
+             *     defaults to the org's configured embedding model when Core embeds a
+             *     `text` chunk.
+             */
+            model?: string | null;
+            /**
+             * @description Stable identifier of the source within `source_kind` (UUID or external
+             *     locator).
+             */
+            source_id: string;
+            /**
+             * @description Source entity family (e.g. `"ticket"`, `"kb_article"`, `"attachment"`,
+             *     `"document"`, or a connector-defined kind).
+             */
+            source_kind: string;
+        };
+        /**
+         * @description Composite chunk identity within an org + namespace:
+         *     `(source_kind, source_id, chunk_index, modality)`.
+         */
+        RagChunkKey: {
+            /** Format: int32 */
+            chunk_index: number;
+            modality: components["schemas"]["RagModality"];
+            source_id: string;
+            source_kind: string;
+        };
+        /** @description Request body for `POST /api/v1/rag/delete`. */
+        RagDeleteSourceRequest: components["schemas"]["MutationParams"] & {
+            namespace: string;
+            source_id: string;
+            source_kind: string;
+        };
+        /** @description Response from deleting a source's chunks in a namespace. */
+        RagDeleteSourceResponse: {
+            mutation?: null | components["schemas"]["MutationMeta"];
+            receipt: components["schemas"]["RagDeletionReceipt"];
+        };
+        /**
+         * @description Provable deletion receipt recorded when a source's chunks are removed from
+         *     `rag_embeddings` (ADR 0020 §6).
+         */
+        RagDeletionReceipt: {
+            content_hashes: string[];
+            deleted_at: string;
+            /** Format: uuid */
+            deleted_by?: string | null;
+            /** Format: int32 */
+            deleted_chunks: number;
+            namespace: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            receipt_id: string;
+            source_id: string;
+            source_kind: string;
+        };
+        /** @description Response from `GET /api/v1/rag/deletion-receipts`. */
+        RagDeletionReceiptList: {
+            receipts: components["schemas"]["RagDeletionReceipt"][];
+        };
+        /** @description Batch upsert request for `/api/v1/rag/chunks`. */
+        RagIngestRequest: components["schemas"]["MutationParams"] & {
+            /** @description Chunks to upsert (1..=128 per batch). */
+            chunks: components["schemas"]["RagChunkInput"][];
+            /**
+             * @description Logical vector namespace within the tenant (e.g. `"default"`,
+             *     `"kb-passages"`, `"ticket-media"`). Queries never cross namespaces.
+             */
+            namespace: string;
+        };
+        /** @description Response from `POST /api/v1/rag/chunks`. */
+        RagIngestResponse: {
+            inserted: number;
+            mutation: components["schemas"]["MutationMeta"];
+            namespace: string;
+            total: number;
+            unchanged: number;
+            updated: number;
+        };
+        /**
+         * @description First-class modality of a stored chunk or query filter (ADR 0020 §3).
+         * @enum {string}
+         */
+        RagModality: "text" | "image" | "video" | "audio";
+        /** @description Ranked RAG hit with mandatory source attribution (ADR 0020 §4). */
+        RagQueryHit: {
+            /** Format: int32 */
+            chunk_index: number;
+            content_hash: string;
+            content_text?: string | null;
+            embedded_at: string;
+            /**
+             * Format: double
+             * @description Lexical FTS rank (`ts_rank_cd`) when the BM25/FTS leg ran and matched
+             *     this chunk.
+             */
+            lexical_score?: number | null;
+            metadata: Record<string, never>;
+            modality: components["schemas"]["RagModality"];
+            model: string;
+            namespace: string;
+            /**
+             * Format: double
+             * @description Reciprocal Rank Fusion score combining the active retrieval legs.
+             */
+            score: number;
+            source_id: string;
+            source_kind: string;
+            /**
+             * Format: double
+             * @description Cosine distance (`embedding <=> $query_vec`) when the vector leg ran
+             *     and matched this chunk.
+             */
+            vector_distance?: number | null;
+        };
+        /** @description Hybrid BM25 + exact-KNN query request for `POST /api/v1/rag/query`. */
+        RagQueryRequest: {
+            /**
+             * Format: int64
+             * @description Maximum hits to return (1..=100, default 20).
+             */
+            limit?: number;
+            /**
+             * @description Optional modality filter (`text | image | video | audio`). When empty
+             *     or omitted, all modalities in the namespace participate (cross-modal
+             *     retrieval).
+             */
+            modalities?: components["schemas"]["RagModality"][];
+            /**
+             * @description Target namespace within the caller's org. Queries never cross
+             *     namespaces.
+             */
+            namespace: string;
+            /**
+             * @description Optional lexical query string. When supplied without `query_vector`,
+             *     Core also embeds `query_text` via the org's configured embedding
+             *     provider so both the BM25 and vector legs run and fuse via RRF.
+             */
+            query_text?: string | null;
+            /**
+             * @description Optional precomputed 768-dim query vector. Enables media->text,
+             *     media->media, and caller-embedded text->media queries across the shared
+             *     768-dimension space.
+             */
+            query_vector?: number[] | null;
+            /** @description Optional `source_id` filter. */
+            source_ids?: string[];
+            /** @description Optional `source_kind` filter. */
+            source_kinds?: string[];
+        };
+        /** @description Ranked response from `POST /api/v1/rag/query`. */
+        RagQueryResponse: {
+            hits: components["schemas"]["RagQueryHit"][];
+            /** @description Whether the lexical BM25/FTS leg participated in this query. */
+            lexical_leg_active: boolean;
+            /** Format: int64 */
+            limit: number;
+            namespace: string;
+            /** @description Whether the 768-dim exact-KNN vector leg participated in this query. */
+            vector_leg_active: boolean;
+        };
         RangeParams: {
             /** Format: date-time */
             from?: string | null;
@@ -26271,6 +26855,39 @@ export interface components {
             /** Format: uuid */
             location_id?: string | null;
             status?: string | null;
+        };
+        ServiceAccountList: {
+            service_accounts: components["schemas"]["ServiceAccountView"][];
+        };
+        ServiceAccountView: {
+            /** @description Lowercase hex SHA-256 of the pinned client certificate. */
+            cert_fingerprint: string;
+            /** @description Derived lifecycle: "valid" | "expired" | "revoked". */
+            cert_status: string;
+            cert_subject?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: uuid
+             * @description The enrolling principal's id (the human admin), if a human enrolled it.
+             */
+            created_by?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_used_at?: string | null;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description Admin-supplied reason recorded at revocation, if any. */
+            revocation_reason?: string | null;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            scopes: string[];
+            /** @description Admin lifecycle: "active" | "suspended". */
+            status: string;
         };
         ServiceView: {
             detail?: string | null;
@@ -28124,6 +28741,21 @@ export interface components {
             custom_fields: components["schemas"]["TicketCustomFieldValue"][];
         };
         /**
+         * @description Tickets by workflow category. The status NAME is per-board and repeats
+         *     across boards, so a name-keyed map would merge different statuses;
+         *     `category` is the closed vocabulary the workflow layer owns.
+         */
+        TicketsByCategory: {
+            /** Format: int64 */
+            closed: number;
+            /** Format: int64 */
+            in_progress: number;
+            /** Format: int64 */
+            open: number;
+            /** Format: int64 */
+            waiting: number;
+        };
+        /**
          * @description The audit-trail action of a [`TimeEntryApprovalRecord`] (append-only
          *     decision trail; differs from [`ApprovalAction`] in that it names the
          *     recorded past, not the requested transition).
@@ -28783,6 +29415,15 @@ export interface components {
             short_minutes?: number | null;
         };
         /**
+         * @description A metric the core does not report, and why. The reason is prose for a
+         *     HUMAN operator reading the surface; `metric` is the stable token a
+         *     dashboard can group on.
+         */
+        UnavailableMetric: {
+            metric: string;
+            reason: string;
+        };
+        /**
          * @description Why an entry is not billable (report V3). Typed values only — the
          *     verification run and scoring reports aggregate on these codes.
          * @enum {string}
@@ -29251,6 +29892,17 @@ export interface components {
              */
             rotate_at?: string | null;
             title: string;
+        };
+        UpdateServiceAccountRequest: {
+            /**
+             * Format: date-time
+             * @description Replacement expiry (null ⇒ never expires). Omitted ⇒ keep current.
+             */
+            expires_at?: string | null;
+            /** @description Replacement grant set. Omitted ⇒ keep current grants. */
+            scopes?: string[] | null;
+            /** @description Replacement status. Omitted ⇒ keep current. */
+            status?: string | null;
         };
         UpdateSettingRequest: {
             key: string;
@@ -41995,6 +42647,186 @@ export interface operations {
             };
         };
     };
+    org_quotas_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the org to report on; must be the caller's own org */
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgQuotaView"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description service account without org_usage:read */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such org for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    service_accounts_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAccountList"];
+                };
+            };
+        };
+    };
+    service_accounts_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateServiceAccountRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAccountView"];
+                };
+            };
+        };
+    };
+    service_accounts_delete: {
+        parameters: {
+            query?: {
+                reason?: string;
+            };
+            header?: never;
+            path: {
+                org_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    service_accounts_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateServiceAccountRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAccountView"];
+                };
+            };
+        };
+    };
+    org_usage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the org to report on; must be the caller's own org */
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgUsageView"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description service account without org_usage:read */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such org for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     passwords_list: {
         parameters: {
             query?: {
@@ -46811,6 +47643,285 @@ export interface operations {
             };
             /** @description illegal transition, version conflict, or idempotency key reused */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rag_chunks_ingest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RagIngestRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagIngestResponse"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description missing kb:edit / rag.write permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation error or wrong-width vector (must be 768) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rag_source_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RagDeleteSourceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagDeleteSourceResponse"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description missing kb:edit / rag.write permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused or version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid namespace or source identifier */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rag_deletion_receipts_list: {
+        parameters: {
+            query?: {
+                namespace?: string | null;
+                source_kind?: string | null;
+                source_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagDeletionReceiptList"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description missing kb:view / rag.read permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rag_deletion_receipt_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Deletion receipt ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagDeletionReceipt"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description missing kb:view / rag.read permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description receipt not found in caller's org */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rag_query: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RagQueryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagQueryResponse"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description missing kb:view / rag.read permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid query parameters or wrong-width query_vector (must be 768) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rag_source_delete: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Target namespace from which to delete the source's chunks (defaults to
+                 *     `"default"` when omitted so parameterless probes and simple callers
+                 *     have a deterministic default).
+                 */
+                namespace?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Source entity family (e.g. ticket, attachment, kb_article) */
+                source_kind: string;
+                /** @description Source identifier within source_kind */
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagDeleteSourceResponse"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description missing kb:edit / rag.write permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid namespace or source identifier */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

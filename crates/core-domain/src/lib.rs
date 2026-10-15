@@ -28,6 +28,7 @@ pub mod node_registry;
 pub mod notes;
 pub mod notifications;
 pub mod policy;
+pub mod rag;
 pub mod reply_snippets;
 pub mod routing;
 pub mod scheduling;

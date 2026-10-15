@@ -44,6 +44,8 @@ pub const KNOWN_SCOPES: &[&str] = &[
     "dispatch:read",
     "dispatch:write",
     "org_usage:read",
+    "rag:read",
+    "rag:write",
 ];
 
 // --- hashing ------------------------------------------------------------------
