@@ -2135,7 +2135,10 @@ export interface paths {
          * GET /api/calendar-sync/feed/{token} — the OUTBOUND direction: the
          *     user's live appointments as a subscribable iCalendar document.
          *     Unauthenticated but token-scoped and rate-limited (the scheduling-links
-         *     pattern); the token resolves org + user, then the read is org-scoped.
+         *     pattern); the token resolves org + user, then the read is org-scoped. The
+         *     token-to-org resolution runs through the `app_resolve_calendar_feed_target`
+         *     SECURITY DEFINER bridge (migration 0132) — the token is in the URL with no
+         *     session, so the row is default-deny off the bare pool under RLS.
          */
         get: operations["public_calendar_sync_feed"];
         put?: never;
