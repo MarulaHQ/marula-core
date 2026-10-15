@@ -2007,3 +2007,433 @@ pub async fn rotation_notify(
     .await?;
     Ok(Json(json!({ "reminded": true })))
 }
+
+// ---------------------------------------------------------------------------
+// Workflow node execution (Wave 43 lane 15, `p43-workflow-executor`)
+// ---------------------------------------------------------------------------
+//
+// The workflow executor runs in the WORKER and walks the document there, but
+// every node that touches the domain crosses THIS seam so the write happens
+// through the org-scoped service path as the run's AUTHOR — never as a
+// system user with more power (spec item B). `actor_user_id` rides
+// `with_org_tx`, so RLS and the permission model see the same principal a
+// manual run would.
+//
+// The node id is the REGISTRY id (`ticket.update`, `notification.send`,
+// `plugin.action`, …). A node the executor cannot yet apply is refused with a
+// typed validation error (a 4xx, which the executor records as a permanent
+// step failure) rather than silently skipped — the coverage boundary is
+// explicit, and lane 19 (the first real multi-step consumer) grows it.
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct WorkflowNodeRequest {
+    pub org_id: Uuid,
+    /// The author the run executes as (spec item B).
+    pub actor_user_id: Uuid,
+    /// The registry node id, e.g. `ticket.update`.
+    pub node_id: String,
+    #[serde(default)]
+    pub params: Value,
+    /// The run context: the triggering event, previous outputs. Currently
+    /// informational; conditions read it when they land.
+    #[serde(default)]
+    pub context: Value,
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct WorkflowNodeResponse {
+    pub status: String,
+    pub output: Value,
+}
+
+/// POST /api/internal/workflow/node — executes ONE workflow node org-scoped
+/// as the run's author.
+///
+/// Deliberately NOT registered in the OpenAPI paths list (no `#[utoipa::path]`
+/// and no `openapi.rs` entry): internal machine-to-machine endpoints stay out
+/// of the SDK pin, exactly as the module note says. The route is live; the
+/// spec is not widened by it.
+pub async fn workflow_node(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<WorkflowNodeRequest>,
+) -> ApiResult<Json<WorkflowNodeResponse>> {
+    require_internal_token(&state, &headers)?;
+    let org_id = req.org_id;
+    let actor = req.actor_user_id;
+    let node_id = req.node_id.clone();
+    let params = req.params.clone();
+    let output = org_tx::with_org_tx(&state, org_id, actor, move |mut ctx| async move {
+        let output = execute_workflow_node(&mut ctx, org_id, &node_id, &params).await?;
+        Ok((ctx, output))
+    })
+    .await?;
+    Ok(Json(WorkflowNodeResponse {
+        status: "applied".to_string(),
+        output,
+    }))
+}
+
+/// Applies one workflow node's operation inside the org-scoped transaction.
+/// A node this build cannot apply is refused, never skipped.
+async fn execute_workflow_node(
+    ctx: &mut org_tx::OrgTx<'_>,
+    org_id: Uuid,
+    node_id: &str,
+    params: &Value,
+) -> ApiResult<Value> {
+    let marker = serde_json::json!({ core_domain::automations::VIA_AUTOMATION_KEY: true });
+    match node_id {
+        "ticket.assign" => {
+            let ticket = workflow_ticket(ctx, org_id, params).await?;
+            let assignee = params
+                .get("userId")
+                .and_then(Value::as_str)
+                .and_then(|s| Uuid::parse_str(s).ok());
+            if let Some(user_id) = assignee {
+                // An unknown or inactive target is a typed refusal, not a
+                // silent no-op — the ledger shows why the step failed.
+                match core_db::users::get_user(&mut *ctx.tx, org_id, user_id).await {
+                    Ok(u) if u.is_active => {}
+                    _ => {
+                        return Err(ApiError::Validation(
+                            "ticket.assign: the target user is unknown or inactive".into(),
+                        ))
+                    }
+                }
+            }
+            core_db::tickets::update_ticket(
+                &mut *ctx.tx,
+                org_id,
+                ticket.id,
+                core_db::tickets::TicketPatch {
+                    title: None,
+                    body: None,
+                    priority: None,
+                    assignee_id: Some(assignee),
+                    client_id: None,
+                    site_id: None,
+                    contact_id: None,
+                    due_at: None,
+                    type_id: None,
+                    category_id: None,
+                },
+            )
+            .await?;
+            let mut payload = serde_json::to_value(core_domain::events::TicketAssigned {
+                ticket_id: ticket.id,
+                board_id: ticket.board_id,
+                assignee_id: assignee,
+                assigned_by: None,
+            })
+            .unwrap_or_default();
+            payload["via_automation"] = marker["via_automation"].clone();
+            ctx.emit(
+                types::TICKET_ASSIGNED,
+                "ticket",
+                Some(ticket.id.to_string().as_str()),
+                &payload,
+            )
+            .await?;
+            Ok(json!({ "ticketId": ticket.id, "assigneeId": assignee }))
+        }
+        "ticket.setPriority" => {
+            let ticket = workflow_ticket(ctx, org_id, params).await?;
+            let priority = params
+                .get("priority")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ApiError::Validation("ticket.setPriority: priority is required".into()))?;
+            let priority = core_db::tickets::parse_priority_or_err(priority)
+                .await
+                .map_err(|_| ApiError::Validation("ticket.setPriority: unknown priority".into()))?;
+            core_db::tickets::update_ticket(
+                &mut *ctx.tx,
+                org_id,
+                ticket.id,
+                core_db::tickets::TicketPatch {
+                    title: None,
+                    body: None,
+                    priority: Some(priority),
+                    assignee_id: None,
+                    client_id: None,
+                    site_id: None,
+                    contact_id: None,
+                    due_at: None,
+                    type_id: None,
+                    category_id: None,
+                },
+            )
+            .await?;
+            let mut payload = marker.clone();
+            payload["ticket_id"] = json!(ticket.id);
+            ctx.emit(
+                types::TICKET_UPDATED,
+                "ticket",
+                Some(ticket.id.to_string().as_str()),
+                &payload,
+            )
+            .await?;
+            Ok(json!({ "ticketId": ticket.id, "priority": priority.as_str() }))
+        }
+        "ticket.update" => {
+            let ticket = workflow_ticket(ctx, org_id, params).await?;
+            let fields = params.get("fields").and_then(Value::as_object);
+            let title = fields.and_then(|f| f.get("title")).and_then(Value::as_str);
+            let body = fields.and_then(|f| f.get("body")).and_then(Value::as_str);
+            let priority = match fields
+                .and_then(|f| f.get("priority"))
+                .and_then(Value::as_str)
+            {
+                Some(p) => Some(
+                    core_db::tickets::parse_priority_or_err(p)
+                        .await
+                        .map_err(|_| {
+                            ApiError::Validation("ticket.update: unknown priority".into())
+                        })?,
+                ),
+                None => None,
+            };
+            if title.is_none() && body.is_none() && priority.is_none() {
+                return Err(ApiError::Validation(
+                    "ticket.update: fields must carry title, body or priority".into(),
+                ));
+            }
+            core_db::tickets::update_ticket(
+                &mut *ctx.tx,
+                org_id,
+                ticket.id,
+                core_db::tickets::TicketPatch {
+                    title,
+                    body: body.map(Some),
+                    priority,
+                    assignee_id: None,
+                    client_id: None,
+                    site_id: None,
+                    contact_id: None,
+                    due_at: None,
+                    type_id: None,
+                    category_id: None,
+                },
+            )
+            .await?;
+            let mut payload = marker.clone();
+            payload["ticket_id"] = json!(ticket.id);
+            ctx.emit(
+                types::TICKET_UPDATED,
+                "ticket",
+                Some(ticket.id.to_string().as_str()),
+                &payload,
+            )
+            .await?;
+            Ok(json!({ "ticketId": ticket.id }))
+        }
+        "ticket.comment" | "ticket.internalNote" => {
+            let ticket = workflow_ticket(ctx, org_id, params).await?;
+            let body = params
+                .get("body")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ApiError::Validation("ticket comment: body is required".into()))?;
+            let kind = if node_id == "ticket.internalNote" {
+                core_domain::status::NoteKind::Internal
+            } else {
+                core_domain::status::NoteKind::ClientVisible
+            };
+            let comment = core_db::tickets::insert_comment(
+                &mut *ctx.tx,
+                core_db::tickets::NewTicketComment {
+                    id: Uuid::now_v7(),
+                    org_id,
+                    ticket_id: ticket.id,
+                    author_id: None,
+                    kind,
+                    body: body.trim(),
+                    workflow_meta: None,
+                },
+            )
+            .await?;
+            let mut payload = serde_json::to_value(core_domain::events::TicketCommentAdded {
+                comment: comment.clone(),
+                mentioned_user_ids: vec![],
+            })
+            .unwrap_or_default();
+            payload["via_automation"] = marker["via_automation"].clone();
+            ctx.emit(
+                types::TICKET_COMMENT_ADDED,
+                "ticket_comment",
+                Some(comment.id.to_string().as_str()),
+                &payload,
+            )
+            .await?;
+            Ok(json!({ "ticketId": ticket.id, "commentId": comment.id }))
+        }
+        "notification.send" => {
+            let ticket_id = params
+                .get("ticketId")
+                .and_then(Value::as_str)
+                .and_then(|s| Uuid::parse_str(s).ok());
+            let kind = params
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("ticket_update");
+            let title = params
+                .get("title")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ApiError::Validation("notification.send: title is required".into()))?;
+            let body = params.get("body").and_then(Value::as_str);
+            let user_ids: Vec<Uuid> = params
+                .get("userIds")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .filter_map(|s| Uuid::parse_str(s).ok())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if user_ids.is_empty() {
+                return Err(ApiError::Validation(
+                    "notification.send: userIds must name at least one user".into(),
+                ));
+            }
+            let mut sent = 0_i64;
+            let mut suppressed = 0_i64;
+            for user_id in &user_ids {
+                let pref = core_db::notifications::effective_preference(
+                    &mut *ctx.tx,
+                    org_id,
+                    *user_id,
+                    kind,
+                )
+                .await?;
+                if !pref.in_app {
+                    suppressed += 1;
+                    continue;
+                }
+                let notification = core_db::notifications::insert(
+                    &mut *ctx.tx,
+                    Uuid::now_v7(),
+                    org_id,
+                    *user_id,
+                    kind,
+                    ticket_id,
+                    title.trim(),
+                    body,
+                )
+                .await?;
+                let mut payload = serde_json::to_value(core_domain::events::NotificationCreated {
+                    user_id: *user_id,
+                    kind: kind.to_string(),
+                    ticket_id,
+                    title: notification.title.clone(),
+                })
+                .unwrap_or_default();
+                payload["via_automation"] = marker["via_automation"].clone();
+                ctx.emit(
+                    types::NOTIFICATION_CREATED,
+                    "notification",
+                    Some(notification.id.to_string().as_str()),
+                    &payload,
+                )
+                .await?;
+                sent += 1;
+            }
+            Ok(json!({ "sent": sent, "suppressed": suppressed }))
+        }
+        "plugin.action" => {
+            let ticket = workflow_ticket(ctx, org_id, params).await?;
+            let entry_key = params
+                .get("entryKey")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ApiError::Validation("plugin.action: entryKey is required".into()))?;
+            // The registry row is the WHOLE authorization: it exists only
+            // while the install is enabled, the grant stands and the entry
+            // is enabled. A missing entry is a typed skip, never a crash.
+            let entry = core_db::plugin_surface::get_entry_by_key(
+                &mut *ctx.tx,
+                org_id,
+                "automation_action",
+                entry_key,
+            )
+            .await
+            .ok()
+            .flatten();
+            let Some(entry) = entry else {
+                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "entry unavailable" }));
+            };
+            let node_params = params.get("params").cloned().unwrap_or(json!({}));
+            if entry.definition.get("effect").and_then(Value::as_str)
+                != Some("add_internal_comment")
+            {
+                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "effect not consented" }));
+            }
+            if let Some(schema_value) = entry
+                .definition
+                .get("params_schema")
+                .filter(|v| !v.is_null())
+            {
+                let Ok(schema) = core_domain::entities::plugins::SettingsSchema::new(
+                    schema_value.clone(),
+                ) else {
+                    return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "schema invalid" }));
+                };
+                if schema.validate_config(&node_params).is_err() {
+                    return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "params refused" }));
+                }
+            }
+            let Some(body) = node_params.get("body").and_then(Value::as_str) else {
+                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "no body" }));
+            };
+            if body.trim().is_empty() || body.len() > 4000 {
+                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "body out of bounds" }));
+            }
+            let comment = core_db::tickets::insert_comment(
+                &mut *ctx.tx,
+                core_db::tickets::NewTicketComment {
+                    id: Uuid::now_v7(),
+                    org_id,
+                    ticket_id: ticket.id,
+                    author_id: None,
+                    kind: core_domain::status::NoteKind::Internal,
+                    body: body.trim(),
+                    workflow_meta: None,
+                },
+            )
+            .await?;
+            let mut payload = serde_json::to_value(core_domain::events::TicketCommentAdded {
+                comment: comment.clone(),
+                mentioned_user_ids: vec![],
+            })
+            .unwrap_or_default();
+            payload["via_automation"] = marker["via_automation"].clone();
+            payload["plugin_action"] = json!(entry_key);
+            ctx.emit(
+                types::TICKET_COMMENT_ADDED,
+                "ticket_comment",
+                Some(comment.id.to_string().as_str()),
+                &payload,
+            )
+            .await?;
+            Ok(json!({ "entryKey": entry_key, "commentId": comment.id }))
+        }
+        other => Err(ApiError::Validation(format!(
+            "unsupported workflow operation {other:?}: the executor has no org-scoped path for this node yet"
+        ))),
+    }
+}
+
+/// Loads the ticket a node names, refusing a missing `ticketId` or a ticket
+/// outside this org.
+async fn workflow_ticket(
+    ctx: &mut org_tx::OrgTx<'_>,
+    org_id: Uuid,
+    params: &Value,
+) -> ApiResult<core_domain::entities::Ticket> {
+    let ticket_id = params
+        .get("ticketId")
+        .and_then(Value::as_str)
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .ok_or_else(|| ApiError::Validation("node params must name a ticketId".into()))?;
+    core_db::tickets::get_ticket(&mut *ctx.tx, org_id, ticket_id)
+        .await
+        .map_err(|_| ApiError::NotFound)
+}

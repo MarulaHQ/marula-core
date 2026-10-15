@@ -29,9 +29,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
 use axum::extract::{ConnectInfo, Request};
+use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::Response;
-use axum::http::HeaderMap;
 
 /// The sentinel used when no address can be attributed at all (no peer on
 /// the request and no parseable proxy header). It keeps the historical
@@ -414,10 +414,7 @@ fn parse_ranges(spec: &str) -> (Vec<Cidr>, Vec<String>) {
 /// it. Capped so a pathological header cannot burn CPU per request.
 fn forwarded_for_hops(headers: &HeaderMap) -> Vec<&str> {
     const MAX_HOPS: usize = 64;
-    let Some(raw) = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-    else {
+    let Some(raw) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) else {
         return Vec::new();
     };
     raw.split(',').take(MAX_HOPS).collect()
@@ -563,11 +560,27 @@ mod tests {
     fn default_set_covers_loopback_and_rfc1918_only() {
         let set = set();
         assert!(set.is_default());
-        for trusted in ["127.0.0.1", "127.53.1.1", "10.1.2.3", "172.20.0.1", "192.168.9.9", "::1"] {
+        for trusted in [
+            "127.0.0.1",
+            "127.53.1.1",
+            "10.1.2.3",
+            "172.20.0.1",
+            "192.168.9.9",
+            "::1",
+        ] {
             assert!(set.is_trusted(ip(trusted)), "{trusted} should be trusted");
         }
-        for untrusted in ["8.8.8.8", "203.0.113.5", "172.32.0.1", "11.0.0.1", "2001:db8::1"] {
-            assert!(!set.is_trusted(ip(untrusted)), "{untrusted} must NOT be trusted");
+        for untrusted in [
+            "8.8.8.8",
+            "203.0.113.5",
+            "172.32.0.1",
+            "11.0.0.1",
+            "2001:db8::1",
+        ] {
+            assert!(
+                !set.is_trusted(ip(untrusted)),
+                "{untrusted} must NOT be trusted"
+            );
         }
     }
 
@@ -581,12 +594,16 @@ mod tests {
         );
         assert!(!set.is_default());
         assert!(set.is_trusted(ip("203.0.113.7")));
-        assert!(!set.is_trusted(ip("127.0.0.1")), "the replaced default must not linger");
+        assert!(
+            !set.is_trusted(ip("127.0.0.1")),
+            "the replaced default must not linger"
+        );
     }
 
     #[test]
     fn malformed_entries_are_dropped_not_fatal() {
-        let (parsed, dropped) = parse_ranges("10.0.0.0/8, not-a-cidr, 2001:db8::/129, ,192.168.0.0/16");
+        let (parsed, dropped) =
+            parse_ranges("10.0.0.0/8, not-a-cidr, 2001:db8::/129, ,192.168.0.0/16");
         assert_eq!(parsed.len(), 2);
         assert_eq!(
             dropped,
@@ -649,10 +666,7 @@ mod tests {
         // Peer is a trusted (RFC1918) load balancer; the caller pinned a
         // fake leftmost hop, the balancer appended the real client.
         let headers = headers(&[("x-forwarded-for", "1.2.3.4, 198.51.100.7, 10.0.0.9")]);
-        assert_eq!(
-            set.resolve(Some(ip("10.0.0.5")), &headers),
-            "198.51.100.7"
-        );
+        assert_eq!(set.resolve(Some(ip("10.0.0.5")), &headers), "198.51.100.7");
     }
 
     #[test]
@@ -664,10 +678,7 @@ mod tests {
             false,
         );
         let headers = headers(&[("x-forwarded-for", "1.2.3.4, 10.0.0.9, 192.168.1.8")]);
-        assert_eq!(
-            set.resolve(Some(ip("10.0.0.5")), &headers),
-            "1.2.3.4"
-        );
+        assert_eq!(set.resolve(Some(ip("10.0.0.5")), &headers), "1.2.3.4");
     }
 
     #[test]
@@ -690,7 +701,10 @@ mod tests {
     #[test]
     fn no_header_and_a_trusted_peer_resolves_to_the_peer() {
         let set = set();
-        assert_eq!(set.resolve(Some(ip("10.0.0.5")), &HeaderMap::new()), "10.0.0.5");
+        assert_eq!(
+            set.resolve(Some(ip("10.0.0.5")), &HeaderMap::new()),
+            "10.0.0.5"
+        );
     }
 
     #[test]
@@ -717,10 +731,7 @@ mod tests {
     fn an_unparseable_hop_is_skipped_not_fatal() {
         let set = set();
         let headers = headers(&[("x-forwarded-for", "garbage, 198.51.100.7")]);
-        assert_eq!(
-            set.resolve(Some(ip("10.0.0.5")), &headers),
-            "198.51.100.7"
-        );
+        assert_eq!(set.resolve(Some(ip("10.0.0.5")), &headers), "198.51.100.7");
     }
 
     // --- Cloudflare ------------------------------------------------------
@@ -748,7 +759,10 @@ mod tests {
         );
         // Same header, but the peer is a random public host: not a CF
         // range, so the header is not believed and the peer wins.
-        assert_eq!(set.resolve(Some(ip("203.0.113.9")), &headers), "203.0.113.9");
+        assert_eq!(
+            set.resolve(Some(ip("203.0.113.9")), &headers),
+            "203.0.113.9"
+        );
     }
 
     #[test]
@@ -771,7 +785,10 @@ mod tests {
             ("cf-connecting-ip", "198.51.100.23"),
             ("x-forwarded-for", "203.0.113.44"),
         ]);
-        assert_eq!(set.resolve(Some(ip("104.16.0.7")), &headers), "203.0.113.44");
+        assert_eq!(
+            set.resolve(Some(ip("104.16.0.7")), &headers),
+            "203.0.113.44"
+        );
     }
 
     #[test]
@@ -797,9 +814,11 @@ mod tests {
     #[test]
     fn cf_ip_ranges_extends_rather_than_replaces_the_constant() {
         let mut set = cloudflare_set();
-        set.cloudflare
-            .extend(parse_ranges("203.0.113.0/24").0);
-        assert!(set.is_cloudflare_peer(ip("104.16.0.7")), "the baseline must survive an extension");
+        set.cloudflare.extend(parse_ranges("203.0.113.0/24").0);
+        assert!(
+            set.is_cloudflare_peer(ip("104.16.0.7")),
+            "the baseline must survive an extension"
+        );
         assert!(set.is_cloudflare_peer(ip("203.0.113.5")));
     }
 
@@ -841,7 +860,10 @@ mod tests {
     #[tokio::test]
     async fn the_middleware_walks_xff_past_a_trusted_peer() {
         let app = echo_app(SocketAddr::from(([10, 0, 0, 5], 40_001)));
-        assert_eq!(resolved_for(&app, "1.2.3.4, 198.51.100.7").await, "198.51.100.7");
+        assert_eq!(
+            resolved_for(&app, "1.2.3.4, 198.51.100.7").await,
+            "198.51.100.7"
+        );
     }
 
     // --- boot sanity -----------------------------------------------------

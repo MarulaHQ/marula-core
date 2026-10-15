@@ -163,9 +163,7 @@ async fn create_account(
 ) -> String {
     let resp = http()
         .await
-        .post(format!(
-            "{base}/api/v1/orgs/{org_id}/service-accounts"
-        ))
+        .post(format!("{base}/api/v1/orgs/{org_id}/service-accounts"))
         .bearer_auth(token)
         .json(&json!({
             "name": name,
@@ -238,12 +236,19 @@ async fn an_enrolled_certificate_authenticates_a_scoped_service_account() {
 
     // Present the cert alone (trusted loopback peer) — no bearer, no key.
     let resp = me_with_cert(&base, &fingerprint).await;
-    assert_eq!(resp.status(), 200, "cert auth must succeed on the happy path");
+    assert_eq!(
+        resp.status(),
+        200,
+        "cert auth must succeed on the happy path"
+    );
     let me: Value = resp.json().await.unwrap();
     // The authenticated principal is the service account, not the admin.
     assert_eq!(me["user_id"].as_str().unwrap(), account_id);
     assert_eq!(me["org_id"].as_str().unwrap(), org_id);
-    assert_eq!(me["display_name"].as_str().unwrap(), "service-account:ci-bot");
+    assert_eq!(
+        me["display_name"].as_str().unwrap(),
+        "service-account:ci-bot"
+    );
     // The granted scopes resolved onto the standard permission matrix.
     let perms = me["permissions"].as_array().unwrap();
     assert!(perms.iter().any(|p| p == "clients:view"));
@@ -258,7 +263,11 @@ async fn an_enrolled_certificate_authenticates_a_scoped_service_account() {
         .send()
         .await
         .unwrap();
-    assert_eq!(list.status(), 200, "cert grant must authorize the admin list");
+    assert_eq!(
+        list.status(),
+        200,
+        "cert grant must authorize the admin list"
+    );
 }
 
 #[tokio::test]
@@ -359,7 +368,9 @@ async fn an_org_a_certificate_cannot_act_on_org_b() {
     let body: Value = list_b.json().await.unwrap();
     let accounts = body["service_accounts"].as_array().unwrap();
     assert!(
-        accounts.iter().all(|a| a["cert_fingerprint"] != json!(fingerprint)),
+        accounts
+            .iter()
+            .all(|a| a["cert_fingerprint"] != json!(fingerprint)),
         "org A's service account must never be visible to org B"
     );
 
@@ -518,7 +529,11 @@ async fn admin_crud_is_refused_for_unknown_grants_and_bad_fingerprints() {
         .send()
         .await
         .unwrap();
-    assert_eq!(bad_fp.status(), 422, "a malformed fingerprint must be refused");
+    assert_eq!(
+        bad_fp.status(),
+        422,
+        "a malformed fingerprint must be refused"
+    );
 }
 
 fn org_uuid(s: &str) -> Uuid {
@@ -559,9 +574,17 @@ async fn a_patch_updates_scopes_status_and_expiry_through_one_lifecycle_owner() 
     assert_eq!(resp.status(), 200, "patch must succeed");
     let body: Value = resp.json().await.unwrap();
     assert_eq!(body["id"], json!(account_id), "id is immutable");
-    assert_eq!(body["cert_fingerprint"], json!(fingerprint), "pin is immutable");
+    assert_eq!(
+        body["cert_fingerprint"],
+        json!(fingerprint),
+        "pin is immutable"
+    );
     assert_eq!(body["status"], "suspended");
-    assert_eq!(body["created_by"], json!(admin_id), "enrollment provenance surfaced");
+    assert_eq!(
+        body["created_by"],
+        json!(admin_id),
+        "enrollment provenance surfaced"
+    );
     let scopes = body["scopes"].as_array().unwrap();
     assert!(scopes.iter().any(|s| s == "special:manage_api_keys"));
 

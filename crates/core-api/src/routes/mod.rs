@@ -383,6 +383,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             post(internal::rotation_notify),
         )
         .route(&rp("/internal/effects"), post(internal::effects))
+        // Workflow node execution (Wave 43 lane 15): the worker's executor
+        // walks the document; each effect-bearing node crosses here to run
+        // org-scoped as the run's author. Bearer-token gated in the handler.
+        .route(
+            &rp("/internal/workflow/node"),
+            post(internal::workflow_node),
+        )
         .route(
             &rp("/internal/time/gap-audit/run"),
             post(internal::run_gap_audit),

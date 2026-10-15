@@ -31,6 +31,19 @@ pub trait EffectApi: Send + Sync {
         path: &'static str,
         body: Value,
     ) -> impl std::future::Future<Output = EffectOutcome> + Send;
+
+    /// The same call, returning the response body too. Most effects are
+    /// fire-and-forget (the outcome classification is all the queue needs),
+    /// but a workflow NODE's output is what a downstream `value.reference`
+    /// reads, so the executor needs the body back. The default drops it —
+    /// a test double that never sets an output gets `Null` for free.
+    fn post_json(
+        &self,
+        path: &'static str,
+        body: Value,
+    ) -> impl std::future::Future<Output = (EffectOutcome, Value)> + Send {
+        async move { (self.post(path, body).await, Value::Null) }
+    }
 }
 
 /// Production client: reqwest with rustls, one attempt, no redirects.
@@ -52,16 +65,16 @@ impl ReqwestEffectApi {
                 .unwrap_or_default(),
         }
     }
-}
 
-impl EffectApi for ReqwestEffectApi {
-    async fn post(&self, path: &'static str, body: Value) -> EffectOutcome {
+    /// One attempt, returning the classification and the decoded body when
+    /// the call succeeded. `post` throws the body away; `post_json` keeps it.
+    async fn call(&self, path: &'static str, body: Value) -> (EffectOutcome, Value) {
         let Some(token) = &self.token else {
             tracing::warn!(
                 path,
                 "MARULA_INTERNAL_TOKEN unset; skipping effect call (job will dead-letter)"
             );
-            return EffectOutcome::Rejected;
+            return (EffectOutcome::Rejected, Value::Null);
         };
         let url = format!("{}{path}", self.base_url);
         let response = self
@@ -72,20 +85,33 @@ impl EffectApi for ReqwestEffectApi {
             .send()
             .await;
         match response {
-            Ok(resp) if resp.status().is_success() => EffectOutcome::Applied,
+            Ok(resp) if resp.status().is_success() => {
+                let value = resp.json::<Value>().await.unwrap_or(Value::Null);
+                (EffectOutcome::Applied, value)
+            }
             Ok(resp) if resp.status().is_client_error() => {
                 tracing::warn!(status = %resp.status(), path, "core-api rejected effect");
-                EffectOutcome::Rejected
+                (EffectOutcome::Rejected, Value::Null)
             }
             Ok(resp) => {
                 tracing::error!(status = %resp.status(), path, "core-api error on effect");
-                EffectOutcome::Transient
+                (EffectOutcome::Transient, Value::Null)
             }
             Err(error) => {
                 tracing::error!(%error, path, "effect call transport failure");
-                EffectOutcome::Transient
+                (EffectOutcome::Transient, Value::Null)
             }
         }
+    }
+}
+
+impl EffectApi for ReqwestEffectApi {
+    async fn post(&self, path: &'static str, body: Value) -> EffectOutcome {
+        self.call(path, body).await.0
+    }
+
+    async fn post_json(&self, path: &'static str, body: Value) -> (EffectOutcome, Value) {
+        self.call(path, body).await
     }
 }
 
@@ -93,6 +119,9 @@ impl EffectApi for ReqwestEffectApi {
 pub struct RecordingEffectApi {
     pub calls: std::sync::Mutex<Vec<(&'static str, Value)>>,
     pub outcome: EffectOutcome,
+    /// The body `post_json` returns. `Null` unless set, so a fire-and-forget
+    /// test needs nothing.
+    pub output: Value,
 }
 
 impl RecordingEffectApi {
@@ -100,7 +129,14 @@ impl RecordingEffectApi {
         Self {
             calls: std::sync::Mutex::new(Vec::new()),
             outcome,
+            output: Value::Null,
         }
+    }
+
+    /// Sets the body every `post_json` call returns.
+    pub fn with_output(mut self, output: Value) -> Self {
+        self.output = output;
+        self
     }
 
     pub fn recorded(&self) -> Vec<(&'static str, Value)> {
@@ -112,6 +148,11 @@ impl EffectApi for RecordingEffectApi {
     async fn post(&self, path: &'static str, body: Value) -> EffectOutcome {
         self.calls.lock().expect("mutex").push((path, body));
         self.outcome
+    }
+
+    async fn post_json(&self, path: &'static str, body: Value) -> (EffectOutcome, Value) {
+        self.calls.lock().expect("mutex").push((path, body));
+        (self.outcome, self.output.clone())
     }
 }
 

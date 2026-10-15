@@ -455,7 +455,15 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     // Seed the deterministic demo org (same path as `marula-core-cli
     // seed-demo`); idempotent — an existing seed is left untouched.
     let seal = core_db::demo::derive_dev_seal_key(DEV_JWT_SECRET);
-    let opts = core_db::demo::DemoSeedOptions { seal_key: seal };
+    // `object_store_dir: None` matches the pre-existing behaviour (the test
+    // app seeds no attachment payloads); the field was added to the options
+    // struct after this call site was written, leaving the workspace red on
+    // base. Wave 43 lane 15 closes that inherited red. Point it at a real
+    // directory if the demo ever needs attachment fixtures.
+    let opts = core_db::demo::DemoSeedOptions {
+        seal_key: seal,
+        object_store_dir: None,
+    };
     match core_db::demo::seed(&owner_pool, &opts).await {
         Ok(_) => tracing::info!("demo org seeded; logins: {DEMO_LOGINS}"),
         Err(core_db::demo::DemoError::AlreadySeeded(_)) => {
@@ -527,9 +535,11 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
         // resolver (Wave 47 lane A10) keys off the direct peer, never off a
         // caller-supplied `X-Forwarded-For`. Loopback-only bind, so the
         // narrow default trust set is the right posture here.
-        if let Err(e) =
-            axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
-                .await
+        if let Err(e) = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
         {
             tracing::error!("api server stopped: {e}");
         }

@@ -331,20 +331,19 @@ pub async fn create(
 
     let id = Uuid::now_v7();
     let mut tx = org_tx::begin(&state, org_id, authed.principal.user.id).await?;
-    let row =
-        core_db::service_accounts::insert_service_account(
-            &mut *tx.tx,
-            id,
-            org_id,
-            name,
-            &fingerprint,
-            req.cert_subject.as_deref(),
-            &req.scopes,
-            req.expires_at,
-            created_by,
-        )
-        .await
-        .map_err(unique_conflict)?;
+    let row = core_db::service_accounts::insert_service_account(
+        &mut *tx.tx,
+        id,
+        org_id,
+        name,
+        &fingerprint,
+        req.cert_subject.as_deref(),
+        &req.scopes,
+        req.expires_at,
+        created_by,
+    )
+    .await
+    .map_err(unique_conflict)?;
     audit(
         &mut tx.tx,
         org_id,
@@ -355,7 +354,10 @@ pub async fn create(
     )
     .await?;
     tx.commit().await?;
-    Ok((StatusCode::CREATED, Json(ServiceAccountView::from_row(row, Utc::now()))))
+    Ok((
+        StatusCode::CREATED,
+        Json(ServiceAccountView::from_row(row, Utc::now())),
+    ))
 }
 
 /// PATCH /orgs/{org_id}/service-accounts/{id} — update grants, expiry, or
@@ -489,8 +491,8 @@ pub async fn remove(
     // Idempotent revoke: already-revoked rows keep their revoked_at, and the
     // update still affects zero rows on the second pass — treat that as
     // success here since we confirmed the row is in scope above.
-    let _ = core_db::service_accounts::revoke_service_account(&mut *tx.tx, org_id, id, reason)
-        .await;
+    let _ =
+        core_db::service_accounts::revoke_service_account(&mut *tx.tx, org_id, id, reason).await;
     audit(
         &mut tx.tx,
         org_id,
@@ -537,15 +539,10 @@ async fn audit(
 /// principal (a certified service account holding ManageApiKeys) is
 /// `Actor::Agent("service-account:<id>")`, and its id is NOT a `users` row,
 /// so `created_by` is left `None` (the FK to `users` would otherwise fail).
-fn acting_identity(
-    authed: &crate::auth::AuthedUser,
-) -> (Actor, Option<Uuid>) {
+fn acting_identity(authed: &crate::auth::AuthedUser) -> (Actor, Option<Uuid>) {
     let id = authed.principal.user.id;
     if authed.via_api_key {
-        (
-            Actor::Agent(format!("service-account:{id}")),
-            None,
-        )
+        (Actor::Agent(format!("service-account:{id}")), None)
     } else {
         (Actor::Human(id), Some(id))
     }

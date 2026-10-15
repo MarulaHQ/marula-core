@@ -189,7 +189,6 @@ pub async fn login(
         &state,
         crate::auth::hardening::kinds::PASSWORD_LOGIN,
         &client_ip,
-
         crate::auth::hardening::GateSubject::Email(&req.email),
     )
     .await;
@@ -235,7 +234,6 @@ pub async fn refresh(
         &state,
         crate::auth::hardening::kinds::REFRESH,
         &client_ip,
-
         crate::auth::hardening::GateSubject::IpOnly,
         false,
     )
@@ -342,7 +340,6 @@ pub async fn magic_link_request(
         &state,
         crate::auth::hardening::kinds::PORTAL_MAGIC_LINK,
         &client_ip,
-
         crate::auth::hardening::GateSubject::Email(email),
         false,
     )
@@ -457,7 +454,6 @@ pub async fn magic_link_confirm(
         &state,
         crate::auth::hardening::kinds::PORTAL_MAGIC_LINK,
         &client_ip,
-
         crate::auth::hardening::GateSubject::IpOnly,
         false,
     )

@@ -175,6 +175,38 @@ async fn settle_job<S: DeliverySink, E: EffectApi>(
             }
         };
     }
+    // Workflow resume (Wave 43 lane 15): a parked run's wake, or a fresh
+    // event-triggered run, is executed IN-PROCESS rather than POSTed to a
+    // core-api path — the executor is the worker's own loop, and node
+    // effects still cross the org-scoped seam via `effects`. The executor
+    // classifies its own outcome so this loop stays the single settle
+    // authority.
+    if job.kind == core_domain::workflow_runs::WORKFLOW_RESUME_JOB {
+        let result = crate::workflow::process_resume_job(pool, effects, job).await;
+        return match result.outcome {
+            crate::workflow::JobOutcome::Done => {
+                core_db::queue::mark_done(pool, job.id).await?;
+                counters.done.fetch_add(1, Ordering::Relaxed);
+                Ok(SettleOutcome::Done)
+            }
+            crate::workflow::JobOutcome::Retry => {
+                core_db::queue::schedule_retry(
+                    pool,
+                    job.id,
+                    backoff_secs(job.attempts),
+                    &result.error,
+                )
+                .await?;
+                counters.retried.fetch_add(1, Ordering::Relaxed);
+                Ok(SettleOutcome::Retried)
+            }
+            crate::workflow::JobOutcome::Dead => {
+                core_db::queue::mark_dead(pool, job.id, &result.error).await?;
+                counters.dead.fetch_add(1, Ordering::Relaxed);
+                Ok(SettleOutcome::Dead)
+            }
+        };
+    }
     let path: &'static str = match job.kind.as_str() {
         "sla.verdict" => "/api/internal/sla/verdict",
         // PM schedule generation (Wave 11 lane 9): a claimed slot fires
