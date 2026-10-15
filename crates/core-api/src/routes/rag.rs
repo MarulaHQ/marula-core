@@ -1,5 +1,5 @@
 //! RAG and media vector namespace routes (ADR 0020; TASKLIST Wave 45 lane 1,
-//! `p45-rag-vector-namespace`, migration 0132).
+//! `p45-rag-vector-namespace`, migration 0134).
 //!
 //! Published OpenAPI extension points under `/api/v1/rag/...` (and legacy
 //! `/api/rag/...`):

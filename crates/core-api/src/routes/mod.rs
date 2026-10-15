@@ -2143,7 +2143,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/dispatch/travel-drafts/{id}/expense"),
             post(routing::travel_draft_expense),
         )
-        // RAG and media vector namespace (ADR 0020; Wave 45 lane 1, migration 0132):
+        // RAG and media vector namespace (ADR 0020; Wave 45 lane 1, migration 0134):
         // batch chunk ingest, hybrid BM25 + exact-KNN RRF query, and source
         // deletion with provable receipts.
         .route(&rp("/rag/chunks"), post(rag::ingest_chunks))

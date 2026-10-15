@@ -1,5 +1,5 @@
 //! RAG and multimodal vector namespace DB tests (`rag_embeddings` and
-//! `rag_deletion_receipts`, migration 0132; ADR 0020; Wave 45 lane 1).
+//! `rag_deletion_receipts`, migration 0134; ADR 0020; Wave 45 lane 1).
 //!
 //! Slot discipline: this suite uses fixed-UUID slots 94500–94599 only.
 

@@ -1,6 +1,6 @@
 //! End-to-end HTTP integration tests for the RAG and multimodal vector
 //! namespace extension surface (`/api/v1/rag/...`, ADR 0020; Wave 45 lane 1,
-//! migration 0132).
+//! migration 0134).
 //!
 //! Covers:
 //! 1. Wrong-width vector refusal (0, 512, 1024 dims) with a typed `422`

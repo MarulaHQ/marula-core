@@ -944,7 +944,7 @@ use utoipa::OpenApi;
         crate::routes::events::stream,
         crate::routes::presence::heartbeat,
         crate::routes::presence::ticket_presence,
-        // RAG and media vector namespace (ADR 0020; Wave 45 lane 1, migration 0132)
+        // RAG and media vector namespace (ADR 0020; Wave 45 lane 1, migration 0134)
         crate::routes::rag::ingest_chunks,
         crate::routes::rag::query_namespace,
         crate::routes::rag::delete_source_post,
@@ -2186,7 +2186,7 @@ use utoipa::OpenApi;
         crate::routes::agent_platform::CreateProposalRequest,
         crate::routes::agent_platform::CreateProposalResponse,
         crate::routes::agent_platform::DecideProposalRequest,
-        // RAG and media vector namespace (ADR 0020; Wave 45 lane 1, migration 0132)
+        // RAG and media vector namespace (ADR 0020; Wave 45 lane 1, migration 0134)
         core_domain::rag::RagModality,
         core_domain::rag::RagChunkKey,
         core_domain::rag::RagChunkInput,

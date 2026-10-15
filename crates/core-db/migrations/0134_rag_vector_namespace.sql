@@ -1,7 +1,9 @@
 -- RAG and media vector namespace + provable deletion receipts (TASKLIST Wave 45
 -- lane 1, `p45-rag-vector-namespace`; decision of record: ADR 0020).
 --
--- Head on main at claim time: `0131_org_usage.sql`.
+-- Head on main at claim time was `0131_org_usage.sql`; renumbered from 0132 to
+-- 0134 at merge after main took `0132_calendar_oauth_bridges.sql` and
+-- `0133_workflow_executor.sql`.
 --
 -- Purpose:
 --   1. `rag_embeddings` — the tenant-scoped, modality-aware second vector

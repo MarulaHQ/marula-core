@@ -619,7 +619,7 @@ pub mod types {
     pub const CONFIG_ITEM_MERGED: &str = "config_item.merged";
     pub const CONFIG_ITEM_MERGE_UNDONE: &str = "config_item.merge_undone";
     /// RAG and multimodal vector namespace (ADR 0020; Wave 45 lane 1,
-    /// migration 0132): chunk batch ingest and provable source deletion.
+    /// migration 0134): chunk batch ingest and provable source deletion.
     pub const RAG_CHUNKS_INGESTED: &str = "rag.chunks_ingested";
     pub const RAG_SOURCE_DELETED: &str = "rag.source_deleted";
 }

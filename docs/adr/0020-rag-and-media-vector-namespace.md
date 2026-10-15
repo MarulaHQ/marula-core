@@ -1,6 +1,6 @@
 # ADR 0020 — RAG and media retrieval: a published vector-namespace extension surface
 
-**Status:** Accepted · 2026-10-07 · accepted 2026-10-15 (Wave 45 lane 1, `p45-rag-vector-namespace`, migration 0132)
+**Status:** Accepted · 2026-10-07 · accepted 2026-10-15 (Wave 45 lane 1, `p45-rag-vector-namespace`, migration 0134)
 **Scope:** the shape of the tenant vector store for retrieval-augmented generation
 and multimodal (image/video/audio) search: a second namespace beside unified
 search, its dimension contract, the ingest/query extension surface, and where
