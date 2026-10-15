@@ -310,6 +310,31 @@ pub async fn list_steps(
     Ok(rows.iter().map(step_from_row).collect())
 }
 
+/// Parked runs inside one org waiting on one event type — the executor's
+/// WAITERS INDEX read (Wave 43 lane 15, migration 0133's
+/// `idx_workflow_runs_waiters`). `flow.waitFor` parks a run with
+/// `wake_on` = a COMMA-SEPARATED list of the event types it accepts, so a
+/// wait on several types is one row and this read matches any of them.
+/// Cross-org reads are the owner pool's job; this is org-scoped, so callers
+/// pass the envelope's org.
+pub async fn list_waiting_on_event(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    event_type: &str,
+) -> DbResult<Vec<RunRow>> {
+    let rows = sqlx::query(&format!(
+        "SELECT {RUN_COLUMNS} FROM workflow_runs
+         WHERE org_id = $1 AND status = 'waiting'
+           AND $2 = ANY(string_to_array(wake_on, ','))
+         ORDER BY created_at ASC"
+    ))
+    .bind(org_id)
+    .bind(event_type)
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows.iter().map(|r| run_from_row(r).0).collect())
+}
+
 /// The run's whole trace, in execution order. A run's steps are bounded by
 /// its graph and its fan-out caps, so the detail read takes them in one
 /// shot rather than paging a trace an operator is reading top to bottom.
@@ -397,6 +422,32 @@ pub async fn finish_step(
     Ok(())
 }
 
+/// Parks a STEP: the wait node the run stopped at. Unlike [`finish_step`]
+/// this is not a terminal state — the continuation resumes the wait — so it
+/// is its own function rather than a `finish_step` variant. The step's
+/// identity and input stay immutable; only status and output move.
+pub async fn park_step(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    step_id: Uuid,
+    output: Value,
+) -> DbResult<()> {
+    let res = sqlx::query(
+        "UPDATE workflow_run_steps
+         SET status = 'waiting', output = $3
+         WHERE org_id = $1 AND id = $2 AND status = 'running'",
+    )
+    .bind(org_id)
+    .bind(step_id)
+    .bind(output)
+    .execute(&mut *conn)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
+}
+
 /// Parks a run: `waiting`, with where it resumes from, when it wakes and
 /// what it waits on. Only a RUNNING run can park — a run that already
 /// finished was never parked, and rewriting it into `waiting` would be the
@@ -438,6 +489,26 @@ pub async fn begin_resumed(
     parent_run_id: Uuid,
     trigger_job_id: Option<Uuid>,
 ) -> DbResult<RunRow> {
+    // Lock the parked row: two concurrent wakes (a time wake and an event
+    // wake, say) must not BOTH create a continuation. The second blocks
+    // here, then sees the child and is refused.
+    sqlx::query("SELECT id FROM workflow_runs WHERE org_id = $1 AND id = $2 FOR UPDATE")
+        .bind(org_id)
+        .bind(parent_run_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    let already_resumed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM workflow_runs WHERE org_id = $1 AND resumed_from = $2)",
+    )
+    .bind(org_id)
+    .bind(parent_run_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    if already_resumed {
+        return Err(DbError::Conflict(format!(
+            "run {parent_run_id} already has a continuation"
+        )));
+    }
     let parent = get_run(&mut *conn, org_id, parent_run_id).await?;
     // The parked row carries the state the continuation continues from; a
     // parent that is not parked has nothing to continue.

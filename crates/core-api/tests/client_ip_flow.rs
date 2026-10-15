@@ -103,23 +103,17 @@ async fn refresh_attempt(
     xff: Option<&str>,
     cf_connecting_ip: Option<&str>,
 ) -> reqwest::StatusCode {
-    let mut request = http
-        .post(format!("{base}/api/auth/refresh"))
-        .json(&json!({
-            "refresh_token": "0".repeat(64),
-            "session_id": Uuid::now_v7().to_string(),
-        }));
+    let mut request = http.post(format!("{base}/api/auth/refresh")).json(&json!({
+        "refresh_token": "0".repeat(64),
+        "session_id": Uuid::now_v7().to_string(),
+    }));
     if let Some(chain) = xff {
         request = request.header("x-forwarded-for", chain);
     }
     if let Some(ip) = cf_connecting_ip {
         request = request.header("cf-connecting-ip", ip);
     }
-    request
-        .send()
-        .await
-        .expect("refresh request")
-        .status()
+    request.send().await.expect("refresh request").status()
 }
 
 // ---------------------------------------------------------------------------
@@ -212,12 +206,23 @@ async fn distinct_clients_behind_one_trusted_proxy_get_distinct_buckets() {
     let first_client = client_ip(block, 31);
     let second_client = client_ip(block, 32);
 
-    let first = refresh_attempt(&http, &base, Some(&format!("{first_client}, 10.0.0.9")), None).await;
+    let first = refresh_attempt(
+        &http,
+        &base,
+        Some(&format!("{first_client}, 10.0.0.9")),
+        None,
+    )
+    .await;
     assert_eq!(first, reqwest::StatusCode::UNAUTHORIZED);
 
     // A different client ⇒ a different bucket ⇒ not throttled yet.
-    let second =
-        refresh_attempt(&http, &base, Some(&format!("{second_client}, 10.0.0.9")), None).await;
+    let second = refresh_attempt(
+        &http,
+        &base,
+        Some(&format!("{second_client}, 10.0.0.9")),
+        None,
+    )
+    .await;
     assert_eq!(second, reqwest::StatusCode::UNAUTHORIZED);
 }
 

@@ -389,7 +389,10 @@ fn print_seed_summary(report: &core_db::demo::DemoSeedReport) {
         ("org", format!("{} ({})", report.org_name, report.slug)),
         ("users", report.users.to_string()),
         ("clients (sites/contacts)", report.clients.to_string()),
-        ("portal logins (one per client)", report.portal_users.to_string()),
+        (
+            "portal logins (one per client)",
+            report.portal_users.to_string(),
+        ),
         ("boards", report.boards.to_string()),
         ("tickets", report.tickets.to_string()),
         (
@@ -479,10 +482,7 @@ fn print_seed_summary(report: &core_db::demo::DemoSeedReport) {
                 report.csat_surveys, report.secret_records, report.contract_change_orders
             ),
         ),
-        (
-            "time categories",
-            report.time_categories.to_string(),
-        ),
+        ("time categories", report.time_categories.to_string()),
     ];
     println!();
     println!("demo org seeded");

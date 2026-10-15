@@ -43,6 +43,7 @@ pub mod sla_sweep;
 pub mod time;
 pub mod usage_refresh_sweep;
 pub mod webhook_out;
+pub mod workflow;
 
 use anyhow::Context as _;
 use axum::extract::State;
@@ -423,6 +424,23 @@ pub async fn run(
         tracing::info!("decision triage disabled: MARULA_DECISION_BOT_USER_ID not configured");
     }
 
+    // Workflow executor stream consumer (Wave 43 lane 15): matches each
+    // envelope against enabled workflow documents (to START runs) and
+    // against parked runs waiting on the event type (to WAKE them), durable
+    // against the shared queue. Node effects cross to core-api org-scoped.
+    let workflow_alive = Arc::new(AtomicBool::new(true));
+    {
+        let alive = Arc::clone(&workflow_alive);
+        let workflow_pool = pool.clone();
+        let workflow_redis = config.redis_url.clone();
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            workflow::run_workflow_stream(workflow_pool, workflow_redis, shutdown).await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("workflow loop exited; reporting unhealthy");
+        });
+    }
+
     let health = HealthFlags {
         relay_alive,
         email_alive,
@@ -436,6 +454,7 @@ pub async fn run(
         rotation_alive,
         retention_alive,
         usage_alive,
+        workflow_alive,
     };
     // Unified-search indexing: consumes domain events and pushes index
     // writes through core-api's internal effect surface. Disabled cleanly
@@ -491,6 +510,7 @@ struct HealthFlags {
     rotation_alive: Arc<AtomicBool>,
     retention_alive: Arc<AtomicBool>,
     usage_alive: Arc<AtomicBool>,
+    workflow_alive: Arc<AtomicBool>,
 }
 
 async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Value> {
@@ -505,10 +525,11 @@ async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Valu
         && flags.pm_alive.load(Ordering::Relaxed)
         && flags.rotation_alive.load(Ordering::Relaxed)
         && flags.retention_alive.load(Ordering::Relaxed)
-        && flags.usage_alive.load(Ordering::Relaxed);
+        && flags.usage_alive.load(Ordering::Relaxed)
+        && flags.workflow_alive.load(Ordering::Relaxed);
     if ok {
         Json(
-            json!({ "status": "ok", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER"), "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive", "rotation": "alive", "retention": "alive", "usage": "alive" }),
+            json!({ "status": "ok", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER"), "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive", "rotation": "alive", "retention": "alive", "usage": "alive", "workflows": "alive" }),
         )
     } else {
         Json(json!({ "status": "unhealthy", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER") }))
@@ -552,6 +573,7 @@ mod tests {
             pm_alive: Arc::new(AtomicBool::new(true)),
             retention_alive: Arc::new(AtomicBool::new(true)),
             usage_alive: Arc::new(AtomicBool::new(true)),
+            workflow_alive: Arc::new(AtomicBool::new(true)),
         };
         let healthy = healthz(State(Arc::new(flags.clone()))).await;
         assert_eq!(healthy.0["relay"], "alive");

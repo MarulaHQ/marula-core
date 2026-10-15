@@ -41,6 +41,7 @@ pub mod time_audit;
 pub mod usage;
 pub mod webhooks;
 pub mod workflow;
+pub mod workflow_document;
 pub mod workflow_overrides;
 pub mod workflow_runs;
 
