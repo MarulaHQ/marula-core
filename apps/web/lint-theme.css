@@ -25,6 +25,7 @@
 @import "./app/globals.css";
 
 @import "./app/calendar/calendar.css";
+@import "./app/automations/canvas/canvas.css";
 @import "./app/dispatch/dispatch.css";
 @import "./app/portal/portal.css";
 @import "./app/share.css";

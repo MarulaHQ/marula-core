@@ -495,7 +495,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketUpdate.idempotent())
     .emits(&["ticket.updated"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"fields":{"type":"object"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","fields"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"fields":{"type":"object"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["fields"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"changed":{"type":"array","items":{"type":"string"}}}}"#),
 
     ACTION_TICKET_TRANSITION: NodeType::new(
@@ -508,7 +508,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketTransition.idempotent())
     .emits(&["ticket.status_changed"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"status":{"type":"string","minLength":1,"maxLength":80},"comment":{"type":"string","maxLength":20000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","status"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"status":{"type":"string","minLength":1,"maxLength":80},"comment":{"type":"string","maxLength":20000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["status"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"status":{"type":"string"}}}"#),
 
     ACTION_TICKET_ASSIGN: NodeType::new(
@@ -521,7 +521,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketAssign.idempotent())
     .emits(&["ticket.assigned"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"userId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"userId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":[]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"assigneeId":{"type":"string","format":"uuid"}}}"#),
 
     ACTION_TICKET_COMMENT: NodeType::new(
@@ -534,7 +534,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketComment.idempotent())
     .emits(&["ticket.comment_added"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"body":{"type":"string","minLength":1,"maxLength":20000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","body"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"body":{"type":"string","minLength":1,"maxLength":20000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["body"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"commentId":{"type":"string","format":"uuid"}}}"#),
 
     ACTION_TICKET_INTERNAL_NOTE: NodeType::new(
@@ -547,7 +547,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketInternalNote.idempotent())
     .emits(&["ticket.comment_added"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"body":{"type":"string","minLength":1,"maxLength":20000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","body"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"body":{"type":"string","minLength":1,"maxLength":20000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["body"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"commentId":{"type":"string","format":"uuid"}}}"#),
 
     ACTION_TICKET_SET_PRIORITY: NodeType::new(
@@ -560,7 +560,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketSetPriority.idempotent())
     .emits(&["ticket.updated"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"priority":{"type":"string","enum":["p1","p2","p3","p4"]},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","priority"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"priority":{"type":"string","enum":["p1","p2","p3","p4"]},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["priority"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"priority":{"type":"string"}}}"#),
 
     ACTION_TICKET_SET_TAGS: NodeType::new(
@@ -573,7 +573,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketSetTags.idempotent())
     .emits(&["ticket.tags_changed"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"tags":{"type":"array","items":{"type":"string","maxLength":60},"maxItems":32},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","tags"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"tags":{"type":"array","items":{"type":"string","maxLength":60},"maxItems":32},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["tags"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"tags":{"type":"array","items":{"type":"string"}}}}"#),
 
     ACTION_TICKET_ADD_CHECKLIST_ITEM: NodeType::new(
@@ -586,7 +586,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketAddChecklistItem.idempotent())
     .emits(&["ticket.checklist_updated"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"text":{"type":"string","minLength":1,"maxLength":500},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","text"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"text":{"type":"string","minLength":1,"maxLength":500},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["text"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"}}}"#),
 
     ACTION_TICKET_COMPLETE_CHECKLIST_ITEM: NodeType::new(
@@ -599,7 +599,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketCompleteChecklistItem.idempotent())
     .emits(&["ticket.checklist_updated"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","itemId"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"itemId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["itemId"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"done":{"type":"boolean"}}}"#),
 
     ACTION_TICKET_LINK: NodeType::new(
@@ -612,7 +612,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketLink.idempotent())
     .emits(&["ticket.linked"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"otherId":{"type":"string","format":"uuid"},"relation":{"type":"string","enum":["related","duplicate_of","blocks","blocked_by","caused_by"]},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","otherId"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"otherId":{"type":"string","format":"uuid"},"relation":{"type":"string","enum":["related","duplicate_of","blocks","blocked_by","caused_by"]},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["otherId"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"otherId":{"type":"string","format":"uuid"}}}"#),
 
     ACTION_TICKET_MERGE: NodeType::new(
@@ -625,7 +625,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketMerge.idempotent())
     .emits(&["ticket.merged"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"intoId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","intoId"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"intoId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["intoId"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"intoId":{"type":"string","format":"uuid"}}}"#),
 
     ACTION_TICKET_MOVE_TO_BOARD: NodeType::new(
@@ -638,7 +638,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketMoveToBoard.idempotent())
     .emits(&["ticket.board_moved"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"boardId":{"type":"string","format":"uuid"},"status":{"type":"string","maxLength":80},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","boardId"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"boardId":{"type":"string","format":"uuid"},"status":{"type":"string","maxLength":80},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["boardId"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"boardId":{"type":"string","format":"uuid"},"status":{"type":"string"}}}"#),
 
     ACTION_TICKET_SET_FIELD: NodeType::new(
@@ -651,7 +651,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TicketSetField.idempotent())
     .emits(&["ticket.field_set"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"key":{"type":"string","minLength":1,"maxLength":120},"value":{},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","key"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"key":{"type":"string","minLength":1,"maxLength":120},"value":{},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["key"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"key":{"type":"string"}}}"#),
 
 // ---------------------------------------------------------------------------
@@ -668,7 +668,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TimeEntryLog.idempotent())
     .emits(&["time_entry.created"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"userId":{"type":"string","format":"uuid"},"minutes":{"type":"integer","minimum":1},"startedAt":{"type":"string"},"billable":{"type":"boolean"},"note":{"type":"string","maxLength":2000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","minutes"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"userId":{"type":"string","format":"uuid"},"minutes":{"type":"integer","minimum":1},"startedAt":{"type":"string"},"billable":{"type":"boolean"},"note":{"type":"string","maxLength":2000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["minutes"]}"#)
     .output(r#"{"type":"object","properties":{"timeEntryId":{"type":"string","format":"uuid"},"minutes":{"type":"integer"}}}"#),
 
     ACTION_TIME_ENTRY_UPDATE: NodeType::new(
@@ -707,7 +707,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TimerStart.idempotent())
     .emits(&["timer.started"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"userId":{"type":"string","format":"uuid"},"note":{"type":"string","maxLength":2000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"userId":{"type":"string","format":"uuid"},"note":{"type":"string","maxLength":2000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":[]}"#)
     .output(r#"{"type":"object","properties":{"timerId":{"type":"string","format":"uuid"},"startedAt":{"type":"string"}}}"#),
 
     ACTION_TIMER_STOP: NodeType::new(
@@ -720,7 +720,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::TimerStop.idempotent())
     .emits(&["timer.stopped"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"timerId":{"type":"string","format":"uuid"},"ticketId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"timerId":{"type":"string","format":"uuid"},"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":[]}"#)
     .output(r#"{"type":"object","properties":{"minutes":{"type":"integer"},"timeEntryId":{"type":"string","format":"uuid"}}}"#),
 
     ACTION_CLIENT_CREATE: NodeType::new(
@@ -962,7 +962,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::DispatchAssign.idempotent())
     .emits(&["dispatch.status_updated"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"userId":{"type":"string","format":"uuid"},"scheduledFor":{"type":"string"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","userId"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"userId":{"type":"string","format":"uuid"},"scheduledFor":{"type":"string"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["userId"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"userId":{"type":"string","format":"uuid"}}}"#),
 
     ACTION_DISPATCH_UPDATE_STATUS: NodeType::new(
@@ -1056,7 +1056,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::CsatRequest.idempotent())
     .emits(&["csat.survey_sent"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"delay":{"type":"string","maxLength":32},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"delay":{"type":"string","maxLength":32},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":[]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"tokenId":{"type":"string","format":"uuid"}}}"#),
 
     ACTION_PORTAL_NOTIFY: NodeType::new(
@@ -1124,7 +1124,7 @@ declare_nodes! {
         ExecutorPath::DomainWrapper(DomainOp::SignOffCapture),
     )
     .idempotent(DomainOp::SignOffCapture.idempotent())
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid"},"signerName":{"type":"string","minLength":1,"maxLength":200},"attachmentId":{"type":"string","format":"uuid"},"consentVersion":{"type":"string","maxLength":40},"witnessId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["ticketId","signerName","attachmentId","consentVersion"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"signerName":{"type":"string","minLength":1,"maxLength":200},"attachmentId":{"type":"string","format":"uuid"},"consentVersion":{"type":"string","maxLength":40},"witnessId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["signerName","attachmentId","consentVersion"]}"#)
     .output(r#"{"type":"object","properties":{"signOffId":{"type":"string","format":"uuid"},"capturedAt":{"type":"string"}}}"#),
 
     ACTION_SIGN_OFF_FILE: NodeType::new(
@@ -1287,7 +1287,7 @@ declare_nodes! {
     )
     .idempotent(DomainOp::DocumentAttach.idempotent())
     .emits(&["document_attachment.added"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"documentId":{"type":"string","format":"uuid"},"ticketId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["documentId","ticketId"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"documentId":{"type":"string","format":"uuid"},"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["documentId"]}"#)
     .output(r#"{"type":"object","properties":{"documentId":{"type":"string","format":"uuid"},"ticketId":{"type":"string","format":"uuid"}}}"#),
 
     ACTION_ATTACHMENT_UPLOAD: NodeType::new(

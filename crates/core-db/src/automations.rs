@@ -235,6 +235,182 @@ where
     Ok(workflow_from(row))
 }
 
+/// One workflow DOCUMENT as the authoring surface needs it (Wave 43 lane 16):
+/// the document and its revision plus the rule fields the canvas edits
+/// (`name`, `trigger_event`, `enabled`). Distinct from
+/// [`WorkflowRuleRecord`], which is the executor's narrower read: the
+/// executor matches by trigger and never needs the name or enabled flag back
+/// after the query, so its SELECT stays as it was.
+#[derive(Debug, Clone)]
+pub struct WorkflowDocumentRecord {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub name: String,
+    pub revision: i32,
+    pub created_by: Option<Uuid>,
+    pub definition: Value,
+    pub trigger_event: String,
+    pub enabled: bool,
+    pub subject_kind: AutomationSubjectKind,
+}
+
+type WorkflowDocumentRowTuple = (
+    Uuid,
+    Uuid,
+    String,
+    i32,
+    Option<Uuid>,
+    Value,
+    String,
+    bool,
+    Option<String>,
+);
+
+const WORKFLOW_DOCUMENT_COLUMNS: &str =
+    "id, org_id, name, revision, created_by, definition, trigger_event, enabled, subject_kind";
+
+fn workflow_document_from(row: WorkflowDocumentRowTuple) -> WorkflowDocumentRecord {
+    let (id, org_id, name, revision, created_by, definition, trigger_event, enabled, subject_kind) =
+        row;
+    WorkflowDocumentRecord {
+        id,
+        org_id,
+        name,
+        revision,
+        created_by,
+        definition,
+        trigger_event,
+        enabled,
+        subject_kind: AutomationSubjectKind::from_db(subject_kind.as_deref()),
+    }
+}
+
+/// Creates a workflow document row: `definition` set (so the executor and the
+/// document reads claim it, never the simple tier), the caller's subject kind,
+/// no conditions/actions, enabled, revision 1.
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_workflow<'e, E>(
+    executor: E,
+    id: Uuid,
+    org_id: Uuid,
+    created_by: Option<Uuid>,
+    name: &str,
+    trigger_event: &str,
+    subject_kind: AutomationSubjectKind,
+    definition: Value,
+) -> DbResult<WorkflowDocumentRecord>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query_as::<_, WorkflowDocumentRowTuple>(&format!(
+        "INSERT INTO automation_rules
+              (id, org_id, subject_kind, name, trigger_event, conditions, actions,
+               enabled, revision, definition, created_by)
+            VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, '[]'::jsonb,
+                    true, 1, $6, $7)
+            RETURNING {WORKFLOW_DOCUMENT_COLUMNS}"
+    ))
+    .bind(id)
+    .bind(org_id)
+    .bind(subject_kind.as_str())
+    .bind(name)
+    .bind(trigger_event)
+    .bind(definition)
+    .bind(created_by)
+    .fetch_one(executor)
+    .await?;
+    Ok(workflow_document_from(row))
+}
+
+/// Every workflow document in one org, by name. `definition IS NOT NULL`
+/// partitions the table: documents here, simple rules in [`list`].
+pub async fn list_workflow_documents<'e, E>(
+    executor: E,
+    org_id: Uuid,
+) -> DbResult<Vec<WorkflowDocumentRecord>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query_as::<_, WorkflowDocumentRowTuple>(&format!(
+        "SELECT {WORKFLOW_DOCUMENT_COLUMNS} FROM automation_rules
+            WHERE org_id = $1 AND definition IS NOT NULL
+            ORDER BY name"
+    ))
+    .bind(org_id)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows.into_iter().map(workflow_document_from).collect())
+}
+
+/// One workflow document by id.
+pub async fn get_workflow_document<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<WorkflowDocumentRecord>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query_as::<_, WorkflowDocumentRowTuple>(&format!(
+        "SELECT {WORKFLOW_DOCUMENT_COLUMNS} FROM automation_rules
+            WHERE org_id = $1 AND id = $2 AND definition IS NOT NULL"
+    ))
+    .bind(org_id)
+    .bind(id)
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(workflow_document_from(row))
+}
+
+/// The mutable fields of a workflow document. `definition` is the only field
+/// that advances the revision: a rename or an enable toggle is not a new
+/// document version, but a document edit is.
+pub struct WorkflowRulePatch {
+    pub name: Option<String>,
+    pub trigger_event: Option<String>,
+    pub definition: Option<Value>,
+    pub enabled: Option<bool>,
+    pub subject_kind: Option<AutomationSubjectKind>,
+}
+
+/// COALESCE-style partial update over document rows only (`definition IS NOT
+/// NULL`); bumps `revision` iff a new `definition` is provided. One query.
+pub async fn update_workflow<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+    patch: WorkflowRulePatch,
+) -> DbResult<WorkflowDocumentRecord>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query_as::<_, WorkflowDocumentRowTuple>(&format!(
+        "UPDATE automation_rules SET
+              name = COALESCE($3, name),
+              trigger_event = COALESCE($4, trigger_event),
+              definition = COALESCE($5::jsonb, definition),
+              enabled = COALESCE($6, enabled),
+              subject_kind = COALESCE($7, subject_kind),
+              revision = CASE WHEN $5::jsonb IS NOT NULL
+                              THEN revision + 1 ELSE revision END,
+              updated_at = now()
+            WHERE org_id = $1 AND id = $2 AND definition IS NOT NULL
+            RETURNING {WORKFLOW_DOCUMENT_COLUMNS}"
+    ))
+    .bind(org_id)
+    .bind(id)
+    .bind(patch.name.as_deref())
+    .bind(patch.trigger_event.as_deref())
+    .bind(patch.definition.clone())
+    .bind(patch.enabled)
+    .bind(patch.subject_kind.map(|kind| kind.as_str()))
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(workflow_document_from(row))
+}
+
 pub struct RulePatch {
     pub name: Option<String>,
     pub board_id: Option<Option<Uuid>>,

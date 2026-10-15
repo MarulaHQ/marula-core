@@ -12915,6 +12915,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflows/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/workflows/documents */
+        get: operations["workflow_documents_list"];
+        put?: never;
+        /**
+         * POST /api/workflows/documents — the document is validated before storage
+         *     (see [`validate_definition`]); the row is created as revision 1.
+         */
+        post: operations["workflow_documents_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflows/documents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/workflows/documents/{id} */
+        get: operations["workflow_documents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/workflows/documents/{id} — replacing the document validates it
+         *     and advances the revision.
+         */
+        patch: operations["workflow_documents_update"];
+        trace?: never;
+    };
     "/api/v1/workflows/nodes": {
         parameters: {
             query?: never;
@@ -17491,6 +17533,21 @@ export interface components {
             event_types?: string[];
             /** @description HTTPS endpoint receiving `POST`s. (http:// allowed for local dev.) */
             url: string;
+        };
+        CreateWorkflowDocumentRequest: {
+            /**
+             * @description The workflow document (see WorkflowDocument schema); parsed and
+             *     validated before storage.
+             */
+            definition: unknown;
+            name: string;
+            /**
+             * @description `"ticket"` or `"board"`; omitted means `"ticket"` (the simple tier's
+             *     default). A board-subject document runs against events with no ticket.
+             */
+            subject_kind?: string | null;
+            /** @description Domain event type the document is triggered by, e.g. "ticket.created". */
+            trigger_event: string;
         };
         /**
          * @description The create response. `token` is the RAW shareable token — shown ONCE,
@@ -30142,6 +30199,14 @@ export interface components {
             event_types?: string[] | null;
             url?: string | null;
         };
+        UpdateWorkflowDocumentRequest: {
+            /** @description Replacing the document advances the revision by one. */
+            definition?: unknown;
+            enabled?: boolean | null;
+            name?: string | null;
+            subject_kind?: string | null;
+            trigger_event?: string | null;
+        };
         UpsertEdgeSourceRequest: {
             /**
              * @description PINNED audience — the assertion's `aud` must equal this exactly
@@ -30732,6 +30797,27 @@ export interface components {
             field_sources: unknown;
             identity_keys: unknown;
             observed_fields: unknown;
+        };
+        WorkflowDocumentListView: {
+            documents: components["schemas"]["WorkflowDocumentView"][];
+        };
+        /**
+         * @description A workflow document as the canvas reads it. `revision` is the document
+         *     version the executor records on each run.
+         */
+        WorkflowDocumentView: {
+            /** Format: uuid */
+            created_by?: string | null;
+            definition: Record<string, never>;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: int32 */
+            revision: number;
+            /** @description `"ticket"` or `"board"` — the tier of subject the document runs against. */
+            subject_kind: string;
+            trigger_event: string;
         };
         /**
          * @description How far back a retry re-executes.
@@ -56629,6 +56715,108 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["OverrideRegistryResponse"];
                 };
+            };
+        };
+    };
+    workflow_documents_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDocumentListView"];
+                };
+            };
+        };
+    };
+    workflow_documents_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkflowDocumentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDocumentView"];
+                };
+            };
+        };
+    };
+    workflow_documents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDocumentView"];
+                };
+            };
+            /** @description document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    workflow_documents_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkflowDocumentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDocumentView"];
+                };
+            };
+            /** @description document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

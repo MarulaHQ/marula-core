@@ -1,0 +1,576 @@
+/* Workflow canvas — feature stylesheet.
+ *
+ * Owner: apps/web/app/automations/canvas (the canvas surface). Feature CSS
+ * lives beside its owner, not in a shared sheet (the chrome boundary).
+ *
+ * Composed from the design reference of record for this surface:
+ * `design/mockups/marula-app-mockup-images/` carries no canvas state, so the
+ * shape comes from the committed pack's `workflow-builder.html` (states W01–
+ * W09) — but every colour here is a `--m-*` token, never a hex from that file.
+ * The mockup's own short vars (`--bg`, `--surf`, `--pr` …) map to Marula tokens:
+ *   --bg→--m-canvas  --surf→--m-surface  --bd→--m-border  --inp→--m-input
+ *   --pr→--m-primary --acc→--m-accent    --fg→--m-text     --sub→--m-text-secondary
+ * Node colour encodes state (selected / invalid / mine), never node family.
+ */
+
+.wf {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  height: 100%;
+  background: var(--m-canvas);
+}
+
+/* header — the mockup's .wfh, at the pack's 72px */
+.wf-h {
+  height: 72px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--m-border);
+  background: var(--m-surface);
+}
+.wf-crumb {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.wf-h h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.wf-saved {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.wf-subject {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--m-text-secondary);
+  white-space: nowrap;
+}
+.wf-subject select {
+  height: 34px;
+  border: 1px solid var(--m-input);
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface);
+  color: var(--m-text);
+  padding: 0 8px;
+  font-family: var(--m-font-ui);
+  font-size: 13px;
+}
+.wf-sp {
+  flex: 1;
+}
+
+.wf-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+
+/* canvas surface — dotted ground, tokens only */
+/* React Flow sizes itself to 100% of its parent; inside the flex row it must
+   also be told to take the remaining width beside the inspector. The canvas
+   ground is the warm-neutral token, never a reference palette. */
+.wf-body > .react-flow {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  background: var(--m-canvas);
+}
+.wf-body .react-flow__attribution {
+  display: none;
+}
+.wf-body .react-flow__edge-path {
+  stroke: var(--m-input);
+  stroke-width: 1.75;
+}
+.wf-body .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--m-primary);
+}
+.wf-body .react-flow__edge-text {
+  fill: var(--m-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.wf-body .react-flow__controls {
+  box-shadow: var(--m-shadow);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  overflow: hidden;
+}
+.wf-body .react-flow__controls-button {
+  background: var(--m-surface);
+  border-bottom: 1px solid var(--m-border);
+  color: var(--m-text);
+}
+.wf-body .react-flow__controls-button:hover {
+  background: var(--m-surface-muted, var(--m-surface-2));
+}
+.wf-minimap {
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+}
+.wf-body .react-flow__node:focus-visible {
+  outline: 2px solid var(--m-focus-ring, var(--m-primary));
+  outline-offset: 3px;
+}
+
+/* node card — the mockup's .nd */
+.wfnd {
+  width: 280px;
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: 14px;
+  color: var(--m-text);
+  font-size: 13px;
+  font-family: var(--m-font-ui);
+  transition: box-shadow 120ms ease, transform 120ms ease;
+}
+.wfnd:hover {
+  transform: translateY(-1px);
+}
+.wfnd.sel {
+  box-shadow: 0 0 0 2px var(--m-primary);
+}
+.wfnd.invalid {
+  border-color: var(--m-danger);
+  border-width: 1.5px;
+}
+.wfnd-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--m-border);
+}
+.wfnd-i {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+  flex-shrink: 0;
+}
+.wfnd-i.trig {
+  background: var(--m-accent);
+  color: var(--m-accent-fg);
+}
+.wfnd-t {
+  min-width: 0;
+  flex: 1;
+}
+.wfnd-t b {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wfnd-t span {
+  display: block;
+  font-size: 12px;
+  color: var(--m-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wfnd-b {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wfnd-kv {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  line-height: 1.35;
+}
+.wfnd-kv i {
+  font-style: normal;
+  color: var(--m-text-secondary);
+  flex-shrink: 0;
+}
+.wfnd-outs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--m-text-secondary);
+  font-size: 12px;
+}
+.wf-tk {
+  font-family: var(--m-font-mono);
+  background: var(--m-surface-2);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* handles */
+.wf-handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--m-surface);
+  border: 2px solid var(--m-input);
+}
+.wf-handle.live {
+  background: var(--m-gold);
+  border-color: var(--m-gold);
+}
+
+/* toolbar panel above the canvas (React Flow Panel, top-left) */
+.wf-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  padding: 4px;
+  box-shadow: var(--m-shadow);
+}
+.wf-zoom {
+  color: var(--m-text-secondary);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 0 8px;
+}
+
+/* validation strip — the mockup's .strip / .vpill */
+.wf-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  font-weight: 500;
+  font-size: 13px;
+  box-shadow: var(--m-shadow);
+  background: var(--m-status-due-bg);
+  color: var(--m-status-due-fg);
+  max-width: 560px;
+}
+.wf-strip.clean {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+}
+.wf-strip .wf-sp {
+  flex: 1;
+}
+
+/* library / palette — the mockup's .lib */
+.wf-lib {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 300px;
+  background: var(--m-surface);
+  border-right: 1px solid var(--m-border);
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+}
+.wf-lib-h {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--m-border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wf-lib-b {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 8px;
+}
+.wf-lib-g {
+  padding: 10px 8px 2px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--m-text-secondary);
+  font-weight: 600;
+}
+.wf-lib-it {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: var(--m-text);
+  cursor: pointer;
+}
+.wf-lib-it:hover {
+  background: var(--m-surface-2);
+}
+.wf-lib-it:focus-visible {
+  outline: 2px solid var(--m-focus-ring, var(--m-primary));
+  outline-offset: 1px;
+}
+.wf-lib-it b {
+  display: block;
+  font-weight: 600;
+  font-size: 13.5px;
+  line-height: 1.2;
+}
+.wf-lib-it span {
+  font-size: 12px;
+  color: var(--m-text-secondary);
+}
+
+/* inspector — the mockup's .insp */
+.wf-insp {
+  width: 380px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--m-border);
+  background: var(--m-surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.wf-insp-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--m-border);
+}
+.wf-insp-h b {
+  font-size: 16px;
+  font-weight: 600;
+  display: block;
+}
+.wf-insp-h span.s {
+  font-size: 12px;
+  color: var(--m-text-secondary);
+}
+.wf-insp-b {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.wf-sec h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--m-text-secondary);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wf-sec h4 .wf-sp {
+  flex: 1;
+}
+.wf-f {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.wf-hint {
+  font-size: 12px;
+  color: var(--m-text-secondary);
+  line-height: 1.45;
+}
+.wf-fi {
+  min-height: 38px;
+  border: 1px solid var(--m-input);
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-family: var(--m-font-ui);
+  color: var(--m-text);
+  width: 100%;
+}
+.wf-fi-search {
+  height: 38px;
+  margin-bottom: 2px;
+}
+.wf-fi-area {
+  min-height: 68px;
+  padding-top: 8px;
+}
+.wf-fi-mono {
+  font-family: var(--m-font-mono);
+  font-size: 12px;
+}
+.wf-f {
+  margin-bottom: 10px;
+}
+.wf-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wf-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wf-steps-lead {
+  margin-bottom: 12px;
+}
+.wf-lib-hrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wf-remove {
+  margin-top: 4px;
+}
+.wf-f > label {
+  font-weight: 600;
+  font-size: 13px;
+}
+.wf-issues {
+  margin: 0;
+  padding-left: 18px;
+}
+.wf-center {
+  display: grid;
+  place-items: center;
+  flex: 1;
+}
+.wf-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wf-viewswitch {
+  display: flex;
+  gap: 4px;
+}
+.wf-lib-title {
+  font-size: 15px;
+}
+.wf-connect-hint {
+  margin-top: 6px;
+}
+.wf-note {
+  background: var(--m-surface-2);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.wf-live {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  z-index: 6;
+}
+.wf-skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--m-primary);
+  color: var(--m-primary-fg, var(--m-on-primary));
+  padding: 8px 12px;
+  border-radius: 0 0 10px 0;
+  z-index: 20;
+}
+.wf-skip:focus {
+  left: 0;
+}
+
+/* steps view (W09) — the same document, read as an ordered list */
+.wf-steps {
+  flex: 1;
+  overflow: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+.wf-step {
+  display: flex;
+  gap: 14px;
+  position: relative;
+  padding-bottom: 14px;
+}
+.wf-step .n {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--m-surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+  z-index: 1;
+}
+.wf-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 14.5px;
+  top: 30px;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--m-border);
+}
+.wf-step .c {
+  flex: 1;
+  background: var(--m-surface);
+  border: 1px solid var(--m-border);
+  border-radius: 14px;
+  padding: 11px 14px;
+}
+.wf-step .c b {
+  font-weight: 600;
+}
+.wf-step .c .s {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wfnd {
+    transition: none;
+  }
+  .wfnd:hover {
+    transform: none;
+  }
+}
