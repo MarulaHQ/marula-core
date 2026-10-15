@@ -568,9 +568,14 @@ export default function AutomationsPage() {
           </>
         }
         actions={
-          <Button onClick={openNewRule} data-testid="automation-new-rule">
-            <PlusIcon size={16} /> New rule
-          </Button>
+          <>
+            <Button variant="secondary" asChild>
+              <Link href="/automations/canvas">Open the canvas</Link>
+            </Button>
+            <Button onClick={openNewRule} data-testid="automation-new-rule">
+              <PlusIcon size={16} /> New rule
+            </Button>
+          </>
         }
       />
 
@@ -784,6 +789,14 @@ export default function AutomationsPage() {
                     ))}
                     <Td className="text-right">
                       <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link
+                            href={`/automations/canvas?rule=${r.id}`}
+                            aria-label={`Open ${r.name} in the canvas`}
+                          >
+                            Open in canvas
+                          </Link>
+                        </Button>
                         <Button
                           data-testid={`automation-test-run-${r.id}`}
                           variant="ghost"

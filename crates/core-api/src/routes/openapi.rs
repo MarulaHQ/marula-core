@@ -510,6 +510,11 @@ use utoipa::OpenApi;
         crate::routes::workflow_runs::get,
         crate::routes::workflow_runs::list_steps,
         crate::routes::workflow_runs::retry,
+        // workflow document authoring (Wave 43 lane 16)
+        crate::routes::workflow_documents::list,
+        crate::routes::workflow_documents::get,
+        crate::routes::workflow_documents::create,
+        crate::routes::workflow_documents::update,
         crate::routes::api_keys::list,
         crate::routes::api_keys::create,
         crate::routes::api_keys::revoke,
@@ -1743,6 +1748,11 @@ use utoipa::OpenApi;
         crate::routes::workflow_runs::RunStepListQuery,
         crate::routes::workflow_runs::RetryRunRequest,
         crate::routes::workflow_runs::RunRetryResponse,
+        // workflow document authoring (Wave 43 lane 16)
+        crate::routes::workflow_documents::WorkflowDocumentView,
+        crate::routes::workflow_documents::WorkflowDocumentListView,
+        crate::routes::workflow_documents::CreateWorkflowDocumentRequest,
+        crate::routes::workflow_documents::UpdateWorkflowDocumentRequest,
         // ADR 0009 distribution lifecycle (Wave 16 lane 7) + Wave 24 theme packs
         crate::routes::plugin_distribution::ThemePackList,
         crate::routes::plugin_distribution::ThemePackView,

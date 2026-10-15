@@ -147,6 +147,7 @@ pub mod verification;
 pub mod webhook_admin;
 pub mod webhook_receiver;
 pub mod webhooks;
+pub mod workflow_documents;
 pub mod workflow_nodes;
 pub mod workflow_overrides;
 pub mod workflow_runs;
@@ -850,6 +851,18 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/workflows/plugin-nodes"),
             get(workflow_nodes::list_plugin_nodes),
+        )
+        // workflow DOCUMENT authoring (Wave 43 lane 16): the canvas edits the
+        // `automation_rules` rows whose `definition` is set. Reads are View;
+        // the writes are Create/Edit and validate through core-domain before
+        // storage. Admin-scoped like the rest of the workflow surfaces.
+        .route(
+            &rp("/workflows/documents"),
+            get(workflow_documents::list).post(workflow_documents::create),
+        )
+        .route(
+            &rp("/workflows/documents/{id}"),
+            get(workflow_documents::get).patch(workflow_documents::update),
         )
         // --- the workflow run ledger (Wave 43 lane 14) ------------------------
         //

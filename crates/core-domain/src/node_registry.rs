@@ -1173,7 +1173,7 @@ fn validate_declared_at(schema: &Value, path: &str) -> Result<(), SchemaViolatio
             if !matches!(
                 declared,
                 "object" | "array" | "string" | "integer" | "number" | "boolean" | "null" | "uuid"
-            ) && !matches!(key.as_str(), "format")
+            ) && !matches!(key.as_str(), "format" | "description")
             {
                 return Err(violation(
                     path,

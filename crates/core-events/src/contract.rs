@@ -4552,6 +4552,48 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- rag (Wave 45 p45-rag-vector-namespace) ---------------------------
+    // Both types have live emission sites (`core-api/src/routes/rag.rs`), so
+    // they are PUBLISHED, not reserved. Registered here after the lane-16
+    // gate found them emitted without contract entries. Payloads are assembled
+    // ad hoc at the emission site (`RagIngestPayload` / `RagDeletePayload`), so
+    // the floor is the required keys.
+    PublishedEvent {
+        event_type: types::RAG_CHUNKS_INGESTED,
+        entity: "rag_namespace",
+        variant: "default",
+        shape: untyped_shape!(
+            ["namespace", "total", "inserted", "updated", "unchanged"],
+            serde_json::json!({
+                "namespace": "kb.handbook",
+                "total": 12,
+                "inserted": 9,
+                "updated": 2,
+                "unchanged": 1,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::RAG_SOURCE_DELETED,
+        entity: "rag_deletion_receipt",
+        variant: "default",
+        shape: untyped_shape!(
+            ["receipt"],
+            serde_json::json!({
+                "receipt": {
+                    "receipt_id": su(90),
+                    "org_id": su(2),
+                    "namespace": "kb.handbook",
+                    "source_kind": "document",
+                    "source_id": "doc-4231",
+                    "deleted_chunks": 7,
+                    "content_hashes": ["sha256:aaaa", "sha256:bbbb"],
+                    "deleted_by": su(5),
+                    "deleted_at": st(9),
+                }
+            })
+        ),
+    },
 ];
 
 /// Representative catalog item for catalog samples (Wave 12 lane 2).

@@ -2034,8 +2034,10 @@ pub struct WorkflowNodeRequest {
     pub node_id: String,
     #[serde(default)]
     pub params: Value,
-    /// The run context: the triggering event, previous outputs. Currently
-    /// informational; conditions read it when they land.
+    /// The run context: the triggering event and previous outputs. Load-bearing
+    /// since lane 16 — a ticket-writing node with no explicit `ticketId`
+    /// resolves the ticket from `context.event.ticket_id` (the envelope that
+    /// fired the run).
     #[serde(default)]
     pub context: Value,
 }
@@ -2063,8 +2065,9 @@ pub async fn workflow_node(
     let actor = req.actor_user_id;
     let node_id = req.node_id.clone();
     let params = req.params.clone();
+    let context = req.context.clone();
     let output = org_tx::with_org_tx(&state, org_id, actor, move |mut ctx| async move {
-        let output = execute_workflow_node(&mut ctx, org_id, &node_id, &params).await?;
+        let output = execute_workflow_node(&mut ctx, org_id, &node_id, &params, &context).await?;
         Ok((ctx, output))
     })
     .await?;
@@ -2081,11 +2084,12 @@ async fn execute_workflow_node(
     org_id: Uuid,
     node_id: &str,
     params: &Value,
+    context: &Value,
 ) -> ApiResult<Value> {
     let marker = serde_json::json!({ core_domain::automations::VIA_AUTOMATION_KEY: true });
     match node_id {
         "ticket.assign" => {
-            let ticket = workflow_ticket(ctx, org_id, params).await?;
+            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
             let assignee = params
                 .get("userId")
                 .and_then(Value::as_str)
@@ -2138,7 +2142,7 @@ async fn execute_workflow_node(
             Ok(json!({ "ticketId": ticket.id, "assigneeId": assignee }))
         }
         "ticket.setPriority" => {
-            let ticket = workflow_ticket(ctx, org_id, params).await?;
+            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
             let priority = params
                 .get("priority")
                 .and_then(Value::as_str)
@@ -2176,7 +2180,7 @@ async fn execute_workflow_node(
             Ok(json!({ "ticketId": ticket.id, "priority": priority.as_str() }))
         }
         "ticket.update" => {
-            let ticket = workflow_ticket(ctx, org_id, params).await?;
+            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
             let fields = params.get("fields").and_then(Value::as_object);
             let title = fields.and_then(|f| f.get("title")).and_then(Value::as_str);
             let body = fields.and_then(|f| f.get("body")).and_then(Value::as_str);
@@ -2228,7 +2232,7 @@ async fn execute_workflow_node(
             Ok(json!({ "ticketId": ticket.id }))
         }
         "ticket.comment" | "ticket.internalNote" => {
-            let ticket = workflow_ticket(ctx, org_id, params).await?;
+            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
             let body = params
                 .get("body")
                 .and_then(Value::as_str)
@@ -2340,7 +2344,7 @@ async fn execute_workflow_node(
             Ok(json!({ "sent": sent, "suppressed": suppressed }))
         }
         "plugin.action" => {
-            let ticket = workflow_ticket(ctx, org_id, params).await?;
+            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
             let entry_key = params
                 .get("entryKey")
                 .and_then(Value::as_str)
@@ -2421,19 +2425,76 @@ async fn execute_workflow_node(
     }
 }
 
-/// Loads the ticket a node names, refusing a missing `ticketId` or a ticket
-/// outside this org.
+/// Resolves the ticket a node acts on. An explicit `params.ticketId` wins;
+/// otherwise the ticket is read from the run's triggering envelope
+/// (`context.event.ticket_id`, or a top-level `context.ticket_id`), so a
+/// ticket-writing node in a rule-triggered workflow acts on the ticket that
+/// fired the run without the author hand-copying an id. A run with neither is
+/// refused (the node genuinely names no ticket).
 async fn workflow_ticket(
     ctx: &mut org_tx::OrgTx<'_>,
     org_id: Uuid,
     params: &Value,
+    context: &Value,
 ) -> ApiResult<core_domain::entities::Ticket> {
     let ticket_id = params
         .get("ticketId")
         .and_then(Value::as_str)
         .and_then(|s| Uuid::parse_str(s).ok())
-        .ok_or_else(|| ApiError::Validation("node params must name a ticketId".into()))?;
+        .or_else(|| trigger_ticket_id(context))
+        .ok_or_else(|| {
+            ApiError::Validation(
+                "node names no ticketId and the triggering event carried no ticket".into(),
+            )
+        })?;
     core_db::tickets::get_ticket(&mut *ctx.tx, org_id, ticket_id)
         .await
         .map_err(|_| ApiError::NotFound)
+}
+
+/// The ticket id from the run context: `event.ticket_id` (the triggering
+/// envelope's payload, as the executor sends it), then a top-level
+/// `ticket_id`. `subject.ticket_id` covers an envelope that nests the ticket.
+fn trigger_ticket_id(context: &Value) -> Option<Uuid> {
+    ["event.ticket_id", "ticket_id", "event.subject.ticket_id"]
+        .iter()
+        .find_map(|path| {
+            path.split('.')
+                .try_fold(context, |cur, key| cur.get(key))
+                .and_then(Value::as_str)
+                .and_then(|s| Uuid::parse_str(s).ok())
+        })
+}
+
+#[cfg(test)]
+mod workflow_ticket_tests {
+    use super::trigger_ticket_id;
+    use serde_json::json;
+
+    #[test]
+    fn resolves_the_triggering_ticket_from_the_run_context() {
+        let id = "00000000-0000-0000-0000-000000000001";
+        // The executor sends the triggering envelope's payload as `event`.
+        assert_eq!(
+            trigger_ticket_id(&json!({ "event": { "ticket_id": id }, "run_id": null })),
+            uuid::Uuid::parse_str(id).ok()
+        );
+        // A top-level ticket_id and a nested subject are also honoured.
+        assert_eq!(
+            trigger_ticket_id(&json!({ "ticket_id": id })),
+            uuid::Uuid::parse_str(id).ok()
+        );
+        assert_eq!(
+            trigger_ticket_id(&json!({ "event": { "subject": { "ticket_id": id } } })),
+            uuid::Uuid::parse_str(id).ok()
+        );
+    }
+
+    #[test]
+    fn no_ticket_in_context_is_none_not_an_error() {
+        assert!(trigger_ticket_id(&json!({ "event": { "board_id": "x" } })).is_none());
+        assert!(trigger_ticket_id(&json!({})).is_none());
+        // A malformed id is not silently accepted.
+        assert!(trigger_ticket_id(&json!({ "event": { "ticket_id": "not-a-uuid" } })).is_none());
+    }
 }

@@ -1,0 +1,23 @@
+{
+  "event_type": "rag.source_deleted",
+  "entity": "rag_deletion_receipt",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "receipt": {
+      "content_hashes": [
+        "sha256:aaaa",
+        "sha256:bbbb"
+      ],
+      "deleted_at": "2023-11-14T22:13:29Z",
+      "deleted_by": "00000000-0000-0000-0000-000000000005",
+      "deleted_chunks": 7,
+      "namespace": "kb.handbook",
+      "org_id": "00000000-0000-0000-0000-000000000002",
+      "receipt_id": "00000000-0000-0000-0000-00000000005a",
+      "source_id": "doc-4231",
+      "source_kind": "document"
+    }
+  }
+}
