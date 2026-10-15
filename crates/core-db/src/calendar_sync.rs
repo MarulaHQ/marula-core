@@ -20,7 +20,7 @@ use core_domain::entities::{
     CalendarSyncConnection, CalendarSyncDirection, CalendarSyncEvent, CalendarSyncStatus,
     ExternalCalendarEvent, SyncOutcome,
 };
-use sqlx::{Connection, PgConnection};
+use sqlx::{Connection, PgConnection, PgPool};
 use uuid::Uuid;
 
 const CONNECTION_COLS: &str = "id, org_id, user_id, name, provider, direction::text AS direction, \
@@ -195,21 +195,61 @@ pub async fn set_feed_token(
     .map(|_| ())
 }
 
-/// Resolves an outbound feed by token hash (unauthenticated feed surface;
-/// the caller scopes the read afterwards). Returns (org_id, connection_id).
+/// Resolves an outbound feed by token hash (unauthenticated feed surface; the
+/// caller scopes the read afterwards). Returns (org_id, connection_id).
+///
+/// Runs through `app_resolve_calendar_feed_target` (migration 0132), a pre-auth
+/// SECURITY DEFINER bridge: the feed token is in the URL with no session, so the
+/// row cannot be read off the bare pool under RLS (`calendar_sync_connections`
+/// is scoped by 0074). The bridge returns identity only; the caller binds
+/// `app.org_id` to the returned org before every later read.
 pub async fn resolve_feed_target(
     executor: &mut PgConnection,
     token_hash: &str,
 ) -> DbResult<(Uuid, Uuid)> {
-    let row = sqlx::query!(
-        "SELECT org_id, id FROM calendar_sync_connections
-         WHERE feed_token_hash = $1 AND status <> 'disabled'",
-        token_hash
+    let row: Option<(Uuid, Uuid)> =
+        sqlx::query_as("SELECT org_id, connection_id FROM app_resolve_calendar_feed_target($1)")
+            .bind(token_hash)
+            .fetch_optional(executor)
+            .await?;
+    row.ok_or(DbError::NotFound)
+}
+
+/// A delegated-OAuth state nonce resolved to the connection it belongs to.
+pub struct OAuthStateResolution {
+    pub connection_id: Uuid,
+    pub org_id: Uuid,
+    pub user_id: Uuid,
+}
+
+/// Consumes a delegated-OAuth state nonce, atomically, via the pre-auth
+/// `app_consume_calendar_oauth_state` SECURITY DEFINER bridge (migration 0132).
+///
+/// Runs on the bare pool: the callback is the vendor's browser redirect, so
+/// there is no session and the nonce itself is the capability that names the
+/// org. Under RLS the row is default-deny off the bare pool, which is why this
+/// cannot be a plain query. Returns `None` for an unknown, expired, or already
+/// consumed nonce — the cases are deliberately indistinguishable to the caller.
+pub async fn consume_oauth_state(
+    pool: &PgPool,
+    provider: &str,
+    nonce: &str,
+) -> DbResult<Option<OAuthStateResolution>> {
+    let row: Option<(Uuid, Uuid, Uuid)> = sqlx::query_as(
+        "SELECT connection_id, org_id, user_id \
+         FROM app_consume_calendar_oauth_state($1, $2)",
     )
-    .fetch_optional(executor)
-    .await?
-    .ok_or(DbError::NotFound)?;
-    Ok((row.org_id, row.id))
+    .bind(provider)
+    .bind(nonce)
+    .fetch_optional(pool)
+    .await?;
+    Ok(
+        row.map(|(connection_id, org_id, user_id)| OAuthStateResolution {
+            connection_id,
+            org_id,
+            user_id,
+        }),
+    )
 }
 
 /// Records a poll outcome: token refresh, health status, error copy.

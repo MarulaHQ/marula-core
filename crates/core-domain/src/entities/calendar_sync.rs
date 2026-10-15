@@ -123,20 +123,36 @@ pub struct CalendarSyncConnection {
 }
 
 impl CalendarSyncConnection {
+    /// The providers that read through a delegated OAuth grant rather than a
+    /// polled `.ics` URL. They have no `feed_url` by design — their events
+    /// arrive from the vendor API — so the feed_url rule in `validate` does
+    /// not apply to them.
+    fn is_delegated(&self) -> bool {
+        matches!(self.provider.as_str(), "google" | "microsoft")
+    }
+
     pub fn validate(&self) -> Result<(), crate::error::DomainError> {
         if self.name.trim().is_empty() {
             return Err(crate::error::DomainError::Validation(
                 "connection name must not be empty".into(),
             ));
         }
-        if matches!(
-            self.direction,
-            CalendarSyncDirection::Inbound | CalendarSyncDirection::TwoWay
-        ) && !self
-            .feed_url
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|u| u.starts_with("http://") || u.starts_with("https://"))
+        // A `feed_url` is required only where it is actually read: an ical
+        // connection that pulls from (or is two-way with) an external URL. An
+        // outbound-only connection publishes this org's own feed and has no
+        // external URL; a delegated provider has no URL at all. Requiring one
+        // for a delegated provider is what made a Google/Microsoft connection
+        // impossible to create at all.
+        if !self.is_delegated()
+            && matches!(
+                self.direction,
+                CalendarSyncDirection::Inbound | CalendarSyncDirection::TwoWay
+            )
+            && !self
+                .feed_url
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|u| u.starts_with("http://") || u.starts_with("https://"))
         {
             return Err(crate::error::DomainError::Validation(
                 "inbound and two-way connections require an http(s) feed_url".into(),
@@ -215,4 +231,77 @@ pub struct SyncOutcome {
     pub overlaps: u32,
     /// Same-UID re-polls resolved by the highest-sequence-wins rule.
     pub duplicates: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn connection(
+        provider: &str,
+        direction: CalendarSyncDirection,
+        feed_url: Option<&str>,
+    ) -> CalendarSyncConnection {
+        CalendarSyncConnection {
+            id: Uuid::nil(),
+            org_id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            name: "Work calendar".into(),
+            provider: provider.into(),
+            direction,
+            status: CalendarSyncStatus::Active,
+            feed_url: feed_url.map(str::to_string),
+            feed_path: None,
+            last_synced_at: None,
+            last_error: None,
+            access_token: None,
+            token_expires_at: None,
+            external_account: None,
+            scopes: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    /// A delegated provider has no `.ics` URL — its events arrive from the
+    /// vendor API after consent. Requiring a feed_url for it made a
+    /// Google/Microsoft connection impossible to create (422 at the route).
+    #[test]
+    fn delegated_providers_need_no_feed_url() {
+        for provider in ["google", "microsoft"] {
+            assert!(
+                connection(provider, CalendarSyncDirection::Inbound, None)
+                    .validate()
+                    .is_ok(),
+                "{provider} inbound must validate without a feed_url"
+            );
+        }
+    }
+
+    #[test]
+    fn ical_inbound_still_requires_an_http_feed_url() {
+        assert!(connection("ical", CalendarSyncDirection::Inbound, None)
+            .validate()
+            .is_err());
+        assert!(
+            connection("ical", CalendarSyncDirection::Inbound, Some("ftp://host/x"))
+                .validate()
+                .is_err(),
+            "a non-http scheme is not a feed_url"
+        );
+        assert!(connection(
+            "ical",
+            CalendarSyncDirection::Inbound,
+            Some("https://host/calendar.ics")
+        )
+        .validate()
+        .is_ok());
+    }
+
+    #[test]
+    fn outbound_needs_no_feed_url() {
+        assert!(connection("ical", CalendarSyncDirection::Outbound, None)
+            .validate()
+            .is_ok());
+    }
 }

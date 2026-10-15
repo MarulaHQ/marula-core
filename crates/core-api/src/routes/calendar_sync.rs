@@ -1015,7 +1015,10 @@ pub fn public_routes(gen: crate::routes::ApiGeneration) -> axum::Router<AppState
 /// GET /api/calendar-sync/feed/{token} — the OUTBOUND direction: the
 /// user's live appointments as a subscribable iCalendar document.
 /// Unauthenticated but token-scoped and rate-limited (the scheduling-links
-/// pattern); the token resolves org + user, then the read is org-scoped.
+/// pattern); the token resolves org + user, then the read is org-scoped. The
+/// token-to-org resolution runs through the `app_resolve_calendar_feed_target`
+/// SECURITY DEFINER bridge (migration 0132) — the token is in the URL with no
+/// session, so the row is default-deny off the bare pool under RLS.
 #[utoipa::path(operation_id = "public_calendar_sync_feed", get, path = "/api/calendar-sync/feed/{token}", tag = "scheduling",
     params(("token" = String, Path)),
     responses((status = 200, body = String, content_type = "text/calendar"), (status = 404, description = "unknown token"), (status = 429)))]
@@ -1390,30 +1393,26 @@ pub async fn oauth_callback(
     // started it, and `user_id` rides along so the sealed write is attributed
     // to the technician whose calendar it is rather than to nobody.
     //
-    // The UPDATE is also what CONSUMES the nonce, atomically — a replayed
-    // callback finds nothing to consume, and doing it in the consuming
-    // statement rather than a separate delete is what closes the window
-    // where two callbacks race.
-    let mut conn = state.pool.acquire().await.map_err(ApiError::from)?;
-    let row: Option<(Uuid, Uuid, Uuid)> = sqlx::query_as(
-        "UPDATE calendar_sync_connections
-            SET oauth_state = NULL, oauth_state_expires_at = NULL, updated_at = now()
-          WHERE provider = $1 AND oauth_state = $2
-            AND oauth_state_expires_at > now()
-          RETURNING id, org_id, user_id",
-    )
-    .bind(&provider)
-    .bind(&q.state)
-    .fetch_optional(&mut *conn)
-    .await
-    .map_err(ApiError::from)?;
-
-    let Some((connection_id, org_id, user_id)) = row else {
+    // That means the nonce CANNOT be read under an org-bound transaction — the
+    // org is what the read produces — and it cannot be read off the bare pool
+    // either, because `calendar_sync_connections` is RLS-scoped and the bare
+    // pool is default-deny. It resolves through a narrow SECURITY DEFINER
+    // bridge (`app_consume_calendar_oauth_state`, migration 0132), the same
+    // pre-auth seam the portal and SSO token surfaces use. The bridge's UPDATE
+    // IS the claim, so the nonce is consumed atomically: a replayed callback
+    // finds nothing.
+    let Some(resolved) =
+        core_db::calendar_sync::consume_oauth_state(&state.pool, &provider, &q.state)
+            .await
+            .map_err(ApiError::from)?
+    else {
         return Err(ApiError::Validation(
             "this authorization link is unknown or has expired — start the connection again".into(),
         ));
     };
-    drop(conn);
+    let connection_id = resolved.connection_id;
+    let org_id = resolved.org_id;
+    let user_id = resolved.user_id;
 
     // Exchange the code. The nonce is consumed BEFORE the exchange, so a
     // replayed callback finds nothing to consume.

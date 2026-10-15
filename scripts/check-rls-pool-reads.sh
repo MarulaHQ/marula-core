@@ -101,6 +101,14 @@ allowlist=(
   # cross-org shape as portal_resolve_login/session. Credential checks and
   # every read after ride org-bound txs.
   'portal.rs:consume_portal_one_use_token('
+  # Pre-auth calendar OAuth callback (Wave 43 lane 20): the vendor redirects the
+  # browser with no session, and the state nonce IS the capability that names the
+  # org, so the row cannot be read under an org-bound tx. consume_oauth_state is
+  # the `app_consume_calendar_oauth_state` SECURITY DEFINER seam (migration 0132)
+  # and returns identity only — the sealed write and every read after ride an
+  # org-bound tx bound to the returned org. (The authorize_start write, same
+  # file, is org-bound and never appears here.)
+  'calendar_sync.rs:consume_oauth_state('
   # Self-host health probe (p36 selfhost-visibility): SELECT 1 liveness
   # only — no tenant column is read, nothing to scope.
   'self_host.rs:query_scalar::<_, i32>("SELECT 1")'
