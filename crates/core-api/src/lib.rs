@@ -5,6 +5,7 @@ pub mod auth;
 pub mod client_ip;
 pub mod config;
 pub mod crypto;
+pub mod dns_verify;
 pub mod email;
 pub mod error;
 pub mod instant;

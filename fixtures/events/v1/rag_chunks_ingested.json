@@ -1,0 +1,14 @@
+{
+  "event_type": "rag.chunks_ingested",
+  "entity": "rag_namespace",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "inserted": 2,
+    "namespace": "kb:default",
+    "total": 3,
+    "unchanged": 0,
+    "updated": 1
+  }
+}

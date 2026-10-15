@@ -46,6 +46,11 @@ pub const KNOWN_SCOPES: &[&str] = &[
     "org_usage:read",
     "rag:read",
     "rag:write",
+    // Wave 47 lane A8: custom-domain management/reporting. `read` lets a
+    // reverse proxy read the org's domain back; `manage` lets a DNS-provider
+    // plugin drive the domain-management API on the org's behalf.
+    "org_custom_domain:read",
+    "org_custom_domain:manage",
 ];
 
 // --- hashing ------------------------------------------------------------------

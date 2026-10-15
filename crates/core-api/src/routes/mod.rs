@@ -93,6 +93,7 @@ pub mod oidc;
 pub mod onboarding;
 pub mod openapi;
 pub mod org_config;
+pub mod org_custom_domain;
 pub mod org_usage;
 pub mod org_users;
 pub mod passwords;
@@ -1596,6 +1597,23 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // `org_usage.read` plugin capability resolves onto.
         .route(&rp("/orgs/{org_id}/usage"), get(org_usage::get_org_usage))
         .route(&rp("/orgs/{org_id}/quotas"), get(org_usage::get_org_quotas))
+        // Per-org custom domain + generic DNS verification (Wave 47 lane A8,
+        // migration 0135). Core stores the verified domain and runs the TXT
+        // verification through the system resolver; it never terminates TLS
+        // or routes traffic. Vendor-agnostic by construction: a DNS-provider
+        // plugin may automate records, but nothing here requires one. Read is
+        // member-or-`org_custom_domain:read`; mutations are admin
+        // (`admin:edit`) or `org_custom_domain:manage`.
+        .route(
+            &rp("/orgs/{org_id}/custom-domain"),
+            get(org_custom_domain::get_custom_domain)
+                .post(org_custom_domain::set_custom_domain)
+                .delete(org_custom_domain::delete_custom_domain),
+        )
+        .route(
+            &rp("/orgs/{org_id}/custom-domain/verify"),
+            post(org_custom_domain::verify_custom_domain),
+        )
         // email inbound routing settings (admin)
         .route(
             &rp("/email/inbound-settings"),

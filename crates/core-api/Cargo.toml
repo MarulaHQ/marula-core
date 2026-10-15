@@ -34,6 +34,14 @@ core-decision = { path = "../core-decision" }
 core-domain = { path = "../core-domain", features = ["openapi"] }
 plugin-host = { path = "../plugin-host" }
 app-bridges = { path = "../../plugins/connectors/app-bridges" }
+# Wave 47 lane A8: the vendor-agnostic DNS-record-management contract
+# (`adapters-core::dns`). Core's custom-domain verification consumes the seam's
+# manual-instructions generator and token matcher; it never requires a
+# provider plugin.
+adapters-core = { path = "../../plugins/connectors/adapters-core" }
+# Wave 47 lane A8: resolves `_marula-verify.<domain>` TXT through the SYSTEM
+# resolver (system-config + tokio features), the generic verification path.
+hickory-resolver = "0.26"
 core-billing = { path = "../core-billing" }
 core-documents = { path = "../core-documents" }
 core-kb = { path = "../core-kb" }
