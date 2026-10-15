@@ -257,6 +257,10 @@ pub mod types {
     /// Emitted when the org profile (name/ticket prefix) is edited from
     /// General settings or the first-run wizard.
     pub const ORG_UPDATED: &str = "org.updated";
+    /// Emitted when an org's custom domain is set, verified, or cleared
+    /// (Wave 47 lane A8). Payload carries the domain and the `action`
+    /// (`set` / `verified` / `cleared`).
+    pub const ORG_CUSTOM_DOMAIN_CHANGED: &str = "org.custom_domain_changed";
     /// Org-scoped ticket-workspace pod-visibility matrix changed (Wave 12
     /// lane 6): the admin per-RBAC matrix moved from device-local panel
     /// state to the org store (`org_pod_visibility`, migration 0064).

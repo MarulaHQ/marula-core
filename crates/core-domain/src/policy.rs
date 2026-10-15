@@ -120,7 +120,10 @@ impl Action {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
-    Matrix { module: Module, action: Action },
+    Matrix {
+        module: Module,
+        action: Action,
+    },
     ManageUsers,
     ManageRoles,
     ManageBoards,
@@ -132,6 +135,19 @@ pub enum Permission {
     ViewAuditLog,
     PortalAdmin,
     ViewOrgUsage,
+    /// Wave 47 lane A8 (`p47-org-custom-domains`): read a valid-type org's
+    /// custom-domain state (domain, verification status, whether a
+    /// DNS-provider plugin is installed). Held by SERVICE ACCOUNTS and
+    /// custom roles — org members read their own state through membership,
+    /// which is why no shipped preset carries it.
+    ViewOrgCustomDomain,
+    /// Wave 47 lane A8: set/clear a valid-type org's custom domain and run the
+    /// DNS verification workflow. A human owner/admin holds the authority
+    /// through the Admin matrix (`Module::Admin` + `Action::Edit`), exactly
+    /// like org settings; this permission is what a machine caller (or a
+    /// custom role) presents instead. The `org_custom_domain.manage` plugin
+    /// capability resolves onto it.
+    ManageOrgCustomDomain,
 }
 
 impl Permission {
@@ -166,6 +182,13 @@ impl Permission {
                 // and custom roles; no shipped preset carries it, and
                 // nothing anywhere enforces what the numbers say.
                 Permission::ViewOrgUsage => "org_usage:read".into(),
+                // Wave 47 lane A8: the same module-namespaced shape as
+                // `financial:read` / `org_usage:read`. Read is a
+                // machine/custom-role grant (members read by membership);
+                // manage is what a service account presents in place of the
+                // Admin matrix a human admin holds.
+                Permission::ViewOrgCustomDomain => "org_custom_domain:read".into(),
+                Permission::ManageOrgCustomDomain => "org_custom_domain:manage".into(),
                 Permission::Matrix { .. } => unreachable!(),
             },
         }
@@ -1035,6 +1058,37 @@ mod tests {
                 !role.permissions().contains(&Permission::ViewOrgUsage),
                 "{role:?} must not carry org_usage:read by default"
             );
+        }
+    }
+
+    /// Wave 47 lane A8: the same shape as A6 — a human owner/admin manages a
+    /// custom domain through the Admin matrix (`admin:edit`), and a human
+    /// member reads it by membership. The two operational grants exist for
+    /// SERVICE ACCOUNTS and custom roles, so no shipped preset carries them;
+    /// a preset grant would read as "humans need a special permission to
+    /// manage their own domain", and the next lane copying the pattern would
+    /// make it so.
+    #[test]
+    fn org_custom_domain_grants_are_machine_only_no_preset_carries_them() {
+        assert_eq!(
+            Permission::ViewOrgCustomDomain.key(),
+            "org_custom_domain:read"
+        );
+        assert_eq!(
+            Permission::ManageOrgCustomDomain.key(),
+            "org_custom_domain:manage"
+        );
+        for role in BuiltinRole::PRESETS {
+            for perm in [
+                Permission::ViewOrgCustomDomain,
+                Permission::ManageOrgCustomDomain,
+            ] {
+                assert!(
+                    !role.permissions().contains(&perm),
+                    "{role:?} must not carry {} by default",
+                    perm.key()
+                );
+            }
         }
     }
 

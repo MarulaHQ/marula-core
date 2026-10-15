@@ -286,6 +286,23 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
     {
         out.push(Permission::ViewOrgUsage);
     }
+    // Wave 47 lane A8: custom-domain read + manage. Same module-namespaced
+    // shape as `org_usage:read` (not a matrix `module:action`), handled in the
+    // same pre-loop block for the same borrow reason above.
+    if scopes
+        .iter()
+        .any(|s| s.as_str() == "org_custom_domain:read")
+        && !out.contains(&Permission::ViewOrgCustomDomain)
+    {
+        out.push(Permission::ViewOrgCustomDomain);
+    }
+    if scopes
+        .iter()
+        .any(|s| s.as_str() == "org_custom_domain:manage")
+        && !out.contains(&Permission::ManageOrgCustomDomain)
+    {
+        out.push(Permission::ManageOrgCustomDomain);
+    }
     let mut push = |module: Module, actions: &[Action]| {
         for a in actions {
             let p = Permission::Matrix { module, action: *a };

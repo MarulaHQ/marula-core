@@ -298,6 +298,13 @@ pub enum ApiError {
 fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str)> {
     match constraint {
         "orgs_slug_key" => Some(("org_slug_taken", "that workspace address is already taken")),
+        // Wave 47 lane A8: a custom domain is unique across orgs — a second
+        // org claiming a hostname another already holds gets a typed 409
+        // rather than the generic conflict.
+        "orgs_custom_domain_key" => Some((
+            "custom_domain_taken",
+            "that custom domain is already claimed by another workspace",
+        )),
         "users_org_id_email_key" => Some((
             "user_email_taken",
             "an account with this email already exists",

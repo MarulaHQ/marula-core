@@ -131,10 +131,19 @@ pub enum PluginCapability {
     /// connector holding `rag.write` (or `kb.write`) can batch-upsert
     /// passage/media chunks and delete sources with provable receipts.
     RagWrite,
+    /// Wave 47 lane A8 (`p47-org-custom-domains`): the capability a
+    /// DNS-provider plugin declares to automate a tenant's custom-domain
+    /// records (create/remove the `_marula-verify.<domain>` TXT record,
+    /// upsert the edge A/CNAME, proxy-mode-aware). It resolves onto the
+    /// `org_custom_domain:manage` permission, which lets the plugin call the
+    /// domain-management API on the org's behalf. Holding it is also the
+    /// signal the API reports as "a DNS-provider plugin is installed" — the
+    /// manual paste path never needs it.
+    OrgCustomDomainManage,
 }
 
 impl PluginCapability {
-    pub const ALL: [PluginCapability; 30] = [
+    pub const ALL: [PluginCapability; 31] = [
         PluginCapability::TicketsRead,
         PluginCapability::TicketsWrite,
         PluginCapability::ClientsRead,
@@ -165,6 +174,7 @@ impl PluginCapability {
         PluginCapability::OrgUsageRead,
         PluginCapability::RagRead,
         PluginCapability::RagWrite,
+        PluginCapability::OrgCustomDomainManage,
     ];
 
     /// The capability key as declared in a manifest / grant list.
@@ -204,6 +214,7 @@ impl PluginCapability {
             PluginCapability::OrgUsageRead => "org_usage.read",
             PluginCapability::RagRead => "rag.read",
             PluginCapability::RagWrite => "rag.write",
+            PluginCapability::OrgCustomDomainManage => "org_custom_domain.manage",
         }
     }
 
@@ -359,6 +370,11 @@ impl PluginCapability {
                 module: Module::Kb,
                 action: Action::Edit,
             },
+            // Wave 47 lane A8: custom-domain automation resolves onto its
+            // OWN manage permission (not the Admin matrix), so a DNS-provider
+            // plugin gains exactly the domain-management surface and nothing
+            // else a human admin's `admin:edit` would carry.
+            PluginCapability::OrgCustomDomainManage => Permission::ManageOrgCustomDomain,
         }
     }
 }
@@ -3001,6 +3017,28 @@ mod tests {
         assert_eq!(
             PluginCapability::parse("org_usage.read"),
             Some(PluginCapability::OrgUsageRead)
+        );
+    }
+
+    /// Wave 47 lane A8: the custom-domain-manage capability resolves onto
+    /// its OWN manage permission, NOT the Admin matrix a human admin holds —
+    /// a DNS-provider plugin gains exactly the domain surface. The wire key
+    /// round-trips so a manifest naming it resolves rather than being refused
+    /// as unknown.
+    #[test]
+    fn org_custom_domain_capability_resolves_onto_its_own_manage_permission() {
+        use crate::policy::Permission;
+        assert_eq!(
+            PluginCapability::OrgCustomDomainManage.as_str(),
+            "org_custom_domain.manage"
+        );
+        assert_eq!(
+            PluginCapability::OrgCustomDomainManage.permission(),
+            Permission::ManageOrgCustomDomain
+        );
+        assert_eq!(
+            PluginCapability::parse("org_custom_domain.manage"),
+            Some(PluginCapability::OrgCustomDomainManage)
         );
     }
 

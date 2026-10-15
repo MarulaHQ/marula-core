@@ -6376,6 +6376,49 @@ export interface paths {
         patch: operations["org_users_set_status"];
         trace?: never;
     };
+    "/api/v1/orgs/{org_id}/custom-domain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /api/v1/orgs/{org_id}/custom-domain` — current state + verification
+         *     status + provider-plugin availability.
+         */
+        get: operations["org_custom_domain_get"];
+        put?: never;
+        /** `POST /api/v1/orgs/{org_id}/custom-domain` — claim a domain. */
+        post: operations["org_custom_domain_set"];
+        /** `DELETE /api/v1/orgs/{org_id}/custom-domain` — clear the domain. */
+        delete: operations["org_custom_domain_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orgs/{org_id}/custom-domain/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS
+         *     verification (TASKLIST A8 (C)). The TXT token is the authority; the
+         *     A/CNAME leg is plausibility only.
+         */
+        post: operations["org_custom_domain_verify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orgs/{org_id}/quotas": {
         parameters: {
             query?: never;
@@ -17595,6 +17638,42 @@ export interface components {
             /** @description Per-field human values; a `null` value un-curates the field. */
             fields: unknown;
         };
+        /** @description Manual DNS setup instructions (the seam's none-mode), ready to render. */
+        CustomDomainInstructions: {
+            domain: string;
+            edge_record?: null | components["schemas"]["DnsRecordInstruction"];
+            verification_note: string;
+            verification_txt: components["schemas"]["DnsRecordInstruction"];
+        };
+        /**
+         * @description GET response: current state + verification status + whether a DNS-provider
+         *     plugin is installed (A8 (F)).
+         */
+        CustomDomainView: {
+            /** @description The stored domain, or `null` when none is set. */
+            domain?: string | null;
+            instructions?: null | components["schemas"]["CustomDomainInstructions"];
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * @description Whether an enabled plugin install in this org holds the
+             *     `org_custom_domain.manage` capability — a DNS-provider plugin that can
+             *     automate the records. Always informational: the manual path needs none.
+             */
+            provider_plugin_installed: boolean;
+            /**
+             * @description `none` (no domain) | `pending` (set, unverified) | `verified`.
+             * @example pending
+             */
+            status: string;
+            /** @description The TXT challenge for the current domain (`null` when none is set). */
+            verification_token?: string | null;
+            /**
+             * Format: date-time
+             * @description When Core last verified the TXT token, or `null`.
+             */
+            verified_at?: string | null;
+        };
         /** @description The customization manifest envelope, `manifest_version` 1. */
         CustomizationManifest: {
             /**
@@ -18539,6 +18618,25 @@ export interface components {
          */
         DispositionStatus: "approved" | "rejected" | "non_billable" | "needs_review";
         /**
+         * @description One DNS record an operator pastes by hand. Mirrors the solver's
+         *     `ManualDnsRecord` as a utoipa schema (the seam crate carries no OpenAPI
+         *     dependency).
+         */
+        DnsRecordInstruction: {
+            /**
+             * @description The record TYPE: `TXT`, `A`, `AAAA`, or `CNAME`.
+             * @example TXT
+             */
+            kind: string;
+            /** @description The record NAME (e.g. `_marula-verify.support.msp.example.com`). */
+            name: string;
+            notes: string;
+            /** Format: int32 */
+            ttl: number;
+            /** @description The record VALUE to paste. */
+            value: string;
+        };
+        /**
          * @description A document's living handle. No content lives here — content is only
          *     ever a [`DocumentVersion`]; `current_version` names the newest one.
          */
@@ -18739,6 +18837,15 @@ export interface components {
              *     (skipping rungs is allowed).
              */
             to_state: components["schemas"]["DunningState"];
+        };
+        EdgeCheck: {
+            /** @description Set when the address lookup failed. */
+            error?: string | null;
+            /**
+             * @description Whether the domain resolves to at least one address. Plausibility
+             *     only: an edge-proxied record resolves to the CDN's IPs.
+             */
+            resolves: boolean;
         };
         EdgeExchangeResponse: components["schemas"]["TokenPair"] | {
             methods: string[];
@@ -22695,7 +22802,7 @@ export interface components {
          *     no key for them).
          * @enum {string}
          */
-        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate" | "AutomationTriggers" | "AutomationReads" | "EventsEmit" | "ServiceAccountManage" | "OrgUsageRead" | "RagRead" | "RagWrite";
+        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate" | "AutomationTriggers" | "AutomationReads" | "EventsEmit" | "ServiceAccountManage" | "OrgUsageRead" | "RagRead" | "RagWrite" | "OrgCustomDomainManage";
         /**
          * @description Install lifecycle. Deny-by-default: `Disabled` until an explicit
          *     admin enable; `Revoked` is terminal (registry revocation or explicit
@@ -26937,6 +27044,20 @@ export interface components {
              */
             note_reason?: string | null;
         };
+        SetCustomDomainRequest: {
+            /**
+             * @description The custom domain to claim (e.g. `support.msp.example.com`). Stored
+             *     normalized (lowercased, trailing dot stripped).
+             * @example support.msp.example.com
+             */
+            domain: string;
+        };
+        /** @description POST response: exactly the three fields TASKLIST A8 (B) names. */
+        SetCustomDomainResponse: {
+            domain: string;
+            instructions: components["schemas"]["CustomDomainInstructions"];
+            verification_token: string;
+        };
         SetDependenciesRequest: {
             /**
              * @description The FULL finish-to-start dependency set for the task (PUT
@@ -29417,6 +29538,17 @@ export interface components {
             /** Format: int64 */
             short_minutes?: number | null;
         };
+        TxtCheck: {
+            /** @description Set when the lookup itself failed (no resolver, transport error). */
+            error?: string | null;
+            /**
+             * @description Whether an observed TXT string equalled the issued token (the
+             *     authority for verification).
+             */
+            matched: boolean;
+            /** @description Every TXT string observed at the record name. */
+            observed: string[];
+        };
         /**
          * @description A metric the core does not report, and why. The reason is prose for a
          *     HUMAN operator reading the surface; `metric` is the stable token a
@@ -30338,6 +30470,19 @@ export interface components {
              * @description Running total minutes across the window (effective).
              */
             total_minutes: number;
+        };
+        /** @description POST `/verify` response: the raw evidence plus the resulting status. */
+        VerifyCustomDomainResponse: {
+            domain: string;
+            edge: components["schemas"]["EdgeCheck"];
+            /** Format: uuid */
+            org_id: string;
+            /** @description The `_marula-verify.<domain>` name that was queried. */
+            record_name: string;
+            /** @description `pending` or `verified` (never `none` — verify requires a domain). */
+            status: string;
+            txt: components["schemas"]["TxtCheck"];
+            verified: boolean;
         };
         VerifyPublisherRequest: {
             display_name: string;
@@ -42642,6 +42787,202 @@ export interface operations {
                 };
             };
             /** @description last active owner, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_custom_domain_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the org; must be the caller's own org */
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomDomainView"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description service account without org_custom_domain:read */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such org for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_custom_domain_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the org; must be the caller's own org */
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCustomDomainRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetCustomDomainResponse"];
+                };
+            };
+            /** @description invalid domain */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not an admin / missing org_custom_domain:manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such org for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description domain already claimed by another workspace */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_custom_domain_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the org; must be the caller's own org */
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description domain cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not an admin / missing org_custom_domain:manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such org for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_custom_domain_verify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the org; must be the caller's own org */
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerifyCustomDomainResponse"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not an admin / missing org_custom_domain:manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such org for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no custom domain is set */
             409: {
                 headers: {
                     [name: string]: unknown;

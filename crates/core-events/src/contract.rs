@@ -4552,6 +4552,65 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
+    // -- Wave 47 lane A8 (per-org custom domains) ----------------------------
+    // The custom-domain lifecycle emits `org.custom_domain_changed` with an
+    // inline payload whose only always-present key is `action`
+    // (`set` / `verified` / `cleared`); `domain` rides along whenever a domain
+    // is in play. Untyped because the route builds the object inline.
+    PublishedEvent {
+        event_type: types::ORG_CUSTOM_DOMAIN_CHANGED,
+        entity: "org",
+        variant: "default",
+        shape: untyped_shape!(
+            ["action"],
+            serde_json::json!({ "action": "set", "domain": "support.example.com" })
+        ),
+    },
+    // -- RAG vector namespace (Wave 45 lane 1) -------------------------------
+    // Cross-lane registration (Wave 47 lane A8): the RAG lane emitted both
+    // types with inline payloads (its payload structs are private to
+    // `crates/core-api/src/routes/rag.rs`) but never registered a contract
+    // shape, so `every_event_type_constant_is_published_or_reserved` failed
+    // on main. Registered as untyped shapes matching the emitted key sets,
+    // which is the correct form while the payload structs stay private; the
+    // RAG lane should switch these to typed shapes if the structs move to
+    // `core-domain`.
+    PublishedEvent {
+        event_type: types::RAG_CHUNKS_INGESTED,
+        entity: "rag_namespace",
+        variant: "default",
+        shape: untyped_shape!(
+            ["namespace", "total", "inserted", "updated", "unchanged"],
+            serde_json::json!({
+                "namespace": "kb:default",
+                "total": 3,
+                "inserted": 2,
+                "updated": 1,
+                "unchanged": 0,
+            })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::RAG_SOURCE_DELETED,
+        entity: "rag_deletion_receipt",
+        variant: "default",
+        shape: untyped_shape!(
+            ["receipt"],
+            serde_json::json!({
+                "receipt": {
+                    "receipt_id": su(90),
+                    "org_id": su(2),
+                    "namespace": "kb:default",
+                    "source_kind": "document",
+                    "source_id": "doc-1",
+                    "deleted_chunks": 4,
+                    "content_hashes": ["sha256:abc"],
+                    "deleted_by": su(5),
+                    "deleted_at": st(9),
+                }
+            })
+        ),
+    },
 ];
 
 /// Representative catalog item for catalog samples (Wave 12 lane 2).

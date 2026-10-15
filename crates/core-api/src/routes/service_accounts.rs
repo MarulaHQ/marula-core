@@ -79,6 +79,10 @@ pub fn permission_from_key(key: &str) -> Option<Permission> {
         "financial:read" => return Some(Permission::ViewFinancials),
         // Wave 47 lane A6: org usage read-only monitoring grant.
         "org_usage:read" => return Some(Permission::ViewOrgUsage),
+        // Wave 47 lane A8: custom-domain read + manage, the same
+        // module-namespaced shape.
+        "org_custom_domain:read" => return Some(Permission::ViewOrgCustomDomain),
+        "org_custom_domain:manage" => return Some(Permission::ManageOrgCustomDomain),
         // Wave 45 lane 1 (ADR 0020): RAG capability aliases resolve onto the
         // Kb matrix (`kb:view` / `kb:edit`), matching `PluginCapability::RagRead`
         // and `PluginCapability::RagWrite`.
