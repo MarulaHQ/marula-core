@@ -85,6 +85,51 @@ impl VendorClient {
         }
     }
 
+    /// POST `{base_url}{path}` with a JSON `payload`, returning the raw
+    /// JSON response body.
+    pub async fn post_json(&self, path: &str, payload: &Value) -> Result<Value, VendorError> {
+        self.send_json(reqwest::Method::POST, path, Some(payload))
+            .await
+    }
+
+    /// PUT `{base_url}{path}` with a JSON `payload`, returning the raw
+    /// JSON response body.
+    pub async fn put_json(&self, path: &str, payload: &Value) -> Result<Value, VendorError> {
+        self.send_json(reqwest::Method::PUT, path, Some(payload))
+            .await
+    }
+
+    /// DELETE `{base_url}{path}`, returning the raw JSON response body.
+    pub async fn delete_json(&self, path: &str) -> Result<Value, VendorError> {
+        self.send_json(reqwest::Method::DELETE, path, None).await
+    }
+
+    async fn send_json(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        payload: Option<&Value>,
+    ) -> Result<Value, VendorError> {
+        let url = format!("{}{}", self.base_url, path);
+        let request = self.http.request(method, &url);
+        let request = match payload {
+            Some(body) => request.json(body),
+            None => request,
+        };
+        let request = self.auth.apply(request, &self.http).await?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| VendorError::Network(format!("{url}: {e}")))?;
+        let status = response.status();
+        let body: Value = response.json().await.unwrap_or(Value::Null);
+        if status.is_success() {
+            Ok(body)
+        } else {
+            Err(VendorError::from_status(status, &body))
+        }
+    }
+
     fn items_of(body: &Value, items_key: &str) -> Vec<Value> {
         match body.get(items_key) {
             Some(Value::Array(items)) => items.clone(),
@@ -257,6 +302,14 @@ impl VendorError {
                 // Graph nests errors: {"error": {"code": ..., "message": ...}}
                 body.get("error")
                     .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+            })
+            .or_else(|| {
+                // Cloudflare API v4 nests an array: {"errors": [{"code": ..., "message": ...}]}
+                body.get("errors")
+                    .and_then(|e| e.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|first| first.get("message"))
                     .and_then(|m| m.as_str())
             })
             .unwrap_or("unspecified")

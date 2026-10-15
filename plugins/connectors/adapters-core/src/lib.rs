@@ -37,6 +37,7 @@
 
 pub mod auth;
 pub mod client;
+pub mod dns;
 pub mod org_map;
 pub mod vendor_fields;
 
@@ -45,6 +46,11 @@ mod tests;
 
 pub use auth::VendorAuth;
 pub use client::{PageFlow, VendorClient, VendorError};
+pub use dns::{
+    candidate_zone_names, normalize_domain, verification_record_name, DnsProviderError,
+    DnsRecordKind, DnsRecordProvider, DnsRecordState, DnsZone, EdgeRecordSpec, EdgeTargetKind,
+    ManualDnsInstructions, ManualDnsRecord, NoneDnsRecordProvider, VERIFICATION_TXT_PREFIX,
+};
 pub use org_map::{OrgMapping, OrgMappingBuilder, OrgMappingError};
 pub use vendor_fields::{
     first_str, first_str_in, observed_fields, observed_fields_in, scalar_in, string_list,
