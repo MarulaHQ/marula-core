@@ -263,6 +263,11 @@ const API_KEY_PATHS: &[&str] = &[
     // keys — the handler's Clients-matrix permission check stays the
     // gate (a read-scoped key still gets typed 403s on writes).
     "/api/config-items",
+    // RAG and media vector namespace (Wave 45 lane 1, ADR 0020): connectors,
+    // plugins, and self-hosters call ingest/query/delete through `/api/rag`
+    // (`/api/v1/rag`) gated by `rag:read` (`kb:view`) and `rag:write`
+    // (`kb:edit`).
+    "/api/rag",
 ];
 
 /// Maps capability scopes onto the permission matrix. Unknown scopes are
@@ -320,6 +325,15 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
             "migration:write" => push(
                 Module::Clients,
                 &[Action::View, Action::Create, Action::Edit],
+            ),
+            // RAG and media vector namespace (Wave 45 lane 1, ADR 0020):
+            // `rag:read` resolves onto `kb:view` (query + deletion receipt
+            // verification); `rag:write` resolves onto `kb:view` + `kb:edit`
+            // (batch chunk ingest + source deletion).
+            "rag:read" | "rag.read" | "kb:read" | "kb.read" => push(Module::Kb, &[Action::View]),
+            "rag:write" | "rag.write" | "kb:write" | "kb.write" => push(
+                Module::Kb,
+                &[Action::View, Action::Create, Action::Edit, Action::Delete],
             ),
             _ => {}
         }

@@ -121,10 +121,20 @@ pub enum PluginCapability {
     /// changes what a plugin can observe about an org's consumption, never
     /// what that org is allowed to do, and there is no quota to enforce.
     OrgUsageRead,
+    /// Wave 45 lane 1 (ADR 0020): RAG and multimodal vector namespace read
+    /// capability (`rag.read`). Resolves onto `kb:view` so a plugin or
+    /// connector holding `rag.read` (or `kb.read`) can execute hybrid
+    /// BM25 + exact-KNN vector queries and verify deletion receipts.
+    RagRead,
+    /// Wave 45 lane 1 (ADR 0020): RAG and multimodal vector namespace write
+    /// capability (`rag.write`). Resolves onto `kb:edit` so a plugin or
+    /// connector holding `rag.write` (or `kb.write`) can batch-upsert
+    /// passage/media chunks and delete sources with provable receipts.
+    RagWrite,
 }
 
 impl PluginCapability {
-    pub const ALL: [PluginCapability; 28] = [
+    pub const ALL: [PluginCapability; 30] = [
         PluginCapability::TicketsRead,
         PluginCapability::TicketsWrite,
         PluginCapability::ClientsRead,
@@ -153,6 +163,8 @@ impl PluginCapability {
         PluginCapability::EventsEmit,
         PluginCapability::ServiceAccountManage,
         PluginCapability::OrgUsageRead,
+        PluginCapability::RagRead,
+        PluginCapability::RagWrite,
     ];
 
     /// The capability key as declared in a manifest / grant list.
@@ -190,6 +202,8 @@ impl PluginCapability {
             PluginCapability::EventsEmit => "events.emit",
             PluginCapability::ServiceAccountManage => "service_accounts.manage",
             PluginCapability::OrgUsageRead => "org_usage.read",
+            PluginCapability::RagRead => "rag.read",
+            PluginCapability::RagWrite => "rag.write",
         }
     }
 
@@ -333,6 +347,18 @@ impl PluginCapability {
             // the Reporting matrix — a plugin that reads usage gains
             // nothing else the reporting module holds.
             PluginCapability::OrgUsageRead => Permission::ViewOrgUsage,
+            // Wave 45 lane 1 (ADR 0020): RAG vector namespace capabilities
+            // resolve onto the existing Kb permission matrix (`kb:view` for
+            // query/receipt reads, `kb:edit` for chunk ingest and source
+            // deletion) — no parallel auth system.
+            PluginCapability::RagRead => Permission::Matrix {
+                module: Module::Kb,
+                action: Action::View,
+            },
+            PluginCapability::RagWrite => Permission::Matrix {
+                module: Module::Kb,
+                action: Action::Edit,
+            },
         }
     }
 }
@@ -2975,6 +3001,34 @@ mod tests {
         assert_eq!(
             PluginCapability::parse("org_usage.read"),
             Some(PluginCapability::OrgUsageRead)
+        );
+    }
+
+    #[test]
+    fn rag_capabilities_resolve_onto_kb_matrix_and_round_trip() {
+        assert_eq!(PluginCapability::RagRead.as_str(), "rag.read");
+        assert_eq!(PluginCapability::RagWrite.as_str(), "rag.write");
+        assert_eq!(
+            PluginCapability::RagRead.permission(),
+            Permission::Matrix {
+                module: Module::Kb,
+                action: Action::View,
+            }
+        );
+        assert_eq!(
+            PluginCapability::RagWrite.permission(),
+            Permission::Matrix {
+                module: Module::Kb,
+                action: Action::Edit,
+            }
+        );
+        assert_eq!(
+            PluginCapability::parse("rag.read"),
+            Some(PluginCapability::RagRead)
+        );
+        assert_eq!(
+            PluginCapability::parse("rag.write"),
+            Some(PluginCapability::RagWrite)
         );
     }
 

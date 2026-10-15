@@ -944,6 +944,13 @@ use utoipa::OpenApi;
         crate::routes::events::stream,
         crate::routes::presence::heartbeat,
         crate::routes::presence::ticket_presence,
+        // RAG and media vector namespace (ADR 0020; Wave 45 lane 1, migration 0132)
+        crate::routes::rag::ingest_chunks,
+        crate::routes::rag::query_namespace,
+        crate::routes::rag::delete_source_post,
+        crate::routes::rag::delete_source_path,
+        crate::routes::rag::list_deletion_receipts,
+        crate::routes::rag::get_deletion_receipt,
     ),
     components(schemas(
         // import framework (TASKLIST D2)
@@ -2179,6 +2186,19 @@ use utoipa::OpenApi;
         crate::routes::agent_platform::CreateProposalRequest,
         crate::routes::agent_platform::CreateProposalResponse,
         crate::routes::agent_platform::DecideProposalRequest,
+        // RAG and media vector namespace (ADR 0020; Wave 45 lane 1, migration 0132)
+        core_domain::rag::RagModality,
+        core_domain::rag::RagChunkKey,
+        core_domain::rag::RagChunkInput,
+        core_domain::rag::RagQueryHit,
+        core_domain::rag::RagDeletionReceipt,
+        crate::routes::rag::RagIngestRequest,
+        crate::routes::rag::RagIngestResponse,
+        crate::routes::rag::RagQueryRequest,
+        crate::routes::rag::RagQueryResponse,
+        crate::routes::rag::RagDeleteSourceRequest,
+        crate::routes::rag::RagDeleteSourceResponse,
+        crate::routes::rag::RagDeletionReceiptList,
     ),
     ),
     tags(
@@ -2212,6 +2232,7 @@ use utoipa::OpenApi;
         (name = "agent-platform", description = "Agent platform v1: capability registry (deny-by-default, involvement dial), versioned agent skills, IF8 proposal pipeline (approval by default)"),
         (name = "migration", description = "Migration connector (third-party tools): bulk push riding the import engine with checkpoint cursors, cursor-paged read-model pull; API-key scoped (migration:read/write), per-key rate limited"),
         (name = "purchasing", description = "Vendors, purchase orders with typed receipt states, receipts posting into the stock ledger, reseller deeplinks, and the bill → project cost rollup hook (Wave 32 lane 2)"),
+        (name = "rag", description = "RAG and multimodal vector namespace (ADR 0020): 768-dim passage and media chunk ingest, hybrid BM25 + exact-KNN RRF retrieval, and provable deletion receipts"),
     )
 )]
 pub struct ApiDoc;
