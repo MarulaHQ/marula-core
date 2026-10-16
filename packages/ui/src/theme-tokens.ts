@@ -148,8 +148,8 @@ export const MARULA: ThemePreset = {
     status_success_bg: "#e4edcb",
     status_warning_fg: "#6b4308",
     status_warning_bg: "#fbebbf",
-    status_danger_fg: "#b42318",
-    status_danger_bg: "#fde8e5",
+    status_danger_fg: "#8f1c13",
+    status_danger_bg: "#fbe1de",
     status_neutral_fg: "#4a443d",
     status_neutral_bg: "#efece6",
     chart_1: "#a8641a",
@@ -173,8 +173,8 @@ export const MARULA: ThemePreset = {
     status_success_bg: "#2e3a25",
     status_warning_fg: "#f2cd6b",
     status_warning_bg: "#4a3a1a",
-    status_danger_fg: "#fb8a80",
-    status_danger_bg: "#3b1a18",
+    status_danger_fg: "#f9a097",
+    status_danger_bg: "#4a1a18",
     status_neutral_fg: "#e2cfa9",
     status_neutral_bg: "#3a342a",
     chart_1: "#e8b83a",
@@ -197,8 +197,8 @@ const brandFixed: Record<"light" | "dark", TokenValues> = {
     status_success_bg: "#e4edcb",
     status_warning_fg: "#6b4308",
     status_warning_bg: "#fbebbf",
-    status_danger_fg: "#b42318",
-    status_danger_bg: "#fde8e5",
+    status_danger_fg: "#8f1c13",
+    status_danger_bg: "#fbe1de",
     status_neutral_fg: "#4a443d",
     status_neutral_bg: "#efece6",
   },
@@ -208,8 +208,8 @@ const brandFixed: Record<"light" | "dark", TokenValues> = {
     status_success_bg: "#2e3a25",
     status_warning_fg: "#f2cd6b",
     status_warning_bg: "#4a3a1a",
-    status_danger_fg: "#fb8a80",
-    status_danger_bg: "#3b1a18",
+    status_danger_fg: "#f9a097",
+    status_danger_bg: "#4a1a18",
     status_neutral_fg: "#e2cfa9",
     status_neutral_bg: "#3a342a",
   },
@@ -254,10 +254,10 @@ export const MARULA_WARM: ThemePreset = {
  * actually help low-vision users.
  *
  * It does NOT restyle the status pairs or `destructive`. D8 fixes those across
- * every preset, and the reason is not aesthetic: an interface that signals
- * "danger" in one colour and "destructive" in another has two meanings for one
- * job, and that is worse in a high-contrast theme, not better. The brand pairs
- * already clear AA, so nothing is lost.
+ * every preset: the pack declares one red for a destructive action (and for
+ * P1) and a deeper red for a breach pill, and a preset that could move either
+ * one would split that pair. Both brand pairs already clear AA, so nothing is
+ * lost.
  */
 export const HIGH_CONTRAST: ThemePreset = {
   id: "high_contrast",

@@ -145,11 +145,16 @@ tint toward cream would drop gold from 6.5:1 to 3.9:1.
 | Success / Resolved | `#3B5222` on `#E4EDCB` | `#D6E5A8` on `#2E3A25` |
 | Warning / SLA risk | `#6B4308` on `#FBEBBF` | `#F2CD6B` on `#4A3A1A` |
 | Due today / P2 | `#7A3F0C` on `#F8DCC0` | `#F0B27A` on `#4D2F14` |
-| Danger / Breach | `#B42318` on `#FDE8E5` | `#FB8A80` on `#3B1A18` |
+| Danger / Breach | `#8F1C13` on `#FBE1DE` | `#F9A097` on `#4A1A18` |
 | Neutral / Waiting | `#4A443D` on `#EFECE6` | `#E2CFA9` on `#3A342A` |
 
 Due-today has its own pair rather than reusing warning. The two read as the
 same urgency at a glance and would collapse into one row in a review.
+
+Breach is the status pair, and it is not the destructive red. The pack draws
+`destructive` (`#B42318` light, `#FB8A80` dark) as solid marks (the P1 chip,
+the SLA dot). It draws breach as the tinted pair above. Destructive buttons
+keep that solid red, and the native app already splits the two the same way.
 
 ### 3.5 Chart ramp
 
