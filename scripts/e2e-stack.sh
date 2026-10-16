@@ -15,12 +15,23 @@
 #                                     # attach + EXIT trap tears down ONLY this run
 #   E2E_KEEP=1 …                      # keep the PG container after teardown
 #
+# `up` RETURNS as soon as core-api answers its health check. core-api and
+# realtime are detached with their own stdio (`</dev/null`, logs under
+# .kilo/e2e-logs/<run>/) so piping this script's output can never block — the
+# old shape left both daemons holding the caller's stdout pipe, which stranded
+# any `… up | tail` invocation forever (Wave 47 lane A7).
+#
+# The run registry and the service logs live under the SHARED root — the main
+# checkout, resolved through a worktree's `.git` link (see SHARED_ROOT below) —
+# NOT beside whichever checkout ran the script, so one `scripts/dev-status.sh`
+# run from `main` sees every worktree lane's stack.
+#
 # Every run gets: a unique run id, its own scratch Postgres container + DB on
 # a random high port, its own scratch Valkey on a random high port, random API
 # and WS ports, unique container names keyed by run id, a fresh 64-hex JWT
 # secret + at-rest key, exported full env (SQLX_OFFLINE, REDIS_URL,
-# CORS_ORIGIN) — and the run record dropped in .kilo/dev-registry/ for
-# scripts/dev-status.sh.
+# CORS_ORIGIN) — and the run record dropped in the SHARED root's
+# .kilo/dev-registry/ for scripts/dev-status.sh (see SHARED_ROOT below).
 #
 # Full-suite determinism (report §3.2): before boot, the seed stage is
 # mechanical — `seed-demo --force` then truncate auth_lockouts/auth_attempt_log
@@ -32,8 +43,21 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_FILE="e2e/.e2e-stack.env"
-REGISTRY_DIR="${REGISTRY_DIR:-.kilo/dev-registry}"
+ENV_FILE="e2e/.e2e-stack.env"   # per-checkout: Playwright reads it from its own tree
+
+# Shared root = the MAIN checkout, even when this script runs from a linked
+# worktree. `git rev-parse --git-common-dir` resolves through the worktree's
+# .git link; it may come back absolute (worktree) or relative like `.git`
+# (main). The registry and service logs hang off this, so a lane's stack stays
+# visible to `scripts/dev-status.sh` wherever that is run from.
+gcd="$(git -C "$REPO_ROOT" rev-parse --git-common-dir 2>/dev/null || true)"
+case "$gcd" in
+  /*) SHARED_ROOT="$(dirname "$gcd")" ;;
+  "") SHARED_ROOT="$REPO_ROOT" ;;
+  *)  SHARED_ROOT="$(cd "$REPO_ROOT/$(dirname "$gcd")" && pwd)" ;;
+esac
+REGISTRY_DIR="${REGISTRY_DIR:-$SHARED_ROOT/.kilo/dev-registry}"
+LOG_ROOT="${LOG_ROOT:-$SHARED_ROOT/.kilo/e2e-logs}"
 
 die() { echo "[e2e-stack] FAIL: $*" >&2; exit 1; }
 
@@ -60,15 +84,15 @@ PY
 
 # ---------- registry (read by dev-status.sh) ----------
 registry_drop() { # remove one run's PID entry after teardown
-  rm -f "$REPO_ROOT/$REGISTRY_DIR/run-$1-pids.json" 2>/dev/null || true
+  rm -f "$REGISTRY_DIR/run-$1-pids.json" 2>/dev/null || true
 }
 
 # ---------- teardown (run-id-keyed) ----------
 down_run() { # down_run <run_id>
   local run="$1" f
   echo "[e2e-stack] teardown run $run"
-  for f in "$REPO_ROOT/$REGISTRY_DIR/run-$run-pids.json"; do
-    [ -f "$f" ] || continue
+  f="$REGISTRY_DIR/run-$run-pids.json"
+  if [ -f "$f" ]; then
     python3 - "$f" <<'PY'
 import json, sys
 try:
@@ -85,17 +109,24 @@ try:
 except Exception:
     pass
 PY
-  done
+  fi
   # containers carry the run id in the NAME — decouple only what we own.
   for name in "marula-e2e-pg-$run" "marula-e2e-redis-$run"; do
     docker rm -f "$name" >/dev/null 2>&1 && echo "[e2e-stack] removed container $name" || true
   done
-  #shared scratch PG: drop this run's DATABASE (containers stay for other runs).
+  # shared scratch PG: drop THIS run's DATABASE only (the shared container
+  # stays for other runs). The name is run-id keyed, so it can never match a
+  # different lane's database.
   if [ -n "${MARULA_SHARED_PG_CONTAINER:-}" ] && command -v docker >/dev/null 2>&1; then
     local shared="${MARULA_SHARED_PG_CONTAINER}"
     local dbname="marula_e2e_${run//[^a-z0-9]/_}"
-    if docker exec "$shared" psql -U postgres -lqt 2>/dev/null | cut -d\| -f1 | grep -qw "$dbname"; then
-      echo "[e2e-stack] dropping database $dbname on shared pg $shared"
+    if docker exec "$shared" psql -U postgres -tAc \
+        "select 1 from pg_database where datname='$dbname'" 2>/dev/null | grep -q 1; then
+      if docker exec "$shared" psql -U postgres -c "DROP DATABASE $dbname" >/dev/null 2>&1; then
+        echo "[e2e-stack] dropped database $dbname on shared pg $shared"
+      else
+        echo "[e2e-stack] WARN: could not drop database $dbname on shared pg $shared" >&2
+      fi
     fi
   fi
   # env file: only remove it when it belongs to THIS run (never another's).
@@ -110,6 +141,10 @@ PY
     fi
   fi
   registry_drop "$run"
+  local log_dir="$LOG_ROOT/$run"
+  if [ -d "$log_dir" ]; then
+    echo "[e2e-stack] kept service logs at $log_dir"
+  fi
   echo "[e2e-stack] run $run torn down"
 }
 
@@ -179,13 +214,22 @@ if [ "${MODE:-}" = "isolated" ]; then
     -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=marula_test \
     -p "$PG_PORT:5432" pgvector/pgvector:pg18 >/dev/null \
     || die "could not start scratch Postgres (docker down?)"
+  # `pg_isready` reports the SERVER, not the database: a connection to a DB that
+  # does not exist still returns "accepting connections" (it logs a FATAL and
+  # moves on). So wait on `postgres` here, then create the per-run DB loudly —
+  # the image only initializes POSTGRES_DB.
+  PG_SERVER_URL="postgres://postgres:postgres@localhost:${PG_PORT}/postgres"
   for _ in $(seq 1 40); do
-    pg_ready "$DATABASE_URL" && break; sleep 1
+    pg_ready "$PG_SERVER_URL" && break; sleep 1
   done
-  pg_ready "$DATABASE_URL" || die "scratch Postgres never became ready ($DATABASE_URL)"
-  # the image only initializes POSTGRES_DB; create the per-run database
-  docker exec "marula-e2e-pg-$RUN_ID" psql -U postgres -c "CREATE DATABASE $DB_NAME" \
-    >/dev/null 2>&1 || true
+  pg_ready "$PG_SERVER_URL" || die "scratch Postgres never became ready (port $PG_PORT)"
+  if ! docker exec "marula-e2e-pg-$RUN_ID" psql -U postgres -c "CREATE DATABASE $DB_NAME" \
+      >/dev/null 2>&1; then
+    # Already existing is fine (this run booted before); anything else is fatal.
+    docker exec "marula-e2e-pg-$RUN_ID" psql -U postgres -tAc \
+      "select 1 from pg_database where datname='$DB_NAME'" 2>/dev/null | grep -q 1 \
+      || die "could not create database $DB_NAME on marula-e2e-pg-$RUN_ID"
+  fi
   # NOTE: no EXIT trap removing the container — the default `up` mode leaves
   # the stack running for Playwright; teardown is `e2e-stack.sh down $RUN_ID`
   # (keyed to this run id) or E2E_FOREGROUND's own trap.
@@ -219,11 +263,16 @@ fi
   || die "could not reset volatile demo state"
 
 ########## core-api ##########
+# Service stdio goes to per-run log files with stdin from /dev/null: the
+# daemons must not inherit this script's stdout, or a caller that pipes `up`
+# into a pager waits on an fd the daemons hold open forever.
+LOG_DIR="$LOG_ROOT/$RUN_ID"
+mkdir -p "$LOG_DIR"
 echo "[e2e-stack] boot core-api on ${BIND_ADDR} (release — E2E latency needs the optimized build)"
 cargo build -q -p core-api --release
 BIN="$(cargo metadata -q --no-deps --format-version 1 | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/core-api"
-"$BIN" &
+"$BIN" >"$LOG_DIR/core-api.log" 2>&1 </dev/null &
 API_PID=$!
 disown "$API_PID" 2>/dev/null || true
 # realtime (ws) service — same JWT secret as core-api (token validation).
@@ -231,7 +280,7 @@ echo "[e2e-stack] boot realtime on 0.0.0.0:${WS_PORT}"
 cargo build -q -p realtime --release
 WS_BIN="$(cargo metadata -q --no-deps --format-version 1 | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/realtime"
-BIND_ADDR="0.0.0.0:${WS_PORT}" "$WS_BIN" &
+BIND_ADDR="0.0.0.0:${WS_PORT}" "$WS_BIN" >"$LOG_DIR/realtime.log" 2>&1 </dev/null &
 WS_PID=$!
 disown "$WS_PID" 2>/dev/null || true
 
@@ -240,8 +289,10 @@ for _ in $(seq 1 60); do
   curl -fsS "http://${API_HOST}/api/v1/health" >/dev/null 2>&1 && break
   sleep 1
 done
-curl -fsS "http://${API_HOST}/api/v1/health" >/dev/null
+curl -fsS "http://${API_HOST}/api/v1/health" >/dev/null \
+  || die "core-api never became healthy on ${API_HOST} — see $LOG_DIR/core-api.log"
 echo "[e2e-stack] core-api healthy — demo env ready (owner@demo.local / demo-password-123)"
+echo "[e2e-stack] service logs: $LOG_DIR/{core-api,realtime}.log"
 
 # ########## env file for Playwright (kills NEXT_PUBLIC_API_URL drift) ##########
 cat > "$ENV_FILE" <<EOF
@@ -266,9 +317,9 @@ echo "[e2e-stack] wrote $ENV_FILE (run $RUN_ID; shared with Playwright + e2e-bui
 
 # ########## pid registry for dev-status.sh ##########
 FINGERPRINT="$(printf '%s' "$JWT_SECRET" | cut -c1-8)-$(echo "$DATABASE_URL" | sed 's|.*/||')-$API_PORT"
-python3 - "$ENV_FILE" "$API_PID" "$WS_PID" "$REPO_ROOT" "$RUN_ID" "$FINGERPRINT" <<'PY' || true
+python3 - "$ENV_FILE" "$API_PID" "$WS_PID" "$REGISTRY_DIR" "$RUN_ID" "$FINGERPRINT" "$LOG_DIR" <<'PY' || true
 import json, os, sys, time
-envfile, api, ws, root, run_id, fingerprint = sys.argv[1:7]
+envfile, api, ws, regdir, run_id, fingerprint, log_dir = sys.argv[1:8]
 env = {}
 for line in open(envfile):
     line = line.strip()
@@ -279,18 +330,20 @@ reg = {
     "run_id": run_id,
     "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     "env_fingerprint": fingerprint,
+    "log_dir": log_dir,
     "env": env,
     "services": [
-        {"name": "core-api", "pid": int(api), "source": "local", "port": env.get("E2E_API_PORT", "")},
-        {"name": "realtime", "pid": int(ws), "source": "local", "port": env.get("E2E_WS_PORT", "")},
+        {"name": "core-api", "pid": int(api), "source": "local", "port": env.get("E2E_API_PORT", ""),
+         "log": os.path.join(log_dir, "core-api.log")},
+        {"name": "realtime", "pid": int(ws), "source": "local", "port": env.get("E2E_WS_PORT", ""),
+         "log": os.path.join(log_dir, "realtime.log")},
     ],
 }
-d = os.path.join(root, ".kilo", "dev-registry")
-os.makedirs(d, exist_ok=True)
-with open(os.path.join(d, f"run-{run_id}-pids.json"), "w") as f:
+os.makedirs(regdir, exist_ok=True)
+with open(os.path.join(regdir, f"run-{run_id}-pids.json"), "w") as f:
     json.dump(reg, f, indent=2)
 PY
-echo "[e2e-stack] registered run in .kilo/dev-registry/ — check scripts/dev-status.sh"
+echo "[e2e-stack] registered run in $REGISTRY_DIR — check scripts/dev-status.sh"
 
 if [ "${E2E_FOREGROUND:-0}" = "1" ]; then
   # attach mode: EXIT trap tears down ONLY this run id.

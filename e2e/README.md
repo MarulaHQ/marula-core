@@ -13,6 +13,13 @@ Playwright's config and `scripts/e2e-build-web.sh` read that file — do not set
 (report class 2/3). Teardown is `scripts/e2e-stack.sh down [RUN_ID]` and only
 touches resources carrying that run id — never a parallel lane's DB.
 
+`up` returns as soon as core-api answers its health check: core-api and realtime
+detach with their own stdio (`</dev/null`, logs under `.kilo/e2e-logs/<run>/`),
+so piping the boot anywhere can never block. If a boot fails, read that log —
+do not wait on a call that will not return. The run registry and those logs live
+under the shared root (the main checkout), so `scripts/dev-status.sh` lists every
+lane's stack no matter where it is invoked.
+
 ## Deterministic demo state is mechanical, not tribal
 
 The stack script reseeds (`seed-demo --force`), truncates `auth_lockouts` /
