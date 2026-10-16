@@ -80,23 +80,31 @@ dout_status() { # dout_status <secs> <args…> — prints output, returns 124 on
 dout() { dout_status "$@"; }
 docker_ok() { [[ -n "$(dout 8 info)" ]] }
 
-# Which volumes `docker volume prune` (no flags) will actually remove: the
-# UNLABELED ones. `docker system df`'s RECLAIMABLE column counts every prunable
-# volume, labeled ones included — which is why the dry run promised 470.4MB on
-# 2026-10-16 and `--go` reclaimed 0B from it. All 8 survivors were labeled
-# Compose dev state, including the marula-hq dev Postgres database
-# (marula-hq-dev_pgdata). Never pass --all/-a to the prune: it would delete it.
-volume_facts() { # volume_facts <secs> -> "unlabeled=<n> protected=<n> names=<…>"
-  local secs="$1" vol labels unlabeled=0 protected=0 names=""
+# Which volumes `docker volume prune` (no flags) actually removes: the volumes
+# docker created ANONYMOUSLY (for `docker run -v <path>`, or an image's VOLUME
+# line) that no container is using. Docker marks those with the label
+# `com.docker.volume.anonymous`, so presence of labels is the WRONG test — a
+# compose volume has labels and is named, so prune keeps it, while an anonymous
+# volume with that label is exactly what prune removes. A bare `docker volume
+# create` volume has no labels at all and is still named, so it is kept too.
+# The first version of this function tested "no labels and counted the two
+# anonymous volumes a boot leaves behind as protected; the gate's real `--go`
+# reclaimed them and showed the count was wrong.
+# Never pass --all/-a to the prune: it would take the named dev state with it,
+# including the marula-hq dev Postgres database (marula-hq-dev_pgdata).
+volume_facts() { # volume_facts <secs> -> "prunable=<n> protected=<n> names=<…>"
+  local secs="$1" vol labels unused prunable=0 protected=0 names=""
+  unused="$(dout "$secs" volume ls -qf dangling=true)"
   for vol in $(dout "$secs" volume ls -q); do
     [[ -n "$vol" ]] || continue
     labels="$(dout "$secs" volume inspect "$vol" --format '{{.Labels}}' 2>/dev/null)"
-    case "$labels" in
-      "map[]"|"") unlabeled=$((unlabeled + 1)) ;;
-      *)          protected=$((protected + 1)); names="$names $vol" ;;
-    esac
+    if [[ "$labels" == *com.docker.volume.anonymous* ]] && printf '%s\n' "$unused" | grep -qx "$vol"; then
+      prunable=$((prunable + 1))
+    else
+      protected=$((protected + 1)); names="$names $vol"
+    fi
   done
-  printf 'unlabeled=%s protected=%s names=%s\n' "$unlabeled" "$protected" "${names# }"
+  printf 'prunable=%s protected=%s names=%s\n' "$prunable" "$protected" "${names# }"
 }
 
 # Prune with a budget a real backlog fits in, and say so when it did not finish.
@@ -121,8 +129,12 @@ dev_clean_selftest() {
 case "$1 ${2:-}" in
   "info "*)            echo "fake docker 1.0" ;;
   "system df")         printf 'TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE\nImages          5         1         832.7MB   101.1MB (12%%)\nContainers      1         1         20.48kB   0B (0%%)\nLocal Volumes   9         1         646.1MB   470.4MB (72%%)\nBuild Cache     27        0         2.235GB   2.111GB\n' ;;
-  "volume ls")         printf 'marula_pgdata\nmarula-hq-dev_pgdata\nmeridian_legacy\nanon_scratch\n' ;;
-  "volume inspect")    case "${3:-}" in *marula-hq-dev_pgdata|*meridian_legacy|*marula_pgdata) echo "map[com.docker.compose.project:x]" ;; *) echo "map[]" ;; esac ;;
+  "volume ls")         if [[ "${3:-}" == "-qf" || "$*" == *"dangling=true"* ]]; then printf 'boot_scratch\nnamed_no_labels\n'; else printf 'marula_pgdata\nmarula-hq-dev_pgdata\nmeridian_legacy\nnamed_no_labels\nboot_scratch\nheld_scratch\n'; fi ;;
+  "volume inspect")    case "${3:-}" in
+                         *boot_scratch|*held_scratch) echo "map[com.docker.volume.anonymous:]" ;;
+                         *named_no_labels)            echo "map[]" ;;
+                         *)                           echo "map[com.docker.compose.project:x]" ;;
+                       esac ;;
   "volume prune")      if [[ "${FAKE_PRUNE_SLEEP:-0}" != "0" ]]; then sleep "$FAKE_PRUNE_SLEEP"; fi; echo "Total reclaimed space: 1.1GB" ;;
   "ps -a")             exit 0 ;;
   "rm -f")             exit 0 ;;
@@ -141,7 +153,8 @@ FAKE
   echo "dev-clean self-test: the reclaimable figure must not promise labeled volumes"
   local facts
   facts="$(volume_facts 20)"
-  check "counts 1 unlabeled volume" "$([[ "$facts" == "unlabeled=1 protected=3"* ]] && echo 0 || echo 1)"
+  check "counts only the unused anonymous volume as prunable" \
+    "$([[ "$facts" == "prunable=1 protected=5"* ]] && echo 0 || echo 1)"
   check "names the protected volumes, HQ dev Postgres included" \
     "$([[ "$facts" == *marula-hq-dev_pgdata* ]] && echo 0 || echo 1)"
 
@@ -149,12 +162,16 @@ FAKE
   # deliver, and it must state the protected count.
   local dry
   dry="$(DOCKER="$fake" "$SELF" 2>&1 || true)"
-  check "dry run reports the unlabeled/protected split" \
-    "$(printf '%s' "$dry" | grep -q "1 unlabeled" && echo 0 || echo 1)"
+  check "dry run reports the anonymous/protected split" \
+    "$(printf '%s' "$dry" | grep -q "1 anonymous and unused" && echo 0 || echo 1)"
   check "dry run names the labeled dev state as protected" \
     "$(printf '%s' "$dry" | grep -q "protected:.*marula-hq-dev_pgdata" && echo 0 || echo 1)"
   check "dry run never offers docker's volume RECLAIMABLE figure as ours" \
     "$(printf '%s' "$dry" | grep -q "470" && echo 1 || echo 0)"
+  check "an anonymous volume a container still holds stays out of the prunable set" \
+    "$(printf '%s' "$facts" | grep -q "held_scratch" && echo 0 || echo 1)"
+  check "a named volume with no labels is protected, not prunable" \
+    "$(printf '%s' "$facts" | grep -q "named_no_labels" && echo 0 || echo 1)"
   check "the image figure is a size, not docker's percentage" \
     "$(printf '%s' "$dry" | grep -q "101.1MB" && ! printf '%s' "$dry" | grep -q "(12%)" && echo 0 || echo 1)"
 
@@ -231,14 +248,14 @@ if docker_ok; then
     dout 15 image prune -f >/dev/null
   else
     facts="$(volume_facts 8)"
-    unlabeled="${facts#unlabeled=}"; unlabeled="${unlabeled%% *}"
+    prunable="${facts#prunable=}"; prunable="${prunable%% *}"
     protected="${facts#*protected=}"; protected="${protected%% *}"
     protected_names="${facts#*names=}"
     # docker prints the reclaimable size and a percentage in parens when the size
     # is non-zero, and the size alone when it is zero — take the size either way
     # (the old `print $6` printed the percentage).
     i=$(dout 8 system df | awk '/^Images/{v=$NF; if (v ~ /^\(/) v=$(NF-1); print v}')
-    echo "  docker volumes: ${unlabeled:-?} unlabeled (the only ones a volume prune removes), ${protected:-?} protected (labeled — deliberate dev state)"
+    echo "  docker volumes: ${prunable:-?} anonymous and unused (the only ones a volume prune removes), ${protected:-?} protected (named dev state, or an anonymous volume a container still holds)"
     [[ -n "$protected_names" ]] && echo "    protected: $protected_names"
     echo "  docker images reclaimable, docker's own count: ${i:-?} (an image prune removes dangling images only)"
   fi
