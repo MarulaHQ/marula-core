@@ -132,7 +132,11 @@ registry_drop() { # remove one run's PID entry after teardown
 # ---------- docker, with a seam the self-test can point elsewhere ----------
 DOCKER="${DOCKER:-docker}"
 container_exists() { "$DOCKER" inspect "$1" >/dev/null 2>&1; }
-container_remove() { "$DOCKER" rm -f "$1" >/dev/null 2>&1; }
+# `-v` drops the container's ANONYMOUS volumes (both images declare VOLUME, so
+# every `docker run` here creates one — 224.3MB of Postgres data across this
+# lane's two runs, which `rm -f` alone leaves behind for a prune to find later).
+# Named volumes are never touched by -v, so only this run's own scratch state goes.
+container_remove() { "$DOCKER" rm -f -v "$1" >/dev/null 2>&1; }
 
 # ---------- run id ----------
 # The canonical shape is the registry's own `e2e-<digits>` (new_run_id below),
@@ -259,9 +263,10 @@ selftest_teardown() {
 # Fake docker: only what the teardown path uses. `rm -f` on a missing container
 # exits 0, exactly like the real CLI, which is the behaviour that hid the leak.
 state="${FAKE_DOCKER_STATE:?}"
+[ -n "${FAKE_DOCKER_LOG:-}" ] && printf '%s\n' "$*" >> "$FAKE_DOCKER_LOG"
 case "${1:-}" in
   inspect) grep -qx "${2:-}" "$state" ;;
-  rm)      name="${3:-}"
+  rm)      name="${@: -1}"   # `rm -f -v <name>`: the name is the last argument
            if grep -qx "$name" "$state"; then grep -vx "$name" "$state" > "$state.tmp"; mv "$state.tmp" "$state"; echo "$name"; exit 0; fi
            exit 0 ;;
   ps)      cat "$state" ;;
@@ -277,7 +282,8 @@ FAKE
     # `|| rc=$?` on purpose: the child exits non-zero in most of these cases and
     # this script runs under `set -e`.
     local out rc=0
-    out="$(DOCKER="$tmp/docker" FAKE_DOCKER_STATE="$tmp/state" \
+    : > "$tmp/argv.log"
+    out="$(DOCKER="$tmp/docker" FAKE_DOCKER_STATE="$tmp/state" FAKE_DOCKER_LOG="$tmp/argv.log" \
            E2E_ENV_FILE="$tmp/no-such.env" REGISTRY_DIR="$tmp/reg" LOG_ROOT="$tmp/logs" \
            bash "$SELF" down "$arg" 2>&1)" || rc=$?
     checks=$((checks + 1))
@@ -317,6 +323,21 @@ FAKE
     "marula-e2e-pg-e2e-3333 marula-e2e-redis-e2e-3333" "3333" "removed container marula-e2e-pg-e2e-3333"
   run_case "idempotent second teardown still fails loudly" 1 \
     "" "e2e-1111" "NOT torn down"
+  # The anonymous volume each `docker run` leaves behind is this run's too: the
+  # teardown must ask for it (`rm -f -v`), or a prune finds 224MB of Postgres
+  # data per boot long after the lane is gone.
+  printf '%s\n' marula-e2e-pg-e2e-4444 marula-e2e-redis-e2e-4444 > "$tmp/state"
+  : > "$tmp/argv.log"
+  DOCKER="$tmp/docker" FAKE_DOCKER_STATE="$tmp/state" FAKE_DOCKER_LOG="$tmp/argv.log" \
+    E2E_ENV_FILE="$tmp/no-such.env" REGISTRY_DIR="$tmp/reg" LOG_ROOT="$tmp/logs" \
+    bash "$SELF" down e2e-4444 >/dev/null 2>&1 || true
+  checks=$((checks + 1))
+  if grep -q -- "-f -v marula-e2e-pg-e2e-4444" "$tmp/argv.log"; then
+    echo "  PASS  teardown drops the container's anonymous volumes (-v)"
+  else
+    echo "  FAIL  teardown did not pass -v to docker rm"
+    failures=$((failures + 1))
+  fi
   run_case "no id and no env file — refuses instead of guessing" 1 \
     "" "" "pass one, e.g."
 
