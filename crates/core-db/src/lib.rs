@@ -152,13 +152,55 @@ impl DbError {
 
 pub type DbResult<T> = Result<T, DbError>;
 
-pub async fn connect(url: &str) -> DbResult<PgPool> {
+/// Historical app-pool ceiling (Wave 49 lane R1). `docs/perf.md` §5 sized
+/// the first instance against this number; it stays the default so no
+/// existing deployment changes behaviour until an operator moves it.
+pub const DEFAULT_POOL_MAX: u32 = 20;
+
+/// Acquire timeout the app pool shipped with (`docs/perf.md` §5).
+pub const DEFAULT_ACQUIRE_TIMEOUT_SECS: u64 = 10;
+
+/// App-pool sizing knobs (Wave 49 lane R1).
+///
+/// Purpose: carry the pool ceiling and acquire timeout as data instead of
+/// the literal `20` this module shipped. A second instance, a bigger box
+/// or a tiny demo install each needs the ceiling to move without a code
+/// edit; a session pooler (PgBouncer/pgcat) in front is the sanctioned way
+/// to raise the fleet total past Postgres's `max_connections`.
+///
+/// Non-purpose: this type reads no environment. The app config owns the
+/// env parse and its fail-closed posture, then hands the resolved value
+/// here — which is also what the future deploy descriptor will emit.
+#[derive(Debug, Clone, Copy)]
+pub struct PoolConfig {
+    /// Ceiling on simultaneous connections this pool will hold.
+    pub max_connections: u32,
+    /// How long a caller waits for a free connection before erroring.
+    pub acquire_timeout: std::time::Duration,
+}
+
+impl Default for PoolConfig {
+    fn default() -> Self {
+        Self {
+            max_connections: DEFAULT_POOL_MAX,
+            acquire_timeout: std::time::Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECS),
+        }
+    }
+}
+
+/// Connects a pool with an explicit ceiling and timeout.
+pub async fn connect_with(url: &str, config: PoolConfig) -> DbResult<PgPool> {
     let pool = PgPoolOptions::new()
-        .max_connections(20)
-        .acquire_timeout(std::time::Duration::from_secs(10))
+        .max_connections(config.max_connections)
+        .acquire_timeout(config.acquire_timeout)
         .connect(url)
         .await?;
     Ok(pool)
+}
+
+/// Connects the app pool with the historical defaults ([`PoolConfig::default`]).
+pub async fn connect(url: &str) -> DbResult<PgPool> {
+    connect_with(url, PoolConfig::default()).await
 }
 
 /// Applies all pending migrations in filename order. Idempotent: applied
@@ -269,5 +311,31 @@ pub async fn assert_rls_coverage(pool: &PgPool) -> DbResult<()> {
         Err(DbError::Sql(sqlx::Error::Configuration(
             format!("tables missing RLS: {offenders:?}").into(),
         )))
+    }
+}
+
+#[cfg(test)]
+mod pool_config_tests {
+    use super::*;
+
+    /// The default must stay the number `docs/perf.md` §5 sized the first
+    /// instance against — moving it silently would invalidate that budget.
+    #[test]
+    fn default_pool_config_is_the_historical_ceiling() {
+        let cfg = PoolConfig::default();
+        assert_eq!(cfg.max_connections, DEFAULT_POOL_MAX);
+        assert_eq!(DEFAULT_POOL_MAX, 20);
+        assert_eq!(cfg.acquire_timeout.as_secs(), DEFAULT_ACQUIRE_TIMEOUT_SECS);
+    }
+
+    #[test]
+    fn pool_config_is_overridable() {
+        let cfg = PoolConfig {
+            max_connections: 5,
+            acquire_timeout: std::time::Duration::from_secs(2),
+        };
+        assert_eq!(cfg.max_connections, 5);
+        assert_eq!(cfg.acquire_timeout.as_secs(), 2);
+        assert_ne!(cfg.max_connections, DEFAULT_POOL_MAX);
     }
 }

@@ -39,9 +39,19 @@ pub struct AppState {
 impl AppState {
     /// Lazily-connected variant for unit tests / never-dialed surfaces.
     pub fn reporting_pool_lazy(database_url: &str) -> Result<PgPool, sqlx::Error> {
+        Self::reporting_pool_lazy_with(database_url, DEFAULT_REPORTING_POOL_MAX)
+    }
+
+    /// Lazily-connected reporting pool with an explicit ceiling (Wave 49
+    /// lane R1). Callers that size the pool from config use this form; the
+    /// two-argument builder keeps the historical 25 for existing callers.
+    pub fn reporting_pool_lazy_with(
+        database_url: &str,
+        max_connections: u32,
+    ) -> Result<PgPool, sqlx::Error> {
         let target = Self::reporting_target(database_url);
         sqlx::postgres::PgPoolOptions::new()
-            .max_connections(25)
+            .max_connections(max_connections)
             .acquire_timeout(std::time::Duration::from_secs(30))
             .connect_lazy(&target)
     }
@@ -62,12 +72,21 @@ impl AppState {
 
     /// Connects a dedicated reporting pool from a database URL.
     pub async fn reporting_pool(database_url: &str) -> PgPool {
+        Self::reporting_pool_with(database_url, DEFAULT_REPORTING_POOL_MAX).await
+    }
+
+    /// Connects a dedicated reporting pool with an explicit ceiling (Wave
+    /// 49 lane R1).
+    pub async fn reporting_pool_with(database_url: &str, max_connections: u32) -> PgPool {
         let target = Self::reporting_target(database_url);
         sqlx::postgres::PgPoolOptions::new()
-            .max_connections(25)
+            .max_connections(max_connections)
             .acquire_timeout(std::time::Duration::from_secs(30))
             .connect(&target)
             .await
             .expect("reporting app-role pool must connect")
     }
 }
+
+/// Historical reporting-pool ceiling (Wave 49 lane R1); see `docs/perf.md` §5.
+pub const DEFAULT_REPORTING_POOL_MAX: u32 = 25;

@@ -293,6 +293,8 @@ MCowBQYDK2VwAyEACifTR92KS0nfpnia/3uCznrkBrmzfHxV+nqX3Xhxw0w=
             // Unit-test profile: no env reads, so the narrow default trust
             // set (loopback + RFC1918) is what these tokens are issued under.
             trusted_proxies: crate::client_ip::TrustedProxies::default(),
+            db_pool_max: core_db::DEFAULT_POOL_MAX,
+            reporting_pool_max: 25,
         }
     }
 

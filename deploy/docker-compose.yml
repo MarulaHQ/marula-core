@@ -223,6 +223,11 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-marula}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-marula-dev-garage}
       MARULA_MAX_UPLOAD_MB: ${MARULA_MAX_UPLOAD_MB:-25}
+      # Pool ceilings (Wave 49 lane R1). Defaults match the historical
+      # compile-time constants; see docs/perf.md §5 for the connection
+      # math and the pooler decision before a second instance ships.
+      MARULA_DB_POOL_MAX: ${MARULA_DB_POOL_MAX:-20}
+      MARULA_REPORTING_POOL_MAX: ${MARULA_REPORTING_POOL_MAX:-25}
       # OpenTelemetry (TASKLIST 2.18): empty ⇒ none mode (no OTel SDK, no
       # exporters). Set to http://otel-collector:4318 together with the
       # observability profile (see header comment).
@@ -310,6 +315,9 @@ services:
       # are undecryptable by the delivery worker.
       MARULA_SECRET_KEY: ${MARULA_SECRET_KEY:-6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21}
       RELAY_BATCH: "200"
+      # Pool ceilings (Wave 49 lane R1); see docs/perf.md §5.
+      MARULA_DB_POOL_MAX: ${MARULA_DB_POOL_MAX:-20}
+      DELIVERY_POOL_MAX: ${DELIVERY_POOL_MAX:-5}
       CORE_API_URL: http://core-api:8080
       EMAIL_INTERNAL_TOKEN: ${EMAIL_INTERNAL_TOKEN:-dev-email-internal}
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
