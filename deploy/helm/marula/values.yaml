@@ -111,6 +111,10 @@ coreApi:
   # published ranges AND the ingress controller's, because the real-client
   # walk skips every trusted hop and the controller is one.
   trustedProxies: ""
+  # Pool ceilings (Wave 49 lane R1): pass MARULA_DB_POOL_MAX /
+  # MARULA_REPORTING_POOL_MAX through extraEnv to move past the defaults
+  # (20 / 25). See docs/perf.md §5 — front the pools with a session pooler
+  # (PgBouncer/pgcat) before raising PG max_connections per instance.
   resources: {}
   extraEnv: []
 
@@ -122,6 +126,9 @@ realtime:
 worker:
   replicaCount: 1
   relayBatch: 200
+  # Pool ceilings (Wave 49 lane R1): pass MARULA_DB_POOL_MAX /
+  # DELIVERY_POOL_MAX through extraEnv to move the worker's pools past the
+  # defaults (20 / 5). See docs/perf.md §5.
   resources: {}
   extraEnv: []
 

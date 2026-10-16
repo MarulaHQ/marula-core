@@ -171,6 +171,15 @@ pub struct Config {
     /// Malformed entries are dropped loudly at boot and never fail it.
     /// See [`crate::client_ip`] for the resolution algorithm.
     pub trusted_proxies: crate::client_ip::TrustedProxies,
+    /// App-pool ceiling (Wave 49 lane R1). Env `MARULA_DB_POOL_MAX`
+    /// (default 20). A present-but-invalid value refuses boot; see
+    /// [`parse_pool_max`].
+    pub db_pool_max: u32,
+    /// Reporting-pool ceiling (Wave 49 lane R1). Env
+    /// `MARULA_REPORTING_POOL_MAX` (default 25). The reporting pool runs
+    /// the app role under RLS, a different privilege profile from the app
+    /// pool, so it carries its own ceiling.
+    pub reporting_pool_max: u32,
 }
 
 /// Which distance/duration provider the process registers (Wave 32 lane 7).
@@ -344,6 +353,8 @@ impl Config {
             internal_token: None,
             object_store: core_store::StoreChoice::Local(object_dir.to_string_lossy().into_owned()),
             max_upload_bytes: core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
+            db_pool_max: core_db::DEFAULT_POOL_MAX,
+            reporting_pool_max: 25,
             migration_rate_limit_per_min: 600,
             dispatch_rate_limit_per_min: 600,
             scheduling_links_rate_limit_per_min: 60,
@@ -366,6 +377,15 @@ impl Config {
         match &self.email_scan_clamd_addr {
             Some(addr) => ScanChoice::Clamd(addr.clone()),
             None => ScanChoice::None,
+        }
+    }
+
+    /// App-pool sizing handed to `core_db::connect_with` (Wave 49 lane R1).
+    #[must_use]
+    pub fn pool_config(&self) -> core_db::PoolConfig {
+        core_db::PoolConfig {
+            max_connections: self.db_pool_max,
+            acquire_timeout: std::time::Duration::from_secs(core_db::DEFAULT_ACQUIRE_TIMEOUT_SECS),
         }
     }
 
@@ -541,6 +561,8 @@ impl Config {
                 .and_then(|v| v.parse::<i64>().ok())
                 .map(|mb| mb * 1024 * 1024)
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
+            db_pool_max: parse_pool_max("MARULA_DB_POOL_MAX", core_db::DEFAULT_POOL_MAX)?,
+            reporting_pool_max: parse_pool_max("MARULA_REPORTING_POOL_MAX", 25)?,
             migration_rate_limit_per_min: std::env::var("MARULA_MIGRATION_RATE_LIMIT_PER_MIN")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -747,6 +769,26 @@ fn jwt_signing_from_env() -> Result<Option<JwtSigningKey>, String> {
 /// Single source of truth for the dev fallback derivation lives in
 /// core-db::demo (the CLI seeder must derive the SAME key or the demo
 /// secrets it seals are unopenable by this API).
+/// Parses a pool-ceiling env var (Wave 49 lane R1).
+///
+/// Fail-closed on a present-but-invalid value: a wrong pool size is a
+/// capacity incident, not a cosmetic one, so garbage refuses boot rather
+/// than silently reverting to the default.
+fn parse_pool_max(var: &str, default: u32) -> Result<u32, String> {
+    parse_pool_max_value(std::env::var(var).ok(), default, var)
+}
+
+fn parse_pool_max_value(raw: Option<String>, default: u32, var: &str) -> Result<u32, String> {
+    match raw {
+        None => Ok(default),
+        Some(v) => match v.trim().parse::<u32>() {
+            Ok(n) if (1..=1024).contains(&n) => Ok(n),
+            Ok(n) => Err(format!("{var} must be between 1 and 1024 (got {n})")),
+            Err(_) => Err(format!("{var} must be a positive integer (got {v:?})")),
+        },
+    }
+}
+
 fn derive_dev_key(jwt_secret: &str) -> SecretKey {
     SecretKey(core_db::demo::derive_dev_seal_key(jwt_secret))
 }
@@ -796,6 +838,8 @@ impl Config {
                 .and_then(|v| v.parse::<i64>().ok())
                 .map(|mb| mb * 1024 * 1024)
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
+            db_pool_max: core_db::DEFAULT_POOL_MAX,
+            reporting_pool_max: 25,
             migration_rate_limit_per_min: 600,
             dispatch_rate_limit_per_min: 600,
             scheduling_links_rate_limit_per_min: 60,
@@ -1015,5 +1059,39 @@ mod hardening_tests {
             err.contains("MARULA_JWT_EDDSA_PRIVATE_KEY"),
             "operator copy names the malformed variable: {err}"
         );
+    }
+}
+
+#[cfg(test)]
+mod pool_max_tests {
+    use super::*;
+
+    /// Wave 49 lane R1: the pool-ceiling env parse is fail-closed. An
+    /// absent value takes the default; a present but invalid one refuses
+    /// boot rather than silently reverting (a wrong pool size is a
+    /// capacity incident).
+    #[test]
+    fn pool_max_parsing_is_fail_closed() {
+        assert_eq!(
+            parse_pool_max_value(None, 20, "MARULA_DB_POOL_MAX").unwrap(),
+            20
+        );
+        assert_eq!(
+            parse_pool_max_value(Some("5".into()), 20, "MARULA_DB_POOL_MAX").unwrap(),
+            5
+        );
+        assert_eq!(
+            parse_pool_max_value(Some("  64 ".into()), 20, "MARULA_DB_POOL_MAX").unwrap(),
+            64
+        );
+        // 0, out-of-range, and non-numeric all refuse, naming the variable.
+        for bad in ["0", "1025", "abc", "-1"] {
+            let err = parse_pool_max_value(Some(bad.into()), 20, "MARULA_DB_POOL_MAX")
+                .expect_err("invalid pool ceiling must refuse");
+            assert!(
+                err.contains("MARULA_DB_POOL_MAX"),
+                "operator copy names the variable: {err}"
+            );
+        }
     }
 }

@@ -45,6 +45,7 @@ fn cfg() -> DeliveryLoopConfig {
         from_name: Some("Marula Reports".into()),
         claim_batch: 50,
         poll_secs: 60,
+        pool_max: 5,
     }
 }
 

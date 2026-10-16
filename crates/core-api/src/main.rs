@@ -37,10 +37,12 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let pool = core_db::connect(&config.database_url).await.context(
-        "connecting to Postgres — check DATABASE_URL and that the database \
+    let pool = core_db::connect_with(&config.database_url, config.pool_config())
+        .await
+        .context(
+            "connecting to Postgres — check DATABASE_URL and that the database \
              is reachable (dev compose: `docker compose up -d postgres`)",
-    )?;
+        )?;
     // Startup migrations are OPT-IN (TASKLIST backend-gaps lane, 2026-09-10):
     // running them as `marula_app` fails on fresh installs — Postgres 17
     // denies even `CREATE TABLE IF NOT EXISTS _sqlx_migrations` to the RLS
@@ -70,7 +72,11 @@ async fn main() -> anyhow::Result<()> {
         config: std::sync::Arc::clone(&config),
         oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
         mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&config)),
-        reporting: core_api::state::AppState::reporting_pool(&config.database_url).await,
+        reporting: core_api::state::AppState::reporting_pool_with(
+            &config.database_url,
+            config.reporting_pool_max,
+        )
+        .await,
         store: {
             let choice = config.object_store.clone();
             tracing::info!(?choice, "object store selected");

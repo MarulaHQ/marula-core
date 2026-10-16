@@ -61,7 +61,15 @@ pub async fn run(
     config: config::WorkerConfig,
     shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
-    let pool = core_db::connect(&config.database_url).await.context(
+    let pool = core_db::connect_with(
+        &config.database_url,
+        core_db::PoolConfig {
+            max_connections: config.db_pool_max,
+            acquire_timeout: std::time::Duration::from_secs(core_db::DEFAULT_ACQUIRE_TIMEOUT_SECS),
+        },
+    )
+    .await
+    .context(
         "worker: connecting to Postgres — check DATABASE_URL and that the \
          database is reachable (dev compose: `docker compose up -d postgres`)",
     )?;

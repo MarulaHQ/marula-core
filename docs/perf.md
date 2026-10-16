@@ -186,18 +186,30 @@ fix: p95 49.2ms, 259 rps @50k — **the 150ms product budget holds at
 saturation with ~3× headroom**. The pre-keyset 218ms reading was the
 offset deep-page leg, not queueing capacity.
 
-**Pool sizing / connection count (explicit):** one core-api instance
-holds `app` pool max **20** (`core_db::connect`), the reporting pool max
-**25** (`AppState::reporting_pool_lazy`), worker delivery pool max **5**,
-webhooks pool max **1** — ≈ 51 connections per instance against the
-Postgres default `max_connections = 100`. That leaves headroom for
-superuser reserved slots and operator tooling only for the FIRST node:
-deploying more instances (or the portal API) multiplies the 51-connection
-floor, so the decision is: **either raise PG max_connections with the
-instance count (51 + per-portal + admin headroom) or front the pools
-with a session pooler before the second instance ships.** Acquire
-timeouts are 10s (app) / 30s (reporting). Saturation at c8 keeps the
-queue in the axum worker pool, never in the pool acquire path.
+**Pool sizing / connection count (explicit; corrected 2026-10-17 by Wave 49 lane R1).**
+A default stack, by process, opens:
+
+| Process | Pool | Ceiling | Env knob |
+| --- | --- | --- | --- |
+| core-api | app | 20 | `MARULA_DB_POOL_MAX` |
+| core-api | reporting (RLS role) | 25 | `MARULA_REPORTING_POOL_MAX` |
+| worker | app (owner role) | 20 | `MARULA_DB_POOL_MAX` |
+| worker | delivery reporting | 5 | `DELIVERY_POOL_MAX` |
+| realtime | LISTEN connection | 1 | — |
+
+That is **45 (core-api) + 25 (worker) + 1 (listener) = 71 connections**
+for the default one-box stack against the Postgres default
+`max_connections = 100` — thinner headroom than the earlier "51" figure,
+which counted a webhooks pool that only exists in a test fixture, not in
+production. Every production ceiling is an env knob since lane R1; a
+present-but-invalid value (0, non-numeric, or above 1024) refuses boot
+rather than silently reverting to the default, because a wrong pool size
+is a capacity incident and not a cosmetic one. Deploying more instances
+multiplies the floor, so the decision is unchanged and now enforceable:
+**either raise PG `max_connections` with the instance count, or front the
+pools with a session pooler (PgBouncer/pgcat) before the second instance
+ships.** Acquire timeouts are 10s (app) / 30s (reporting). Saturation at
+c8 keeps the queue in the axum worker pool, never in the pool acquire path.
 
 **Enforcement:** the nightly `Nightly perf` workflow gates the c8 @50k
 run at 150ms (`--budget-ms 150`) and surfaces the JSON report as a step

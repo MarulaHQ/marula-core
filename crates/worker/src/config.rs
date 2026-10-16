@@ -97,6 +97,9 @@ pub struct DeliveryLoopConfig {
     pub claim_batch: i64,
     /// Seconds between due-schedule sweeps (`DELIVERY_POLL_SECS`).
     pub poll_secs: u64,
+    /// Ceiling on the lazy reporting pool this loop opens for delivery
+    /// reads (`DELIVERY_POOL_MAX`, default 5; Wave 49 lane R1).
+    pub pool_max: u32,
 }
 
 /// Runtime settings for the worker process.
@@ -155,6 +158,10 @@ pub struct WorkerConfig {
     /// seconds: a usage row is a report an operator reads, and the per-org
     /// work is one aggregate.
     pub usage_refresh_secs: u64,
+    /// Ceiling on the worker's own Postgres pool (`MARULA_DB_POOL_MAX`,
+    /// default 20; Wave 49 lane R1). The worker reads across orgs on the
+    /// owner role, so this pool is separate from core-api's.
+    pub db_pool_max: u32,
 }
 
 impl WorkerConfig {
@@ -255,6 +262,9 @@ impl WorkerConfig {
                 poll_secs: env("DELIVERY_POLL_SECS")
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(60),
+                pool_max: env("DELIVERY_POOL_MAX")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(5),
             },
             webhook_secret_key: AtRestKey::from_env_value(lookup("MARULA_SECRET_KEY").as_deref()),
             internal_api_url: lookup("INTERNAL_API_URL")
@@ -277,6 +287,9 @@ impl WorkerConfig {
             usage_refresh_secs: lookup("USAGE_REFRESH_SECS")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(crate::usage_refresh_sweep::DEFAULT_INTERVAL_SECS),
+            db_pool_max: lookup("MARULA_DB_POOL_MAX")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(core_db::DEFAULT_POOL_MAX),
         }
     }
 }
@@ -462,5 +475,22 @@ mod tests {
         assert_eq!(cfg.eval_interval_secs, 60);
         assert_eq!(cfg.queue_batch, 10);
         assert_eq!(cfg.queue_stale_after_secs, 300);
+    }
+
+    /// Wave 49 lane R1: the worker's own pool and the delivery reporting
+    /// pool carry env ceilings, defaulting to the historical numbers.
+    #[test]
+    fn pool_ceilings_default_and_override() {
+        let cfg = WorkerConfig::from_lookup(|_| None);
+        assert_eq!(cfg.db_pool_max, 20);
+        assert_eq!(cfg.delivery.pool_max, 5);
+
+        let cfg = WorkerConfig::from_lookup(|k| match k {
+            "MARULA_DB_POOL_MAX" => Some("40".into()),
+            "DELIVERY_POOL_MAX" => Some("8".into()),
+            _ => None,
+        });
+        assert_eq!(cfg.db_pool_max, 40);
+        assert_eq!(cfg.delivery.pool_max, 8);
     }
 }

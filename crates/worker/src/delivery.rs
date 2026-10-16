@@ -258,7 +258,7 @@ pub async fn run_delivery_loop(
     // The reporting pool is built lazily: a deployment whose app role is
     // absent (minimal standalone installs) still gets claiming + skips.
     let reporting = match sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(config.pool_max)
         .acquire_timeout(StdDuration::from_secs(30))
         .connect_lazy(&reporting_target(&database_url))
     {
