@@ -62,6 +62,7 @@ import { openPopout } from "../../../lib/popout/popout";
 import {
   boardModelKey,
   makeBoardSpec,
+  upsertBoardTicket,
 } from "../../../lib/instant/read-models";
 import {
   useInstantChannels,
@@ -74,14 +75,18 @@ type Priority = components["schemas"]["Priority"];
 
 /// New-ticket composer: the only staff create surface, wired to
 /// POST /api/v1/tickets through the IF1/IF2 envelope (idempotency key,
-/// read-your-write version). The board channel's `ticket.created` delta
-/// lands the row in the list — no local insert needed.
+/// read-your-write version). The mutation's applied snapshot reconciles
+/// the board row through `onCreated`, and the board channel's
+/// `ticket.created` delta reinforces it — the live delta alone is a
+/// second path, never the only one (qa-p29/q-p41 02-ticket-create).
 function NewTicketDialog({
   boardId,
   canCreate,
+  onCreated,
 }: {
   boardId: string;
   canCreate: boolean;
+  onCreated: (ticket: BoardTicket) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -120,6 +125,7 @@ function NewTicketDialog({
       request: (client, requestBody) =>
         client.POST("/api/v1/tickets", { body: requestBody }),
       versions: (response) => [[response.id, response.mutation.version]],
+      onApplied: (ticket) => onCreated(ticket),
     });
     setBusy(false);
     if (!result.ok) {
@@ -801,6 +807,17 @@ export default function BoardPage() {
     [board?.tickets, draggingId, moveTicket, statuses, workflow],
   );
 
+  // Read-your-write on create: the mutation's applied ticket merges into
+  // the list the moment the envelope returns, so the new row is on screen
+  // whether or not the live delta arrives (a create has no optimistic
+  // insert to correct — the response IS the insert).
+  const handleCreated = useCallback(
+    (ticket: BoardTicket) => {
+      patch((model) => upsertBoardTicket(model, ticket));
+    },
+    [patch],
+  );
+
   if (auth.status !== "authed") {
     return (
       <main className="flex min-h-full items-center justify-center">
@@ -839,6 +856,7 @@ export default function BoardPage() {
               <NewTicketDialog
                 boardId={boardId}
                 canCreate={(auth.me?.permissions ?? []).includes("tickets:create") ?? false}
+                onCreated={handleCreated}
               />
             </div>
           </SurfaceHeader>

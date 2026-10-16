@@ -48,6 +48,28 @@ export interface BoardModel {
 
 export const boardModelKey = (boardId: string): string => `board:${boardId}`;
 
+/**
+ * Merge one authoritative ticket snapshot into a board model: replace a
+ * known row, append an unknown one. Exported because a create reconciles
+ * through the same merge — the mutation envelope carries the applied
+ * ticket and the board patches it in rather than waiting on the live
+ * delta (instant-first: read-your-write keys to the server answer).
+ */
+export function upsertBoardTicket(
+  model: BoardModel,
+  ticket: BoardTicket,
+): BoardModel {
+  // Same-family pre-guard: a read model can observe upsert before its
+  // tickets array resolves — appending is the honest fallback, not a crash.
+  if (!Array.isArray(model.tickets)) return { ...model, tickets: [ticket] };
+  const idx = model.tickets.findIndex((t) => t.id === ticket.id);
+  if (idx < 0) return { ...model, tickets: [...model.tickets, ticket] };
+  if (model.tickets[idx] === ticket) return model;
+  const tickets = [...model.tickets];
+  tickets[idx] = ticket;
+  return { ...model, tickets };
+}
+
 export function makeBoardSpec(
   client: ApiClient,
   boardId: string,
@@ -58,17 +80,6 @@ export function makeBoardSpec(
       params: { path: { id } },
     });
     return data ?? null;
-  }
-  function upsert(model: BoardModel, ticket: BoardTicket): BoardModel {
-    // Same-family pre-guard: a read model can observe upsert before its
-    // tickets array resolves — appending is the honest fallback, not a crash.
-    if (!Array.isArray(model.tickets)) return { ...model, tickets: [ticket] };
-    const idx = model.tickets.findIndex((t) => t.id === ticket.id);
-    if (idx < 0) return { ...model, tickets: [...model.tickets, ticket] };
-    if (model.tickets[idx] === ticket) return model;
-    const tickets = [...model.tickets];
-    tickets[idx] = ticket;
-    return { ...model, tickets };
   }
   return {
     async hydrate() {
@@ -108,12 +119,12 @@ export function makeBoardSpec(
         });
         return data === undefined ? model : { ...model, tickets: data };
       }
-      return upsert(model, ticket);
+      return upsertBoardTicket(model, ticket);
     },
     applyEntity: (model, entity) => {
       const ticket = entity as BoardTicket;
       if (typeof ticket?.id !== "string") return model;
-      return upsert(model, ticket);
+      return upsertBoardTicket(model, ticket);
     },
     entityIds: (model) =>
       Array.isArray(model.tickets) ? model.tickets.map((t) => t.id) : [],

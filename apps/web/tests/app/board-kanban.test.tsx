@@ -195,6 +195,43 @@ describe("/boards/[id] — kanban interactions", () => {
     expect(screen.getByText("Fix the flux capacitor")).toBeInTheDocument();
   });
 
+  it("shows a just-created ticket from the mutation's applied snapshot", async () => {
+    // qa-p47-e2e-drift-triage: 02-ticket-create failed while the board's
+    // list lived on the SSE delta alone. The envelope response carries
+    // the applied ticket, so the row must land with no live event at all.
+    const created = {
+      ...TICKET,
+      id: "t-new",
+      number: "MAR-9",
+      title: "Rebuild the flux capacitor",
+    };
+    const mock = setupApi([S_NEW, S_WORKING, S_DONE], [TICKET]);
+    mock.on("GET", "/api/v1/me", () => ({
+      json: {
+        ...ME_FIXTURE,
+        permissions: [...ME_FIXTURE.permissions, "tickets:create"],
+      },
+    }));
+    mock.on("POST", "/api/v1/tickets", () => ({
+      json: {
+        ...created,
+        mutation: { seq: 9, updated_at: "2026-09-17T00:00:00Z", version: 1 },
+      },
+    }));
+    render(page());
+    expect(await screen.findByText("Fix the flux capacitor")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("new-record"));
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: created.title },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create ticket" }));
+
+    expect(await screen.findByTestId("kanban-card-MAR-9")).toHaveTextContent(
+      created.title,
+    );
+  });
+
   it("never renders a raw wire-slug status on a card tag (item 5)", async () => {
     // Wave 23 lane 1, item 5: every card tag the page renders is either
     // the status row's NAME or a human category label — the grouping
