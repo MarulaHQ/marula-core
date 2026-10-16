@@ -458,9 +458,22 @@ if [ "${MODE:-}" = "isolated" ]; then
 fi
 
 ########## migrate + deterministic demo seed (mechanical reseed) ##########
+# The CLI runs in the DEV profile here (plain `cargo run`), so the dev half of
+# the shared dir gets the same provenance check the release builds get below.
+# A debug artifact from another tree poisons a debug build exactly the way a
+# release one poisons a release build — same relative dep-info, same mtime trap.
+if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
+  run_stage "shared-target guard (dev profile)" \
+    "python3 scripts/lane-target-guard.py check --profile debug --fix" \
+    || die "shared-target guard refused the migrate/seed build — read its reason above, run the fix it prints, or set MARULA_LANE_GUARD=0 to override deliberately"
+fi
 run_stage "migrate schema" 'cargo run -q -p marula-core-cli -- migrate'
 run_stage "seed the deterministic demo org (seed-demo --force)" \
   'MARULA_DEV_TOOLS=1 cargo run -q -p marula-core-cli -- seed-demo --force'
+if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
+  run_stage "mark the shared target (dev provenance)" \
+    "python3 scripts/lane-target-guard.py mark --profile debug --note e2e-stack:cli-migrate+seed"
+fi
 
 echo "[e2e-stack] reset volatile state (auth gate + per-user onboarding/tours) …"
 if [ -n "${E2E_PG_CONTAINER:-}" ]; then
