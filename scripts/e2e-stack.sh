@@ -14,12 +14,21 @@
 #   E2E_FOREGROUND=1 scripts/e2e-stack.sh
 #                                     # attach + EXIT trap tears down ONLY this run
 #   E2E_KEEP=1 …                      # keep the PG container after teardown
+#   E2E_FOLLOW=1 …                    # stay attached and stream the core-api +
+#                                     #   realtime logs (Ctrl-C stops following;
+#                                     #   the stack keeps running)
 #
 # `up` RETURNS as soon as core-api answers its health check. core-api and
 # realtime are detached with their own stdio (`</dev/null`, logs under
 # .kilo/e2e-logs/<run>/) so piping this script's output can never block — the
 # old shape left both daemons holding the caller's stdout pipe, which stranded
 # any `… up | tail` invocation forever (Wave 47 lane A7).
+#
+# `up` narrates itself: every long stage prints a label up front and its elapsed
+# time when it finishes, the builds stream cargo's compile lines, and the run
+# ends by printing the tail of each service log — so a boot is never silent. For
+# a live view, run it again with E2E_FOLLOW=1 (or `tail -f` the log paths it
+# prints; it prints them as soon as they exist).
 #
 # The run registry and the service logs live under the SHARED root — the main
 # checkout, resolved through a worktree's `.git` link (see SHARED_ROOT below) —
@@ -60,6 +69,25 @@ REGISTRY_DIR="${REGISTRY_DIR:-$SHARED_ROOT/.kilo/dev-registry}"
 LOG_ROOT="${LOG_ROOT:-$SHARED_ROOT/.kilo/e2e-logs}"
 
 die() { echo "[e2e-stack] FAIL: $*" >&2; exit 1; }
+
+# ---------- stage narration ----------
+# Every slow stage announces itself before it runs and reports its elapsed time
+# when it finishes, so a boot never looks frozen between the container start
+# and the final summary. `eval` is used only with the fixed literals below.
+run_stage() { # run_stage <label> <command-string>
+  # The status is returned explicitly: bash suppresses errexit for a whole
+  # function body when the call sits in an `if`/`&&`, so relying on `set -e`
+  # alone would let a failed stage continue silently.
+  local label="$1" cmd="$2" t0=$SECONDS rc=0
+  echo "[e2e-stack] $label …"
+  eval "$cmd" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "[e2e-stack] $label — done in $((SECONDS - t0))s"
+  else
+    echo "[e2e-stack] FAIL: $label (exit $rc)" >&2
+  fi
+  return "$rc"
+}
 
 # ---------- run id ----------
 new_run_id() {
@@ -244,13 +272,11 @@ if [ "${MODE:-}" = "isolated" ]; then
 fi
 
 ########## migrate + deterministic demo seed (mechanical reseed) ##########
-echo "[e2e-stack] migrate schema"
-cargo run -q -p marula-core-cli -- migrate
+run_stage "migrate schema" 'cargo run -q -p marula-core-cli -- migrate'
+run_stage "seed the deterministic demo org (seed-demo --force)" \
+  'MARULA_DEV_TOOLS=1 cargo run -q -p marula-core-cli -- seed-demo --force'
 
-echo "[e2e-stack] seed the deterministic demo org (seed-demo --force)"
-MARULA_DEV_TOOLS=1 cargo run -q -p marula-core-cli -- seed-demo --force
-
-echo "[e2e-stack] reset volatile state (auth gate + per-user onboarding/tours)"
+echo "[e2e-stack] reset volatile state (auth gate + per-user onboarding/tours) …"
 if [ -n "${E2E_PG_CONTAINER:-}" ]; then
   PG_EXEC=(docker exec "${E2E_PG_CONTAINER}")
 else
@@ -268,23 +294,28 @@ fi
 # into a pager waits on an fd the daemons hold open forever.
 LOG_DIR="$LOG_ROOT/$RUN_ID"
 mkdir -p "$LOG_DIR"
-echo "[e2e-stack] boot core-api on ${BIND_ADDR} (release — E2E latency needs the optimized build)"
-cargo build -q -p core-api --release
+echo "[e2e-stack] service logs: $LOG_DIR/{core-api,realtime}.log"
+# The release builds are the slow part of a boot; cargo runs un-quiet here so
+# its compile lines stream and the wait is visible.
+run_stage "build core-api (release — E2E latency needs the optimized build)" \
+  'cargo build -p core-api --release'
 BIN="$(cargo metadata -q --no-deps --format-version 1 | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/core-api"
+echo "[e2e-stack] boot core-api on ${BIND_ADDR}"
 "$BIN" >"$LOG_DIR/core-api.log" 2>&1 </dev/null &
 API_PID=$!
 disown "$API_PID" 2>/dev/null || true
 # realtime (ws) service — same JWT secret as core-api (token validation).
-echo "[e2e-stack] boot realtime on 0.0.0.0:${WS_PORT}"
-cargo build -q -p realtime --release
+run_stage "build realtime (release)" 'cargo build -p realtime --release'
 WS_BIN="$(cargo metadata -q --no-deps --format-version 1 | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/realtime"
+echo "[e2e-stack] boot realtime on 0.0.0.0:${WS_PORT}"
 BIND_ADDR="0.0.0.0:${WS_PORT}" "$WS_BIN" >"$LOG_DIR/realtime.log" 2>&1 </dev/null &
 WS_PID=$!
 disown "$WS_PID" 2>/dev/null || true
 
 API_HOST="$(echo "$BIND_ADDR" | sed 's/^[0-9]*://; s/^0\.0\.0\.0/localhost/')"
+echo "[e2e-stack] waiting for core-api health on ${API_HOST} (up to 60s) …"
 for _ in $(seq 1 60); do
   curl -fsS "http://${API_HOST}/api/v1/health" >/dev/null 2>&1 && break
   sleep 1
@@ -292,7 +323,6 @@ done
 curl -fsS "http://${API_HOST}/api/v1/health" >/dev/null \
   || die "core-api never became healthy on ${API_HOST} — see $LOG_DIR/core-api.log"
 echo "[e2e-stack] core-api healthy — demo env ready (owner@demo.local / demo-password-123)"
-echo "[e2e-stack] service logs: $LOG_DIR/{core-api,realtime}.log"
 
 # ########## env file for Playwright (kills NEXT_PUBLIC_API_URL drift) ##########
 cat > "$ENV_FILE" <<EOF
@@ -344,6 +374,21 @@ with open(os.path.join(regdir, f"run-{run_id}-pids.json"), "w") as f:
     json.dump(reg, f, indent=2)
 PY
 echo "[e2e-stack] registered run in $REGISTRY_DIR — check scripts/dev-status.sh"
+
+########## console summary — a boot is never silent ##########
+echo "[e2e-stack] run $RUN_ID ready — api http://${API_HOST}/  ws :${WS_PORT}  web :${WEB_PORT}"
+for _svc in core-api realtime; do
+  echo "[e2e-stack] --- $_svc log (last 5 lines) ---"
+  tail -n 5 "$LOG_DIR/$_svc.log" 2>/dev/null | sed 's/^/    /' || true
+done
+
+if [ "${E2E_FOLLOW:-0}" = "1" ]; then
+  # Live view: stay attached and stream both logs. Ctrl-C stops following ONLY —
+  # the stack keeps running; teardown stays `e2e-stack.sh down $RUN_ID`.
+  echo "[e2e-stack] following service logs — Ctrl-C stops following (stack keeps running)"
+  tail -n 0 -f "$LOG_DIR/core-api.log" "$LOG_DIR/realtime.log" || true
+  exit 0
+fi
 
 if [ "${E2E_FOREGROUND:-0}" = "1" ]; then
   # attach mode: EXIT trap tears down ONLY this run id.
