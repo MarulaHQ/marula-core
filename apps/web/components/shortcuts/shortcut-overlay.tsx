@@ -8,7 +8,7 @@
 
 "use client";
 
-import { displayChord } from "@/lib/commands/chords";
+import { displayChord, modIsMeta } from "@/lib/commands/chords";
 import type { CommandDef } from "@/lib/commands/types";
 
 interface MetaRow {
@@ -39,8 +39,7 @@ export function collectRows(
   // ⌘/Ctrl reads better than "Mod" for the palette row: the search button
   // in the header labels itself ⌘K on darwin, Ctrl+K elsewhere.
   const kbd = (spec: string): string => {
-    const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform ?? "");
-    return displayChord(spec).replace("Mod", isMac ? "⌘" : "Ctrl");
+    return displayChord(spec).replace("Mod", modIsMeta() ? "⌘" : "Ctrl");
   };
   return [
     ...metas.map((m) => ({

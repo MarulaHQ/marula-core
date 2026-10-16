@@ -9,13 +9,12 @@
 "use client";
 
 import { registryGroups } from "@/lib/commands/registry";
-import { displayChord } from "@/lib/commands/chords";
+import { displayChord, modIsMeta } from "@/lib/commands/chords";
 import { useDialogA11y } from "@/lib/a11y/use-dialog-a11y";
 
 /** Machine chord → OS-native label for the search palette row. */
 function kbdLabel(spec: string): string {
-  const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform ?? "");
-  return displayChord(spec).replace("Mod", isMac ? "⌘" : "Ctrl");
+  return displayChord(spec).replace("Mod", modIsMeta() ? "⌘" : "Ctrl");
 }
 
 export function CheatSheetDialog({ open, onClose }: { open: boolean; onClose: () => void }) {

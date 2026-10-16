@@ -9,6 +9,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { AuthProvider } from "../../lib/api";
 import ApprovalsPage from "../../app/approvals/page";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
+import { currentFetchRouter, setFetchRouter } from "../helpers/fetch-router";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
@@ -291,6 +292,58 @@ describe("/approvals", () => {
     const bar = screen.getByTestId("bulk-bar");
     expect(screen.getByTestId("bulk-count")).toHaveTextContent("1 selected");
     expect(screen.getByText(/Another approver signs it off/)).toBeInTheDocument();
+    cleanup();
+  });
+
+  // Wave 47 lane A15 (`p47-drift-recheck`). The self-approval rule above is
+  // enforced from the ROW's own fields, and one of those fields is the
+  // viewer's id — which `/api/v1/me` supplies asynchronously. Loading the
+  // queue first renders every row with `meId` still "", so a row is
+  // actionable for as long as that read is in flight. The queue now waits for
+  // the identity, which is the only way the rule is true from first paint.
+  it("holds the queue until the caller's identity is known", async () => {
+    const mock = setupApi();
+    // Hold `/api/v1/me` open and watch what renders while it is unanswered.
+    const inner = currentFetchRouter();
+    let releaseMe: () => void = () => undefined;
+    const meGate = new Promise<void>((resolve) => {
+      releaseMe = resolve;
+    });
+    setFetchRouter(async (input, init) => {
+      const url =
+        typeof input === "string" ? new URL(input) : input instanceof URL ? input : new URL(input.url);
+      if (url.pathname === "/api/v1/me") await meGate;
+      if (inner === null) throw new Error("MockApi router not installed");
+      return inner(input, init);
+    });
+
+    mount(<ApprovalsPage />);
+    // Settle the effects and their microtasks; the identity read is still open.
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    // No queue was asked for, so no row exists — and in particular no row of
+    // the viewer's own time rendered actionable.
+    expect(mock.callsTo("GET", "/api/v1/time-entries/approvals/queue")).toHaveLength(0);
+    expect(screen.queryByTestId(`approval-row-${E1}`)).not.toBeInTheDocument();
+
+    releaseMe();
+    await screen.findAllByText("1:30");
+    // One load, not a pre-identity load plus a second after it.
+    expect(mock.callsTo("GET", "/api/v1/time-entries/approvals/queue")).toHaveLength(1);
+    cleanup();
+  });
+
+  it("renders the viewer's own row controls disabled, so the rule holds at the row too", async () => {
+    const mock = setupApi();
+    mock.on("GET", "/api/v1/time-entries/approvals/queue", () => ({
+      json: [queueItem({ entry: entry({ id: E1, user_id: ME }) })],
+    }));
+    mount(<ApprovalsPage />);
+    await screen.findAllByText("1:30");
+    const row = screen.getByTestId(`approval-row-${E1}`);
+    // Per-item controls, not just the bulk checkbox: the disabled Approve the
+    // drift sweep read as a product bug is this rule, and it is the point.
+    expect(within(row).getByRole("button", { name: "Approve" })).toBeDisabled();
+    expect(within(row).getByRole("button", { name: "Reject…" })).toBeDisabled();
     cleanup();
   });
 

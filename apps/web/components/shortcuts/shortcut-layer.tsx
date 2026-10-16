@@ -18,7 +18,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { chordFromEvent } from "@/lib/commands/chords";
+import { chordFromEvent, modIsMeta } from "@/lib/commands/chords";
 import {
   CLOSE_CONTROL,
   commandForChord,
@@ -124,7 +124,10 @@ export function ShortcutLayer({ authed }: { authed: boolean }) {
   const dispatchChord = useCallback(
     (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) return;
-      const spec = chordFromEvent(event, true);
+      // The platform decides which modifier "mod" means: ⌘ on macOS, Ctrl
+      // everywhere else. A pinned `true` meant a Ctrl chord could never fire
+      // off macOS, and the `?`/Alt logic below already reads the real key.
+      const spec = chordFromEvent(event, modIsMeta());
       if (!spec) return;
       const command = commandForChord(spec, pathname);
       if (command) {
