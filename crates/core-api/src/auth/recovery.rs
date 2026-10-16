@@ -279,8 +279,9 @@ pub async fn password_reset_confirm(
             .map_err(ApiError::from)?
             .ok_or_else(|| ApiError::Unauthorized("invalid or expired reset link".into()))?;
 
-    let new_hash = password::hash(&req.new_password)
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("argon2: {e}")))?;
+    let new_hash = password::hash_async(req.new_password.clone())
+        .await
+        .map_err(ApiError::Internal)?;
     let mut tx = state
         .pool
         .begin()

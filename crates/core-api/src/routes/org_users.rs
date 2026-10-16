@@ -694,8 +694,9 @@ pub async fn accept_invite(
         .await
         .map_err(ApiError::from)?;
 
-    let password_hash = crate::auth::password::hash(&req.password)
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("password hashing failed: {e}")))?;
+    let password_hash = crate::auth::password::hash_async(req.password.clone())
+        .await
+        .map_err(ApiError::Internal)?;
 
     // A blank or absent name is "no opinion", not "clear it": the inviter may
     // already have recorded a name, and an empty box must not erase it.

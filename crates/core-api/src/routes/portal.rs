@@ -150,7 +150,8 @@ pub async fn login(
         .await?
         .filter(|c| c.id == user_id)
         .ok_or_else(|| ApiError::Unauthorized("invalid credentials".into()))?;
-    if !crate::auth::password::verify(&req.password, &creds.password_hash) {
+    if !crate::auth::password::verify_async(req.password.clone(), creds.password_hash.clone()).await
+    {
         audit_best_effort(
             &state,
             org_id,
