@@ -268,6 +268,11 @@ pub struct ModelCallRequest {
     pub messages: Vec<LoopMessage>,
     /// OpenAI-format function definitions — only granted tools ride.
     pub tools: Vec<serde_json::Value>,
+    /// Optional OpenAI `response_format` (e.g. `{"type":"json_object"}`).
+    /// `None` for the chat loop; the deterministic authoring loop (lane 17)
+    /// asks for JSON output. A provider that ignores the field still works —
+    /// the authoring boundary parses the content defensively.
+    pub response_format: Option<serde_json::Value>,
 }
 
 /// One tool request the model made.
@@ -478,6 +483,9 @@ impl ChatModelTransport for OpenAiChatCompat {
                 .map(|t| serde_json::json!({ "type": "function", "function": t }))
                 .collect::<Vec<_>>());
         }
+        if let Some(format) = &req.response_format {
+            body["response_format"] = format.clone();
+        }
         let response = self
             .http
             .post(url)
@@ -524,7 +532,15 @@ impl ChatModelTransport for OpenAiChatCompat {
 /// for: override registration being test-only (no admin path may write
 /// TRANSPORT_OVERRIDES), router stamping happening on every worker, and
 /// the env-var base URLs (`OPENAI_BASE_URL`) being pinned per deployment.
-fn resolve_transport(org_id: Uuid, call: &AuthorizedAiCall) -> Arc<dyn ChatModelTransport> {
+///
+/// `pub(crate)` since lane 17: the deterministic workflow-authoring loop
+/// rides this SAME seam (one LLM plumbing path, not a second), so the
+/// authoring edge inherits the override injection and credential adapter
+/// unchanged. HTTP callers still never reach it directly.
+pub(crate) fn resolve_transport(
+    org_id: Uuid,
+    call: &AuthorizedAiCall,
+) -> Arc<dyn ChatModelTransport> {
     if let Some(seeded) = TRANSPORT_OVERRIDES
         .lock()
         .expect("transport overrides lock poisoned")
@@ -928,6 +944,7 @@ async fn run_turn(st: RunState, sender: tokio::sync::mpsc::Sender<Result<Event, 
             model: Some(model.clone()),
             messages: messages.clone(),
             tools: allowed_tools,
+            response_format: None,
         };
         let step_tag = format!("turn:{turn_id}:step:{steps}");
         match st.transport.call(&ask).await {

@@ -12915,6 +12915,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflows/author": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/workflows/author — author a workflow draft from a sentence.
+         * @description Admin-gated (Edit). NOT a write: it returns a draft, its issues and the
+         *     diff, and persists nothing. The completion rides the shared AI admission
+         *     path with the completion + tool-calling edges.
+         */
+        post: operations["workflow_author"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflows/documents": {
         parameters: {
             query?: never;
@@ -13997,6 +14019,85 @@ export interface components {
             events: components["schemas"]["AuditEvent"][];
             /** @description Opaque cursor for the next page; absent when exhausted. */
             next_cursor?: string | null;
+        };
+        /** @description The registry provenance the draft was validated against. */
+        AuthorCatalogueInfo: {
+            digest: string;
+            node_count: number;
+            version: string;
+        };
+        /** @description Model-provenance summary for the response. */
+        AuthorModelInfo: {
+            model: string;
+            provider: string;
+            resolution: string;
+        };
+        AuthorUsage: {
+            /** Format: int32 */
+            completion_tokens: number;
+            /** Format: int32 */
+            prompt_tokens: number;
+            steps: number;
+        };
+        AuthorWorkflowRequest: {
+            /**
+             * @description The current document, when editing an existing workflow. Validated
+             *     first, so the returned diff is against a real document.
+             */
+            document: Record<string, never> | null;
+            /** Format: int32 */
+            max_steps?: number | null;
+            model?: string | null;
+            /** @description The plain-English description of the workflow to author. */
+            prompt: string;
+            provider?: string | null;
+            /**
+             * @description The AI surface the call is admitted on (e.g. `general_chat`). The org
+             *     grants it like any other; there is no workflow-specific surface and no
+             *     new admission path.
+             */
+            surface_key: string;
+        };
+        AuthorWorkflowResponse: {
+            catalogue: components["schemas"]["AuthorCatalogueInfo"];
+            /**
+             * @description The changes the draft makes against `document` (or against an empty
+             *     document when generating fresh).
+             */
+            diff: components["schemas"]["DiffEntry"][];
+            /** @description The validated document, when the model produced one. */
+            draft: Record<string, never> | null;
+            /** @description Set when the model transport failed; the caller reports this honestly. */
+            error?: string | null;
+            /** @description Typed validation issues; empty means `draft` is runnable. */
+            issues: components["schemas"]["AuthoringIssue"][];
+            model_info: components["schemas"]["AuthorModelInfo"];
+            /** @description Advisory name from the model's answer envelope. */
+            name?: string | null;
+            /** @description Always false — this endpoint never writes (spec D). */
+            saved: boolean;
+            tool_calls: components["schemas"]["AuthoringToolCall"][];
+            /** @description Advisory trigger event type from the envelope. */
+            trigger_event?: string | null;
+            usage: components["schemas"]["AuthorUsage"];
+            /** @description True when `draft` is present and validated against the catalogue. */
+            valid: boolean;
+        };
+        /** @description One author-time refusal, pointed and stable so a UI can render it. */
+        AuthoringIssue: {
+            /** @description A stable machine code (`unknown_node_type`, `node_params`, …). */
+            code: string;
+            message: string;
+            /** @description The offending node id or a JSON path, when known. */
+            path?: string | null;
+        };
+        /** @description One tool call the model made, as the response reports it. */
+        AuthoringToolCall: {
+            /** @description The `node_id` argument for `get_node_schema`, echoed for the trace. */
+            argument: string;
+            name: string;
+            /** @description `ok` or `not_found` / `rejected`. */
+            outcome: string;
         };
         /**
          * @description Effects a rule may request. Every variant maps onto an existing core-api
@@ -15124,6 +15225,21 @@ export interface components {
             columns: components["schemas"]["CatalogColumn"][];
             filterable: components["schemas"]["CatalogColumn"][];
             view: components["schemas"]["ViewId"];
+        };
+        /**
+         * @description One node as the authoring prompt sees it: NO schemas. Schemas are fetched
+         *     per node, on demand, through [`NODE_SCHEMA_TOOL`]. `idempotent` and
+         *     `agent_description` ride here so the model can reason about repeat safety
+         *     before it ever fetches a schema.
+         */
+        CatalogueNode: {
+            agent_description: string;
+            emits: string[];
+            family: string;
+            id: string;
+            idempotent: boolean;
+            label: string;
+            tier: string;
         };
         /**
          * @description Instant-first mutation response (IF2): category fields at the top level
@@ -18586,6 +18702,18 @@ export interface components {
             /** Format: int32 */
             useful_life_months?: number | null;
             warranty?: null | components["schemas"]["WarrantyWindow"];
+        };
+        /**
+         * @description One structural change between the current document and the draft. The
+         *     caller renders these as the review diff; nothing is applied here.
+         */
+        DiffEntry: {
+            after?: Record<string, never> | null;
+            before?: Record<string, never> | null;
+            /** @description `add`, `remove` or `change`. */
+            op: string;
+            /** @description A stable location, e.g. `nodes/triage`, `edges/a→b`, `version`. */
+            path: string;
         };
         /**
          * @description One booking block on the dispatch board: the appointment plus the
@@ -56715,6 +56843,43 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["OverrideRegistryResponse"];
                 };
+            };
+        };
+    };
+    workflow_author: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthorWorkflowRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorWorkflowResponse"];
+                };
+            };
+            /** @description AI admission refused (typed reason in the envelope) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the request or the base document did not validate */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
