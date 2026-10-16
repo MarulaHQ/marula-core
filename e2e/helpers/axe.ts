@@ -11,18 +11,19 @@
 //     still present (used by Wave 35 re-verification once the backlog
 //     drains).
 //
-// Scan output is also written to design/qa-p29-accessibility-deep/
-// axe-results.json every run so the coverage matrix and the next wave's
-// re-verification read the same evidence.
+// Scan output is also written to the RUNNING LANE's evidence dir as
+// `<lane>/axe-results.json` (see e2e/helpers/evidence.ts) so the coverage
+// matrix and the next wave's re-verification read the same evidence without a
+// sweep overwriting another lane's record (Wave 47 lane A17).
 
 import { AxeBuilder } from "@axe-core/playwright";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import type { Page } from "@playwright/test";
+import { evidenceDir } from "./evidence";
 
 const E2E_DIR = __dirname;
 const BASELINE_PATH = path.join(E2E_DIR, "..", "axe-baseline.json");
-const RESULTS_DIR = path.join(E2E_DIR, "..", "..", "design", "qa-p29-accessibility-deep");
 
 export type AxeImpact = "minor" | "moderate" | "serious" | "critical" | null;
 
@@ -153,10 +154,13 @@ export async function runAudit(
     outcomes.push({ surface, route, violations, newCritical });
   }
 
-  // Evidence for the coverage matrix + Wave 35 re-verification.
-  mkdirSync(RESULTS_DIR, { recursive: true });
+  // Evidence for the coverage matrix + Wave 35 re-verification.  It lands in
+  // the RUNNING lane's evidence dir: the lane that owns this audit's record
+  // runs on `p29-accessibility-deep`, which resolves to the same
+  // design/qa-p29-accessibility-deep it has always been; every other lane gets
+  // its own copy instead of overwriting that record (Wave 47 lane A17).
   writeFileSync(
-    path.join(RESULTS_DIR, "axe-results.json"),
+    path.join(evidenceDir(), "axe-results.json"),
     `${JSON.stringify({ generated: new Date().toISOString(), outcomes }, null, 2)}\n`,
   );
 

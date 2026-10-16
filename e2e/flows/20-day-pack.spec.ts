@@ -12,6 +12,9 @@
 // this panel is built for: heuristic legs, no provider.
 import { expect, test } from "../helpers/harness";
 import { authedFetch, firstDemoTicket } from "../helpers/api";
+// Captures land in THIS lane's evidence dir, not a neighbouring lane's
+// committed record (Wave 47 lane A17): `design/qa-<branch>/captures/…`.
+import { evidencePath } from "../helpers/evidence";
 
 interface MeView {
   user_id: string;
@@ -358,7 +361,7 @@ test("the day pack groups trips, ticks plan notes, and checks out from /today", 
     await expect(tapeRow).toBeVisible();
     await expect(authedPage.getByTestId("day-pack-tomorrow")).toBeVisible();
     await authedPage.screenshot({
-      path: `design/qa-p32-today-day-pack/captures/${testInfo.project.name}-day-pack.png`,
+      path: evidencePath("captures", `${testInfo.project.name}-day-pack.png`),
       fullPage: true,
     });
 
@@ -424,7 +427,7 @@ test("the day pack groups trips, ticks plan notes, and checks out from /today", 
     await authedPage.goto("/settings/toolboxes");
     await expect(authedPage.getByTestId("toolbox-new-name")).toBeVisible({ timeout: 20_000 });
     await authedPage.screenshot({
-      path: `design/qa-p32-today-day-pack/captures/${testInfo.project.name}-toolbox-config.png`,
+      path: evidencePath("captures", `${testInfo.project.name}-toolbox-config.png`),
       fullPage: true,
     });
   } finally {

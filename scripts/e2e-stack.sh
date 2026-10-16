@@ -53,6 +53,10 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="e2e/.e2e-stack.env"   # per-checkout: Playwright reads it from its own tree
+# Everything below (cargo, the guard, the relative env-file path) is relative to
+# the checkout that owns this script; running it from anywhere else used to
+# depend on the caller's cwd. Same shape as scripts/dev-status.sh.
+cd "$REPO_ROOT"
 
 # Shared root = the MAIN checkout, even when this script runs from a linked
 # worktree. `git rev-parse --git-common-dir` resolves through the worktree's
@@ -269,6 +273,28 @@ if [ "${MODE:-}" = "isolated" ]; then
     -p "$REDIS_PORT:6379" valkey/valkey:8-alpine \
     valkey-server --maxmemory 128mb --maxmemory-policy noeviction >/dev/null \
     || die "could not start scratch Valkey"
+
+  ########## failed-boot hygiene (Wave 47 lane A17) ##########
+  # The registry entry is written only AFTER core-api answers its health check,
+  # so a boot that dies before that point (a build error, a port conflict, an
+  # api that never comes up) leaves this run's own containers running with
+  # nothing that names them: `scripts/dev-status.sh` can only report registered
+  # runs, and the pair outlives the lane. That is the shape that made five
+  # container pairs look orphaned on 2026-10-16. Remove ONLY this run id's
+  # containers, only when the boot never became ready, and honour E2E_KEEP.
+  UP_COMPLETE=0
+  cleanup_failed_boot() {
+    local rc=$?
+    if [ "$rc" -ne 0 ] && [ "${UP_COMPLETE:-0}" -eq 0 ]; then
+      if [ "${E2E_KEEP:-0}" = "1" ]; then
+        echo "[e2e-stack] FAIL: run $RUN_ID never became ready (exit $rc); E2E_KEEP=1 keeps marula-e2e-pg-$RUN_ID (port $PG_PORT) and marula-e2e-redis-$RUN_ID (port $REDIS_PORT)" >&2
+      else
+        echo "[e2e-stack] FAIL: run $RUN_ID never became ready (exit $rc) — removing its own containers (${RUN_ID} only)" >&2
+        docker rm -f "marula-e2e-pg-$RUN_ID" "marula-e2e-redis-$RUN_ID" >/dev/null 2>&1 || true
+      fi
+    fi
+  }
+  trap cleanup_failed_boot EXIT
 fi
 
 ########## migrate + deterministic demo seed (mechanical reseed) ##########
@@ -295,6 +321,25 @@ fi
 LOG_DIR="$LOG_ROOT/$RUN_ID"
 mkdir -p "$LOG_DIR"
 echo "[e2e-stack] service logs: $LOG_DIR/{core-api,realtime}.log"
+
+########## shared cargo target guard (Wave 47 lane A17) ##########
+# Every checkout on this machine compiles into ONE target dir (.cargo/config.toml
+# → disk guardrails DX6), and cargo records dep-info paths RELATIVE to the
+# workspace root, so an artifact a peer worktree built from a different source
+# state resolves against THIS tree's files and passes the mtime freshness check.
+# The result is a build that links code its sources never produced — the recorded
+# signatures are a phantom `cannot find value …` and a `built for newer 'macOS'`
+# linker error, both charged to innocent crates. The guard resets the workspace
+# members FOR THIS PROFILE when the dir's last stamped build came from another
+# tree, then `mark`s the dir after the builds. Release is explicit on purpose:
+# `cargo clean -p …` WITHOUT `--release` does not clear a poisoned release
+# artifact (proven 2026-10-16, .trail/learnings/).
+if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
+  run_stage "shared-target guard (release)" \
+    "python3 scripts/lane-target-guard.py check --profile release --fix" \
+    || die "shared-target guard refused this build — read its reason above, run the fix it prints, or set MARULA_LANE_GUARD=0 to override deliberately"
+fi
+
 # The release builds are the slow part of a boot; cargo runs un-quiet here so
 # its compile lines stream and the wait is visible.
 run_stage "build core-api (release — E2E latency needs the optimized build)" \
@@ -307,6 +352,12 @@ API_PID=$!
 disown "$API_PID" 2>/dev/null || true
 # realtime (ws) service — same JWT secret as core-api (token validation).
 run_stage "build realtime (release)" 'cargo build -p realtime --release'
+# Both release binaries are now built from THIS tree's sources: claim the shared
+# dir so the next lane's guard sees whose artifacts these are.
+if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
+  run_stage "mark the shared target (release provenance)" \
+    "python3 scripts/lane-target-guard.py mark --profile release --note e2e-stack:core-api+realtime"
+fi
 WS_BIN="$(cargo metadata -q --no-deps --format-version 1 | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/realtime"
 echo "[e2e-stack] boot realtime on 0.0.0.0:${WS_PORT}"
@@ -374,6 +425,9 @@ with open(os.path.join(regdir, f"run-{run_id}-pids.json"), "w") as f:
     json.dump(reg, f, indent=2)
 PY
 echo "[e2e-stack] registered run in $REGISTRY_DIR — check scripts/dev-status.sh"
+# Past this line the run is discoverable, so a later failure is a lane's own
+# teardown (`down $RUN_ID`) and not a leak.
+UP_COMPLETE=1
 
 ########## console summary — a boot is never silent ##########
 echo "[e2e-stack] run $RUN_ID ready — api http://${API_HOST}/  ws :${WS_PORT}  web :${WEB_PORT}"

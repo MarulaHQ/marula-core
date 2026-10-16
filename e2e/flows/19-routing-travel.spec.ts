@@ -11,6 +11,9 @@
 // suggestions.
 import { expect, test } from "../helpers/harness";
 import { authedFetch, firstDemoTicket } from "../helpers/api";
+// Captures land in THIS lane's evidence dir, not a neighbouring lane's record
+// (Wave 47 lane A17): `design/qa-<branch>/captures/…`.
+import { evidencePath } from "../helpers/evidence";
 
 interface ClientView {
   id: string;
@@ -223,7 +226,7 @@ test("travel books from the day start, warns on zero transfer, and reconciles mi
   await expect(strip).toContainText("no transfer time");
   await expect(strip).not.toContainText("Route suggestions");
   await authedPage.screenshot({
-    path: `design/qa-p32-dispatch-routing/captures/${testInfo.project.name}-dispatch-strip.png`,
+    path: evidencePath("captures", `${testInfo.project.name}-dispatch-strip.png`),
   });
 
   // UI: the calendar draws travel as its own band above the appointment.
@@ -232,7 +235,7 @@ test("travel books from the day start, warns on zero transfer, and reconciles mi
     authedPage.locator(`[data-testid="week-travel-${appointmentA.id}"]`),
   ).toBeVisible({ timeout: 20_000 });
   await authedPage.screenshot({
-    path: `design/qa-p32-dispatch-routing/captures/${testInfo.project.name}-calendar-travel.png`,
+    path: evidencePath("captures", `${testInfo.project.name}-calendar-travel.png`),
   });
 
   // Reconciliation: log actual mileage, submit the draft, book the expense.
@@ -278,7 +281,7 @@ test("travel books from the day start, warns on zero transfer, and reconciles mi
   await expect(card).toBeVisible({ timeout: 20_000 });
   await expect(card).toContainText("Reimbursable");
   await authedPage.screenshot({
-    path: `design/qa-p32-dispatch-routing/captures/${testInfo.project.name}-reconciliation.png`,
+    path: evidencePath("captures", `${testInfo.project.name}-reconciliation.png`),
     fullPage: true,
   });
 

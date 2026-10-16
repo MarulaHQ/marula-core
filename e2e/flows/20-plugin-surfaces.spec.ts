@@ -5,17 +5,21 @@
 // consent screen must show the surface declarations before an admin
 // grants the capability). UI assertions cover the ticket-pane widget,
 // the automations action picker, and the board field-editor validator
-// picker. Captures land in design/qa-p34-plugin-surface-closeout/ for
-// the vision review (≤8-image batching rule respected: 4 captures).
+// picker. Captures land in the RUNNING LANE's evidence dir (`captures/` under
+// design/qa-<branch>/, see e2e/helpers/evidence.ts) so a sweep cannot rewrite a
+// neighbouring lane's committed record (Wave 47 lane A17); the lane that owns
+// design/qa-p34-plugin-surface-closeout still lands there, because the branch
+// name is the directory name.
 import { expect, test } from "../helpers/harness";
 import { authedFetch, apiLogin, API_URL } from "../helpers/api";
-import { readFileSync, mkdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { evidenceDir } from "../helpers/evidence";
 
 // Playwright transpiles specs outside their dir; resolve repo paths from cwd.
 const REPO = process.cwd();
 
-const CAPTURES = join(REPO, "design/qa-p34-plugin-surface-closeout/captures");
+const CAPTURES = evidenceDir("captures");
 
 async function api(token: string) {
   return authedFetch(token);
@@ -79,7 +83,6 @@ test("plugin widget renders on the classic ticket pane", async ({ authedPage, ow
   const section = authedPage.getByTestId("plugin-widgets-ticket_pane");
   await expect(section).toBeVisible({ timeout: 30_000 });
   await expect(section.getByText("Escalation policy").first()).toBeVisible();
-  mkdirSync(CAPTURES, { recursive: true });
   await authedPage.screenshot({
     path: join(CAPTURES, "ticket-pane-plugin-widget.png"),
     fullPage: false,
@@ -152,7 +155,6 @@ test("consent shows surface declarations; approving registers the action kind", 
   const surfaces = authedPage.getByText("Triage note");
   await expect(surfaces.first()).toBeVisible({ timeout: 30_000 });
   await expect(authedPage.getByText("UI surfaces")).toBeVisible();
-  mkdirSync(CAPTURES, { recursive: true });
   await authedPage.screenshot({
     path: join(CAPTURES, "consent-surface-declarations.png"),
     fullPage: true,
