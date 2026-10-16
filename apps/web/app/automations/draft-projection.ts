@@ -194,7 +194,10 @@ function projectAction(node: BodyNode): Projected | null {
     }
     case "ticket.internalNote": {
       const body = asString(node.params["body"]);
-      if (body === null) return null;
+      // A note of whitespace is not a note: the editor's own validation
+      // refuses it, so the projection refuses it instead of handing over a
+      // draft the save button would bounce.
+      if (body === null || body.trim() === "") return null;
       return { kind: "action", action: { type: "add_internal_comment", body } };
     }
     case "notification.send": {

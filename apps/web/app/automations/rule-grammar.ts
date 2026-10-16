@@ -402,6 +402,29 @@ export function rowFromCondition(c: AutomationCondition): ConditionRow {
         condition: c,
         label: `Decision “${c.question}” on ${c.surface} answers ${c.operator}`,
       };
+    default: {
+      // Total on purpose: the enum is the vocabulary rules are WRITTEN in,
+      // not the vocabulary that has always been STORED. Rules predating it —
+      // the demo seed writes two in the old data-surface filter shape — come
+      // back through this arm and render as opaque rows, which is what the
+      // engine's own "malformed conditions are skipped, not fatal" posture
+      // asks of the editor. An editor that throws on stored data turns a
+      // legacy row into a blank page.
+      const raw = c as unknown as { field?: unknown; op?: unknown; value?: unknown };
+      const field = typeof raw.field === "string" ? raw.field : undefined;
+      const op = typeof raw.op === "string" ? raw.op : undefined;
+      const value = raw.value === undefined ? "" : String(raw.value);
+      const label =
+        field !== undefined && op !== undefined
+          ? `Stored filter (legacy shape): ${field} ${op} ${value}`.trimEnd()
+          : "Stored condition in a shape this editor cannot read";
+      return {
+        kind: "opaque",
+        id: `opaque:unknown:${field ?? ""}:${op ?? ""}:${value}`,
+        condition: c,
+        label,
+      };
+    }
   }
 }
 

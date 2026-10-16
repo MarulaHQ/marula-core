@@ -1501,6 +1501,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/automation-rules/draft-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/automation-rules/draft-summary — stream a one-sentence
+         *     summary of the rule draft.
+         * @description Admin-gated (Edit). NOT a write: it returns an SSE stream of frames and
+         *     persists nothing. Refusals answer typed BEFORE any stream begins, so the
+         *     client branches on the status code and renders a not-available state
+         *     instead of a dead spinner.
+         */
+        post: operations["automation_draft_summary"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/automation-rules/{id}": {
         parameters: {
             query?: never;
@@ -14199,6 +14223,40 @@ export interface components {
             threshold: number;
             /** @enum {string} */
             type: "ai_decision";
+        };
+        AutomationDraftSummaryRequest: {
+            /** @description The operator's read-back of the actions, in order. */
+            actions_text?: string[];
+            /**
+             * @description The operator's own read-back of the conditions, e.g. "it has no
+             *     assignee and its priority is P1 — critical". The client renders this
+             *     sentence from the same clauses its controls show, so the summary is
+             *     written from what the person already sees rather than from a second
+             *     renderer in Rust that could disagree with it.
+             */
+            conditions_text: string;
+            /**
+             * @description How many condition rows are still incomplete. The summary must be
+             *     able to say the rule is unfinished rather than describing it as
+             *     though it were finished.
+             */
+            incomplete_conditions?: number;
+            model?: string | null;
+            /** @description The rule's name as typed, when it has one. */
+            name?: string | null;
+            provider?: string | null;
+            /** @description The board the rule is scoped to, when it is not org-wide. */
+            scope?: string | null;
+            /** @description `ticket` or `board`. */
+            subject_kind?: string | null;
+            /**
+             * @description The AI surface the call is admitted on. The web sends `general_chat`,
+             *     the native surface. NOT `automation_writing`: that key is a seeded
+             *     PLUGIN surface reserved for the premium plugin, and core implements
+             *     only the registry seam.
+             */
+            surface_key: string;
+            trigger_event: string;
         };
         /**
          * @description POST /api/automation-rules/{id}/test-run — dry-run one rule against the
@@ -33682,6 +33740,42 @@ export interface operations {
                 content: {
                     "application/json": Record<string, never>;
                 };
+            };
+        };
+    };
+    automation_draft_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutomationDraftSummaryRequest"];
+            };
+        };
+        responses: {
+            /** @description SSE stream of summary frames (text/event-stream) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description typed refusal: ai_surface_not_granted | ai_surface_disabled | ai_model_not_allowed | ai_no_models_configured | ai_hard_cap_reached | ai_no_credential (the org master switch among them) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

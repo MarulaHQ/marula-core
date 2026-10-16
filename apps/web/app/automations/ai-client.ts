@@ -84,16 +84,22 @@ export async function streamDraftSummary(
     body: JSON.stringify(draft),
   });
   // Refusals answer typed BEFORE any stream begins — the client branches on
-  // the code and renders a not-available state, never a dead spinner.
-  if (response.status === 400 || response.status === 403 || response.status === 429) {
-    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  // the code and renders a not-available state, never a dead spinner. The
+  // refusal envelope nests the machine reason under `error`
+  // (`{error: {code, reason, message, surface}}`).
+  if (response.status >= 400) {
+    const body = (await response.json().catch(() => ({}))) as RefusalShape;
+    const shape = body.error ?? body;
+    const reason = typeof shape.reason === "string" ? shape.reason : undefined;
+    const message =
+      typeof shape.message === "string" ? shape.message : `AI refused (${response.status})`;
     return {
       text: "",
       frames: [],
       modelInfo: null,
       usage: null,
-      refusal: response.status === 429 ? "rate_limited" : "ai_refused",
-      refusalMessage: typeof body["message"] === "string" ? (body["message"] as string) : `refused (${response.status})`,
+      refusal: response.status === 429 ? "rate_limited" : (reason ?? "ai_refused"),
+      refusalMessage: reason === "ai_features_disabled" ? "AI is switched off for this org." : message,
     };
   }
   if (response.body === null) {
@@ -188,6 +194,12 @@ export interface AuthorDraft {
 export type AuthorOutcome =
   | { ok: true; result: AuthorDraft; latencyMs: number }
   | { ok: false; refusal: string; message: string };
+/** The refusal envelope the API returns for a typed AI refusal. */
+interface RefusalShape {
+  error?: { message?: unknown; reason?: unknown };
+  message?: unknown;
+  reason?: unknown;
+}
 
 /** Ask lane 17 for a whole-workflow draft from one sentence. Never saves. */
 export async function authorWorkflowDraft(prompt: string): Promise<AuthorOutcome> {
@@ -202,11 +214,18 @@ export async function authorWorkflowDraft(prompt: string): Promise<AuthorOutcome
   const latencyMs = Math.round(performance.now() - started);
   if (error !== undefined || data === undefined) {
     const status = (response as unknown as { status?: number } | undefined)?.status ?? 0;
+    // openapi-fetch hands back the whole refusal envelope, which nests the
+    // machine reason under `error` — read it there, fall back to a flat one.
+    const envelope = (error ?? {}) as RefusalShape;
+    const shape = envelope.error ?? envelope;
+    const reason = typeof shape.reason === "string" ? shape.reason : undefined;
     const message =
-      typeof (error as unknown as { message?: string } | undefined)?.message === "string"
-        ? (error as unknown as { message?: string }).message!
-        : "The draft did not come back.";
-    return { ok: false, refusal: status === 403 ? "ai_refused" : "request_failed", message };
+      typeof shape.message === "string"
+        ? shape.message
+        : reason === "ai_features_disabled"
+          ? "AI is switched off for this org."
+          : "The draft did not come back.";
+    return { ok: false, refusal: status === 403 ? (reason ?? "ai_refused") : "request_failed", message };
   }
   return { ok: true, result: data as unknown as AuthorDraft, latencyMs };
 }

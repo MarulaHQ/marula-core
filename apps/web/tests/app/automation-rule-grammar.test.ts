@@ -177,6 +177,21 @@ describe("stored condition round trip", () => {
     expect(row.kind).toBe("opaque");
     if (row.kind === "opaque") expect(row.condition).toEqual(decision);
   });
+
+  it("survives a stored condition written before the enum existed", () => {
+    // The demo seed writes rules in the old data-surface filter shape. The
+    // engine skips those at evaluation; the editor must not turn one into a
+    // blank page.
+    const legacy = { field: "priority", op: "eq", value: "p1" } as unknown as AutomationCondition;
+    const row = rowFromCondition(legacy);
+    expect(row.kind).toBe("opaque");
+    if (row.kind === "opaque") {
+      expect(row.label).toContain("priority");
+      expect(row.condition).toEqual(legacy);
+    }
+    const total = rowFromCondition({ nonsense: true } as unknown as AutomationCondition);
+    expect(total.kind).toBe("opaque");
+  });
 });
 
 describe("the read-back is one sentence a manager can check", () => {

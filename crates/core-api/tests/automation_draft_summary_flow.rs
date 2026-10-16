@@ -258,7 +258,7 @@ async fn summarize(app: &Router, bearer: &str, body: Value) -> axum::response::R
 #[tokio::test]
 async fn a_summarized_draft_streams_its_frames_and_persists_nothing() {
     let (pool, app) = test_state().await;
-    let owner = register_org(&app, "summary-happy").await;
+    let owner = register_org(&app, &format!("summary-{}", Uuid::now_v7().simple())).await;
     let (user_id, org_id) = me_ids(&app, &owner).await;
     seed_admit_kit(&app, &owner, user_id, "summary-happy").await;
     // The scripted transport inherits the DEFAULT stream: one whole-turn
@@ -277,7 +277,11 @@ async fn a_summarized_draft_streams_its_frames_and_persists_nothing() {
     );
 
     let response = summarize(&app, &owner, draft()).await;
-    assert_eq!(response.status(), 200, "the summary must stream: {response:?}");
+    assert_eq!(
+        response.status(),
+        200,
+        "the summary must stream: {response:?}"
+    );
     let text = sse_text(response).await;
     let parsed = frames(&text);
 
@@ -293,10 +297,16 @@ async fn a_summarized_draft_streams_its_frames_and_persists_nothing() {
     assert_eq!(started["provider"], json!("openai"));
     // Delta carries the fragment key the chat runner's assistant_delta uses.
     let (_, delta) = parsed.iter().nth(1).expect("delta").clone();
-    assert_eq!(delta["delta"], json!("Creates a ticket and pings the on-call people."));
+    assert_eq!(
+        delta["delta"],
+        json!("Creates a ticket and pings the on-call people.")
+    );
     // Completed carries the whole sentence and the usage the turn returned.
     let (_, completed) = parsed.last().expect("completed").clone();
-    assert_eq!(completed["text"], json!("Creates a ticket and pings the on-call people."));
+    assert_eq!(
+        completed["text"],
+        json!("Creates a ticket and pings the on-call people.")
+    );
     assert_eq!(completed["usage"]["prompt_tokens"], json!(120));
     assert_eq!(completed["usage"]["completion_tokens"], json!(24));
 
@@ -323,18 +333,20 @@ async fn a_summarized_draft_streams_its_frames_and_persists_nothing() {
 #[tokio::test]
 async fn ai_switch_off_and_no_grant_are_typed_refusals_before_any_stream() {
     let (_, app) = test_state().await;
-    let owner = register_org(&app, "summary-refused").await;
+    let owner = register_org(&app, &format!("summary-{}", Uuid::now_v7().simple())).await;
     let (user_id, _) = me_ids(&app, &owner).await;
     // Master switch off: the admission edge is the gate, and this module
-    // adds no second one.
+    // adds no second one. The body carrys a machine reason under `error`,
+    // which is what a client branches on.
     let response = summarize(&app, &owner, draft()).await;
     assert_eq!(response.status(), 403, "a switch that is OFF refuses typed");
     let refused = body_json(response).await;
-    let reason = refused["reason"].as_str().unwrap_or_default().to_string();
-    assert!(
-        !reason.is_empty() || refused["message"].as_str().unwrap_or_default().len() > 0,
-        "the refusal carries a reason a client can branch on: {refused}"
+    assert_eq!(
+        refused["error"]["reason"],
+        json!("ai_features_disabled"),
+        "{refused}"
     );
+    assert_eq!(refused["error"]["code"], json!(403), "{refused}");
 
     // Switch on, no grant: still refused, still typed.
     let response = send(
@@ -347,11 +359,19 @@ async fn ai_switch_off_and_no_grant_are_typed_refusals_before_any_stream() {
     .await;
     assert_eq!(response.status(), 200);
     let response = promptless_summarize(&app, &owner, user_id).await;
-    assert_eq!(response.status(), 403, "no grant on the surface refuses typed");
+    assert_eq!(
+        response.status(),
+        403,
+        "no grant on the surface refuses typed"
+    );
 }
 
 /// Same request, no admit kit — isolates the no-grant refusal.
-async fn promptless_summarize(app: &Router, bearer: &str, user_id: Uuid) -> axum::response::Response {
+async fn promptless_summarize(
+    app: &Router,
+    bearer: &str,
+    user_id: Uuid,
+) -> axum::response::Response {
     let mut body = draft();
     body["actions_text"] = json!(["assign to Alice"]);
     let _ = user_id;
@@ -361,7 +381,7 @@ async fn promptless_summarize(app: &Router, bearer: &str, user_id: Uuid) -> axum
 #[tokio::test]
 async fn an_empty_trigger_is_a_validation_error_not_a_model_call() {
     let (_, app) = test_state().await;
-    let owner = register_org(&app, "summary-empty").await;
+    let owner = register_org(&app, &format!("summary-{}", Uuid::now_v7().simple())).await;
     let (user_id, _) = me_ids(&app, &owner).await;
     seed_admit_kit(&app, &owner, user_id, "summary-empty").await;
     let mut body = draft();
@@ -371,6 +391,10 @@ async fn an_empty_trigger_is_a_validation_error_not_a_model_call() {
         Arc::new(ChatRunner::ScriptedTransport::new(Vec::new())),
     );
     let response = summarize(&app, &owner, body).await;
-    assert_eq!(response.status(), 400, "an unnamed trigger is not a summary ask");
+    assert_eq!(
+        response.status(),
+        422,
+        "an unnamed trigger is a validation error, not a model ask"
+    );
     // The transport was never reached: nothing else needed it.
 }

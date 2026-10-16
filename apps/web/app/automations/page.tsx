@@ -1076,6 +1076,26 @@ export default function AutomationsPage() {
               </tbody>
             </Table>
           )}
+          {/* The dry run lives inside the card that scrolls, not after it:
+              a long proposal in a fixed-height frame would overflow the
+              footer and the toolbar instead of scrolling with the ledger. */}
+          {testError !== null ? (
+            <div className="px-4 pb-3" role="alert">
+              <BlushNote title="The test run did not come back.">{testError}</BlushNote>
+            </div>
+          ) : null}
+          {testRun !== null ? (
+            <div className="px-4 pb-4">
+              <TestRunResult
+                result={testRun}
+                userName={userName}
+                onClose={() => {
+                  setTestRun(null);
+                  setTestError(null);
+                }}
+              />
+            </div>
+          ) : null}
         </TableCard>
 
         <LedgerFooter
@@ -1092,24 +1112,6 @@ export default function AutomationsPage() {
           }
         />
       </div>
-
-      {testError !== null && testedId !== null ? (
-        <div className="mt-2" role="alert">
-          <BlushNote title="The test run did not come back.">{testError}</BlushNote>
-        </div>
-      ) : null}
-      {testRun !== null ? (
-        <div className="mt-3">
-          <TestRunResult
-            result={testRun}
-            userName={userName}
-            onClose={() => {
-              setTestRun(null);
-              setTestError(null);
-            }}
-          />
-        </div>
-      ) : null}
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
