@@ -1,6 +1,8 @@
 ## Repo lookups must go through trail first (BINDING, top-of-file)
 
-Before ANY Grep/Glob/Read search of this codebase: run trail first —
+Before ANY Grep/Glob/Read search of this codebase: run trail first — the code
+map is the graft map, and `trail` is the current command (`graft` still works
+and runs the same code):
 `trail ask "<q>" --source` / `trail grep "<literal>"` / `trail callers <sym>` /
 `trail skeleton <file>` (CLI, always available) or the `trail_*` MCP tools.
 If trail MCP tools appear deferred (names listed, schemas withheld), load ALL
@@ -17,11 +19,11 @@ worktree lane runs `trail build` ONCE at lane start in its worktree (determinist
 AST-only, free) so its indexes reflect the lane's branch, then re-runs it after
 big changes — instead of sharing the main repo's graph via symlink (the old
 setup-script symlink is retired; stale shared spans caused wrong file:line hits
-after merges). The cache is GITIGNORED — `.trail/cache/` through `.trail/.gitignore`,
-plus the legacy `/graft/` fallback directory (used when a worktree predates the
-committed `.trail/` wiring) through the top-level `.gitignore` — never commit,
-symlink, or force-add it; if a lane ever sees either in `git status`, fail the
-check and re-ignore rather than committing the graph.
+after merges). The map is GITIGNORED wherever it lands — `.trail/cache/` through
+`.trail/.gitignore`, or the top-level `graft/` directory through `.gitignore` in a
+checkout with no committed `.trail/` wiring yet — never commit, symlink, or
+force-add it; if a lane ever sees either in `git status`, fail the check and
+re-ignore rather than committing the graph.
 
 ## UI skills (vendored design-engineering skills)
 

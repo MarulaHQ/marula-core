@@ -35,6 +35,7 @@ const LEDGER_PREFIXES = [
   "meridian-ci/", // old brand asset pack (historical source bundle)
   "website/", // FROZEN per D10 — moves to Marula-HQ; mechanical only
   ".kilo/", // agent-local tooling
+  ".trail/", // agent-local tooling: the graft map's cards + learnings
   "graft/",
   "graphify-out/",
   "node_modules/",

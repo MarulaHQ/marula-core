@@ -1,5 +1,7 @@
-# graft's cards are gitignored but should stay greppable: ripgrep reads
-# .ignore before .gitignore, so this re-admits the tree to search only.
+# The graft map's cards are gitignored but should stay greppable: ripgrep reads
+# .ignore before .gitignore, so this re-admits the map tree to search only.
+# Trail stores the map at `.trail/cache/`; `graft/` is the pre-`.trail/` layout.
 !graft/
+!.trail/cache/
 graft/.cache/
 graft/.graph/
