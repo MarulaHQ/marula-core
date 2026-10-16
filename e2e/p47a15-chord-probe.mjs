@@ -207,7 +207,9 @@ function codeToVk(code) {
 
 // --- the measurement ------------------------------------------------------
 await page.goto(`${WEB}/tickets`, { waitUntil: "networkidle" });
-await page.getByTestId("shortcut-profile-ready").waitFor({ timeout: 30_000 });
+// The marker is deliberately `hidden aria-hidden` (shortcut-layer.tsx:L181);
+// the flow suite waits for it attached, so this probe does too.
+await page.getByTestId("shortcut-profile-ready").waitFor({ state: "attached", timeout: 30_000 });
 await installHook();
 
 const profile = await page.getByTestId("shortcut-profile-ready").getAttribute("data-profile");
