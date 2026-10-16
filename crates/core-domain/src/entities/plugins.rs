@@ -3327,7 +3327,10 @@ mod tests {
         let literal = &src[open..];
         let literal = &literal[..literal.find("]);").expect("the Set literal is terminated")];
         let mirror: BTreeSet<&str> = literal.split('"').skip(1).step_by(2).collect();
-        let host: BTreeSet<&str> = PluginCapability::ALL.iter().map(|c| (*c).as_str()).collect();
+        let host: BTreeSet<&str> = PluginCapability::ALL
+            .iter()
+            .map(|c| (*c).as_str())
+            .collect();
 
         let missing_from_kit: Vec<_> = host.difference(&mirror).collect();
         let unknown_to_host: Vec<_> = mirror.difference(&host).collect();
