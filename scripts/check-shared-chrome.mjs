@@ -84,15 +84,71 @@ const SHARED_VOCABULARY = [
 const isSharedVocabulary = (prefix) =>
   SHARED_VOCABULARY.some((v) => prefix === v || prefix.startsWith(`${v}-`));
 
+/**
+ * What a class prefix means in a shared stylesheet.
+ *
+ * Shared vocabulary is authoritative and is checked FIRST: `m-chart`, `m-field`
+ * and `m-kb-prose` are genuine shared components whose names happen to contain a
+ * feature word. Testing the feature list first flags them, which is how this
+ * check would have taught the team to ignore it.
+ *
+ *   "vocab"     — a shared component; fine here.
+ *   "feature"   — a feature rule that has crossed the boundary.
+ *   "unknown-m" — `m-`-prefixed but not vocabulary: a new shared component
+ *                 (add it below, in the same PR) or a feature rule to move out.
+ *   "other"     — not an `m-` class; the layer's own business.
+ */
+const classifyPrefix = (prefix) => {
+  if (isSharedVocabulary(prefix)) return "vocab";
+  if (FEATURE_NAMES.some((f) => prefix === `m-${f}` || prefix.startsWith(`m-${f}-`))) return "feature";
+  if (prefix.startsWith("m-")) return "unknown-m";
+  return "other";
+};
+
+/** Drop comments, and keep every newline, so prose cannot read as a selector. */
+const stripComments = (css) =>
+  css.replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, " "));
+
+/**
+ * Blank declaration bodies while keeping their length and their line breaks, so
+ * a class-shaped token in a VALUE (`url(./a.svg)`, `cubic-bezier(.4,0,.2,1)`) is
+ * never read as a selector. Selector text sits outside the braces and survives
+ * untouched — including a rule nested in `@media`, and an `:is()` argument.
+ */
+const blankDeclarations = (css) => {
+  let out = css;
+  for (let prev = ""; prev !== out; ) {
+    prev = out;
+    out = out.replace(/\{([^{}]*)\}/g, (_m, body) => `{${body.replace(/[^\n]/g, " ")}}`);
+  }
+  return out;
+};
+
 const selectorPrefixes = (css) => {
   const out = [];
-  // Class selectors only: a feature rule is a feature class, and keyframe
-  // names / element selectors in the shared layer are the layer's business.
-  for (const m of css.matchAll(/^\s*\.([A-Za-z][A-Za-z0-9_-]*)/gm)) out.push({ prefix: m[1], index: m.index });
+  // Class selectors only: a feature rule is a feature class, and keyframe names
+  // / element selectors in the shared layer are the layer's business.
+  //
+  // Every class in SELECTOR text counts, not just the one that starts the line.
+  // The rule that opened this gate read only the line's first class, so the
+  // same feature rule could re-enter through a selector list (`.a, .m-money-x`),
+  // a compound (`p.m-money-total`), an `:is()` argument, or a rule nested in
+  // `@media x { … }` without being seen. All four are read now.
+  for (const m of blankDeclarations(stripComments(css)).matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)) {
+    out.push({ prefix: m[1], index: m.index });
+  }
   return out;
 };
 
 const lineOf = (text, index) => text.slice(0, index).split("\n").length;
+
+/** Every boundary violation in one stylesheet: `{ prefix, kind, line }`. */
+const stylesheetViolations = (css) =>
+  selectorPrefixes(css).flatMap(({ prefix, index }) => {
+    const kind = classifyPrefix(prefix);
+    if (kind !== "feature" && kind !== "unknown-m") return [];
+    return [{ prefix, kind, line: lineOf(css, index) }];
+  });
 
 /* -------------------------------------------------------------------------
  * B. The page title block
@@ -158,6 +214,53 @@ const TITLE_BLOCK_DEBT = [
 
 /* ------------------------------------------------------------------------- */
 
+/**
+ * Detector self-test — no browser, no stack, no disk beyond this file.
+ *
+ * The stylesheet rule is only as good as the shapes it reads. This lane's whole
+ * job was the boundary, so the boundary's detector gets the same treatment the
+ * evidence-dir resolver got (`check-evidence-writes.mjs --self-test`): every way
+ * a feature class can enter a shared sheet, plus the values and comments that
+ * must NOT read as selectors.
+ *
+ *   node scripts/check-shared-chrome.mjs --self-test
+ */
+function selfTest() {
+  const cases = [
+    // [label, css, expected number of stylesheet violations]
+    ["a rule at the start of a line", ".m-money-total { color: red; }", 1],
+    ["a later segment of a selector list", ".m-table th, .m-money-total { color: red; }", 1],
+    ["a compound selector", "p.m-money-total { color: red; }", 1],
+    ["a rule nested inside @media", "@media (min-width: 900px) {\n  .m-day-row { color: red; }\n}", 1],
+    ["an :is() argument", ":is(.m-money-total)::after { content: ''; }", 1],
+    ["a selector split over two lines", ".m-table,\n.m-money-total { color: red; }", 1],
+    ["a non-vocabulary m- class", ".m-whatever-thing { color: red; }", 1],
+    ["shared vocabulary is never a violation", ".m-table { color: red; }\n.m-bulk-head { color: red; }\n.m-kb-prose { color: red; }\n.m-chart { color: red; }\n.m-field { color: red; }", 0],
+    ["a non-m- class is the layer's own business", ".row-hover:hover { background: var(--m-surface-2); }", 0],
+    ["a class-shaped token in a value is not a selector", ".m-table { background: url(./m-money.svg); width: 1.5rem; transition: opacity .12s, transform .12s; }", 0],
+    ["a class-shaped token in a comment is not a rule", "/* .m-money-total { color: red; } */\n.m-table { color: red; }", 0],
+    ["a keyframe name is not a class selector", "@keyframes m-rise { from { opacity: 0; } }", 0],
+  ];
+  let failed = 0;
+  for (const [label, css, want] of cases) {
+    const got = stylesheetViolations(css).length;
+    if (got !== want) {
+      console.error(`  FAIL  ${label}: got ${got}, want ${want}`);
+      failed += 1;
+    }
+  }
+  if (failed > 0) {
+    console.error(`shared-chrome detector self-test: ${failed} of ${cases.length} failed`);
+    return 1;
+  }
+  console.log(`shared-chrome detector self-test: ${cases.length} checks pass (no browser, no stack)`);
+  return 0;
+}
+
+if (process.argv.includes("--self-test")) {
+  process.exit(selfTest());
+}
+
 const errors = [];
 const fail = (file, line, msg) => errors.push(`${file}:${line}: ${msg}`);
 
@@ -165,15 +268,8 @@ const fail = (file, line, msg) => errors.push(`${file}:${line}: ${msg}`);
 for (const sheet of SHARED_STYLESHEETS) {
   if (!existsSync(p(sheet))) continue;
   const css = readFileSync(p(sheet), "utf8");
-  for (const { prefix, index } of selectorPrefixes(css)) {
-    const line = lineOf(css, index);
-    // Shared vocabulary is authoritative and is checked FIRST: `m-chart`,
-    // `m-field` and `m-kb-prose` are genuine shared components whose names
-    // happen to contain a feature word. Testing the feature list first flags
-    // them, which is how this check would have taught the team to ignore it.
-    if (isSharedVocabulary(prefix)) continue;
-    const feature = FEATURE_NAMES.find((f) => prefix === `m-${f}` || prefix.startsWith(`m-${f}-`));
-    if (feature) {
+  for (const { prefix, kind, line } of stylesheetViolations(css)) {
+    if (kind === "feature") {
       fail(
         sheet,
         line,
@@ -181,9 +277,7 @@ for (const sheet of SHARED_STYLESHEETS) {
           `Feature CSS belongs beside its feature (a lane-local .css beside the component, ` +
           `or Tailwind utilities in the component itself) — not in ${sheet}.`,
       );
-      continue;
-    }
-    if (prefix.startsWith("m-")) {
+    } else {
       fail(
         sheet,
         line,
