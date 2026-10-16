@@ -45,6 +45,7 @@ pub mod approvals;
 pub mod assets;
 pub mod attachments;
 pub mod audit;
+pub mod automation_authoring;
 pub mod availability;
 pub mod billing;
 pub mod billing_provider;
@@ -841,6 +842,12 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/automation-rules/{id}/test-run"),
             post(sla_admin::test_run_rule),
+        )
+        // Draft summary (Wave 43 lane 17b, C1): the AI leg. SSE, admin-gated,
+        // a summary and never a write; admission rides the shared path.
+        .route(
+            &rp("/automation-rules/draft-summary"),
+            post(automation_authoring::draft_summary),
         )
         // The workflow node registry (Wave 43 lane 13): reads over
         // DECLARATIONS, so they are any-authed-org-member like the plugin

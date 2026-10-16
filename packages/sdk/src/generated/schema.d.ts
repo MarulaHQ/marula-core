@@ -14135,22 +14135,52 @@ export interface components {
          *     [`AutomationCondition::AiDecision`] kind is pulled out by
          *     [`split_conditions`] and evaluated by the worker against recorded
          *     decision answers (ADR 0010 #2).
+         *
+         *     The vocabulary is closed and each variant is a whole predicate, so the
+         *     editor's field/operator grammar can only offer what a saved rule can
+         *     carry. Wave 43 lane 17b widened it from equality-only to the operators
+         *     MSPs actually reach for — negation, set membership and the positive
+         *     assignee test — because "priority is not P1" and "priority is any of P1,
+         *     P2" had no way to be written down.
          */
         AutomationCondition: {
             priority: components["schemas"]["Priority"];
             /** @enum {string} */
             type: "priority_is";
         } | {
+            priority: components["schemas"]["Priority"];
+            /** @enum {string} */
+            type: "priority_is_not";
+        } | {
+            priorities: components["schemas"]["Priority"][];
+            /** @enum {string} */
+            type: "priority_in";
+        } | {
             category: components["schemas"]["TicketStatusCategory"];
             /** @enum {string} */
             type: "category_is";
+        } | {
+            category: components["schemas"]["TicketStatusCategory"];
+            /** @enum {string} */
+            type: "category_is_not";
+        } | {
+            categories: components["schemas"]["TicketStatusCategory"][];
+            /** @enum {string} */
+            type: "category_in";
         } | {
             needle: string;
             /** @enum {string} */
             type: "title_contains";
         } | {
+            needle: string;
+            /** @enum {string} */
+            type: "title_not_contains";
+        } | {
             /** @enum {string} */
             type: "unassigned";
+        } | {
+            /** @enum {string} */
+            type: "assignee_is_set";
         } | {
             /** Format: int32 */
             threshold: number;
@@ -14182,6 +14212,17 @@ export interface components {
             /** Format: uuid */
             assignee_id?: string | null;
             number: string;
+            /**
+             * @description The ticket's priority when the run sampled it (Wave 43 lane 17b).
+             *
+             *     The run is a PROPOSAL, so the useful thing to show is not only that a
+             *     ticket matched but what the rule's effects WOULD change on it. Both
+             *     `set_priority` and `assign_user` write a value the snapshot already
+             *     carries, so a preview can read `P2 -> P1` instead of `matched`. The
+             *     values are the sampled state, never the post-effect state, because no
+             *     effect ran.
+             */
+            priority: components["schemas"]["Priority"];
             /** Format: uuid */
             ticket_id: string;
             title: string;

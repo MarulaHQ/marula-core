@@ -243,9 +243,14 @@ capability edges are `AiEdge::Completion`, `AiEdge::ToolCall` and
 
 ## Conditions and branching
 
-Today `AutomationCondition` has six variants (`automations.rs:52`): `PriorityIs`,
-`CategoryIs`, `TitleContains`, `Unassigned`, `CsatScoreBelow`, `AiDecision`. All
-of them are **ticket-shaped**, which is the same limitation Wave 43 lane 3 fixes.
+Today `AutomationCondition` carries twelve variants (`automations.rs:135`).
+Wave 43 lane 17b added six of them: `PriorityIsNot`, `CategoryIsNot`,
+`TitleNotContains`, `PriorityIn`, `CategoryIn`, `AssigneeIsSet`. A rule can now
+say "priority is not P1" or "priority is any of P1, P2", which had no way to be
+written down before.
+
+Every variant is still **ticket-shaped**, which is the same limitation Wave 43
+lane 3 fixes.
 
 The node vocabulary needs conditions over the *whole* subject. Today they only
 reach a ticket:
