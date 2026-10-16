@@ -115,12 +115,51 @@ coreApi:
   # MARULA_REPORTING_POOL_MAX through extraEnv to move past the defaults
   # (20 / 25). See docs/perf.md §5 — front the pools with a session pooler
   # (PgBouncer/pgcat) before raising PG max_connections per instance.
-  resources: {}
+  #
+  # Real per-service envelope (Wave 49 lane R2), replacing the chart-wide
+  # 50m/64Mi/512Mi default. Anchored to the compose stack's per-service
+  # cpus/mem_limit — the one measured per-service ceiling this repo carries —
+  # and to the perf anchor (259 rps @ c8, p95 49.2ms with ~3x headroom,
+  # docs/perf.md §5). core-api carries the hot read path, so it takes the
+  # largest CPU limit. Lane R5 (the journey harness) replaces these with
+  # measured numbers.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 512Mi
+  # Horizontal Pod Autoscaler (Wave 49 lane R2). Off by default: one replica
+  # is right for an evaluation install, and every added core-api replica
+  # multiplies that process's Postgres connections (45 at the R1 defaults,
+  # docs/perf.md §5). Enable it only behind a session pooler, or with PG
+  # max_connections raised to match maxReplicas. When enabled the Deployment
+  # omits .spec.replicas and the HPA owns the count.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
   extraEnv: []
 
 realtime:
   replicaCount: 1
-  resources: {}
+  # Real per-service envelope (Wave 49 lane R2); compose cpus 1.0 / mem 384m.
+  # Socket fan-out over Redis pub/sub — low CPU, modest memory.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 384Mi
+  # HPA (Wave 49 lane R2). realtime is stateless pub/sub, safe to scale.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
   extraEnv: []
 
 worker:
@@ -129,7 +168,23 @@ worker:
   # Pool ceilings (Wave 49 lane R1): pass MARULA_DB_POOL_MAX /
   # DELIVERY_POOL_MAX through extraEnv to move the worker's pools past the
   # defaults (20 / 5). See docs/perf.md §5.
-  resources: {}
+  #
+  # Real per-service envelope (Wave 49 lane R2); compose cpus 1.0 / mem 512m.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  # HPA (Wave 49 lane R2). Safe to scale: the outbox relay and the job queue
+  # both claim with FOR UPDATE SKIP LOCKED (core-db/src/outbox.rs:47,
+  # core-db/src/queue.rs:105), so replicas never double-process a row.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 75
   extraEnv: []
 
 web:
@@ -144,7 +199,21 @@ web:
   # wrong behind an ingress that publishes only 443, where it would dial a
   # port nobody serves. Set it to wss://<ingress.host>/ws.
   nextPublicWsUrl: ""
-  resources: {}
+  # Real per-service envelope (Wave 49 lane R2); compose cpus 1.0 / mem 512m.
+  # Next.js SSR/static — small CPU request, memory for the Node runtime.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  # HPA (Wave 49 lane R2). web is stateless, safe to scale.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
   extraEnv: []
 
 # Email: `smtp` with the bundled Mailpit profile for evaluation, `none` or
@@ -292,9 +361,11 @@ containerSecurityContext:
   seccompProfile:
     type: RuntimeDefault
 
-# Global default resource envelope applied to every workload that doesn't
-# set its own `resources` (per-service values win). Keeps a runaway
-# component from starving the node; override per service for sizing.
+# Fallback resource envelope for workloads that do not set their own
+# `resources` — the bundled data plane (postgres, redis, garage). The four
+# app components (core-api, realtime, worker, web) each carry a real
+# per-service envelope in their own block (Wave 49 lane R2); the data plane
+# keeps this conservative default.
 resources:
   requests:
     cpu: 50m
