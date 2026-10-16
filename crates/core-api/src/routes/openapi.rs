@@ -281,6 +281,7 @@ use utoipa::OpenApi;
         crate::routes::sla_admin::update_rule,
         crate::routes::sla_admin::delete_rule,
         crate::routes::sla_admin::test_run_rule,
+        crate::routes::automation_authoring::draft_summary,
         crate::routes::manifest::get,
         crate::routes::internal::sla_verdict,
         crate::routes::internal::effects,

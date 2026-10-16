@@ -30,12 +30,15 @@
 //!   server write at all.
 //!
 //! Non-purpose: NO new migration (`session_id` is client-borne — the
-//! runner persists no transcript, history rides the request body); NO
-//! provider-side token streaming (model calls are single-shot inside the
-//! loop — the loop FRAMING is what streams); NO provider keys or network
-//! calls in tests (deterministic scripted transports, the BYOK-injection
-//! posture); no OAuth/subscription chat transport this lane (typed
-//! degradation instead of a guess).
+//! runner persists no transcript, history rides the request body); the
+//! LOOP still runs single-shot model calls — the loop FRAMING is what
+//! streams. Provider-side token streaming exists on the transport trait
+//! (`ChatModelTransport::stream`, defaulted to one whole-turn fragment)
+//! and only the caller that needs it uses it: the rule builder's live
+//! draft summary (Wave 43 lane 17b). NO provider keys or network calls in
+//! tests (deterministic scripted transports, the BYOK-injection posture);
+//! no OAuth/subscription chat transport this lane (typed degradation
+//! instead of a guess).
 //!
 //! Honest gap (landing record): the wardrobe's path rules
 //! (`capability_ns`/`is_excluded`) are reviewed twins of the mcp-server
@@ -67,6 +70,7 @@ use axum::{
 use core_db::ai_policy::{record_usage, AiUsageNew};
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::events::types;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
@@ -304,12 +308,40 @@ pub enum ChatTransportError {
 }
 
 /// The model-call seam, same doctrine as the CompletionProvider edge:
-/// implementations never log prompts or key material. Provider token
-/// streaming is deliberately out of the trait — the runner streams loop
-/// framing to clients.
+/// implementations never log prompts or key material.
+///
+/// Provider token streaming was deliberately out of this trait while every
+/// caller streamed LOOP framing (chat runner) or waited on whole turns
+/// (decision edges, authoring loop). The rule builder's live draft summary
+/// (Wave 43 lane 17b) is the first caller that must render text as the
+/// provider produces it, so `stream` rides the trait as a DEFAULTED method:
+/// the default delegates to `call` and emits the whole answer as one
+/// fragment, which keeps every existing transport and caller unchanged and
+/// lets a transport that cannot stream degrade to a single frame instead of
+/// refusing.
 #[async_trait]
 pub trait ChatModelTransport: Send + Sync {
     async fn call(&self, req: &ModelCallRequest) -> Result<ModelTurn, ChatTransportError>;
+
+    /// Stream a completion, handing each text fragment to `sink` as it
+    /// arrives, and return the full turn — content plus usage — when the
+    /// provider is done.
+    ///
+    /// The fragment crosses as an owned `String`. With `#[async_trait]` the
+    /// sink's borrow-for-parameter shape forces every borrowed fragment to
+    /// outlive the sink itself; an owned fragment keeps the call sites
+    /// honest about the one thing they do own (the text) and nothing else.
+    async fn stream(
+        &self,
+        req: &ModelCallRequest,
+        sink: &mut (dyn FnMut(String) + Send),
+    ) -> Result<ModelTurn, ChatTransportError> {
+        let turn = self.call(req).await?;
+        if !turn.content.is_empty() {
+            sink(turn.content.clone());
+        }
+        Ok(turn)
+    }
 
     fn kind(&self) -> &str {
         "openai_compatible"
@@ -454,38 +486,109 @@ pub fn parse_chat_completion_turn(
     })
 }
 
+/// Parses one OpenAI-compatible `chat.completion.chunk` payload into the
+/// text fragment it carries. Pure — unit-tested without I/O. `None` for the
+/// `[DONE]` sentinel, an empty delta, an absent `choices`, or malformed
+/// JSON: a stream that yields fewer fragments stays valid, and malformed
+/// provider output is never a panic.
+pub fn parse_chat_completion_delta(data: &str) -> Option<String> {
+    let data = data.trim();
+    if data.is_empty() || data == "[DONE]" {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(data).ok()?;
+    let choice = value.get("choices")?.get(0)?;
+    choice
+        .get("delta")?
+        .get("content")?
+        .as_str()
+        .filter(|fragment| !fragment.is_empty())
+        .map(str::to_string)
+}
+
+/// Pulls the usage block out of a chunk payload, when the provider sends
+/// one. OpenAI-compatible providers that honour `include_usage` carry it on
+/// the final chunk with empty `choices`; providers that do not simply never
+/// report it, and `None` is the honest answer.
+fn chunk_usage(data: &str) -> Option<(u32, u32)> {
+    let value: serde_json::Value = serde_json::from_str(data.trim()).ok()?;
+    let usage = value.get("usage")?;
+    Some((
+        usage.get("prompt_tokens")?.as_u64()? as u32,
+        usage.get("completion_tokens")?.as_u64()? as u32,
+    ))
+}
+
+/// Drains every complete `data:` event out of `buffer`, leaving the
+/// incomplete tail in place for the next read. Pure — unit-tested without
+/// I/O. SSE frames split on a blank line; a `data:` field may span several
+/// lines and they concatenate.
+fn drain_sse_events(buffer: &mut String, mut on_data: impl FnMut(&str)) {
+    loop {
+        let Some(sep) = buffer.find("\n\n") else {
+            return;
+        };
+        let event: String = buffer.drain(..sep + 2).collect();
+        let mut data = String::new();
+        for line in event.lines() {
+            if let Some(rest) = line.strip_prefix("data:") {
+                if !data.is_empty() {
+                    data.push('\n');
+                }
+                data.push_str(rest.trim());
+            }
+        }
+        if !data.is_empty() {
+            on_data(&data);
+        }
+    }
+}
+
+/// The chat-completions request body both paths of this adapter build, so
+/// `call` and `stream` cannot drift apart on how a loop message or a tool
+/// definition is serialized.
+fn chat_completions_body(
+    req: &ModelCallRequest,
+    default_model: &str,
+    streaming: bool,
+) -> serde_json::Value {
+    let messages: Vec<serde_json::Value> = req
+        .messages
+        .iter()
+        .map(|m| {
+            let mut wire = serde_json::json!({ "role": m.role, "content": m.content });
+            if let Some(calls) = &m.tool_calls {
+                wire["tool_calls"] = calls.clone();
+            }
+            if let Some(id) = &m.tool_call_id {
+                wire["tool_call_id"] = serde_json::json!(id);
+            }
+            wire
+        })
+        .collect();
+    let mut body = serde_json::json!({
+        "model": req.model.as_deref().unwrap_or(default_model),
+        "messages": messages,
+        "stream": streaming,
+    });
+    if !req.tools.is_empty() {
+        body["tools"] = serde_json::json!(req
+            .tools
+            .iter()
+            .map(|t| serde_json::json!({ "type": "function", "function": t }))
+            .collect::<Vec<_>>());
+    }
+    if let Some(format) = &req.response_format {
+        body["response_format"] = format.clone();
+    }
+    body
+}
+
 #[async_trait]
 impl ChatModelTransport for OpenAiChatCompat {
     async fn call(&self, req: &ModelCallRequest) -> Result<ModelTurn, ChatTransportError> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        let messages: Vec<serde_json::Value> = req
-            .messages
-            .iter()
-            .map(|m| {
-                let mut wire = serde_json::json!({ "role": m.role, "content": m.content });
-                if let Some(calls) = &m.tool_calls {
-                    wire["tool_calls"] = calls.clone();
-                }
-                if let Some(id) = &m.tool_call_id {
-                    wire["tool_call_id"] = serde_json::json!(id);
-                }
-                wire
-            })
-            .collect();
-        let mut body = serde_json::json!({
-            "model": req.model.as_deref().unwrap_or(&self.model),
-            "messages": messages,
-        });
-        if !req.tools.is_empty() {
-            body["tools"] = serde_json::json!(req
-                .tools
-                .iter()
-                .map(|t| serde_json::json!({ "type": "function", "function": t }))
-                .collect::<Vec<_>>());
-        }
-        if let Some(format) = &req.response_format {
-            body["response_format"] = format.clone();
-        }
+        let body = chat_completions_body(req, &self.model, false);
         let response = self
             .http
             .post(url)
@@ -516,6 +619,78 @@ impl ChatModelTransport for OpenAiChatCompat {
                     reason: format!("chat-completions response was not JSON: {e}"),
                 })?;
         parse_chat_completion_turn(&body)
+    }
+
+    /// Real provider streaming: `"stream": true`, then each `data:` event of
+    /// the response body is parsed into its text fragment and handed to
+    /// `sink` as it arrives. The turn returned at the end carries the
+    /// accumulated content and the usage the provider reported, if any — a
+    /// provider that streams without usage comes back with zero-token
+    /// counts rather than a guess.
+    async fn stream(
+        &self,
+        req: &ModelCallRequest,
+        sink: &mut (dyn FnMut(String) + Send),
+    ) -> Result<ModelTurn, ChatTransportError> {
+        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+        let body = chat_completions_body(req, &self.model, true);
+        let response = self
+            .http
+            .post(url)
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await
+            .map_err(|e| ChatTransportError::Backend {
+                reason: format!("chat-completions stream request failed: {e}"),
+            })?;
+        let status = response.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(ChatTransportError::RateLimited {
+                reason: format!("model provider returned {status}"),
+            });
+        }
+        if !status.is_success() {
+            return Err(ChatTransportError::Backend {
+                reason: format!("model provider returned {status}"),
+            });
+        }
+
+        let mut buffer = String::new();
+        let mut content = String::new();
+        let mut usage: Option<(u32, u32)> = None;
+        let mut body_stream = response.bytes_stream();
+        while let Some(chunk) = body_stream.next().await {
+            let chunk = chunk.map_err(|e| ChatTransportError::Backend {
+                reason: format!("chat-completions stream failed: {e}"),
+            })?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            let mut fragments: Vec<String> = Vec::new();
+            let mut reported: Option<(u32, u32)> = None;
+            drain_sse_events(&mut buffer, |data| {
+                if let Some(fragment) = parse_chat_completion_delta(data) {
+                    fragments.push(fragment);
+                }
+                if let Some(pair) = chunk_usage(data) {
+                    reported = Some(pair);
+                }
+            });
+            for fragment in fragments {
+                content.push_str(&fragment);
+                sink(fragment);
+            }
+            if let Some(pair) = reported {
+                usage = Some(pair);
+            }
+        }
+        let (prompt_tokens, completion_tokens) = usage.unwrap_or((0, 0));
+        Ok(ModelTurn {
+            content,
+            tool_calls: Vec::new(),
+            prompt_tokens,
+            completion_tokens,
+        })
     }
 }
 
@@ -1599,6 +1774,113 @@ fn month_start(now: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::U
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // --- provider streaming (Wave 43 lane 17b) ------------------------------
+
+    #[test]
+    fn a_delta_payload_carries_its_text_fragment() {
+        let body = json!({
+            "choices": [{ "delta": { "content": "notifies" } }]
+        })
+        .to_string();
+        assert_eq!(
+            parse_chat_completion_delta(&body).as_deref(),
+            Some("notifies"),
+            "the fragment a client should append"
+        );
+    }
+
+    #[test]
+    fn the_done_sentinel_and_an_empty_delta_yield_nothing() {
+        assert_eq!(parse_chat_completion_delta("[DONE]"), None);
+        assert_eq!(
+            parse_chat_completion_delta(
+                &json!({ "choices": [{ "delta": { "content": "" } }]}).to_string()
+            ),
+            None,
+            "an empty fragment would be appended as nothing, so it is not one"
+        );
+    }
+
+    #[test]
+    fn malformed_and_shapeless_payloads_degrade_to_none_never_a_panic() {
+        assert_eq!(parse_chat_completion_delta("not json at all"), None);
+        assert_eq!(parse_chat_completion_delta("[]"), None);
+        assert_eq!(
+            parse_chat_completion_delta(&json!({ "choices": [] }).to_string()),
+            None,
+            "no choice carries no fragment"
+        );
+        assert_eq!(
+            parse_chat_completion_delta(&json!({ "choices": [{ "delta": {} }]}).to_string()),
+            None,
+            "a tool-call-only chunk carries no fragment"
+        );
+        assert_eq!(parse_chat_completion_delta(""), None);
+    }
+
+    #[test]
+    fn sse_draining_leaves_the_incomplete_tail_exactly_in_place() {
+        let mut buffer = String::from("data: {\"a\":1}\n\npartial-no-blank-line-yet");
+        let mut seen: Vec<String> = Vec::new();
+        drain_sse_events(&mut buffer, |data| seen.push(data.to_string()));
+        assert_eq!(seen, vec![json!({ "a": 1 }).to_string()]);
+        assert_eq!(
+            buffer, "partial-no-blank-line-yet",
+            "the next read appends to the same tail"
+        );
+    }
+
+    #[test]
+    fn sse_draining_joins_a_data_field_that_spans_lines() {
+        let mut buffer = String::from("data: first\n\ndata: line-a\ndata: line-b\n\n");
+        let mut seen: Vec<String> = Vec::new();
+        drain_sse_events(&mut buffer, |data| seen.push(data.to_string()));
+        assert_eq!(
+            seen[1], "line-a\nline-b",
+            "SSE concatenates a multi-line data field with newlines"
+        );
+    }
+
+    #[test]
+    fn a_usage_chunk_is_read_and_an_absent_one_is_not_guessed() {
+        let with_usage = json!({
+            "choices": [],
+            "usage": { "prompt_tokens": 11, "completion_tokens": 7 }
+        })
+        .to_string();
+        assert_eq!(chunk_usage(&with_usage), Some((11, 7)));
+        assert_eq!(chunk_usage(&json!({ "choices": [] }).to_string()), None);
+    }
+
+    #[test]
+    fn the_body_builder_settles_streaming_and_the_default_model() {
+        let ask = ModelCallRequest {
+            model: None,
+            messages: vec![LoopMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            tools: Vec::new(),
+            response_format: None,
+        };
+        assert_eq!(
+            chat_completions_body(&ask, "m-1", true)["stream"],
+            json!(true),
+            "the streaming path asks the provider to stream"
+        );
+        assert_eq!(
+            chat_completions_body(&ask, "m-1", false)["stream"],
+            json!(false),
+            "the whole-turn path keeps the single-shot contract"
+        );
+        assert_eq!(
+            chat_completions_body(&ask, "m-1", false)["model"],
+            json!("m-1")
+        );
+    }
 
     #[test]
     fn wardrobe_derives_read_tools_from_the_pinned_spec() {

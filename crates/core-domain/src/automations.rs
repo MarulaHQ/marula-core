@@ -122,6 +122,13 @@ impl<'a> AutomationSubject<'a> {
 /// [`AutomationCondition::AiDecision`] kind is pulled out by
 /// [`split_conditions`] and evaluated by the worker against recorded
 /// decision answers (ADR 0010 #2).
+///
+/// The vocabulary is closed and each variant is a whole predicate, so the
+/// editor's field/operator grammar can only offer what a saved rule can
+/// carry. Wave 43 lane 17b widened it from equality-only to the operators
+/// MSPs actually reach for — negation, set membership and the positive
+/// assignee test — because "priority is not P1" and "priority is any of P1,
+/// P2" had no way to be written down.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -129,14 +136,39 @@ pub enum AutomationCondition {
     PriorityIs {
         priority: Priority,
     },
+    /// Priority is not this one. The complement of [`Self::PriorityIs`].
+    PriorityIsNot {
+        priority: Priority,
+    },
+    /// Priority is any one of these. An empty list matches nothing and is
+    /// refused by [`validate_conditions`].
+    PriorityIn {
+        priorities: Vec<Priority>,
+    },
     CategoryIs {
         category: TicketStatusCategory,
+    },
+    CategoryIsNot {
+        category: TicketStatusCategory,
+    },
+    /// Status category is any one of these. An empty list matches nothing
+    /// and is refused by [`validate_conditions`].
+    CategoryIn {
+        categories: Vec<TicketStatusCategory>,
     },
     TitleContains {
         needle: String,
     },
+    /// Title does not contain the needle (case-insensitive). An empty needle
+    /// is refused by [`validate_conditions`]: "does not contain nothing" is
+    /// false for every ticket, so the rule could never fire.
+    TitleNotContains {
+        needle: String,
+    },
     /// Assignee is currently unset.
     Unassigned,
+    /// Assignee is set to somebody. The complement of [`Self::Unassigned`].
+    AssigneeIsSet,
     /// CSAT surveys on resolution (Wave 34 lane 2): fires only on
     /// `csat.response_recorded` events whose score is BELOW the threshold
     /// (strictly less — threshold 3 fires on 1 and 2). Evaluated against
@@ -241,15 +273,34 @@ pub fn evaluate_ai_decision(
     gate.is_finite() && gate >= threshold
 }
 
+/// Case-insensitive substring test, shared by both title predicates so the
+/// affirmative and the negative can never disagree about what "contains"
+/// means. Allocation per call is the same as the single predicate this
+/// replaced; the snapshot is small and the worker evaluates per event.
+fn title_contains(title: &str, needle: &str) -> bool {
+    title.to_lowercase().contains(&needle.to_lowercase())
+}
+
 impl AutomationCondition {
     pub fn holds(&self, snap: &TicketSnapshot) -> bool {
         match self {
             Self::PriorityIs { priority } => *priority == snap.priority,
+            Self::PriorityIsNot { priority } => *priority != snap.priority,
+            Self::PriorityIn { priorities } => priorities.contains(&snap.priority),
             Self::CategoryIs { category } => *category == snap.category,
+            Self::CategoryIsNot { category } => *category != snap.category,
+            Self::CategoryIn { categories } => categories.contains(&snap.category),
+            // An empty needle is the explicit wildcard, matching every title;
+            // `TitleNotContains` refuses that reading because inverting it
+            // would match nothing.
             Self::TitleContains { needle } => {
-                needle.is_empty() || snap.title.to_lowercase().contains(&needle.to_lowercase())
+                needle.is_empty() || title_contains(&snap.title, needle)
+            }
+            Self::TitleNotContains { needle } => {
+                !needle.is_empty() && !title_contains(&snap.title, needle)
             }
             Self::Unassigned => snap.assignee_id.is_none(),
+            Self::AssigneeIsSet => snap.assignee_id.is_some(),
             // Deterministic snapshot matching never satisfies a semantic
             // condition — callers MUST split first (see split_conditions);
             // reaching here unsplit evaluates the AI condition as no-match.
@@ -267,9 +318,11 @@ impl AutomationCondition {
     /// On a ticket-less subject every predicate that reads a ticket fact
     /// degrades to NO-MATCH — the caller logs the warn, the same posture
     /// the semantic skip already gets. Two predicates read nothing the
-    /// subject must supply and so still hold: an empty `title_contains`
-    /// needle (an explicit wildcard) and, riding the event payload rather
-    /// than the subject, `csat_score_below` (evaluated by the caller).
+    /// subject must supply and so still answer from nothing: an empty
+    /// `title_contains` needle is an explicit wildcard and holds, while an
+    /// empty `title_not_contains` needle is a predicate no ticket can
+    /// satisfy and does not. Validation refuses to store the second; this
+    /// keeps the answer honest for a value built in memory.
     pub fn holds_for_subject(&self, subject: AutomationSubject<'_>) -> bool {
         match subject.ticket() {
             Some(snapshot) => self.holds(snapshot),
@@ -281,7 +334,11 @@ impl AutomationCondition {
     /// On a ticket-less subject these degrade to no-match-with-warn, so the
     /// caller can name them instead of silently matching nothing.
     pub fn requires_ticket(&self) -> bool {
-        !matches!(self, Self::TitleContains { needle } if needle.is_empty())
+        match self {
+            Self::TitleContains { needle } if needle.is_empty() => false,
+            Self::TitleNotContains { needle } if needle.is_empty() => false,
+            _ => true,
+        }
     }
 
     /// The condition's ai_decision spec, when it is one.
@@ -484,6 +541,7 @@ impl AutomationRule {
         let actions: Vec<AutomationAction> = serde_json::from_value(row.actions.clone())
             .map_err(|e| format!("rule {}: bad actions jsonb: {e}", row.id))?;
         validate_actions(&actions).map_err(|e| format!("rule {}: {e}", row.id))?;
+        validate_conditions(&conditions).map_err(|e| format!("rule {}: {e}", row.id))?;
         validate_subject_actions(row.subject_kind, &actions)
             .map_err(|e| format!("rule {}: {e}", row.id))?;
         Ok(Self {
@@ -512,6 +570,39 @@ impl AutomationRule {
             (Some(_), None) => false,
         }
     }
+}
+
+/// Structural validation for the condition document, the counterpart to
+/// [`validate_actions`]. It rejects only conditions that can never match: an
+/// empty set, and the negation of the wildcard. A rule carrying one would be
+/// stored, reported as enabled, and then do nothing on every event — which
+/// an operator reads as "this automation is broken", not as "this predicate
+/// is empty".
+///
+/// An EMPTY condition list is not an error here. That is the documented
+/// "match everything on this trigger" rule, and it stays allowed.
+pub fn validate_conditions(conditions: &[AutomationCondition]) -> Result<(), crate::DomainError> {
+    use crate::DomainError;
+    for condition in conditions {
+        let problem = match condition {
+            AutomationCondition::PriorityIn { priorities } if priorities.is_empty() => {
+                Some("'priority_in' needs at least one priority")
+            }
+            AutomationCondition::CategoryIn { categories } if categories.is_empty() => {
+                Some("'category_in' needs at least one status category")
+            }
+            AutomationCondition::TitleNotContains { needle } if needle.is_empty() => {
+                Some("'title_not_contains' needs a needle, and an empty one matches no ticket")
+            }
+            _ => None,
+        };
+        if let Some(problem) = problem {
+            return Err(DomainError::Validation(format!(
+                "automation condition can never match: {problem}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Subject-aware action validation (Wave 43 lane 3): a board-subject rule
@@ -663,6 +754,166 @@ mod tests {
             needle: String::new(),
         }];
         assert!(matches_all(&wild, AutomationSubject::Ticket(&snap)));
+    }
+
+    // --- Wave 43 lane 17b: the widened condition vocabulary ---------------
+
+    /// The complement pairs must never both hold and never both miss. A
+    /// negation that is not the exact complement would let a rule match a
+    /// ticket it was written to exclude.
+    #[test]
+    fn negation_is_the_exact_complement_of_its_affirmative() {
+        let snap = snapshot(); // P1 / open / "Mail server down" / no assignee
+        let pairs = [
+            (
+                AutomationCondition::PriorityIs {
+                    priority: Priority::P1,
+                },
+                AutomationCondition::PriorityIsNot {
+                    priority: Priority::P1,
+                },
+            ),
+            (
+                AutomationCondition::CategoryIs {
+                    category: TicketStatusCategory::Open,
+                },
+                AutomationCondition::CategoryIsNot {
+                    category: TicketStatusCategory::Open,
+                },
+            ),
+            (
+                AutomationCondition::Unassigned,
+                AutomationCondition::AssigneeIsSet,
+            ),
+        ];
+        for (affirmative, negative) in pairs {
+            assert!(
+                affirmative.holds_for_subject(AutomationSubject::Ticket(&snap)),
+                "the affirmative {affirmative:?} holds on the fixture"
+            );
+            assert!(
+                !negative.holds_for_subject(AutomationSubject::Ticket(&snap)),
+                "the negative {negative:?} is its exact complement"
+            );
+        }
+    }
+
+    #[test]
+    fn a_negation_holds_where_its_affirmative_does_not() {
+        let snap = snapshot();
+        assert!(AutomationCondition::PriorityIsNot {
+            priority: Priority::P3,
+        }
+        .holds_for_subject(AutomationSubject::Ticket(&snap)));
+        assert!(AutomationCondition::CategoryIsNot {
+            category: TicketStatusCategory::Closed,
+        }
+        .holds_for_subject(AutomationSubject::Ticket(&snap)));
+        // The fixture ticket has no assignee, so the positive test misses.
+        assert!(
+            !AutomationCondition::AssigneeIsSet.holds_for_subject(AutomationSubject::Ticket(&snap))
+        );
+    }
+
+    #[test]
+    fn title_not_contains_is_case_insensitive_like_its_affirmative() {
+        let snap = snapshot();
+        assert!(!AutomationCondition::TitleNotContains {
+            needle: "SERVER down".into(),
+        }
+        .holds_for_subject(AutomationSubject::Ticket(&snap)));
+        assert!(AutomationCondition::TitleNotContains {
+            needle: "printer".into(),
+        }
+        .holds_for_subject(AutomationSubject::Ticket(&snap)));
+    }
+
+    #[test]
+    fn set_membership_holds_for_any_listed_value() {
+        let snap = snapshot();
+        assert!(AutomationCondition::PriorityIn {
+            priorities: vec![Priority::P3, Priority::P1],
+        }
+        .holds_for_subject(AutomationSubject::Ticket(&snap)));
+        assert!(!AutomationCondition::PriorityIn {
+            priorities: vec![Priority::P2, Priority::P4],
+        }
+        .holds_for_subject(AutomationSubject::Ticket(&snap)));
+        assert!(AutomationCondition::CategoryIn {
+            categories: vec![TicketStatusCategory::Open],
+        }
+        .holds_for_subject(AutomationSubject::Ticket(&snap)));
+        assert!(!AutomationCondition::CategoryIn {
+            categories: vec![TicketStatusCategory::Waiting],
+        }
+        .holds_for_subject(AutomationSubject::Ticket(&snap)));
+    }
+
+    #[test]
+    fn widened_conditions_round_trip_through_jsonb_shape() {
+        let raw = serde_json::json!([
+            { "type": "priority_is_not", "priority": "p2" },
+            { "type": "priority_in", "priorities": ["p1", "p2"] },
+            { "type": "category_is_not", "category": "closed" },
+            { "type": "category_in", "categories": ["open", "waiting"] },
+            { "type": "title_not_contains", "needle": "voicemail" },
+            { "type": "assignee_is_set" }
+        ]);
+        let parsed: Vec<AutomationCondition> =
+            serde_json::from_value(raw).expect("widened documents parse");
+        assert_eq!(parsed.len(), 6);
+        assert_eq!(
+            parsed[1],
+            AutomationCondition::PriorityIn {
+                priorities: vec![Priority::P1, Priority::P2]
+            }
+        );
+        assert_eq!(
+            parsed[3],
+            AutomationCondition::CategoryIn {
+                categories: vec![TicketStatusCategory::Open, TicketStatusCategory::Waiting]
+            }
+        );
+    }
+
+    /// Only the predicates that can never fire are refused. An empty
+    /// condition list is the documented match-everything rule and stays
+    /// legal, and an empty `title_contains` needle is the explicit wildcard.
+    #[test]
+    fn only_conditions_that_can_never_match_are_refused() {
+        assert!(validate_conditions(&[]).is_ok());
+        assert!(validate_conditions(&[AutomationCondition::TitleContains {
+            needle: String::new()
+        }])
+        .is_ok());
+        assert!(validate_conditions(&[AutomationCondition::PriorityIn {
+            priorities: vec![Priority::P1]
+        }])
+        .is_ok());
+        assert!(
+            validate_conditions(&[AutomationCondition::PriorityIn { priorities: vec![] }]).is_err()
+        );
+        assert!(
+            validate_conditions(&[AutomationCondition::CategoryIn { categories: vec![] }]).is_err()
+        );
+        assert!(
+            validate_conditions(&[AutomationCondition::TitleNotContains {
+                needle: String::new()
+            }])
+            .is_err()
+        );
+    }
+
+    /// A predicate no ticket can satisfy reads nothing from the subject, so
+    /// it must not be reported as needing one. Storage is refused by
+    /// `validate_conditions`; this keeps the in-memory answer honest.
+    #[test]
+    fn an_empty_not_contains_needle_reads_no_ticket_fact() {
+        let condition = AutomationCondition::TitleNotContains {
+            needle: String::new(),
+        };
+        assert!(!condition.requires_ticket());
+        assert!(!condition.holds_for_subject(AutomationSubject::Ticketless { board_id: None }));
     }
 
     #[test]

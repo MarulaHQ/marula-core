@@ -390,6 +390,15 @@ pub struct AutomationTestRunMatch {
     pub title: String,
     #[schema(value_type = Option<uuid::Uuid>)]
     pub assignee_id: Option<Uuid>,
+    /// The ticket's priority when the run sampled it (Wave 43 lane 17b).
+    ///
+    /// The run is a PROPOSAL, so the useful thing to show is not only that a
+    /// ticket matched but what the rule's effects WOULD change on it. Both
+    /// `set_priority` and `assign_user` write a value the snapshot already
+    /// carries, so a preview can read `P2 -> P1` instead of `matched`. The
+    /// values are the sampled state, never the post-effect state, because no
+    /// effect ran.
+    pub priority: core_domain::status::Priority,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -494,6 +503,7 @@ pub async fn test_run_rule(
             number: t.number.0.clone(),
             title: t.title.clone(),
             assignee_id: t.assignee_id,
+            priority: t.priority,
         })
         .collect();
     Ok(Json(AutomationTestRunResponse {
@@ -564,10 +574,10 @@ pub async fn create_rule(
     if req.trigger_event.trim().is_empty() {
         return Err(ApiError::Validation("trigger_event is required".into()));
     }
-    serde_json::from_value::<Vec<core_domain::automations::AutomationCondition>>(
-        req.conditions.clone(),
-    )
-    .map_err(|e| ApiError::Validation(format!("bad conditions: {e}")))?;
+    let conditions: Vec<core_domain::automations::AutomationCondition> =
+        serde_json::from_value(req.conditions.clone())
+            .map_err(|e| ApiError::Validation(format!("bad conditions: {e}")))?;
+    core_domain::automations::validate_conditions(&conditions)?;
     let actions: Vec<core_domain::automations::AutomationAction> =
         serde_json::from_value(req.actions.clone())
             .map_err(|e| ApiError::Validation(format!("bad actions: {e}")))?;
@@ -634,8 +644,10 @@ pub async fn update_rule(
     require_permission(&authed.principal, admin(Action::Edit))?;
     // Validate replacement documents when present.
     if let Some(c) = &req.conditions {
-        serde_json::from_value::<Vec<core_domain::automations::AutomationCondition>>(c.clone())
-            .map_err(|e| ApiError::Validation(format!("bad conditions: {e}")))?;
+        let conditions: Vec<core_domain::automations::AutomationCondition> =
+            serde_json::from_value(c.clone())
+                .map_err(|e| ApiError::Validation(format!("bad conditions: {e}")))?;
+        core_domain::automations::validate_conditions(&conditions)?;
     }
     if let Some(a) = &req.actions {
         let actions: Vec<core_domain::automations::AutomationAction> =
