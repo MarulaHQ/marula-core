@@ -119,7 +119,8 @@ pub async fn create_portal_user(
     core_db::clients::get_client(&mut *tx, org_id, client_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
 
-    let password_hash = crate::auth::password::hash(&req.password)
+    let password_hash = crate::auth::password::hash_async(req.password.clone())
+        .await
         .map_err(|e| ApiError::Validation(format!("password hashing failed: {e}")))?;
     let user = org_tx::with_org_tx(&state, org_id, admin_id, |mut ctx| async move {
         let user = core_db::portal::create_portal_user(
@@ -200,12 +201,14 @@ pub async fn patch_portal_user(
     if let Some(pw) = &req.password {
         validate_password(pw)?;
     }
-    let password_hash = req
-        .password
-        .as_deref()
-        .map(crate::auth::password::hash)
-        .transpose()
-        .map_err(|e| ApiError::Validation(format!("password hashing failed: {e}")))?;
+    let password_hash = match req.password.as_deref() {
+        Some(pw) => Some(
+            crate::auth::password::hash_async(pw.to_string())
+                .await
+                .map_err(|e| ApiError::Validation(format!("password hashing failed: {e}")))?,
+        ),
+        None => None,
+    };
     let org_id = authed.principal.user.org_id;
     let admin_id = authed.principal.user.id;
 

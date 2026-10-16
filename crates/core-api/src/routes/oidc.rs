@@ -769,8 +769,9 @@ pub(crate) async fn provision_jit_user(
     use rand::RngCore;
     let mut random = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut random);
-    let unusable_password_hash = crate::auth::password::hash(&hex::encode(random))
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("argon2 failed: {e}")))?;
+    let unusable_password_hash = crate::auth::password::hash_async(hex::encode(random))
+        .await
+        .map_err(ApiError::Internal)?;
     let user_id = Uuid::now_v7();
     core_db::users::create_user(
         &mut **tx,

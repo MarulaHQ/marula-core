@@ -184,8 +184,9 @@ pub async fn register(
 
     let org_id = Uuid::now_v7();
     let user_id = Uuid::now_v7();
-    let password_hash = password::hash(&req.password)
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("password hashing failed: {e}")))?;
+    let password_hash = password::hash_async(req.password.clone())
+        .await
+        .map_err(ApiError::Internal)?;
 
     // The registration transaction runs as the app role with RLS. We bind
     // the tx to the NEW org id first, so the org row insert satisfies its
@@ -343,7 +344,7 @@ pub async fn login(
             ApiError::Unauthorized("invalid credentials".into())
         })?;
 
-    if !password::verify(&req.password, &creds.password_hash) {
+    if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
         audit_failed_login(&state, org_id);
         let _ = record_failure(
             &state,

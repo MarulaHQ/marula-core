@@ -232,19 +232,19 @@ async fn generate_recovery_codes(
     const ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
     let mut plain = Vec::with_capacity(RECOVERY_CODE_COUNT);
     let mut ids = Vec::with_capacity(RECOVERY_CODE_COUNT);
-    let mut hashes = Vec::with_capacity(RECOVERY_CODE_COUNT);
     for _ in 0..RECOVERY_CODE_COUNT {
         let raw: String = (0..10)
             .map(|_| ALPHABET[rand::rngs::OsRng.gen_range(0..ALPHABET.len())] as char)
             .collect();
-        let formatted = format!("{}-{}", &raw[..5], &raw[5..]);
-        hashes.push(
-            password::hash(&formatted)
-                .map_err(|e| ApiError::Internal(anyhow::anyhow!("argon2 failed: {e}")))?,
-        );
+        plain.push(format!("{}-{}", &raw[..5], &raw[5..]));
         ids.push(Uuid::now_v7());
-        plain.push(formatted);
     }
+    // Hash the whole batch off the async runtime (Wave 49 lane R3): ten
+    // argon2id hashes on a worker thread is the worst single-request block
+    // in the app.
+    let hashes = password::hash_many_async(plain.clone())
+        .await
+        .map_err(ApiError::Internal)?;
     core_db::mfa::replace_recovery_codes(&mut **tx, org_id, user_id, &hashes, &ids).await?;
     Ok(plain)
 }
@@ -271,7 +271,7 @@ pub async fn totp_disable(
 
     let mut tx = org_tx(&state, user.org_id).await?;
     let creds = core_db::users::find_credentials_by_email(&mut *tx, &user.email).await?;
-    if !password::verify(&req.password, &creds.password_hash) {
+    if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
         return Err(ApiError::Unauthorized("invalid credentials".into()));
     }
 
@@ -323,7 +323,7 @@ pub async fn regenerate_recovery_codes(
 
     let mut tx = org_tx(&state, user.org_id).await?;
     let creds = core_db::users::find_credentials_by_email(&mut *tx, &user.email).await?;
-    if !password::verify(&req.password, &creds.password_hash) {
+    if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
         return Err(ApiError::Unauthorized("invalid credentials".into()));
     }
     verify_any_second_factor(
@@ -511,7 +511,10 @@ async fn match_recovery_code(
 ) -> ApiResult<Option<Uuid>> {
     let candidates = core_db::mfa::unused_recovery_hashes(&mut **tx, user_id).await?;
     for (code_id, hash) in candidates {
-        if password::verify(presented, &hash) {
+        // Each candidate is a full argon2 verification. Run them off the
+        // async runtime (Wave 49 lane R3); the count is bounded by the
+        // number of unused recovery codes.
+        if password::verify_async(presented.to_string(), hash).await {
             return Ok(Some(code_id));
         }
     }
@@ -788,7 +791,7 @@ pub async fn webauthn_credential_remove(
     let user = &authed.principal.user;
     let mut tx = org_tx(&state, user.org_id).await?;
     let creds = core_db::users::find_credentials_by_email(&mut *tx, &user.email).await?;
-    if !password::verify(&req.password, &creds.password_hash) {
+    if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
         return Err(ApiError::Unauthorized("invalid credentials".into()));
     }
     let deleted = core_db::mfa::delete_webauthn_credential(&mut *tx, user.id, cred_row_id).await?;
