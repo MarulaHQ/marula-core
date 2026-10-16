@@ -1,24 +1,26 @@
-## Repo lookups must go through graft first (BINDING, top-of-file)
+## Repo lookups must go through trail first (BINDING, top-of-file)
 
-Before ANY Grep/Glob/Read search of this codebase: run graft first —
-`graft ask "<q>" --source` / `graft grep "<literal>"` / `graft callers <sym>` /
-`graft skeleton <file>` (CLI, always available) or the `graft_*` MCP tools.
-If graft MCP tools appear deferred (names listed, schemas withheld), load ALL
-of them in ONE ToolSearch lookup (`select:mcp__graft__graft_find_code,mcp__graft__graft_find_all,mcp__graft__graft_trace_calls,mcp__graft__graft_file_api,mcp__graft__graft_repo_map`)
-before your first lookup — grep-first is WRONG by default: a graft hit carries
+Before ANY Grep/Glob/Read search of this codebase: run trail first —
+`trail ask "<q>" --source` / `trail grep "<literal>"` / `trail callers <sym>` /
+`trail skeleton <file>` (CLI, always available) or the `trail_*` MCP tools.
+If trail MCP tools appear deferred (names listed, schemas withheld), load ALL
+of them in ONE ToolSearch lookup (`select:mcp__trail__trail_find_code,mcp__trail__trail_find_all,mcp__trail__trail_trace_calls,mcp__trail__trail_file_api,mcp__trail__trail_repo_map`)
+before your first lookup — grep-first is WRONG by default: a trail hit carries
 exact file:line spans for ~3% of the tokens reading or grepping the same code
-costs. Use plain grep only AFTER a graft attempt missed the file (unindexed
+costs. Use plain grep only AFTER a trail attempt missed the file (unindexed
 paths: fixtures/, .sqlx/, dist/, evidence dirs). Full routing detail lives in
-"graft vs graphify" below. Record graft token savings in the lane landing
-record ("🌱 graft saved ~N tokens").
+"trail vs graphify" below. Record trail token savings in the lane landing
+record ("🌱 trail saved ~N tokens").
 
 **Worktree lanes: build your own graph at lane start (2026-09-18).** Every
-worktree lane runs `graft build` ONCE at lane start in its worktree (deterministic
+worktree lane runs `trail build` ONCE at lane start in its worktree (deterministic
 AST-only, free) so its indexes reflect the lane's branch, then re-runs it after
 big changes — instead of sharing the main repo's graph via symlink (the old
 setup-script symlink is retired; stale shared spans caused wrong file:line hits
-after merges). `graft/` is GITIGNORED (`.gitignore /graft/`) — never commit,
-symlink, or force-add it; if a lane ever sees `graft/` in `git status`, fail the
+after merges). The cache is GITIGNORED — `.trail/cache/` through `.trail/.gitignore`,
+plus the legacy `/graft/` fallback directory (used when a worktree predates the
+committed `.trail/` wiring) through the top-level `.gitignore` — never commit,
+symlink, or force-add it; if a lane ever sees either in `git status`, fail the
 check and re-ignore rather than committing the graph.
 
 ## UI skills (vendored design-engineering skills)
@@ -173,16 +175,16 @@ Do NOT track lane work in markdown files (LANE-TASKLIST.md or similar) — the
 native to-do list is the single source of truth and is visible in the Agent
 Manager UI. An out-of-date to-do list reads as a stalled lane.
 
-## Codebase lookups: graft vs graphify (routing rule)
+## Codebase lookups: trail vs graphify (routing rule)
 
 Two graph tools coexist in this repo. Route by question shape — never run both
 speculatively in parallel for the same question:
 
-- **graft (default for all concrete work):** any question whose answer lives at
+- **trail (default for all concrete work):** any question whose answer lives at
   specific code locations — "where is X handled", "how does this function work",
   "who calls this", scoping an edit, skimming an API surface, exhaustive
-  occurrence sweeps. Start with `graft ask "<q>" --source`; `graft grep` when
-  you need every occurrence; `graft callers` / `graft skeleton` for structure.
+  occurrence sweeps. Start with `trail ask "<q>" --source`; `trail grep` when
+  you need every occurrence; `trail callers` / `trail skeleton` for structure.
   Answers carry exact file:line spans — cite them and edit straight from them.
 - **graphify (structural / semantic questions):** architecture-level asks where
   the answer is about shape, not locations — "what are the major subsystems",
@@ -192,10 +194,10 @@ speculatively in parallel for the same question:
   exists), or GRAPH_REPORT.md for broad review. Also always when the user types
   `/graphify`.
 - **Tie-breaker:** if a question is both (e.g. "explain payment sync"), run one
-  cheap `graft ask` first; escalate to graphify only if the answer spans
-  multiple subsystems or the graft results don't connect the pieces.
+  cheap `trail ask` first; escalate to graphify only if the answer spans
+  multiple subsystems or the trail results don't connect the pieces.
 
-Freshness after code changes: `graphify update .` for any change, `graft build`
+Freshness after code changes: `graphify update .` for any change, `trail build`
 after big changes — both deterministic/AST-only, no API cost.
 
 ## graphify
@@ -205,7 +207,7 @@ This project has a knowledge graph at graphify-out/ with god nodes, community st
 When the user types `/graphify`, use the installed graphify skill or instructions before anything else.
 
 Rules:
-- Route codebase questions per the "graft vs graphify (routing rule)" section above: graphify handles structural/semantic questions (subsystems, god nodes, communities, cross-cutting concepts), NOT the default for concrete code lookups — those go to graft.
+- Route codebase questions per the "trail vs graphify (routing rule)" section above: graphify handles structural/semantic questions (subsystems, god nodes, communities, cross-cutting concepts), NOT the default for concrete code lookups — those go to trail.
 - Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
 - Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.

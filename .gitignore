@@ -61,7 +61,8 @@ packages/sdk/package-lock.json
 desktop/resources/
 apps/web/out/
 
-# graft's local graph cache — regenerable, not committed (run `graft build`).
+# trail's legacy fallback graph cache — regenerable, not committed (run `trail build`).
+# The primary cache lives at `.trail/cache/`, ignored by `.trail/.gitignore`.
 /graft/
 
 # skills-CLI project-local install artifacts (real installs live in ~/.agents/skills + ~/.config/kilo/skills)
