@@ -114,13 +114,30 @@ housekeeping is `scripts/dev-clean.sh` (dry-run default, `--go` applies).
 
 ## Prose must pass SlopMonster (BINDING, all agents)
 
-Any prose an agent writes or edits for humans — landing/marketing copy, READMEs, docs
-prose, emails, UI copy with full sentences — must be evaluated with the SlopMonster
+**Scope: prose written for humans.** Landing and marketing copy, READMEs, docs prose,
+emails, UI copy with full sentences, and the lane evidence documents that carry a verdict
+(`LANDING.md`, `REVIEW.md`, `GATES.md`, `PLAN.md`, `RESEARCH.md`). Any prose an agent
+writes or edits in those files must be evaluated with the SlopMonster
 skill (`.kilo/skills/slopmonster/`). Load it (`skill: slopmonster`) before writing the
 prose, then verify with `python3 .kilo/skills/slopmonster/tools/deslop.py <file>`.
 Ship only at **5/5 CLEAN** (use `--allow-proof` only when a number is real and
 evidenced). If the score is below 5, clean it following the skill's loop
 (kill vocabulary → kill constructions → put a person back in) and re-lint.
+
+**Out of scope (ruled 2026-10-16, user directive).** The working trackers `TASKLIST.md`
+and `TASKLIST_COMPLETED.md`, and this file. They are dense technical registers whose rows
+are tables, `file:line` citations and code spans; the scorer is written for prose, and it
+scores every row in them below the bar including rows no agent has touched — the tracker
+scores **0/5 at HEAD**. Holding them to it was unsatisfiable, so it is not a ship gate
+there. The scorer's own flag names the mismatch: "semicolon-heavy **for web copy**". Write
+those files plainly and economically as before; the rule simply does not gate them. This
+removes a real cost — two lanes this wave independently had to hand-polish rows or route
+doctrine around the rule.
+
+That verdict carries to the lane evidence documents too: they are in scope, so
+`python3 .kilo/skills/slopmonster/tools/deslop.py design/qa-<lane>/REVIEW.md` and friends
+must report **5/5 CLEAN** before you land.
+
 This is not needed for code, code comments, logs, git messages, or prose inside
 `code` spans/fenced blocks — the scorer skips those too.
 
