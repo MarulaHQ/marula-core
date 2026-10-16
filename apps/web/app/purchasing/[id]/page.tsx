@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceFooter,
   Table,
   Td,
   Th,
@@ -958,17 +959,20 @@ export default function PurchaseOrderPage(): ReactNode {
             </tbody>
           </Table>
           </div>
-          <footer className="m-ledger-footer">
-            <span className="m-ledger-shown tabular-nums" data-testid="purchasing-lines-count">
-              {lines.length} line{lines.length === 1 ? "" : "s"}
-            </span>
-            {detail.totals != null ? (
-              <span className="m-ledger-hints">
-                ordered {money(detail.totals.ordered_minor, order.currency)} · received{" "}
-                {money(detail.totals.received_minor, order.currency)}
-              </span>
-            ) : null}
-          </footer>
+          <SurfaceFooter
+            shown={lines.length}
+            noun="line"
+            countTestId="purchasing-lines-count"
+            className="m-ledger-footer"
+            trailing={
+              detail.totals != null ? (
+                <span className="m-ledger-hints">
+                  ordered {money(detail.totals.ordered_minor, order.currency)} · received{" "}
+                  {money(detail.totals.received_minor, order.currency)}
+                </span>
+              ) : undefined
+            }
+          />
         </div>
         {canEditLines && lines.some((line) => line.unit_cost_minor == null) && (
           <FieldHint>Line costs are hidden without financial access, so those lines stay read-only.</FieldHint>

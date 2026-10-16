@@ -74,6 +74,21 @@ async function addClause(
   await user.click(screen.getByRole("button", { name: "Add" }));
 }
 
+/**
+ * The sentence a chip reads, matched on the chip's own element rather than on a
+ * text node: the value inside the sentence is a `<b>` (the pack gives the value
+ * the weight, DESIGN-NOTES-tickets.md §6), so the sentence is split across two
+ * nodes and `getByText("Entity contains invoice")` can no longer see it.
+ */
+function chip(sentence: string): HTMLElement {
+  const found = screen.getByText(
+    (_content, element) =>
+      element?.classList.contains("m-filter-chip-text") === true &&
+      element.textContent === sentence,
+  );
+  return found;
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   seedAuthTokens();
@@ -162,7 +177,7 @@ describe("/provenance integration", () => {
     await screen.findByText("status");
     await addClause(user, "Entity", "invoice");
     // The clause reads back as a sentence chip with a remove button.
-    expect(await screen.findByText("Entity contains invoice")).toBeInTheDocument();
+    expect(chip("Entity contains invoice")).toBeInTheDocument();
     await waitFor(() => {
       const calls = mock.callsTo("GET", "/api/v1/provenance");
       expect(calls[calls.length - 1]?.query.entity).toBe("invoice");
@@ -196,7 +211,7 @@ describe("/provenance integration", () => {
     // With an entity clause present, Field is offered and rides the request.
     await addClause(user, "Entity", "ticket");
     await addClause(user, "Field", "status");
-    expect(await screen.findByText("Field contains status")).toBeInTheDocument();
+    expect(chip("Field contains status")).toBeInTheDocument();
     await waitFor(() => {
       const calls = mock.callsTo("GET", "/api/v1/provenance");
       const last = calls[calls.length - 1]?.query;

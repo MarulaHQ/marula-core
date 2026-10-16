@@ -142,8 +142,15 @@ describe("/tickets ledger", () => {
     expect(screen.getByRole("button", { name: /Add filter/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Columns/ })).toBeInTheDocument();
     // The footer reads "shown of total" per the pack, with the density control
-    // beside it (wave 44 lane 2).
-    expect(screen.getByText(/Showing \d+ of \d+ tickets/)).toBeInTheDocument();
+    // beside it (the kit's SurfaceFooter since Wave 48). The two numbers are
+    // their own elements, so the sentence is matched on the count element.
+    expect(
+      screen.getByText(
+        (_content, element) =>
+          element?.classList.contains("m-surface-footer-count") === true &&
+          /^\d+ of \d+ tickets$/.test(element.textContent ?? ""),
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("Row density")).toBeInTheDocument();
     cleanup();
   });

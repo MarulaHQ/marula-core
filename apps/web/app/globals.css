@@ -115,11 +115,12 @@ body {
   font-family: var(--font-sans, var(--m-font-ui));
 }
 
-/* Quiet row hover for dense queues (theme-token mixed, both modes). */
+/* Quiet row hover for dense queues. Points at the same value the kit's tables
+   paint, so a hovered row reads the same in a kit table and in one of these. */
 
 .row-hover:hover,
 .row-hover:focus-visible {
-  background: color-mix(in srgb, var(--m-mist) 14%, transparent);
+  background: var(--m-surface-2);
 }
 
 /*
@@ -319,21 +320,24 @@ body {
 }
 
 /*
- * The selection bar, in place of the column header (wave 44 lane 2,
- * qa-p44-ui-tickets-boards): it takes the header's own row so selecting
- * never shifts the layout. A gold tint, never an inverted surface, with a
- * 3px gold bar on the left edge. The kit's `.m-bulk-bar` is the toolbar
- * variant and is left untouched; this row is the ledger's own header. The
- * doubled selector matches `.m-table th`'s specificity so the kit's
- * surface fill does not win.
+ * The selection bar and the row hover live in the kit now
+ * (`packages/ui/src/components.css`, `.m-table th.m-bulk-head` and
+ * `.m-table tbody tr:hover`), because every surface needs them and only the
+ * tickets ledger had them. The old rule here painted the bulk header with
+ * `--m-gold-soft`, which has no dark-mode override, so the bar rendered light
+ * gold on a dark screen.
  */
 
-.m-table th.m-bulk-head {
-  border-left: 3px solid var(--m-gold);
-  background: var(--m-gold-soft);
-  padding: 6px 10px;
-  text-align: left;
-  font-weight: 400;
+/*
+ * Quiet row hover for dense queues (theme-token mixed, both modes).
+ *
+ * Points at the same value the kit's tables paint, so a hovered row reads the
+ * same in a kit table and in one of these queue rows.
+ */
+
+.row-hover:hover,
+.row-hover:focus-visible {
+  background: var(--m-surface-2);
 }
 
 /*
