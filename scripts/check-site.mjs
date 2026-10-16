@@ -3,8 +3,9 @@
  * site at http://localhost:3100. Run from the worktree root:
  *   node scripts/check-site.mjs
  * Per route x theme x viewport: exact one h1, alt text on every image, one
- * meta description, meta viewport present, no horizontal overflow, no
- * console/page errors, main landmark present.
+ * meta description, one brand token in the rendered <title>/og:title, meta
+ * viewport present, no horizontal overflow, no console/page errors, main
+ * landmark present.
  *
  * The matrix grows with each new route (wave 34 lane 7 added the six phase-2
  * module pages); /features folded into /compare and 308s, so it is not a
@@ -69,6 +70,8 @@ for (const theme of ["light", "dark"]) {
         viewport: document.querySelectorAll('meta[name="viewport"]').length,
         overflow: document.documentElement.scrollWidth > window.innerWidth + 1,
         main: Boolean(document.querySelector("main")),
+        title: document.title,
+        ogTitle: document.querySelector('meta[property="og:title"]')?.getAttribute("content") ?? "",
       }));
       const label = `${theme} ${route || "/"} ${vp.name}`;
 
@@ -77,6 +80,13 @@ for (const theme of ["light", "dark"]) {
         line(`${label} desc==1`, check.descriptions === 1);
         line(`${label} viewport`, check.viewport === 1);
         line(`${label} main`, check.main);
+        // Brand appears once in the rendered title: the root layout owns the
+        // " · Marula" suffix, so a page must never bake it into its own title
+        // (that is the "Compare · Marula · Marula" link-preview bug). og:title
+        // inherits the resolved title, so a doubled title would show there too.
+        const brandCount = (s) => s.split("Marula").length - 1;
+        line(`${label} title one brand`, brandCount(check.title) === 1);
+        line(`${label} og:title one brand`, brandCount(check.ogTitle) === 1);
       }
       line(`${label} alt`, check.missingAlt === 0);
       line(`${label} overflow`, !check.overflow);
