@@ -27,7 +27,7 @@
 // Run with the stack env exported:
 //   set -a; . e2e/.e2e-stack.env; set +a; node e2e/p43-workflow-closeout-captures.mjs
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { chromium } from "playwright";
 
@@ -188,11 +188,132 @@ console.log(`[capture] fixture rows: ${runs.length} runs, ${steps.length} steps`
 // --- browser -------------------------------------------------------------------
 const browser = await chromium.launch();
 let shots = 0;
+const measurements = {};
 const shot = async (page, name) => {
   await page.screenshot({ path: `${OUT}/${name}.png` });
+  measurements[name] = await measure(page);
   shots += 1;
   console.log(`  [shot] ${name}`);
 };
+
+/**
+ * What the page actually rendered, read from computed style and rects. Nulls
+ * are honest: a shot with no banner reports `banner: null` rather than a
+ * default that reads like a pass. Every value here is measured, never assumed.
+ */
+async function measure(page) {
+  return page.evaluate(() => {
+    const css = getComputedStyle(document.documentElement);
+    const tok = (k) => css.getPropertyValue(k).trim();
+    const el = (s) => document.querySelector(s);
+    const dims = (n) =>
+      n
+        ? {
+            h: Math.round(n.getBoundingClientRect().height),
+            w: Math.round(n.getBoundingClientRect().width),
+          }
+        : null;
+
+    // WCAG relative-luminance contrast for two computed colours.
+    const rgb = (s) => {
+      const m = (s || "").match(/\d+(\.\d+)?/g);
+      return m ? m.slice(0, 3).map(Number) : null;
+    };
+    const lum = (c) => {
+      const [r, g, b] = c.map((v) => {
+        const x = v / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const contrast = (fg, bg) => {
+      const a = rgb(fg);
+      const b = rgb(bg);
+      if (!a || !b) return null;
+      const la = lum(a);
+      const lb = lum(b);
+      const hi = Math.max(la, lb);
+      const lo = Math.min(la, lb);
+      return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
+    };
+
+    const row = el('[data-testid^="workflow-run-row-"]');
+    const header = el('[data-testid="workflow-runs-table"] thead th');
+    const cell = row?.querySelector("td") ?? null;
+    const pill = row?.querySelector('[data-slot="pill"]') ?? el('[data-slot="pill"]');
+    const pillStyle = pill ? getComputedStyle(pill) : null;
+    const banner = el('[data-testid="run-banner"]');
+    const bannerStyle = banner ? getComputedStyle(banner) : null;
+    const label = el(".m-select-label");
+    const labelStyle = label ? getComputedStyle(label) : null;
+    const stepRow = el('[data-testid^="run-step-row-"]');
+    const footer = el(".m-ledger-footer, .m-surface-footer") ?? null;
+    const showing = Array.from(document.querySelectorAll("span")).find((s) =>
+      /^Showing\s/.test(s.textContent?.trim() ?? ""),
+    );
+
+    return {
+      url: location.pathname + location.search,
+      densityAttr: document.documentElement.getAttribute("data-density"),
+      scheme: getComputedStyle(document.documentElement).colorScheme,
+      tokens: {
+        border: tok("--m-border"),
+        surface: tok("--m-surface"),
+        textMuted: tok("--m-text-muted"),
+        statusDueBg: tok("--m-status-due-bg"),
+        statusDueFg: tok("--m-status-due-fg"),
+        goldSoft: tok("--m-gold-soft"),
+        goldText: tok("--m-gold-text"),
+        bodyFont: css.getPropertyValue("font-family").trim().slice(0, 60),
+      },
+      ledger: row
+        ? {
+            rowHeight: dims(row)?.h ?? null,
+            headerHeight: dims(header)?.h ?? null,
+            headerFont: header ? getComputedStyle(header).fontSize : null,
+            cellFont: cell ? getComputedStyle(cell).fontSize : null,
+            cellPadLeft: cell ? getComputedStyle(cell).paddingLeft : null,
+            rows: document.querySelectorAll('[data-testid^="workflow-run-row-"]').length,
+          }
+        : null,
+      statusPill: pillStyle
+        ? {
+            text: pill.textContent?.trim() ?? null,
+            color: pillStyle.color,
+            background: pillStyle.backgroundColor,
+            fontSize: pillStyle.fontSize,
+            dotSize: pill.querySelector("span")?.getBoundingClientRect().width ?? null,
+            contrastTextOnSurface: contrast(pillStyle.color, getComputedStyle(document.body).backgroundColor),
+          }
+        : null,
+      banner: bannerStyle
+        ? {
+            text: banner.textContent?.replace(/\s+/g, " ").trim().slice(0, 90) ?? null,
+            background: bannerStyle.backgroundColor,
+            color: bannerStyle.color,
+            contrast: contrast(bannerStyle.color, bannerStyle.backgroundColor),
+            role: banner.getAttribute("role"),
+          }
+        : null,
+      selectLabel: labelStyle
+        ? {
+            text: label.textContent?.trim() ?? null,
+            fontSize: labelStyle.fontSize,
+            fontWeight: labelStyle.fontWeight,
+            letterSpacing: labelStyle.letterSpacing,
+            textTransform: labelStyle.textTransform,
+            color: labelStyle.color,
+          }
+        : null,
+      stepRow: stepRow ? { height: dims(stepRow)?.h ?? null } : null,
+      footer: {
+        text: showing?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+        present: footer !== null,
+      },
+      h1: el("h1")?.textContent?.trim() ?? null,
+    };
+  });
+}
 
 const loginWithRetry = async (page) => {
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -349,5 +470,19 @@ for (const theme of ["light", "dark"]) {
 }
 
 await browser.close();
+writeFileSync(
+  `${OUT}/captures/measure.json`,
+  JSON.stringify(
+    {
+      generated: new Date().toISOString(),
+      viewport: { desktop: "1440x1000", mobile: "375x780" },
+      fixture_runs: { ok: ids.ok, failed: ids.failed, parked: ids.parked, running: ids.running, retry: ids.retry },
+      shots: measurements,
+    },
+    null,
+    2,
+  ),
+);
 console.log(`[capture] done — ${shots} captures in ${OUT}`);
+console.log(`[capture] measured ${Object.keys(measurements).length} shots → ${OUT}/captures/measure.json`);
 console.log(`[capture] run ids: failed=${ids.failed} parked=${ids.parked} ok=${ids.ok}`);
