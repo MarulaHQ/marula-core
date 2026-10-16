@@ -54,6 +54,7 @@ Every guide lists its target **Audience** (`admin`, `staff`, or `both`) right un
 - [Manage dashboards & report schedules](admin-dashboards-reports.md) — Build custom reports and dashboard widgets over the read model and schedule recurring email digests.
 - [Run a dry-run import](admin-imports.md) — Preview CSV or JSON imports before writing a single row and save column mappings for repeat runs.
 - [Customize without code](customize.md) — Add typed custom fields, reshape boards, and keep your changes safe across version upgrades.
+- [Export your organization's data](export-data.md) — Build a versioned JSON bundle of the org's records, download it through a signed link, and track past bundles.
 
 ## AI, plugins, API, and self-hosting guides (admins and developers)
 

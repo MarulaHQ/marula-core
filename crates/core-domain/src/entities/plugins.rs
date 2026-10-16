@@ -140,10 +140,17 @@ pub enum PluginCapability {
     /// signal the API reports as "a DNS-provider plugin is installed" — the
     /// manual paste path never needs it.
     OrgCustomDomainManage,
+    /// Wave 47 lane A7 (`p47-org-suspension-notice`): the capability a plugin
+    /// declares to read an org's suspension NOTICE state so it can render the
+    /// in-app notice — when the org was flagged, why, and when the notice
+    /// starts showing. It resolves onto the `org_suspension:read` permission.
+    /// Holding it changes what a plugin may OBSERVE: the flag never gates a
+    /// request, a feature, or a write anywhere in the core.
+    OrgSuspensionRead,
 }
 
 impl PluginCapability {
-    pub const ALL: [PluginCapability; 31] = [
+    pub const ALL: [PluginCapability; 32] = [
         PluginCapability::TicketsRead,
         PluginCapability::TicketsWrite,
         PluginCapability::ClientsRead,
@@ -175,6 +182,7 @@ impl PluginCapability {
         PluginCapability::RagRead,
         PluginCapability::RagWrite,
         PluginCapability::OrgCustomDomainManage,
+        PluginCapability::OrgSuspensionRead,
     ];
 
     /// The capability key as declared in a manifest / grant list.
@@ -215,6 +223,7 @@ impl PluginCapability {
             PluginCapability::RagRead => "rag.read",
             PluginCapability::RagWrite => "rag.write",
             PluginCapability::OrgCustomDomainManage => "org_custom_domain.manage",
+            PluginCapability::OrgSuspensionRead => "org_suspension.read",
         }
     }
 
@@ -375,6 +384,13 @@ impl PluginCapability {
             // plugin gains exactly the domain-management surface and nothing
             // else a human admin's `admin:edit` would carry.
             PluginCapability::OrgCustomDomainManage => Permission::ManageOrgCustomDomain,
+            // Wave 47 lane A7: the suspension notice resolves onto its OWN
+            // read-only permission rather than onto the Admin matrix — holding
+            // it lets a plugin observe the flag and nothing else. There is no
+            // `manage` half: setting the flag is an admin action
+            // (`admin:edit`, the gate org settings use), exactly as TASKLIST
+            // A7 (D) specifies.
+            PluginCapability::OrgSuspensionRead => Permission::ViewOrgSuspension,
         }
     }
 }
@@ -3042,6 +3058,37 @@ mod tests {
         );
     }
 
+    /// Wave 47 lane A7: the suspension-notice capability resolves onto its own
+    /// read-only permission, so a plugin holding it can render the notice and
+    /// nothing else. There is no manage half — setting the flag is an admin
+    /// action. The wire key round-trips, so a manifest naming the capability
+    /// resolves rather than being refused as unknown.
+    #[test]
+    fn org_suspension_capability_resolves_onto_its_own_read_only_permission() {
+        use crate::policy::Permission;
+        assert_eq!(
+            PluginCapability::OrgSuspensionRead.as_str(),
+            "org_suspension.read"
+        );
+        assert_eq!(
+            PluginCapability::OrgSuspensionRead.permission(),
+            Permission::ViewOrgSuspension
+        );
+        assert_eq!(
+            PluginCapability::parse("org_suspension.read"),
+            Some(PluginCapability::OrgSuspensionRead)
+        );
+        // The permission is NOT the Admin matrix: a plugin that renders the
+        // notice gains no settings-write surface with it.
+        assert_ne!(
+            PluginCapability::OrgSuspensionRead.permission(),
+            Permission::Matrix {
+                module: Module::Admin,
+                action: Action::Edit,
+            }
+        );
+    }
+
     #[test]
     fn rag_capabilities_resolve_onto_kb_matrix_and_round_trip() {
         assert_eq!(PluginCapability::RagRead.as_str(), "rag.read");
@@ -3248,6 +3295,49 @@ mod tests {
         }
         assert_eq!(PluginCapability::parse("special:manage_plugins"), None);
         assert_eq!(PluginCapability::parse("admin.plugins"), None);
+    }
+
+    /// The plugin-kit's `KNOWN_CAPABILITIES` (`packages/plugin-kit/bin/build.mjs`)
+    /// is the JS mirror of this enum. A plugin author pre-validates a manifest
+    /// against that Set locally, and the host validates the same manifest
+    /// against `PluginCapability`, so the two must agree exactly. They did not
+    /// once: a capability in the host and not in the Set is a manifest the kit
+    /// rejects and the host accepts.
+    ///
+    /// This test reads the Set out of the file and pins it to `ALL`. An enum
+    /// variant added without its wire string in the Set fails here, and so does
+    /// a string left behind in the Set after a variant is removed. That parity
+    /// was a promise in the kit's comment and belonged to no test until the
+    /// lane that added a capability also owned the check.
+    #[test]
+    fn plugin_capability_mirror_matches_the_plugin_kit() {
+        use std::collections::BTreeSet;
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/plugin-kit/bin/build.mjs");
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+
+        // Scope the scan to the Set literal, so a quoted string elsewhere in
+        // the file is never mistaken for a capability, and split on the quote
+        // so only the odd pieces (the string bodies) are collected.
+        let open = src
+            .find("const KNOWN_CAPABILITIES = new Set([")
+            .expect("the plugin-kit still declares KNOWN_CAPABILITIES as a Set literal");
+        let literal = &src[open..];
+        let literal = &literal[..literal.find("]);").expect("the Set literal is terminated")];
+        let mirror: BTreeSet<&str> = literal.split('"').skip(1).step_by(2).collect();
+        let host: BTreeSet<&str> = PluginCapability::ALL.iter().map(|c| (*c).as_str()).collect();
+
+        let missing_from_kit: Vec<_> = host.difference(&mirror).collect();
+        let unknown_to_host: Vec<_> = mirror.difference(&host).collect();
+        assert!(
+            missing_from_kit.is_empty() && unknown_to_host.is_empty(),
+            "the plugin-kit capability mirror in {} drifted from PluginCapability::ALL\n  \
+             in the enum but missing from the file: {missing_from_kit:?}\n  \
+             in the file but not the enum: {unknown_to_host:?}",
+            path.display()
+        );
     }
 
     /// The roster discriminator (lane-10, ADR 0009 §6): WASM is the

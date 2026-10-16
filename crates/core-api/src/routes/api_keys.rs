@@ -51,6 +51,10 @@ pub const KNOWN_SCOPES: &[&str] = &[
     // plugin drive the domain-management API on the org's behalf.
     "org_custom_domain:read",
     "org_custom_domain:manage",
+    // Wave 47 lane A7: read an org's suspension notice state. Read-only by
+    // design — setting the flag is an admin action, so there is no
+    // `org_suspension:manage` for a machine to hold.
+    "org_suspension:read",
 ];
 
 // --- hashing ------------------------------------------------------------------
