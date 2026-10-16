@@ -18,11 +18,16 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# zsh sets $0 to the FUNCTION name inside a function, so the self-test cannot
+# re-invoke the script through $0 — capture the script path at top level.
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 GO=0
 DEEP=0
 STALE=0
+SELFTEST=0
 for arg in "$@"; do
   case "$arg" in
+    selftest) SELFTEST=1; GO=0 ;;   # proves the counting rules; touches nothing
     --go) GO=1 ;;
     --deep) DEEP=1 ;;
     --stale) STALE=-1 ;; # marker; next arg is the day count
@@ -33,6 +38,147 @@ done
 if [[ $STALE -eq 1 && ! "$STALE_DAYS" =~ '^[0-9]+$' ]]; then
   echo "dev-clean: --stale requires a day count, e.g. --stale 7" >&2
   exit 1
+fi
+
+# docker: exited containers from merged lanes, orphaned volumes, dangling images
+# The docker CLI hangs indefinitely when the daemon is wedged (2026-09-10) and
+# ignores the alarm-exec trick (Go runtime owns SIGALRM) — every call runs
+# under a kill-9 watchdog so the script can never hang on docker.
+#
+# The watchdog POLLS rather than sleeping in a detached subshell: the old
+# `( sleep "$secs"; kill -9 "$p" ) &` leaked its `sleep` child, which inherited
+# the caller's stdout and held it open, so every `$(dout …)` blocked for the
+# whole timeout even when docker had already answered (and a leaked sleep could
+# later signal a recycled PID). Polling leaves nothing behind and returns as
+# soon as the call does.
+#
+# DOCKER is a test seam: the self-test points it at a fake CLI, so the counting
+# rules below are provable without a daemon and without touching real state.
+DOCKER="${DOCKER:-docker}"
+POLL=0.25   # seconds between liveness checks; the tick budget below assumes it
+dout_status() { # dout_status <secs> <args…> — prints output, returns 124 on timeout
+  local secs=$1; shift
+  local f; f="$(mktemp)"
+  "$DOCKER" "$@" >"$f" 2>/dev/null </dev/null &
+  local p=$! ticks=0 limit=$((secs * 4))
+  while kill -0 "$p" 2>/dev/null; do
+    [[ $ticks -ge $limit ]] && break
+    sleep "$POLL"
+    ticks=$((ticks + 1))
+  done
+  local rc=0
+  if kill -0 "$p" 2>/dev/null; then
+    kill -9 "$p" 2>/dev/null
+    rc=124
+  else
+    wait "$p" 2>/dev/null
+    rc=$?
+  fi
+  cat "$f"; rm -f "$f"
+  return "$rc"
+}
+dout() { dout_status "$@"; }
+docker_ok() { [[ -n "$(dout 8 info)" ]] }
+
+# Which volumes `docker volume prune` (no flags) will actually remove: the
+# UNLABELED ones. `docker system df`'s RECLAIMABLE column counts every prunable
+# volume, labeled ones included — which is why the dry run promised 470.4MB on
+# 2026-10-16 and `--go` reclaimed 0B from it. All 8 survivors were labeled
+# Compose dev state, including the marula-hq dev Postgres database
+# (marula-hq-dev_pgdata). Never pass --all/-a to the prune: it would delete it.
+volume_facts() { # volume_facts <secs> -> "unlabeled=<n> protected=<n> names=<…>"
+  local secs="$1" vol labels unlabeled=0 protected=0 names=""
+  for vol in $(dout "$secs" volume ls -q); do
+    [[ -n "$vol" ]] || continue
+    labels="$(dout "$secs" volume inspect "$vol" --format '{{.Labels}}' 2>/dev/null)"
+    case "$labels" in
+      "map[]"|"") unlabeled=$((unlabeled + 1)) ;;
+      *)          protected=$((protected + 1)); names="$names $vol" ;;
+    esac
+  done
+  printf 'unlabeled=%s protected=%s names=%s\n' "$unlabeled" "$protected" "${names# }"
+}
+
+# Prune with a budget a real backlog fits in, and say so when it did not finish.
+prune_volumes() { # prune_volumes <seconds>
+  local secs="$1" out rc
+  out="$(dout_status "$secs" volume prune -f)"; rc=$?
+  [[ -n "$out" ]] && printf '%s\n' "$out" | sed 's/^/  /'
+  if [[ "$rc" -eq 124 ]]; then
+    echo "  WARN volume prune was cut off by the ${secs}s watchdog and did not finish — the rest is still there, run scripts/dev-clean.sh --go again (nothing is lost)" >&2
+  fi
+  return "$rc"
+}
+
+dev_clean_selftest() {
+  local tmp failures=0 checks=0 fake
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/dev-clean-selftest.XXXXXX")" || return 1
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" EXIT
+  fake="$tmp/docker"
+  cat > "$fake" <<'FAKE'
+#!/usr/bin/env bash
+case "$1 ${2:-}" in
+  "info "*)            echo "fake docker 1.0" ;;
+  "system df")         printf 'TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE\nImages          5         1         832.7MB   101.1MB (12%%)\nContainers      1         1         20.48kB   0B (0%%)\nLocal Volumes   9         1         646.1MB   470.4MB (72%%)\nBuild Cache     27        0         2.235GB   2.111GB\n' ;;
+  "volume ls")         printf 'marula_pgdata\nmarula-hq-dev_pgdata\nmeridian_legacy\nanon_scratch\n' ;;
+  "volume inspect")    case "${3:-}" in *marula-hq-dev_pgdata|*meridian_legacy|*marula_pgdata) echo "map[com.docker.compose.project:x]" ;; *) echo "map[]" ;; esac ;;
+  "volume prune")      if [[ "${FAKE_PRUNE_SLEEP:-0}" != "0" ]]; then sleep "$FAKE_PRUNE_SLEEP"; fi; echo "Total reclaimed space: 1.1GB" ;;
+  "ps -a")             exit 0 ;;
+  "rm -f")             exit 0 ;;
+  *)                   exit 0 ;;
+esac
+FAKE
+  chmod +x "$fake"
+  export DOCKER="$fake"
+
+  say() { echo "  $1"; }
+  check() { # check <label> <condition-result>
+    checks=$((checks + 1))
+    if [[ "$2" == "0" ]]; then say "PASS  $1"; else say "FAIL  $1"; failures=$((failures + 1)); fi
+  }
+
+  echo "dev-clean self-test: the reclaimable figure must not promise labeled volumes"
+  local facts
+  facts="$(volume_facts 20)"
+  check "counts 1 unlabeled volume" "$([[ "$facts" == "unlabeled=1 protected=3"* ]] && echo 0 || echo 1)"
+  check "names the protected volumes, HQ dev Postgres included" \
+    "$([[ "$facts" == *marula-hq-dev_pgdata* ]] && echo 0 || echo 1)"
+
+  # The dry run must not repeat docker's 470.4MB as a volume figure it can
+  # deliver, and it must state the protected count.
+  local dry
+  dry="$(DOCKER="$fake" "$SELF" 2>&1 || true)"
+  check "dry run reports the unlabeled/protected split" \
+    "$(printf '%s' "$dry" | grep -q "1 unlabeled" && echo 0 || echo 1)"
+  check "dry run names the labeled dev state as protected" \
+    "$(printf '%s' "$dry" | grep -q "protected:.*marula-hq-dev_pgdata" && echo 0 || echo 1)"
+  check "dry run never offers docker's volume RECLAIMABLE figure as ours" \
+    "$(printf '%s' "$dry" | grep -q "470" && echo 1 || echo 0)"
+  check "the image figure is a size, not docker's percentage" \
+    "$(printf '%s' "$dry" | grep -q "101.1MB" && ! printf '%s' "$dry" | grep -q "(12%)" && echo 0 || echo 1)"
+
+  # A prune the watchdog cut off must say so; one that fits must stay quiet.
+  local cut fits
+  cut="$(FAKE_PRUNE_SLEEP=3 prune_volumes 1 2>&1)"; local cut_rc=$?
+  check "truncated prune returns the watchdog code (124)" "$([[ "$cut_rc" -eq 124 ]] && echo 0 || echo 1)"
+  check "truncated prune says it was cut off" "$(printf '%s' "$cut" | grep -q "WARN volume prune was cut off" && echo 0 || echo 1)"
+  fits="$(FAKE_PRUNE_SLEEP=0 prune_volumes 20 2>&1)"; local fits_rc=$?
+  check "a prune that fits returns 0" "$([[ "$fits_rc" -eq 0 ]] && echo 0 || echo 1)"
+  check "a prune that fits warns about nothing" "$(printf '%s' "$fits" | grep -q "WARN" && echo 1 || echo 0)"
+
+  if [[ "$failures" -eq 0 ]]; then
+    echo "dev-clean self-test: $checks checks pass (fake docker, nothing removed)"
+    return 0
+  fi
+  echo "dev-clean self-test: $failures of $checks failed"
+  return 1
+}
+
+
+if [[ $SELFTEST -eq 1 ]]; then
+  dev_clean_selftest
+  exit $?
 fi
 
 before=$(df -g /System/Volumes/Data | tail -1 | awk '{print $4}')
@@ -69,23 +215,6 @@ for dir in $(ls -1d "$ROOT"/graphify-out/2026-*(N) 2>/dev/null); do
   ;; esac
 done
 
-# docker: exited containers from merged lanes, orphaned volumes, dangling images
-# The docker CLI hangs indefinitely when the daemon is wedged (2026-09-10) and
-# ignores the alarm-exec trick (Go runtime owns SIGALRM) — every call runs
-# under a kill-9 watchdog so the script can never hang on docker.
-dout() {
-  local secs=$1; shift
-  local f; f="$(mktemp)"
-  docker "$@" >"$f" 2>/dev/null &
-  local p=$!
-  ( sleep "$secs"; kill -9 "$p" 2>/dev/null ) &
-  local w=$!
-  wait "$p" 2>/dev/null
-  kill "$w" 2>/dev/null
-  cat "$f"; rm -f "$f"
-}
-docker_ok() { [[ -n "$(dout 8 info)" ]] }
-
 if docker_ok; then
   stale=$(dout 10 ps -a --filter status=exited --format '{{.Names}}' | grep -E 'p9-|p10-|p11-|-tests-pg' 2>/dev/null)
   [[ -n "$stale" ]] && for c in $stale; do
@@ -93,12 +222,25 @@ if docker_ok; then
     [[ $GO -eq 1 ]] && dout 10 rm -f "$c" >/dev/null
   done
   if [[ $GO -eq 1 ]]; then
-    dout 15 volume prune -f >/dev/null
+    # `docker volume prune` (no flags) removes UNLABELED volumes only, by
+    # design: the labeled ones are deliberate dev state, including the marula-hq
+    # dev Postgres database (marula-hq-dev_pgdata). Never pass --all here.
+    # A real backlog can outrun a watchdog, so the budget is generous and a
+    # prune that gets cut off says so instead of looking finished.
+    prune_volumes "${PRUNE_TIMEOUT:-120}" || true
     dout 15 image prune -f >/dev/null
   else
-    v=$(dout 8 system df | awk '/Local Volumes/{print $6}')
-    i=$(dout 8 system df | awk '/Images/{print $6}')
-    echo "  docker reclaimable: volumes ${v:-?}, images ${i:-?}"
+    facts="$(volume_facts 8)"
+    unlabeled="${facts#unlabeled=}"; unlabeled="${unlabeled%% *}"
+    protected="${facts#*protected=}"; protected="${protected%% *}"
+    protected_names="${facts#*names=}"
+    # docker prints the reclaimable size and a percentage in parens when the size
+    # is non-zero, and the size alone when it is zero — take the size either way
+    # (the old `print $6` printed the percentage).
+    i=$(dout 8 system df | awk '/^Images/{v=$NF; if (v ~ /^\(/) v=$(NF-1); print v}')
+    echo "  docker volumes: ${unlabeled:-?} unlabeled (the only ones a volume prune removes), ${protected:-?} protected (labeled — deliberate dev state)"
+    [[ -n "$protected_names" ]] && echo "    protected: $protected_names"
+    echo "  docker images reclaimable, docker's own count: ${i:-?} (an image prune removes dangling images only)"
   fi
 fi
 
