@@ -1,0 +1,30 @@
+{{- /*
+CPU-utilization HPA for core-api (Wave 49 lane R2). Rendered only when
+coreApi.autoscaling.enabled is true; the Deployment omits .spec.replicas in
+that case, so the HPA owns the count. Scaling core-api multiplies its
+Postgres connections — see docs/perf.md §5 and the note in values.yaml before
+raising maxReplicas past what the database (or a session pooler) can hold.
+*/}}
+{{- if .Values.coreApi.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "marula.fullname" . }}-core-api
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: core-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "marula.fullname" . }}-core-api
+  minReplicas: {{ .Values.coreApi.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.coreApi.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.coreApi.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

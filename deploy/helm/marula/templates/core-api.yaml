@@ -6,7 +6,9 @@ metadata:
     {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: core-api
 spec:
+  {{- if not .Values.coreApi.autoscaling.enabled }}
   replicas: {{ .Values.coreApi.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "marula.name" . }}
@@ -145,7 +147,7 @@ spec:
               port: {{ .Values.coreApi.bindAddr | regexFind ":\\d+$" | trimPrefix ":" }}
             initialDelaySeconds: 5
             periodSeconds: 5
-          resources: {{- toYaml (default .Values.coreApi.resources .Values.resources) | nindent 12 }}
+          resources: {{- toYaml (default .Values.resources .Values.coreApi.resources) | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}

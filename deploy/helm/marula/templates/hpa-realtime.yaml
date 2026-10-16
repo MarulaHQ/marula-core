@@ -1,0 +1,28 @@
+{{- /*
+CPU-utilization HPA for realtime (Wave 49 lane R2); rendered only when
+realtime.autoscaling.enabled is true. Realtime is stateless Redis pub/sub, so
+replicas do not need coordination.
+*/}}
+{{- if .Values.realtime.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "marula.fullname" . }}-realtime
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: realtime
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "marula.fullname" . }}-realtime
+  minReplicas: {{ .Values.realtime.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.realtime.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.realtime.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

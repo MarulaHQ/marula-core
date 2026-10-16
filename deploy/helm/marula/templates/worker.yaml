@@ -6,7 +6,9 @@ metadata:
     {{- include "marula.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
 spec:
+  {{- if not .Values.worker.autoscaling.enabled }}
   replicas: {{ .Values.worker.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "marula.name" . }}
@@ -68,7 +70,7 @@ spec:
               port: 8082
             initialDelaySeconds: 5
             periodSeconds: 5
-          resources: {{- toYaml (default .Values.worker.resources .Values.resources) | nindent 12 }}
+          resources: {{- toYaml (default .Values.resources .Values.worker.resources) | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}

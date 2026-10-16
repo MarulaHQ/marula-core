@@ -1,0 +1,29 @@
+{{- /*
+CPU-utilization HPA for worker (Wave 49 lane R2); rendered only when
+worker.autoscaling.enabled is true. The outbox relay and the job queue both
+claim rows with FOR UPDATE SKIP LOCKED (core-db/src/outbox.rs:47,
+core-db/src/queue.rs:105), so replicas never double-process a row.
+*/}}
+{{- if .Values.worker.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "marula.fullname" . }}-worker
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "marula.fullname" . }}-worker
+  minReplicas: {{ .Values.worker.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.worker.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.worker.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

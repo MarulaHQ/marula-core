@@ -92,3 +92,44 @@ decision does not change with the orchestrator.
 - **`coreApi.publicBaseUrl`.** Core-api derives the session cookies' `Secure`
   flag from it. Set it to the internal service name and every cookie on a
   public deployment drops the flag.
+
+## Scaling
+
+Every app component is stateless and scales horizontally. The chart gives
+each of the four a real per-service resource envelope, replacing the one
+chart-wide default, and each block carries an `autoscaling` stanza that is
+off by default.
+
+| Component | requests (cpu / memory) | limits (cpu / memory) | HPA max |
+|---|---|---|---|
+| core-api | 500m / 256Mi | 2 / 512Mi | 6 |
+| realtime | 250m / 128Mi | 1 / 384Mi | 4 |
+| worker | 250m / 256Mi | 1 / 512Mi | 6 |
+| web | 100m / 128Mi | 1 / 512Mi | 4 |
+
+The limits mirror `deploy/docker-compose.yml`'s per-service `cpus` and
+`mem_limit`, the one measured per-service ceiling the repo carries, and the
+requests sit at a sensible fraction of those. core-api takes the largest CPU
+limit because it holds the hot read path: 259 rps at concurrency 8, p95
+49.2 ms, roughly 3x headroom (`docs/perf.md` §5). Lane R5, the
+multi-endpoint load harness, will replace these with measured numbers.
+
+Turn an HPA on with, for example:
+
+    helm upgrade marula deploy/helm/marula \
+      --set coreApi.autoscaling.enabled=true \
+      --set coreApi.autoscaling.maxReplicas=4
+
+While `autoscaling.enabled` is true the Deployment omits `.spec.replicas`, so
+the HPA owns the count. While it is false, set `replicaCount` as before. CPU
+targets need a metrics server in the cluster.
+
+**Read this before raising `coreApi.maxReplicas`.** Each core-api replica
+opens its own Postgres connections: 45 at the R1 defaults (20 app + 25
+reporting), per `docs/perf.md` §5. Six replicas would ask for 270 connections
+against Postgres's default `max_connections = 100`. Scale core-api only
+behind a session pooler (PgBouncer or pgcat), or with `max_connections`
+raised to match. Worker and realtime do not share that shape. The worker
+claims work with `FOR UPDATE SKIP LOCKED` (`core-db/src/outbox.rs:47`,
+`core-db/src/queue.rs:105`), so replicas never double-process a row, and
+realtime is stateless pub/sub.
