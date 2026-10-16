@@ -26,7 +26,11 @@ export const buttonVariants = cva(
       size: {
         /** height follows density: 44 / 36 / 32 */
         default: "h-ctl rounded-ctl px-[14px]",
-        sm: "h-[30px] rounded-ctl px-[14px] text-[13px]",
+        /** Small is the control minus 8px — the same step the kit's `Chip`
+         * already uses — with a 32px floor, the pointer-target minimum in
+         * docs/theme.md §5. A fixed 30px ignored density and sat under that
+         * floor on every step. Renders 36 / 32 / 32. */
+        sm: "h-[calc(var(--mc-ctl)-8px)] min-h-[32px] rounded-ctl px-[14px] text-[13px]",
         /** the 48px full-width button on auth and portal screens */
         lg: "h-12 w-full justify-center rounded-ctl px-[14px] text-[16px]",
       },

@@ -67,11 +67,28 @@ export const PALETTE = [
   "#F8DCC0", // due-today background
   "#F0B27A", // due-today text (dark)
   "#4D2F14", // due-today background (dark)
-  "#B42318", // destructive + danger text
-  "#FDE8E5", // danger background
-  "#FB8A80", // destructive + danger text (dark)
-  "#3B1A18", // danger background (dark)
+  "#B42318", // destructive actions and P1 — the pack's own red
+  "#FB8A80", // destructive actions and P1 (dark)
+  // Breach — the danger status pair the kit declares and the pack draws
+  "#FBE1DE", // breach background
+  "#8F1C13", // breach text
+  "#4A1A18", // breach background (dark)
+  "#F9A097", // breach text (dark)
+  // The rest of the kit's status-pair family, carried because the kit owns it
+  "#ECE7DF", // new background
+  "#3F3D45", // new background (dark)
+  "#F3EAD2", // waiting background, also the cream column's muted fill
+  "#D8CFBA", // new text (dark), scheduled text (dark)
+  "#D5E3C5", // resolved background
+  "#2F4A1E", // resolved text
+  "#26361A", // resolved background (dark)
+  "#BFD99A", // resolved text (dark)
   "#5C4631", // offline text
+  // The cream column (marula-warm, the client portal's sand, marketing cream)
+  "#FBF7EC", // canvas
+  "#E6DCC2", // border
+  "#857A66", // input
+  "#FBF3DC", // assistant entry
   "#000000", // dark scrim and overlay shadow
 ] as const;
 
@@ -143,10 +160,10 @@ export const TOKEN = {
   dueBg: "#F8DCC0",
   dueFgDark: "#F0B27A",
   dueBgDark: "#4D2F14",
-  dangerFg: "#B42318",
-  dangerBg: "#FDE8E5",
-  dangerFgDark: "#FB8A80",
-  dangerBgDark: "#3B1A18",
+  dangerFg: "#8F1C13",
+  dangerBg: "#FBE1DE",
+  dangerFgDark: "#F9A097",
+  dangerBgDark: "#4A1A18",
   offlineFg: "#5C4631",
   destructive: "#B42318",
   black: "#000000",

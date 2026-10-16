@@ -52,17 +52,22 @@
   padding: 0 8px;
 }
 
+/* The primary ACTION takes the flipping primary pair (design.md §2 rule 2):
+   ink with gold text in light, gold with ink text in dark. The gold tint
+   (`--m-accent`) is the selection fill — active filter chip, selected row —
+   and never the primary. GAP-LEDGER §3.1. */
+
 .m-btn-primary {
-  background: var(--m-accent);
-  color: var(--m-on-accent);
+  background: var(--m-primary);
+  color: var(--m-on-primary);
 }
 
 .m-btn-primary:hover:not(:disabled) {
-  background: var(--m-accent-hover);
+  background: var(--m-primary-hover);
 }
 
 .m-btn-primary:active:not(:disabled) {
-  background: var(--m-accent-active);
+  background: var(--m-primary-active);
 }
 
 .m-btn-secondary {
@@ -85,10 +90,15 @@
   color: var(--m-text);
 }
 
+/* Destructive ACTIONS keep the shadcn `destructive` red, which is also the P1
+   priority chip's red — the pack redline draws P1 as a solid `--destructive`
+   chip. The danger STATUS pair is the kit's breach pair and aliases it in
+   tokens.css, so a destructive button no longer borrows the status fills. */
+
 .m-btn-destructive {
   background: var(--m-surface);
-  border-color: var(--m-status-danger-fg);
-  color: var(--m-status-danger-fg);
+  border-color: var(--m-destructive);
+  color: var(--m-destructive);
 }
 
 .m-btn-destructive:hover:not(:disabled) {
@@ -96,12 +106,12 @@
 }
 
 .m-btn-destructive-solid {
-  background: var(--m-status-danger-fg);
-  color: var(--m-status-success-bg);
+  background: var(--m-destructive);
+  color: var(--m-on-destructive);
 }
 
 .m-btn-destructive-solid:hover:not(:disabled) {
-  background: var(--m-status-danger-fg-hover);
+  background: var(--m-destructive-hover);
 }
 
 /* The assistant surface is the one inverted surface on a screen, so its
@@ -380,9 +390,11 @@
   cursor: not-allowed;
 }
 
-/* The plan's `border-destructive` on error. `--m-destructive` and
-   `--m-status-danger-fg` carry the same red in both modes by design, so a
-   field error and a P1 badge are the same red and cannot drift apart. */
+/* The plan's `border-destructive` on error: the invalid field takes the
+   destructive red. The error TEXT under it reads `--m-status-danger-fg`, the
+   kit's breach red, which is deeper on purpose (8.96:1 on white where
+   destructive is 6.57:1). Two values, one red family, and a follow-up in
+   TASKLIST.md about collapsing them. */
 
 .m-input[aria-invalid="true"],
 .m-textarea[aria-invalid="true"] {
@@ -570,12 +582,13 @@
   font-weight: 700;
 }
 
-/* Red is reserved for genuine breach, P1 and destructive actions, so P1 takes
-   the danger pair and nothing below it does. */
+/* Red is reserved for genuine breach, P1 and destructive actions. P1 takes the
+   destructive pair — the solid red the pack draws for `.pri` and the kit's
+   `PriorityChip` draws for P1 — while breach takes the tinted status pair. */
 
 .m-badge-p1 {
-  background: var(--m-status-danger-bg);
-  color: var(--m-status-danger-fg);
+  background: var(--m-destructive);
+  color: var(--m-on-destructive);
 }
 
 .m-badge-p2 {

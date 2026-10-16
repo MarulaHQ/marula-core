@@ -153,9 +153,12 @@
   --m-status-warning-bg: var(--mc-progress);
   --m-status-due-fg: var(--mc-attn-fg);   /* ripe blush family: due today, P2 */
   --m-status-due-bg: var(--mc-attn);
-  --m-status-danger-fg: var(--destructive);
-  --m-status-danger-bg: #fde8e5;
-  --m-status-danger-fg-hover: color-mix(in srgb, var(--m-status-danger-fg) 88%, var(--m-ink));
+  /* The kit's breach pair, because a breach pill is exactly that: the pack
+     redline for the board list draws `#fbe1de` under `#8f1c13`, 7.22:1. Every
+     other status pair above aliases its kit token; danger was the exception,
+     and its background was a literal the pack never draws. */
+  --m-status-danger-fg: var(--mc-st-breach-fg);
+  --m-status-danger-bg: var(--mc-st-breach);
   --m-status-danger: var(--m-status-danger-fg);
   --m-status-neutral-fg: var(--mc-note-fg);
   --m-status-neutral-bg: var(--mc-note);
@@ -163,8 +166,12 @@
   --m-status-offline-bg: var(--mc-off);
 
   /* Destructive is FIXED across every preset (wave41 D8) — it is a brand
-     semantic, not a theme choice. */
+     semantic, not a theme choice. `--m-on-destructive` is the text that goes
+     on a solid destructive fill; dark flips it to ink, as the kit's
+     `--destructive-foreground` does. */
   --m-destructive: var(--destructive);
+  --m-on-destructive: var(--destructive-foreground);
+  --m-destructive-hover: color-mix(in srgb, var(--m-destructive) 88%, var(--m-ink));
 
   /* ---- Edition cues (design.md §3.3) — identity, never product colour ---- */
   --m-edition-core: #5e7f3a;
@@ -317,15 +324,16 @@
   --m-status-warning-bg: var(--mc-progress);
   --m-status-due-fg: var(--mc-attn-fg);
   --m-status-due-bg: var(--mc-attn);
-  --m-status-danger-fg: var(--destructive);
-  --m-status-danger-bg: #3b1a18;
-  --m-status-danger-fg-hover: color-mix(in srgb, var(--m-status-danger-fg) 88%, var(--m-canvas));
+  --m-status-danger-fg: var(--mc-st-breach-fg);
+  --m-status-danger-bg: var(--mc-st-breach);
   --m-status-neutral-fg: var(--mc-note-fg);
   --m-status-neutral-bg: var(--mc-note);
   --m-status-offline-fg: var(--mc-off-fg);
   --m-status-offline-bg: var(--mc-off);
 
   --m-destructive: var(--destructive);
+  --m-on-destructive: var(--destructive-foreground);
+  --m-destructive-hover: color-mix(in srgb, var(--m-destructive) 88%, var(--m-canvas));
 
   --m-chart-1: #e8b83a;
   --m-chart-2: #a9c25d;
