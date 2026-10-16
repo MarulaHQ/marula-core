@@ -148,6 +148,14 @@ pub enum Permission {
     /// custom role) presents instead. The `org_custom_domain.manage` plugin
     /// capability resolves onto it.
     ManageOrgCustomDomain,
+    /// Wave 47 lane A7 (`p47-org-suspension-notice`): read an org's suspension
+    /// NOTICE state — when it was flagged, why, and when the notice starts
+    /// showing. Held by SERVICE ACCOUNTS and custom roles (org members read
+    /// their own state through membership, which is why no shipped preset
+    /// carries it). The flag is informational: nothing in the core blocks,
+    /// rejects or degrades a flagged org, so this grant widens what a machine
+    /// may OBSERVE and nothing else.
+    ViewOrgSuspension,
 }
 
 impl Permission {
@@ -189,6 +197,12 @@ impl Permission {
                 // Admin matrix a human admin holds.
                 Permission::ViewOrgCustomDomain => "org_custom_domain:read".into(),
                 Permission::ManageOrgCustomDomain => "org_custom_domain:manage".into(),
+                // Wave 47 lane A7: the same module-namespaced shape as
+                // `org_usage:read` / `org_custom_domain:read`. A human member
+                // reads their own org's notice state by membership; the
+                // permission exists for SERVICE ACCOUNTS and custom roles, so
+                // no shipped preset carries it.
+                Permission::ViewOrgSuspension => "org_suspension:read".into(),
                 Permission::Matrix { .. } => unreachable!(),
             },
         }
@@ -1093,6 +1107,24 @@ mod tests {
     }
 
     // --- RB1 portal tier roster -------------------------------------------
+
+    /// Wave 47 lane A7: the same shape as A6/A8. A human member reads the
+    /// suspension notice state through their own membership, and an owner or
+    /// admin manages it through the Admin matrix (`admin:edit` — the gate org
+    /// settings use), so the one operational grant exists for SERVICE
+    /// ACCOUNTS and custom roles. A preset grant here would read as "humans
+    /// need a special permission to see a notice about their own org", and
+    /// the next lane copying the pattern would make it true.
+    #[test]
+    fn org_suspension_read_is_a_machine_grant_no_preset_carries_it() {
+        assert_eq!(Permission::ViewOrgSuspension.key(), "org_suspension:read");
+        for role in BuiltinRole::PRESETS {
+            assert!(
+                !role.permissions().contains(&Permission::ViewOrgSuspension),
+                "{role:?} must not carry org_suspension:read by default"
+            );
+        }
+    }
 
     /// The portal tier matrix rendered by the roles surface must agree
     /// with the enforcement entry point for EVERY tier × capability cell.

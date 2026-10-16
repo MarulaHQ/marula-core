@@ -83,6 +83,8 @@ pub fn permission_from_key(key: &str) -> Option<Permission> {
         // module-namespaced shape.
         "org_custom_domain:read" => return Some(Permission::ViewOrgCustomDomain),
         "org_custom_domain:manage" => return Some(Permission::ManageOrgCustomDomain),
+        // Wave 47 lane A7: the suspension notice read grant.
+        "org_suspension:read" => return Some(Permission::ViewOrgSuspension),
         // Wave 45 lane 1 (ADR 0020): RAG capability aliases resolve onto the
         // Kb matrix (`kb:view` / `kb:edit`), matching `PluginCapability::RagRead`
         // and `PluginCapability::RagWrite`.

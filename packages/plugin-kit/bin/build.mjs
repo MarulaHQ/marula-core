@@ -20,17 +20,17 @@ import { basename, join } from "node:path";
 //
 // The closed vocabulary is `PluginCapability` in
 // crates/core-domain/src/entities/plugins.rs — the HOST is the source of
-// truth. This Set is a hand-maintained mirror of it (27 entries today), and
-// the mirror MUST agree with the host: a capability in the host but missing
-// here means a valid manifest is rejected by this local pre-validation while
-// the host's `PluginCapability::parse` accepts it, so the two disagree about
-// what a valid plugin is. That drift already happened once (the Wave 43
-// executor trio) and is why the three entries below are listed even though
-// no lane in this worktree added them — the lane closing that gap should own
-// the parity check, not the list.
+// truth. This Set is the mirror it validates against, and it must agree with
+// the host exactly: a capability in the host but missing here means a valid
+// manifest is rejected by this local pre-validation while the host's
+// `PluginCapability::parse` accepts it, so the two disagree about what a
+// valid plugin is.
 //
-// KEEP IN SYNC with the Rust enum; adding a capability there without adding
-// its wire string here is a bug, not a TODO.
+// The parity that used to be a promise in this comment is now enforced:
+// `plugin_capability_mirror_matches_the_plugin_kit` in the plugins.rs test
+// module reads this file and asserts the Set equals `PluginCapability::ALL`.
+// A capability added to the Rust enum without its wire string here fails that
+// test, and so does a wire string here with no enum variant.
 const KNOWN_CAPABILITIES = new Set([
   "tickets.read", "tickets.write", "clients.read", "clients.write",
   "time.read", "time.write", "projects.read", "projects.write",
@@ -38,11 +38,11 @@ const KNOWN_CAPABILITIES = new Set([
   "reporting.read", "financial.read", "vault:ingress",
   "routing.matrix", "routing.route", "routing.geocode", "routing.isochrone",
   "ui.widgets", "automation.actions", "reports.render", "fields.validate",
-  // Wave 43 executor trio, Wave 47 A9 service-account surface, and the
-  // Wave 47 A6 usage scope. The count must match `PluginCapability::ALL`
-  // (28 today).
   "automation.triggers", "automation.reads", "events.emit",
   "service_accounts.manage", "org_usage.read",
+  // Wave 45 RAG namespace, the Wave 47 A8 domain surface, and the Wave 47 A7
+  // suspension notice. All 32 wire strings must be here.
+  "rag.read", "rag.write", "org_custom_domain.manage", "org_suspension.read",
 ]);
 const SLOTS = new Set(["dashboard", "ticket_pane"]);
 const WIDGET_KINDS = new Set(["stat", "metric", "list"]);

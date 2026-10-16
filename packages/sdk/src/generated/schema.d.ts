@@ -6494,6 +6494,27 @@ export interface paths {
         patch: operations["service_accounts_update"];
         trace?: never;
     };
+    "/api/v1/orgs/{org_id}/suspension-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** `GET /api/v1/orgs/{org_id}/suspension-status` — the org's notice state. */
+        get: operations["org_suspension_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * `PATCH /api/v1/orgs/{org_id}/suspension-status` — set or clear the flag
+         *     (`admin:edit`). Idempotent; emits `org.suspension_changed` + an audit row.
+         */
+        patch: operations["org_suspension_status_patch"];
+        trace?: never;
+    };
     "/api/v1/orgs/{org_id}/usage": {
         parameters: {
             query?: never;
@@ -22987,7 +23008,7 @@ export interface components {
          *     no key for them).
          * @enum {string}
          */
-        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate" | "AutomationTriggers" | "AutomationReads" | "EventsEmit" | "ServiceAccountManage" | "OrgUsageRead" | "RagRead" | "RagWrite" | "OrgCustomDomainManage";
+        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate" | "AutomationTriggers" | "AutomationReads" | "EventsEmit" | "ServiceAccountManage" | "OrgUsageRead" | "RagRead" | "RagWrite" | "OrgCustomDomainManage" | "OrgSuspensionRead";
         /**
          * @description Install lifecycle. Deny-by-default: `Disabled` until an explicit
          *     admin enable; `Revoked` is terminal (registry revocation or explicit
@@ -27291,6 +27312,25 @@ export interface components {
         SetSkillEnabledRequest: {
             enabled: boolean;
         };
+        SetSuspensionRequest: {
+            /**
+             * Format: int64
+             * @description Whole seconds after the flag is set before the notice starts showing.
+             *     Omitted or `null` = due immediately.
+             */
+            notify_after?: number | null;
+            /**
+             * @description Required when `suspended` is `true`, refused when it is `false`:
+             *     `billing_lapsed`, `abuse`, or `other`.
+             */
+            reason?: string | null;
+            /**
+             * @description `true` flags the org; `false` clears the flag and both companions.
+             *     Setting an already-flagged org is idempotent — it keeps the original
+             *     `suspended_at`, so a retry cannot restart the notice countdown.
+             */
+            suspended: boolean;
+        };
         SetTicketFieldValueRequest: {
             value: unknown;
         };
@@ -28291,6 +28331,28 @@ export interface components {
          * @enum {string}
          */
         SurfaceWidgetKind: "stat" | "metric" | "list";
+        /** @description The notice state plus the two links a surface renders beside it. */
+        SuspensionStatusView: {
+            /** @description Where to pull the org's data out (the existing export surface). */
+            data_export_url: string;
+            /** @description The guide that explains that export. */
+            docs_url: string;
+            /**
+             * Format: int64
+             * @description Whole seconds after `suspended_at` before the notice starts showing.
+             *     `null` = the notice is due immediately.
+             */
+            notify_after?: number | null;
+            /** Format: uuid */
+            org_id: string;
+            /** @description `billing_lapsed` | `abuse` | `other`. `null` = not flagged. */
+            reason?: string | null;
+            /**
+             * Format: date-time
+             * @description When the org was flagged. `null` = not flagged.
+             */
+            suspended_at?: string | null;
+        };
         SyncForceQuery: {
             /** @description Force a poll even when the connection is disabled (admin repair). */
             force?: boolean;
@@ -43339,6 +43401,103 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ServiceAccountView"];
                 };
+            };
+        };
+    };
+    org_suspension_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the org; must be the caller's own org */
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuspensionStatusView"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description service account without org_suspension:read */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such org for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_suspension_status_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the org; must be the caller's own org */
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetSuspensionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuspensionStatusView"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not an admin (no admin:edit) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such org for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown reason, or a missing one when suspending */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

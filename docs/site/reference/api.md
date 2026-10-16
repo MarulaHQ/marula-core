@@ -3,7 +3,7 @@
 
 **Marula Core API 0.1.0** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**632 paths · 842 operations · 1323 schemas.**
+**638 paths · 853 operations · 1346 schemas.**
 
 ## agent-proposals
 
@@ -699,11 +699,17 @@
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
+| `DELETE` | `/api/v1/orgs/{org_id}/custom-domain` <a id="org_custom_domain_delete"></a> | `DELETE /api/v1/orgs/{org_id}/custom-domain` — clear the domain. | — |
+| `GET` | `/api/v1/orgs/{org_id}/custom-domain` <a id="org_custom_domain_get"></a> | `GET /api/v1/orgs/{org_id}/custom-domain` — current state + verification status + provider-plugin availability. | — |
+| `POST` | `/api/v1/orgs/{org_id}/custom-domain` <a id="org_custom_domain_set"></a> | `POST /api/v1/orgs/{org_id}/custom-domain` — claim a domain. | [SetCustomDomainRequest](#schema-setcustomdomainrequest) |
+| `POST` | `/api/v1/orgs/{org_id}/custom-domain/verify` <a id="org_custom_domain_verify"></a> | `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS verification (TASKLIST A8 (C)). The TXT token is the authority; the A/CNAME leg is plausibility only. | — |
 | `GET` | `/api/v1/orgs/{org_id}/quotas` <a id="org_quotas_get"></a> | GET /api/v1/orgs/{org_id}/quotas — usage beside configured limits. | — |
 | `GET` | `/api/v1/orgs/{org_id}/service-accounts` <a id="service_accounts_list"></a> | GET /orgs/{org_id}/service-accounts — admin listing with derived cert status. | — |
 | `POST` | `/api/v1/orgs/{org_id}/service-accounts` <a id="service_accounts_create"></a> | POST /orgs/{org_id}/service-accounts — enroll a service account by pinning a certificate fingerprint with permission grants and an optional expiry. | [CreateServiceAccountRequest](#schema-createserviceaccountrequest) |
 | `DELETE` | `/api/v1/orgs/{org_id}/service-accounts/{id}` <a id="service_accounts_delete"></a> | DELETE /orgs/{org_id}/service-accounts/{id} — immediate, permanent revocation. Idempotent: a second delete of an already-revoked account stays successful (the row is present in-scope), so the surface is safe to retry. | — |
 | `PATCH` | `/api/v1/orgs/{org_id}/service-accounts/{id}` <a id="service_accounts_update"></a> | PATCH /orgs/{org_id}/service-accounts/{id} — update grants, expiry, or lifecycle status. The pinned fingerprint and org binding are immutable (a re-pin is a create + revoke). | [UpdateServiceAccountRequest](#schema-updateserviceaccountrequest) |
+| `GET` | `/api/v1/orgs/{org_id}/suspension-status` <a id="org_suspension_status_get"></a> | `GET /api/v1/orgs/{org_id}/suspension-status` — the org's notice state. | — |
+| `PATCH` | `/api/v1/orgs/{org_id}/suspension-status` <a id="org_suspension_status_patch"></a> | `PATCH /api/v1/orgs/{org_id}/suspension-status` — set or clear the flag (`admin:edit`). Idempotent; emits `org.suspension_changed` + an audit row. | [SetSuspensionRequest](#schema-setsuspensionrequest) |
 | `GET` | `/api/v1/orgs/{org_id}/usage` <a id="org_usage_get"></a> | GET /api/v1/orgs/{org_id}/usage — the org's current usage counts. | — |
 
 ## passwords
@@ -1389,6 +1395,11 @@
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
+| `POST` | `/api/v1/workflows/author` <a id="workflow_author"></a> | POST /api/workflows/author — author a workflow draft from a sentence. | [AuthorWorkflowRequest](#schema-authorworkflowrequest) |
+| `GET` | `/api/v1/workflows/documents` <a id="workflow_documents_list"></a> | GET /api/workflows/documents | — |
+| `POST` | `/api/v1/workflows/documents` <a id="workflow_documents_create"></a> | POST /api/workflows/documents — the document is validated before storage (see [`validate_definition`]); the row is created as revision 1. | [CreateWorkflowDocumentRequest](#schema-createworkflowdocumentrequest) |
+| `GET` | `/api/v1/workflows/documents/{id}` <a id="workflow_documents_get"></a> | GET /api/workflows/documents/{id} | — |
+| `PATCH` | `/api/v1/workflows/documents/{id}` <a id="workflow_documents_update"></a> | PATCH /api/workflows/documents/{id} — replacing the document validates it and advances the revision. | [UpdateWorkflowDocumentRequest](#schema-updateworkflowdocumentrequest) |
 | `GET` | `/api/v1/workflows/nodes` <a id="workflow_nodes_list"></a> | GET /api/workflows/nodes — the catalogue, filtered. Declarations carry no org data, so any authed org member may read; each consuming surface keeps its own data gates. | — |
 | `GET` | `/api/v1/workflows/nodes/{id}` <a id="workflow_nodes_get"></a> | GET /api/workflows/nodes/{id} — one node with both schemas parsed. The on-demand schema leg the authoring model uses, so exposing the catalogue to a prompt costs one call per node it actually needs rather than the whole catalogue inlined. | — |
 | `GET` | `/api/v1/workflows/plugin-nodes` <a id="workflow_plugin_nodes"></a> | GET /api/workflows/plugin-nodes — the org's plugin-contributed workflow nodes, parsed through the same contract the registry uses. | — |
@@ -1477,6 +1488,13 @@
 | <a id="schema-attachmentkind"></a>`AttachmentKind` | string | What an attachment belongs to. The enum value is persisted verbatim. |
 | <a id="schema-auditevent"></a>`AuditEvent` | object |  |
 | <a id="schema-auditpage"></a>`AuditPage` | object |  |
+| <a id="schema-authorcatalogueinfo"></a>`AuthorCatalogueInfo` | object | The registry provenance the draft was validated against. |
+| <a id="schema-authoringissue"></a>`AuthoringIssue` | object | One author-time refusal, pointed and stable so a UI can render it. |
+| <a id="schema-authoringtoolcall"></a>`AuthoringToolCall` | object | One tool call the model made, as the response reports it. |
+| <a id="schema-authormodelinfo"></a>`AuthorModelInfo` | object | Model-provenance summary for the response. |
+| <a id="schema-authorusage"></a>`AuthorUsage` | object |  |
+| <a id="schema-authorworkflowrequest"></a>`AuthorWorkflowRequest` | object |  |
+| <a id="schema-authorworkflowresponse"></a>`AuthorWorkflowResponse` | object |  |
 | <a id="schema-automationaction"></a>`AutomationAction` | object | Effects a rule may request. Every variant maps onto an existing core-api write path — automations never gain private write routes. |
 | <a id="schema-automationcondition"></a>`AutomationCondition` | object | One predicate; a rule matches only when EVERY condition holds. Deterministic predicates evaluate against the ticket snapshot; the [`AutomationCondition::AiDecision`] kind is pulled out by [`split_cond |
 | <a id="schema-automationtestrunmatch"></a>`AutomationTestRunMatch` | object | POST /api/automation-rules/{id}/test-run — dry-run one rule against the org's most recent tickets (board-scoped when the rule binds a board), PROPOSAL-shaped: what WOULD match and what the actions wou |
@@ -1557,6 +1575,7 @@
 | <a id="schema-catalogitemmutationresponse"></a>`CatalogItemMutationResponse` | composite | Instant-first mutation response (IF2) for catalog mutations. |
 | <a id="schema-catalogitemview"></a>`CatalogItemView` | object | RB2 (ADR 0004): a catalog item as the CALLER may see it. `unit_price` is the commercial surface; `cost_minor` (and the gross margin derived from it) is financial data — it serializes `null` for caller |
 | <a id="schema-cataloglistquery"></a>`CatalogListQuery` | object |  |
+| <a id="schema-cataloguenode"></a>`CatalogueNode` | object | One node as the authoring prompt sees it: NO schemas. Schemas are fetched per node, on demand, through [`NODE_SCHEMA_TOOL`]. `idempotent` and `agent_description` ride here so the model can reason abou |
 | <a id="schema-catalogview"></a>`CatalogView` | object | The field catalog of ONE versioned view: every projected column plus the narrower filterable inventory. Identifiers here are the ONLY ones a builder may reference — the server re-validates every spec  |
 | <a id="schema-categorymutationresponse"></a>`CategoryMutationResponse` | composite | Instant-first mutation response (IF2): category fields at the top level plus the additive `mutation` metadata. |
 | <a id="schema-changestatusrequest"></a>`ChangeStatusRequest` | composite |  |
@@ -1722,6 +1741,7 @@
 | <a id="schema-createvendorrequest"></a>`CreateVendorRequest` | composite |  |
 | <a id="schema-createviewrequest"></a>`CreateViewRequest` | object |  |
 | <a id="schema-createwebhookrequest"></a>`CreateWebhookRequest` | object |  |
+| <a id="schema-createworkflowdocumentrequest"></a>`CreateWorkflowDocumentRequest` | object |  |
 | <a id="schema-credentialsview"></a>`CredentialsView` | object |  |
 | <a id="schema-credentialview"></a>`CredentialView` | object |  |
 | <a id="schema-creditnote"></a>`CreditNote` | object | The credit document. `issued_against_invoice_id` is the issuing context (may be `None` for a free-standing client credit); applications may target any issued invoice of the same client and currency. |
@@ -1733,6 +1753,8 @@
 | <a id="schema-creditnotestatus"></a>`CreditNoteStatus` | string | Document lifecycle of a credit note. `applied` / `refunded` / `partially applied` are DERIVED from the counters, never stored — allocation moves continuously; only a void is a state. |
 | <a id="schema-csatsection"></a>`CsatSection` | object | CSAT inputs slot (Wave 34 lane 2): `available` is the honest feature gate — true only once the org has real survey data, never fabricated from a zero-window. Scores are 1-5; "low" means score ≤ 2. |
 | <a id="schema-curatefieldsrequest"></a>`CurateFieldsRequest` | composite |  |
+| <a id="schema-customdomaininstructions"></a>`CustomDomainInstructions` | object | Manual DNS setup instructions (the seam's none-mode), ready to render. |
+| <a id="schema-customdomainview"></a>`CustomDomainView` | object | GET response: current state + verification status + whether a DNS-provider plugin is installed (A8 (F)). |
 | <a id="schema-customizationmanifest"></a>`CustomizationManifest` | object | The customization manifest envelope, `manifest_version` 1. |
 | <a id="schema-daycapacity"></a>`DayCapacity` | object | One technician's capacity for one day of the horizon. |
 | <a id="schema-daypackavailabilityview"></a>`DayPackAvailabilityView` | object |  |
@@ -1793,6 +1815,7 @@
 | <a id="schema-detectionfile"></a>`DetectionFile` | object |  |
 | <a id="schema-detectionview"></a>`DetectionView` | object |  |
 | <a id="schema-deviceasset"></a>`DeviceAsset` | object |  |
+| <a id="schema-diffentry"></a>`DiffEntry` | object | One structural change between the current document and the draft. The caller renders these as the review diff; nothing is applied here. |
 | <a id="schema-dispatchappointment"></a>`DispatchAppointment` | object | One booking block on the dispatch board: the appointment plus the ticket number and client name the block face renders. |
 | <a id="schema-dispatchdayquery"></a>`DispatchDayQuery` | object | One dispatch-path query: `date` is a LOCAL date interpreted as the UTC day window (documented UTC scope). |
 | <a id="schema-dispatchdayview"></a>`DispatchDayView` | object | The assembled day-view payload: one request, one render. |
@@ -1800,6 +1823,7 @@
 | <a id="schema-dispatchqueueview"></a>`DispatchQueueView` | object | GET /api/dispatch/queue envelope. |
 | <a id="schema-dispatchstatusshade"></a>`DispatchStatusShade` | object | The latest connector/staff status push for one booking, shaded onto the board block face. |
 | <a id="schema-dispositionstatus"></a>`DispositionStatus` | string | The human verification disposition of one time entry (Wave 39 V1). `rejected` and `non_billable` demand the typed [`UnbillableReason`]; the workspace badge set matches this vocabulary exactly. |
+| <a id="schema-dnsrecordinstruction"></a>`DnsRecordInstruction` | object | One DNS record an operator pastes by hand. Mirrors the solver's `ManualDnsRecord` as a utoipa schema (the seam crate carries no OpenAPI dependency). |
 | <a id="schema-document"></a>`Document` | object | A document's living handle. No content lives here — content is only ever a [`DocumentVersion`]; `current_version` names the newest one. |
 | <a id="schema-documentattachmentdeleted"></a>`DocumentAttachmentDeleted` | object |  |
 | <a id="schema-documentattachmentlist"></a>`DocumentAttachmentList` | object |  |
@@ -1814,6 +1838,7 @@
 | <a id="schema-dsnrow"></a>`DsnRow` | object |  |
 | <a id="schema-dunningstate"></a>`DunningState` | string | Collections posture of an issued invoice. Forward-only: states are data moved by explicit API writes (events + write trail), never a background side effect. |
 | <a id="schema-dunningtransitionrequest"></a>`DunningTransitionRequest` | composite |  |
+| <a id="schema-edgecheck"></a>`EdgeCheck` | object |  |
 | <a id="schema-edgeexchangeresponse"></a>`EdgeExchangeResponse` | object |  |
 | <a id="schema-edgelinkinfo"></a>`EdgeLinkInfo` | object |  |
 | <a id="schema-edgesourceinfo"></a>`EdgeSourceInfo` | object |  |
@@ -2421,12 +2446,15 @@
 | <a id="schema-serviceview"></a>`ServiceView` | object |  |
 | <a id="schema-sessioninfo"></a>`SessionInfo` | object |  |
 | <a id="schema-setchecklistitemrequest"></a>`SetChecklistItemRequest` | composite |  |
+| <a id="schema-setcustomdomainrequest"></a>`SetCustomDomainRequest` | object |  |
+| <a id="schema-setcustomdomainresponse"></a>`SetCustomDomainResponse` | object | POST response: exactly the three fields TASKLIST A8 (B) names. |
 | <a id="schema-setdependenciesrequest"></a>`SetDependenciesRequest` | object |  |
 | <a id="schema-setemailverifiedrequest"></a>`SetEmailVerifiedRequest` | object |  |
 | <a id="schema-setjourneystartrequest"></a>`SetJourneyStartRequest` | composite |  |
 | <a id="schema-setqueuerankrequest"></a>`SetQueueRankRequest` | composite | PUT /api/dispatch/queue/{ticket_id} body. |
 | <a id="schema-setsecretgrantrequest"></a>`SetSecretGrantRequest` | object |  |
 | <a id="schema-setskillenabledrequest"></a>`SetSkillEnabledRequest` | object |  |
+| <a id="schema-setsuspensionrequest"></a>`SetSuspensionRequest` | object |  |
 | <a id="schema-setticketfieldvaluerequest"></a>`SetTicketFieldValueRequest` | object |  |
 | <a id="schema-settingkind"></a>`SettingKind` | object | The value shapes the registry understands. A stored value must satisfy its declaration's kind or the write is rejected (validation is applied before persistence, never after). |
 | <a id="schema-settingvalue"></a>`SettingValue` | object | A concrete setting value. Only three payload types exist by design — richer structures are entities, not settings. |
@@ -2499,6 +2527,7 @@
 | <a id="schema-surfacetrigger"></a>`SurfaceTrigger` | object | One declared TRIGGER source (Wave 43 lane 4, ADR 0017 §3): the event type a plugin emits, which a rule can then fire on. The trigger is a DECLARATION, not a dispatcher. It names the type it emits and  |
 | <a id="schema-surfacewidget"></a>`SurfaceWidget` | object | One declared widget. |
 | <a id="schema-surfacewidgetkind"></a>`SurfaceWidgetKind` | string | What a declared widget RENDERS AS. Closed vocabulary — each kind maps onto one trusted core component; a plugin cannot introduce a new render shape. |
+| <a id="schema-suspensionstatusview"></a>`SuspensionStatusView` | object | The notice state plus the two links a surface renders beside it. |
 | <a id="schema-syncforcequery"></a>`SyncForceQuery` | object |  |
 | <a id="schema-syncoutcomeresponse"></a>`SyncOutcomeResponse` | object |  |
 | <a id="schema-syncoutcomewire"></a>`SyncOutcomeWire` | object |  |
@@ -2612,6 +2641,7 @@
 | <a id="schema-travelplaceview"></a>`TravelPlaceView` | object |  |
 | <a id="schema-travelsuggestionview"></a>`TravelSuggestionView` | object |  |
 | <a id="schema-travelwarningview"></a>`TravelWarningView` | object |  |
+| <a id="schema-txtcheck"></a>`TxtCheck` | object |  |
 | <a id="schema-unavailablemetric"></a>`UnavailableMetric` | object | A metric the core does not report, and why. The reason is prose for a HUMAN operator reading the surface; `metric` is the stable token a dashboard can group on. |
 | <a id="schema-unbillablereason"></a>`UnbillableReason` | string | Why an entry is not billable (report V3). Typed values only — the verification run and scoring reports aggregate on these codes. |
 | <a id="schema-undofieldstep"></a>`UndoFieldStep` | object | One field of one applied write — per-field undo granularity. |
@@ -2668,6 +2698,7 @@
 | <a id="schema-updatetimesettingsrequest"></a>`UpdateTimeSettingsRequest` | object |  |
 | <a id="schema-updatevendorrequest"></a>`UpdateVendorRequest` | composite |  |
 | <a id="schema-updatewebhookrequest"></a>`UpdateWebhookRequest` | object |  |
+| <a id="schema-updateworkflowdocumentrequest"></a>`UpdateWorkflowDocumentRequest` | object |  |
 | <a id="schema-upsertedgesourcerequest"></a>`UpsertEdgeSourceRequest` | object |  |
 | <a id="schema-upsertmemberrequest"></a>`UpsertMemberRequest` | object |  |
 | <a id="schema-upsertprecedencerequest"></a>`UpsertPrecedenceRequest` | object |  |
@@ -2689,6 +2720,7 @@
 | <a id="schema-verificationentryview"></a>`VerificationEntryView` | object | One entry inside a ticket group: identity, cost cell, badge. |
 | <a id="schema-verificationgroupview"></a>`VerificationGroupView` | object | One ticket (or project phase) group with its running totals. |
 | <a id="schema-verificationworkspace"></a>`VerificationWorkspace` | object | The full workspace response. |
+| <a id="schema-verifycustomdomainresponse"></a>`VerifyCustomDomainResponse` | object | POST `/verify` response: the raw evidence plus the resulting status. |
 | <a id="schema-verifypublisherrequest"></a>`VerifyPublisherRequest` | object |  |
 | <a id="schema-verifystatus"></a>`VerifyStatus` | object |  |
 | <a id="schema-viewid"></a>`ViewId` | string | Versioned read-model views. Variant ↔ physical view name is frozen alongside the schema-version suffix; adding a view is additive. The serde encoding is the view SLUG (`snake_case`) — the same string  |
@@ -2713,6 +2745,8 @@
 | <a id="schema-workbenchdecision"></a>`WorkbenchDecision` | object | The suggestion-grade `decision_record_dedupe` judgment for this candidate, read from the append-only decision store. `None` (and therefore silent in the UI) whenever the decision model is unconfigured |
 | <a id="schema-workbenchfieldrow"></a>`WorkbenchFieldRow` | object |  |
 | <a id="schema-workbenchside"></a>`WorkbenchSide` | composite | One side of the workbench comparison: the item view plus its FULL tier state (observed/curated/field_sources) and identity keys. |
+| <a id="schema-workflowdocumentlistview"></a>`WorkflowDocumentListView` | object |  |
+| <a id="schema-workflowdocumentview"></a>`WorkflowDocumentView` | object | A workflow document as the canvas reads it. `revision` is the document version the executor records on each run. |
 | <a id="schema-workflowretrymode"></a>`WorkflowRetryMode` | string | How far back a retry re-executes. |
 | <a id="schema-workflowrunstatus"></a>`WorkflowRunStatus` | string | What one execution attempt is doing. `Waiting` is the parked state and is as terminal-as-nothing: it is waiting for a clock or an event, not for a worker. |
 | <a id="schema-workflowruntrigger"></a>`WorkflowRunTrigger` | string | Why a run row exists. The two chain kinds are pinned to their pointer in the database (`workflow_runs_trigger_shape`), so a row can never claim to be a resume without naming the run it continues. |
@@ -2725,4 +2759,4 @@
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 30 operation groups; schema count 1323 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 30 operation groups; schema count 1346 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

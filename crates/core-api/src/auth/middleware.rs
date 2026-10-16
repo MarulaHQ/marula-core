@@ -237,7 +237,9 @@ pub async fn require_auth(
 /// through keys, gated by the capability registry inside the handlers.
 /// `/api/migration` is the D3 connector surface (push + pull), scoped by
 /// `migration:*` keys. `/api/orgs` is the Wave 47 A6 usage/quota monitoring
-/// read (scoped by `org_usage:read`). An allowance is not a grant: each of
+/// read (scoped by `org_usage:read`) plus A7's suspension notice
+/// (`org_suspension:read`) and A8's custom domain (`org_custom_domain:read`
+/// / `:manage`). An allowance is not a grant: each of
 /// these prefixes is JWT-reachable too, and the handlers' permission checks
 /// still run.
 /// Canonical `/api/v1/...` requests match through their legacy-form twin.
@@ -302,6 +304,14 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
         && !out.contains(&Permission::ManageOrgCustomDomain)
     {
         out.push(Permission::ManageOrgCustomDomain);
+    }
+    // Wave 47 lane A7: the suspension notice read. Same module-namespaced
+    // shape again, and read-only by design: setting the flag is an admin
+    // action, so a machine key has no manage half to present.
+    if scopes.iter().any(|s| s.as_str() == "org_suspension:read")
+        && !out.contains(&Permission::ViewOrgSuspension)
+    {
+        out.push(Permission::ViewOrgSuspension);
     }
     let mut push = |module: Module, actions: &[Action]| {
         for a in actions {

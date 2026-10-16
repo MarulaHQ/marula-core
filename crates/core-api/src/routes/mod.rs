@@ -94,6 +94,7 @@ pub mod onboarding;
 pub mod openapi;
 pub mod org_config;
 pub mod org_custom_domain;
+pub mod org_suspension;
 pub mod org_usage;
 pub mod org_users;
 pub mod passwords;
@@ -1632,6 +1633,16 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/orgs/{org_id}/custom-domain/verify"),
             post(org_custom_domain::verify_custom_domain),
+        )
+        // Tenant suspension notice flag (Wave 47 lane A7, migration 0136).
+        // NOTICE, NEVER A BLOCK: the flag is informational for the hosted
+        // billing lifecycle, and nothing in the core gates on it — a flagged
+        // org keeps every endpoint it had. Read is member-or-
+        // `org_suspension:read`; the PATCH is admin-only (`admin:edit`, the
+        // same permission org settings use).
+        .route(
+            &rp("/orgs/{org_id}/suspension-status"),
+            get(org_suspension::get_suspension_status).patch(org_suspension::set_suspension_status),
         )
         // email inbound routing settings (admin)
         .route(

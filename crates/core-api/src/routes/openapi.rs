@@ -321,6 +321,11 @@ use utoipa::OpenApi;
         crate::routes::org_custom_domain::set_custom_domain,
         crate::routes::org_custom_domain::verify_custom_domain,
         crate::routes::org_custom_domain::delete_custom_domain,
+        // tenant suspension notice flag (Wave 47 lane A7): the informational
+        // banner API for the hosted billing lifecycle. No enforcement lives
+        // behind these two operations.
+        crate::routes::org_suspension::get_suspension_status,
+        crate::routes::org_suspension::set_suspension_status,
         // self-host services visibility (Wave 36 lane 3): owner/admin read
         // of the ops stack — health sweep, detections, link-out cards.
         crate::routes::self_host::get,
