@@ -139,9 +139,20 @@ boot, openapi pin regen, scratch verification — routes through
 - Teardown: `scripts/e2e-stack.sh down <RUN_ID>` — removes ONLY that run id's
   processes/containers; never a parallel lane's DB. (E2E_FOREGROUND traps on
   its own run id too.)
+- `scripts/e2e-stack.sh` up RETURNS as soon as core-api answers its health
+  check: core-api and realtime detach with their own stdio (`</dev/null`, logs
+  at `.kilo/e2e-logs/<run>/{core-api,realtime}.log`), so piping `up` can never
+  block. `up` narrates each stage with its elapsed time and prints the tail of
+  both service logs when it finishes; `E2E_FOLLOW=1` streams those logs live
+  instead of returning (Ctrl-C stops following, the stack keeps running). Read a
+  boot failure from the log path, not from a call that never returns.
 - `scripts/dev-status.sh` shows every registered run (pids, ports, env
   fingerprint) — check it BEFORE killing anything that looks like a straggler,
-  and never kill processes outside your own run id.
+  and never kill processes outside your own run id. It resolves the SHARED root
+  (the main checkout) and also scans worktree registries, so a stack booted
+  inside a lane worktree is visible from `main`. The run registry and service
+  logs live under that shared root; only `e2e/.e2e-stack.env` stays in the
+  checkout that ran the boot.
 - `scripts/regen-openapi-pins.sh` is the only sanctioned way to re-pin the
   OpenAPI snapshots (compact byte-identical pair + SDK regen + gate).
 - Frontend verification stays frontend-tooling-only (typecheck/lint/targeted

@@ -83,6 +83,13 @@ export interface EnvelopeMutation<P, R> {
   request(client: ApiClient, body: P): Promise<EnvelopeResponse<R>>;
   /** Extract (entityId, mutation.version) pairs to remember. */
   versions?(response: R): [string, number][];
+  /**
+   * Reconcile from the applied snapshot the server returned (IF2
+   * read-your-write). A CREATE has no local insert to correct, so this is
+   * the only synchronous way the new row reaches the cache — the live
+   * delta is a second path, never the only one. Runs after success only.
+   */
+  onApplied?(response: R): void;
 }
 
 /**
@@ -125,6 +132,9 @@ export async function runEnvelopeMutation<P extends { idempotency_key?: string |
       if (meta !== undefined && typeof meta.version === "number") {
         rememberVersion(options.entityId, meta.version);
       }
+    }
+    if (options.onApplied !== undefined && result.data !== undefined) {
+      options.onApplied(result.data);
     }
     return { ok: true };
   } catch (error) {

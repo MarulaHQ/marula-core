@@ -4566,6 +4566,26 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             serde_json::json!({ "action": "set", "domain": "support.example.com" })
         ),
     },
+    // -- Wave 47 lane A7 (org suspension notice) -----------------------------
+    // The suspension flag emits `org.suspension_changed` with an inline
+    // payload whose only always-present key is `action` (`suspended` /
+    // `cleared`); `reason` and `notify_after_secs` ride along when the flag is
+    // set. Untyped because the route builds the object inline. The flag is
+    // informational — no consumer may treat this event as a reason to refuse a
+    // request.
+    PublishedEvent {
+        event_type: types::ORG_SUSPENSION_CHANGED,
+        entity: "org",
+        variant: "default",
+        shape: untyped_shape!(
+            ["action"],
+            serde_json::json!({
+                "action": "suspended",
+                "reason": "billing_lapsed",
+                "notify_after_secs": 604800,
+            })
+        ),
+    },
     // -- RAG vector namespace (Wave 45 lane 1) -------------------------------
     // Cross-lane registration (Wave 47 lane A8): the RAG lane emitted both
     // types with inline payloads (its payload structs are private to

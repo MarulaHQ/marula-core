@@ -65,6 +65,7 @@ pub mod onboarding;
 pub mod org_config;
 pub mod org_custom_domain;
 pub mod org_exports;
+pub mod org_suspension;
 pub mod org_usage;
 pub mod org_users;
 pub mod orgs;

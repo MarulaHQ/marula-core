@@ -261,6 +261,12 @@ pub mod types {
     /// (Wave 47 lane A8). Payload carries the domain and the `action`
     /// (`set` / `verified` / `cleared`).
     pub const ORG_CUSTOM_DOMAIN_CHANGED: &str = "org.custom_domain_changed";
+    /// Emitted when an org's suspension NOTICE flag is set or cleared
+    /// (Wave 47 lane A7). Purely informational: the payload carries the
+    /// `action` (`suspended` / `cleared`) plus, when the flag is set, the
+    /// `reason` and the notice interval in `notify_after_secs`. Nothing
+    /// anywhere gates a request on this flag.
+    pub const ORG_SUSPENSION_CHANGED: &str = "org.suspension_changed";
     /// Org-scoped ticket-workspace pod-visibility matrix changed (Wave 12
     /// lane 6): the admin per-RBAC matrix moved from device-local panel
     /// state to the org store (`org_pod_visibility`, migration 0064).

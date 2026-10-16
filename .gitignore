@@ -28,9 +28,10 @@ Thumbs.db
 e2e/test-results/
 test-results/
 playwright-report/
-# Per-run stack env + PID registry (p37-env-orchestration)
+# Per-run stack env + PID registry + service logs (p37-env-orchestration)
 e2e/.e2e-stack.env
 .kilo/dev-registry/
+.kilo/e2e-logs/
 .kilo/capture-totp.json
 # Localhost demo stack state + logs (Wave 47 lane B1 scripts/demo-up.sh)
 .demo-up/
@@ -38,8 +39,11 @@ e2e/.e2e-stack.env
 # The object store the demo attachments are written into (scripts/e2e-stack.sh
 # and scripts/demo-up.sh both name OBJECT_STORE_LOCAL_DIR). Seeded attachment
 # bytes land here, so a stack boot is enough to populate it — it must never be
-# tracked, or the demo org's objects get committed as repo files.
-/data/objects/
+# tracked, or the demo org's objects get committed as repo files. `**/` so it
+# matches at any depth: `cargo test -p core-api` runs with the crate dir as cwd,
+# dropping the store at crates/core-api/data/objects/ (Wave 47 lane A7). Nothing
+# under a data/objects path is tracked anywhere, so the wider pattern is safe.
+**/data/objects/
 
 # Shared cargo target dir (agent worktree build cache)
 .kilo/target-shared/
