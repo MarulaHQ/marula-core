@@ -296,7 +296,7 @@ async fn a_summarized_draft_streams_its_frames_and_persists_nothing() {
     assert_eq!(started["model"], json!("marula-test-chat"));
     assert_eq!(started["provider"], json!("openai"));
     // Delta carries the fragment key the chat runner's assistant_delta uses.
-    let (_, delta) = parsed.iter().nth(1).expect("delta").clone();
+    let (_, delta) = parsed.get(1).expect("delta").clone();
     assert_eq!(
         delta["delta"],
         json!("Creates a ticket and pings the on-call people.")
