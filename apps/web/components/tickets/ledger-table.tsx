@@ -14,6 +14,7 @@
 "use client";
 
 import {
+  BulkHeaderRow,
   Checkbox,
   Table,
   Td,
@@ -59,12 +60,18 @@ export interface LedgerNameMaps {
 /**
  * The selection bar, rendered IN PLACE of the column header while rows are
  * selected (pack state 05). The placement is the law: the layout never jumps
- * because the bar occupies exactly the header's row. A gold tint, never an
- * inverted surface, with a 3px gold bar on the left edge.
+ * because the bar occupies exactly the header's row. The markup and the gold
+ * tint live in the kit now (`BulkHeaderRow` / `BulkActionBar`) — this interface
+ * is the surface's half of the contract: how many rows, how to clear them, and
+ * the controls the surface that owns the writes supplies.
  */
 export interface LedgerBulkBar {
-  /** The count text: "3 selected". */
-  count: string;
+  /** How many rows are selected. */
+  count: number;
+  /** Clears the selection. The kit renders the button, last on the bar. */
+  onClear: () => void;
+  /** The surface's merge path, when it has one. */
+  onMerge?: () => void;
   /** The controls, owned by the surface that owns the writes. */
   children: ReactNode;
 }
@@ -113,20 +120,38 @@ export function TicketTable({
   return (
     <>
       <Table>
+        {/* Column widths live on a colgroup, not only on the header cells: the
+            bulk bar REPLACES the header row, and with auto table layout the
+            widths the header carried vanish with it — the columns then share the
+            row equally and every cell wraps. The colgroup keeps the geometry
+            whether or not a row is selected. */}
+        <colgroup>
+          <col style={{ width: 40 }} />
+          {columns.map((column) => (
+            <col key={column.key} style={{ width: column.width }} />
+          ))}
+        </colgroup>
         <thead>
           {bulk !== undefined ? (
-            <tr>
-              <th
-                colSpan={columns.length + 1}
-                className="m-bulk-head"
-                data-testid="ledger-bulk-bar"
-              >
-                <span className="m-bulk-head-count">{bulk.count}</span>
-                <div className="m-bulk-head-bar" role="group" aria-label="Bulk actions">
-                  {bulk.children}
-                </div>
-              </th>
-            </tr>
+            <BulkHeaderRow
+              columnCount={columns.length + 1}
+              count={bulk.count}
+              noun="ticket"
+              onClear={bulk.onClear}
+              onMerge={bulk.onMerge}
+              testId="ledger-bulk-bar"
+              leading={
+                /* The pack keeps the select column's checkbox on the bar's own
+                   row, so the column does not close up under the pointer. */
+                <Checkbox
+                  checked
+                  onCheckedChange={() => bulk.onClear()}
+                  aria-label="Deselect all tickets"
+                />
+              }
+            >
+              {bulk.children}
+            </BulkHeaderRow>
           ) : (
             <tr>
               <Th className="w-10">
@@ -297,7 +322,10 @@ export function TicketCell({
   switch (columnKey) {
     case "number":
       return (
-        <span className="text-[12.5px] font-semibold tabular-nums" style={{ color: "var(--m-text)" }}>
+        <span
+          className="whitespace-nowrap text-[12.5px] font-semibold tabular-nums"
+          style={{ color: "var(--m-text)" }}
+        >
           {row.number}
         </span>
       );

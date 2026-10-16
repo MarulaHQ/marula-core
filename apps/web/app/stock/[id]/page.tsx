@@ -31,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceFooter,
   Table,
   Td,
   Th,
@@ -845,11 +846,12 @@ export default function StockItemDetailPage(): ReactNode {
           </tbody>
         </Table>
         </div>
-        <footer className="m-ledger-footer">
-          <span className="m-ledger-shown tabular-nums">
-            {movements.length} movement{movements.length === 1 ? "" : "s"}, newest first
-          </span>
-        </footer>
+        <SurfaceFooter
+          shown={movements.length}
+          noun="movement"
+          className="m-ledger-footer"
+          trailing={<span>newest first</span>}
+        />
       </div>
             </>
         }

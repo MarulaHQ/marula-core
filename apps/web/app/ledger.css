@@ -20,20 +20,13 @@
  */
 
 /* The pack's per-density scale, stated once so the numbers below are the
-   mockup's: `--pill` 24/22/20 and `--hdr` 44/40/32. */
+   mockup's: `--pill` 24/22/20 and `--hdr` 44/40/32. Both now come from the kit's
+   ladder (`--m-density-pill`, `--m-density-hdr` in `packages/ui/src/tokens.css`),
+   so the ledger no longer carries its own copy of the triple — the aliases stay
+   as the names the rules below read. */
 :root {
-  --m-ledger-pill: 24px;
-  --m-ledger-hdr: 44px;
-}
-
-:root[data-density="compact"] {
-  --m-ledger-pill: 22px;
-  --m-ledger-hdr: 40px;
-}
-
-:root[data-density="dense"] {
-  --m-ledger-pill: 20px;
-  --m-ledger-hdr: 32px;
+  --m-ledger-pill: var(--m-density-pill);
+  --m-ledger-hdr: var(--m-density-hdr);
 }
 
 .m-ledger-page {
@@ -216,49 +209,12 @@
   text-align: right;
 }
 
-/* The pack's selected row is `background: var(--acc)` + a 3px gold bar, and
-   `--m-accent` IS that value (#f7e3a8 light / #3a3944 dark). Using
-   `--m-accent-soft` here washed the selection out to a third of its strength. */
-.m-ledger-card .m-table tbody tr[data-selected="true"] {
-  background: var(--m-accent);
-  box-shadow: inset 3px 0 0 var(--m-gold);
-}
-
-/* ---- selection replaces the column header, in place (pack §7) ---- */
-
-.m-ledger-bulkbar-row th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 0;
-  background: var(--m-accent);
-  border-bottom: 1px solid var(--m-border-strong);
-}
-
-.m-ledger-bulkbar {
-  width: 100%;
-}
-
-.m-ledger-bulkbar-inner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  padding: 0 14px;
-  min-height: var(--m-density-control);
-}
-
-.m-ledger-bulkbar-count {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--m-text);
-}
-
-.m-ledger-bulkbar-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
+/* The pack's selected row — `background: var(--acc)` plus a 3px gold bar — used
+   to be restated here. It is the kit's default rule now
+   (`packages/ui/src/components.css`), so it lives in one place and every
+   surface gets it, not only the eight routes inside a ledger card. The reason
+   stays recorded: `--m-accent-soft` washed the selection out to a third of its
+   strength, and `--m-accent` IS the pack's `--acc` (#f7e3a8 light, #3a3944 dark). */
 
 /* White pills with a hairline, sitting ON the gold band the way the pack's do.
    Inheriting the band's tint made every action disappear into it. */
@@ -283,23 +239,8 @@
   color: var(--m-text-secondary);
 }
 
-/* Clearing is the way OUT of the mode, so it is a link, not another pill. */
-.m-ledger-bulk-clear {
-  height: 32px;
-  padding: 0 2px;
-  border: 0;
-  background: transparent;
-  color: var(--m-text);
-  font-size: 13px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  text-decoration-color: var(--m-text-muted);
-  cursor: pointer;
-}
-
-.m-ledger-bulk-clear:hover {
-  text-decoration-color: currentColor;
-}
+/* Clearing is the way OUT of the mode, so the kit draws it as a quiet ghost
+   button rather than another pill — `.m-bulk-bar-clear`. */
 
 .m-ledger-bulk-action:hover:not(:disabled) {
   background: var(--m-canvas);
@@ -311,29 +252,16 @@
   cursor: not-allowed;
 }
 
-/* ---- footer (52px: shown of total left, density right) ---- */
+/* ---- footer (the kit's 52px strip, on the card's own surface) ----
+ * The strip itself — shown-of-total, the load-more affordance, the density slot
+ * and the hint chips — is `SurfaceFooter` in the kit. A ledger only restates the
+ * two things that are the card's, not the strip's: its surface fill and its
+ * inset, so the footer reads as part of the card rather than floating under it.
+ */
 
 .m-ledger-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 52px;
-  padding: 0 12px;
-  border-top: 1px solid var(--m-border);
   background: var(--m-surface);
-}
-
-.m-ledger-shown {
-  font-size: 13px;
-  color: var(--m-text-secondary);
-}
-
-.m-ledger-footer-right {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+  padding-inline: 12px;
 }
 
 /*

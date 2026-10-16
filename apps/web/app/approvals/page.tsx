@@ -29,6 +29,7 @@
 
 import {
   Badge,
+  BulkHeaderRow,
   Button,
   ColumnChooser,
   DataToolbar,
@@ -44,6 +45,7 @@ import {
   Kbd,
   Label,
   Spinner,
+  SurfaceFooter,
   Table,
   Td,
   Th,
@@ -1021,86 +1023,99 @@ export default function ApprovalsPage() {
                 }
               />
             )
-          ) : selected.size > 0 && isApprover && tab === "queue" ? (
-            /* The bulk bar replaces the column header in place: a gold tint,
-               never an inverted surface, and it says how much time is in it. */
-            <div className="m-money-bulkbar" data-testid="bulk-bar">
-              <input
-                type="checkbox"
-                checked
-                onChange={() => setSelected(new Set())}
-                aria-label="Deselect all"
-              />
-              <b data-testid="bulk-count">{selected.size} selected</b>
-              <span style={{ color: "var(--m-on-accent)", fontVariantNumeric: "tabular-nums" }}>
-                {hms(selectedMinutes)} in all
-              </span>
-              <Button
-                onClick={() => void decide("approve")}
-                disabled={busy}
-                data-testid="bulk-approve"
-              >
-                Approve {selected.size}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setRejectOpen(true);
-                  setRejectError(null);
-                }}
-                disabled={busy}
-                data-testid="bulk-reject"
-              >
-                Reject…
-              </Button>
-              <button
-                type="button"
-                className="m-money-linkbtn"
-                style={{ marginLeft: "auto", color: "var(--m-on-accent)" }}
-                onClick={() => setSelected(new Set())}
-              >
-                Clear selection
-              </button>
-            </div>
           ) : null}
 
           {filtered.length > 0 ? (
             <div className="m-money-scroll" style={{ overflowX: "auto" }}>
               <Table>
+                {/* Column widths on a colgroup: the bulk bar replaces the header
+                    row, and auto layout would drop the header's widths with it,
+                    collapsing every column to an equal share. */}
+                <colgroup>
+                  {isApprover && tab === "queue" ? <col style={{ width: 44 }} /> : null}
+                  {visibleColumns.map((column) => (
+                    <col key={column.key} style={{ width: column.width }} />
+                  ))}
+                </colgroup>
                 <thead>
-                  <tr>
-                    {isApprover && tab === "queue" ? (
-                      <Th style={{ width: "4%" }} sortable={false} resizable={false}>
+                  {selected.size > 0 && isApprover && tab === "queue" ? (
+                    /* The bar replaces the column header in place (pack state
+                       05). It used to sit in a strip above the table with the
+                       header still drawn, which pushed every row down at the
+                       moment the reader aimed at one. */
+                    <BulkHeaderRow
+                      columnCount={visibleColumns.length + 1}
+                      count={selected.size}
+                      noun="entry"
+                      onClear={() => setSelected(new Set())}
+                      testId="bulk-bar"
+                      countTestId="bulk-count"
+                      leading={
                         <input
                           type="checkbox"
-                          aria-label="Select all"
-                          checked={
-                            filtered.length > 0 && filtered.every((it) => selected.has(it.entry.id))
-                          }
-                          onChange={(e) =>
-                            setSelected(
-                              e.target.checked
-                                ? new Set(
-                                    filtered
-                                      .filter((it) => it.entry.user_id !== meId)
-                                      .map((it) => it.entry.id),
-                                  )
-                                : new Set(),
-                            )
-                          }
+                          checked
+                          onChange={() => setSelected(new Set())}
+                          aria-label="Deselect all"
                         />
-                      </Th>
-                    ) : null}
-                    {visibleColumns.map((column) => (
-                      <Th
-                        key={column.key}
-                        columnKey={column.key}
-                        style={{ width: column.width, whiteSpace: "nowrap" }}
+                      }
+                    >
+                      <b style={{ fontWeight: 600 }}>
+                        {hms(selectedMinutes)} in all
+                      </b>
+                      <Button
+                        onClick={() => void decide("approve")}
+                        disabled={busy}
+                        data-testid="bulk-approve"
                       >
-                        {column.label}
-                      </Th>
-                    ))}
-                  </tr>
+                        Approve {selected.size}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          setRejectOpen(true);
+                          setRejectError(null);
+                        }}
+                        disabled={busy}
+                        data-testid="bulk-reject"
+                      >
+                        Reject…
+                      </Button>
+                    </BulkHeaderRow>
+                  ) : (
+                    <tr>
+                      {isApprover && tab === "queue" ? (
+                        <Th style={{ width: "4%" }} sortable={false} resizable={false}>
+                          <input
+                            type="checkbox"
+                            aria-label="Select all"
+                            checked={
+                              filtered.length > 0 && filtered.every((it) => selected.has(it.entry.id))
+                            }
+                            onChange={(e) =>
+                              setSelected(
+                                e.target.checked
+                                  ? new Set(
+                                      filtered
+                                        .filter((it) => it.entry.user_id !== meId)
+                                        .map((it) => it.entry.id),
+                                    )
+                                  : new Set(),
+                              )
+                            }
+                          />
+                        </Th>
+                      ) : null}
+                      {visibleColumns.map((column) => (
+                        <Th
+                          key={column.key}
+                          columnKey={column.key}
+                          style={{ width: column.width, whiteSpace: "nowrap" }}
+                        >
+                          {column.label}
+                        </Th>
+                      ))}
+                    </tr>
+                  )}
                 </thead>
                 <tbody>
                   {filtered.map((it) => (
@@ -1247,26 +1262,27 @@ export default function ApprovalsPage() {
         </Dialog>
       ) : null}
 
-      <footer className="m-money-foot">
-        <span className="m-money-foot-sp" />
-        <DensitySwitch
-          value={prefs.density}
-          onChange={(step) => {
-            applyDensity(step);
-            void prefs.setDensity(step);
-          }}
-        />
-        <Kbd>J</Kbd>
-        <span>move</span>
-        <Kbd>K</Kbd>
-        <span>move</span>
-        <Kbd>X</Kbd>
-        <span>select</span>
-        <Kbd>A</Kbd>
-        <span>approve</span>
-        <Kbd>R</Kbd>
-        <span>reject</span>
-      </footer>
+      <SurfaceFooter
+        shown={filtered.length}
+        total={(items ?? []).length}
+        noun="entry"
+        nounPlural="entries"
+        density={
+          <DensitySwitch
+            value={prefs.density}
+            onChange={(step) => {
+              applyDensity(step);
+              void prefs.setDensity(step);
+            }}
+          />
+        }
+        hints={[
+          { keys: "J K", label: "move" },
+          { keys: "X", label: "select" },
+          { keys: "A", label: "approve" },
+          { keys: "R", label: "reject" },
+        ]}
+      />
     </div>
   );
 }

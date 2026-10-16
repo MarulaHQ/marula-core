@@ -26,12 +26,14 @@
  * page spends its code on rows rather than on chrome.
  */
 import {
+  BulkHeaderRow,
   ColumnChooser,
   DataToolbar,
   DensitySwitch,
   EmptyState,
   ExportControl,
   FilterBar,
+  SurfaceFooter,
   Table,
   Th,
   ViewSwitch,
@@ -329,73 +331,69 @@ export function LedgerSurface({
         ) : (
           <div className="m-ledger-table-wrap">
             <Table>
+              {/* The widths live on a colgroup so they survive the bulk bar
+                  replacing the header row (auto layout would otherwise drop them
+                  with the header and stretch every column equally). */}
+              <colgroup>
+                {selectable ? <col style={{ width: 44 }} /> : null}
+                {visible.map((column) => (
+                  <col key={column.key} style={{ width: column.width }} />
+                ))}
+              </colgroup>
               <thead>
                 {barInPlace ? (
-                  <tr className="m-ledger-bulkbar-row">
-                    <th className="m-ledger-bulkbar" colSpan={visible.length + (selectable ? 1 : 0)}>
-                      <div className="m-ledger-bulkbar-inner">
-                        {/*
-                          The bar opens with the selection state itself, not with a
-                          number: the pack's bar leads with the checkbox, so the
-                          count reads as a consequence of what is ticked rather
-                          than as a figure you have to trust.
-                        */}
-                        {selectable ? (
-                          <input
-                            type="checkbox"
-                            className="m-ledger-checkbox"
-                            aria-label={allSelected === true ? "Clear selection" : "Select every row"}
-                            checked={allSelected === true}
-                            ref={
-                              someSelected === true
-                                ? (node) => {
-                                    if (node) node.indeterminate = true;
-                                  }
-                                : undefined
-                            }
-                            onChange={(event) => onToggleAll?.(event.target.checked)}
-                            data-testid="ledger-bulk-select-all"
-                          />
+                  <BulkHeaderRow
+                    columnCount={visible.length + (selectable ? 1 : 0)}
+                    count={selectedCount}
+                    noun="row"
+                    onClear={() => onClearSelection?.()}
+                    testId="ledger-bulk-bar"
+                    leading={
+                      selectable ? (
+                        /*
+                          The pack's bar leads with the selection state itself, not
+                          with a number: the count then reads as a consequence of
+                          what is ticked rather than as a figure you have to trust.
+                          The select column keeps its own cell so the checkbox does
+                          not move out from under the column it belongs to.
+                        */
+                        <input
+                          type="checkbox"
+                          className="m-ledger-checkbox"
+                          aria-label={allSelected === true ? "Clear selection" : "Select every row"}
+                          checked={allSelected === true}
+                          ref={
+                            someSelected === true
+                              ? (node) => {
+                                  if (node) node.indeterminate = true;
+                                }
+                              : undefined
+                          }
+                          onChange={(event) => onToggleAll?.(event.target.checked)}
+                          data-testid="ledger-bulk-select-all"
+                        />
+                      ) : undefined
+                    }
+                  >
+                    {(bulkActions ?? []).map((action) => (
+                      <button
+                        key={action.key}
+                        type="button"
+                        className="m-ledger-bulk-action"
+                        disabled={action.disabled === true}
+                        title={action.title}
+                        data-testid={`ledger-bulk-${action.key}`}
+                        onClick={action.onClick}
+                      >
+                        {action.icon != null ? (
+                          <span className="m-ledger-bulk-action-icon" aria-hidden="true">
+                            {action.icon}
+                          </span>
                         ) : null}
-                        <span className="m-ledger-bulkbar-count tabular-nums" data-testid="ledger-selected-count">
-                          {selectedCount} selected
-                        </span>
-                        <div className="m-ledger-bulkbar-actions">
-                          {(bulkActions ?? []).map((action) => (
-                            <button
-                              key={action.key}
-                              type="button"
-                              className="m-ledger-bulk-action"
-                              disabled={action.disabled === true}
-                              title={action.title}
-                              data-testid={`ledger-bulk-${action.key}`}
-                              onClick={action.onClick}
-                            >
-                              {action.icon != null ? (
-                                <span className="m-ledger-bulk-action-icon" aria-hidden="true">
-                                  {action.icon}
-                                </span>
-                              ) : null}
-                              {action.label}
-                            </button>
-                          ))}
-                          {onClearSelection != null ? (
-                            // A link, not a pill: clearing is the way OUT of the
-                            // mode, and the pack sets it apart from the actions
-                            // that change something.
-                            <button
-                              type="button"
-                              className="m-ledger-bulk-clear"
-                              data-testid="ledger-bulk-clear"
-                              onClick={onClearSelection}
-                            >
-                              Clear selection
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    </th>
-                  </tr>
+                        {action.label}
+                      </button>
+                    ))}
+                  </BulkHeaderRow>
                 ) : (
                   <tr>
                     {selectable ? (
@@ -442,34 +440,24 @@ export function LedgerSurface({
           </div>
         )}
 
-        <footer className="m-ledger-footer">
-          <span className="m-ledger-shown tabular-nums" data-testid="ledger-shown-count">
-            {rowsShown == null || rowsShown === rowCount
-              ? `${rowCount.toLocaleString()} ${rowCount === 1 ? "row" : "rows"}`
-              : `${rowsShown.toLocaleString()} of ${rowCount.toLocaleString()} rows`}
-          </span>
-          <div className="m-ledger-footer-right">
-            {keyboardHints != null && keyboardHints.length > 0 ? (
-              <span className="m-ledger-hints">
-                {keyboardHints.map((hint) => (
-                  <span key={hint.label} className="m-ledger-hint">
-                    {hint.keys.map((keyName) => (
-                      <kbd key={keyName} className="m-ledger-kbd">
-                        {keyName}
-                      </kbd>
-                    ))}
-                    <span>{hint.label}</span>
-                  </span>
-                ))}
-              </span>
-            ) : null}
+        <SurfaceFooter
+          shown={rowsShown ?? rowCount}
+          total={rowCount}
+          noun="row"
+          className="m-ledger-footer"
+          density={
             <DensitySwitch
               value={prefs.density}
               onChange={(step) => void prefs.setDensity(step)}
               label={`${title} density`}
             />
-          </div>
-        </footer>
+          }
+          hints={
+            keyboardHints == null
+              ? undefined
+              : keyboardHints.map((hint) => ({ keys: hint.keys.join(" "), label: hint.label }))
+          }
+        />
       </section>
 
       {childrenAfter}

@@ -196,8 +196,67 @@ describe("density steps (wave41 D7)", () => {
     }
   });
 
+  /**
+   * The template's ladder is wider than the two values D7 landed with
+   * (DESIGN-NOTES-tickets.md §4): text, cell inset, header height, avatar and
+   * pill all move with the step. Until they did, `comfortable` rendered a table
+   * whose text was a point tight and whose header never changed height.
+   */
+  it("carries the template's full ladder at every step", () => {
+    const ladder: Record<string, Record<string, number>> = {
+      comfortable: { fs: 14, px: 12, hdr: 44, av: 26, pill: 24 },
+      compact: { fs: 14, px: 12, hdr: 40, av: 24, pill: 22 },
+      dense: { fs: 13, px: 10, hdr: 32, av: 20, pill: 20 },
+    };
+    for (const step of DENSITY_STEPS) {
+      const vars = block(step);
+      for (const [key, value] of Object.entries(ladder[step] ?? {})) {
+        expect(vars.get(`--m-density-${key}`)).toBe(`${value}px`);
+      }
+    }
+  });
+
+  it("never lets a step drop text below the 12px floor", () => {
+    for (const step of DENSITY_STEPS) {
+      const vars = block(step);
+      const fs = Number.parseFloat(vars.get("--m-density-fs") ?? "0");
+      expect(fs).toBeGreaterThanOrEqual(12);
+    }
+  });
+
+  /** The app tokens and the kit tokens are two ladders for one setting; drift
+   * between them renders half the table at one step and half at another. */
+  it("agrees with the kit's own --mc-* ladder at every step", () => {
+    const kit = (step: string): Map<string, string> => {
+      const at = kitCss.indexOf(`data-density="${step}"`);
+      // `parseVars` needs a terminator on every declaration; the kit's generated
+      // blocks drop the last one, so close the slice before parsing it.
+      return parseVars(`${kitCss.slice(at, kitCss.indexOf("}", at))};`);
+    };
+    const pairs: ReadonlyArray<[string, string]> = [
+      ["--m-density-control", "--mc-ctl"],
+      ["--m-density-row", "--mc-row"],
+      ["--m-density-fs", "--mc-fs"],
+      ["--m-density-px", "--mc-px"],
+      ["--m-density-hdr", "--mc-hdr"],
+      ["--m-density-av", "--mc-av"],
+      ["--m-density-pill", "--mc-pill"],
+    ];
+    for (const step of DENSITY_STEPS) {
+      const appVars = block(step);
+      const kitVars = kit(step);
+      for (const [appKey, kitKey] of pairs) {
+        expect(appVars.get(appKey)).toBe(kitVars.get(kitKey));
+      }
+    }
+  });
+
   it("a control in components.css is token-driven", () => {
     expect(componentsCss).toContain("height: var(--m-density-control)");
     expect(componentsCss).toContain("height: var(--m-density-row)");
+    // The table's own type and inset read the step too.
+    expect(componentsCss).toContain("font-size: var(--m-density-fs)");
+    expect(componentsCss).toContain("height: var(--m-density-hdr)");
+    expect(componentsCss).toContain("padding: 0 var(--m-density-px)");
   });
 });

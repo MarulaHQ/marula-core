@@ -31,8 +31,10 @@ import {
   DensitySwitch,
   EmptyState,
   ExportControl,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Spinner,
+  SurfaceFooter,
   SurfaceHeader,
   type ChoosableColumn,
   type ExportRequest,
@@ -89,7 +91,7 @@ type ColumnDef = ChoosableColumn & { sortable: boolean };
 
 const COLUMN_DEFS: ColumnDef[] = [
   { key: "priority", label: "P", visible: true, width: 64, sortable: true },
-  { key: "number", label: "ID", visible: true, required: true, width: 88, sortable: true },
+  { key: "number", label: "ID", visible: true, required: true, width: 104, sortable: true },
   { key: "title", label: "Ticket", visible: true, required: true, width: 320, sortable: true },
   { key: "client", label: "Client", visible: true, width: 168, sortable: false },
   { key: "category", label: "Status", visible: true, width: 116, sortable: true },
@@ -184,6 +186,15 @@ export default function TicketsListPage() {
    *  all live on one board (a status id is board-scoped). */
   const [bulkBoardStatuses, setBulkBoardStatuses] = useState<{ id: string; name: string }[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
+  /** Whether another page exists. A full page means there may be more — the
+   *  same rule the server uses for its own `x-next-cursor` header, but decided
+   *  from the row count, because a cross-origin response's custom headers are
+   *  not readable by the page unless the API exposes them. */
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  /** The builder's popover, shared by the chips' `+ Add filter` chip and the
+   *  toolbar's Filter button — the template draws both, and both open this. */
+  const [filterOpen, setFilterOpen] = useState(false);
   /** The attention shortcut the mockup puts in the title row: null, "risk" or "breach". */
   const [attention, setAttention] = useState<null | "risk" | "breach">(null);
 
@@ -203,25 +214,74 @@ export default function TicketsListPage() {
   );
 
   // --- data ---------------------------------------------------------------
-  // One fetch for the whole ledger; the view (mine / unassigned / all) and the
-  // attention shortcut are applied to the loaded rows, so switching a view does
-  // not refetch. The list endpoint caps at PAGE_LIMIT rows either way.
+  // One fetch per page; the view (mine / unassigned / all) and the attention
+  // shortcut are applied to the loaded rows, so switching a view does not
+  // refetch. Older rows are reached by walking the list a page at a time, which
+  // is what the footer's "Load 50 more" does — before this, the surface stopped
+  // at the first page and told the reader to narrow the view instead, which left
+  // every older ticket unreachable.
+  //
+  // The page is asked for by `offset`, not by the keyset cursor the endpoint also
+  // offers: the cursor arrives in an `x-next-cursor` response header, and a page
+  // on another origin cannot read a custom response header the API does not
+  // expose. `offset` is a supported query parameter
+  // (crates/core-api/src/routes/tickets.rs:427) and the app's other ledgers page
+  // the same way.
+  const fetchPage = useCallback(
+    async (offset: number): Promise<{ rows: TicketRow[]; full: boolean } | null> => {
+      try {
+        const result = await api.api.GET("/api/v1/tickets", {
+          params: { query: { limit: PAGE_LIMIT, offset } },
+        });
+        if (result.error !== undefined || result.data === undefined) return null;
+        const rows = result.data as TicketRow[];
+        return { rows, full: rows.length === PAGE_LIMIT };
+      } catch {
+        // A transport failure (an aborted request, a dropped connection) rejects
+        // rather than returning an error field. Without this the surface stayed
+        // on its loading splash forever instead of showing the error state.
+        return null;
+      }
+    },
+    [],
+  );
+
+  /** Append the next page. Selection survives, because a bulk act has to be
+   *  able to reach a row that arrived on page two, and the append de-duplicates
+   *  by id so an offset page that overlaps cannot double a row. */
+  const loadMore = useCallback(async () => {
+    if (!hasMore) return;
+    const offset = rows?.length ?? 0;
+    setLoadingMore(true);
+    const page = await fetchPage(offset);
+    setLoadingMore(false);
+    if (page === null) {
+      setNotice("The next page of tickets did not load. Try again.");
+      return;
+    }
+    setRows((prev) => {
+      const seen = new Set((prev ?? []).map((r) => r.id));
+      return [...(prev ?? []), ...page.rows.filter((r) => !seen.has(r.id))];
+    });
+    setHasMore(page.full);
+  }, [fetchPage, hasMore, rows]);
+
   const refresh = useCallback(
     async () => {
       setRows(null);
       setError(null);
-      const result = await api.api.GET("/api/v1/tickets", {
-            params: { query: { limit: PAGE_LIMIT } },
-      });
-      if (result.error !== undefined || result.data === undefined) {
+      const page = await fetchPage(0);
+      if (page === null) {
         setError("The ticket list did not load. Check your connection and retry.");
         setRows([]);
+        setHasMore(false);
         return;
       }
-      const next = [...result.data].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      const next = [...page.rows].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
       setRows(next);
+      setHasMore(page.full);
     },
-    [],
+    [fetchPage],
   );
 
   useEffect(() => {
@@ -763,13 +823,24 @@ export default function TicketsListPage() {
             ))}
           </Segmented>
         }
-        filters={
-          <FilterBar
+        chips={
+          <FilterChips
             fields={TICKET_FILTER_FIELDS}
             clauses={clauses}
             onChange={onClauses}
             label="Ticket filters"
             emptyHint="No filters"
+            onAdd={() => setFilterOpen(true)}
+          />
+        }
+        filter={
+          <FilterTrigger
+            fields={TICKET_FILTER_FIELDS}
+            clauses={clauses}
+            onChange={onClauses}
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
+            label="Ticket filters"
           />
         }
         columns={<ColumnChooser columns={columns} onChange={onColumns} label="Ticket columns" />}
@@ -890,7 +961,8 @@ export default function TicketsListPage() {
             bulk={
               selected.size > 0
                 ? {
-                    count: `${selected.size} selected`,
+                    count: selected.size,
+                    onClear: () => setSelected(new Set()),
                     children: (
                       <>
                         {/* The pickers each set a value and the button the
@@ -986,32 +1058,42 @@ export default function TicketsListPage() {
                         <Button size="sm" variant="secondary" disabled={bulkBusy} onClick={onExportSelected}>
                           Export {selected.size}
                         </Button>
-                        <Button size="sm" variant="ghost" disabled={bulkBusy} onClick={() => setSelected(new Set())}>
-                          Clear selection
-                        </Button>
                       </>
                     ),
                   }
                 : undefined
             }
           />
-          <div className="m-table-foot" data-testid="ledger-footer">
-            <span>
-              {shown.length === PAGE_LIMIT
-                ? `Showing the ${PAGE_LIMIT} most recent of ${viewCounts.all} loaded. Narrow the view to reach older tickets.`
-                : `Showing ${shown.length} of ${viewCounts.all} ${viewCounts.all === 1 ? "ticket" : "tickets"}`}
-              {mergedCount > 0 ? ` · ${mergedCount} merged` : ""}
-            </span>
-            {/* The pack's footer control: the density steps live here, saved
-                per user through the same preference key as Settings, so this
-                switch and the one in Appearance move together. */}
-            <DensitySwitch
-              value={prefs.density}
-              onChange={prefs.setDensity}
-              variant="icons"
-              label="Row density"
-            />
-          </div>
+          {/* The pack's footer (DESIGN-NOTES-tickets.md §3): shown-of-total on
+              the left, the load-more link next to it, then the density control.
+              Older rows are now reachable — the keyset cursor walks the queue —
+              so the strip no longer tells the reader to narrow their view. The
+              J/K/X/↵/F hint chips are absent because those keys are not wired on
+              this surface yet, and a keycap that does nothing is a lie. */}
+          <SurfaceFooter
+            shown={shown.length}
+            total={viewCounts.all}
+            noun="ticket"
+            onLoadMore={hasMore ? () => void loadMore() : undefined}
+            loadMoreCount={PAGE_LIMIT}
+            loadingMore={loadingMore}
+            density={
+              /* The pack's footer control: the density steps live here, saved
+                 per user through the same preference key as Settings, so this
+                 switch and the one in Appearance move together. */
+              <DensitySwitch
+                value={prefs.density}
+                onChange={prefs.setDensity}
+                variant="icons"
+                label="Row density"
+              />
+            }
+            trailing={
+              mergedCount === 0 ? undefined : (
+                <span className="tabular-nums">{mergedCount} merged</span>
+              )
+            }
+          />
         </Card>
       )}
     </div>

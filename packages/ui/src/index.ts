@@ -86,6 +86,8 @@ export * from "./components/filter-bar";
 export * from "./components/export-control";
 export * from "./components/surface-header";
 export * from "./components/surface-columns";
+export * from "./components/surface-footer";
+export * from "./components/bulk-action-bar";
 
 export * from "./editor/toolbar";
 export * from "./editor/block-menu";

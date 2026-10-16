@@ -1103,16 +1103,45 @@
 /* The strip the four controls share. One wrapping row rather than a
    horizontal scroller: a scroller hides the control the user came for. */
 
+/* One row, always (DESIGN-NOTES-tickets.md §2 law 1): the strip is the control
+   height plus 16px and it never wraps, because a wrapped strip moves the table
+   down between two renders of the same page. The left cluster is allowed to
+   shrink (the chip row collapses into `+N more`); the right cluster keeps its
+   size, because Columns, Filter and Export are the controls a user reaches for
+   without looking. */
 .m-data-toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: var(--m-card-padding) 0 10px;
+  align-items: center;
+  gap: 10px;
+  min-height: calc(var(--m-density-control) + 16px);
+}
+
+.m-data-toolbar-title {
+  flex: 0 0 100%;
 }
 
 .m-data-toolbar-main {
   display: flex;
-  flex-wrap: wrap;
+  flex: 1;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The chip row is the only part of the strip that may give ground. */
+.m-data-toolbar-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The right cluster never shrinks: it is where Filter, Columns and Export sit. */
+.m-data-toolbar-right {
+  display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
 }
@@ -1328,24 +1357,80 @@
 
 .m-filter-bar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+
+/* Chips plus the dashed `+ Add filter` chip. The row never wraps
+   (DESIGN-NOTES-tickets.md §6): overflow collapses into `+N more`, and this
+   element is the one that clips if a surface hands it more chips than fit. */
+.m-filter-chips-wrap {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .m-filter-empty {
   font-size: 13px;
   color: var(--m-text-muted);
+  white-space: nowrap;
 }
 
 .m-filter-chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
+  min-width: 0;
+}
+
+/* The pack's `+ Add filter` chip: dashed, quiet, and always ends the row. */
+.m-filter-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px dashed var(--m-border-strong);
+  border-radius: 999px;
+  background: none;
+  color: var(--m-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.m-filter-add:hover {
+  background: var(--m-surface-2);
+  color: var(--m-text);
+}
+
+.m-filter-chip-more {
+  padding: 0 10px;
+  background: none;
+  min-width: 0;
+}
+
+.m-filter-more {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m-accent-text);
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .m-filter-chip {
@@ -1366,6 +1451,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The value is the fact the chip exists to state, so it carries the weight
+   (DESIGN-NOTES-tickets.md §6: the chip reads as a sentence, value in semibold). */
+.m-filter-chip-value {
+  font-weight: 600;
 }
 
 .m-filter-chip-remove {
@@ -1533,7 +1624,9 @@
 .m-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  /* The step's own text size (14/14/13). It used to be a flat 13px, so the
+     comfortable step rendered a whole point tighter than the pack. */
+  font-size: var(--m-density-fs);
 }
 
 /* Column headers carry the pack's uppercase eyebrow (S1's table, and the
@@ -1550,8 +1643,13 @@
   z-index: 1;
   background: var(--m-surface);
   border-bottom: 1px solid var(--m-border-strong);
-  padding: 4px 10px;
+  /* The header has its own rung (44/40/32) and the step's own inset (12/12/10).
+     A flat 4px/10px header was the same height at every step, so the ladder
+     stopped at the row. */
+  height: var(--m-density-hdr);
+  padding: 0 var(--m-density-px);
   text-align: left;
+  vertical-align: middle;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1570,17 +1668,192 @@
 
 .m-table td {
   height: var(--m-density-row);
-  padding: 2px 10px;
+  padding: 0 var(--m-density-px);
   border-bottom: 1px solid var(--m-border);
   vertical-align: middle;
 }
 
+/* The pack's selected row (tickets-list.html `.tr.sel`): the honest tint, never
+   an inverted surface, plus the 3px gold bar on the left edge. This is the kit
+   default now; it used to live only inside `.m-ledger-card`
+   (apps/web/app/ledger.css), so the canonical surface — the tickets list, which
+   renders a plain card — fell through to a washed tint with no bar. */
 .m-table tbody tr[data-selected="true"] {
-  background: var(--m-accent-soft);
+  background: var(--m-accent);
+  box-shadow: inset 3px 0 0 var(--m-gold);
 }
 
+/* One hover value for every kit table. The pack's row hover is the muted
+   surface, and `--m-surface-2` is that value in both modes. Approvals and
+   dispatch used to paint a `color-mix` wash instead (apps/web/app/globals.css). */
 .m-table tbody tr:hover {
-  background: var(--m-canvas);
+  background: var(--m-surface-2);
+}
+
+/* ---------- Data-surface footer (the pack's 52px strip) ---------- */
+
+.m-surface-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 var(--m-density-px);
+  border-top: 1px solid var(--m-border);
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}
+
+.m-surface-footer-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Tabular figures, bold: "60 of 40,213" is read as two numbers, and a count
+   that shifts width between renders reads as a glitch. */
+.m-surface-footer-num {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--m-text);
+}
+
+.m-surface-footer-gap {
+  flex: 1 1 auto;
+}
+
+/* The load-more affordance: a link button, not a filled one — it is a way to
+   ask for more rows, not the reason the reader is on the page. */
+.m-surface-footer-load {
+  display: inline-flex;
+  align-items: center;
+  height: var(--m-density-control-sm);
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--m-radius-control);
+  background: none;
+  color: var(--m-accent-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.m-surface-footer-load:hover {
+  background: var(--m-surface-2);
+}
+
+.m-surface-footer-load[disabled] {
+  color: var(--m-text-muted);
+  text-decoration: none;
+  cursor: default;
+}
+
+.m-surface-footer-hints {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--m-text-muted);
+}
+
+.m-surface-footer-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.m-surface-footer-kbd {
+  display: inline-flex;
+  min-width: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 4px;
+  border: 1px solid var(--m-border);
+  border-radius: 5px;
+  background: var(--m-surface);
+  font-family: var(--m-font-mono);
+  /* The pack's floor: nothing on the strip renders below 12px. */
+  font-size: 12px;
+  line-height: 1;
+  color: var(--m-text-secondary);
+}
+
+/* ---------- Bulk action bar (selection replaces the column header) ---------- */
+
+/**
+ * The bar takes the column header's own row so the table never moves when a row
+ * is selected (DESIGN-NOTES-tickets.md §7). A gold tint and the 3px gold edge,
+ * deliberately NOT an inverted surface: the reader is still looking at the same
+ * table, only with a different first row.
+ *
+ * Declared against `.m-table th` so it wins over the header's uppercase eyebrow,
+ * its header rung and its sticky surface fill without depending on source order.
+ */
+.m-table th.m-bulk-head {
+  height: auto;
+  padding: 0;
+  background: var(--m-accent);
+  border-bottom: 1px solid var(--m-border-strong);
+  border-left: 3px solid var(--m-gold);
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  color: var(--m-text);
+}
+
+.m-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--m-density-control);
+  padding: 4px var(--m-density-px);
+}
+
+/* A control inside the bar is a control, not a field: `.m-input` is an
+   unlayered `width: 100%`, so a bare <select> in the bar stretched to the row
+   and forced every other action onto its own line — the bar rendered 400px tall
+   on the tickets list. Give it a working width and let the bar stay a bar. */
+.m-bulk-bar .m-input,
+.m-bulk-bar .m-select-trigger {
+  width: auto;
+  min-width: 132px;
+  max-width: 220px;
+}
+
+.m-bulk-bar .m-btn {
+  flex: 0 0 auto;
+}
+
+/* The select column's cell on the bar's own row: the checkbox stays where it
+   was, on the same tint. */
+.m-bulk-head-select {
+  width: 44px;
+  padding: 0 8px;
+  vertical-align: middle;
+}
+
+.m-bulk-bar-count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.m-bulk-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Clear selection always ends the bar, on the right, whatever the actions are. */
+.m-bulk-bar-clear {
+  margin-left: auto;
 }
 
 /* ---------- Dialog ---------- */

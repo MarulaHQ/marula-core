@@ -174,7 +174,11 @@ describe("FilterBar", () => {
       { id: "2", field: "assignee", op: "is_set" },
     ];
     render(<FilterBar fields={FIELDS} clauses={clauses} onChange={() => {}} />);
-    expect(screen.getByText("Status is open")).toBeInTheDocument();
+    // The chip reads as a sentence and the value carries the weight, so the
+    // sentence is split across two nodes: "Status is" + a bold "open".
+    const chip = screen.getByText("open");
+    expect(chip.tagName).toBe("B");
+    expect(chip.parentElement?.textContent).toBe("Status is open");
     expect(screen.getByText("Assignee is set")).toBeInTheDocument();
   });
 

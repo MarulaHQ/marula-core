@@ -375,6 +375,14 @@
   --m-density-control-sm: 40px;
   --m-density-row: 48px;
   --m-card-padding: 24px;
+  /* The pack's full ladder (DESIGN-NOTES-tickets.md §4). Text, type and header
+     height move with the step, not only the row. `--m-density-fs` never goes
+     below 12px; a step that asked for less would be a bug, not a preference. */
+  --m-density-fs: 14px;
+  --m-density-px: 12px;
+  --m-density-hdr: 44px;
+  --m-density-av: 26px;
+  --m-density-pill: 24px;
 }
 
 [data-density="compact"] {
@@ -382,6 +390,11 @@
   --m-density-control-sm: 32px;
   --m-density-row: 40px;
   --m-card-padding: 16px;
+  --m-density-fs: 14px;
+  --m-density-px: 12px;
+  --m-density-hdr: 40px;
+  --m-density-av: 24px;
+  --m-density-pill: 22px;
 }
 
 [data-density="dense"] {
@@ -389,4 +402,9 @@
   --m-density-control-sm: 28px;
   --m-density-row: 32px;
   --m-card-padding: 12px;
+  --m-density-fs: 13px;
+  --m-density-px: 10px;
+  --m-density-hdr: 32px;
+  --m-density-av: 20px;
+  --m-density-pill: 20px;
 }

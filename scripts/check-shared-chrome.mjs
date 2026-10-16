@@ -72,7 +72,7 @@ const FEATURE_NAMES = [
  * that generalises past today's lane names.
  */
 const SHARED_VOCABULARY = [
-  "m-assistant", "m-badge", "m-btn", "m-builder", "m-card", "m-chart",
+  "m-assistant", "m-badge", "m-btn", "m-builder", "m-bulk", "m-card", "m-chart",
   "m-checkbox", "m-column", "m-composer", "m-context", "m-data", "m-density",
   "m-dialog", "m-editor", "m-empty", "m-export", "m-field", "m-filter",
   "m-input", "m-kb", "m-kbd", "m-label", "m-panel", "m-rise", "m-root",
