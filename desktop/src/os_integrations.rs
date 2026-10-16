@@ -14,6 +14,7 @@
 //!   any deep link it was opened with.
 
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
     AppHandle, Manager,
@@ -246,6 +247,19 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
 // Tray — quick actions
 // ---------------------------------------------------------------------------
 
+// Brand-kit tray glyphs, baked into the binary (`include_image!` embeds the
+// pixels at compile time). macOS gets the template image: the ink glyph on a
+// transparent field, which AppKit re-tints to match a light or dark menu bar,
+// so one asset serves both appearances. Windows and Linux taskbars do not
+// recolour template images, so those platforms keep the full-colour glyph the
+// kit ships alongside it. tray-icon normalises whatever it is handed to an
+// 18pt-high status item, so the @2x files (44px) are the source — crisp on a
+// Retina bar rather than an upscaled 22px.
+#[cfg(target_os = "macos")]
+const TRAY_ICON: Image<'static> = tauri::include_image!("icons/tray/tray-iconTemplate@2x.png");
+#[cfg(not(target_os = "macos"))]
+const TRAY_ICON: Image<'static> = tauri::include_image!("icons/tray/tray-color-44.png");
+
 /// Show the tray with quick actions. Menu ids are dispatched in
 /// `on_tray_event` in main.rs; keeping ids stringly makes the mapping
 /// reviewable next to the actions themselves.
@@ -280,15 +294,21 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             &quit,
         ],
     )?;
-    TrayIconBuilder::with_id("marula-tray")
-        .icon(app.default_window_icon().expect("bundled app icon").clone())
+    let builder = TrayIconBuilder::with_id("marula-tray")
+        .icon(TRAY_ICON)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .tooltip("Marula")
         .on_menu_event(|app, event| {
             dispatch_tray_action(app, event.id().as_ref());
-        })
-        .build(app)?;
+        });
+
+    // AppKit paints a template image in the menu bar's own colour; off macOS
+    // the flag is ignored (the kit's colour glyph already carries the brand).
+    #[cfg(target_os = "macos")]
+    let builder = builder.icon_as_template(true);
+
+    builder.build(app)?;
     Ok(())
 }
 
