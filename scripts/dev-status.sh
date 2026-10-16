@@ -74,6 +74,30 @@ if command -v docker >/dev/null 2>&1; then
     "table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}" 2>/dev/null \
     | { read -r header; echo "  $header"; while read -r l; do echo "  $l"; done; }
   echo
+  # A live container whose run has no registry entry is either a boot that never
+  # registered (it died before the health check) or a lane that deleted the
+  # registry file. Either way nothing else names it, so it is listed here with
+  # the exact command that reclaims it. Read-only: this script never removes
+  # anything, and never touches a run id that is not yours.
+  unregistered=0
+  for name in $(docker ps --filter "name=marula-e2e" --format '{{.Names}}' 2>/dev/null); do
+    run="${name#marula-e2e-pg-}"
+    [ "$run" = "$name" ] && run="${name#marula-e2e-redis-}"
+    registered=no
+    for f in "$SHARED_ROOT/.kilo/dev-registry/run-$run-pids.json" \
+             "$SHARED_ROOT/.kilo/worktrees/"*"/.kilo/dev-registry/run-$run-pids.json"; do
+      [ -f "$f" ] && registered=yes && break
+    done
+    if [ "$registered" = "no" ]; then
+      if [ "$unregistered" -eq 0 ]; then
+        echo "  UNREGISTERED (no registry entry — nothing else names these):"
+      fi
+      unregistered=$((unregistered + 1))
+      echo "    $name"
+      echo "      reclaim:  bash scripts/e2e-stack.sh down $run"
+    fi
+  done
+  echo
   echo "To inspect:  docker logs marula-e2e-pg-<run-id>"
   echo "Service logs:  $SHARED_ROOT/.kilo/e2e-logs/<run-id>/{core-api,realtime}.log"
 else
@@ -85,4 +109,6 @@ echo "== other common Marula processes (core-api / realtime / next standalone) =
 ps -axo pid,command | grep -E "release/(core-api|realtime)|\.next/standalone/server\.js|marula-core-cli" \
   | grep -v grep | sed 's/^/  /' || echo "  (none)"
 echo
-echo "Teardown: bash scripts/e2e-stack.sh down <RUN_ID>   # keyed to that run id only"
+echo "Teardown: bash scripts/e2e-stack.sh down <RUN_ID>   # run ids are e2e-<digits> (bare digits work too)."
+echo "          A teardown that removes nothing now exits non-zero and names what it looked for,"
+echo "          so a run that is still up after a down is a failure, not a silent success."

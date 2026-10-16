@@ -11,12 +11,21 @@
 #   scripts/e2e-stack.sh down [RUN]   # teardown ONE run (default: the local env
 #                                     # file's run id) — only its own containers
 #                                     # and PIDs, never a parallel lane's DB
+#   scripts/e2e-stack.sh selftest     # teardown honesty: proves a `down` that
+#                                     # removed nothing cannot report success
+#                                     # (fake docker, no daemon, no stack)
 #   E2E_FOREGROUND=1 scripts/e2e-stack.sh
 #                                     # attach + EXIT trap tears down ONLY this run
 #   E2E_KEEP=1 …                      # keep the PG container after teardown
 #   E2E_FOLLOW=1 …                    # stay attached and stream the core-api +
 #                                     #   realtime logs (Ctrl-C stops following;
 #                                     #   the stack keeps running)
+#
+# Run ids: the canonical shape is `e2e-<digits>` (new_run_id below), and the
+# containers are `marula-e2e-pg-<RUN_ID>` / `marula-e2e-redis-<RUN_ID>`. `down`
+# accepts the bare digits and normalises them, and it fails loudly when it
+# removes nothing — `docker rm -f` exits 0 for a container that does not exist,
+# which is how five orphaned stacks once "tore down" while still running.
 #
 # `up` RETURNS as soon as core-api answers its health check. core-api and
 # realtime are detached with their own stdio (`</dev/null`, logs under
@@ -52,7 +61,12 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_FILE="e2e/.e2e-stack.env"   # per-checkout: Playwright reads it from its own tree
+ENV_FILE="${E2E_ENV_FILE:-e2e/.e2e-stack.env}"   # per-checkout: Playwright reads it from its own tree
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # absolute, for the self-test's child runs
+# Everything below (cargo, the guard, the relative env-file path) is relative to
+# the checkout that owns this script; running it from anywhere else used to
+# depend on the caller's cwd. Same shape as scripts/dev-status.sh.
+cd "$REPO_ROOT"
 
 # Shared root = the MAIN checkout, even when this script runs from a linked
 # worktree. `git rev-parse --git-common-dir` resolves through the worktree's
@@ -115,10 +129,61 @@ registry_drop() { # remove one run's PID entry after teardown
   rm -f "$REGISTRY_DIR/run-$1-pids.json" 2>/dev/null || true
 }
 
+# ---------- docker, with a seam the self-test can point elsewhere ----------
+DOCKER="${DOCKER:-docker}"
+container_exists() { "$DOCKER" inspect "$1" >/dev/null 2>&1; }
+container_remove() { "$DOCKER" rm -f "$1" >/dev/null 2>&1; }
+
+# ---------- run id ----------
+# The canonical shape is the registry's own `e2e-<digits>` (new_run_id below),
+# and the containers are marula-e2e-pg-<RUN_ID>. Nothing documented that, so
+# `down 17921729901030224669` was a silent no-op and read as "already gone".
+# Accept the bare digits too, and never guess at a non-numeric id (`ci`).
+normalize_run_id() {
+  case "${1:-}" in
+    "") return 1 ;;
+    *[!0-9]*) printf '%s' "$1" ;;
+    *) printf 'e2e-%s' "$1" ;;
+  esac
+}
+
 # ---------- teardown (run-id-keyed) ----------
-down_run() { # down_run <run_id>
-  local run="$1" f
+# `docker rm -f` exits 0 when the container does not exist (verified 2026-10-16:
+# `docker rm -f marula-e2e-pg-17921729901030224669; echo $?` printed 0), so the
+# old `rm -f … && echo "removed container …"` guard reported success for work it
+# never did. Five orphaned stacks printed "removed container …" and "run …
+# torn down" while removing nothing, the registry reported zero runs, and the
+# leak stayed invisible. Existence is now checked explicitly, and a teardown
+# that matched nothing fails instead of printing a success line.
+remove_run_containers() { # remove_run_containers <run_id>; non-zero when nothing matched
+  local run="$1" name removed=0 missing=""
+  for name in "marula-e2e-pg-$run" "marula-e2e-redis-$run"; do
+    if container_exists "$name"; then
+      if container_remove "$name"; then
+        echo "[e2e-stack] removed container $name"
+        removed=$((removed + 1))
+      else
+        echo "[e2e-stack] WARN container $name exists but could not be removed" >&2
+      fi
+    else
+      missing="$missing $name"
+    fi
+  done
+  if [ "$removed" -eq 0 ]; then
+    echo "[e2e-stack] FAIL: nothing matched marula-e2e-pg-$run or marula-e2e-redis-$run — no container was removed" >&2
+    echo "[e2e-stack]       run ids are e2e-<digits> (bare digits are accepted); see what is live with: $DOCKER ps --filter name=marula-e2e" >&2
+    return 1
+  fi
+  if [ -n "$missing" ]; then
+    echo "[e2e-stack] note: already gone:$missing"
+  fi
+  return 0
+}
+
+down_run() { # down_run <run_id>; non-zero when it removed nothing
+  local run="$1" f rc=0
   echo "[e2e-stack] teardown run $run"
+  echo "[e2e-stack] looks for containers marula-e2e-pg-$run and marula-e2e-redis-$run"
   f="$REGISTRY_DIR/run-$run-pids.json"
   if [ -f "$f" ]; then
     python3 - "$f" <<'PY'
@@ -137,20 +202,19 @@ try:
 except Exception:
     pass
 PY
+  else
+    echo "[e2e-stack] no registry entry $f (the boot never registered, or it was removed)"
   fi
-  # containers carry the run id in the NAME — decouple only what we own.
-  for name in "marula-e2e-pg-$run" "marula-e2e-redis-$run"; do
-    docker rm -f "$name" >/dev/null 2>&1 && echo "[e2e-stack] removed container $name" || true
-  done
+  remove_run_containers "$run" || rc=1
   # shared scratch PG: drop THIS run's DATABASE only (the shared container
   # stays for other runs). The name is run-id keyed, so it can never match a
   # different lane's database.
-  if [ -n "${MARULA_SHARED_PG_CONTAINER:-}" ] && command -v docker >/dev/null 2>&1; then
+  if [ -n "${MARULA_SHARED_PG_CONTAINER:-}" ] && command -v "$DOCKER" >/dev/null 2>&1; then
     local shared="${MARULA_SHARED_PG_CONTAINER}"
     local dbname="marula_e2e_${run//[^a-z0-9]/_}"
-    if docker exec "$shared" psql -U postgres -tAc \
+    if "$DOCKER" exec "$shared" psql -U postgres -tAc \
         "select 1 from pg_database where datname='$dbname'" 2>/dev/null | grep -q 1; then
-      if docker exec "$shared" psql -U postgres -c "DROP DATABASE $dbname" >/dev/null 2>&1; then
+      if "$DOCKER" exec "$shared" psql -U postgres -c "DROP DATABASE $dbname" >/dev/null 2>&1; then
         echo "[e2e-stack] dropped database $dbname on shared pg $shared"
       else
         echo "[e2e-stack] WARN: could not drop database $dbname on shared pg $shared" >&2
@@ -173,17 +237,117 @@ PY
   if [ -d "$log_dir" ]; then
     echo "[e2e-stack] kept service logs at $log_dir"
   fi
-  echo "[e2e-stack] run $run torn down"
+  if [ "$rc" -eq 0 ]; then
+    echo "[e2e-stack] run $run torn down"
+  else
+    echo "[e2e-stack] run $run NOT torn down — no container carried that run id" >&2
+  fi
+  return "$rc"
+}
+
+# ---------- self-test: a teardown that removed nothing cannot look successful ----
+# Runs the real `down` path against a fake docker whose `rm -f` behaves like the
+# real one (exit 0 for a container that does not exist), so the assertions are
+# about this script's honesty, not about a daemon.
+selftest_teardown() {
+  local tmp failures=0 checks=0
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/e2e-stack-selftest.XXXXXX")" || return 1
+  # the path is embedded: the trap outlives the local variable
+  trap "rm -rf '$tmp'" EXIT
+  cat > "$tmp/docker" <<'FAKE'
+#!/usr/bin/env bash
+# Fake docker: only what the teardown path uses. `rm -f` on a missing container
+# exits 0, exactly like the real CLI, which is the behaviour that hid the leak.
+state="${FAKE_DOCKER_STATE:?}"
+case "${1:-}" in
+  inspect) grep -qx "${2:-}" "$state" ;;
+  rm)      name="${3:-}"
+           if grep -qx "$name" "$state"; then grep -vx "$name" "$state" > "$state.tmp"; mv "$state.tmp" "$state"; echo "$name"; exit 0; fi
+           exit 0 ;;
+  ps)      cat "$state" ;;
+  *)       exit 0 ;;
+esac
+FAKE
+  chmod +x "$tmp/docker"
+
+  run_case() { # run_case <label> <expect_rc> <state-lines> <down-arg> [grep-for]
+    local label="$1" want="$2" state="$3" arg="$4" needle="${5:-}"
+    : > "$tmp/state"
+    if [ -n "$state" ]; then printf '%s\n' $state > "$tmp/state"; fi
+    # `|| rc=$?` on purpose: the child exits non-zero in most of these cases and
+    # this script runs under `set -e`.
+    local out rc=0
+    out="$(DOCKER="$tmp/docker" FAKE_DOCKER_STATE="$tmp/state" \
+           E2E_ENV_FILE="$tmp/no-such.env" REGISTRY_DIR="$tmp/reg" LOG_ROOT="$tmp/logs" \
+           bash "$SELF" down "$arg" 2>&1)" || rc=$?
+    checks=$((checks + 1))
+    if [ "$rc" != "$want" ]; then
+      echo "  FAIL  $label: exit $rc, wanted $want"
+      printf '%s\n' "$out" | sed 's/^/          /'
+      failures=$((failures + 1))
+      return
+    fi
+    if [ -n "$needle" ] && ! printf '%s' "$out" | grep -q "$needle"; then
+      echo "  FAIL  $label: output does not mention '$needle'"
+      printf '%s\n' "$out" | sed 's/^/          /'
+      failures=$((failures + 1))
+      return
+    fi
+    echo "  PASS  $label"
+  }
+
+  echo "e2e-stack self-test: teardown honesty (fake docker, no daemon, no stack)"
+  run_case "both containers exist — removed, exit 0" 0 \
+    "marula-e2e-pg-e2e-1111 marula-e2e-redis-e2e-1111" "e2e-1111" "removed container marula-e2e-pg-e2e-1111"
+  run_case "removed nothing — non-zero and it says what it looked for" 1 \
+    "" "e2e-2222" "FAIL: nothing matched marula-e2e-pg-e2e-2222"
+  # The old code printed "removed container …" here; that line must not come back.
+  local out2
+  out2="$(DOCKER="$tmp/docker" FAKE_DOCKER_STATE="$tmp/state" \
+          E2E_ENV_FILE="$tmp/no-such.env" REGISTRY_DIR="$tmp/reg" LOG_ROOT="$tmp/logs" \
+          bash "$SELF" down e2e-2222 2>&1)" || true
+  checks=$((checks + 1))
+  if printf '%s' "$out2" | grep -qE "removed container|^\[e2e-stack\] run .* torn down$"; then
+    echo "  FAIL  a teardown that removed nothing printed a success line"
+    failures=$((failures + 1))
+  else
+    echo "  PASS  a teardown that removed nothing printed no success line"
+  fi
+  run_case "bare digits normalise to e2e-<digits>" 0 \
+    "marula-e2e-pg-e2e-3333 marula-e2e-redis-e2e-3333" "3333" "removed container marula-e2e-pg-e2e-3333"
+  run_case "idempotent second teardown still fails loudly" 1 \
+    "" "e2e-1111" "NOT torn down"
+  run_case "no id and no env file — refuses instead of guessing" 1 \
+    "" "" "pass one, e.g."
+
+  if [ "$failures" -eq 0 ]; then
+    echo "e2e-stack self-test: $checks checks pass"
+    return 0
+  fi
+  echo "e2e-stack self-test: $failures of $checks failed"
+  return 1
 }
 
 # ########## dispatch ##########
 case "${1:-up}" in
   down)
-    # explicit teardown: RUN comes from arg, else from the env file
-    local_run="$(grep -m1 '^MARULA_RUN_ID=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
-    down_run "${2:-$local_run}"
-    exit 0
+    # explicit teardown: RUN comes from the arg (e2e-<digits> or bare digits),
+    # else from this checkout's env file.
+    raw_run="${2:-}"
+    if [ -z "$raw_run" ]; then
+      raw_run="$(grep -m1 '^MARULA_RUN_ID=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
+      if [ -z "$raw_run" ]; then
+        die "no run id given and $ENV_FILE holds none — pass one, e.g. bash scripts/e2e-stack.sh down e2e-17921729901030224669"
+      fi
+      echo "[e2e-stack] run id $raw_run (from $ENV_FILE)"
+    fi
+    run_id="$(normalize_run_id "$raw_run")"
+    if [ "$run_id" != "$raw_run" ]; then
+      echo "[e2e-stack] run id $raw_run normalised to $run_id"
+    fi
+    if down_run "$run_id"; then exit 0; else exit $?; fi
     ;;
+  selftest) selftest_teardown; exit $? ;;
   help|-h|--help)
     sed -n '1,28p' "$0"; exit 0 ;;
 esac
@@ -269,12 +433,47 @@ if [ "${MODE:-}" = "isolated" ]; then
     -p "$REDIS_PORT:6379" valkey/valkey:8-alpine \
     valkey-server --maxmemory 128mb --maxmemory-policy noeviction >/dev/null \
     || die "could not start scratch Valkey"
+
+  ########## failed-boot hygiene (Wave 47 lane A17) ##########
+  # The registry entry is written only AFTER core-api answers its health check,
+  # so a boot that dies before that point (a build error, a port conflict, an
+  # api that never comes up) leaves this run's own containers running with
+  # nothing that names them: `scripts/dev-status.sh` can only report registered
+  # runs, and the pair outlives the lane. That is the shape that made five
+  # container pairs look orphaned on 2026-10-16. Remove ONLY this run id's
+  # containers, only when the boot never became ready, and honour E2E_KEEP.
+  UP_COMPLETE=0
+  cleanup_failed_boot() {
+    local rc=$?
+    if [ "$rc" -ne 0 ] && [ "${UP_COMPLETE:-0}" -eq 0 ]; then
+      if [ "${E2E_KEEP:-0}" = "1" ]; then
+        echo "[e2e-stack] FAIL: run $RUN_ID never became ready (exit $rc); E2E_KEEP=1 keeps marula-e2e-pg-$RUN_ID (port $PG_PORT) and marula-e2e-redis-$RUN_ID (port $REDIS_PORT)" >&2
+      else
+        echo "[e2e-stack] FAIL: run $RUN_ID never became ready (exit $rc) — removing its own containers (${RUN_ID} only)" >&2
+        docker rm -f "marula-e2e-pg-$RUN_ID" "marula-e2e-redis-$RUN_ID" >/dev/null 2>&1 || true
+      fi
+    fi
+  }
+  trap cleanup_failed_boot EXIT
 fi
 
 ########## migrate + deterministic demo seed (mechanical reseed) ##########
+# The CLI runs in the DEV profile here (plain `cargo run`), so the dev half of
+# the shared dir gets the same provenance check the release builds get below.
+# A debug artifact from another tree poisons a debug build exactly the way a
+# release one poisons a release build — same relative dep-info, same mtime trap.
+if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
+  run_stage "shared-target guard (dev profile)" \
+    "python3 scripts/lane-target-guard.py check --profile debug --fix" \
+    || die "shared-target guard refused the migrate/seed build — read its reason above, run the fix it prints, or set MARULA_LANE_GUARD=0 to override deliberately"
+fi
 run_stage "migrate schema" 'cargo run -q -p marula-core-cli -- migrate'
 run_stage "seed the deterministic demo org (seed-demo --force)" \
   'MARULA_DEV_TOOLS=1 cargo run -q -p marula-core-cli -- seed-demo --force'
+if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
+  run_stage "mark the shared target (dev provenance)" \
+    "python3 scripts/lane-target-guard.py mark --profile debug --note e2e-stack:cli-migrate+seed"
+fi
 
 echo "[e2e-stack] reset volatile state (auth gate + per-user onboarding/tours) …"
 if [ -n "${E2E_PG_CONTAINER:-}" ]; then
@@ -295,6 +494,25 @@ fi
 LOG_DIR="$LOG_ROOT/$RUN_ID"
 mkdir -p "$LOG_DIR"
 echo "[e2e-stack] service logs: $LOG_DIR/{core-api,realtime}.log"
+
+########## shared cargo target guard (Wave 47 lane A17) ##########
+# Every checkout on this machine compiles into ONE target dir (.cargo/config.toml
+# → disk guardrails DX6), and cargo records dep-info paths RELATIVE to the
+# workspace root, so an artifact a peer worktree built from a different source
+# state resolves against THIS tree's files and passes the mtime freshness check.
+# The result is a build that links code its sources never produced — the recorded
+# signatures are a phantom `cannot find value …` and a `built for newer 'macOS'`
+# linker error, both charged to innocent crates. The guard resets the workspace
+# members FOR THIS PROFILE when the dir's last stamped build came from another
+# tree, then `mark`s the dir after the builds. Release is explicit on purpose:
+# `cargo clean -p …` WITHOUT `--release` does not clear a poisoned release
+# artifact (proven 2026-10-16, .trail/learnings/).
+if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
+  run_stage "shared-target guard (release)" \
+    "python3 scripts/lane-target-guard.py check --profile release --fix" \
+    || die "shared-target guard refused this build — read its reason above, run the fix it prints, or set MARULA_LANE_GUARD=0 to override deliberately"
+fi
+
 # The release builds are the slow part of a boot; cargo runs un-quiet here so
 # its compile lines stream and the wait is visible.
 run_stage "build core-api (release — E2E latency needs the optimized build)" \
@@ -307,6 +525,12 @@ API_PID=$!
 disown "$API_PID" 2>/dev/null || true
 # realtime (ws) service — same JWT secret as core-api (token validation).
 run_stage "build realtime (release)" 'cargo build -p realtime --release'
+# Both release binaries are now built from THIS tree's sources: claim the shared
+# dir so the next lane's guard sees whose artifacts these are.
+if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
+  run_stage "mark the shared target (release provenance)" \
+    "python3 scripts/lane-target-guard.py mark --profile release --note e2e-stack:core-api+realtime"
+fi
 WS_BIN="$(cargo metadata -q --no-deps --format-version 1 | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/realtime"
 echo "[e2e-stack] boot realtime on 0.0.0.0:${WS_PORT}"
@@ -374,6 +598,9 @@ with open(os.path.join(regdir, f"run-{run_id}-pids.json"), "w") as f:
     json.dump(reg, f, indent=2)
 PY
 echo "[e2e-stack] registered run in $REGISTRY_DIR — check scripts/dev-status.sh"
+# Past this line the run is discoverable, so a later failure is a lane's own
+# teardown (`down $RUN_ID`) and not a leak.
+UP_COMPLETE=1
 
 ########## console summary — a boot is never silent ##########
 echo "[e2e-stack] run $RUN_ID ready — api http://${API_HOST}/  ws :${WS_PORT}  web :${WEB_PORT}"

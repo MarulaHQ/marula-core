@@ -7,13 +7,20 @@
 // (per-item owners in the baseline file). AXE_UPDATE_BASELINE=1 snapshots;
 // AXE_STRICT=1 additionally fails on baselined criticals still present.
 //
-// Evidence: design/qa-p29-accessibility-deep/axe-results.json is rewritten
-// each run — the coverage matrix and Wave 35 read from it.
+// Evidence: `<lane>/axe-results.json` in the running lane's own evidence dir
+// (e2e/helpers/evidence.ts) — the coverage matrix and Wave 35 read it, and no
+// lane's sweep overwrites another lane's record (Wave 47 lane A17).
 
 import { test } from "../helpers/harness";
 import { SURFACES, runAudit } from "../helpers/axe";
+import { evidenceDir } from "../helpers/evidence";
 
 test.describe("axe full-matrix audit", () => {
+  test("evidence lands in this lane's own evidence dir", () => {
+    // The full-matrix test below only writes; this makes the destination
+    // visible in the run output so a clobbering regression is obvious.
+    console.log(`[axe-audit] evidence dir: ${evidenceDir()}`);
+  });
   // One scan page per surface, all inside the authenticated fixture.
   test("every shipped surface passes WCAG 2.x A/AA with no NEW critical violations", async ({
     authedPage,

@@ -51,3 +51,37 @@ a dirty demo org:
 3. **If a test asserts a row-level consequence, it must also be able to
    CREATE that row.** A test that only reads whatever the environment happens
    to contain is a flake in a shared org.
+
+## Evidence writes stay inside the lane that writes them
+
+A run writes evidence into the running lane's own directory, never into another
+lane's committed record. `e2e/helpers/evidence.ts` resolves it: `E2E_EVIDENCE_DIR`
+if set, else `design/qa-<branch>`, else `design/qa-<run id>`, else
+`design/qa-<short sha>`. The branch name is the directory name, so the lane that
+owns `design/qa-p34-plugin-surface-closeout` still lands there. Every other lane gets
+its own directory. Specs and helpers must use `evidenceDir()`/`evidencePath()`
+instead of a literal `design/qa-*` path — one sweep on 2026-10-16 rewrote seven
+tracked files belonging to three other lanes, and a lane gating with `git add -A`
+would have committed that over their records. `node scripts/check-evidence-writes.mjs`
+fails the gate when a frozen path comes back into the suite, and `pnpm
+evidence:check` runs it.
+
+## The shared cargo target dir has a provenance guard
+
+Every checkout compiles into `.kilo/target-shared` (disk guardrails DX6), and
+cargo records dep-info paths relative to the workspace root — so an artifact a
+peer worktree built from different sources can pass this tree's freshness check
+and get linked, producing a phantom `cannot find value …` or a
+`built for newer 'macOS'` linker error charged to an innocent crate.
+`scripts/lane-target-guard.py check --profile release --fix` closes it: it resets
+the workspace members for the profile being built when the directory's last
+stamped build came from another tree, and `mark` claims the directory after a
+successful build. `scripts/e2e-stack.sh up` runs both around its release builds.
+`pnpm target:check` reports the state by hand, and `scripts/repro-shared-target-poison.sh`
+reproduces the failure and the fix on a throwaway workspace. A lane that resets
+the directory by hand must pass `--release` — `cargo clean -p …` without it
+leaves the poisoned release artifact in place.
+
+A boot that fails before the registry entry is written now removes its own
+container pair, so a failed `up` no longer leaves an unregistered stack behind
+(`E2E_KEEP=1` opts out). It only ever touches the run id it created.

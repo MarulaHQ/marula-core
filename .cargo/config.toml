@@ -1,5 +1,14 @@
 # Shared build cache across main + all agent worktrees (disk guardrails DX6).
-# Machine-local; gitignored. See TASKLIST DX6 and .kilo/setup-script.
+# TRACKED: `git ls-files .cargo/config.toml` lists it (a lane's .kilo/setup-script
+# rewrites its copy when it drifts), so a change here reaches every lane and
+# every developer — not a machine-local file, whatever earlier revisions said.
+# ONE dir for every checkout means one checkout's artifacts can satisfy another
+# checkout's build: cargo records dep-info paths relative to the workspace root,
+# so a peer's stale rlib passes this tree's freshness check and gets linked. The
+# provenance guard closes that — `python3 scripts/lane-target-guard.py check
+# --profile release --fix` before a release build (scripts/e2e-stack.sh already
+# does), `mark` after. Evidence and the release-profile trap:
+# design/qa-p47-lane-env-hygiene/REVIEW.md.
 [build]
 target-dir = "/Users/iordn/Documents/GitHub/Marula/marula-core/.kilo/target-shared"
 
