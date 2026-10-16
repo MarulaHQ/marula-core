@@ -149,6 +149,7 @@ pub mod verification;
 pub mod webhook_admin;
 pub mod webhook_receiver;
 pub mod webhooks;
+pub mod workflow_authoring;
 pub mod workflow_documents;
 pub mod workflow_nodes;
 pub mod workflow_overrides;
@@ -866,6 +867,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/workflows/documents/{id}"),
             get(workflow_documents::get).patch(workflow_documents::update),
         )
+        // "Describe it" → a valid workflow draft (Wave 43 lane 17). NOT a
+        // write: it authors a document from a sentence, validates it through
+        // the SAME boundary the save route uses, and returns it with a diff,
+        // persisting nothing. Rides the shared AI admission path.
+        .route(&rp("/workflows/author"), post(workflow_authoring::author))
         // --- the workflow run ledger (Wave 43 lane 14) ------------------------
         //
         // The two logs are deliberately symmetrical: the run ledger pages

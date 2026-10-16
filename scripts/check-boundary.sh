@@ -45,7 +45,7 @@ SOURCE_GLOBS=(
 EXCLUDES=(
   --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target
   --exclude-dir=dist --exclude-dir=.next --exclude-dir=.turbo
-  --exclude-dir=.kilo --exclude-dir=graft --exclude-dir=graphify-out
+  --exclude-dir=.kilo --exclude-dir=.trail --exclude-dir=graft --exclude-dir=graphify-out
   --exclude-dir=docs --exclude-dir=resources
   --exclude='*.md' --exclude='*.lock' --exclude='*.svg' --exclude='*.png'
 )
@@ -67,7 +67,7 @@ echo "== marula-core boundary checks =="
 # dependency aliases cannot be resolved from source.
 
 find . -name package.json -o -name Cargo.toml 2>/dev/null \
-  | grep -vE '\.git/|node_modules|/\.next/|/\.turbo/|/\.kilo/|graft/|graphify-out/|/resources/web/' \
+  | grep -vE '\.git/|node_modules|/\.next/|/\.turbo/|/\.kilo/|/\.trail/|graft/|graphify-out/|/resources/web/' \
   | sort > /tmp/boundary-manifests.$$
 
 python3 - /tmp/boundary-manifests.$$ <<'PYEOF'

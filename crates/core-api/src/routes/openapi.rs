@@ -526,6 +526,8 @@ use utoipa::OpenApi;
         crate::routes::workflow_documents::get,
         crate::routes::workflow_documents::create,
         crate::routes::workflow_documents::update,
+        // "describe it" → a workflow draft (Wave 43 lane 17)
+        crate::routes::workflow_authoring::author,
         crate::routes::api_keys::list,
         crate::routes::api_keys::create,
         crate::routes::api_keys::revoke,
@@ -1764,6 +1766,16 @@ use utoipa::OpenApi;
         crate::routes::workflow_documents::WorkflowDocumentListView,
         crate::routes::workflow_documents::CreateWorkflowDocumentRequest,
         crate::routes::workflow_documents::UpdateWorkflowDocumentRequest,
+        // "describe it" → a workflow draft (Wave 43 lane 17)
+        crate::routes::workflow_authoring::AuthorWorkflowRequest,
+        crate::routes::workflow_authoring::AuthorWorkflowResponse,
+        crate::routes::workflow_authoring::AuthorModelInfo,
+        crate::routes::workflow_authoring::AuthorUsage,
+        crate::routes::workflow_authoring::AuthorCatalogueInfo,
+        crate::routes::workflow_authoring::AuthoringIssue,
+        crate::routes::workflow_authoring::AuthoringToolCall,
+        crate::routes::workflow_authoring::DiffEntry,
+        crate::routes::workflow_authoring::CatalogueNode,
         // ADR 0009 distribution lifecycle (Wave 16 lane 7) + Wave 24 theme packs
         crate::routes::plugin_distribution::ThemePackList,
         crate::routes::plugin_distribution::ThemePackView,

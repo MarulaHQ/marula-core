@@ -138,7 +138,8 @@ pub async fn list(
     .await
     .map_err(ApiError::from)?;
     let rows =
-        core_db::automations::list_workflow_documents(&mut *tx, authed.principal.user.org_id).await?;
+        core_db::automations::list_workflow_documents(&mut *tx, authed.principal.user.org_id)
+            .await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(WorkflowDocumentListView {
         documents: rows.into_iter().map(document_view).collect(),
@@ -165,12 +166,9 @@ pub async fn get(
     )
     .await
     .map_err(ApiError::from)?;
-    let rec = core_db::automations::get_workflow_document(
-        &mut *tx,
-        authed.principal.user.org_id,
-        id,
-    )
-    .await?;
+    let rec =
+        core_db::automations::get_workflow_document(&mut *tx, authed.principal.user.org_id, id)
+            .await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(document_view(rec)))
 }
@@ -261,8 +259,7 @@ pub async fn update(
         subject_kind,
     };
     let saved = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let rec =
-            core_db::automations::update_workflow(&mut *ctx.tx, org_id, id, patch).await?;
+        let rec = core_db::automations::update_workflow(&mut *ctx.tx, org_id, id, patch).await?;
         ctx.emit(
             types::AUTOMATION_RULE_UPDATED,
             "automation_rule",
