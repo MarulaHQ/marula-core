@@ -2067,7 +2067,8 @@ pub async fn workflow_node(
     let params = req.params.clone();
     let context = req.context.clone();
     let output = org_tx::with_org_tx(&state, org_id, actor, move |mut ctx| async move {
-        let output = execute_workflow_node(&mut ctx, org_id, &node_id, &params, &context).await?;
+        let output =
+            execute_workflow_node(&mut ctx, org_id, actor, &node_id, &params, &context).await?;
         Ok((ctx, output))
     })
     .await?;
@@ -2082,6 +2083,7 @@ pub async fn workflow_node(
 async fn execute_workflow_node(
     ctx: &mut org_tx::OrgTx<'_>,
     org_id: Uuid,
+    actor: Uuid,
     node_id: &str,
     params: &Value,
     context: &Value,
@@ -2418,6 +2420,137 @@ async fn execute_workflow_node(
             )
             .await?;
             Ok(json!({ "entryKey": entry_key, "commentId": comment.id }))
+        }
+        // Wave 43 lane 19: coverage growth for the first multi-step consumer.
+        // A thin wrapper over the same core_db calls the capture route makes —
+        // the registry node is generic, so no workflow is special-cased here.
+        "signOff.capture" => {
+            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
+            let signer_name = params
+                .get("signerName")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| {
+                    ApiError::Validation("signOff.capture: signerName is required".into())
+                })?;
+            // The node names an attachment, never bytes: the pad owns the ink.
+            let attachment_id = params
+                .get("attachmentId")
+                .and_then(Value::as_str)
+                .and_then(|s| Uuid::parse_str(s).ok())
+                .ok_or_else(|| {
+                    ApiError::Validation("signOff.capture: attachmentId is required".into())
+                })?;
+            // The catalogue declares this input as a string (recorded as a
+            // schema oddity in the landing record); accept a string or a
+            // number so a hand-written and an AI-written document both work.
+            let requested_version = params
+                .get("consentVersion")
+                .and_then(|v| {
+                    v.as_str()
+                        .and_then(|s| s.trim().parse::<i32>().ok())
+                        .or_else(|| v.as_i64().map(|n| n as i32))
+                })
+                .ok_or_else(|| {
+                    ApiError::Validation("signOff.capture: consentVersion is required".into())
+                })?;
+            let witness = params
+                .get("witnessId")
+                .and_then(Value::as_str)
+                .and_then(|s| Uuid::parse_str(s).ok())
+                .or(Some(actor));
+            // Pin the exact wording the run captured against — a snapshot,
+            // never a live join, so a later consent revision cannot rewrite it.
+            let consent = core_db::sign_offs::current_consent(&mut *ctx.tx, org_id)
+                .await
+                .map_err(|e| match e {
+                    core_db::DbError::NotFound => ApiError::Validation(
+                        "signOff.capture: the org has no consent wording configured".into(),
+                    ),
+                    other => ApiError::from(other),
+                })?;
+            if consent.version != requested_version {
+                return Err(ApiError::Validation(format!(
+                    "signOff.capture: consent version {requested_version} is not current ({})",
+                    consent.version
+                )));
+            }
+            let sign_off_id = Uuid::now_v7();
+            // The run is the replay anchor: a retried run re-hits
+            // UNIQUE (org_id, idempotency_key) and refuses a second piece of
+            // evidence instead of duplicating it.
+            let run_id = context.get("run_id").and_then(Value::as_str).unwrap_or("");
+            let idempotency_key = format!("workflow:{run_id}:{attachment_id}");
+            let captured_at = chrono::Utc::now();
+            let sign_off = core_db::sign_offs::insert_sign_off(
+                &mut ctx.tx,
+                core_db::sign_offs::NewSignOff {
+                    id: sign_off_id,
+                    org_id,
+                    ticket_id: ticket.id,
+                    attachment_id: Some(attachment_id),
+                    // The node's schema requires an attachment, so the typed
+                    // agreement lane 12 ships is unreachable through it — a
+                    // catalogue gap this lane records rather than widens.
+                    typed_agreement: false,
+                    signer_name,
+                    signer_kind: core_domain::entities::sign_off::SignOffSignerKind::Customer,
+                    witnessed_by_user_id: witness,
+                    captured_at,
+                    consent_version: consent.version,
+                    consent_text_snapshot: &consent.body,
+                    supersedes_sign_off_id: None,
+                    idempotency_key: &idempotency_key,
+                },
+            )
+            .await?;
+            let mut payload = serde_json::to_value(core_domain::events::SignOffCreated {
+                sign_off_id,
+                ticket_id: ticket.id,
+                attachment_id: Some(attachment_id),
+                typed_agreement: false,
+                signer_name: sign_off.signer_name.clone(),
+                signer_kind: "customer".to_string(),
+                witnessed_by_user_id: witness,
+                captured_at,
+                consent_version: consent.version,
+                // The node never holds the bytes, so it cannot report their
+                // digest; the attachment row is the address of truth.
+                sha256: String::new(),
+                size_bytes: 0,
+                supersedes_sign_off_id: None,
+            })
+            .unwrap_or_default();
+            payload["via_automation"] = marker["via_automation"].clone();
+            ctx.emit(
+                types::SIGN_OFF_CREATED,
+                "sign_off",
+                Some(sign_off_id.to_string().as_str()),
+                &payload,
+            )
+            .await?;
+            core_db::audit::insert(
+                &mut *ctx.tx,
+                &AuditEvent {
+                    id: Uuid::now_v7(),
+                    org_id,
+                    actor: Actor::Human(actor),
+                    action: "sign_off.created".into(),
+                    entity_type: Some("ticket".into()),
+                    entity_id: Some(ticket.id.to_string()),
+                    detail: json!({
+                        "sign_off_id": sign_off_id,
+                        "attachment_id": attachment_id,
+                        "consent_version": consent.version,
+                        "source": "workflow",
+                    }),
+                    ip: None,
+                    occurred_at: captured_at,
+                },
+            )
+            .await?;
+            Ok(json!({ "signOffId": sign_off.id, "capturedAt": sign_off.captured_at }))
         }
         other => Err(ApiError::Validation(format!(
             "unsupported workflow operation {other:?}: the executor has no org-scoped path for this node yet"
