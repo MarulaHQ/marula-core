@@ -505,6 +505,19 @@
   color: var(--m-text-muted);
   cursor: not-allowed;
 }
+.m-select-label {
+  display: block;
+  padding: 8px 10px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--m-text-muted);
+  cursor: default;
+}
+.m-select-label:first-child {
+  padding-top: 3px;
+}
 
 /* ---------- Badge (wave41 lane 2b) ---------- */
 

@@ -91,6 +91,7 @@ export const SURFACES: { path: string; label: string }[] = [
   { path: "/alerts", label: "alerts" },
   { path: "/approvals", label: "approvals" },
   { path: "/automations", label: "automations" },
+  { path: "/automations/runs", label: "automations-runs" },
   { path: "/automations/canvas", label: "automations-canvas" },
   { path: "/audit", label: "audit" },
   { path: "/billing", label: "billing" },

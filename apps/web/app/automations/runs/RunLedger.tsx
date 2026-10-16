@@ -222,6 +222,11 @@ export default function RunLedger({ ruleId }: { ruleId?: string }) {
       >
         {loading ? (
           <SkeletonRows rows={8} columns={5} sentence="Loading workflow runs…" />
+        ) : shown === 0 && errorMsg !== null ? (
+          // The banner above already says the read failed. An empty card here
+          // would claim "nothing has run" when the truth is "we could not
+          // read" — two different facts, and only one of them is known.
+          null
         ) : shown === 0 ? (
           <RunsEmpty
             filtered={filtered}

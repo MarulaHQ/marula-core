@@ -10,6 +10,23 @@ import { cn } from "../lib/cn";
 export const Select = SelectPrimitive.Root;
 export const SelectValue = SelectPrimitive.Value;
 
+/**
+ * A titled band inside the menu, for a picker whose options come from a nested
+ * source (a catalogue, a set of families) rather than one flat list. The label
+ * is a caption, never a selectable row: it stays out of the keyboard order.
+ */
+export const SelectGroup = SelectPrimitive.Group;
+
+export type SelectLabelProps = ComponentProps<typeof SelectPrimitive.Label>;
+
+export function SelectLabel({ className, children, ...props }: SelectLabelProps): ReactNode {
+  return (
+    <SelectPrimitive.Label className={cn("m-select-label", className)} {...props}>
+      {children}
+    </SelectPrimitive.Label>
+  );
+}
+
 export type SelectTriggerProps = ComponentProps<typeof SelectPrimitive.Trigger>;
 
 export const SelectTrigger = forwardRef<HTMLButtonElement, SelectTriggerProps>(

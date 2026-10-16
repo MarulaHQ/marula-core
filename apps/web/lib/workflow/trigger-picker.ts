@@ -181,6 +181,45 @@ export function triggerValues(groups: TriggerGroup[]): string[] {
   return groups.flatMap((group) => group.options.map((option) => option.value));
 }
 
+// --- subject ---------------------------------------------------------------
+
+/** What a trigger fires about. The rule editor asks for this before the event. */
+export type TriggerSubject = "ticket" | "board";
+
+/**
+ * The ticket-subject events outside the `ticket.` namespace. The registry names
+ * a trigger node's event types but carries no subject flag (migration 0124 is
+ * validation-only), so the predicate below is the one curated thing here: the
+ * namespace decides, and this set is the documented exception. The test pins it
+ * against the registry's own enums, so it cannot drift silently.
+ */
+const TICKET_SUBJECT_EXTRA: ReadonlySet<string> = new Set(["csat.response_recorded"]);
+
+/** Does this event fire about a ticket, or about the board at large? */
+export function subjectOf(value: string): TriggerSubject {
+  if (value.startsWith("ticket.")) return "ticket";
+  return TICKET_SUBJECT_EXTRA.has(value) ? "ticket" : "board";
+}
+
+/**
+ * The groups a subject can offer: each group's options narrowed to that
+ * subject, and any group left with none dropped rather than shown empty.
+ */
+export function groupsForSubject(groups: TriggerGroup[], subject: TriggerSubject): TriggerGroup[] {
+  const out: TriggerGroup[] = [];
+  for (const group of groups) {
+    const options = group.options.filter((option) => subjectOf(option.value) === subject);
+    if (options.length === 0) continue;
+    out.push({ ...group, options });
+  }
+  return out;
+}
+
+/** The group that offers a value, for the hint under the picker, or null. */
+export function groupOf(groups: TriggerGroup[], value: string): TriggerGroup | null {
+  return groups.find((group) => group.options.some((option) => option.value === value)) ?? null;
+}
+
 /**
  * Does the registry still offer this value? Used to keep a saved rule's trigger
  * visible and honest when the catalogue no longer lists it, rather than silently

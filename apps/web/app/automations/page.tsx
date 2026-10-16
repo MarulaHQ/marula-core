@@ -44,7 +44,9 @@ import {
   Label,
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
   Spinner,
@@ -60,6 +62,7 @@ import {
 import { AssistantCard } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BlushNote,
@@ -103,6 +106,17 @@ import {
 } from "./rule-grammar";
 import { projectDraft, type PluginActionDraft, type ProjectedAction } from "./draft-projection";
 import { authorWorkflowDraft, streamDraftSummary, type AuthorDraft } from "./ai-client";
+import {
+  eventLabel,
+  groupOf,
+  groupsForSubject,
+  hasTriggerValue,
+  registryTriggerGroups,
+  subjectOf,
+  triggerPhrase,
+  type NodeCatalogueView,
+  type TriggerGroup,
+} from "../../lib/workflow/trigger-picker";
 
 type AutomationAction = components["schemas"]["AutomationAction"];
 type BoardNavEntry = components["schemas"]["BoardNavEntry"];
@@ -162,25 +176,6 @@ const RULE_COLUMNS: RuleColumn[] = [
   { key: "updated", label: "Updated", visible: false },
 ];
 
-const TRIGGER_EVENTS: { value: string; label: string; phrase: string; ticketless?: boolean }[] = [
-  { value: "ticket.created", label: "Ticket created", phrase: "a ticket is created" },
-  { value: "ticket.updated", label: "Ticket updated", phrase: "a ticket is updated" },
-  { value: "ticket.status_changed", label: "Ticket status changed", phrase: "a ticket's status changes" },
-  { value: "ticket.assigned", label: "Ticket assigned", phrase: "a ticket is assigned" },
-  { value: "ticket.comment_added", label: "Comment added", phrase: "a comment is added" },
-  { value: "ticket.closed", label: "Ticket closed", phrase: "a ticket is closed" },
-  { value: "csat.response_recorded", label: "CSAT response recorded", phrase: "a CSAT response arrives" },
-  // Ticket-less platform events (Wave 43 lanes 1 + 3): the envelopes a
-  // board-subject rule fires on — the generic receiver's emitted event,
-  // the alert ingestor's, and the other non-ticket platform types.
-  { value: "webhook.ingested", label: "Inbound webhook received", phrase: "an inbound webhook arrives", ticketless: true },
-  { value: "alert.ingested", label: "Alert ingested", phrase: "an alert is ingested", ticketless: true },
-  { value: "client.created", label: "Client created", phrase: "a client is created", ticketless: true },
-  { value: "client.updated", label: "Client updated", phrase: "a client is updated", ticketless: true },
-  { value: "notification.created", label: "Notification created", phrase: "a notification is created", ticketless: true },
-  { value: "sla.escalation_fired", label: "SLA escalation fired", phrase: "an SLA escalation fires", ticketless: true },
-];
-
 const NOTIFY_KINDS: { value: NotificationKind; label: string }[] = [
   { value: "mention", label: "Mention" },
   { value: "assignment", label: "Assignment" },
@@ -193,15 +188,6 @@ const NOTIFY_KINDS: { value: NotificationKind; label: string }[] = [
 const PRIORITIES: Priority[] = ["p1", "p2", "p3", "p4"];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * How the rule's trigger reads inside the sentence. `Ticket created` is the
- * select's label; `a ticket is created` is what a manager can read as a
- * sentence, and the two are different jobs.
- */
-function triggerPhrase(event: string): string {
-  return TRIGGER_EVENTS.find((ev) => ev.value === event)?.phrase ?? event;
-}
 
 function actionText(a: AutomationActionDraft, userName: (id: string) => string): string {
   if (a.type === "plugin_action") {
@@ -261,6 +247,7 @@ interface DraftCondition {
 
 export default function AutomationsPage() {
   const auth = useRequireAuth();
+  const router = useRouter();
 
   // §4.6 surface registry: the org's plugin action kinds for the picker.
   useEffect(() => {
@@ -307,8 +294,37 @@ export default function AutomationsPage() {
     };
   }, [auth.status]);
 
+  // The trigger catalogue. A failure leaves the picker holding only the event
+  // the rule already carries, never an empty control that cannot be saved.
+  const loadTriggerCatalogue = useCallback(async () => {
+    setCatalogueError(null);
+    try {
+      const { data, error } = await api.api.GET("/api/v1/workflows/nodes", {
+        params: { query: { family: "trigger" } as never },
+      });
+      if (error !== undefined || data === undefined) {
+        setTriggerGroups(null);
+        setCatalogueError(rejectionText(error as never, "The trigger catalogue did not load."));
+        return;
+      }
+      setTriggerGroups(registryTriggerGroups(data as unknown as NodeCatalogueView));
+    } catch {
+      setTriggerGroups(null);
+      setCatalogueError("The trigger catalogue did not load.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    void loadTriggerCatalogue();
+  }, [auth.status, loadTriggerCatalogue]);
+
   const [rules, setRules] = useState<AutomationRuleView[] | null>(null);
   const [view, setView] = useState("all");
+  // The trigger picker's options come from the node registry, not a constant
+  // (Wave 43 lane 18). Read once; the catalogue only moves with a release.
+  const [triggerGroups, setTriggerGroups] = useState<TriggerGroup[] | null>(null);
+  const [catalogueError, setCatalogueError] = useState<string | null>(null);
   const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>([]);
   const [columns, setColumns] = useState<RuleColumn[]>(RULE_COLUMNS);
   const [suggestedNudge, setSuggestedNudge] = useState(false);
@@ -506,9 +522,8 @@ export default function AutomationsPage() {
 
   const applyStarter = (starter: Starter) => {
     setName((cur) => (cur.trim() === "" ? starter.label : cur));
-    const ev = TRIGGER_EVENTS.find((e) => e.value === starter.trigger);
     setTriggerEvent(starter.trigger);
-    if (ev !== undefined) setSubjectKind(ev.ticketless === true ? "board" : "ticket");
+    setSubjectKind(subjectOf(starter.trigger));
     setConditionRows(starter.rows.map((row) => ({ uid: nextUid(), row })));
     setActions(starter.actions);
     setFormError(null);
@@ -747,9 +762,8 @@ export default function AutomationsPage() {
     if (proseDraft?.draft === undefined || proseDraft.draft === null) return;
     const projected = projectDraft(proseDraft.name, proseDraft.trigger_event, proseDraft.draft);
     if (projected.triggerEvent !== null) {
-      const ev = TRIGGER_EVENTS.find((e) => e.value === projected.triggerEvent);
       setTriggerEvent(projected.triggerEvent);
-      if (ev !== undefined) setSubjectKind(ev.ticketless === true ? "board" : "ticket");
+      setSubjectKind(subjectOf(projected.triggerEvent));
     }
     if (projected.name !== null && name.trim() === "") setName(projected.name);
     setConditionRows(projected.conditions.map(rowFromCondition).map((row) => ({ uid: nextUid(), row })));
@@ -757,6 +771,19 @@ export default function AutomationsPage() {
     setProseDraft(null);
     setFormError(null);
   };
+
+  // The picker's groups: the registry's own cut, narrowed to the rule's
+  // subject. A group left with no matching event is dropped rather than shown
+  // empty. When the catalogue has not answered (or a saved rule names an event
+  // it no longer lists) the rule's own trigger stays selectable, so an edit can
+  // never silently change or lose it.
+  const registryGroups = useMemo(() => triggerGroups ?? [], [triggerGroups]);
+  const subjectGroups = useMemo(
+    () => groupsForSubject(registryGroups, subjectKind),
+    [registryGroups, subjectKind],
+  );
+  const selectedGroup = groupOf(subjectGroups, triggerEvent);
+  const triggerInList = hasTriggerValue(subjectGroups, triggerEvent);
 
   const rulesSorted = useMemo(
     () => (rules ?? []).slice().sort((a, b) => ((a.updated_at ?? "") < (b.updated_at ?? "") ? -1 : 1)),
@@ -816,8 +843,24 @@ export default function AutomationsPage() {
         }
         actions={
           <>
+            {/* The rule builder is the default view; the canvas is the same
+                workflows, authored as a graph. Two routes, one toggle. */}
+            <ViewSwitch
+              label="Authoring view"
+              views={[
+                { id: "rules", label: "Rules" },
+                { id: "canvas", label: "Canvas" },
+              ]}
+              activeId="rules"
+              onChange={(id) => {
+                if (id === "canvas") router.push("/automations/canvas");
+              }}
+            />
             <Button variant="secondary" asChild>
-              <Link href="/automations/canvas">Open the canvas</Link>
+              <Link href="/automations/runs">Runs</Link>
+            </Button>
+            <Button variant="secondary" asChild>
+              <Link href="/settings/integrations">Webhook activity</Link>
             </Button>
             <Button onClick={openNewRule} data-testid="automation-new-rule">
               <PlusIcon size={16} /> New rule
@@ -1031,6 +1074,16 @@ export default function AutomationsPage() {
                     ))}
                     <Td className="text-right">
                       <div className="flex justify-end gap-1">
+                        {/* This rule's own history: the ledger, narrowed to it. */}
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link
+                            href={`/automations/runs?rule=${r.id}`}
+                            aria-label={`See the runs of ${r.name}`}
+                            data-testid={`automation-runs-${r.id}`}
+                          >
+                            Runs
+                          </Link>
+                        </Button>
                         <Button variant="ghost" size="sm" asChild>
                           <Link href={`/automations/canvas?rule=${r.id}`} aria-label={`Open ${r.name} in the canvas`}>
                             Open in canvas
@@ -1156,13 +1209,10 @@ export default function AutomationsPage() {
                       setSubjectKind(next);
                       // Keep the draft coherent: a subject swap moves the
                       // trigger to a matching event rather than leaving an
-                      // impossible pair selected.
-                      const current = TRIGGER_EVENTS.find((ev) => ev.value === triggerEvent);
-                      if (next === "board" && current?.ticketless !== true) {
-                        setTriggerEvent("webhook.ingested");
-                      }
-                      if (next === "ticket" && current?.ticketless === true) {
-                        setTriggerEvent("ticket.created");
+                      // impossible pair selected. The subject is derived from
+                      // the event itself, so the two cannot disagree.
+                      if (subjectOf(triggerEvent) !== next) {
+                        setTriggerEvent(next === "board" ? "webhook.ingested" : "ticket.created");
                       }
                     }}
                   >
@@ -1201,20 +1251,48 @@ export default function AutomationsPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {TRIGGER_EVENTS.filter((ev) =>
-                          subjectKind === "board" ? ev.ticketless === true : ev.ticketless !== true,
-                        ).map((ev) => (
-                          <SelectItem key={ev.value} value={ev.value}>
-                            {ev.label}
-                          </SelectItem>
+                        {subjectGroups.map((group) => (
+                          <SelectGroup key={group.id}>
+                            <SelectLabel>{group.label}</SelectLabel>
+                            {group.options.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
                         ))}
+                        {triggerInList ? null : (
+                          <SelectGroup>
+                            <SelectLabel>This rule&rsquo;s trigger</SelectLabel>
+                            <SelectItem value={triggerEvent}>{eventLabel(triggerEvent)}</SelectItem>
+                          </SelectGroup>
+                        )}
                       </SelectContent>
                     </Select>
                     <FieldHint>
-                      {subjectKind === "board"
-                        ? "Ticket-less events — an inbound webhook, an alert, or another platform envelope. Plugin-emitted types need an org grant and are not listable until the registry gains a read endpoint."
-                        : "Events about a ticket. Inbound webhook events live under the board subject."}
+                      {selectedGroup !== null ? (
+                        selectedGroup.description
+                      ) : subjectKind === "board" ? (
+                        "Ticket-less events — an inbound webhook, an alert, or another platform envelope. Plugin-emitted types need an org grant and are not listable until the registry gains a read endpoint."
+                      ) : (
+                        "Events about a ticket, from the node registry."
+                      )}{" "}
+                      {subjectKind === "board" ? (
+                        <Link href="/settings/integrations">See recent webhook deliveries</Link>
+                      ) : null}
                     </FieldHint>
+                    {catalogueError !== null ? (
+                      <FieldHint>
+                        {catalogueError}{" "}
+                        <button
+                          type="button"
+                          className="underline"
+                          onClick={() => void loadTriggerCatalogue()}
+                        >
+                          Try again
+                        </button>
+                      </FieldHint>
+                    ) : null}
                   </div>
                 </div>
               </div>

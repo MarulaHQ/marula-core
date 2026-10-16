@@ -38,6 +38,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Badge, Button, EmptyState, Spinner } from "@marula-core/ui";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import {
@@ -638,7 +639,9 @@ export default function WorkflowCanvas({ ruleId }: WorkflowCanvasProps) {
       </a>
       <header className="wf-h">
         <div>
-          <div className="wf-crumb">Automations › Workflows</div>
+          <div className="wf-crumb">
+            <Link href="/automations">Automations</Link> › Workflows
+          </div>
           <div className="wf-title-row">
             <h1>{name || "Untitled workflow"}</h1>
             <Badge tone={meta?.id ? "neutral" : "warning"}>{meta?.id ? `v${revision}` : "Draft"}</Badge>

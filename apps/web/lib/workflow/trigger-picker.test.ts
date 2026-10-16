@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   eventLabel,
+  groupOf,
+  groupsForSubject,
   hasTriggerValue,
   humanizeEventType,
   nodeEventTypes,
   registryTriggerGroups,
+  subjectOf,
   triggerPhrase,
   triggerValues,
   type NodeView,
@@ -119,5 +122,93 @@ describe("trigger wording", () => {
     expect(triggerPhrase("ticket.created")).toBe("a ticket is created");
     // No curated phrase: a grammatical clause is derived, never the raw string.
     expect(triggerPhrase("device.offline")).toBe("the device offline event fires");
+  });
+});
+
+describe("trigger subject", () => {
+  const catalogue = registryTriggerGroups({
+    nodes: [
+      node({
+        id: "trigger.ticket",
+        label: "Ticket lifecycle",
+        input_schema: {
+          type: "object",
+          properties: {
+            eventType: {
+              enum: ["ticket.created", "ticket.status_changed", "ticket.assigned"],
+            },
+          },
+        },
+      }),
+      node({
+        id: "trigger.client",
+        label: "Client or site",
+        input_schema: {
+          type: "object",
+          properties: { eventType: { enum: ["client.created", "client.updated"] } },
+        },
+      }),
+      node({
+        id: "trigger.quality",
+        label: "CSAT and SLA",
+        input_schema: {
+          type: "object",
+          properties: { eventType: { enum: ["csat.response_recorded", "sla.escalation_fired"] } },
+        },
+      }),
+    ],
+  } as never);
+
+  it("reads a ticket event from the namespace, and the CSAT reply as the exception", () => {
+    expect(subjectOf("ticket.created")).toBe("ticket");
+    expect(subjectOf("csat.response_recorded")).toBe("ticket");
+    // Sits in a ticket-flavoured node but fires about the board, not one ticket.
+    expect(subjectOf("sla.escalation_fired")).toBe("board");
+    expect(subjectOf("webhook.ingested")).toBe("board");
+    expect(subjectOf("notification.created")).toBe("board");
+  });
+
+  it("classifies every value the registry offers — nothing falls in a gap", () => {
+    for (const value of triggerValues(catalogue)) {
+      expect(["ticket", "board"]).toContain(subjectOf(value));
+    }
+    // A ticket event is one the registry's own ticket node declares, so the
+    // curated exception cannot drift away from the catalogue.
+    const declared = new Set(triggerValues(catalogue));
+    for (const value of triggerValues(catalogue)) {
+      if (subjectOf(value) === "ticket" && value.startsWith("ticket.")) {
+        expect(declared.has(value)).toBe(true);
+      }
+    }
+  });
+
+  it("narrows each group to the subject and drops a group with none left", () => {
+    const ticket = groupsForSubject(catalogue, "ticket");
+    expect(ticket.map((g) => g.id)).toEqual(["trigger.ticket", "trigger.quality"]);
+    expect(ticket[0]!.options.map((o) => o.value)).toEqual([
+      "ticket.created",
+      "ticket.status_changed",
+      "ticket.assigned",
+    ]);
+    // The quality node keeps only its CSAT option; its SLA event is a board one.
+    expect(ticket[1]!.options.map((o) => o.value)).toEqual(["csat.response_recorded"]);
+
+    const board = groupsForSubject(catalogue, "board");
+    expect(board.map((g) => g.id)).toEqual(["trigger.client", "trigger.quality", "platform"]);
+    expect(board[0]!.options.map((o) => o.value)).toEqual(["client.created", "client.updated"]);
+    expect(board[1]!.options.map((o) => o.value)).toEqual(["sla.escalation_fired"]);
+  });
+
+  it("keeps the group's own words when it narrows, so the hint still names the source", () => {
+    const board = groupsForSubject(catalogue, "board");
+    const quality = board.find((g) => g.id === "trigger.quality");
+    expect(quality?.label).toBe("CSAT and SLA");
+    expect(quality?.description).toBe("");
+  });
+
+  it("finds the group that owns a value, and reports a stranger as null", () => {
+    expect(groupOf(catalogue, "csat.response_recorded")?.id).toBe("trigger.quality");
+    expect(groupOf(catalogue, "client.updated")?.id).toBe("trigger.client");
+    expect(groupOf(catalogue, "nobody.owns_this")).toBeNull();
   });
 });
