@@ -371,6 +371,11 @@ await attempt("assets: rail Clients click", "/assets", async () => {
   }
 }
 
+// `historyAll` lives in the PAGE (it is never cleared, so it holds every
+// pushState/replaceState since load, tagged or not). The predecessor's script
+// referenced it as a Node variable at this point, which threw a ReferenceError
+// and meant nav-probe.json was never written. Read it from the page instead.
+const historyAll = await page.evaluate(() => window.__a21.historyAll ?? []);
 writeFileSync(join(OUT, "nav-probe.json"), JSON.stringify({ ...run, historyAll, net: netLog }, null, 2));
 console.log(`\nhistory calls since load (never cleared): ${historyAll.length}`);
 for (const h of historyAll.slice(0, 15)) console.log(`  ${h.call} ${h.url} tagged=${h.tagged} carriesTree=${h.carriesTree} at=${h.at}`);
