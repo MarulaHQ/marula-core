@@ -69,15 +69,17 @@ defaults: the pool ceilings that set connections, the worker cadence that sets
 idle load, and the `all-in-one` toggle that decides how many processes share an
 instance. A consumer does not guess these. It reads them.
 
-## What is measured and what is not
+## The two measurements
 
 - **Per-user request rate: measured.** The session holds 1.8 to 1.9
   requests/second per user while the box has headroom, falling toward 1.5 as it
   saturates. This was the first open assumption from the R1 capacity note.
-- **Dataset-penalty exponent: not measured.** The model holds at 50k
-  tickets/org. The exponent needs the same run at 50k and 100k on a quiet box.
-  `docs/perf.md` §7 states why the in-session attempt was not usable and what
-  the clean procedure is. Until then, treat any 100k figure as unbounded.
+- **Dataset penalty: measured.** On a quiet box, doubling the dataset to 100k
+  leaves throughput and the median untouched and raises the session p95 by 1.13
+  to 1.30 times (an exponent of about 0.2 to 0.4), concentrated in the board
+  list. Since users-per-instance reads the median, it is unchanged between 50k
+  and 100k. `docs/perf.md` §7 has the run and the raw reports are in
+  `design/qa-p49-100k-penalty/`.
 
 ## Limits
 
