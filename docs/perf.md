@@ -321,3 +321,6 @@ bloat and the parallel stack, so any cross-scale ratio from those runs is
 noise rather than a penalty. The exponent needs a quiet, isolated procedure:
 one stack, a fresh seed, a settle, then the same config at both scales. It is
 recorded here as the open item it is, not estimated.
+
+The full model, with the sizing table, the calculator and the limits, is
+`docs/capacity-model.md`.

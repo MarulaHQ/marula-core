@@ -18,7 +18,7 @@
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use perf_harness::{journey, load, measure, seed, SeedScale, PERF_ORG_ID};
+use perf_harness::{capacity, journey, load, measure, seed, SeedScale, PERF_ORG_ID};
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -107,6 +107,22 @@ enum Command {
         /// Label carried into the report (e.g. the dataset scale).
         #[arg(long)]
         label: Option<String>,
+        #[arg(long)]
+        out: Option<String>,
+    },
+    /// Turn a `journey` report into a sizing plan (Wave 49 lane R8). Reads the
+    /// measured anchor and reports the instances a target user count wants.
+    Capacity {
+        /// Path to a `perf-harness journey --out` report.
+        #[arg(long)]
+        report: String,
+        /// Concurrent users to size for.
+        #[arg(long)]
+        target_users: u64,
+        /// Per-instance Postgres connections at the default pool ceilings
+        /// (docs/perf.md §5).
+        #[arg(long, default_value_t = 71)]
+        per_instance_connections: u64,
         #[arg(long)]
         out: Option<String>,
     },
@@ -213,6 +229,33 @@ async fn main() -> anyhow::Result<()> {
                 report.p95_ms,
                 budget_ms
             );
+        }
+        Command::Capacity {
+            report,
+            target_users,
+            per_instance_connections,
+            out,
+        } => {
+            let json = std::fs::read_to_string(&report)
+                .with_context(|| format!("read journey report {report}"))?;
+            let anchor = capacity::anchor_from_journey_json(&json)?;
+            let plan = capacity::plan(anchor, target_users, per_instance_connections);
+            println!("{}", serde_json::to_string_pretty(&plan)?);
+            println!(
+                "\nanchor {:.0} rps, {:.1}ms p50, {}ms think -> {:.0} users/instance",
+                plan.anchor.throughput_rps,
+                plan.anchor.p50_ms,
+                plan.anchor.think_ms,
+                plan.users_per_instance
+            );
+            println!(
+                "target {} users -> {} instance(s), {} Postgres connections at {} each",
+                plan.target_users,
+                plan.instances,
+                plan.total_connections,
+                plan.per_instance_connections
+            );
+            write_out(out.as_deref(), &plan)?;
         }
         Command::Smoke { budget_ms, tickets } => {
             let (admin_url, admin) = connect().await?;
