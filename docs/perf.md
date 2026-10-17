@@ -24,7 +24,7 @@ until clients migrate. The cursor is the budgeted path).
 
 ## 2. Tooling (`crates/perf-harness`)
 
-Test-infra crate, AGPL, not part of the API surface. Three pieces:
+Test-infra crate, AGPL, not part of the API surface. Four pieces:
 
 - **Seed generator** (`perf-harness seed`): deletes + re-inserts the perf
   org in one transaction. Every measured entity gets a deterministic id
@@ -50,6 +50,13 @@ Test-infra crate, AGPL, not part of the API surface. Three pieces:
   10% deep page. Closed-loop workers (`--concurrency`, default 8),
   end-to-end latency (bearer auth, RLS tx, serialization, axum stack),
   JSON report, exit 1 over budget.
+- **Multi-endpoint session** (`perf-harness journey`, Wave 49 lane R5): the
+  session-shaped workload a users-per-instance number needs. One shared
+  login, then N virtual users each loop a deterministic mixed session over
+  the ticket workspace (board list, open ticket, read thread, my-work, SLA,
+  add comment, change status), reads ~80% and writes ~20%, with a
+  `--think-ms` pause between steps. Per-endpoint p50/p95/p99/max plus the
+  aggregate per-user rate and Little's-law users-per-instance figure. See §7.
 
 ### Running it
 
@@ -246,3 +253,71 @@ order-of-magnitude tripwire (capacity observation, not budget).
 - No PG port claims: the smoke uses the CI service DB (5432) or a
   testcontainer on a random host port. Local runs use a scratch port
   outside the lane range (e.g. 54399).
+
+## 7. Sizing method: users per instance (Wave 49 lane R5)
+
+The single-endpoint runner answers "how fast is the board list". A
+users-per-instance number needs a session, so `perf-harness journey` drives
+the multi-endpoint agent workload described in §2.
+
+```sh
+MARULA_TEST_DATABASE_URL=... perf-harness seed --tickets 50000
+DATABASE_URL=... BIND_ADDR=127.0.0.1:18080 core-api &
+perf-harness journey --base-url http://127.0.0.1:18080 \
+  --users 16 --think-ms 500 --duration 30s --tickets 50000 --label 50k \
+  --budget-ms 150 --out journey-50k.json
+```
+
+The run exits non-zero when any endpoint rejects more than 1% of requests or
+when aggregate p95 crosses the budget.
+
+The report carries per-endpoint latency and two aggregate numbers the
+capacity model multiplies:
+
+- `req_per_user_rps` = throughput / users. This is the per-user request rate
+  at the chosen think-time, the open assumption from the R1 capacity note.
+- `users_per_instance` = throughput x (think_ms + p50) / 1000. Little's law:
+  the users one instance holds at the measured pace.
+
+`--users` is the closed-loop client count. Raising it raises throughput until
+the box saturates; the largest run whose p95 still clears the budget is the
+ceiling, and its `users_per_instance` is the number to quote. `--think-ms` is
+the knob that turns throughput into a user count, so it is always stated
+beside the number.
+
+The **dataset-penalty exponent** (the second open assumption) comes from the
+same command at two scales. Run it at 50k and 100k and read the ratio, with
+`--label` recording the scale. A power law over a doubling gives
+`log(p95_100k / p95_50k) / log(2)`. Say which mix grew: page-1 reads are flat
+in dataset size (§3), so a rise is the write or deep-read legs.
+
+### Measured (2026-10-17)
+
+Apple Silicon dev box, release core-api, scratch Postgres (e2e-stack), the perf
+org freshly seeded @50k, think 500ms, 30s per run, 0 errors in every run. A
+parallel lane's e2e stack was up during the window, so absolute throughput is
+contention-bound. The sweep is internally consistent: each point's
+`users_per_instance` reconstructs its own `users`, which is what a closed loop
+at that pace should do.
+
+| users | rps | p50 | p95 | p99 | req/user | users/inst | budget |
+|---|---|---|---|---|---|---|---|
+| 16 | 30.9 | 13.0 | 47.2 | 55.5 | 1.93 | 15.9 | OK |
+| 64 | 123.7 | 15.0 | 50.8 | 66.0 | 1.93 | 63.7 | OK |
+| 256 | 485.0 | 8.9 | 48.2 | 163.7 | 1.89 | 246.8 | OK |
+| 384 | 695.3 | 25.9 | 93.2 | 294.8 | 1.81 | 365.7 | OK |
+| 512 | 747.8 | 148.1 | 257.4 | 442.8 | 1.46 | 484.7 | OVER |
+
+The knee sits between 384 sessions (695 rps, 93ms p95) and 512 (257ms p95,
+over). So on this box **one instance holds ~384 concurrent mixed sessions at
+p95 ≤ 150ms**, and the per-user rate is 1.8-1.9 rps while the box has
+headroom, falling toward 1.5 as it saturates.
+
+The **100k leg did not yield a usable exponent** in this window. A freshly
+seeded 100k org read p95 406ms at concurrency 64 and 229ms at concurrency 256 (non-monotonic),
+and a re-seed back to 50k then read 289ms at concurrency 64 where the clean window
+had read 51ms. The box degraded across the session, from accumulated write
+bloat and the parallel stack, so any cross-scale ratio from those runs is
+noise rather than a penalty. The exponent needs a quiet, isolated procedure:
+one stack, a fresh seed, a settle, then the same config at both scales. It is
+recorded here as the open item it is, not estimated.

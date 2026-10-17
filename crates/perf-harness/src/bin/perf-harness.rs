@@ -4,6 +4,9 @@
 //! - `seed`    — (re)create the reproducible perf org at a chosen scale
 //! - `measure` — SQL-path ticket-list p95 against the seeded org
 //! - `load`    — HTTP-path load run against a RUNNING core-api
+//! - `journey` — multi-endpoint agent session against a RUNNING core-api
+//!   (Wave 49 lane R5): per-endpoint latency plus the per-user request rate
+//!   and the Little's-law users-per-instance figure
 //! - `smoke`   — seed (if needed) + measure + budget assertion, the
 //!   same check CI runs via `scripts/perf-smoke.sh`
 //!
@@ -15,7 +18,7 @@
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use perf_harness::{load, measure, seed, SeedScale, PERF_ORG_ID};
+use perf_harness::{journey, load, measure, seed, SeedScale, PERF_ORG_ID};
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -77,6 +80,35 @@ enum Command {
         budget_ms: f64,
         #[arg(long, default_value_t = 50_000)]
         tickets: i64,
+    },
+    /// Drive a multi-endpoint agent journey against a RUNNING core-api
+    /// (Wave 49 lane R5). Reports per-endpoint latency, the per-user request
+    /// rate at this think-time, and the Little's-law users-per-instance
+    /// figure. Seed + boot first.
+    Journey {
+        #[arg(long, default_value = "http://127.0.0.1:18080")]
+        base_url: String,
+        #[arg(long, default_value = "30s")]
+        duration: String,
+        /// Virtual users (concurrent sessions).
+        #[arg(long, default_value_t = 16)]
+        users: usize,
+        /// Modeled pause between a user's steps, in milliseconds.
+        #[arg(long, default_value_t = 500)]
+        think_ms: u64,
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        /// Seeded ticket count, so random reads pick ids that exist.
+        #[arg(long, default_value_t = 50_000)]
+        tickets: i64,
+        /// Fail (exit 1) when aggregate p95 exceeds this many ms.
+        #[arg(long, default_value_t = 150.0)]
+        budget_ms: f64,
+        /// Label carried into the report (e.g. the dataset scale).
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long)]
+        out: Option<String>,
     },
 }
 
@@ -142,6 +174,42 @@ async fn main() -> anyhow::Result<()> {
             anyhow::ensure!(
                 report.within_budget,
                 "load run p95 {:.1}ms exceeded budget {:.1}ms",
+                report.p95_ms,
+                budget_ms
+            );
+        }
+        Command::Journey {
+            base_url,
+            duration,
+            users,
+            think_ms,
+            seed: mix_seed,
+            tickets,
+            budget_ms,
+            label,
+            out,
+        } => {
+            let config = journey::JourneyConfig {
+                base_url,
+                duration: parse_duration(&duration)?,
+                users,
+                think_ms,
+                seed: mix_seed,
+                tickets,
+                budget_ms: Some(budget_ms),
+                label,
+            };
+            let report = journey::run(&config).await?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            write_out(out.as_deref(), &report)?;
+            anyhow::ensure!(
+                report.error_rate < 0.01,
+                "journey error rate {:.2}% — an endpoint rejected requests; read the per-endpoint rows",
+                report.error_rate * 100.0
+            );
+            anyhow::ensure!(
+                report.within_budget,
+                "journey p95 {:.1}ms exceeded budget {:.1}ms",
                 report.p95_ms,
                 budget_ms
             );
