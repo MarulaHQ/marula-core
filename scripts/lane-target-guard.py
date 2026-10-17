@@ -85,7 +85,36 @@ depends on WHY the dir was flagged:
   so the verdict never clears (lane 19: 6697 files, 1.9GiB).  These clear the
   whole profile, which IS the state the stamp test demands.
 
-Exit codes: 0 = safe (or fixed) · 1 = needs action (verdict printed) · 2 = usage.
+CROSS-SESSION ARBITRATION (Wave 47 A20 D, do not regress this)
+--------------------------------------------------------------
+The reset above is right for one session and destructive across two.  Two
+sessions on one machine write into the same `.kilo/target-shared`, so when the
+stamp names another worktree the "clean the members and rebuild" rule wipes
+artifacts a PEER session may still be building — and a whole-profile clean takes
+the whole debug dir (21.5GiB here) out from under it.
+
+The arbiter is cargo's OWN per-profile build lock, `<target-dir>/<profile>/.cargo-lock`.
+Cargo takes an exclusive `flock` on it for the duration of a build, so it is
+already held by every actor that can corrupt the dir (any session, worktree,
+checkout, or a containerised build writing into a bind-mounted dir), needs no new
+protocol and no cooperation, and the kernel drops it when the builder exits, so
+there is no stale-lock problem.  The guard probes it with a non-blocking `flock`:
+free means nothing is building into this profile, held means refuse.
+
+Refusal is the outcome, never a silent proceed:
+
+* a held lock (or `any_cargo_running()` failing to rule a build out) — wait up to
+  `--wait` for the lock to free, then REFUSE and clean nothing, exit 3;
+* the lock file cannot be read, so a live build cannot be ruled out — REFUSE;
+* `--force` is the explicit override, and the only way to clean under a live
+  build.  Nothing else proceeds.
+
+The lock file's ABSENCE reads as free, because cargo creates
+`<profile>/.cargo-lock` on first use and never deletes it, so a profile dir with
+artifacts always has one.
+
+Exit codes: 0 = safe (or fixed) · 1 = needs action (verdict printed) · 2 = usage
+· 3 = refused (a build is using this profile; nothing was cleaned).
 """
 
 from __future__ import annotations
@@ -103,6 +132,12 @@ from pathlib import Path
 
 SCHEMA = 1
 STAMP_NAME = ".marula-lane-stamp.json"
+# Cargo's own per-profile build lock.  The guard never invents a lock of its own:
+# see "CROSS-SESSION ARBITRATION" in the module docstring.
+BUILD_LOCK_NAME = ".cargo-lock"
+# Exit code for "refused — a build is using this profile, nothing was cleaned".
+EXIT_REFUSED = 3
+
 # Directories inside a workspace member that never feed a compile.
 SKIP_DIRS = {"target", "node_modules", ".next", "dist", ".git", ".turbo", "build", ".venv"}
 # Files above this size are recorded by name+size, not content: a member dir
@@ -477,17 +512,98 @@ def any_cargo_running() -> bool:
         )
         return bool(out.stdout.strip())
     except Exception:
-        return True  # cannot tell — treat as busy, the caller decides
+        return True  # cannot tell — the caller decides, and here that means refuse
 
 
-def wait_for_gap(seconds: int) -> bool:
-    """Never yank artifacts out from under a peer's build (report shape 4)."""
+def profile_lock_path(target: Path, profile: str) -> Path:
+    """Cargo's own build lock for one profile: `<target>/<profile>/.cargo-lock`."""
+    return target / profile_dir(profile) / BUILD_LOCK_NAME
+
+
+def lock_held(path: Path) -> bool | None:
+    """Is cargo's build lock at `path` held right now?
+
+    `flock` is the primitive cargo itself uses, so a non-blocking `LOCK_EX` that
+    fails means a build owns this profile dir.  True = held, False = free,
+    None = cannot tell (no `fcntl`, or the file cannot be opened).
+    """
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return True
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def profile_build_state(target: Path, profile: str) -> str:
+    """`held` | `free` | `unknown` — is a build using this profile dir now?
+
+    Absence of the lock file reads as `free`: cargo creates it on first use and
+    never deletes it, so a profile dir with artifacts always has one.
+    """
+    lock = profile_lock_path(target, profile)
+    if not lock.exists():
+        return "free"
+    held = lock_held(lock)
+    if held is None:
+        # Cannot read cargo's own lock, so a live build cannot be ruled out.
+        return "held" if any_cargo_running() else "unknown"
+    return "held" if held else "free"
+
+
+def live_build_cwds() -> list[str]:
+    """Best-effort cwds of live cargo/rustc processes, for the refusal message."""
+    try:
+        out = subprocess.run(
+            ["pgrep", "-f", r"cargo (build|check|test|run|clippy)|rustc "],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        ).stdout
+    except Exception:
+        return []
+    cwds: list[str] = []
+    for pid in out.split():
+        try:
+            listing = subprocess.run(
+                ["lsof", "-a", "-p", pid, "-d", "cwd", "-Fn"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            ).stdout
+        except Exception:
+            continue
+        cwds += [line[1:] for line in listing.splitlines() if line.startswith("n")]
+    return sorted(set(cwds))
+
+
+def wait_for_free_lock(target: Path, profile: str, seconds: int) -> str:
+    """Poll the profile's build lock until it frees, or the budget runs out.
+
+    There is no way to yank a peer's artifacts without breaking its build, so
+    waiting is all a reset can honestly do; what it must NOT do is proceed when
+    the wait runs out (that was the old warn-and-clean-anyway).
+    """
+    state = profile_build_state(target, profile)
+    if state == "free" or seconds <= 0:
+        return state
+    print(f"lane-target-guard: waiting up to {seconds}s for the {profile} build lock to free …")
     deadline = time.time() + seconds
-    while time.time() < deadline:
-        if not any_cargo_running():
-            return True
-        time.sleep(5)
-    return not any_cargo_running()
+    while state != "free" and time.time() < deadline:
+        time.sleep(1)
+        state = profile_build_state(target, profile)
+    return state
 
 
 def cargo_profile(profile: str) -> str:
@@ -548,8 +664,39 @@ def reset_command(repo: Path, profile: str, scope: str) -> list[str]:
 
 
 def reset(
-    repo: Path, profile: str, scope: str, dry_run: bool = False, wait: int = 120
+    repo: Path,
+    profile: str,
+    scope: str,
+    dry_run: bool = False,
+    wait: int = 120,
+    force: bool = False,
 ) -> int:
+    target = resolve_target_dir(repo)
+    # Cross-session arbitration first: never clean under a live build.  See
+    # "CROSS-SESSION ARBITRATION" in the module docstring.
+    if not force:
+        state = wait_for_free_lock(target, profile, wait)
+        if state != "free":
+            lock = profile_lock_path(target, profile)
+            print(
+                f"lane-target-guard: REFUSED {profile} — "
+                + (
+                    f"a cargo build holds {lock}"
+                    if state == "held"
+                    else f"could not read {lock}, so a live build cannot be ruled out"
+                ),
+                file=sys.stderr,
+            )
+            cwds = live_build_cwds() if state == "held" else []
+            if cwds:
+                print("lane-target-guard:   live cargo cwd: " + ", ".join(cwds), file=sys.stderr)
+            print(
+                "lane-target-guard:   NOTHING WAS CLEANED. Re-run when that build finishes "
+                "(another session or worktree is using .kilo/target-shared). Do not set "
+                "MARULA_LANE_GUARD=0 — it also skips the mark steps.",
+                file=sys.stderr,
+            )
+            return EXIT_REFUSED
     cmd = reset_command(repo, profile, scope)
     where = (
         "the whole profile (the flagged writes land outside the workspace members)"
@@ -559,12 +706,6 @@ def reset(
     print("lane-target-guard: reset — " + " ".join(cmd) + f"   [{where}]")
     if dry_run:
         return 0
-    if wait > 0 and not wait_for_gap(wait):
-        print(
-            f"lane-target-guard: WARN another cargo build is still running after {wait}s — "
-            "resetting anyway; a peer may see a rebuilt workspace (report shape 4).",
-            file=sys.stderr,
-        )
     proc = subprocess.run(cmd, cwd=str(repo))
     return proc.returncode
 
@@ -611,41 +752,67 @@ def emit(result: dict, as_json: bool) -> None:
 def cmd_check(args: argparse.Namespace) -> int:
     repo = Path(args.repo).resolve()
     target = resolve_target_dir(repo)
+    # With --json, stdout carries only JSON (one document per profile) and the
+    # human progress lines go to stderr, so a machine consumer never sees
+    # "Extra data".
+    sink = sys.stderr if args.json else sys.stdout
     rc = 0
     for profile in profiles_for(args, target):
         result = verdict(repo, target, profile)
         result["repo"] = str(repo)
+        scope = scope_for_status(result["status"])
+        if result["action"] == "reset":
+            result["fix_scope"] = scope
+            result["fix"] = reset_command(repo, profile, scope)
+            if not args.fix:
+                result["fix_blocked_by_live_build"] = (
+                    not args.force and profile_build_state(target, profile) != "free"
+                )
         emit(result, args.json)
         if result["action"] == "reset":
             if args.fix:
-                print(f"lane-target-guard: fixing — {result['detail']}")
+                print(f"lane-target-guard: fixing — {result['detail']}", file=sink)
                 rrc = reset(
-                    repo, profile, scope_for_status(result["status"]),
-                    dry_run=args.dry_run, wait=args.wait,
+                    repo, profile, scope,
+                    dry_run=args.dry_run, wait=args.wait, force=args.force,
                 )
-                if rrc != 0:
+                if rrc == EXIT_REFUSED:
+                    print(
+                        "lane-target-guard: fix withheld — nothing was cleaned (see REFUSED above).",
+                        file=sys.stderr,
+                    )
+                    rc = EXIT_REFUSED
+                elif rrc != 0:
                     print(f"lane-target-guard: FAIL cargo clean exited {rrc}", file=sys.stderr)
                     rc = 1
                 else:
                     print(
                         "lane-target-guard: reset done — the build that follows compiles from "
-                        "THIS tree's sources."
+                        "THIS tree's sources.",
+                        file=sink,
                     )
             else:
-                print(
-                    "lane-target-guard: FIX — "
-                    + " ".join(reset_command(repo, profile, scope_for_status(result["status"])))
-                )
+                print("lane-target-guard: FIX — " + " ".join(result["fix"]), file=sink)
+                if result["fix_blocked_by_live_build"]:
+                    print(
+                        "lane-target-guard: NOTE — a build is using this profile right now; wait "
+                        "for it before running that fix (--force cleans under it instead).",
+                        file=sink,
+                    )
                 rc = 1
         elif result["action"] == "report":
             if profile == "release":
                 print(
                     "lane-target-guard: FIX — cargo clean --release (a full release wipe; a "
                     "workspace-member reset cannot reach a dependency rlib built under another SDK), "
-                    "then re-run with the same DEVELOPER_DIR on every lane."
+                    "then re-run with the same DEVELOPER_DIR on every lane.",
+                    file=sink,
                 )
             else:
-                print("lane-target-guard: FIX — cargo clean, then re-run with one SDK environment.")
+                print(
+                    "lane-target-guard: FIX — cargo clean, then re-run with one SDK environment.",
+                    file=sink,
+                )
             rc = 1
     return rc
 
@@ -667,7 +834,9 @@ def cmd_mark(args: argparse.Namespace) -> int:
 
 def cmd_reset(args: argparse.Namespace) -> int:
     repo = Path(args.repo).resolve()
-    return reset(repo, args.profile, args.scope, dry_run=args.dry_run, wait=args.wait)
+    return reset(
+        repo, args.profile, args.scope, dry_run=args.dry_run, wait=args.wait, force=args.force
+    )
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -688,9 +857,11 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"  WARN        no [package] name readable for: {', '.join(unresolved)}")
     print(f"  stamp       {stamp_path(target)}")
     for profile, entry in sorted((stamp.get("profiles") or {}).items()):
+        state = profile_build_state(target, profile)
+        now = "a build holds it — a reset would refuse" if state != "free" else "free"
         print(
             f"    {profile:8} built {entry.get('built_at', '?')} by {entry.get('branch', '?')} "
-            f"(id {entry.get('worktree_id', '?')})"
+            f"(id {entry.get('worktree_id', '?')})  build lock: {now}"
         )
     return 0
 
@@ -700,6 +871,9 @@ def cmd_status(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 def self_test() -> int:
     import tempfile
+
+    import contextlib
+    import io
 
     failures: list[str] = []
     checks = 0
@@ -834,10 +1008,16 @@ def self_test() -> int:
         argv: list[str] = []
 
         def fake_run(cmd, cwd=None, **kwargs):
-            argv.extend(cmd)
+            # Only cargo invocations are the command under test; the arbiter's
+            # pgrep/lsof probes also go through subprocess.run and must not
+            # pollute the recorded argv.
+            if isinstance(cmd, (list, tuple)) and cmd and cmd[0] == "cargo":
+                argv.extend(cmd)
 
             class R:
                 returncode = 0
+                stdout = ""
+                stderr = ""
 
             return R()
 
@@ -852,7 +1032,7 @@ def self_test() -> int:
             expect("release member reset clears first", argv[:2], ["cargo", "clean"])
             expect(
                 "release member reset passes --release (the 2026-10-16 trap)",
-                argv[-1],
+                argv[-1] if argv else None,
                 "--release",
             )
             expect("release member reset has one -p per member", argv.count("-p"), len(members))
@@ -910,8 +1090,138 @@ def self_test() -> int:
             expect("cargo profile name for debug is dev", cargo_profile("debug"), "dev")
             expect("cargo profile name for test is dev", cargo_profile("test"), "dev")
             expect("cargo profile name for release is release", cargo_profile("release"), "release")
+
+            # ---- (D) cross-session arbitration ---------------------------
+            # Cargo's own per-profile build lock is the arbiter.  A second real
+            # process holds the flock exactly as a live build does.
+            lock_file = target / "release/.cargo-lock"
+            expect("an absent lock file reads free", profile_build_state(target, "release"), "free")
+            expect("an absent lock file cannot be probed", lock_held(lock_file), None)
+
+            lock_file.write_text("")  # cargo's own name, created on first use
+            expect("an unheld lock file reads free", lock_held(lock_file), False)
+            expect(
+                "an unheld lock file is a free profile",
+                profile_build_state(target, "release"),
+                "free",
+            )
+
+            holder = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    "import fcntl,sys,time\n"
+                    "f = open(sys.argv[1], 'r+')\n"
+                    "fcntl.flock(f, fcntl.LOCK_EX)\n"
+                    "sys.stdout.write('held\\n')\n"
+                    "sys.stdout.flush()\n"
+                    "time.sleep(120)\n",
+                    str(lock_file),
+                ],
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                expect("the holder announces itself", holder.stdout.readline().strip(), "held")
+                expect("a held lock reads held", lock_held(lock_file), True)
+                expect("a held lock is a held profile", profile_build_state(target, "release"), "held")
+                # a build in one profile must not block the other profile
+                expect(
+                    "a release build does not block the debug profile",
+                    profile_build_state(target, "debug"),
+                    "free",
+                )
+
+                argv.clear()
+                rc = reset(root, "release", "members", dry_run=False, wait=0)
+                expect("a held lock REFUSES the reset", rc, EXIT_REFUSED)
+                expect("a refused reset runs no cargo at all", argv, [])
+
+                argv.clear()
+                rc = reset(root, "release", scope_for_status("stale-stamp"), dry_run=False, wait=0)
+                expect("a held lock refuses a whole-profile reset too", rc, EXIT_REFUSED)
+                expect("the refused whole-profile reset cleaned nothing", argv, [])
+
+                argv.clear()
+                rc = reset(root, "release", "members", dry_run=False, wait=1)
+                expect("a wait that times out still REFUSES", rc, EXIT_REFUSED)
+                expect("a timed-out wait runs no cargo", argv, [])
+
+                # --force is the one explicit override to clean under a build
+                argv.clear()
+                rc = reset(root, "release", "members", dry_run=False, wait=0, force=True)
+                expect("--force resets despite a held lock", rc, 0)
+                expect("--force runs the clean", argv[:2], ["cargo", "clean"])
+
+                # "cannot tell" must refuse, never proceed silently
+                real_lock_held, real_running = lock_held, any_cargo_running
+                globals()["lock_held"] = lambda _path: None
+                globals()["any_cargo_running"] = lambda: False
+                try:
+                    expect(
+                        "an unreadable lock with no cargo is unknown",
+                        profile_build_state(target, "release"),
+                        "unknown",
+                    )
+                    argv.clear()
+                    rc = reset(root, "release", "members", dry_run=False, wait=0)
+                    expect("unknown REFUSES (never a silent proceed)", rc, EXIT_REFUSED)
+                    expect("an unknown-state reset runs no cargo", argv, [])
+                finally:
+                    globals()["lock_held"] = real_lock_held
+                    globals()["any_cargo_running"] = real_running
+            finally:
+                holder.kill()
+                holder.wait()
+
+            expect("after the holder exits the lock reads free", lock_held(lock_file), False)
+            argv.clear()
+            rc = reset(root, "release", "members", dry_run=False, wait=0)
+            expect("a free lock resets", rc, 0)
+            expect("a free lock runs the clean", argv[:2], ["cargo", "clean"])
+
+            # A transient build must not hard-fail the boot: with a wait budget,
+            # the guard polls the lock and resets once it frees.  (Without this,
+            # "skip the wait and refuse at once" would pass every other check.)
+            short = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    "import fcntl,sys,time\n"
+                    "f = open(sys.argv[1], 'r+')\n"
+                    "fcntl.flock(f, fcntl.LOCK_EX)\n"
+                    "sys.stdout.write('held\\n')\n"
+                    "sys.stdout.flush()\n"
+                    "time.sleep(1)\n",
+                    str(lock_file),
+                ],
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                expect("the short holder announces itself", short.stdout.readline().strip(), "held")
+                argv.clear()
+                rc = reset(root, "release", "members", dry_run=False, wait=5)
+                expect("a transient build is waited out, then reset", rc, 0)
+                expect("the waited-out reset runs the clean", argv[:2], ["cargo", "clean"])
+            finally:
+                short.wait()
         finally:
             subprocess.run = real_run  # type: ignore[assignment]
+
+        # --json must leave stdout as parseable JSON even when the verdict wants
+        # a reset — the FIX line used to be appended to the document, so
+        # `json.load` saw "Extra data".  Real subprocesses here (no fake_run).
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc_json = main(["check", "--profile", "release", "--json", "--repo", str(root)])
+        try:
+            parsed = json.loads(buf.getvalue())
+            json_ok = isinstance(parsed, dict) and parsed.get("action") == "reset"
+        except ValueError:
+            json_ok = False
+        expect("--json emits one parseable document", json_ok, True)
+        expect("--json with a pending reset exits non-zero", rc_json, 1)
 
     if failures:
         print(f"lane-target-guard self-test: {len(failures)} of {checks} failed")
@@ -940,6 +1250,11 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--dry-run", action="store_true", help="print the reset, do not run it")
     check.add_argument("--json", action="store_true")
     check.add_argument("--all-profiles", action="store_true")
+    check.add_argument(
+        "--force",
+        action="store_true",
+        help="reset even while a build holds this profile's lock (you accept breaking it)",
+    )
     check.add_argument("--wait", type=int, default=int(os.environ.get("MARULA_LANE_GUARD_WAIT", 120)))
     check.set_defaults(func=cmd_check)
 
@@ -960,6 +1275,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     rs.add_argument("--dry-run", action="store_true")
+    rs.add_argument(
+        "--force",
+        action="store_true",
+        help="reset even while a build holds this profile's lock (you accept breaking it)",
+    )
     rs.add_argument("--wait", type=int, default=int(os.environ.get("MARULA_LANE_GUARD_WAIT", 120)))
     rs.set_defaults(func=cmd_reset)
 

@@ -79,6 +79,11 @@ when a peer tree wrote them, the whole profile when the flagged writes landed
 outside the member set (a bare `cargo test` writes third-party dev units too) —
 and `mark` claims the directory after a successful build.
 `scripts/e2e-stack.sh up` runs both around its release builds.
+It also refuses to reset while a build holds the profile's own cargo lock
+(`<target-dir>/<profile>/.cargo-lock`), so two sessions on one machine cannot
+clean each other's artifacts. A refusal cleans nothing and exits 3: re-run once
+that build finishes rather than reaching for `MARULA_LANE_GUARD=0`, which also
+skips the `mark` steps. `--force` is the explicit override.
 `pnpm target:check` reports the state by hand, and `scripts/repro-shared-target-poison.sh`
 reproduces the failure and the fix on a throwaway workspace. A lane that resets
 the directory by hand must pass `--release` — `cargo clean -p …` without it
