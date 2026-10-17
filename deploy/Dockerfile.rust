@@ -19,7 +19,10 @@ ARG BIN=core-api
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-COPY connectors ./connectors
+# First-party extensions live under plugins/ (ADR 0013; moved there from a
+# top-level connectors/ in Wave 47) and every connectors/* is a workspace
+# member, so cargo needs the whole tree to resolve the graph.
+COPY plugins ./plugins
 # desktop is a workspace member; cargo needs every member manifest present
 # to resolve the workspace graph even when building a different BIN.
 COPY desktop/Cargo.toml /src/desktop/Cargo.toml
