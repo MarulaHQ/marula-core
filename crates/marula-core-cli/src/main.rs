@@ -14,6 +14,7 @@ use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use tokio::sync::watch;
 
+mod deploy;
 mod fixture;
 mod upgrade;
 
@@ -77,6 +78,37 @@ enum Command {
     PluginKey {
         #[command(subcommand)]
         action: PluginKeyAction,
+    },
+    /// Deployment descriptor tooling (Wave 49 lane R7): the interface
+    /// marula-hq consumes. Emits the machine-readable descriptor and keeps
+    /// the checked-in profile files in step with it.
+    Deploy {
+        #[command(subcommand)]
+        action: DeployAction,
+    },
+}
+
+/// Deployment-descriptor verbs.
+#[derive(Debug, Subcommand)]
+enum DeployAction {
+    /// Emit the deploy descriptor: a human summary by default, the
+    /// machine-readable JSON with `--json`.
+    Describe {
+        /// Emit the machine-readable JSON (the interface hq consumes).
+        #[arg(long)]
+        json: bool,
+        /// Narrow the descriptor to one profile.
+        #[arg(long)]
+        profile: Option<String>,
+        /// Write to this path instead of stdout.
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
+    /// Regenerate `deploy/profiles/*.yaml` from the descriptor. A drift test
+    /// in the crate fails when the checked-in copy falls behind.
+    Profiles {
+        #[arg(long, default_value = "deploy/profiles")]
+        dir: std::path::PathBuf,
     },
 }
 
@@ -158,7 +190,36 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::SeedDemo { force } => seed_demo(force).await,
         Command::PluginKey { action } => plugin_key(action).await,
+        Command::Deploy { action } => deploy_command(action),
     }
+}
+
+/// `marula deploy describe|profiles` (Wave 49 lane R7). Pure and synchronous:
+/// it reads and writes files, never the network or the database.
+fn deploy_command(action: DeployAction) -> anyhow::Result<()> {
+    match action {
+        DeployAction::Describe { json, profile, out } => {
+            let text = if json {
+                deploy::describe_json(profile.as_deref())?
+            } else {
+                deploy::describe_summary()
+            };
+            match out {
+                Some(path) => {
+                    std::fs::write(&path, text)
+                        .with_context(|| format!("write {}", path.display()))?;
+                    println!("wrote {}", path.display());
+                }
+                None => println!("{text}"),
+            }
+        }
+        DeployAction::Profiles { dir } => {
+            for path in deploy::write_profiles(&dir)? {
+                println!("wrote {}", path.display());
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Connects with the same env contract as core-api (`DATABASE_URL`) and
@@ -655,6 +716,19 @@ mod tests {
         assert!(matches!(
             parse(&["seed-demo", "--force"]),
             Ok(Command::SeedDemo { force: true })
+        ));
+        // The deploy descriptor verbs parse (Wave 49 lane R7).
+        assert!(matches!(
+            parse(&["deploy", "describe", "--json"]),
+            Ok(Command::Deploy {
+                action: DeployAction::Describe { json: true, .. }
+            })
+        ));
+        assert!(matches!(
+            parse(&["deploy", "profiles"]),
+            Ok(Command::Deploy {
+                action: DeployAction::Profiles { .. }
+            })
         ));
         // The rotation runbook verbs parse (Wave 19 lane 2).
         assert!(matches!(
