@@ -24,8 +24,10 @@ use core_mail::{MailTransport, TransportError};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Idle interval between empty claim cycles.
-const POLL_INTERVAL: Duration = Duration::from_secs(2);
+/// Error backoff. Independent of the idle poll cadence, so a transient
+/// failure retries quickly even when an operator stretched `EMAIL_POLL_SECS`
+/// for a small install.
+const ERROR_BACKOFF: Duration = Duration::from_secs(2);
 
 /// Runs the send loop until `shutdown` fires. Returns when told to stop;
 /// transient HTTP/transport errors are logged and retried next cycle.
@@ -43,18 +45,20 @@ pub async fn run_email_loop(
     let client = reqwest::Client::new();
     tracing::info!(
         api = %config.core_api_url,
+        poll_secs = config.poll_secs,
         "outbound email loop started (per-org transport resolution)"
     );
     loop {
         if *shutdown.borrow_and_update() {
             return;
         }
+        let idle = Duration::from_secs(config.poll_secs);
         match cycle(&config, &client, resolver.as_ref()).await {
-            Ok(0) => tokio::time::sleep(POLL_INTERVAL).await,
+            Ok(0) => tokio::time::sleep(idle).await,
             Ok(_) => {} // work remains; loop immediately
             Err(e) => {
                 tracing::error!(error = %e, "email cycle failed");
-                tokio::time::sleep(POLL_INTERVAL).await;
+                tokio::time::sleep(ERROR_BACKOFF).await;
             }
         }
         if shutdown.has_changed().unwrap_or(true) {
@@ -204,6 +208,7 @@ mod tests {
             transport_kind: core_mail::TransportKind::None,
             claim_batch: 10,
             lease_secs: 300,
+            poll_secs: 2,
         }
     }
 

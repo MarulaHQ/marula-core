@@ -68,6 +68,10 @@ pub struct EmailLoopConfig {
     pub claim_batch: i32,
     /// Lease seconds passed to the claim endpoint.
     pub lease_secs: i64,
+    /// Idle poll interval between empty claim cycles (`EMAIL_POLL_SECS`,
+    /// default 2). A small install can raise it; mail then waits that long
+    /// between polls. Errors retry on a fixed short backoff regardless.
+    pub poll_secs: u64,
 }
 
 /// Settings for the missing-time nudge scheduler (TASKLIST 2.10).
@@ -134,6 +138,10 @@ pub struct WorkerConfig {
     /// Lease age after which a crashed claimant's job is re-armed
     /// (`QUEUE_STALE_SECS`, DB-clock comparison).
     pub queue_stale_after_secs: i64,
+    /// Idle sleep between empty queue ticks (`QUEUE_IDLE_MS`, default 500).
+    /// The general job queue holds webhook and effect work, so the default
+    /// stays short; a small install with low job volume can raise it.
+    pub queue_idle_ms: u64,
     /// At-rest decryption key for webhook subscription secrets
     /// (`MARULA_SECRET_KEY`, 64 hex chars). Unset ⇒ webhook delivery
     /// jobs dead-letter fail-closed.
@@ -243,6 +251,9 @@ impl WorkerConfig {
                 lease_secs: env("EMAIL_LEASE_SECS")
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(300),
+                poll_secs: env("EMAIL_POLL_SECS")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(2),
             },
             time: TimeLoopConfig {
                 core_api_url: env("CORE_API_URL")
@@ -279,6 +290,9 @@ impl WorkerConfig {
             queue_stale_after_secs: lookup("QUEUE_STALE_SECS")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(300),
+            queue_idle_ms: lookup("QUEUE_IDLE_MS")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(500),
             decision_bot_user_id: lookup("MARULA_DECISION_BOT_USER_ID")
                 .and_then(|v| v.parse().ok()),
             retention_sweep_secs: lookup("RETENTION_SWEEP_SECS")
@@ -316,6 +330,10 @@ mod tests {
         assert_eq!(cfg.eval_interval_secs, 60);
         assert_eq!(cfg.queue_batch, 10);
         assert_eq!(cfg.queue_stale_after_secs, 300);
+        // Wave 49 lane R6: the two fast-idle cadences are knobs now; the
+        // defaults keep the historical behaviour.
+        assert_eq!(cfg.queue_idle_ms, 500);
+        assert_eq!(cfg.email.poll_secs, 2);
         // Fail-closed none mode: no key ⇒ webhook delivery stays dead.
         assert!(cfg.webhook_secret_key.is_none());
         // No SES variables ⇒ none mode, not a half-configured adapter.
@@ -447,6 +465,8 @@ mod tests {
         vars.insert("EVAL_INTERVAL_SECS", "15".into());
         vars.insert("QUEUE_BATCH", "3".into());
         vars.insert("QUEUE_STALE_SECS", "60".into());
+        vars.insert("QUEUE_IDLE_MS", "2000".into());
+        vars.insert("EMAIL_POLL_SECS", "45".into());
         vars.insert("MARULA_SECRET_KEY", "ab".repeat(32));
         vars.insert("CORE_API_URL", "http://api:9000".into());
         vars.insert("MARULA_INTERNAL_TOKEN", "tok".into());
@@ -460,6 +480,8 @@ mod tests {
         assert_eq!(cfg.eval_interval_secs, 15);
         assert_eq!(cfg.queue_batch, 3);
         assert_eq!(cfg.queue_stale_after_secs, 60);
+        assert_eq!(cfg.queue_idle_ms, 2000);
+        assert_eq!(cfg.email.poll_secs, 45);
         assert!(cfg.webhook_secret_key.is_some());
     }
 
