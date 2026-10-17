@@ -14,6 +14,10 @@
 //!    by a think-time, and reports per-endpoint latency plus the per-user
 //!    request rate and the Little's-law users-per-instance figure. This is
 //!    the workload a users-per-instance number has to be measured on.
+//! 5. **Capacity model** (Wave 49 lane R8) — `capacity::plan` turns a journey
+//!    report into a sizing plan: the users one instance holds and how many
+//!    instances a target user count wants. The prose model is
+//!    `docs/capacity-model.md`.
 //!
 //! Reproducibility contract: every measured entity (tickets, clients,
 //! sites, contacts, users, custom fields) gets a deterministic id derived
@@ -24,6 +28,7 @@
 //! This crate is AGPL like the rest of the core (workspace license); it is
 //! a developer/test tool and is not part of the shipped API surface.
 
+pub mod capacity;
 pub mod journey;
 pub mod load;
 pub mod measure;
