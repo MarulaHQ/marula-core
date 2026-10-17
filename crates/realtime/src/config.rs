@@ -196,6 +196,12 @@ mod tests {
     /// Test-scoped env mutation with restore-on-drop, serialized behind a
     /// shared mutex so the env-reading trio stays deterministic under the
     /// default parallel test runner.
+    /// ONE lock for every env mutation in this module. `set` and `clear`
+    /// must serialize against EACH OTHER: a lock declared inside each
+    /// function is two different mutexes, so the clear and the set can run
+    /// concurrently and the env-reading trio flakes.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     struct EnvGuard {
         prev: Option<String>,
         key: &'static str,
@@ -204,8 +210,7 @@ mod tests {
 
     impl EnvGuard {
         fn set(key: &'static str, value: &str) -> Self {
-            static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-            let lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let prev = std::env::var(key).ok();
             std::env::set_var(key, value);
             Self {
@@ -216,8 +221,7 @@ mod tests {
         }
 
         fn clear(key: &'static str) -> Self {
-            static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-            let lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let prev = std::env::var(key).ok();
             std::env::remove_var(key);
             Self {

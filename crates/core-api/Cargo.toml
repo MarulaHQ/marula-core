@@ -55,6 +55,12 @@ core-routing = { path = "../core-routing" }
 mapbox-routing = { path = "../../plugins/connectors/mapbox" }
 core-otel = { path = "../core-otel" }
 core-store = { path = "../core-store" }
+# Wave 49 lane R4 (all-in-one mode): one core-api process can host the
+# worker loops and the realtime hub for a demo/tiny install. Both edges are
+# acyclic — neither crate depends on core-api (the worker reaches the API's
+# internal surface over HTTP, never as a crate).
+worker = { path = "../worker" }
+realtime = { path = "../realtime" }
 subtle = { workspace = true }
 futures-util = { workspace = true }
 axum = { workspace = true }

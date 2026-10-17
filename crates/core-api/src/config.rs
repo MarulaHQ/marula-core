@@ -180,6 +180,25 @@ pub struct Config {
     /// the app role under RLS, a different privilege profile from the app
     /// pool, so it carries its own ceiling.
     pub reporting_pool_max: u32,
+    /// All-in-one hosting (Wave 49 lane R4): env `MARULA_ALL_IN_ONE=1` runs
+    /// the worker loops and the realtime hub inside THIS process, so a
+    /// demo/tiny install needs one container instead of three. Unset keeps
+    /// the split topology the compose stack ships.
+    pub all_in_one: bool,
+    /// OWNER-role Postgres URL for the embedded worker loops
+    /// (`MARULA_WORKER_DATABASE_URL`). Required when `all_in_one` is on:
+    /// `database_url` is the RLS-scoped app role, and the worker loops read
+    /// across orgs on the owner role — reusing the app role makes the
+    /// outbox relay publish nothing, silently (RLS filters every row with
+    /// no error; see `crates/worker` config notes).
+    pub worker_database_url: Option<String>,
+    /// Realtime-hub listen address in all-in-one mode
+    /// (`MARULA_REALTIME_BIND_ADDR`, default `0.0.0.0:8081`). Distinct from
+    /// `bind_addr` because both servers share one process.
+    pub realtime_bind_addr: String,
+    /// Worker health-endpoint listen address in all-in-one mode
+    /// (`MARULA_WORKER_BIND_ADDR`, default `0.0.0.0:8082`).
+    pub worker_bind_addr: String,
 }
 
 /// Which distance/duration provider the process registers (Wave 32 lane 7).
@@ -355,6 +374,12 @@ impl Config {
             max_upload_bytes: core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
             db_pool_max: core_db::DEFAULT_POOL_MAX,
             reporting_pool_max: 25,
+            // Desktop shell is the API only; the split services (worker,
+            // realtime) still run as their own processes on that profile.
+            all_in_one: false,
+            worker_database_url: None,
+            realtime_bind_addr: "0.0.0.0:8081".into(),
+            worker_bind_addr: "0.0.0.0:8082".into(),
             migration_rate_limit_per_min: 600,
             dispatch_rate_limit_per_min: 600,
             scheduling_links_rate_limit_per_min: 60,
@@ -387,6 +412,63 @@ impl Config {
             max_connections: self.db_pool_max,
             acquire_timeout: std::time::Duration::from_secs(core_db::DEFAULT_ACQUIRE_TIMEOUT_SECS),
         }
+    }
+
+    /// All-in-one preconditions (Wave 49 lane R4). Runs at boot from
+    /// `from_env`; a no-op when the mode is off. Two ways the mode is
+    /// unusable, both refused with operator copy instead of discovered as a
+    /// silent half-run later:
+    ///
+    /// * the embedded worker has no OWNER-role URL (`MARULA_WORKER_DATABASE_URL`),
+    ///   so its cross-org reads would return nothing under the app role's RLS;
+    /// * two of the three in-process servers agree on a port, so one fails
+    ///   to bind after the others are already running.
+    pub fn validate_all_in_one(&self) -> Result<(), String> {
+        if !self.all_in_one {
+            return Ok(());
+        }
+        let owner = self
+            .worker_database_url
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("");
+        if owner.is_empty() {
+            return Err(
+                "MARULA_ALL_IN_ONE=1 requires MARULA_WORKER_DATABASE_URL — the worker \
+                 loops read across orgs on the OWNER role; DATABASE_URL is the \
+                 RLS-scoped app role, and reusing it makes the outbox relay publish \
+                 nothing (RLS filters every row silently, with no error)"
+                    .into(),
+            );
+        }
+        if let Some((a, b)) = self.all_in_one_port_clash() {
+            return Err(format!(
+                "MARULA_ALL_IN_ONE=1 needs three distinct ports, but {a} and {b} share \
+                 one: BIND_ADDR={}, MARULA_REALTIME_BIND_ADDR={}, \
+                 MARULA_WORKER_BIND_ADDR={}",
+                self.bind_addr, self.realtime_bind_addr, self.worker_bind_addr
+            ));
+        }
+        Ok(())
+    }
+
+    /// The first pair of the three listen addresses that end in the same
+    /// port, as `(VAR_A, VAR_B)` for the error copy.
+    fn all_in_one_port_clash(&self) -> Option<(String, String)> {
+        let port = |addr: &str| addr.rsplit(':').next().unwrap_or("").trim().to_string();
+        let binders = [
+            ("BIND_ADDR", &self.bind_addr),
+            ("MARULA_REALTIME_BIND_ADDR", &self.realtime_bind_addr),
+            ("MARULA_WORKER_BIND_ADDR", &self.worker_bind_addr),
+        ];
+        for i in 0..binders.len() {
+            for j in (i + 1)..binders.len() {
+                if port(binders[i].1) == port(binders[j].1) {
+                    return Some((binders[i].0.to_string(), binders[j].0.to_string()));
+                }
+            }
+        }
+        None
     }
 
     /// First-boot sanity check for the trusted-proxy posture (Wave 47 lane
@@ -505,7 +587,7 @@ impl Config {
             }
         };
         let jwt_signing = jwt_signing_from_env()?;
-        Ok(Self {
+        let cfg = Self {
             database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
                 "postgres://marula_app:marula_app@localhost:15432/marula".into()
             }),
@@ -594,7 +676,19 @@ impl Config {
             dev_tools,
             routing: routing_from_env(),
             trusted_proxies: crate::client_ip::TrustedProxies::from_env(),
-        })
+            all_in_one: std::env::var("MARULA_ALL_IN_ONE").as_deref() == Ok("1"),
+            worker_database_url: std::env::var("MARULA_WORKER_DATABASE_URL")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
+            realtime_bind_addr: std::env::var("MARULA_REALTIME_BIND_ADDR")
+                .unwrap_or_else(|_| "0.0.0.0:8081".into()),
+            worker_bind_addr: std::env::var("MARULA_WORKER_BIND_ADDR")
+                .unwrap_or_else(|_| "0.0.0.0:8082".into()),
+        };
+        // Fail-closed at the parse step, so the binary and any test that
+        // goes through `from_env` inherit the all-in-one preconditions.
+        cfg.validate_all_in_one()?;
+        Ok(cfg)
     }
 }
 
@@ -840,6 +934,10 @@ impl Config {
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
             db_pool_max: core_db::DEFAULT_POOL_MAX,
             reporting_pool_max: 25,
+            all_in_one: false,
+            worker_database_url: None,
+            realtime_bind_addr: "0.0.0.0:8081".into(),
+            worker_bind_addr: "0.0.0.0:8082".into(),
             migration_rate_limit_per_min: 600,
             dispatch_rate_limit_per_min: 600,
             scheduling_links_rate_limit_per_min: 60,
@@ -1093,5 +1191,61 @@ mod pool_max_tests {
                 "operator copy names the variable: {err}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod all_in_one_tests {
+    use super::*;
+
+    fn enabled() -> Config {
+        let mut c = Config::test_with_secret("s");
+        c.all_in_one = true;
+        c.worker_database_url = Some("postgres://marula:marula@db:5432/marula".into());
+        c
+    }
+
+    /// The default topology is untouched: the mode off means no new
+    /// preconditions.
+    #[test]
+    fn off_by_default_is_a_no_op() {
+        let c = Config::test_with_secret("s");
+        assert!(!c.all_in_one);
+        assert!(c.validate_all_in_one().is_ok());
+    }
+
+    /// The embedded worker MUST get an owner-role URL; the app role would
+    /// drain nothing under RLS. Absent and whitespace-only both refuse, and
+    /// the copy names the variable.
+    #[test]
+    fn requires_the_owner_role_url() {
+        let mut c = enabled();
+        c.worker_database_url = None;
+        let err = c.validate_all_in_one().unwrap_err();
+        assert!(err.contains("MARULA_WORKER_DATABASE_URL"), "got: {err}");
+
+        c.worker_database_url = Some("   ".into());
+        assert!(c.validate_all_in_one().is_err());
+    }
+
+    /// One process serving three ports: a shared port means one server
+    /// fails to bind after the others are live, so the clash is refused
+    /// up front.
+    #[test]
+    fn refuses_a_shared_port_between_the_three_servers() {
+        let mut c = enabled();
+        c.bind_addr = "0.0.0.0:8080".into();
+        c.realtime_bind_addr = "0.0.0.0:8081".into();
+        c.worker_bind_addr = "0.0.0.0:8082".into();
+        assert!(c.validate_all_in_one().is_ok());
+
+        c.realtime_bind_addr = "0.0.0.0:8080".into();
+        let err = c.validate_all_in_one().unwrap_err();
+        assert!(err.contains("distinct ports"), "got: {err}");
+
+        // Host spelling is irrelevant; the port is what collides.
+        c.realtime_bind_addr = "0.0.0.0:8081".into();
+        c.worker_bind_addr = "127.0.0.1:8081".into();
+        assert!(c.validate_all_in_one().is_err());
     }
 }
