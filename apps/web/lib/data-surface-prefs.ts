@@ -42,6 +42,13 @@ type Document_ = Record<string, SavedSurfaceView>;
 
 const EMPTY: Document_ = {};
 
+/** One identity for "this surface has nothing saved". A caller that reads an
+ *  unsaved surface has to get a STABLE object: a fresh `columns: []` /
+ *  `filters: []` on every render churns every memo keyed on it, and on
+ *  /tickets one of those memos drives a setState — which is a render loop that
+ *  starves the router's transitions. */
+const EMPTY_VIEW: SavedSurfaceView = { columns: [], filters: [] };
+
 /**
  * Parse a stored document, dropping any surface whose shape is wrong rather
  * than failing the whole document: one bad surface should not cost a user
@@ -202,7 +209,7 @@ export function useDataSurfacePrefs(): DataSurfacePrefs {
     () => ({
       ready,
       error,
-      view: (surface: string) => doc[surface] ?? { columns: [], filters: [] },
+      view: (surface: string) => doc[surface] ?? EMPTY_VIEW,
       save,
       clear,
       density,

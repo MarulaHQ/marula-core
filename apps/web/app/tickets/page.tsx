@@ -78,6 +78,16 @@ const PAGE_LIMIT = 50;
  *  see a fresh empty array on every render while a load is in flight. Never
  *  mutated — it is shared, not copied. */
 const EMPTY_ROWS: TicketRow[] = [];
+/** One identity for "no board statuses to offer". The bulk-status effect below
+ *  sets this on the paths where no single board is selected, and that effect
+ *  depends on the shown rows; a fresh `[]` per run would turn any upstream
+ *  identity churn into an unbounded render loop instead of a no-op. */
+const EMPTY_BOARD_STATUSES: { id: string; name: string }[] = [];
+/** The pack's default queue order: soonest SLA first. One identity, because a
+ *  user who has never saved a sort must not hand the memos below a fresh object
+ *  on every render — that churn is what starves the App Router's transitions
+ *  (see the "settles" test in tests/app/tickets-page.test.tsx). */
+const DEFAULT_SORT: { field: string; dir: "asc" | "desc" } = { field: "sla", dir: "asc" };
 
 /** The mockup's views are by ownership, not by category: the queue a person
  *  works from is "mine", then "unassigned" for the dispatcher, then everything. */
@@ -202,7 +212,7 @@ export default function TicketsListPage() {
   const clauses = useMemo(() => clausesFromSaved(saved.filters), [saved.filters]);
   // A user who never saved a view still gets the pack's default: the queue reads
   // in SLA order, breach first.
-  const sort = saved.sort ?? { field: "sla", dir: "asc" };
+  const sort = saved.sort ?? DEFAULT_SORT;
   const visible = useMemo(() => columns.filter((c) => c.visible), [columns]);
   const visibleDefs = useMemo<LedgerColumnDef[]>(
     () =>
@@ -698,13 +708,13 @@ export default function TicketsListPage() {
   // mixed-board selection has no meaningful status to set).
   useEffect(() => {
     if (selected.size === 0) {
-      setBulkBoardStatuses([]);
+      setBulkBoardStatuses((prev) => (prev.length === 0 ? prev : EMPTY_BOARD_STATUSES));
       setBulkStatus("");
       return;
     }
     const boardIds = new Set(shown.filter((r) => selected.has(r.id)).map((r) => r.board_id));
     if (boardIds.size !== 1) {
-      setBulkBoardStatuses([]);
+      setBulkBoardStatuses((prev) => (prev.length === 0 ? prev : EMPTY_BOARD_STATUSES));
       setBulkStatus("");
       return;
     }

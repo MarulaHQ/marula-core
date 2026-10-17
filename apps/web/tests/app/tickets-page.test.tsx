@@ -4,6 +4,7 @@
 // neither reading as an em dash rather than a false zero), bulk selection and
 // its priority write, and the merged-row banner.
 import { describe, expect, it, beforeEach, afterEach, afterAll, vi } from "vitest";
+import { Profiler } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
 import { clearTicketSlaCache } from "../../lib/ticket-sla";
@@ -227,6 +228,38 @@ describe("/tickets ledger", () => {
     expect(
       await screen.findByText("Nothing is assigned to you right now.", {}, { timeout: 5000 }),
     ).toBeInTheDocument();
+    cleanup();
+  });
+
+  // Wave 47 lane A21. A page that never stops re-rendering starves the App
+  // Router's `startTransition`, so `router.push` never commits and never calls
+  // `history.pushState` — so client-side navigation dies on this route and
+  // nowhere else (measured: `design/qa-p47-tickets-route-nav-pin/`). `setupApi`
+  // serves an EMPTY `/api/v1/settings/user`, which is the demo and
+  // fresh-account shape: no saved surface document, so `view()` fabricates a
+  // fresh `{ columns: [], filters: [] }` on every render, the `sort` default is
+  // a fresh literal, and the memo chain keyed on them (`clauses` -> `filtered`
+  // -> `shown`) loses identity every time. The bulk-status effect depends on
+  // `shown`, so it re-runs on every commit and sets a fresh array: a loop.
+  //
+  // The loop yields between commits, so a bounded window is enough to count it
+  // and the test fails in a quarter of a second instead of hanging. Measured on
+  // the unfixed page: ~160 extra commits in 250ms.
+  it("settles — an unsaved surface must not re-render forever", async () => {
+    setupApi();
+    let commits = 0;
+    render(
+      <Profiler id="tickets" onRender={() => { commits += 1; }}>
+        <AuthProvider>
+          <TicketsListPage />
+        </AuthProvider>
+      </Profiler>,
+    );
+
+    await screen.findByText("Switch uplink flapping", {}, { timeout: 5000 });
+    const settled = commits;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(commits - settled).toBeLessThanOrEqual(5);
     cleanup();
   });
 });
