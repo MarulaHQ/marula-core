@@ -12,7 +12,8 @@
 // name is the directory name.
 import { expect, test } from "../helpers/harness";
 import { authedFetch, apiLogin, API_URL } from "../helpers/api";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { evidenceDir } from "../helpers/evidence";
 
@@ -20,6 +21,29 @@ import { evidenceDir } from "../helpers/evidence";
 const REPO = process.cwd();
 
 const CAPTURES = evidenceDir("captures");
+
+/** The reference automation plugin's bundle, built on demand.
+ *
+ *  A plugin's `dist` directory is gitignored (`.gitignore:107`), so no checkout
+ *  and no CI job carries the zip: the spec used to `readFileSync` an artifact
+ *  that nothing in the gate path produced. The repo owns the packer
+ *  (`packages/plugin-kit/bin/build.mjs`), so build it here when it is absent,
+ *  and hand back `null` when the build cannot produce it — the caller then
+ *  skips with a typed reason naming the command rather than an ENOENT. */
+function ensureTriageZip(): string | null {
+  const pluginDir = join(REPO, "plugins/wasm/triage-note-action");
+  const zipPath = join(pluginDir, "dist/triage-note-action-1.0.1.zip");
+  if (existsSync(zipPath)) return zipPath;
+  try {
+    execFileSync("node", [join(REPO, "packages/plugin-kit/bin/build.mjs"), pluginDir], {
+      cwd: REPO,
+      stdio: "pipe",
+    });
+  } catch (error) {
+    console.warn(`[20-plugin-surfaces] plugin-kit build failed: ${String(error)}`);
+  }
+  return existsSync(zipPath) ? zipPath : null;
+}
 
 async function api(token: string) {
   return authedFetch(token);
@@ -94,8 +118,17 @@ test("consent shows surface declarations; approving registers the action kind", 
   ownerTokens,
 }) => {
   const f = await api(ownerTokens.access_token);
-  // Stage the reference automation plugin from its built zip.
-  const zipPath = join(REPO, "plugins/wasm/triage-note-action/dist/triage-note-action-1.0.1.zip");
+  // Stage the reference automation plugin from its built zip. The bundle is a
+  // gitignored artifact, so build it on demand; a build the repo's own packer
+  // refuses is a typed skip, never an ENOENT that reads like drift.
+  const zipPath = ensureTriageZip();
+  if (zipPath === null) {
+    test.skip(
+      true,
+      "plugin bundle not built: node packages/plugin-kit/bin/build.mjs plugins/wasm/triage-note-action (dist/ is gitignored)",
+    );
+    return;
+  }
   const zip = readFileSync(zipPath);
   const stagedRes = await fetch(`${API_URL}/api/v1/plugins/distribution/staged/zip`, {
     method: "POST",

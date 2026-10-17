@@ -5,11 +5,55 @@
 // step survives as pending/resumable; (b) "never show this again" is a
 // RECORDED setting that survives an era of reloads (dismissal never
 // resets); (c) the resume banner on /today respects both — shows while
-// unresolved, goes quiet after recorded dismissal, comes back through
-// the re-run control; (d) the per-user first-run walk at /onboarding
-// completes orientation and skips honestly. Runs light + dark.
+// unresolved, goes quiet after recorded dismissal; (d) the per-user
+// first-run walk at /onboarding completes orientation. Runs light + dark.
+//
+// THE TESTID VOCABULARY IS THE SHIPPED ONE (Wave 47 lane A16). The wizard was
+// rewritten against the Marula surface pack in `63c4836a`, and this spec was
+// left driving the pre-pack ids. The shipped controls live in
+// `apps/web/components/auth/entry.tsx`: the rail renders one indexed button
+// per step (`wizard-step-${i + 1}`, `:356`), "Skip for now" is
+// `wizard-skip-for-now` (`:454`), and "Never show this setup again" is ONE
+// recorded choice in the guide menu (`wizard-never-show-again`, `:515`) that
+// dismisses every step still unresolved. The old per-step ids
+// (`onboarding-rail-*`, `onboarding-never-show`) belonged to two modules with
+// zero importers that `63c4836a` orphaned and lane A15 deleted.
 import { expect, test } from "../helpers/harness";
 import { authedFetch } from "../helpers/api";
+
+/** Mirrors ORG_STEP_ORDER / USER_STEP_ORDER (apps/web/lib/onboarding.ts:43-44):
+ *  the rail is indexed by position in these lists, not by step name. Kept
+ *  local so the spec does not pull the app's Next.js client into the
+ *  Playwright process. */
+const ORG_STEP_ORDER = ["clients", "board", "tickets", "invites", "feeder", "ai"] as const;
+const USER_STEP_ORDER = ["profile", "mfa", "orientation", "defaults"] as const;
+
+/** One step's state, as `/api/v1/onboarding` reports it. */
+interface OrgStepView {
+  step: string;
+  done: boolean;
+  dismissed: boolean;
+  satisfied: boolean;
+  resolved: boolean;
+}
+
+interface OrgSummary {
+  org: { steps: OrgStepView[] };
+}
+
+interface SummaryWithMembers extends OrgSummary {
+  members: { user_id: string; email: string; steps: OrgStepView[] }[];
+}
+
+/** 1-based rail button for an org step. */
+function orgRailStep(step: string): number {
+  return (ORG_STEP_ORDER as readonly string[]).indexOf(step) + 1;
+}
+
+/** 1-based rail button for a per-user step. */
+function userRailStep(step: (typeof USER_STEP_ORDER)[number]): number {
+  return USER_STEP_ORDER.indexOf(step) + 1;
+}
 
 test("org wizard skip path: 'skip for now' records nothing and stays resumable", async ({
   authedPage,
@@ -22,26 +66,39 @@ test("org wizard skip path: 'skip for now' records nothing and stays resumable",
   // clears recorded step state (the seat of the skip contract) — the
   // owned disable switch stays untouched.
   await post("/onboarding/reset/org", { method: "POST", body: {} });
-  const summary = await get<unknown>("/onboarding") as {
-    org: { steps: { step: string; resolved: boolean }[] };
-  };
+  const summary = (await get<unknown>("/onboarding")) as OrgSummary;
   const resetPending = summary.org.steps.filter((s) => !s.resolved);
   expect(resetPending.length).toBeGreaterThan(0);
+  const firstStep = resetPending[0].step;
 
   await authedPage.goto("/welcome");
-  // The first pending step renders with the recorded skip controls.
-  const firstStep = resetPending[0].step;
-  await expect(
-    authedPage.getByTestId(`wizard-step-${firstStep}`),
-  ).toBeVisible({ timeout: 30_000 });
+  // The demo org already carries clients, boards and tickets, so those steps
+  // RESOLVE from the data and the wizard opens on its resumed list (the pack's
+  // state 14) rather than the rail. Step into the first pending step; a
+  // genuinely empty org opens the rail directly, and the same rail assertion
+  // holds either way.
+  const resume = authedPage.getByTestId(`wizard-resume-${firstStep}`);
+  if (await resume.isVisible({ timeout: 15_000 }).catch(() => false)) {
+    await resume.click();
+  }
+  // The rail is present with every step: the shipped ids are 1-based indexes.
+  await expect(authedPage.getByTestId(`wizard-step-${orgRailStep(firstStep)}`)).toBeVisible({
+    timeout: 30_000,
+  });
 
   // SKIP FOR NOW: the step stays pending (the request intentionally
   // carries never:false and the server records nothing).
-  await authedPage.getByTestId("onboarding-skip-for-now").click();
-  await expect(
-    authedPage.getByTestId("onboarding-rail-clients"),
-  ).toBeVisible({ timeout: 20_000 });
-  const after = (await get<unknown>("/onboarding")) as typeof summary;
+  await authedPage.getByTestId("wizard-skip-for-now").click();
+  await expect
+    .poll(
+      async () =>
+        ((await get<unknown>("/onboarding")) as typeof summary).org.steps.find(
+          (s) => s.step === firstStep,
+        )?.resolved,
+      { timeout: 20_000 },
+    )
+    .toBe(false);
+  const after = (await get<unknown>("/onboarding")) as OrgSummary;
   const skipped = after.org.steps.find((s) => s.step === firstStep);
   expect(skipped?.done).toBe(false); // skip-for-now recorded NOTHING
   expect(skipped?.dismissed).toBe(false);
@@ -54,44 +111,47 @@ test("'never show this again' is a recorded choice that survives reload", async 
   const post = authedFetch(ownerTokens.access_token);
   const get = authedFetch(ownerTokens.access_token);
 
-  // Record the dismissal via the wizard UI on /welcome (feeder step is
-  // the least destructive optional step to hide forever).
   await post("/onboarding/reset/org", { method: "POST", body: {} });
-  await authedPage.goto("/welcome");
-  // The wizard may focus ANY first-pending step (the demo seed already
-  // satisfies clients/board/tickets) — drive to the feeder step through
-  // the checklist rail, which lists every step regardless of state.
-  await expect(authedPage.getByTestId("onboarding-rail-feeder")).toBeVisible({ timeout: 30_000 });
-  await authedPage.getByTestId("onboarding-rail-feeder").click();
-  await expect(authedPage.getByTestId("wizard-step-feeder")).toBeVisible({ timeout: 20_000 });
-  // Wait for the recorded skip POST to actually leave the browser (and
-  // land 2xx) before reading the summary, so the assertion tests the
-  // record — not the click.
-  const skipPromise = authedPage.waitForResponse(
-    (r) => r.url().includes("/onboarding/org/steps/feeder/skip"),
-    { timeout: 20_000 },
-  );
-  await authedPage.getByTestId("onboarding-never-show").click();
-  const skipRes = await skipPromise;
-  expect(skipRes.status()).toBe(200);
+  const before = (await get<unknown>("/onboarding")) as OrgSummary;
+  const pending = before.org.steps.filter((s) => !s.resolved).map((s) => s.step);
+  expect(pending.length).toBeGreaterThan(0);
 
-  // The recorded state survives ANY number of reloads.
+  // Record the dismissal from the shipped guide. It is ONE choice for the
+  // whole setup rather than a per-step button (the per-step module that used
+  // to carry `onboarding-never-show` has no importers and was deleted), and
+  // the confirm dialog spells out that consequence before it applies.
   await authedPage.goto("/welcome");
-  const summary = (await get<unknown>("/onboarding")) as {
-    org: { steps: { step: string; dismissed: boolean }[] };
-  };
-  expect(summary.org.steps.find((s) => s.step === "feeder")?.dismissed).toBe(true);
+  const footerNever = authedPage.getByTestId("wizard-never-show-again");
+  if (await footerNever.isVisible({ timeout: 15_000 }).catch(() => false)) {
+    // The resumed list carries the choice in its own footer.
+    await footerNever.click();
+  } else {
+    // Otherwise it lives in the header's guide menu.
+    await authedPage.getByTestId("wizard-guide-menu").click();
+    await authedPage.getByTestId("wizard-never-show-again").click();
+  }
+  await expect(authedPage.getByTestId("never-show-dialog")).toBeVisible();
+  await authedPage.getByTestId("never-show-confirm").click();
 
-  // The wizard itself stays reachable and visibly marks the dismissed step.
-  // ORDER-INDEPENDENT (e2e/README.md): the rail's derived state precedence
-  // puts `done` above `dismissed` (a satisfied step renders as done even
-  // when its dismissal is recorded), so assert the recorded dismissal via
-  // the summary (above) and that the rail no longer shows the step as
-  // pending — asserting a single literal data-state is what made this flake
-  // on freshly-seeded orgs.
-  await expect(
-    authedPage.getByTestId("onboarding-rail-feeder"),
-  ).not.toHaveAttribute("data-state", "pending", { timeout: 20_000 });
+  // The recorded dismissal lands for every step that was still unresolved, and
+  // nothing is left pending.
+  await expect
+    .poll(
+      async () =>
+        ((await get<unknown>("/onboarding")) as typeof before).org.steps.filter(
+          (s) => !s.resolved,
+        ).length,
+      { timeout: 20_000, intervals: [500, 1_000, 2_000] },
+    )
+    .toBe(0);
+
+  // The choice survives ANY number of reloads: the wizard comes back up
+  // already decided, with each step carrying its recorded dismissal.
+  await authedPage.goto("/welcome");
+  const after = (await get<unknown>("/onboarding")) as OrgSummary;
+  for (const step of pending) {
+    expect(after.org.steps.find((s) => s.step === step)?.dismissed).toBe(true);
+  }
 });
 
 test("resume banner: visible while unresolved, quiet after 'Later', never silent on reload", async ({
@@ -128,51 +188,38 @@ test("per-user first-run: orientation completes, defaults persist, skips stick",
   // Re-arm the caller's own first-run so the pending set is deterministic
   // (the demo org is shared across projects; a previous run may have
   // recorded these steps already).
-  await authedFetch(ownerTokens.access_token)("/onboarding/reset/user", { method: "POST", body: {} });
-  const summary = (await get<unknown>("/onboarding")) as {
-    members: { user_id: string; steps: { step: string; resolved: boolean }[] }[];
-  };
+  await authedFetch(ownerTokens.access_token)("/onboarding/reset/user", {
+    method: "POST",
+    body: {},
+  });
+  const summary = (await get<unknown>("/onboarding")) as SummaryWithMembers;
   // The summary lists member state for admins too — the CALLER'S row is
   // identified by email, never "first member with steps".
-  const mine = summary.members.find(
-    (m) => m.email === "owner@demo.local" && m.steps.length > 0,
-  );
-  const pending = mine?.steps.filter((s) => !s.resolved) ?? [];
+  const mine = summary.members.find((m) => m.email === "owner@demo.local" && m.steps.length > 0);
+  const pending = mine?.steps.filter((s) => !s.resolved).map((s) => s.step) ?? [];
 
   await authedPage.goto("/onboarding");
   if (pending.length === 0) return; // already resolved org: nothing to drive
 
+  const resolved = async (step: string) =>
+    ((await get<unknown>("/onboarding")) as typeof summary).members
+      .find((m) => m.email === "owner@demo.local" && m.steps.length > 0)
+      ?.steps.find((s) => s.step === step)?.resolved;
+
   // Orientation: the 60-second product orientation completes with one click.
-  const orientationCard = authedPage.getByTestId("onboarding-step-orientation");
-  const orientationPending = pending.some((s) => s.step === "orientation");
-  if (orientationPending) {
-    await authedPage.getByTestId("onboarding-rail-orientation").click();
-    await expect(orientationCard).toBeVisible({ timeout: 20_000 });
-    await authedPage.getByRole("button", { name: /got it/i }).click();
-    await expect
-      .poll(
-        async () =>
-          ((await get<unknown>("/onboarding")) as typeof summary).members
-            .find((m) => m.email === "owner@demo.local" && m.steps.length > 0)
-            ?.steps.find((s) => s.step === "orientation")?.resolved,
-        { timeout: 20_000 },
-      )
-      .toBe(true);
+  if (pending.includes("orientation")) {
+    await authedPage.getByTestId(`wizard-step-${userRailStep("orientation")}`).click();
+    await expect(authedPage.getByTestId("onboarding-orientation-done")).toBeVisible({
+      timeout: 20_000,
+    });
+    await authedPage.getByTestId("onboarding-orientation-done").click();
+    await expect.poll(async () => resolved("orientation"), { timeout: 20_000 }).toBe(true);
   }
   // Defaults: theme + mode ride the Wave 24 settings keys.
-  const defaultsPending = pending.some((s) => s.step === "defaults");
-  if (defaultsPending) {
-    await authedPage.getByTestId("onboarding-rail-defaults").click();
+  if (pending.includes("defaults")) {
+    await authedPage.getByTestId(`wizard-step-${userRailStep("defaults")}`).click();
     await authedPage.getByTestId("onboarding-mode").selectOption("dark");
     await authedPage.getByTestId("onboarding-save-defaults").click();
-    await expect
-      .poll(
-        async () =>
-          ((await get<unknown>("/onboarding")) as typeof summary).members
-            .find((m) => m.email === "owner@demo.local" && m.steps.length > 0)
-            ?.steps.find((s) => s.step === "defaults")?.resolved,
-        { timeout: 20_000 },
-      )
-      .toBe(true);
+    await expect.poll(async () => resolved("defaults"), { timeout: 20_000 }).toBe(true);
   }
 });

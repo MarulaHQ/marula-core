@@ -87,11 +87,14 @@ test("Alt+N on /clients opens the new-client dialog exactly like the button", as
   // The profile read settles before any chord expectation.
   await expect(authedPage.getByTestId("shortcut-profile-ready")).toBeAttached();
   // The create control must exist before the chord can click it — the
-  // "no command does what a click cannot" rule in test form.
+  // "no command does what a click cannot" rule in test form. `new-record` is
+  // the registry's shared click-parity target (lib/commands/registry.ts:24),
+  // so the chord and the button reach the SAME dialog.
   await expect(authedPage.getByTestId("new-record")).toBeAttached();
-  await expect(authedPage.getByTestId("shortcut-profile-ready")).toBeAttached();
   await authedPage.keyboard.press("Alt+n");
-  await expect(authedPage.getByText("New client", { exact: true }).nth(1)).toBeVisible();
+  const dialog = authedPage.getByRole("dialog");
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await expect(dialog.getByText("New client", { exact: true })).toBeVisible();
 });
 
 test("all_off profile silences chords and the overlay; ? reference still works", async ({

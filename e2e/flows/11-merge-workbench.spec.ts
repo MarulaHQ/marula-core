@@ -163,24 +163,40 @@ test("workbench devices queue: accept folds and the split undoes it", async ({
     .getByTestId("workbench-detail")
     .getByRole("button", { name: "Accept merge", exact: true })
     .click();
-  // The absorbed item vanishes from the ledger (optimistic) — the
-  // candidate row flips to accepted.
-  await expect(row.getByText("accepted").first()).toBeVisible({ timeout: 15_000 });
+  // Assert the DURABLE fold, not the optimistic label. `actCi` patches the row
+  // before the wire and reverts on a typed rejection
+  // (`apps/web/app/inventory/workbench/page.tsx:303-357`), so the word
+  // "accepted" is briefly visible even when the fold never persisted — the
+  // earlier version of this spec passed on that frame while the candidate was
+  // still `pending` on /inventory.
+  await expect
+    .poll(
+      async () =>
+        (await get<any[]>("/config-items/merge-candidates")).find((c: any) => c.id === candidateId)
+          ?.status,
+      { timeout: 20_000, intervals: [500, 1_000, 2_000] },
+    )
+    .toBe("accepted");
 
-  // UNDO: the split on /inventory's merge ledger restores the item.
+  // UNDO: the split on /inventory's merge ledger restores the item. Scope the
+  // row to the merge ledger: the config-items ledger below it also renders
+  // rows carrying the same tag, and its rows have no Undo control — an
+  // unscoped `getByRole("row").filter({ has: tag })` matched those and then
+  // waited forever for a button that was never in them.
   await authedPage.goto("/inventory");
-  const ledgerRow = authedPage
+  const mergeLedger = authedPage
+    .locator("section")
+    .filter({ has: authedPage.getByRole("heading", { name: "Merge ledger" }) });
+  const ledgerRow = mergeLedger
     .getByRole("row")
     .filter({ has: authedPage.getByText(`E2EU-${s}`) })
     .first();
   await expect(ledgerRow).toBeVisible({ timeout: 30_000 });
   await ledgerRow.getByRole("button", { name: "Undo (split)" }).click();
-  await expect(
-    authedPage
-      .getByRole("row")
-      .filter({ has: authedPage.getByText("Device B") })
-      .first(),
-  ).toBeVisible({ timeout: 20_000 });
+  // The split is recorded on the ledger row itself (the durable half): the
+  // status flips to `split` and the Undo control is gone.
+  await expect(ledgerRow.getByText("split")).toBeVisible({ timeout: 20_000 });
+  await expect(ledgerRow.getByRole("button", { name: "Undo (split)" })).toHaveCount(0);
 });
 
 test("workbench contacts queue: accept folds and the ledger card undoes", async ({

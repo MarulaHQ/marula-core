@@ -466,7 +466,13 @@ export default function ClientsPage() {
             }}
           >
             <DialogTrigger asChild>
-              <Button variant="primary" data-testid="new-client">
+              {/* `new-record` is the registry's shared click-parity target for
+                  the "new" verb (lib/commands/registry.ts:24,98): Alt+N on
+                  /clients finds this control and clicks it, exactly as the
+                  button does. The Wave 41 pack port renamed it to
+                  `new-client`, which silently turned the chord into a no-op;
+                  the name is the contract, so it does not drift. */}
+              <Button variant="primary" data-testid="new-record">
                 <PlusIcon />
                 New client
               </Button>
