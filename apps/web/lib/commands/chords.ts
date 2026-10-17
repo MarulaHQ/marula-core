@@ -36,6 +36,43 @@ export function displayChord(spec: string): string {
     .join("+");
 }
 
+/**
+ * True when this platform's `mod` modifier is Meta (⌘) rather than Control.
+ *
+ * The dispatcher and the two chord renderers must agree, so the platform
+ * test lives here once. Callers in a browser can omit the argument.
+ */
+export function modIsMeta(platform?: string): boolean {
+  if (platform !== undefined) return /mac/i.test(platform);
+  if (typeof navigator === "undefined") return false;
+  return /mac/i.test(navigator.platform ?? "");
+}
+
+/**
+ * The base key a chord is authored against, read from the PHYSICAL key.
+ *
+ * `event.code` names the key, not the character it produced, so a chord fires
+ * on the same key under every layout — and, the reason this exists, under
+ * whatever character the OS composes for a held modifier. On macOS Option+2
+ * arrives as `event.key === "™"` and Option+N as a dead key, so a parser that
+ * reads `event.key` can never match `alt+2` or `alt+n`. `event.code` reads
+ * `Digit2` and `KeyN` regardless.
+ *
+ * Letters and digits come from the code; everything else keeps `event.key`,
+ * because the punctuation codes are layout names ("Slash") while the chord
+ * vocabulary is characters ("?").
+ */
+function baseKeyFromEvent(event: KeyboardEvent): string | null {
+  const code = event.code ?? "";
+  if (code.length === 4 && code.startsWith("Key")) return code.slice(3).toLowerCase();
+  if (code.length === 6 && code.startsWith("Digit")) return code.slice(5);
+  const raw = event.key;
+  // "?" only arrives via shift+/ on US layouts, and dead keys arrive as
+  // "Dead" (length 4) — both stay the character they always were.
+  if (raw.length !== 1) return null;
+  return raw.toLowerCase();
+}
+
 /** KeyboardEvent → canonical chord spec, with platform-aware mod. */
 export function chordFromEvent(event: KeyboardEvent, modIsMeta: boolean): string | null {
   const parts: string[] = [];
@@ -43,12 +80,9 @@ export function chordFromEvent(event: KeyboardEvent, modIsMeta: boolean): string
   const hasMod = modIsMeta ? event.metaKey : event.ctrlKey;
   if (hasMod) parts.push("mod");
   if (event.shiftKey) parts.push("shift");
-  // Digits arrive as "Digit1" on some layouts and "1" on others; "?" only
-  // arrives via shift+/ on US layouts. Letters and digits lowercase to
-  // their base key.
-  const raw = event.key;
-  if (raw.length !== 1) return null;
-  parts.push(raw.toLowerCase());
+  const key = baseKeyFromEvent(event);
+  if (key === null) return null;
+  parts.push(key);
   return parts.join("+");
 }
 

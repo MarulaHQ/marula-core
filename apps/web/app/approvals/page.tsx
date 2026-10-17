@@ -353,6 +353,12 @@ export default function ApprovalsPage() {
   }, [tab, auth.me?.user_id]);
 
   useEffect(() => {
+    // Every row's actionability is a function of WHO is looking at it: your
+    // own time renders with its controls disabled (`ownEntry`, below). So the
+    // queue waits for the identity read. Loading it first renders a row with
+    // `meId` still "", which makes your own entry actionable for as long as
+    // `/api/v1/me` is in flight — a window big enough to click through.
+    if (auth.me === null) return;
     setSelected(new Set());
     setRowFlags({});
     setRejectOpen(false);
@@ -360,7 +366,7 @@ export default function ApprovalsPage() {
     setCursorId(null);
     setFlaggedOnly(false);
     void reload();
-  }, [reload]);
+  }, [auth.me, reload]);
 
   // The staff directory is manager-gated, and the people in a queue are staff:
   // without it a row reads "You" or "Another approver" rather than a guess.
