@@ -25,7 +25,7 @@ import {
   SkeletonRows,
 } from "../../../components/knowledge/ledger";
 import { api, useRequireAuth } from "../../../lib/api";
-import { rejectionText } from "../../../lib/error-copy";
+import { envelopeOf, rejectionText } from "../../../lib/error-copy";
 import {
   durationText,
   relativeTime,
@@ -56,13 +56,26 @@ function queryFor(status: string, ruleId: string | undefined, cursor: string | n
   };
 }
 
-export default function RunLedger({ ruleId }: { ruleId?: string }) {
+export default function RunLedger({
+  ruleId,
+  initialStatus,
+}: {
+  ruleId?: string;
+  initialStatus?: string;
+}) {
   const auth = useRequireAuth();
   const router = useRouter();
 
   const [runs, setRuns] = useState<RunView[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [status, setStatus] = useState<string>("all");
+  // Seeded from the URL so `?status=failed` opens exactly that view and can be
+  // shared. Validated against the known set: an unknown status would otherwise
+  // ask the API for a status it does not know and read as "no runs".
+  const [status, setStatus] = useState<string>(
+    initialStatus !== undefined && STATUS_VIEWS.some((v) => v.id === initialStatus)
+      ? initialStatus
+      : "all",
+  );
   // Seeded from the URL so a link from a workflow row opens exactly that
   // workflow's history and can be shared. After that the control owns it, and
   // the address bar is kept in step on every change.
@@ -82,7 +95,7 @@ export default function RunLedger({ ruleId }: { ruleId?: string }) {
     if (error !== undefined || data === undefined) {
       setRuns([]);
       setNextCursor(null);
-      setErrorMsg(rejectionText(error as never, "The runs did not load. Try again."));
+      setErrorMsg(rejectionText(envelopeOf(error), "The runs did not load. Try again."));
       return;
     }
     setRuns(data.runs);
@@ -122,28 +135,43 @@ export default function RunLedger({ ruleId }: { ruleId?: string }) {
     });
     setLoadingMore(false);
     if (error !== undefined || data === undefined) {
-      setErrorMsg(rejectionText(error as never, "The next page of runs did not load."));
+      setErrorMsg(rejectionText(envelopeOf(error), "The next page of runs did not load."));
       return;
     }
     setRuns((cur) => [...(cur ?? []), ...data.runs]);
     setNextCursor(data.next_cursor ?? null);
   };
 
+  // Both filters write the same URL, so the address bar always describes the
+  // view on screen and a shared link reproduces it exactly.
+  const syncUrl = useCallback(
+    (nextStatus: string, nextRule: string | undefined) => {
+      const q = new URLSearchParams();
+      if (nextStatus !== "all") q.set("status", nextStatus);
+      if (nextRule !== undefined) q.set("rule", nextRule);
+      const qs = q.toString();
+      router.replace(qs === "" ? "/automations/runs" : `/automations/runs?${qs}`, { scroll: false });
+    },
+    [router],
+  );
+
   const selectRule = (value: string) => {
     const next = value === "all" ? undefined : value;
     setRuleFilter(next);
     // Keep the address bar in step so the view is shareable and Back behaves.
     // The component does not re-read the prop, so this never refetches twice.
-    router.replace(
-      next === undefined ? "/automations/runs" : `/automations/runs?rule=${next}`,
-      { scroll: false },
-    );
+    syncUrl(status, next);
+  };
+
+  const selectStatus = (id: string) => {
+    setStatus(id);
+    syncUrl(id, ruleFilter);
   };
 
   const clearFilters = () => {
     setStatus("all");
     setRuleFilter(undefined);
-    router.replace("/automations/runs", { scroll: false });
+    syncUrl("all", undefined);
   };
 
   const ruleName = useMemo(
@@ -197,7 +225,7 @@ export default function RunLedger({ ruleId }: { ruleId?: string }) {
           label="Run status"
           views={STATUS_VIEWS}
           activeId={status}
-          onChange={(id) => setStatus(id)}
+          onChange={(id) => selectStatus(id)}
         />
         <div className="w-60">
           <Select value={ruleFilter ?? "all"} onValueChange={selectRule}>

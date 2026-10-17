@@ -58,6 +58,13 @@ export function SelectContent({
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content className={cn("m-select-content", className)} {...props}>
+        {/* No tabIndex here. The scrollable listbox viewport trips axe's
+            `scrollable-region-focusable` once the option list is long enough to
+            scroll, but giving the viewport a focus target of its own turns it
+            into an ARIA owner and raises a CRITICAL `aria-required-children`
+            (the grouped children do not satisfy `listbox`). Radix keeps the
+            items reachable by roving focus while the list is open; the static
+            check cannot see that. Recorded as a residual in REVIEW.md. */}
         <SelectPrimitive.Viewport>{children}</SelectPrimitive.Viewport>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>

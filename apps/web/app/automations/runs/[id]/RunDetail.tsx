@@ -40,7 +40,7 @@ import {
   SkeletonRows,
 } from "../../../../components/knowledge/ledger";
 import { api, useRequireAuth } from "../../../../lib/api";
-import { rejectionText } from "../../../../lib/error-copy";
+import { envelopeOf, rejectionText } from "../../../../lib/error-copy";
 import {
   durationText,
   finishedPrefix,
@@ -85,12 +85,17 @@ export default function RunDetail({ runId }: { runId: string }) {
     });
     setLoading(false);
     if (error !== undefined || data === undefined) {
-      const status = (error as { response?: { status?: number } } | undefined)?.response?.status;
-      if (status === 404) {
+      // The house pattern: the SDK carries the typed envelope under
+      // `error.error` (bare or parked) and the HTTP status at the top level.
+      // Reading `error.response.status` silently missed, which is why the
+      // not-found surface never rendered.
+      const env = envelopeOf(error);
+      const status = (error as { status?: number } | null | undefined)?.status;
+      if (status === 404 || env.reason === "not_found" || env.reason === "rls_sparse") {
         setNotFound(true);
         return;
       }
-      setErrorMsg(rejectionText(error as never, "The run did not load. Try again."));
+      setErrorMsg(rejectionText(env, "The run did not load. Try again."));
       return;
     }
     const view = data as RunDetailView;
@@ -134,7 +139,7 @@ export default function RunDetail({ runId }: { runId: string }) {
         setRefusal(reason.message);
         return;
       }
-      setRefusal(rejectionText(error as never, "The retry was refused."));
+      setRefusal(rejectionText(envelopeOf(error), "The retry was refused."));
       return;
     }
     // The retry is a NEW run row; the failed one is untouched. Go to it.
@@ -399,7 +404,10 @@ function stepStepTime(step: RunStepView): string {
 function RunBanner({ run, steps }: { run: RunDetailView; steps: RunStepView[] }) {
   if (run.status === "failed") {
     const failed = steps.find((s) => s.status === "failed") ?? null;
-    const kept = failed ? failed.step_index - 1 : steps.length;
+    // Steps are 0-indexed; the kept prefix is every step BEFORE the failure, so
+    // the count is how many of them sort earlier — never `step_index - 1`, which
+    // reads as "nothing was kept" on the first break after step 1.
+    const kept = failed ? steps.filter((s) => s.step_index < failed.step_index).length : steps.length;
     return (
       <div
         className="mb-2 flex flex-wrap items-center gap-2 rounded-[12px] px-3 py-2 text-[13px]"
@@ -409,7 +417,11 @@ function RunBanner({ run, steps }: { run: RunDetailView; steps: RunStepView[] })
       >
         <span>
           Run failed{failed ? ` at ${failed.node_label}` : ""}.
-          {kept > 0 ? ` Steps 1 to ${kept} are kept.` : " No step completed."}
+          {kept === 0
+            ? " No step completed."
+            : kept === 1
+              ? " Step 1 is kept."
+              : ` Steps 1 to ${kept} are kept.`}
         </span>
         {run.error_code != null || run.error != null ? (
           <span className="font-mono">
@@ -425,7 +437,11 @@ function RunBanner({ run, steps }: { run: RunDetailView; steps: RunStepView[] })
     return (
       <div
         className="mb-2 flex flex-wrap items-center gap-2 rounded-[12px] px-3 py-2 text-[13px]"
-        style={{ background: "var(--m-gold-soft)", color: "var(--m-gold-text)" }}
+        // The status "waiting" pair, the same one the Waiting pill wears. It
+        // flips per mode (7.37:1 light, 8.06:1 dark); the fixed --m-gold-* pair
+        // it replaced measured 4.26:1 in both, below AA at this size, and read
+        // as a bright strip in dark.
+        style={{ background: "var(--mc-st-wait)", color: "var(--mc-st-wait-fg)" }}
         role="status"
         data-testid="run-banner"
       >
@@ -471,8 +487,11 @@ function StepPanel({
 }) {
   const outcome = stepOutcome(step, run, steps);
   const failed = step.status === "failed";
+  // `min-w-0` on every child: a grid item defaults to `min-width: auto`, so a
+  // long JSON line or a sentence in a 380px panel widens its own track and the
+  // text is clipped at the panel edge instead of wrapping or scrolling in place.
   return (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold">{step.node_label}</span>
         <DotPill tone={outcome.tone}>{outcome.label}</DotPill>
@@ -508,7 +527,7 @@ function StepPanel({
       {step.output != null ? <JsonBlock label="Output" value={step.output} /> : null}
 
       {retryable && failed ? (
-        <div className="grid gap-2 border-t pt-3" style={{ borderColor: "var(--m-border)" }}>
+        <div className="grid min-w-0 gap-2 border-t pt-3" style={{ borderColor: "var(--m-border)" }}>
           <Button
             onClick={() => onRetry("resume")}
             disabled={retryBusy !== null}
@@ -524,7 +543,7 @@ function StepPanel({
           >
             {retryBusy === "from_start" ? <Spinner /> : null} Retry whole run
           </Button>
-          <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+          <p className="min-w-0 break-words text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
             Steps before this one are kept. The retry is recorded as a new run; this one keeps
             saying failed. A repeat that would apply something twice is refused.
           </p>
@@ -536,7 +555,7 @@ function StepPanel({
 
 function JsonBlock({ label, value }: { label: string; value: unknown }) {
   return (
-    <div>
+    <div className="min-w-0">
       <div
         className="mb-1 text-[12px] font-semibold uppercase tracking-[0.06em]"
         style={{ color: "var(--m-text-muted)" }}
@@ -544,7 +563,7 @@ function JsonBlock({ label, value }: { label: string; value: unknown }) {
         {label}
       </div>
       <pre
-        className="m-0 max-h-64 overflow-auto rounded-[10px] p-2 font-mono text-[12px]"
+        className="m-0 max-h-64 max-w-full overflow-y-auto whitespace-pre-wrap break-words rounded-[10px] p-2 font-mono text-[12px]"
         style={{ background: "var(--m-surface-2)", color: "var(--m-text)" }}
       >
         {prettyJson(value)}

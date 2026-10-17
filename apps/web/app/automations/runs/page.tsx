@@ -3,8 +3,10 @@
 //
 // A route of its own so the ledger reads as a full data surface, opened from
 // the automations header, the rail's Automation section, or a workflow row's
-// "Runs" link. `?rule=<id>` narrows it to one workflow's history, which is the
-// "run history per rule" entry point.
+// "Runs" link. BOTH filters ride the URL — `?rule=<id>` for one workflow's
+// history, `?status=<status>` for one status — so a narrowed view is shareable
+// and Back behaves. Neither is re-read after mount, so a change cannot refetch
+// twice.
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import RunLedger from "./RunLedger";
@@ -12,7 +14,8 @@ import RunLedger from "./RunLedger";
 function LedgerRoute() {
   const params = useSearchParams();
   const rule = params.get("rule") ?? undefined;
-  return <RunLedger ruleId={rule} />;
+  const status = params.get("status") ?? undefined;
+  return <RunLedger ruleId={rule} initialStatus={status} />;
 }
 
 export default function AutomationsRunsPage() {
