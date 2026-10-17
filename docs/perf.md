@@ -313,14 +313,27 @@ over). So on this box **one instance holds ~384 concurrent mixed sessions at
 p95 ≤ 150ms**, and the per-user rate is 1.8-1.9 rps while the box has
 headroom, falling toward 1.5 as it saturates.
 
-The **100k leg did not yield a usable exponent** in this window. A freshly
-seeded 100k org read p95 406ms at concurrency 64 and 229ms at concurrency 256 (non-monotonic),
-and a re-seed back to 50k then read 289ms at concurrency 64 where the clean window
-had read 51ms. The box degraded across the session, from accumulated write
-bloat and the parallel stack, so any cross-scale ratio from those runs is
-noise rather than a penalty. The exponent needs a quiet, isolated procedure:
-one stack, a fresh seed, a settle, then the same config at both scales. It is
-recorded here as the open item it is, not estimated.
+The **dataset-penalty exponent was then measured on a quiet box**, in a
+follow-up with no other stack running. Same procedure, one stack at a time, a
+fresh seed and a 25s settle per scale, the two sub-saturation concurrencies,
+and a second 50k pass to prove the box held steady across the session. The two
+50k passes agreed within noise, so the cross-scale comparison is trustworthy:
+
+| concurrency | scale | rps | p50 | p95 |
+|---|---|---|---|---|
+| 32 | 50k | 60.8 | 20.8 | 51.3 |
+| 32 | 100k | 61.0 | 19.9 | 58.2 |
+| 64 | 50k | 121.8 | 21.8 | 53.3 |
+| 64 | 100k | 121.6 | 20.9 | 69.3 |
+
+Throughput is unchanged and the median is unchanged. The penalty is in the
+tail: p95 rises 1.13 to 1.30 times, an exponent of about 0.2 to 0.4 over the
+doubling, and the growth is the `list_board` leg (p95 56.8ms to 68.0ms at
+concurrency 32, 61.1ms to 92.4ms at 64). The other endpoints stay flat. So at
+this scale the dataset cost is sub-linear and lives in the tail, and the
+Little's-law users-per-instance figure, which reads the median, is
+dataset-insensitive between 50k and 100k. The method and the raw reports are in
+`design/qa-p49-100k-penalty/`.
 
 The full model, with the sizing table, the calculator and the limits, is
 `docs/capacity-model.md`.
