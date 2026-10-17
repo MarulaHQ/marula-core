@@ -101,6 +101,11 @@ export const RAIL_SECTIONS: RailSection[] = [
     match: ["/automations", "/alerts"],
     links: [
       { label: "Automations", href: "/automations" },
+      // The run ledger and the webhook deliveries ledger are the automation
+      // section's two read surfaces; both already existed and both were
+      // unreachable from the rail (Wave 43 lane 18).
+      { label: "Runs", href: "/automations/runs" },
+      { label: "Webhook activity", href: "/settings/integrations" },
       { label: "Alerts", href: "/alerts" },
     ],
   },
