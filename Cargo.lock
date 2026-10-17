@@ -1098,6 +1098,7 @@ dependencies = [
  "plugin-host",
  "qrcode",
  "rand 0.8.8",
+ "realtime",
  "reqwest 0.12.28",
  "rsa",
  "serde",
@@ -1119,6 +1120,7 @@ dependencies = [
  "utoipa-scalar",
  "uuid",
  "webauthn-rs",
+ "worker",
 ]
 
 [[package]]
