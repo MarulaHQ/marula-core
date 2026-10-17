@@ -74,9 +74,11 @@ peer worktree built from different sources can pass this tree's freshness check
 and get linked, producing a phantom `cannot find value …` or a
 `built for newer 'macOS'` linker error charged to an innocent crate.
 `scripts/lane-target-guard.py check --profile release --fix` closes it: it resets
-the workspace members for the profile being built when the directory's last
-stamped build came from another tree, and `mark` claims the directory after a
-successful build. `scripts/e2e-stack.sh up` runs both around its release builds.
+what the verdict flagged for the profile being built — the workspace members
+when a peer tree wrote them, the whole profile when the flagged writes landed
+outside the member set (a bare `cargo test` writes third-party dev units too) —
+and `mark` claims the directory after a successful build.
+`scripts/e2e-stack.sh up` runs both around its release builds.
 `pnpm target:check` reports the state by hand, and `scripts/repro-shared-target-poison.sh`
 reproduces the failure and the fix on a throwaway workspace. A lane that resets
 the directory by hand must pass `--release` — `cargo clean -p …` without it

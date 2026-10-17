@@ -30,10 +30,11 @@ It keeps a small stamp beside the artifacts — `<target-dir>/.marula-lane-stamp
 — recording, PER PROFILE, which worktree last built into the dir, that tree's
 source fingerprint, and the build-environment identity (SDK/rustc).  Before a
 build it answers one question: *are the artifacts in this profile dir
-trustworthy for this tree?*  If a different tree with different sources wrote
-them, the workspace members for that profile are reset so cargo rebuilds them
-from the sources in front of it.  `scripts/e2e-stack.sh` calls `check --fix`
-before its release builds and `mark` after; any lane can call it by hand.
+trustworthy for this tree?*  If not, artifacts are reset so cargo rebuilds them
+from the sources in front of it — the workspace members when a peer tree wrote
+them, the whole profile when writes landed outside the member set (see "TWO
+REPAIR SCOPES" below).  `scripts/e2e-stack.sh` calls `check --fix` before its
+release builds and `mark` after; any lane can call it by hand.
 
 WHAT IT IS NOT
 --------------
@@ -56,6 +57,33 @@ survives; only `cargo clean -p … --release` clears it (proven 2026-10-16,
 Every reset here is profile-keyed and passes `--release` when the profile is
 release.  `--self-test` asserts the command shape so a later edit cannot quietly
 drop the flag.
+
+PACKAGE NAMES, NOT DIRECTORY NAMES (Wave 47 A20, do not regress this)
+---------------------------------------------------------------------
+The repair must pass cargo a PACKAGE name, never a member directory's basename.
+Two of the 32 members are not named after their directory (`desktop` is package
+`marula-desktop`, `plugins/connectors/mapbox` is `mapbox-routing`), so the old
+`-p Path(member).name` emitted `-p desktop -p mapbox`; cargo exits 101
+("package ID specification `desktop` did not match any packages") and the boot
+the guard exists to protect dies inside the guard's own repair step.  Names are
+resolved from each member's manifest (`workspace_packages`), and `--self-test`
+asserts every `-p` resolves to a real workspace package with a dir != name case
+covered.
+
+TWO REPAIR SCOPES (Wave 47 A20)
+-------------------------------
+`newest_write()` scans the whole profile dir, so the state the stamp test wants
+depends on WHY the dir was flagged:
+
+* `foreign-source` — a peer tree wrote OUR crates' artifacts.  Clearing the
+  workspace members reaches it, and keeps the SHARED third-party artifacts (the
+  bulk of the dir, content-identical across trees — the reason a shared dir is
+  affordable at all).
+* `stale-stamp` / `unknown` — writes landed anywhere in the profile: a bare
+  `cargo test` writes third-party dev units too, and no member list reaches
+  them.  A member-only clean looks clean but leaves deps newer than the stamp,
+  so the verdict never clears (lane 19: 6697 files, 1.9GiB).  These clear the
+  whole profile, which IS the state the stamp test demands.
 
 Exit codes: 0 = safe (or fixed) · 1 = needs action (verdict printed) · 2 = usage.
 """
@@ -151,33 +179,61 @@ def workspace_members(repo: Path) -> list[str]:
     return sorted(set(out))
 
 
-def package_name(repo: Path, member: str) -> str:
-    """The crate's PACKAGE name, which is not always its directory name.
+def read_package_name(manifest: Path, root: Path | None = None) -> str | None:
+    """The `[package] name` a member manifest declares, or None if it has none.
 
-    `cargo clean -p` (and `-p` generally) matches the package name, and the
-    two diverge whenever a member directory is not named after its package:
-    the `desktop/` directory ships the `marula-desktop` package (Wave 41 lane
-    1 rename), so `-p desktop` matches nothing and the whole reset fails.
-    Falling back to the directory basename keeps a manifest-less member
-    (e.g. a synthetic one in a test) usable.
+    A virtual manifest has no `[package] name`; a member always does.
     """
-    manifest = repo / member / "Cargo.toml"
     try:
         import tomllib
 
         data = tomllib.loads(manifest.read_text())
-        name = data.get("package", {}).get("name")
-        if name:
-            return str(name)
     except Exception:
+        m = re.search(r'(?m)^\s*name\s*=\s*"([^"]+)"', manifest.read_text())
+        return m.group(1) if m else None
+    name = (data.get("package") or {}).get("name")
+    if isinstance(name, str) and name:
+        return name
+    if isinstance(name, dict) and name.get("workspace") and root is not None:
+        # `name.workspace = true` inherits from the root `[workspace.package]`.
         try:
-            text = manifest.read_text()
-        except OSError:
-            text = ""
-        m = re.search(r'^\[package\]\s*$.*?^name\s*=\s*"([^"]+)"', text, re.S | re.M)
-        if m:
-            return m.group(1)
-    return Path(member).name
+            import tomllib
+
+            root_data = tomllib.loads((root / "Cargo.toml").read_text())
+            inherited = (root_data.get("workspace", {}).get("package") or {}).get("name")
+            if isinstance(inherited, str) and inherited:
+                return inherited
+        except Exception:
+            pass
+    return None
+
+
+def workspace_packages(repo: Path) -> list[dict]:
+    """Every workspace member as its member directory + resolved package name.
+
+    `workspace_members()` yields DIRECTORIES; cargo's `-p` wants the PACKAGE
+    name, and the two differ wherever a member directory is not named after its
+    package (`desktop` → `marula-desktop`, `plugins/connectors/mapbox` →
+    `mapbox-routing`, 2 of 32 here).  Emitting the directory basename made
+    `cargo clean` exit 101 and killed the boot the guard exists to protect
+    (Wave 47 A20), so the name comes from the member's own manifest.
+
+    `name` falls back to the directory basename only for a manifest with no
+    `[package] name` (a virtual manifest, which cannot be a member anyway), and
+    `resolved` records which happened so `status` can surface it.
+    """
+    out: list[dict] = []
+    for member in workspace_members(repo):
+        manifest = repo / member / "Cargo.toml"
+        name = read_package_name(manifest, repo) if manifest.is_file() else None
+        out.append(
+            {"member": member, "name": name or Path(member).name, "resolved": name is not None}
+        )
+    return out
+
+
+def package_names(repo: Path) -> list[str]:
+    return [pkg["name"] for pkg in workspace_packages(repo)]
 
 
 def source_fingerprint(repo: Path, members: list[str]) -> str:
@@ -434,16 +490,73 @@ def wait_for_gap(seconds: int) -> bool:
     return not any_cargo_running()
 
 
-def reset(repo: Path, profile: str, dry_run: bool = False, wait: int = 120) -> int:
-    members = workspace_members(repo)
+def cargo_profile(profile: str) -> str:
+    """The profile NAME cargo's `--profile` accepts for a guard profile.
+
+    Cargo has no profile called `debug` (`cargo clean --profile debug` exits 2
+    and points at the name `dev`), and the `dev`/`test` profiles both write
+    `target/debug` — the same directory `profile_dir()` maps them to.
+    """
+    if profile in ("release", "bench"):
+        return profile
+    return "dev"
+
+
+def scope_for_status(status: str) -> str:
+    """The clean scope that reaches the state the stamp test demands.
+
+    `newest_write()` scans the whole profile dir, so a `stale-stamp` or
+    `unknown` verdict cannot be repaired by clearing the workspace members
+    alone — the newer writes are third-party dev units a member list never
+    reaches.  `foreign-source` is exactly the members' poison, so it stays
+    surgical and the shared third-party artifacts survive.
+    """
+    return "profile" if status in ("stale-stamp", "unknown") else "members"
+
+
+def reset_command(repo: Path, profile: str, scope: str) -> list[str]:
+    """The cargo command that clears what a verdict flagged — nothing more.
+
+    See "TWO REPAIR SCOPES" in the module docstring.  Package names, never
+    member directory basenames: see "PACKAGE NAMES, NOT DIRECTORY NAMES".
+    """
+    if scope == "profile":
+        if profile == "release":
+            # See THE RELEASE TRAP: `cargo clean --profile release` is the same
+            # wipe, spelled with the flag the trap is about.
+            return ["cargo", "clean", "--release"]
+        return ["cargo", "clean", "--profile", cargo_profile(profile)]
     cmd = ["cargo", "clean"]
-    for member in members:
-        cmd += ["-p", package_name(repo, member)]
+    packages = workspace_packages(repo)
+    unresolved = [p["member"] for p in packages if not p["resolved"]]
+    if unresolved:
+        # The emit below would fall back to a directory basename for these, which
+        # is the A20 defect. Say so rather than emit a `-p` cargo rejects.
+        print(
+            "lane-target-guard: WARN could not read [package] name for "
+            + ", ".join(unresolved)
+            + " — those -p arguments fall back to the directory name",
+            file=sys.stderr,
+        )
+    for name in (p["name"] for p in packages):
+        cmd += ["-p", name]
     if profile == "release":
         # See THE RELEASE TRAP above: without this flag the poisoned artifact
         # survives (only the dev profile is cleared) and the guard would lie.
         cmd.append("--release")
-    print("lane-target-guard: reset — " + " ".join(cmd))
+    return cmd
+
+
+def reset(
+    repo: Path, profile: str, scope: str, dry_run: bool = False, wait: int = 120
+) -> int:
+    cmd = reset_command(repo, profile, scope)
+    where = (
+        "the whole profile (the flagged writes land outside the workspace members)"
+        if scope == "profile"
+        else "the workspace members"
+    )
+    print("lane-target-guard: reset — " + " ".join(cmd) + f"   [{where}]")
     if dry_run:
         return 0
     if wait > 0 and not wait_for_gap(wait):
@@ -506,7 +619,10 @@ def cmd_check(args: argparse.Namespace) -> int:
         if result["action"] == "reset":
             if args.fix:
                 print(f"lane-target-guard: fixing — {result['detail']}")
-                rrc = reset(repo, profile, dry_run=args.dry_run, wait=args.wait)
+                rrc = reset(
+                    repo, profile, scope_for_status(result["status"]),
+                    dry_run=args.dry_run, wait=args.wait,
+                )
                 if rrc != 0:
                     print(f"lane-target-guard: FAIL cargo clean exited {rrc}", file=sys.stderr)
                     rc = 1
@@ -516,11 +632,9 @@ def cmd_check(args: argparse.Namespace) -> int:
                         "THIS tree's sources."
                     )
             else:
-                members = workspace_members(repo)
                 print(
-                    "lane-target-guard: FIX — cargo clean "
-                    + " ".join(f"-p {package_name(repo, m)}" for m in members)
-                    + (" --release" if profile == "release" else "")
+                    "lane-target-guard: FIX — "
+                    + " ".join(reset_command(repo, profile, scope_for_status(result["status"])))
                 )
                 rc = 1
         elif result["action"] == "report":
@@ -553,17 +667,25 @@ def cmd_mark(args: argparse.Namespace) -> int:
 
 def cmd_reset(args: argparse.Namespace) -> int:
     repo = Path(args.repo).resolve()
-    return reset(repo, args.profile, dry_run=args.dry_run, wait=args.wait)
+    return reset(repo, args.profile, args.scope, dry_run=args.dry_run, wait=args.wait)
 
 
 def cmd_status(args: argparse.Namespace) -> int:
     repo = Path(args.repo).resolve()
     target = resolve_target_dir(repo)
     stamp = load_stamp(target)
+    packages = workspace_packages(repo)
+    renamed = [p for p in packages if p["name"] != Path(p["member"]).name]
     print(f"lane-target-guard: target {target}")
     print(f"  exists      {target.is_dir()}")
     print(f"  worktree    {branch_of(repo)} (id {worktree_id(repo)})")
-    print(f"  members     {len(workspace_members(repo))}")
+    print(f"  members     {len(packages)} ({len(packages) - len(renamed)} named after their dir, "
+          f"{len(renamed)} not)")
+    for pkg in renamed:
+        print(f"    -p {pkg['name']}  ({pkg['member']})")
+    unresolved = [pkg["member"] for pkg in packages if not pkg["resolved"]]
+    if unresolved:
+        print(f"  WARN        no [package] name readable for: {', '.join(unresolved)}")
     print(f"  stamp       {stamp_path(target)}")
     for profile, entry in sorted((stamp.get("profiles") or {}).items()):
         print(
@@ -590,19 +712,46 @@ def self_test() -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        # A synthetic workspace with two members (one is a glob match).
-        (root / "crates/alpha/src").mkdir(parents=True)
-        (root / "crates/beta/src").mkdir(parents=True)
-        (root / "crates/alpha/src/lib.rs").write_text("pub const A: u8 = 1;\n")
-        (root / "crates/beta/src/lib.rs").write_text("pub use alpha;\n")
-        (root / "crates/alpha/Cargo.toml").write_text("[package]\nname = \"alpha\"\n")
-        (root / "crates/beta/Cargo.toml").write_text("[package]\nname = \"beta\"\n")
+        # A synthetic workspace shaped like the real one: four members across
+        # three globs/roots, and TWO whose directory is not their package name
+        # — the A20 shape (real: desktop → marula-desktop,
+        # plugins/connectors/mapbox → mapbox-routing).
+        for src, manifest in (
+            ("crates/alpha/src", "[package]\nname = \"alpha\"\n"),
+            ("crates/beta/src", "[package]\nname = \"beta\"\n"),
+            ("desktop/src", "[package]\nname = \"marula-desktop\"\n"),
+            ("plugins/connectors/mapbox/src", "[package]\nname = \"mapbox-routing\"\n"),
+        ):
+            (root / src).mkdir(parents=True)
+            (root / src / "lib.rs").write_text("pub const A: u8 = 1;\n")
+            (root / Path(src).parent / "Cargo.toml").write_text(manifest)
         (root / "Cargo.toml").write_text(
-            "[workspace]\nmembers = [\"crates/*\"]\n", encoding="utf-8"
+            "[workspace]\nmembers = [\"crates/*\", \"desktop\", \"plugins/connectors/*\"]\n",
+            encoding="utf-8",
         )
         (root / "Cargo.lock").write_text("# lock\n")
 
-        expect("members parsed", workspace_members(root), ["crates/alpha", "crates/beta"])
+        members = workspace_members(root)
+        expect(
+            "members parsed",
+            members,
+            ["crates/alpha", "crates/beta", "desktop", "plugins/connectors/mapbox"],
+        )
+        pkg_names = set(package_names(root))
+        expect(
+            "member directory != package name is resolved",
+            pkg_names,
+            {"alpha", "beta", "marula-desktop", "mapbox-routing"},
+        )
+        expect("directory basename is never a package name", "desktop" in pkg_names, False)
+        # The A20 assertion above compares the emit path against the resolve
+        # path, so it also has to assert the resolve path itself did not fall
+        # back to a basename. Otherwise a total fallback passes both.
+        expect(
+            "every member package name came from its manifest",
+            [p["member"] for p in workspace_packages(root) if not p["resolved"]],
+            [],
+        )
 
         # target-dir resolution: config, then env override.
         (root / ".cargo").mkdir()
@@ -633,7 +782,8 @@ def self_test() -> int:
 
         # a peer tree, identical sources -> safe-shared
         peer = root / "peer"
-        shutil.copytree(root / "crates", peer / "crates")
+        for rel in ("crates", "desktop", "plugins"):
+            shutil.copytree(root / rel, peer / rel)
         for name in ("Cargo.toml", "Cargo.lock"):
             shutil.copy2(root / name, peer / name)
         stamp = load_stamp(target)
@@ -676,7 +826,11 @@ def self_test() -> int:
         # profile independence: a release-only stamp must not vouch for debug
         expect("debug separate from release", verdict(root, target, "debug")["status"], "empty")
 
-        # release reset command carries --release (the 2026-10-16 trap)
+        # The reset commands carry the whole repair, so assert their shape.
+        # Two invariants matter:
+        #   * every `-p` is a REAL workspace package name (A20 — the old
+        #     `-p <dir basename>` emitted `-p desktop`, and cargo exits 101);
+        #   * the scope reaches the state the stamp test demands (A20 B).
         argv: list[str] = []
 
         def fake_run(cmd, cwd=None, **kwargs):
@@ -687,17 +841,75 @@ def self_test() -> int:
 
             return R()
 
+        def emitted() -> list[str]:
+            return [argv[i + 1] for i, tok in enumerate(argv) if tok == "-p"]
+
         real_run = subprocess.run
         subprocess.run = fake_run  # type: ignore[assignment]
         try:
-            reset(root, "release", dry_run=False, wait=0)
-            expect("release reset clears first", argv[:2], ["cargo", "clean"])
-            expect("release reset passes --release", argv[-1], "--release")
-            expect("release reset names both members", all(m in argv for m in ("alpha", "beta")), True)
-            expect("release reset has one -p per member", argv.count("-p"), 2)
+            # foreign-source, release: members only, plus the trap flag.
+            reset(root, "release", "members", dry_run=False, wait=0)
+            expect("release member reset clears first", argv[:2], ["cargo", "clean"])
+            expect(
+                "release member reset passes --release (the 2026-10-16 trap)",
+                argv[-1],
+                "--release",
+            )
+            expect("release member reset has one -p per member", argv.count("-p"), len(members))
+            expect(
+                "every -p resolves to a real workspace package name",
+                [spec for spec in emitted() if spec not in pkg_names],
+                [],
+            )
+            expect(
+                "the dir != package member emits the PACKAGE name",
+                "marula-desktop" in emitted(),
+                True,
+            )
+            expect(
+                "the dir != package member never emits its directory",
+                "desktop" in emitted(),
+                False,
+            )
+
+            # foreign-source, debug: still surgical, still no --release.
             argv.clear()
-            reset(root, "debug", dry_run=False, wait=0)
-            expect("debug reset has no --release", "--release" in argv, False)
+            reset(root, "debug", "members", dry_run=False, wait=0)
+            expect("debug member reset has no --release", "--release" in argv, False)
+
+            # stale-stamp / unknown: a member clean cannot reach the newer
+            # third-party writes, so the WHOLE profile goes — the state the
+            # stamp test demands (lane 19 measured 6697 files, 1.9GiB).
+            argv.clear()
+            reset(root, "debug", scope_for_status("stale-stamp"), dry_run=False, wait=0)
+            expect(
+                "stale-stamp reset clears the whole dev profile",
+                argv,
+                ["cargo", "clean", "--profile", "dev"],
+            )
+            argv.clear()
+            reset(root, "debug", scope_for_status("unknown"), dry_run=False, wait=0)
+            expect(
+                "unknown reset clears the whole profile too",
+                argv,
+                ["cargo", "clean", "--profile", "dev"],
+            )
+            argv.clear()
+            reset(root, "release", scope_for_status("stale-stamp"), dry_run=False, wait=0)
+            expect(
+                "stale-stamp release reset is release-scoped",
+                argv,
+                ["cargo", "clean", "--release"],
+            )
+            argv.clear()
+            reset(root, "debug", scope_for_status("foreign-source"), dry_run=False, wait=0)
+            expect("foreign-source reset stays member-scoped", argv.count("-p"), len(members))
+
+            # cargo has no `debug` profile, so a whole-profile clean must name
+            # the profile cargo accepts.
+            expect("cargo profile name for debug is dev", cargo_profile("debug"), "dev")
+            expect("cargo profile name for test is dev", cargo_profile("test"), "dev")
+            expect("cargo profile name for release is release", cargo_profile("release"), "release")
         finally:
             subprocess.run = real_run  # type: ignore[assignment]
 
@@ -736,8 +948,17 @@ def build_parser() -> argparse.ArgumentParser:
     markp.add_argument("--note", default="")
     markp.set_defaults(func=cmd_mark)
 
-    rs = sub.add_parser("reset", help="clear the workspace members for a profile")
+    rs = sub.add_parser("reset", help="clear what a verdict flagged for a profile")
     add_profile(rs)
+    rs.add_argument(
+        "--scope",
+        default="profile",
+        choices=["profile", "members"],
+        help=(
+            "profile (default) clears the whole profile — the state the stamp test demands; "
+            "members clears only the workspace members and keeps the shared third-party artifacts"
+        ),
+    )
     rs.add_argument("--dry-run", action="store_true")
     rs.add_argument("--wait", type=int, default=int(os.environ.get("MARULA_LANE_GUARD_WAIT", 120)))
     rs.set_defaults(func=cmd_reset)
