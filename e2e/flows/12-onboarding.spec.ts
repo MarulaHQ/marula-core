@@ -74,17 +74,17 @@ test("org wizard skip path: 'skip for now' records nothing and stays resumable",
   await authedPage.goto("/welcome");
   // The demo org already carries clients, boards and tickets, so those steps
   // RESOLVE from the data and the wizard opens on its resumed list (the pack's
-  // state 14) rather than the rail. Step into the first pending step; a
-  // genuinely empty org opens the rail directly, and the same rail assertion
-  // holds either way.
+  // state 14) rather than the rail. A genuinely empty org opens the rail
+  // directly. Wait for whichever this org gets, then step into the first
+  // pending step either way.
   const resume = authedPage.getByTestId(`wizard-resume-${firstStep}`);
-  if (await resume.isVisible({ timeout: 15_000 }).catch(() => false)) {
+  const railStep = authedPage.getByTestId(`wizard-step-${orgRailStep(firstStep)}`);
+  await expect(resume.or(railStep).first()).toBeVisible({ timeout: 30_000 });
+  if ((await resume.count()) > 0) {
     await resume.click();
   }
   // The rail is present with every step: the shipped ids are 1-based indexes.
-  await expect(authedPage.getByTestId(`wizard-step-${orgRailStep(firstStep)}`)).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(railStep).toBeVisible({ timeout: 30_000 });
 
   // SKIP FOR NOW: the step stays pending (the request intentionally
   // carries never:false and the server records nothing).
@@ -122,12 +122,15 @@ test("'never show this again' is a recorded choice that survives reload", async 
   // the confirm dialog spells out that consequence before it applies.
   await authedPage.goto("/welcome");
   const footerNever = authedPage.getByTestId("wizard-never-show-again");
-  if (await footerNever.isVisible({ timeout: 15_000 }).catch(() => false)) {
-    // The resumed list carries the choice in its own footer.
+  const guideMenu = authedPage.getByTestId("wizard-guide-menu");
+  // Wait for the page to settle on one of its two shapes, then take the choice
+  // from wherever it lives. The resumed list carries it in its footer; the rail
+  // keeps it in the header's guide menu.
+  await expect(footerNever.or(guideMenu).first()).toBeVisible({ timeout: 30_000 });
+  if ((await footerNever.count()) > 0) {
     await footerNever.click();
   } else {
-    // Otherwise it lives in the header's guide menu.
-    await authedPage.getByTestId("wizard-guide-menu").click();
+    await guideMenu.click();
     await authedPage.getByTestId("wizard-never-show-again").click();
   }
   await expect(authedPage.getByTestId("never-show-dialog")).toBeVisible();
