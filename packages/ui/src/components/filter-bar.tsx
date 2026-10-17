@@ -155,7 +155,9 @@ export function FilterChips({
   return (
     <div className={cn("m-filter-chips-wrap", className)}>
       {clauses.length === 0 ? (
-        <span className="m-filter-empty">{emptyHint}</span>
+        // Callers that pass an empty `emptyHint` want the chip row to hold the
+        // dashed add chip alone, as the pack's toolbar does, not an empty node.
+        emptyHint ? <span className="m-filter-empty">{emptyHint}</span> : null
       ) : (
         <ul className="m-filter-chips" aria-label={`${label}, active`}>
           {visible.map((clause) => {
@@ -389,6 +391,13 @@ export interface FilterBarProps {
  * Chips and trigger together, in one element. Kept for the surfaces that have not
  * moved onto the toolbar's two slots yet — byte-for-byte the shape those callers
  * already render, so the split changed nothing for them.
+ *
+ * The chip row ends with the dashed `+ Add filter` chip, as `DESIGN-NOTES-tickets.md`
+ * §6 requires ("The dashed Add filter chip always ends the row") and as the pack
+ * draws it on the tickets and quoting surfaces. This shape used to hide that chip
+ * on the reasoning that the trigger on the same row already opens the builder; the
+ * pack ships both, so hiding it left three ledger surfaces short of the control
+ * their specs assert (Wave 47 lane A27).
  */
 export function FilterBar({
   fields,
@@ -408,10 +417,9 @@ export function FilterBar({
         clauses={clauses}
         onChange={onChange}
         onAdd={() => setOpen(true)}
-        /* This shape renders the builder trigger on the same row, so the dashed
-           `+ Add filter` chip would be a second control for the same popover. The
-           split slot (`DataToolbar`'s `chips` + `filter`) is where both belong. */
-        hideAdd
+        /* Both controls open the same builder, which is what the pack draws: the
+           dashed chip ends the chip row (§6) and the `Filter` button sits on the
+           right of it. Same pairing the split slot renders. */
         emptyHint={emptyHint}
         label={label}
         maxChips={maxChips}

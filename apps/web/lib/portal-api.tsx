@@ -162,11 +162,20 @@ function rotateSession(stored: PortalTokens | null): Promise<PortalTokens> {
     return next;
   })();
   rotationInFlight = attempt;
-  // Free the slot once settled; every awaiter already holds the resolved
-  // tokens (or the shared rejection) in the promise value.
-  void attempt.finally(() => {
+  // Free the slot once settled; every awaiter already holds the resolved tokens
+  // (or the shared rejection) in the promise value.
+  //
+  // `.then(release, release)` rather than `.finally()`: `finally` returns a NEW
+  // promise that re-rejects, and this bookkeeping promise is deliberately not
+  // awaited by anyone, so a failed rotation surfaced as an unhandled rejection
+  // on this line's own throw. Vitest reports that and exits 1 even with every
+  // test green, which failed any lane gating on the web suite (Wave 47 lane
+  // A27). Handling both arms here changes nothing for callers: they await
+  // `attempt`, which still rejects as before.
+  const release = () => {
     if (rotationInFlight === attempt) rotationInFlight = null;
-  });
+  };
+  attempt.then(release, release);
   return attempt;
 }
 
