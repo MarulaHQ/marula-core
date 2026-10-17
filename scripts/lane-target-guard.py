@@ -151,6 +151,35 @@ def workspace_members(repo: Path) -> list[str]:
     return sorted(set(out))
 
 
+def package_name(repo: Path, member: str) -> str:
+    """The crate's PACKAGE name, which is not always its directory name.
+
+    `cargo clean -p` (and `-p` generally) matches the package name, and the
+    two diverge whenever a member directory is not named after its package:
+    the `desktop/` directory ships the `marula-desktop` package (Wave 41 lane
+    1 rename), so `-p desktop` matches nothing and the whole reset fails.
+    Falling back to the directory basename keeps a manifest-less member
+    (e.g. a synthetic one in a test) usable.
+    """
+    manifest = repo / member / "Cargo.toml"
+    try:
+        import tomllib
+
+        data = tomllib.loads(manifest.read_text())
+        name = data.get("package", {}).get("name")
+        if name:
+            return str(name)
+    except Exception:
+        try:
+            text = manifest.read_text()
+        except OSError:
+            text = ""
+        m = re.search(r'^\[package\]\s*$.*?^name\s*=\s*"([^"]+)"', text, re.S | re.M)
+        if m:
+            return m.group(1)
+    return Path(member).name
+
+
 def source_fingerprint(repo: Path, members: list[str]) -> str:
     """Content hash of what the workspace crates compile.
 
@@ -409,7 +438,7 @@ def reset(repo: Path, profile: str, dry_run: bool = False, wait: int = 120) -> i
     members = workspace_members(repo)
     cmd = ["cargo", "clean"]
     for member in members:
-        cmd += ["-p", Path(member).name]
+        cmd += ["-p", package_name(repo, member)]
     if profile == "release":
         # See THE RELEASE TRAP above: without this flag the poisoned artifact
         # survives (only the dev profile is cleared) and the guard would lie.
@@ -490,7 +519,7 @@ def cmd_check(args: argparse.Namespace) -> int:
                 members = workspace_members(repo)
                 print(
                     "lane-target-guard: FIX — cargo clean "
-                    + " ".join(f"-p {Path(m).name}" for m in members)
+                    + " ".join(f"-p {package_name(repo, m)}" for m in members)
                     + (" --release" if profile == "release" else "")
                 )
                 rc = 1
