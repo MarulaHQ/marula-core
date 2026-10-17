@@ -282,8 +282,12 @@ test("travel books from the day start, warns on zero transfer, and reconciles mi
   // 20 mi at the 67 minor-unit default rate.
   expect(row!.reimbursement_minor).toBeGreaterThanOrEqual(1340);
 
-  // UI: the reconciliation card renders the rollup and the rate.
+  // UI: the reconciliation card renders the rollup and the rate. The page opens
+  // on its Drafts view and the card belongs to the Reconciliation view, which is
+  // a toggle in the "Travel views" group
+  // (apps/web/app/dispatch/travel/page.tsx:146,459).
   await authedPage.goto("/dispatch/travel");
+  await authedPage.getByRole("button", { name: "Reconciliation" }).click();
   const card = authedPage.getByTestId("reconciliation-card");
   await expect(card).toBeVisible({ timeout: 20_000 });
   await expect(card).toContainText("Reimbursable");

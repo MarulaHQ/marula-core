@@ -187,7 +187,12 @@ test("consent shows surface declarations; approving registers the action kind", 
   await row.getByRole("button", { name: "Review consent" }).click();
   const surfaces = authedPage.getByText("Triage note");
   await expect(surfaces.first()).toBeVisible({ timeout: 30_000 });
-  await expect(authedPage.getByText("UI surfaces")).toBeVisible();
+  // The pane's heading is "Declared surfaces" and it lists one row per surface
+  // kind the plugin contributes (apps/web/app/settings/plugins/consent.tsx:257-306).
+  // This plugin declares an automation action and no widget, so the row an
+  // approver reads is the action one.
+  await expect(authedPage.getByText("Declared surfaces")).toBeVisible();
+  await expect(authedPage.getByText("Automation actions").first()).toBeVisible();
   await authedPage.screenshot({
     path: join(CAPTURES, "consent-surface-declarations.png"),
     fullPage: true,

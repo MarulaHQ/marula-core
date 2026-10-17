@@ -66,8 +66,13 @@ test("submit a draft entry, bulk-approve it from the queue, see the trail", asyn
   await row.getByRole("button", { name: "Approve" }).click();
   await expect(row).toBeHidden({ timeout: 20_000 });
 
-  // The approved tab shows the entry with its decision trail.
-  await authedPage.getByRole("button", { name: "Approved" }).click();
+  // The approved tab shows the entry with its decision trail. The view control
+  // is a Segmented `radiogroup` (packages/ui/src/components/view-switch.tsx), so
+  // the tab is a RADIO. Asking for a button named "Approved" matches the
+  // "Unapproved N" filter button instead — Playwright's `name` is a
+  // case-insensitive substring match by default — and the click lands on a
+  // filter while the queue stays on screen.
+  await authedPage.getByRole("radio", { name: "Approved" }).click();
   const approvedRow = authedPage.getByTestId(`approval-row-${entry.id}`);
   await expect(approvedRow).toBeVisible({ timeout: 20_000 });
   await approvedRow.getByTestId(`history-${entry.id}`).click();
@@ -89,12 +94,15 @@ test("rejection requires a typed reason code", async ({ authedPage }) => {
   await expect(row).toBeVisible({ timeout: 30_000 });
 
   // Select the row, open the reject panel — sending WITHOUT a typed reason
-  // is refused inline (typed reason vocabulary, never prose alone).
+  // is refused inline (typed reason vocabulary, never prose alone). The refusal
+  // message is a sibling of `reject-panel` inside the dialog, not a child of it
+  // (apps/web/app/approvals/page.tsx:1242-1248), so it is scoped to the dialog.
   await row.locator('input[type="checkbox"]').check();
   await authedPage.getByTestId("bulk-bar").getByRole("button", { name: "Reject…" }).click();
   await expect(authedPage.getByTestId("reject-panel")).toBeVisible();
+  const rejectDialog = authedPage.getByRole("dialog", { name: "Reject this entry" });
   await authedPage.getByTestId("reject-send").click();
-  await expect(authedPage.getByTestId("reject-panel").getByRole("alert")).toBeVisible();
+  await expect(rejectDialog.getByRole("alert")).toBeVisible();
 
   // Pick a reason, reject, and the row leaves the queue.
   await authedPage.getByTestId("reject-reason").selectOption({ index: 1 });

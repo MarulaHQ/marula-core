@@ -107,9 +107,17 @@ test("workbench devices queue: defer/restore, reject, accept + undo (split)", as
     .getByRole("button", { name: "Keep separate", exact: true })
     .click();
   await expect(row.getByText("rejected").first()).toBeVisible({ timeout: 15_000 });
-  const candidates = await get<any[]>("/config-items/merge-candidates");
-  const rejected = candidates.find((c: any) => c.id === candidateId);
-  expect(rejected?.status).toBe("rejected");
+  // The visible word is the optimistic one. Assert the durable status, so a
+  // rejection that did not persist fails here instead of passing on the patch
+  // that reverts when the wire says no.
+  await expect
+    .poll(
+      async () =>
+        (await get<any[]>("/config-items/merge-candidates")).find((c: any) => c.id === candidateId)
+          ?.status,
+      { timeout: 20_000, intervals: [250, 500, 1_000, 2_000] },
+    )
+    .toBe("rejected");
 });
 
 test("workbench devices queue: accept folds and the split undoes it", async ({
