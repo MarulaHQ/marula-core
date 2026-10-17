@@ -42,6 +42,7 @@ pub async fn run_queue<S: DeliverySink, E: EffectApi>(
     webhook_secret_key: Option<crate::config::AtRestKey>,
     batch: i64,
     stale_after_secs: i64,
+    idle_ms: u64,
     counters: std::sync::Arc<QueueCounters>,
     mut shutdown: watch::Receiver<bool>,
 ) {
@@ -60,9 +61,11 @@ pub async fn run_queue<S: DeliverySink, E: EffectApi>(
                 match result {
                     Ok(claimed) => {
                         if claimed == 0 {
-                            // Idle: modest sleep; every timing decision in
-                            // SQL already used DB now().
-                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            // Idle: modest sleep by default; every timing
+                            // decision in SQL already used DB now(). A small
+                            // install can stretch this via QUEUE_IDLE_MS.
+                            tokio::time::sleep(std::time::Duration::from_millis(idle_ms.max(1)))
+                                .await;
                         }
                     }
                     Err(error) => {

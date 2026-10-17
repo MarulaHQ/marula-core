@@ -24,6 +24,19 @@ services:
       # not exist in this topology.
       REALTIME_INTERNAL_URL: http://127.0.0.1:8081
       WORKER_INTERNAL_URL: http://127.0.0.1:8082
+      # Small-install cadence profile (Wave 49 lane R6). This box has few
+      # orgs and little job volume, so the fast worker idles mostly wake up
+      # to find nothing. The cadence map and what each value trades are in
+      # docs/worker-cadence.md. The real-time relay stays fast — it is not
+      # in this set.
+      EMAIL_POLL_SECS: "60"
+      QUEUE_IDLE_MS: "60000"
+      EVAL_INTERVAL_SECS: "300"
+      TIME_AUDIT_POLL_SECS: "300"
+      DELIVERY_POLL_SECS: "300"
+      USAGE_REFRESH_SECS: "900"
+      DIGEST_POLL_SECS: "3600"
+      RETENTION_SWEEP_SECS: "86400"
     # The hub binds 8081 and the worker health endpoint 8082 inside this
     # container, so publish all three. A sequence in an override replaces
     # the base list, hence the repeat of 8080.

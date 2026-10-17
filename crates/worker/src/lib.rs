@@ -222,6 +222,7 @@ pub async fn run(
         let shutdown = shutdown.clone();
         let batch = config.queue_batch;
         let stale = config.queue_stale_after_secs;
+        let idle_ms = config.queue_idle_ms;
         let secret_key = config.webhook_secret_key;
         tokio::spawn(async move {
             queue_runner::run_queue(
@@ -231,6 +232,7 @@ pub async fn run(
                 secret_key,
                 batch,
                 stale,
+                idle_ms,
                 counters,
                 shutdown,
             )
