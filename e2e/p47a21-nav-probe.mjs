@@ -137,12 +137,18 @@ window.__a21 = { history: [], historyAll: [], rsc: [], keys: [], clicks: [], err
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 await ctx.addInitScript(INSTRUMENT);
-await ctx.request.post(`${API}/api/v1/auth/login`, {
+const login = await ctx.request.post(`${API}/api/v1/auth/login`, {
   data: { email: "owner@demo.local", password: "demo-password-123" },
 });
-await ctx.request.put(`${API}/api/v1/settings/user`, {
+// A settings WRITE needs the bearer token. Without it this PUT answered 401 and
+// nothing checked, so the tour-disable never applied and a tour overlay sat on
+// the page for every run — the predecessor's probe shipped with exactly that.
+const token = (await login.json()).access_token;
+const toursOff = await ctx.request.put(`${API}/api/v1/settings/user`, {
+  headers: { authorization: `Bearer ${token}` },
   data: { key: "tours.disabled", value: true },
 });
+if (!toursOff.ok()) throw new Error(`could not disable tours (${toursOff.status()})`);
 const page = await ctx.newPage();
 
 const consoleLines = [];

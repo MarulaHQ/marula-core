@@ -82,6 +82,20 @@ const disabled = await ctx.request.put(`${API}/api/v1/settings/user`, {
 });
 if (!disabled.ok()) throw new Error(`could not disable tours (${disabled.status()})`);
 
+// This meter rewrites the demo owner's surface document, which every other spec
+// shares. Read it once so the run can put it back: an instrument that leaves the
+// demo org in a state no other lane expects is a flake generator.
+const settingsRows = await ctx.request.get(`${API}/api/v1/settings/user`, { headers: auth });
+const rows = await settingsRows.json();
+const SURFACE_KEY = "appearance.data_surfaces";
+const originalSurface = rows.find((row) => row.key === SURFACE_KEY)?.value ?? "";
+const restoreSurface = async () => {
+  await ctx.request.put(`${API}/api/v1/settings/user`, {
+    headers: auth,
+    data: { key: SURFACE_KEY, value: originalSurface },
+  });
+};
+
 const page = await ctx.newPage();
 const consoleErrors = [];
 page.on("console", (m) => {
@@ -225,4 +239,5 @@ const verdict = {
 };
 writeFileSync(join(OUT, REVERSE ? "loop-meter-reversed.json" : "loop-meter.json"), JSON.stringify(verdict, null, 2));
 console.log(`\npinned phases: ${verdict.pinnedPhases.join(", ") || "none"} | all navigate: ${verdict.allPhasesNavigate}`);
+await restoreSurface();
 await browser.close();
