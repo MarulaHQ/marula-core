@@ -9,6 +9,11 @@
 //!    (`seed::seed`) + HTTP load runner (`load::run`) at 100k tickets/org.
 //! 3. **Perf smoke** — fast, CI-runnable budget check
 //!    (`tests/perf_smoke.rs`, env-gated so the plain workspace sweep skips it).
+//! 4. **Multi-endpoint journey** (Wave 49 lane R5) — `journey::run` drives a
+//!    realistic agent session (board, ticket, thread, status, comment) paced
+//!    by a think-time, and reports per-endpoint latency plus the per-user
+//!    request rate and the Little's-law users-per-instance figure. This is
+//!    the workload a users-per-instance number has to be measured on.
 //!
 //! Reproducibility contract: every measured entity (tickets, clients,
 //! sites, contacts, users, custom fields) gets a deterministic id derived
@@ -19,6 +24,7 @@
 //! This crate is AGPL like the rest of the core (workspace license); it is
 //! a developer/test tool and is not part of the shipped API surface.
 
+pub mod journey;
 pub mod load;
 pub mod measure;
 pub mod seed;
