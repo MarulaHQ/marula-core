@@ -1,0 +1,33 @@
+# All-in-one demo / tiny-install override (Wave 49 lane R4).
+#
+# core-api runs the worker loops and the realtime hub INSIDE its own process,
+# so a small box boots three services instead of five. Layer it over the base
+# file and start ONLY the listed services — the split `worker` / `realtime`
+# services would fight core-api for ports 8081 and 8082:
+#
+#   docker compose \
+#     -f deploy/docker-compose.yml \
+#     -f deploy/docker-compose.all-in-one.yml \
+#     up -d postgres redis migrate core-api web
+#
+# See docs/all-in-one.md for the env contract and the trade-offs.
+services:
+  core-api:
+    environment:
+      MARULA_ALL_IN_ONE: "1"
+      # OWNER role on purpose: the worker loops read across orgs and must
+      # bypass row-level security. The API's own DATABASE_URL stays the
+      # RLS-scoped app role.
+      MARULA_WORKER_DATABASE_URL: postgres://marula:marula@postgres:5432/marula
+      # The Settings -> Self-host pane probes the embedded services on
+      # loopback; the compose service names (realtime:8081 / worker:8082) do
+      # not exist in this topology.
+      REALTIME_INTERNAL_URL: http://127.0.0.1:8081
+      WORKER_INTERNAL_URL: http://127.0.0.1:8082
+    # The hub binds 8081 and the worker health endpoint 8082 inside this
+    # container, so publish all three. A sequence in an override replaces
+    # the base list, hence the repeat of 8080.
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"

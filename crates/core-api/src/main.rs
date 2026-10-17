@@ -3,6 +3,9 @@
 //! in `_sqlx_migrations`); compose's `migrate` one-shot as the schema
 //! owner is the normal path — the RLS role cannot CREATE TABLE on fresh
 //! installs (TASKLIST backend-gaps lane).
+//!
+//! With `MARULA_ALL_IN_ONE=1` this same process also hosts the worker loops
+//! and the realtime hub (Wave 49 lane R4); see `core_api::all_in_one`.
 
 use anyhow::Context;
 
@@ -137,6 +140,35 @@ async fn main() -> anyhow::Result<()> {
     .await
     .context("binding listener")?;
     tracing::info!("core-api listening");
+
+    // All-in-one (Wave 49 lane R4): run the worker loops and the realtime
+    // hub in THIS process, and let one Ctrl-C stop all three together. The
+    // split topology (the default) skips this branch entirely.
+    if config.all_in_one {
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        core_api::all_in_one::spawn_worker(std::sync::Arc::clone(&config), shutdown_rx.clone());
+        core_api::all_in_one::spawn_realtime(std::sync::Arc::clone(&config), shutdown_rx.clone());
+        tracing::info!(
+            realtime = %config.realtime_bind_addr,
+            worker = %config.worker_bind_addr,
+            "all-in-one: worker loops and realtime hub hosted in-process"
+        );
+        // This process owns the signal: the embedded services install no
+        // handler of their own, so one Ctrl-C drives the shared flag, which
+        // drains the hub, the loops, and (below) the HTTP server.
+        tokio::spawn(async move {
+            let _ = tokio::signal::ctrl_c().await;
+            let _ = shutdown_tx.send(true);
+        });
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(core_api::all_in_one::wait_for_shutdown(shutdown_rx))
+        .await?;
+        return Ok(());
+    }
+
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),

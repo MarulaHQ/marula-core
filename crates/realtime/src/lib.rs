@@ -24,14 +24,30 @@ use tokio::sync::watch;
 
 /// Serves the hub until Ctrl-C: Redis reader task plus Axum HTTP/WS server
 /// exposing `GET /healthz` and `GET /ws`.
+///
+/// The standalone binary and `marula serve-realtime` use this. A host that
+/// already owns the process signal — the all-in-one mode in core-api (Wave
+/// 49 lane R4) — calls [`run_until`] with its own shutdown flag instead, so
+/// one Ctrl-C stops every embedded service without two handlers racing.
 pub async fn run(config: config::RealtimeConfig) -> anyhow::Result<()> {
-    let hub = hub::Hub::new();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    tokio::spawn(shutdown_signal(shutdown_tx));
+    run_until(config, shutdown_rx).await
+}
+
+/// The same hub, but it installs NO signal handler: it serves until
+/// `shutdown` flips true. The Redis reader and the WS server share that one
+/// flag, so the caller owns the whole lifecycle.
+pub async fn run_until(
+    config: config::RealtimeConfig,
+    shutdown: watch::Receiver<bool>,
+) -> anyhow::Result<()> {
+    let hub = hub::Hub::new();
 
     let reader = tokio::spawn(relay::run_stream_reader(
         config.redis_url.clone(),
         hub.clone(),
-        shutdown_rx.clone(),
+        shutdown.clone(),
     ));
 
     let state = ws::AppState::new(hub, config.jwt_secret, config.jwt_eddsa_public_key);
@@ -43,11 +59,20 @@ pub async fn run(config: config::RealtimeConfig) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;
     tracing::info!(addr = %config.bind_addr, "realtime hub listening");
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(shutdown_tx))
+        .with_graceful_shutdown(wait_for_shutdown(shutdown))
         .await?;
 
     reader.abort();
     Ok(())
+}
+
+/// Completes when `shutdown` is true: at once if it already is, otherwise at
+/// the next flip.
+async fn wait_for_shutdown(mut shutdown: watch::Receiver<bool>) {
+    if *shutdown.borrow() {
+        return;
+    }
+    let _ = shutdown.changed().await;
 }
 
 /// Liveness for orchestrators plus the GlitchTip DSN presence the self-host

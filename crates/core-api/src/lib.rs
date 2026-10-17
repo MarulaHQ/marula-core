@@ -1,6 +1,7 @@
 //! core-api — the ONLY database writer (§4.1). Axum HTTP API surface.
 
 pub mod ai;
+pub mod all_in_one;
 pub mod auth;
 pub mod client_ip;
 pub mod config;
