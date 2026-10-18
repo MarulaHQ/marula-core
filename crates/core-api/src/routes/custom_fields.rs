@@ -197,51 +197,98 @@ pub struct TicketWithFields {
     #[serde(flatten)]
     pub ticket: core_domain::entities::Ticket,
     pub custom_fields: Vec<TicketCustomFieldValue>,
+    /// The ticket's site zone, when the site names one (Wave 50 lane T2).
+    ///
+    /// The record-zone chain is site → org default → UTC, and the server ships
+    /// the site's raw value only: the org default is the registry setting
+    /// `general.default_timezone`, which every member may already read, so the
+    /// fallback is resolved once in the client instead of being frozen into
+    /// every row that leaves this endpoint.
+    #[schema(nullable = true)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site_timezone: Option<String>,
 }
 
 impl TicketWithFields {
-    pub fn new(ticket: core_domain::entities::Ticket, values: Vec<TicketCustomFieldValue>) -> Self {
+    pub fn new(
+        ticket: core_domain::entities::Ticket,
+        values: Vec<TicketCustomFieldValue>,
+        site_timezone: Option<String>,
+    ) -> Self {
         TicketWithFields {
             ticket,
             custom_fields: values,
+            site_timezone,
         }
     }
 
-    /// Enriches one ticket with values fetched in a single extra query.
-    pub async fn load<'e, E>(
-        executor: E,
+    /// Enriches one ticket with its values and its site zone.
+    ///
+    /// Takes the connection rather than a generic executor because it runs two
+    /// reads — the values and the site — inside the caller's transaction.
+    pub async fn load(
+        conn: &mut sqlx::PgConnection,
         org_id: Uuid,
         ticket: core_domain::entities::Ticket,
-    ) -> ApiResult<Self>
-    where
-        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
-    {
-        let rows = core_db::custom_fields::list_values(executor, org_id, ticket.id)
+    ) -> ApiResult<Self> {
+        let site_timezone = site_zone(&mut *conn, org_id, ticket.site_id).await?;
+        let rows = core_db::custom_fields::list_values(&mut *conn, org_id, ticket.id)
             .await
             .map_err(ApiError::from)?;
-        Ok(Self::new(ticket, project_values(rows)?))
+        Ok(Self::new(ticket, project_values(rows)?, site_timezone))
     }
 
-    /// Enriches a page of tickets with ONE batched values query.
-    pub async fn load_many<'e, E>(
-        executor: E,
+    /// Enriches a page of tickets with ONE batched values query and ONE batched
+    /// site query, however many sites the page touches.
+    pub async fn load_many(
+        conn: &mut sqlx::PgConnection,
         org_id: Uuid,
         tickets: Vec<core_domain::entities::Ticket>,
-    ) -> ApiResult<Vec<Self>>
-    where
-        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
-    {
+    ) -> ApiResult<Vec<Self>> {
         let ids: Vec<Uuid> = tickets.iter().map(|t| t.id).collect();
-        let grouped = core_db::custom_fields::list_values_many(executor, org_id, &ids)
+        let site_ids: Vec<Uuid> = tickets.iter().filter_map(|t| t.site_id).collect();
+        let grouped = core_db::custom_fields::list_values_many(&mut *conn, org_id, &ids)
             .await
             .map_err(ApiError::from)?;
+        let zones = site_zones(&mut *conn, org_id, &site_ids).await?;
         let mut out = Vec::with_capacity(tickets.len());
         for ticket in tickets {
             let rows = grouped.get(&ticket.id).cloned().unwrap_or_default();
-            out.push(Self::new(ticket, project_values(rows)?));
+            let zone = ticket
+                .site_id
+                .and_then(|id| zones.get(&id).cloned().flatten());
+            out.push(Self::new(ticket, project_values(rows)?, zone));
         }
         Ok(out)
     }
+}
+
+/// One site's zone, when the ticket has a site and the site names one.
+pub(crate) async fn site_zone(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    site_id: Option<Uuid>,
+) -> ApiResult<Option<String>> {
+    let Some(site_id) = site_id else {
+        return Ok(None);
+    };
+    let mut zones = site_zones(conn, org_id, &[site_id]).await?;
+    Ok(zones.remove(&site_id).flatten())
+}
+
+/// Site id → its zone, for the sites that name one.
+async fn site_zones(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    site_ids: &[Uuid],
+) -> ApiResult<std::collections::HashMap<Uuid, Option<String>>> {
+    if site_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let sites = core_db::clients::get_sites_by_ids(&mut *conn, org_id, site_ids)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(sites.into_iter().map(|s| (s.id, s.timezone)).collect())
 }
 
 fn project_values(

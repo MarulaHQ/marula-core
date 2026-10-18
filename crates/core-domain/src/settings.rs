@@ -259,6 +259,10 @@ impl SettingValue {
 pub const GENERAL_DEFAULT_TIMEZONE: &str = "general.default_timezone";
 pub const GENERAL_WEEK_START: &str = "general.week_start";
 pub const GENERAL_EOD_HOUR: &str = "general.eod_hour";
+/// Per-user switch for the second clock (Wave 50 lane T2). On: a surface that
+/// knows a record's zone draws it beside the reader's. Off: the reader's zone
+/// is the only reading.
+pub const GENERAL_SHOW_RECORD_TIME: &str = "general.show_record_time";
 pub const APPEARANCE_THEME: &str = "appearance.theme";
 /// Per-user override over the org theme (Wave 24). 'org_default' sentinel.
 pub const APPEARANCE_THEME_OVERRIDE: &str = "appearance.theme_override";
@@ -811,6 +815,19 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                 description: "Baseline IANA timezone for business-hours calendars and SLA \
                              clocks; individual users may override in their own preferences \
                              later.",
+            },
+            SettingDeclaration {
+                key: GENERAL_SHOW_RECORD_TIME,
+                kind: SettingKind::Boolean,
+                default: SettingValue::Boolean(true),
+                scope: SettingScope::User,
+                section: SettingSection::General,
+                visibility: SettingVisibility::Ui,
+                label: "Show each record's time zone",
+                description: "Draw a record's own clock beside yours when the two differ — \
+                              the site's zone on a ticket, the member's on a time entry. When \
+                              the zones agree nothing changes, so only readers working across \
+                              zones see a second reading.",
             },
             SettingDeclaration {
                 key: GENERAL_WEEK_START,
@@ -1761,6 +1778,31 @@ mod tests {
     }
 
     #[test]
+    fn the_record_clock_is_a_user_switch_and_defaults_on() {
+        // Wave 50 lane T2: the second clock is a choice, but the choice starts
+        // made — `DualTime` says nothing when the zones agree, so a reader in
+        // one zone sees no change and a reader across zones sees the record's
+        // clock on the day the project started asking for it.
+        let d = declaration(GENERAL_SHOW_RECORD_TIME)
+            .unwrap_or_else(|| panic!("{GENERAL_SHOW_RECORD_TIME} declared"));
+        assert_eq!(d.scope, SettingScope::User);
+        assert_eq!(d.kind, SettingKind::Boolean);
+        assert_eq!(d.default, SettingValue::Boolean(true));
+        assert_eq!(d.visibility, SettingVisibility::Ui);
+        d.validate(&SettingValue::Boolean(false))
+            .unwrap_or_else(|e| panic!("false must be storable: {e}"));
+        // It is not org-wide: one member turning it off must not decide for
+        // the rest of the team.
+        assert_eq!(
+            declarations()
+                .iter()
+                .filter(|x| x.key == GENERAL_SHOW_RECORD_TIME)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn the_run_retention_window_is_a_bounded_org_setting() {
         // Wave 43 lane 14: runs are the highest-volume table the workflow
         // engine produces, so their window is a setting — bounded, so an
@@ -1803,7 +1845,8 @@ mod tests {
         // Wave 34 lane 8 added the digest trio (opt-in, hour, marker) = 20.
         // Wave 41 lane 2b added the two appearance seams (density, and the
         // data-surface document) = 22.
-        assert_eq!(declarations_for(SettingScope::User).len(), 22);
+        // Wave 50 lane T2 added general.show_record_time (user scope) = 23.
+        assert_eq!(declarations_for(SettingScope::User).len(), 23);
         // Tripwire count: bump deliberately when an org-scope setting is
         // added (Wave 26 lane 1: flows_disabled + six org steps ×
         // done/dismissed = 13, so 15 → 28; Wave 26 lane 2 added

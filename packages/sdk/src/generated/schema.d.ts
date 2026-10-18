@@ -29209,6 +29209,16 @@ export interface components {
         /** @description A ticket payload enriched with its custom-field values (detail + list). */
         TicketWithFields: components["schemas"]["Ticket"] & {
             custom_fields: components["schemas"]["TicketCustomFieldValue"][];
+            /**
+             * @description The ticket's site zone, when the site names one (Wave 50 lane T2).
+             *
+             *     The record-zone chain is site → org default → UTC, and the server ships
+             *     the site's raw value only: the org default is the registry setting
+             *     `general.default_timezone`, which every member may already read, so the
+             *     fallback is resolved once in the client instead of being frozen into
+             *     every row that leaves this endpoint.
+             */
+            site_timezone?: string | null;
         };
         /**
          * @description Tickets by workflow category. The status NAME is per-board and repeats
@@ -29453,6 +29463,14 @@ export interface components {
             /** Format: uuid */
             submitted_by?: string | null;
             ticket?: null | components["schemas"]["TimeEntryTicketRef"];
+            /**
+             * @description The zone the person who did the work was in when they did it — the
+             *     record's clock for this entry (Wave 50 lane T2). The approver reads
+             *     their own clock in the row; this is the one the member logged against,
+             *     and it is what the daily totals are grouped by. Absent when the member
+             *     row is gone.
+             */
+            user_timezone?: string | null;
         };
         /** @description The ticket an entry bills through, named for a human reader. */
         TimeEntryTicketRef: {

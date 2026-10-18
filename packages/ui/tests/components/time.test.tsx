@@ -50,6 +50,23 @@ describe("DualTime", () => {
     expect(container.querySelector(".m-dual-time-alt")).toBeNull();
     expect(screen.getByText("12:30")).toBeInTheDocument();
   });
+
+  it("carries the date when the record's day is not the reader's", () => {
+    // 22:30 UTC is already Monday in Tokyo, so a bare "22:30" under a Monday
+    // heading would read as a mistake.
+    render(
+      <DualTime value="2026-10-18T22:30:00Z" zone="UTC" viewerZone="Asia/Tokyo" />,
+    );
+    const alt = screen.getByText(/UTC/, { selector: ".m-dual-time-alt" });
+    expect(alt.textContent).toMatch(/Oct/);
+    expect(alt.textContent).toMatch(/22:30/);
+  });
+
+  it("keeps the reading short when both zones share the day", () => {
+    render(<DualTime value={INSTANT} zone="UTC" viewerZone="Africa/Johannesburg" />);
+    const alt = screen.getByText(/UTC/, { selector: ".m-dual-time-alt" });
+    expect(alt.textContent).not.toMatch(/Oct/);
+  });
 });
 
 describe("zone helpers", () => {

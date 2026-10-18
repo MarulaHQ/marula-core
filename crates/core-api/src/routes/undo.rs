@@ -534,7 +534,7 @@ pub async fn revert(
         )
         .await?;
 
-        let enriched = TicketWithFields::load(&mut *ctx.tx, org_id, after).await?;
+        let enriched = TicketWithFields::load(&mut ctx.tx, org_id, after).await?;
         let detail = RevertDetail {
             reverted_seq: target_seq,
             fields,

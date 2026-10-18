@@ -385,7 +385,8 @@ export default function OnboardingPage() {
                   data-testid="onboarding-profile-tz"
                 />
                 <p className="entry-hint" style={{ margin: 0 }}>
-                  This is what your teammates see, and what the service hours are measured in.
+                  This is what your teammates see, and the clock your times are shown
+                  in. Service hours follow each service calendar&apos;s own time zone.
                 </p>
               </div>
               <div className="entry-actions">

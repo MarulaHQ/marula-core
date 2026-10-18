@@ -227,6 +227,13 @@ pub struct TimeEntryQueueItem {
     /// project-scoped entries, which have no ticket at all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ticket: Option<TimeEntryTicketRef>,
+    /// The zone the person who did the work was in when they did it — the
+    /// record's clock for this entry (Wave 50 lane T2). The approver reads
+    /// their own clock in the row; this is the one the member logged against,
+    /// and it is what the daily totals are grouped by. Absent when the member
+    /// row is gone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_timezone: Option<String>,
 }
 
 /// The ticket an entry bills through, named for a human reader.
