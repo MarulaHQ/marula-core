@@ -111,10 +111,17 @@ def resolve_pack_png(pack, state_id):
 
 
 def main():
+    global CAP
     ap = argparse.ArgumentParser()
     ap.add_argument("--pack", default=None)
     ap.add_argument("--limit", type=int, default=60)
+    # Overridable so a later lane can score its own captures without editing
+    # this tool (Wave 47 lane A13). The run record the diff reads is
+    # <capture-dir>/_run.json; the report is written beside it.
+    ap.add_argument("--capture-dir", default=None)
     a = ap.parse_args()
+    if a.capture_dir:
+        CAP = a.capture_dir if os.path.isabs(a.capture_dir) else os.path.join(REPO, a.capture_dir)
 
     run = json.load(open(os.path.join(CAP, "_run.json")))
     rows = []

@@ -31,7 +31,11 @@ import { join } from "node:path";
 
 const API = (process.env.E2E_API_URL ?? "http://localhost:28483").replace(/\/+$/, "");
 const WEB = (process.env.E2E_WEB_URL ?? "http://localhost:3001").replace(/\/+$/, "");
-const OUT = "design/qa-p41-leftovers-closeout/captures";
+// The output root is overridable so a later lane can run the same chain into
+// its own evidence dir without editing this harness (Wave 47 lane A13,
+// `p47-vision-captures`, re-ran it against the current HEAD). Default
+// unchanged for every existing caller.
+const OUT = process.env.P41_AUDIT_OUT ?? "design/qa-p41-leftovers-closeout/captures";
 const EMAIL = "owner@demo.local";
 const PASSWORD = "demo-password-123";
 
