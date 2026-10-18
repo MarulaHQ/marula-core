@@ -8,26 +8,14 @@
     "**/*.css"
   ],
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./tokens.css": "./dist/tokens.css",
-    "./components.css": "./dist/components.css",
-    "./theme-tokens": {
-      "types": "./dist/theme-tokens.d.ts",
-      "import": "./dist/theme-tokens.js"
-    },
-    "./theme-bootstrap": {
-      "types": "./dist/theme-bootstrap.d.ts",
-      "import": "./dist/theme-bootstrap.js"
-    },
-    "./kit": {
-      "types": "./dist/kit/index.d.ts",
-      "import": "./dist/kit/index.js"
-    },
-    "./theme.css": "./dist/theme.css",
-    "./kit-tokens.css": "./dist/tokens-kit.css"
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css",
+    "./components.css": "./src/components.css",
+    "./theme-tokens": "./src/theme-tokens.ts",
+    "./theme-bootstrap": "./src/theme-bootstrap.ts",
+    "./kit": "./src/kit/index.ts",
+    "./theme.css": "./src/theme.css",
+    "./kit-tokens.css": "./src/tokens-kit.css"
   },
   "files": [
     "dist"
