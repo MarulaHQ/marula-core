@@ -108,7 +108,12 @@ const CONTRACT = {
  * "Paid" from a contract's status. */
 const pastDue = new Date();
 pastDue.setDate(pastDue.getDate() - 9);
-const iso = (d: Date) => d.toISOString().slice(0, 10);
+/** A date-only string built from the date's own local calendar parts, which is
+ * what `setDate` above subtracted. Slicing `toISOString()` prints the UTC date
+ * instead, and that disagrees with `setDate` for the hours where the UTC date
+ * still lags the local one — the overdue age then reads a day high. */
+const iso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const INVOICES = [
   {
     id: INV_ISSUED,
