@@ -8,6 +8,7 @@
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
+import { browserTimeZone, formatInTimeZone } from "@marula-core/ui";
 import { AuthProvider } from "./api";
 import { useTimeFormat } from "./use-time-format";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../tests/helpers/mock-api";
@@ -53,10 +54,13 @@ describe("useTimeFormat", () => {
 
   it("falls back to the device zone when the stored value is not a zone", async () => {
     mount("Mars/Olympus_Mons");
-    // vitest.config.ts pins TZ=UTC, so the device zone is a known value here.
+    const device = browserTimeZone();
     await waitFor(() => expect(screen.getByTestId("source")).toHaveTextContent("browser"));
-    expect(screen.getByTestId("device")).toHaveTextContent("UTC");
-    expect(screen.getByTestId("zone")).toHaveTextContent("UTC");
-    expect(screen.getByTestId("formatted")).toHaveTextContent("12:30");
+    expect(screen.getByTestId("device")).toHaveTextContent(device);
+    expect(screen.getByTestId("zone")).toHaveTextContent(device);
+    // Formatted in the device zone, not in UTC — the reading moves with the runner.
+    expect(screen.getByTestId("formatted")).toHaveTextContent(
+      formatInTimeZone("2026-10-18T12:30:00Z", device),
+    );
   });
 });
