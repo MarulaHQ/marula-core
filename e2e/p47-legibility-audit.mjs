@@ -211,6 +211,7 @@ const PROBE = () => {
 const browser = await chromium.launch();
 const tokens = await token();
 const rows = [];
+const failures = [];
 
 for (const theme of THEMES) {
   const ctx = await browser.newContext({ viewport: PACK, colorScheme: theme });
@@ -230,7 +231,10 @@ for (const theme of THEMES) {
   for (const group of all) {
     for (const route of group.routes) {
       const page = await ctx.newPage();
-      await page.goto(`${WEB}${route}`, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+      let gotoError = "";
+      await page.goto(`${WEB}${route}`, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch((e) => {
+        gotoError = String(e).split("\n")[0].slice(0, 160);
+      });
       await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
       await page.waitForTimeout(900);
       let measured;
@@ -239,12 +243,21 @@ for (const theme of THEMES) {
       } catch (error) {
         measured = { error: String(error), counts: { contrast: 0, small: 0, targets: 0, clipped: 0 } };
       }
-      const row = { group: group.group, route, theme, ...measured };
+      // A surface that rendered no text at all was not measured. Reporting it as
+      // clean would be the exact failure this repo has closed twice before (a
+      // teardown that reported success it never achieved; a command whose target
+      // is missing that says nothing). Nothing measured is a failure.
+      if (gotoError) {
+        failures.push(`${route} (${theme}): the page did not load — ${gotoError}`);
+      } else if ((measured.textNodes ?? 0) === 0) {
+        failures.push(`${route} (${theme}): rendered no text at all — nothing was measured`);
+      }
+      const row = { group: group.group, route, theme, gotoError: gotoError || undefined, ...measured };
       rows.push(row);
       const c = row.counts ?? {};
-      const flag = (c.contrast ?? 0) + (c.small ?? 0) + (c.targets ?? 0) + (c.clipped ?? 0) > 0 ? " !" : "";
+      const flag = gotoError || (c.contrast ?? 0) + (c.small ?? 0) + (c.targets ?? 0) + (c.clipped ?? 0) > 0 ? " !" : "";
       console.log(
-        `  ${theme.padEnd(5)} ${route.padEnd(38)} contrast ${String(c.contrast ?? 0).padStart(3)}  tiny ${String(c.small ?? 0).padStart(3)}  targets ${String(c.targets ?? 0).padStart(3)}  clipped ${String(c.clipped ?? 0).padStart(3)}${flag}`,
+        `  ${theme.padEnd(5)} ${route.padEnd(38)} text ${String(row.textNodes ?? 0).padStart(5)}  contrast ${String(c.contrast ?? 0).padStart(3)}  tiny ${String(c.small ?? 0).padStart(3)}  targets ${String(c.targets ?? 0).padStart(3)}  clipped ${String(c.clipped ?? 0).padStart(3)}${flag}`,
       );
       await page.close();
     }
@@ -273,10 +286,14 @@ const worst = rows
   .sort((a, b) => b.total - a.total)
   .slice(0, 20);
 
-writeFileSync(resolve(OUT, "LEGIBILITY.json"), JSON.stringify({ generatedAt: new Date().toISOString(), pack: PACK, themes: THEMES, totals, worst, rows }, null, 2));
+writeFileSync(resolve(OUT, "LEGIBILITY.json"), JSON.stringify({ generatedAt: new Date().toISOString(), pack: PACK, themes: THEMES, totals, failures, worst, rows }, null, 2));
 mkdirSync(OUT, { recursive: true });
-writeFileSync(resolve(OUT, "SUMMARY.md"), ["# Legibility totals", "", "| measure | findings |", "|---|---|", `| contrast below AA | ${totals.contrast} |`, `| text under 11px | ${totals.small} |`, `| pointer targets under 32px | ${totals.targets} |`, `| clipped labels | ${totals.clipped} |`, "", "## Worst surfaces", "", "| surface | theme | findings |", "|---|---|---|", ...worst.map((w) => `| \`${w.route}\` | ${w.theme} | ${w.total} |`), ""].join("\n"));
+writeFileSync(resolve(OUT, "SUMMARY.md"), ["# Legibility totals", "", "| measure | findings |", "|---|---|", `| contrast below AA | ${totals.contrast} |`, `| text under 11px | ${totals.small} |`, `| pointer targets under 32px | ${totals.targets} |`, `| clipped labels | ${totals.clipped} |`, `| surfaces that did not render | ${failures.length} |`, "", "## Worst surfaces", "", "| surface | theme | findings |", "|---|---|---|", ...worst.map((w) => `| \`${w.route}\` | ${w.theme} | ${w.total} |`), "", failures.length > 0 ? "## Surfaces that did not render (nothing was measured)\n" : "", ...failures.map((f) => `- ${f}`), ""].join("\n"));
 
 console.log(`\n[legibility] contrast ${totals.contrast}, under-11px ${totals.small}, small targets ${totals.targets}, clipped ${totals.clipped}`);
+if (failures.length > 0) {
+  console.log(`[legibility] ${failures.length} surface/theme pairs rendered nothing (not scored as clean):`);
+  for (const f of failures.slice(0, 10)) console.log(`  ! ${f}`);
+}
 console.log(`[legibility] ${rows.length} surface/theme measurements -> ${OUT}/LEGIBILITY.json`);
-process.exitCode = totals.contrast + totals.targets > 0 ? 1 : 0;
+process.exitCode = totals.contrast + totals.targets + failures.length > 0 ? 1 : 0;
