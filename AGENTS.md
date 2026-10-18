@@ -25,6 +25,27 @@ checkout with no committed `.trail/` wiring yet — never commit, symlink, or
 force-add it; if a lane ever sees either in `git status`, fail the check and
 re-ignore rather than committing the graph.
 
+## Lane isolation: worktrees, branches, pushes (BINDING, corrected 2026-10-18)
+
+Three rules, from user directive:
+
+- **Work in a worktree on the local machine.** That is the default for lane
+  work; the user may direct otherwise. Create it at lane start
+  (`worktree_create` under OpenCode) and work there. The primary checkout stays
+  on `main` and is not a lane's workspace — it is what you read for orientation
+  and what you merge into.
+- **Do not create branches unless instructed.** A lane worktree carries its own
+  branch, and that branch is the lane's: it disappears with the worktree. Never
+  make a second branch, a scratch branch, or one on the primary checkout unless
+  the user asks for it by name.
+- **Do not push unless instructed**, and never to `main`. No `git push`, no
+  force-push, no PR. "Landed" means merged into **local** `main`. Moving the
+  remote is the coordinator's decision and the user's call.
+
+A fresh worktree has no `node_modules` and no build output. Install and build
+there at lane start; do not fall back to the primary checkout to dodge the
+install, which is how a lane ends up editing `main`'s working tree.
+
 ## UI skills (vendored design-engineering skills)
 
 `/skills` on ui-skills.com, vendored to `.kilo/skills/` (ui-skills-root, improve-ui,
