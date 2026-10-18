@@ -9,6 +9,13 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
 
+// Time-zone pinning (Wave 50 lane T1). A suite that formats in whatever zone
+// the machine happens to run in passes in one checkout and fails in another —
+// the `/9d/` assertion in the client-detail spec was right in three zones and
+// wrong in two until the fixture moved. Pin UTC so a date assertion means one
+// thing; `TZ=Europe/London pnpm test` still wins when a non-UTC leg is wanted.
+process.env.TZ ??= "UTC";
+
 export default defineConfig({
   esbuild: { jsx: "automatic" },
   resolve: {
@@ -18,6 +25,9 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // Workers inherit the parent's env; setting it here too keeps a worker that
+    // is spawned from a cached config honest about the zone it runs in.
+    env: { TZ: process.env.TZ ?? "UTC" },
     setupFiles: ["./tests/setup.ts"],
     include: [
       "lib/**/*.test.?(c|m)[jt]s?(x)",

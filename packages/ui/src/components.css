@@ -2461,3 +2461,46 @@
   font-variant-numeric: tabular-nums;
 
 }
+
+/* ---------- Time ---------- */
+
+.m-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/*
+   Dual reading: the viewer's zone first, the record's zone muted beside it.
+   Baseline alignment, not center — the second reading is smaller, and centring
+   it floats the minute digits off the first reading's baseline.
+*/
+.m-dual-time {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.m-dual-time-primary {
+  color: var(--m-text);
+}
+
+.m-dual-time-alt {
+  color: var(--m-text-muted);
+  font-size: 11px;
+}
+
+/* Screen-reader-only text: present in the DOM for AT, out of the layout for
+   sighted readers. Not a global utility yet — the kit's first user is DualTime. */
+.m-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
