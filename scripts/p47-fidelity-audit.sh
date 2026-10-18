@@ -69,9 +69,9 @@ echo "[audit] run $RUN_ID — api ${E2E_API_URL:-?} web ${E2E_WEB_URL:-?}"
 # gets nothing for free, and every capture below navigates a browser. Kill by
 # PID: Next renames the process, so `pkill -f standalone/server.js` misses it
 # (recorded by design/qa-p41-ui-clients/LANDING.md:135).
+WEB_PID=""
 # invoked through the step runner; a static check cannot see it
 # shellcheck disable=SC2329
-WEB_PID=""
 start_web() {
   if [ -z "${E2E_WEB_URL:-}" ] || [ -z "${E2E_WEB_PORT:-}" ]; then
     echo "[audit] $ENV_FILE carries no web URL/port" >&2
