@@ -33,7 +33,7 @@ ONLY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --boot) BOOT=1 ;;
-    --only) ONLY="${2:-}"; [ -n "$ONLY" ] || { echo "--only needs a leg number" >&2; exit 2; } ;;
+    --only) ONLY="${2:-}"; [ -n "$ONLY" ] || { echo "--only needs a leg number" >&2; exit 2; }; shift ;;
     help|-h|--help) sed -n '17,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown flag '$1'" >&2; exit 2 ;;
   esac
