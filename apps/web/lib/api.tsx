@@ -89,12 +89,19 @@ interface AuthState {
   me: Me | null;
   status: "loading" | "anonymous" | "authed";
   logout(): Promise<void>;
+  /**
+   * Applies the server's own echo of a profile change (display name, timezone)
+   * so every reader of `me` — `useTimeFormat()` included — sees the new value
+   * without a reload.
+   */
+  updateMe(patch: Partial<Me>): void;
 }
 
 const AuthContext = createContext<AuthState>({
   me: null,
   status: "loading",
   logout: async () => {},
+  updateMe: () => {},
 });
 
 // --- auth-ready gate (p29-accessibility-deep) --------------------------------
@@ -206,7 +213,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const value = useMemo(() => ({ me, status, logout }), [me, status, logout]);
+  const updateMe = useCallback((patch: Partial<Me>) => {
+    setMe((current) => (current === null ? current : { ...current, ...patch }));
+  }, []);
+
+  const value = useMemo(
+    () => ({ me, status, logout, updateMe }),
+    [me, status, logout, updateMe],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

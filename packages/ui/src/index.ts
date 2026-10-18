@@ -7,6 +7,7 @@
  */
 
 export { cn } from "./lib/cn";
+export * from "./lib/time";
 export * from "./tokens";
 export * from "./theme";
 export {
@@ -63,6 +64,7 @@ export {
 export * from "./components/button";
 export * from "./components/input";
 export * from "./components/field";
+export * from "./components/time";
 export * from "./components/checkbox";
 export * from "./components/badge";
 export * from "./components/assistant-card";

@@ -20,8 +20,17 @@ import {
   FieldHint,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Spinner,
   Textarea,
+  browserTimeZone,
+  offsetLabel,
+  timeZoneOffsetMinutes,
+  timeZoneOptions,
 } from "@marula-core/ui";
 import {
   Badge,
@@ -29,7 +38,7 @@ import {
 } from "@marula-core/ui";
 import type { Theme } from "@marula-core/ui";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, apiBaseUrl, authHeaders, useRequireAuth } from "../../../lib/api";
 import { useToursState } from "../../../lib/help/help-settings";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
@@ -377,6 +386,101 @@ function SignatureCard({ authed }: { authed: boolean }) {
   );
 }
 
+/**
+ * The account's zone. The endpoint already existed — `PATCH /api/v1/users/me`
+ * takes `timezone` and echoed it back through onboarding — but nothing after
+ * onboarding could reach it, so a user's zone was whatever the signup form
+ * carried, usually the literal `"UTC"`.
+ *
+ * The control is a picker, not a text box: a free-text zone that Intl rejects
+ * silently falls back to the device zone, which looks like the setting worked.
+ */
+function TimeZoneCard({
+  zone,
+  onSaved,
+}: {
+  zone: string;
+  onSaved: (timezone: string) => void;
+}) {
+  const [value, setValue] = useState(zone);
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [deviceZone, setDeviceZone] = useState<string | null>(null);
+
+  useEffect(() => setDeviceZone(browserTimeZone()), []);
+  useEffect(() => setValue(zone), [zone]);
+
+  const options = useMemo(() => timeZoneOptions(new Date(), zone), [zone]);
+  const offset = useMemo(() => offsetLabel(timeZoneOffsetMinutes(value)), [value]);
+
+  async function save(next: string): Promise<void> {
+    if (next === value) return;
+    const previous = value;
+    setValue(next);
+    setState("saving");
+    setError(null);
+    const res = await api.api.PATCH("/api/v1/users/me", { body: { timezone: next } });
+    if (res.error !== undefined) {
+      setValue(previous);
+      setError(friendlyMutationText(res.error));
+      setState("error");
+      return;
+    }
+    if (res.data === undefined) {
+      setValue(previous);
+      setError("The server accepted the change but returned no profile.");
+      setState("error");
+      return;
+    }
+    onSaved(res.data.timezone);
+    setState("saved");
+  }
+
+  return (
+    <Card className="p-5 grid gap-3" data-testid="pref-timezone-card">
+      <h2 className="text-sm font-semibold">Time zone</h2>
+      <div className="grid gap-2 max-w-md">
+        <Label htmlFor="pref-timezone">Your time zone</Label>
+        <Select value={value} onValueChange={(next) => void save(next)} disabled={state === "saving"}>
+          <SelectTrigger id="pref-timezone" aria-describedby="pref-timezone-hint">
+            <SelectValue>{value}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label} · {option.offset}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <FieldHint id="pref-timezone-hint">
+          Times across Marula read in this zone — calendars, due dates, SLA clocks.
+          {deviceZone === null
+            ? ""
+            : deviceZone === value
+              ? ` This device reports ${deviceZone}.`
+              : ` This device reports ${deviceZone}, which differs from your saved zone.`}
+        </FieldHint>
+        <div className="flex items-center gap-3">
+          <span className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+            Now: {offset}
+          </span>
+          {deviceZone !== null && deviceZone !== value ? (
+            <Button
+              variant="secondary"
+              onClick={() => void save(deviceZone)}
+              disabled={state === "saving"}
+            >
+              Use {deviceZone}
+            </Button>
+          ) : null}
+          <SaveNote state={state} error={error} testId="pref-timezone" />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 /** The autosave state under one field: saving, saved, or a refusal. */
 function SaveNote({
   state,
@@ -508,6 +612,13 @@ export default function UserPreferencesPage() {
           </span>
         )}
       </Card>
+
+      {auth.me !== null ? (
+        <TimeZoneCard
+          zone={auth.me.timezone}
+          onSaved={(timezone) => auth.updateMe({ timezone })}
+        />
+      ) : null}
 
       <SignatureCard authed={authed} />
 
