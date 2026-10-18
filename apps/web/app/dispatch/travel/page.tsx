@@ -19,7 +19,9 @@ import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { formatInTimeZone } from "@marula-core/ui";
 import { rejectionText } from "../../../lib/error-copy";
+import { useTimeFormat } from "../../../lib/use-time-format";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 
@@ -139,6 +141,7 @@ function toIso(local: string): string {
 
 export default function TravelDraftsPage() {
   const auth = useRequireAuth();
+  const { timeZone } = useTimeFormat();
   const [drafts, setDrafts] = useState<TravelDraftView[] | null>(null);
   const [rollup, setRollup] = useState<ReconciliationView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -626,12 +629,12 @@ export default function TravelDraftsPage() {
                   </div>
                   <div>{techName(d.user_id)}</div>
                   <div className="dp-hint2">
-                    {new Date(d.started_at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
+                    {formatInTimeZone(d.started_at, timeZone, "day")}
                   </div>
                   <div style={{ fontWeight: 500 }}>
                     Ticket {d.ticket_id.slice(0, 8)} · {d.vehicle === "" ? "no vehicle" : d.vehicle} ·{" "}
-                    {new Date(d.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} to{" "}
-                    {new Date(d.ended_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    {formatInTimeZone(d.started_at, timeZone, "time")} to{" "}
+                    {formatInTimeZone(d.ended_at, timeZone, "time")}
                   </div>
                   <div style={{ fontVariantNumeric: "tabular-nums" }}>{minutes(d)}m</div>
                   <div>

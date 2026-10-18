@@ -52,6 +52,9 @@ import {
   Tr,
   ViewSwitch,
   applyDensity,
+  dayKeyInTimeZone,
+  formatInTimeZone,
+  shiftDayKey,
   type FilterClause,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
@@ -61,6 +64,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
+import { useTimeFormat } from "../../lib/use-time-format";
 import { downloadRowsCsv } from "../../lib/csv-download";
 import { RecordWindow } from "../../components/record-window";
 import { friendlyMutationText, resultErrorText } from "../../lib/error-copy";
@@ -138,41 +142,40 @@ function useCategoryLabels(): (slug: string) => string {
   );
 }
 
-function fmtWhen(iso: string | null | undefined): string {
+/**
+ * The approver's own reading of an instant.
+ *
+ * The zones are the whole point of the lane: these helpers used to inherit the
+ * device's, so a machine set to SAST drew a different queue than the profile
+ * zone said. The reader's account zone comes in as an argument; the pane's
+ * member window (`RecordWindow`) is the other clock.
+ */
+function fmtWhen(iso: string | null | undefined, timeZone: string): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatInTimeZone(iso, timeZone, "dayTime");
 }
 
-/** "Today" / "Yesterday" / "Mon 28 Sep" — the pack's day label. A queue is
- *  read as "today's work", so spelling the date out wastes the column. */
-function dayLabel(iso: string | null | undefined): string {
+/**
+ * "Today" / "Yesterday" / "Thu 18 Oct" — the pack's day label. A queue is read
+ * as "today's work", so spelling the date out wastes the column.
+ *
+ * Today and yesterday are compared as day *keys* in the reader's zone, not as
+ * midnight arithmetic on the device's calendar: an entry filed at 01:00 in
+ * Tokyo is yesterday's work to a colleague in London, and each of them should
+ * see their own answer.
+ */
+function dayLabel(iso: string | null | undefined, timeZone: string): string {
   if (!iso) return "—";
-  const date = new Date(iso);
-  const today = new Date();
-  const startOf = (d: Date): number =>
-    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const days = Math.round((startOf(today) - startOf(date)) / 86_400_000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  return date.toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
+  const key = dayKeyInTimeZone(iso, timeZone);
+  const today = dayKeyInTimeZone(Date.now(), timeZone);
+  if (key === today) return "Today";
+  if (key === shiftDayKey(today, -1)) return "Yesterday";
+  return formatInTimeZone(iso, timeZone, "day");
 }
 
-function clockTime(iso: string | null | undefined): string {
+function clockTime(iso: string | null | undefined, timeZone: string): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatInTimeZone(iso, timeZone, "time");
 }
 
 /**
@@ -249,6 +252,7 @@ export default function ApprovalsPage() {
   const isApprover = (auth.me?.permissions ?? []).includes("special:approve_time");
   const prefs = useDataSurfacePrefs();
   const categoryLabel = useCategoryLabels();
+  const { timeZone } = useTimeFormat();
 
   const [tab, setTab] = useState<Tab>("queue");
   const [items, setItems] = useState<QueueItem[] | null>(null);
@@ -821,7 +825,7 @@ export default function ApprovalsPage() {
       const cell: Record<string, string> = {
         person: personName(e),
         ticket: e.ticket_id ?? "",
-        when: fmtWhen(e.started_at),
+        when: fmtWhen(e.started_at, timeZone),
         time: hms(e.minutes),
         billable: e.billable ? "Billable" : "Non-billable",
         note: e.notes ?? "",
@@ -829,7 +833,7 @@ export default function ApprovalsPage() {
       return visibleColumns.map((c) => cell[c.key] ?? "");
     });
     downloadRowsCsv("approvals.csv", header, body);
-  }, [visibleColumns, filtered, personName]);
+  }, [visibleColumns, filtered, personName, timeZone]);
 
   return (
     <div className="m-money-page mx-auto w-full max-w-[1400px] p-4 md:p-6">
@@ -1354,12 +1358,13 @@ function QueueRow({
   onReopen: () => void;
   onHistory: () => void;
 }) {
+  const { timeZone } = useTimeFormat();
   const e = item.entry;
   const ownEntry = e.user_id === meId;
   const inQueueTab = tab === "queue" && isApprover;
   const trail = (records ?? []).map(
     (r) =>
-      `${ACTION_LABEL[r.action] ?? r.action} · ${fmtWhen(r.created_at)}${
+      `${ACTION_LABEL[r.action] ?? r.action} · ${fmtWhen(r.created_at, timeZone)}${
         r.reason_code ? ` · ${rejectReasonLabel(r.reason_code)}` : ""
       }${r.note ? ` · “${r.note}”` : ""}`,
   );
@@ -1448,8 +1453,8 @@ function QueueRow({
               whiteSpace: "nowrap",
             }}
           >
-            <span>{dayLabel(e.started_at)}</span>
-            <span style={{ fontSize: 12 }}>{clockTime(e.started_at)}</span>
+            <span>{dayLabel(e.started_at, timeZone)}</span>
+            <span style={{ fontSize: 12 }}>{clockTime(e.started_at, timeZone)}</span>
           </span>
         );
       case "time":
@@ -1674,6 +1679,7 @@ function ContextPane({
   onApplyFix?: (fix: NonNullable<RowVerdict["fix"]>) => void;
   onHistory?: () => void;
 }) {
+  const { timeZone } = useTimeFormat();
   if (item === null) {
     return (
       <MoneyCard testId="approvals-pane">
@@ -1689,11 +1695,11 @@ function ContextPane({
   const ownEntry = e.user_id === meId;
   const loggedWith =
     e.started_at !== null && e.started_at !== undefined && e.ended_at !== null && e.ended_at !== undefined
-      ? `The timer, ${clockTime(e.started_at)} to ${clockTime(e.ended_at)}`
+      ? `The timer, ${clockTime(e.started_at, timeZone)} to ${clockTime(e.ended_at, timeZone)}`
       : "Quick log";
   const trail = (records ?? []).map(
     (r) =>
-      `${ACTION_LABEL[r.action] ?? r.action} · ${fmtWhen(r.created_at)}${
+      `${ACTION_LABEL[r.action] ?? r.action} · ${fmtWhen(r.created_at, timeZone)}${
         r.reason_code ? ` · ${rejectReasonLabel(r.reason_code)}` : ""
       }${r.note ? ` · “${r.note}”` : ""}`,
   );
@@ -1705,7 +1711,7 @@ function ContextPane({
         <div style={{ flex: 1, minWidth: 0 }}>
           <b style={{ display: "block" }}>{personName}</b>
           <span style={{ color: "var(--m-text-secondary)", fontSize: 13 }}>
-            {fmtWhen(e.started_at)} to {clockTime(e.ended_at)}{" "}
+            {fmtWhen(e.started_at, timeZone)} to {clockTime(e.ended_at, timeZone)}{" "}
             <RecordWindow
               start={e.started_at}
               end={e.ended_at}
@@ -1746,7 +1752,7 @@ function ContextPane({
         ) : null}
         <MoneyKv label="Logged with">{loggedWith}</MoneyKv>
         {item.submitted_at !== null ? (
-          <MoneyKv label="Submitted">{fmtWhen(item.submitted_at)}</MoneyKv>
+          <MoneyKv label="Submitted">{fmtWhen(item.submitted_at, timeZone)}</MoneyKv>
         ) : null}
         {item.locked ? (
           <MoneyKv label="Locked">

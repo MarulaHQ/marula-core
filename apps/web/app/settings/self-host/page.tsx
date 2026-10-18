@@ -22,8 +22,11 @@ import {
   Button,
   Card,
   Spinner,
+  formatInTimeZone,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import { useCallback, useEffect, useState } from "react";
+import { useTimeFormat } from "../../../lib/use-time-format";
 import {
   apiBaseUrl,
   authHeaders,
@@ -137,10 +140,11 @@ function StateDot({ state }: { state: ServiceState }) {
   );
 }
 
-function when(iso: string | null): string {
+/** The reader's zone comes in because a bare `toLocaleString()` answered with
+ *  whatever the machine was set to. */
+function when(iso: string | null, timeZone: string): string {
   if (iso === null) return "never";
-  const parsed = new Date(iso);
-  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString();
+  return formatInTimeZone(iso, timeZone, "datetime");
 }
 
 function formatBytes(bytes: number): string {
@@ -225,6 +229,7 @@ function LinkCard({
 
 export default function SelfHostSettingsPage() {
   const auth = useRequireAuth();
+  const { timeZone } = useTimeFormat();
   const isOwnerOrAdmin =
     (auth.me?.permissions ?? []).includes("special:manage_users") ?? false;
   const [view, setView] = useState<SelfHostView | null>(null);
@@ -327,7 +332,7 @@ export default function SelfHostSettingsPage() {
               </div>
               <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
                 {upCount}/{services.length} up
-                {loadedAt !== null ? ` · checked ${loadedAt.toLocaleTimeString()}` : ""}
+                {loadedAt !== null ? <> · checked <LocalTime value={loadedAt} kind="time" /></> : ""}
               </span>
             </div>
             {services.map((service) => (
@@ -373,8 +378,8 @@ export default function SelfHostSettingsPage() {
                 value={view.scan.clamd_addr ?? "—"}
                 mono={view.scan.clamd_addr !== null}
               />
-              <FactRow label="Last inbound scan" value={when(view.scan.last_scan_at)} />
-              <FactRow label="Last quarantine" value={when(view.scan.last_detection_at)} />
+              <FactRow label="Last inbound scan" value={when(view.scan.last_scan_at, timeZone)} />
+              <FactRow label="Last quarantine" value={when(view.scan.last_detection_at, timeZone)} />
               <FactRow label="Quarantined messages" value={String(view.scan.detection_count)} />
             </div>
             {view.scan.provider === "none" ? (
@@ -407,7 +412,7 @@ export default function SelfHostSettingsPage() {
                       <div className="flex items-center gap-2">
                         <Badge tone="danger">quarantined</Badge>
                         <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                          {when(detection.occurred_at)}
+                          {when(detection.occurred_at, timeZone)}
                         </span>
                       </div>
                     </div>

@@ -30,6 +30,7 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
@@ -236,7 +237,7 @@ export default function AgentPlatformPage() {
                         <Badge>{g.capability}</Badge>
                       </Td>
                       <Td>{g.mode}</Td>
-                      <Td>{new Date(g.updated_at).toLocaleString()}</Td>
+                      <Td><LocalTime value={g.updated_at} kind="datetime" /></Td>
                       <Td className="text-right">
                         <Button variant="ghost" size="sm" onClick={() => void revokeCapability(g.capability)}>
                           Revoke
@@ -277,7 +278,7 @@ export default function AgentPlatformPage() {
                             ? capabilities.join(", ")
                             : "—"}
                         </Td>
-                        <Td>{new Date(s.created_at).toLocaleString()}</Td>
+                        <Td><LocalTime value={s.created_at} kind="datetime" /></Td>
                       </Tr>
                     );
                   })}

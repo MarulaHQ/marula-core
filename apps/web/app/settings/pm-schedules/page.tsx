@@ -34,6 +34,7 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -447,14 +448,14 @@ export default function PmSchedulesSettingsPage() {
                       {s.time_of_day.slice(0, 5)} {s.timezone}
                     </div>
                   </Td>
-                  <Td className="text-[12px] tabular-nums">{new Date(s.next_run_at).toLocaleString()}</Td>
+                  <Td className="text-[12px] tabular-nums"><LocalTime value={s.next_run_at} kind="datetime" /></Td>
                   <Td className="text-[12px]">
                     {s.last_error ? (
                       <span title={s.last_error} style={{ color: "var(--m-status-danger-fg)" }}>
-                        Failed {s.last_run_at ? new Date(s.last_run_at).toLocaleString() : ""}
+                        Failed {s.last_run_at ? <LocalTime value={s.last_run_at} kind="datetime" /> : ""}
                       </span>
                     ) : s.last_run_at ? (
-                      new Date(s.last_run_at).toLocaleString()
+                      <LocalTime value={s.last_run_at} kind="datetime" />
                     ) : (
                       <span style={{ color: "var(--m-text-muted)" }}>never</span>
                     )}
@@ -618,7 +619,7 @@ export default function PmSchedulesSettingsPage() {
                 <tbody>
                   {runs.map((r) => (
                     <Tr key={r.id}>
-                      <Td className="text-[12px] tabular-nums">{new Date(r.slot_at).toLocaleString()}</Td>
+                      <Td className="text-[12px] tabular-nums"><LocalTime value={r.slot_at} kind="datetime" /></Td>
                       <Td>
                         <Badge tone={r.status === "generated" ? "success" : "neutral"}>{r.status}</Badge>
                       </Td>

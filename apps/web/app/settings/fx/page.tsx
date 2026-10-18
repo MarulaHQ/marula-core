@@ -27,6 +27,7 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -224,7 +225,7 @@ export default function FxPage(): ReactNode {
                 <Td>
                   <Badge tone={r.source === "manual" ? "neutral" : "success"}>{r.source}</Badge>
                 </Td>
-                <Td>{new Date(r.captured_at).toLocaleString()}</Td>
+                <Td><LocalTime value={r.captured_at} kind="datetime" /></Td>
               </Tr>
             ))}
             {bookByPair.length === 0 && (
@@ -276,7 +277,7 @@ export default function FxPage(): ReactNode {
                     <tbody>
                       {rows.slice(0, 20).map((r) => (
                         <Tr key={r.fact_id}>
-                          <Td>{r.fact_at !== null && r.fact_at !== undefined ? new Date(r.fact_at).toLocaleString() : "—"}</Td>
+                          <Td>{r.fact_at !== null && r.fact_at !== undefined ? <LocalTime value={r.fact_at} kind="datetime" /> : "—"}</Td>
                           <Td>
                             {r.original_amount_minor !== null && r.original_currency !== null
                               ? money(r.original_amount_minor ?? 0, r.original_currency ?? "USD")

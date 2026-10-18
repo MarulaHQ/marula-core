@@ -24,6 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner } from "@marula-core/ui";
+import { LocalTime } from "../../../../components/local-time";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import { api } from "../../../../lib/api";
@@ -521,12 +522,7 @@ function RunTable({ runs }: { runs: DecisionRunView[] }): React.JSX.Element {
               fontVariantNumeric: "tabular-nums",
             }}
           >
-            {new Date(run.created_at).toLocaleString(undefined, {
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+            <LocalTime value={run.created_at} kind="dayTime" />
           </span>
           <span
             style={{

@@ -30,6 +30,7 @@ import {
   SelectValue,
   Spinner,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
@@ -415,7 +416,7 @@ export function InstallDetail({
                   <span className="font-mono" style={{ color: "var(--m-text-muted)" }}>
                     {entry.artifact_digest.slice(0, 12)}…
                   </span>
-                  <span style={{ color: "var(--m-text-muted)" }}>{new Date(entry.recorded_at).toLocaleString()}</span>
+                  <span style={{ color: "var(--m-text-muted)" }}><LocalTime value={entry.recorded_at} kind="datetime" /></span>
                 </li>
               ))}
             </ol>

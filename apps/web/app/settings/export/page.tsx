@@ -25,6 +25,7 @@ import {
   FieldHint,
   Spinner,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useState } from "react";
 import { api, apiBaseUrl, useRequireAuth } from "../../../lib/api";
@@ -180,9 +181,7 @@ export default function ExportSettingsPage() {
             <div className="flex justify-between gap-2">
               <dt>Link expires</dt>
               <dd className="" style={{ color: "var(--m-text)" }}>
-                {Number.isNaN(new Date(exported.expires_at).getTime())
-                  ? "—"
-                  : new Date(exported.expires_at).toLocaleTimeString()}
+                <LocalTime value={exported.expires_at} kind="time" />
               </dd>
             </div>
           </dl>
@@ -274,9 +273,7 @@ export default function ExportSettingsPage() {
                   style={{ borderColor: "var(--m-border)", opacity: row.archived ? 0.7 : 1 }}
                 >
                   <span className="tabular-nums" style={{ color: "var(--m-text)" }}>
-                    {Number.isNaN(new Date(row.created_at).getTime())
-                      ? "—"
-                      : new Date(row.created_at).toLocaleDateString()}
+                    <LocalTime value={row.created_at} kind="date" />
                   </span>
                   <span
                     className="text-[11px] px-2 py-0.5 rounded-full"
