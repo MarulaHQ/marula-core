@@ -631,13 +631,25 @@ async function probeSurface(page, surface, lists) {
     rec.states.loading = { ok: false, why: "no JSON list response was observed on the route; nothing to delay" };
     rec.states.error = { ok: false, why: "no JSON list response was observed on the route; nothing to fail" };
   } else {
+    // Match by pathname, so a reload with different query params still hits the
+    // interceptor. A string route() would be an exact match and would silently
+    // never fire.
+    const sameEndpoint = (u) => {
+      try {
+        const a = new URL(typeof u === "string" ? u : u.toString());
+        const b = new URL(src.url);
+        return a.origin === b.origin && a.pathname === b.pathname;
+      } catch {
+        return false;
+      }
+    };
     try {
-      await page.route(src.url, async (route) => {
+      await page.route(sameEndpoint, async (route) => {
         await new Promise((r) => setTimeout(r, 4000));
         await route.continue();
       });
       const nav = page.goto(`${WEB}${surface.path}`, { waitUntil: "commit", timeout: 30_000 });
-      await page.waitForTimeout(900);
+      await page.waitForTimeout(1100);
       await page.evaluate(installMeasure);
       rec.states.loading = await page.evaluate((sel) => {
         const rows = [...document.querySelectorAll(sel)].filter((r) => r.querySelector("td"));
@@ -651,14 +663,16 @@ async function probeSurface(page, surface, lists) {
         };
       }, rowSel);
       await nav.catch(() => {});
-      await page.unroute(src.url);
+      await page.unroute(sameEndpoint);
     } catch (e) {
       rec.states.loading = { ok: false, why: String(e.message ?? e) };
-      await page.unroute(src.url).catch(() => {});
+      await page.unroute(sameEndpoint).catch(() => {});
     }
 
     try {
-      await page.route(src.url, (route) => route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"p47 probe"}' }));
+      await page.route(sameEndpoint, (route) =>
+        route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"p47 probe"}' }),
+      );
       await open();
       rec.states.error = await page.evaluate((sel) => {
         const rows = [...document.querySelectorAll(sel)].filter((r) => r.querySelector("td"));
@@ -670,10 +684,10 @@ async function probeSurface(page, surface, lists) {
           bodyHead: (document.body.innerText ?? "").trim().slice(0, 200),
         };
       }, rowSel);
-      await page.unroute(src.url);
+      await page.unroute(sameEndpoint);
     } catch (e) {
       rec.states.error = { ok: false, why: String(e.message ?? e) };
-      await page.unroute(src.url).catch(() => {});
+      await page.unroute(sameEndpoint).catch(() => {});
     }
   }
 
