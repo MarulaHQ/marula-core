@@ -33,7 +33,10 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 ENV_FILE="e2e/.e2e-stack.env"
-SPEC_FILTER="demo-smoke"
+# The spec as a path, not a bare word: Playwright's positional filter ignores
+# a bare "demo-smoke" (it selects nothing and the run falls back to the whole
+# suite — 172 tests, and every suite's own flake along with it). A path filters.
+SPEC_PATH="e2e/flows/demo-smoke.spec.ts"
 PROBE="scripts/demo-ai-probe.mjs"
 
 BOOT=1
@@ -43,6 +46,9 @@ AI_KEY="${DEMO_SMOKE_AI_KEY:-${PROBE_API_KEY:-}}"
 RC=0
 
 log()  { echo "[demo-smoke] $*"; }
+# warn is reached only from teardown, and teardown only through the EXIT trap,
+# so neither call site is visible to a static check.
+# shellcheck disable=SC2329
 warn() { echo "[demo-smoke] warning: $*" >&2; }
 die()  { echo "[demo-smoke] FAIL: $*" >&2; exit 1; }
 
@@ -70,6 +76,8 @@ done
 
 RUN_ID=""
 
+# reached only through the EXIT trap below
+# shellcheck disable=SC2329
 teardown() {
   local rc=$?
   if [ "$BOOT" = "1" ] && [ "$KEEP" = "0" ] && [ -n "$RUN_ID" ]; then
@@ -105,8 +113,8 @@ log "run $RUN_ID — api ${E2E_API_URL:-?} web ${E2E_WEB_URL:-?}"
 log "building the web bundle for the suite"
 bash scripts/e2e-build-web.sh
 
-log "running the demo path (${SPEC_FILTER}, ${PROJECT:-all themes})"
-playwright_args=(--config=e2e/playwright.config.ts "$SPEC_FILTER")
+log "running the demo path (${SPEC_PATH}, ${PROJECT:-all themes})"
+playwright_args=(--config=e2e/playwright.config.ts "$SPEC_PATH")
 if [ -n "$PROJECT" ]; then
   playwright_args+=(--project "$PROJECT")
 fi

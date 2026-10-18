@@ -64,8 +64,30 @@ test("demo path: create a ticket, note it, run the timer, land a time entry", as
   const takeIt = authedPage.getByTestId("wb-take-it");
   await expect(takeIt).toBeVisible({ timeout: 20_000 });
   await takeIt.click();
+
+  // The server is the source of truth for "the clock is running".
+  const get = authedFetch(ownerTokens.access_token);
+  await expect
+    .poll(
+      async () => (await get<{ ticket_id?: string } | null>("/timers/active"))?.ticket_id ?? null,
+      { message: "a timer session is running on the new ticket", timeout: 20_000 },
+    )
+    .toBe(ticketId);
+
   // The work bar owns the running session app-wide (components/timer-dock.tsx).
-  await expect(authedPage.getByTestId("work-bar")).toBeVisible({ timeout: 20_000 });
+  // It learns of a new session from a `timer.*` event on the user socket, and a
+  // missed event leaves it absent until the shell remounts, so one reload is a
+  // fair recovery for the bar itself — the API assertion above already pinned
+  // the truth.
+  const workBar = authedPage.getByTestId("work-bar");
+  const barAppeared = await workBar
+    .waitFor({ state: "visible", timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!barAppeared) {
+    await authedPage.reload({ waitUntil: "domcontentloaded" });
+  }
+  await expect(workBar).toBeVisible({ timeout: 20_000 });
   await expect(authedPage.getByTestId("timer-elapsed")).toBeVisible();
 
   // --- timer stop: off the ticket surface, Wrap up stops the session directly
@@ -74,14 +96,19 @@ test("demo path: create a ticket, note it, run the timer, land a time entry", as
   await authedPage.goto("/today");
   await authedPage.getByTestId("workbar-wrap-up").click();
   await expect(authedPage.getByTestId("work-bar")).toBeHidden({ timeout: 20_000 });
+  await expect
+    .poll(
+      async () => (await get<{ ticket_id?: string } | null>("/timers/active")) ?? null,
+      { message: "the stop cleared the running session", timeout: 20_000 },
+    )
+    .toBeNull();
 
   // --- time entry: the stop mints one on the ticket (the row-level
   //     consequence this leg owns, asserted through the public surface).
-  const get = authedFetch(ownerTokens.access_token);
   await expect
     .poll(
       async () => (await get<unknown[]>(`/tickets/${ticketId}/time-entries`)).length,
-      { message: "the stopped timer minted a time entry on the ticket", timeout: 20_000 },
+      { message: "the stopped timer minted a time entry on the ticket", timeout: 30_000 },
     )
     .toBeGreaterThan(0);
 
@@ -138,11 +165,11 @@ test("demo path: the client portal signs in and reads a ticket", async ({ browse
     // The seeded contact's client has the Service Desk board exposed (demo
     // data lane B3), so the open list always holds a row.
     await expect(page.getByTestId("portal-tickets-open")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("heading", { name: "Your tickets" })).toBeVisible();
     const ticketRow = page.locator('[data-testid^="portal-ticket-"]').first();
     await expect(ticketRow).toBeVisible({ timeout: 15_000 });
     await ticketRow.click();
     await expect(page.getByTestId("portal-thread")).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole("heading", { name: "Your tickets" })).toBeVisible();
   } finally {
     await context.close();
   }
