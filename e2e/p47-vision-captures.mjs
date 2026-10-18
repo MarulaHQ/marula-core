@@ -262,7 +262,12 @@ async function seedTokens(ctx, tokens, theme) {
 
 /** A portal context signed in through the real card (lane A1's path). */
 async function portalContext(browser, { email, theme, width, height }) {
-  const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: theme });
+  // `colorScheme` takes dark|light only; the portal's sand mode is the app's own
+  // localStorage key, set below.
+  const ctx = await browser.newContext({
+    viewport: { width, height },
+    colorScheme: theme === "dark" ? "dark" : "light",
+  });
   await ctx.addInitScript((t) => {
     window.localStorage.setItem("marula-portal-theme", t);
     window.localStorage.setItem("marula-theme", t === "dark" ? "dark" : "light");
