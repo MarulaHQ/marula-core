@@ -113,6 +113,19 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "documents", label: "Documents" },
 ];
 
+/** A date-only `due_on` names a calendar day, not an instant. `new Date()`
+ * reads it as UTC midnight, which in zones east of +12 is the previous local
+ * day, so the same invoice reads one day less overdue there than it does
+ * everywhere else. A full timestamp still parses as the instant it is. */
+function dayStart(value: string): number | null {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const parsed =
+    parts === null
+      ? new Date(value)
+      : new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+}
+
 /** The four steps of the half-finished client, in the order the work
  * happens. `done` is derived from real records, not stored, so a client that
  * gained a contract by another route reads as finished on that step. */
@@ -375,8 +388,8 @@ export default function ClientDetailPage() {
     today.setHours(0, 0, 0, 0);
     const oldestOverdueDays = outstanding.reduce((oldest, i) => {
       if (i.status !== "issued") return oldest;
-      const due = new Date(i.due_on).getTime();
-      if (Number.isNaN(due)) return oldest;
+      const due = dayStart(i.due_on);
+      if (due === null) return oldest;
       const days = Math.round((today.getTime() - due) / 86_400_000);
       return days > 0 && days > oldest ? days : oldest;
     }, 0);
