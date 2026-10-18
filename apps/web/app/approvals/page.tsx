@@ -143,19 +143,6 @@ function useCategoryLabels(): (slug: string) => string {
 }
 
 /**
- * The approver's own reading of an instant.
- *
- * The zones are the whole point of the lane: these helpers used to inherit the
- * device's, so a machine set to SAST drew a different queue than the profile
- * zone said. The reader's account zone comes in as an argument; the pane's
- * member window (`RecordWindow`) is the other clock.
- */
-function fmtWhen(iso: string | null | undefined, timeZone: string): string {
-  if (!iso) return "—";
-  return formatInTimeZone(iso, timeZone, "dayTime");
-}
-
-/**
  * "Today" / "Yesterday" / "Thu 18 Oct" — the pack's day label. A queue is read
  * as "today's work", so spelling the date out wastes the column.
  *
@@ -171,11 +158,6 @@ function dayLabel(iso: string | null | undefined, timeZone: string): string {
   if (key === today) return "Today";
   if (key === shiftDayKey(today, -1)) return "Yesterday";
   return formatInTimeZone(iso, timeZone, "day");
-}
-
-function clockTime(iso: string | null | undefined, timeZone: string): string {
-  if (!iso) return "—";
-  return formatInTimeZone(iso, timeZone, "time");
 }
 
 /**
@@ -825,7 +807,7 @@ export default function ApprovalsPage() {
       const cell: Record<string, string> = {
         person: personName(e),
         ticket: e.ticket_id ?? "",
-        when: fmtWhen(e.started_at, timeZone),
+        when: formatInTimeZone(e.started_at, timeZone, "dayTime"),
         time: hms(e.minutes),
         billable: e.billable ? "Billable" : "Non-billable",
         note: e.notes ?? "",
@@ -1364,7 +1346,7 @@ function QueueRow({
   const inQueueTab = tab === "queue" && isApprover;
   const trail = (records ?? []).map(
     (r) =>
-      `${ACTION_LABEL[r.action] ?? r.action} · ${fmtWhen(r.created_at, timeZone)}${
+      `${ACTION_LABEL[r.action] ?? r.action} · ${formatInTimeZone(r.created_at, timeZone, "dayTime")}${
         r.reason_code ? ` · ${rejectReasonLabel(r.reason_code)}` : ""
       }${r.note ? ` · “${r.note}”` : ""}`,
   );
@@ -1454,7 +1436,7 @@ function QueueRow({
             }}
           >
             <span>{dayLabel(e.started_at, timeZone)}</span>
-            <span style={{ fontSize: 12 }}>{clockTime(e.started_at, timeZone)}</span>
+            <span style={{ fontSize: 12 }}>{formatInTimeZone(e.started_at, timeZone, "time")}</span>
           </span>
         );
       case "time":
@@ -1695,11 +1677,11 @@ function ContextPane({
   const ownEntry = e.user_id === meId;
   const loggedWith =
     e.started_at !== null && e.started_at !== undefined && e.ended_at !== null && e.ended_at !== undefined
-      ? `The timer, ${clockTime(e.started_at, timeZone)} to ${clockTime(e.ended_at, timeZone)}`
+      ? `The timer, ${formatInTimeZone(e.started_at, timeZone, "time")} to ${formatInTimeZone(e.ended_at, timeZone, "time")}`
       : "Quick log";
   const trail = (records ?? []).map(
     (r) =>
-      `${ACTION_LABEL[r.action] ?? r.action} · ${fmtWhen(r.created_at, timeZone)}${
+      `${ACTION_LABEL[r.action] ?? r.action} · ${formatInTimeZone(r.created_at, timeZone, "dayTime")}${
         r.reason_code ? ` · ${rejectReasonLabel(r.reason_code)}` : ""
       }${r.note ? ` · “${r.note}”` : ""}`,
   );
@@ -1711,7 +1693,7 @@ function ContextPane({
         <div style={{ flex: 1, minWidth: 0 }}>
           <b style={{ display: "block" }}>{personName}</b>
           <span style={{ color: "var(--m-text-secondary)", fontSize: 13 }}>
-            {fmtWhen(e.started_at, timeZone)} to {clockTime(e.ended_at, timeZone)}{" "}
+            {formatInTimeZone(e.started_at, timeZone, "time")} to {formatInTimeZone(e.ended_at, timeZone, "time")}{" "}
             <RecordWindow
               start={e.started_at}
               end={e.ended_at}
@@ -1752,7 +1734,7 @@ function ContextPane({
         ) : null}
         <MoneyKv label="Logged with">{loggedWith}</MoneyKv>
         {item.submitted_at !== null ? (
-          <MoneyKv label="Submitted">{fmtWhen(item.submitted_at, timeZone)}</MoneyKv>
+          <MoneyKv label="Submitted">{formatInTimeZone(item.submitted_at, timeZone, "dayTime")}</MoneyKv>
         ) : null}
         {item.locked ? (
           <MoneyKv label="Locked">

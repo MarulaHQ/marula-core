@@ -109,10 +109,6 @@ function firstOfMonth(offsetMonths = 0): string {
   return d.toISOString().slice(0, 10);
 }
 
-function when(iso: string, timeZone: string): string {
-  return formatInTimeZone(iso, timeZone, "dayTime");
-}
-
 /** The badge is the row's billing fate, so it reads first and reads
  * loudest when it needs attention: unclassified and draft entries are
  * what block a clean close, so they carry the warning tone. */
@@ -474,7 +470,7 @@ function EntryRow({
       <td className="py-2 pr-3 align-top">
         <div className="flex flex-col gap-0.5">
           <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text)" }}>
-            {when(entry.started_at, timeZone)} · {entry.user_name}
+            {formatInTimeZone(entry.started_at, timeZone, "dayTime")} · {entry.user_name}
           </span>
           <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
             {entry.work_type ?? "No category — prices at the contract default"}
@@ -921,7 +917,7 @@ function BillingVerificationWorkspace() {
                 {workspace.signoff && (
                   <div className="mt-1 text-xs" style={{ color: "var(--m-status-success-fg)" }} data-testid="verify-signoff-state">
                     <div>
-                      Signed off {when(workspace.signoff.signed_at, timeZone)}
+                      Signed off {formatInTimeZone(workspace.signoff.signed_at, timeZone, "dayTime")}
                       {workspace.signoff.run_id ? " · claimed by a run" : " · not yet run"}
                     </div>
                     {workspace.signoff.reviewer_note ? (

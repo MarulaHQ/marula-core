@@ -58,12 +58,6 @@ import {
   TicketProgress,
 } from "../../../../components/portal/portal-ui";
 
-/** The client's own reading of an instant. No account zone on the portal, so
- *  the device's is the one the reader has. */
-function when(iso: string, timeZone: string): string {
-  return formatInTimeZone(iso, timeZone, "datetime");
-}
-
 export default function PortalTicketPage() {
   useRequirePortalAuth();
   const { timeZone } = useTimeFormat();
@@ -231,7 +225,7 @@ export default function PortalTicketPage() {
             <div className="portal-msg__body">
               <div className="portal-msg__who">
                 <b>You</b>
-                <span>{when(t.created_at, timeZone)}</span>
+                <span>{formatInTimeZone(t.created_at, timeZone, "datetime")}</span>
               </div>
               <p className="portal-msg__text" style={{ margin: 0 }}>
                 {t.body}
@@ -251,7 +245,7 @@ export default function PortalTicketPage() {
                 <div className="portal-msg__body">
                   <div className="portal-msg__who">
                     {speaker !== null && <b>{speaker}</b>}
-                    <span>{when(c.created_at, timeZone)}</span>
+                    <span>{formatInTimeZone(c.created_at, timeZone, "datetime")}</span>
                   </div>
                   <p className="portal-msg__text" style={{ margin: 0 }}>
                     {c.body}

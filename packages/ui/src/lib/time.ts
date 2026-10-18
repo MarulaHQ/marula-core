@@ -194,13 +194,21 @@ export function toDate(value: string | number | Date): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Formats one instant in one zone. `—` for an unparseable value or zone. */
+/**
+ * Formats one instant in one zone. `—` for a missing value, an unparseable
+ * value or a zone Intl does not know.
+ *
+ * The missing check is not defensive padding: `new Date(null)` is the epoch, so
+ * without it a null column would draw "01 Jan 1970" at every call site, and
+ * every caller that knew its field could be null had to say so itself.
+ */
 export function formatInTimeZone(
-  value: string | number | Date,
+  value: string | number | Date | null | undefined,
   timeZone: string,
   kind: TimeKind = "time",
   locale?: string,
 ): string {
+  if (value === null || value === undefined || value === "") return "—";
   const date = toDate(value);
   if (date === null) return "—";
   try {

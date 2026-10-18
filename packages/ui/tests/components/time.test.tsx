@@ -12,6 +12,7 @@ import {
   browserTimeZone,
   dayKeyInTimeZone,
   formatDayKey,
+  formatInTimeZone,
   formatWallClock,
   isTimeZone,
   offsetLabel,
@@ -176,5 +177,16 @@ describe("formatWallClock", () => {
     expect(formatWallClock(local, "time")).toBe("09:05");
     expect(formatWallClock(local, "day")).toBe("Sun 18 Oct");
     expect(formatWallClock(local, "longDate")).toBe("Sunday 18 October");
+  });
+});
+
+describe("a missing value", () => {
+  it("draws a dash in every formatter, never the epoch", () => {
+    // `new Date(null)` is 1970, so each of these has to turn null away first.
+    for (const missing of [null, undefined, ""] as const) {
+      expect(formatInTimeZone(missing, "UTC", "datetime")).toBe("—");
+      expect(formatWallClock(missing)).toBe("—");
+      expect(formatDayKey(missing)).toBe("—");
+    }
   });
 });

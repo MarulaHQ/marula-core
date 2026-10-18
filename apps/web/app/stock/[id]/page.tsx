@@ -101,10 +101,6 @@ function parseThresholdValue(text: string): number | null | "invalid" {
   return parsed === null ? "invalid" : parsed;
 }
 
-function shortWhen(iso: string, timeZone: string): string {
-  return formatInTimeZone(iso, timeZone, "dayTime");
-}
-
 export default function StockItemDetailPage(): ReactNode {
   const { timeZone } = useTimeFormat();
   const auth = useRequireAuth();
@@ -776,7 +772,7 @@ export default function StockItemDetailPage(): ReactNode {
           <tbody>
             {movements.map((movement) => (
               <Tr key={movement.id} className="row-hover" data-testid={`stock-ledger-row-${movement.id}`}>
-                <Td className="whitespace-nowrap text-xs">{shortWhen(movement.created_at, timeZone)}</Td>
+                <Td className="whitespace-nowrap text-xs">{formatInTimeZone(movement.created_at, timeZone, "dayTime")}</Td>
                 <Td className="text-xs">{movementLabel(movement.kind)}</Td>
  <Td className="text-right text-sm tabular-nums">
                   {formatSignedQty(movement.qty_milli, itemValue.unit)}

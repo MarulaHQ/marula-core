@@ -82,19 +82,6 @@ function kindIcon(kind: WbKind): ReactNode {
   return <Icon name="file" size={12} />;
 }
 
-/**
- * The column's clock and the day heading above it. Both take the reader's zone:
- * the heading groups the rows under the day *they* filed them on, so a reader
- * in Tokyo does not see a 09:00 row under yesterday's date.
- */
-function timeLabel(at: string, timeZone: string): string {
-  return formatInTimeZone(at, timeZone, "time");
-}
-
-function dayLabel(at: string, timeZone: string): string {
-  return formatInTimeZone(at, timeZone, "longDate");
-}
-
 const EVENT_ACTION_LABEL: Record<string, string> = {
   "ticket.status_change": "Status changed",
   "ticket.board_move": "Moved to another board",
@@ -328,7 +315,9 @@ export function WbTimeline({ ticketId, comments, attachments, namesByUser, reloa
       ) : (
         <ol className="m-wb-timeline relative">
           {filtered.map((row, i) => {
-            const day = dayLabel(row.at, timeZone);
+            // The heading groups the rows under the day *they* filed them on, so a
+            // reader in Tokyo does not see a 09:00 row under yesterday's date.
+            const day = formatInTimeZone(row.at, timeZone, "longDate");
             const showDay = day !== null && day !== lastDay;
             lastDay = day;
             return (
@@ -344,7 +333,7 @@ export function WbTimeline({ ticketId, comments, attachments, namesByUser, reloa
                   data-testid={`wb-row-${row.kind}`}
                 >
                   <div className="pt-1 text-right text-[10px]" style={{ color: "var(--m-text-muted)", fontVariantNumeric: "tabular-nums" }}>
-                    {timeLabel(row.at, timeZone)}
+                    {formatInTimeZone(row.at, timeZone, "time")}
                   </div>
                   <div
                     className={`m-wb-event-icon z-10 grid place-items-center rounded-full border`}
