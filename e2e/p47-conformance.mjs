@@ -87,37 +87,47 @@ async function token() {
  * ---------------------------------------------------------------------- */
 const SIGNATURE = () => {
   const vis = (el) => {
-    const s = getComputedStyle(el);
-    if (s.display === "none" || s.visibility === "hidden" || parseFloat(s.opacity) < 0.05) return false;
+    const st = getComputedStyle(el);
+    if (st.display === "none" || st.visibility === "hidden" || parseFloat(st.opacity) < 0.05) return false;
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };
   const txt = (el) => (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 48);
   const round = (n) => Math.round(n);
 
-  const table = document.querySelector("table");
-  const tableBox = table ? table.getBoundingClientRect() : null;
+  // The declared region map, both sides. The pack declares its regions as ids
+  // inside main.page (#tb toolbar, #tbl table, #ft footer); our kit declares
+  // its own (the labelled DataToolbar, the .m-table, the .m-surface-footer).
+  // Everything else about the two DOMs is free to differ, which is the point.
+  const region = (packSel, appSel) =>
+    document.querySelector(packSel) || document.querySelector(appSel) || null;
+  const tb = region("#tb", '[aria-label="Ticket list controls"]');
+  const tbl = region("#tbl", "table.m-table") || document.querySelector("table");
+  const ft = region("#ft", ".m-surface-footer");
 
-  // The band: everything between the top of the content and the table's top.
-  // Reading order is left-to-right inside each row, top-to-bottom across rows.
+  const tableBox = tbl ? tbl.getBoundingClientRect() : null;
+
+  // Toolbar: every control inside the declared toolbar region, in reading order.
   const controls = [];
-  if (tableBox) {
-    for (const el of document.querySelectorAll("button, a[href], [role=button], [role=radio], [role=combobox], select, input[type=text], input[type=search]")) {
-      if (!vis(el)) continue;
-      const r = el.getBoundingClientRect();
-      if (r.bottom > tableBox.top + 1) continue;
-      if (r.width < 8 || r.height < 8) continue;
-      const label = txt(el) || el.getAttribute("aria-label") || el.getAttribute("placeholder") || "";
-      if (label === "") continue;
-      controls.push({ label, x: round(r.left), y: round(r.top), w: round(r.width), h: round(r.height) });
-    }
+  const scope = tb ?? document.body;
+  for (const el of scope.querySelectorAll("button, a[href], [role=button], [role=radio], [role=combobox], select, input")) {
+    if (!vis(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8) continue;
+    const label = txt(el) || el.getAttribute("aria-label") || el.getAttribute("placeholder") || "";
+    if (label === "") continue;
+    controls.push({ label, x: round(r.left), y: round(r.top), w: round(r.width), h: round(r.height) });
   }
   controls.sort((a, b) => (Math.abs(a.y - b.y) > 12 ? a.y - b.y : a.x - b.x));
 
-  // Columns: header cells in order.
+  // Columns: the header row's cells, in x order. Our kit uses thead/th; the
+  // pack draws its header with divs under .hd.
   const columns = [];
-  if (table) {
-    for (const th of table.querySelectorAll("thead th")) {
+  if (tbl) {
+    const ths = tbl.querySelectorAll("thead th").length
+      ? [...tbl.querySelectorAll("thead th")]
+      : [...tbl.querySelectorAll(".hd > *, .hd")].flatMap((el) => (el.children.length ? [...el.children] : [el]));
+    for (const th of ths) {
       if (!vis(th)) continue;
       const r = th.getBoundingClientRect();
       columns.push({ label: txt(th), x: round(r.left), w: round(r.width) });
@@ -125,11 +135,16 @@ const SIGNATURE = () => {
     columns.sort((a, b) => a.x - b.x);
   }
 
-  // The first body row's cells: count and shape.
+  // The first body row's cells.
   const row = [];
-  const firstRow = table?.querySelector("tbody tr");
+  const firstRow = tbl
+    ? tbl.querySelector("tbody tr") ?? tbl.querySelector(".tr:not(.hd)")
+    : null;
   if (firstRow) {
-    for (const td of firstRow.querySelectorAll("td")) {
+    const cells = firstRow.querySelectorAll("td").length
+      ? [...firstRow.querySelectorAll("td")]
+      : [...firstRow.children];
+    for (const td of cells) {
       if (!vis(td)) continue;
       const r = td.getBoundingClientRect();
       row.push({ text: txt(td), x: round(r.left), w: round(r.width) });
@@ -137,25 +152,12 @@ const SIGNATURE = () => {
     row.sort((a, b) => a.x - b.x);
   }
 
-  // Footer text: the band below the table.
-  const footer = [];
-  if (tableBox) {
-    for (const el of document.querySelectorAll("table ~ *, main > *")) {
-      if (!vis(el)) continue;
-      const r = el.getBoundingClientRect();
-      if (r.top < tableBox.bottom - 4) continue;
-      if (r.top > tableBox.bottom + 120) continue;
-      const t = txt(el);
-      if (t !== "") footer.push(t);
-    }
-  }
-
   const title = (() => {
     const h = document.querySelector("h1");
     if (!h || !vis(h)) return null;
-    const s = getComputedStyle(h);
+    const st = getComputedStyle(h);
     const r = h.getBoundingClientRect();
-    return { text: txt(h), size: parseFloat(s.fontSize), weight: s.fontWeight, x: round(r.left), y: round(r.top) };
+    return { text: txt(h), size: parseFloat(st.fontSize), weight: st.fontWeight, x: round(r.left), y: round(r.top) };
   })();
 
   return {
@@ -163,10 +165,10 @@ const SIGNATURE = () => {
     toolbar: controls.map((c) => c.label),
     toolbarBoxes: controls,
     columns: columns.map((c) => c.label),
-    columnBoxes: columns,
     firstRow: row.map((c) => c.text),
     rowCells: row.length,
-    footer,
+    footer: ft && vis(ft) ? [txt(ft)] : [],
+    regionsFound: { toolbar: tb !== null, table: tbl !== null, footer: ft !== null },
     canvas: { width: window.innerWidth, height: window.innerHeight },
     tableBox: tableBox ? { x: round(tableBox.left), y: round(tableBox.top), w: round(tableBox.width), h: round(tableBox.height) } : null,
   };
