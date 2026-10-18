@@ -29,6 +29,7 @@ import {
   type FilterClause,
   type FilterField,
 } from "@marula-core/ui";
+import { formatInTimeZone } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
@@ -42,6 +43,7 @@ import {
   type InsightColumn,
 } from "../../lib/insight-table";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
+import { useTimeFormat } from "../../lib/use-time-format";
 import { SurfaceTabs } from "../../components/insight/surface-tabs";
 import { InsightState } from "../../components/insight/insight-state";
 import "../../components/insight/insight-table.css";
@@ -83,6 +85,7 @@ type AuditRow = {
 };
 
 export default function AuditPage() {
+  const { timeZone } = useTimeFormat();
   const auth = useRequireAuth();
   const prefs = useDataSurfacePrefs();
 
@@ -112,12 +115,7 @@ export default function AuditPage() {
       (events ?? []).map((ev) => ({
         id: ev.id,
         occurred: ev.occurred_at,
-        occurredLabel: new Date(ev.occurred_at).toLocaleString("en-GB", {
-          day: "numeric",
-          month: "short",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+        occurredLabel: formatInTimeZone(ev.occurred_at, timeZone, "dayTime"),
         action: ev.action,
         actorKind: kindOfActor(ev.actor),
         actorText: actorLabel(ev.actor),
@@ -128,7 +126,7 @@ export default function AuditPage() {
         ip: ev.ip ?? null,
         detail: ev.detail,
       })),
-    [events],
+    [events, timeZone],
   );
 
   const columns: readonly InsightColumn<AuditRow>[] = useMemo(

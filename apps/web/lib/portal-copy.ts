@@ -25,7 +25,14 @@
 // those, and this module keeps the words to the five).
 "use client";
 
-// (no imports: the vocabulary is deliberately independent of the API layer)
+// The only import: the kit's zone-aware formatters. The vocabulary itself stays
+// independent of the API layer.
+import {
+  dayKeyInTimeZone,
+  formatDayKey,
+  formatInTimeZone,
+  shiftDayKey,
+} from "@marula-core/ui";
 
 /** The client's five words. */
 export type ClientStatus = "received" | "working" | "waiting" | "scheduled" | "resolved";
@@ -92,31 +99,35 @@ export function money(minor: number, currency: string): string {
   }).format(minor / 100);
 }
 
-/** "17 Sep 2026" — the date a client reads, not an ISO string. */
-export function longDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+/** True for a `Format: date` value — a calendar day with no time of day. */
+function isDayKey(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+/**
+ * "17 Sep 2026" — the date a client reads, not an ISO string.
+ *
+ * Takes both kinds of value this portal receives, and they are not the same
+ * kind: `issued_at` and `received_at` are instants, while `due_on` and
+ * `valid_until` are `Format: date` days with no time in them. Reading a day as
+ * an instant puts it at midnight UTC and shows the day before to everyone west
+ * of Greenwich — an invoice due on the 18th billed as the 17th. A bare day is
+ * therefore read in its own frame, where the zone argument does not apply.
+ */
+export function longDate(value: string, timeZone: string): string {
+  return isDayKey(value)
+    ? formatDayKey(value, "date")
+    : formatInTimeZone(value, timeZone, "date");
 }
 
 /** "Thu 1 Oct" — the short form a card or a schedule row uses. */
-export function shortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
+export function shortDate(iso: string, timeZone: string): string {
+  return formatInTimeZone(iso, timeZone, "day");
 }
 
 /** "09:00" in 24-hour clock, which is what a service desk publishes slots in. */
-export function clockTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+export function clockTime(iso: string, timeZone: string): string {
+  return formatInTimeZone(iso, timeZone, "time");
 }
 
 /** "Today, 09:14" · "Yesterday, 16:20" · "Thu 1 Oct, 09:00".
@@ -124,25 +135,20 @@ export function clockTime(iso: string): string {
  *  The stamp every list row carries. Relative for today and yesterday, because
  *  that is how a person reads "when did this happen", and a date beyond that.
  *  24-hour clock, matching the schedule slots the portal publishes.
- *  (portal/sand/states/02-tickets.png) */
-export function stamp(iso: string, now: Date = new Date()): string {
-  const when = new Date(iso);
-  const time = when.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const day = new Date(when.getFullYear(), when.getMonth(), when.getDate()).getTime();
-  const days = Math.round((day - midnight) / 86_400_000);
-  if (days === 0) return `Today, ${time}`;
-  if (days === -1) return `Yesterday, ${time}`;
-  if (days === 1) return `Tomorrow, ${time}`;
-  return `${when.toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  })}, ${time}`;
+ *  (portal/sand/states/02-tickets.png)
+ *
+ *  Today and yesterday are compared as day keys in the reader's zone: a client
+ *  in Sydney reading at 09:00 is looking at yesterday's London work and should
+ *  see the word that is true for them.
+ */
+export function stamp(iso: string, timeZone: string, now: number = Date.now()): string {
+  const time = formatInTimeZone(iso, timeZone, "time");
+  const key = dayKeyInTimeZone(iso, timeZone);
+  const today = dayKeyInTimeZone(now, timeZone);
+  if (key === today) return `Today, ${time}`;
+  if (key === shiftDayKey(today, -1)) return `Yesterday, ${time}`;
+  if (key === shiftDayKey(today, 1)) return `Tomorrow, ${time}`;
+  return `${formatInTimeZone(iso, timeZone, "day")}, ${time}`;
 }
 
 /** "today at 11:38" · "yesterday at 16:20" · "Mon 28 Sep at 09:14".
@@ -151,23 +157,13 @@ export function stamp(iso: string, now: Date = new Date()): string {
  *  joined with "at", because it is read inside a line that already starts
  *  "Raised". `stamp` keeps the capitalised comma form for list rows, where it
  *  stands on its own. (portal/sand/states/04-ticket-nothing-yet.png) */
-export function raisedAt(iso: string, now: Date = new Date()): string {
-  const when = new Date(iso);
-  const time = when.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const day = new Date(when.getFullYear(), when.getMonth(), when.getDate()).getTime();
-  const days = Math.round((day - midnight) / 86_400_000);
-  if (days === 0) return `today at ${time}`;
-  if (days === -1) return `yesterday at ${time}`;
-  return `${when.toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  })} at ${time}`;
+export function raisedAt(iso: string, timeZone: string, now: number = Date.now()): string {
+  const time = formatInTimeZone(iso, timeZone, "time");
+  const key = dayKeyInTimeZone(iso, timeZone);
+  const today = dayKeyInTimeZone(now, timeZone);
+  if (key === today) return `today at ${time}`;
+  if (key === shiftDayKey(today, -1)) return `yesterday at ${time}`;
+  return `${formatInTimeZone(iso, timeZone, "day")} at ${time}`;
 }
 
 /** Whole days between today and a date, negative once it has passed. */
@@ -185,8 +181,8 @@ export function overdueDays(iso: string, now: Date = new Date()): number | null 
 }
 
 /** "09:00 to 10:30" for a visit row. */
-export function timeRange(startIso: string, endIso: string): string {
-  return `${clockTime(startIso)} to ${clockTime(endIso)}`;
+export function timeRange(startIso: string, endIso: string, timeZone: string): string {
+  return `${clockTime(startIso, timeZone)} to ${clockTime(endIso, timeZone)}`;
 }
 
 /** Initials for an avatar, from a display name. */

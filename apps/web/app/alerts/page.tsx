@@ -46,6 +46,7 @@ import {
   applyDensity,
   useDensity,
 } from "@marula-core/ui";
+import { formatInTimeZone } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -63,6 +64,7 @@ import {
   downloadCsv,
 } from "../../components/knowledge/ledger";
 import { api, useRequireAuth } from "../../lib/api";
+import { useTimeFormat } from "../../lib/use-time-format";
 import { rejectionText, envelopeOf, friendlyMutationText } from "../../lib/error-copy";
 
 type AlertSourceView = components["schemas"]["AlertSourceView"];
@@ -120,6 +122,7 @@ function matchesFilter(alert: AlertView, filter: SeverityFilter): boolean {
 }
 
 export default function AlertsPage() {
+  const { timeZone } = useTimeFormat();
   const auth = useRequireAuth();
 
   const [tab, setTab] = useState<"alerts" | "sources">("alerts");
@@ -603,7 +606,7 @@ export default function AlertsPage() {
                               ) : null}
                               {a.acked_by != null && a.acked_at != null ? (
                                 <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                                  acked {relativeTime(a.acked_at)}
+                                  acked {relativeTime(a.acked_at, timeZone)}
                                 </span>
                               ) : null}
                             </div>
@@ -625,7 +628,7 @@ export default function AlertsPage() {
                           ) : null}
                           {c.key === "received" ? (
                             <span className="whitespace-nowrap text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                              {relativeTime(a.received_at)}
+                              {relativeTime(a.received_at, timeZone)}
                             </span>
                           ) : null}
                         </Td>
@@ -819,7 +822,7 @@ export default function AlertsPage() {
   );
 }
 
-function relativeTime(iso: string): string {
+function relativeTime(iso: string, timeZone: string): string {
   const at = new Date(iso).getTime();
   const deltaMs = Date.now() - at;
   if (Number.isNaN(at)) return iso;
@@ -828,7 +831,7 @@ function relativeTime(iso: string): string {
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
-  return new Date(iso).toLocaleDateString();
+  return formatInTimeZone(iso, timeZone, "date");
 }
 
 function omitKey(

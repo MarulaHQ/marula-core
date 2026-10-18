@@ -30,7 +30,9 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Spinner } from "@marula-core/ui";
+import { formatInTimeZone } from "@marula-core/ui";
 import { api, useRequireAuth } from "../../lib/api";
+import { useTimeFormat } from "../../lib/use-time-format";
 import { friendlyMutationText } from "../../lib/error-copy";
 import {
   USER_STEP_LABELS,
@@ -81,6 +83,7 @@ function railState(view: OnboardingStepView | undefined, skipped: boolean): Step
 }
 
 export default function OnboardingPage() {
+  const { timeZone } = useTimeFormat();
   const auth = useRequireAuth();
   const router = useRouter();
   const [summary, setSummary] = useState<OnboardingSummary | null>(null);
@@ -236,13 +239,9 @@ export default function OnboardingPage() {
         // The MFA grace period is the one skip with an end date, so the card
         // can say when it asks again.
         if (target === "mfa") {
-          setMfaAskAgain(
-            new Date(Date.now() + MFA_GRACE_DAYS * 86_400_000).toLocaleDateString(undefined, {
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-            }),
-          );
+          // The instant is stored, not the sentence: the day it names is the
+          // reader's, and asking again is a date they plan around.
+          setMfaAskAgain(new Date(Date.now() + MFA_GRACE_DAYS * 86_400_000).toISOString());
         }
       }
       await loadSummary();
@@ -511,7 +510,7 @@ export default function OnboardingPage() {
 
               {mfaAskAgain !== null && skipped.includes("mfa") && (
                 <p className="entry-hint" style={{ margin: 0 }}>
-                  Skipped. We&apos;ll ask you again on {mfaAskAgain}.
+                  Skipped. We&apos;ll ask you again on {formatInTimeZone(mfaAskAgain, timeZone, "date")}.
                 </p>
               )}
 

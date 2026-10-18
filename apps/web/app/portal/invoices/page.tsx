@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { friendlyMutationText } from "../../../lib/error-copy";
 import { Spinner } from "@marula-core/ui";
 import { portalApi, useRequirePortalAuth, type PortalInvoice } from "../../../lib/portal-api";
+import { useTimeFormat } from "../../../lib/use-time-format";
 import { longDate, money, overdueDays } from "../../../lib/portal-copy";
 import {
   OverduePill,
@@ -32,6 +33,7 @@ import {
 
 export default function PortalInvoicesPage() {
   useRequirePortalAuth();
+  const { timeZone } = useTimeFormat();
   const router = useRouter();
   const [invoices, setInvoices] = useState<PortalInvoice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -149,8 +151,8 @@ export default function PortalInvoicesPage() {
                 title={inv.number}
                 meta={
                   outstanding
-                    ? `Due ${longDate(inv.due_on)}`
-                    : `Issued ${longDate(inv.issued_at)}`
+                    ? `Due ${longDate(inv.due_on, timeZone)}`
+                    : `Issued ${longDate(inv.issued_at, timeZone)}`
                 }
                 onClick={() => router.push(`/portal/invoices/${inv.id}`)}
                 columns="minmax(0, 1fr) 110px 130px 36px"
@@ -159,7 +161,7 @@ export default function PortalInvoicesPage() {
                     <b className="portal-row__amount">{money(inv.total_minor, inv.currency)}</b>
                     {outstanding ? (
                       days === null ? (
-                        <span className="portal-pill portal-pill--received">Due {longDate(inv.due_on)}</span>
+                        <span className="portal-pill portal-pill--received">Due {longDate(inv.due_on, timeZone)}</span>
                       ) : (
                         /* The row pill says "Overdue"; the day count lives ONCE in
                            the hero above, so it is not repeated down the list

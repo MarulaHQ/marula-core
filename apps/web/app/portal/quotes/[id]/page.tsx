@@ -28,6 +28,7 @@ import {
   useRequirePortalAuth,
   type PortalQuoteDetail,
 } from "../../../../lib/portal-api";
+import { useTimeFormat } from "../../../../lib/use-time-format";
 import { longDate, money } from "../../../../lib/portal-copy";
 import {
   Field,
@@ -44,6 +45,7 @@ function quantity(qtyMilli: number): string {
 
 export default function PortalQuotePage() {
   useRequirePortalAuth();
+  const { timeZone } = useTimeFormat();
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [quote, setQuote] = useState<PortalQuoteDetail | null>(null);
@@ -167,7 +169,7 @@ export default function PortalQuotePage() {
         <div>
           <h1 className="portal-title">{title}</h1>
           <p className="portal-lead">
-            {quote.number} · Valid until {longDate(quote.valid_until)}
+            {quote.number} · Valid until {longDate(quote.valid_until, timeZone)}
           </p>
         </div>
         {quote.status === "sent" ? (
@@ -215,7 +217,7 @@ export default function PortalQuotePage() {
 
       {quote.status === "accepted" && (
         <Note>
-          Accepted{quote.decided_at !== null ? ` on ${longDate(quote.decided_at)}` : ""}. Your
+          Accepted{quote.decided_at !== null ? ` on ${longDate(quote.decided_at, timeZone)}` : ""}. Your
           service desk will book a date with you, and it will appear under Schedule.
         </Note>
       )}

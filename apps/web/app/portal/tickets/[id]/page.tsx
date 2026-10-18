@@ -47,7 +47,9 @@ import {
   type PortalAttachmentView,
   type PortalTicketDetail,
 } from "../../../../lib/portal-api";
+import { formatInTimeZone } from "@marula-core/ui";
 import { clientStatusFor, initials, raisedAt } from "../../../../lib/portal-copy";
+import { useTimeFormat } from "../../../../lib/use-time-format";
 import {
   Note,
   PortalCard,
@@ -56,12 +58,15 @@ import {
   TicketProgress,
 } from "../../../../components/portal/portal-ui";
 
-function when(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+/** The client's own reading of an instant. No account zone on the portal, so
+ *  the device's is the one the reader has. */
+function when(iso: string, timeZone: string): string {
+  return formatInTimeZone(iso, timeZone, "datetime");
 }
 
 export default function PortalTicketPage() {
   useRequirePortalAuth();
+  const { timeZone } = useTimeFormat();
   const params = useParams<{ id: string }>();
   const router = useRouter();
   // The signed-in client, whose own name labels the opening message.
@@ -201,7 +206,7 @@ export default function PortalTicketPage() {
         >
           <StatusPill status={status} />
           <span className="portal-hint" style={{ fontSize: 14 }}>
-            #{t.number} · Raised {raisedAt(t.created_at)}
+            #{t.number} · Raised {raisedAt(t.created_at, timeZone)}
             {nothingYet ? " · Not yet assigned" : ""}
           </span>
         </div>
@@ -226,7 +231,7 @@ export default function PortalTicketPage() {
             <div className="portal-msg__body">
               <div className="portal-msg__who">
                 <b>You</b>
-                <span>{when(t.created_at)}</span>
+                <span>{when(t.created_at, timeZone)}</span>
               </div>
               <p className="portal-msg__text" style={{ margin: 0 }}>
                 {t.body}
@@ -246,7 +251,7 @@ export default function PortalTicketPage() {
                 <div className="portal-msg__body">
                   <div className="portal-msg__who">
                     {speaker !== null && <b>{speaker}</b>}
-                    <span>{when(c.created_at)}</span>
+                    <span>{when(c.created_at, timeZone)}</span>
                   </div>
                   <p className="portal-msg__text" style={{ margin: 0 }}>
                     {c.body}
