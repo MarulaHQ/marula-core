@@ -45,6 +45,7 @@ const arg = (name, dflt) => {
 };
 const ONLY = arg("only", null);
 const PACK_ONLY = process.argv.includes("--pack-only");
+const STATES = process.argv.includes("--states");
 
 /* The nine web areas the pack draws, each with the mockup file it was rendered
  * from and the route that renders it. The route is what makes this a
@@ -258,8 +259,33 @@ for (const surface of SURFACES) {
   }
   const packPage = await browser.newPage({ viewport: CANVAS });
   await packPage.goto(`file://${sourcePath}`, { waitUntil: "load", timeout: 60_000 });
-  await packPage.waitForTimeout(1500);
+  await packPage.waitForTimeout(1200);
   const pack = await packPage.evaluate(SIGNATURE);
+
+  // Every mockup declares its states: an ST array of [id, title, apply] that
+  // populates <select id="jump">, driven by its own change handler
+  // (clients.html:274,387,389). Walking that select turns the pack side from one
+  // landing view into a per-state catalogue - 169 states, not 13.
+  const packStates = [];
+  if (STATES) {
+    const ids = await packPage.evaluate(() =>
+      [...document.querySelectorAll("#jump option")].map((o) => ({
+        id: o.value,
+        title: o.textContent.replace(/^\s*\d+\s*·\s*/, "").trim(),
+      })),
+    );
+    for (const st of ids) {
+      await packPage.evaluate((v) => {
+        const sel = document.querySelector("#jump");
+        if (!sel) return;
+        sel.value = v;
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      }, st.id);
+      await packPage.waitForTimeout(350);
+      const sig = await packPage.evaluate(SIGNATURE);
+      packStates.push({ id: st.id, title: st.title, toolbar: sig.toolbar, columns: sig.columns, rowCells: sig.rowCells, footer: sig.footer });
+    }
+  }
   await packPage.close();
 
   let app = null;
@@ -291,7 +317,7 @@ for (const surface of SURFACES) {
       deltas.push({ rule: "footer text", pack: pack.footer, app: app.footer });
     }
   }
-  report.surfaces.push({ id: surface.id, route: surface.route, source: surface.source, pack, app, deltas });
+  report.surfaces.push({ id: surface.id, route: surface.route, source: surface.source, pack, app, deltas, packStates });
   console.log(`\n[${surface.id}] ${app ? `${deltas.length} rule(s) differ` : "pack side only"}`);
   for (const d of deltas) {
     console.log(`  ! ${d.rule}`);
