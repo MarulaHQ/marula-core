@@ -377,10 +377,12 @@ function judge(metrics, where) {
  * ---------------------------------------------------------------------- */
 const browser = await chromium.launch();
 
-/* 1. Canonical shots — every staff surface, both themes, at the pack's size. */
-if (wants("canonical")) {
-  // The two ticket surfaces need a ticket that carries an attachment; resolve
-  // it through the API rather than assuming a seeded id.
+/** The ticket the ticket-shaped surfaces are captured on. Resolved once, from
+ *  the API, because the seed's first ticket is not the one carrying an
+ *  attachment and a hardcoded id would go stale silently. */
+let attachmentTicketId = null;
+async function resolveTicketWithAttachment() {
+  if (attachmentTicketId !== null) return attachmentTicketId;
   const tokens = await staffToken();
   const authed = async (path) => {
     const res = await fetch(`${API}/api/v1${path}`, {
@@ -390,26 +392,28 @@ if (wants("canonical")) {
   };
   const tickets = (await authed("/tickets?limit=100")) ?? [];
   const list = Array.isArray(tickets) ? tickets : (tickets.items ?? []);
-  let withAttachment = null;
-  let attachmentCount = 0;
   for (const t of list) {
     const attachments = await authed(`/tickets/${t.id}/attachments`);
     if (Array.isArray(attachments) && attachments.length > 0) {
-      withAttachment = t;
-      attachmentCount = attachments.length;
-      break;
+      log(`[tickets] attachment ticket: ${t.number} (${attachments.length} attachment(s))`);
+      attachmentTicketId = t.id;
+      return attachmentTicketId;
     }
   }
-  if (withAttachment === null) {
-    warn("no seeded ticket carries an attachment; the attachment capture cannot be taken");
-  } else {
-    log(`[canonical] attachment ticket: ${withAttachment.number} (${attachmentCount} attachment(s))`);
-  }
+  warn("no seeded ticket carries an attachment; the attachment capture cannot be taken");
+  return null;
+}
 
+/* 1. Canonical shots — every staff surface, both themes, at the pack's size. */
+if (wants("canonical") || wants("matrix")) {
+  await resolveTicketWithAttachment();
+}
+
+if (wants("canonical")) {
   const surfaces = [...STAFF_SURFACES];
-  if (withAttachment !== null) {
-    surfaces.push({ ...TICKET_FILES_SURFACE, path: `/tickets/${withAttachment.id}` });
-    surfaces.push({ ...TICKET_ACTIVITY_SURFACE, path: `/tickets/${withAttachment.id}` });
+  if (attachmentTicketId !== null) {
+    surfaces.push({ ...TICKET_FILES_SURFACE, path: `/tickets/${attachmentTicketId}` });
+    surfaces.push({ ...TICKET_ACTIVITY_SURFACE, path: `/tickets/${attachmentTicketId}` });
   }
 
   for (const theme of THEMES) {
@@ -485,7 +489,11 @@ if (wants("matrix")) {
   const tokens = await staffToken();
   for (const theme of THEMES) {
     const { ctx } = await staffContext(browser, { theme: theme.id, ...PACK });
-    for (const surface of [...STAFF_SURFACES, TICKET_ACTIVITY_SURFACE]) {
+    const matrixSurfaces = [...STAFF_SURFACES];
+    if (attachmentTicketId !== null) {
+      matrixSurfaces.push({ ...TICKET_ACTIVITY_SURFACE, path: `/tickets/${attachmentTicketId}` });
+    }
+    for (const surface of matrixSurfaces) {
       const page = await ctx.newPage();
       await page.goto(`${WEB}${surface.path}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
       await settle(page, surface.anchor);
