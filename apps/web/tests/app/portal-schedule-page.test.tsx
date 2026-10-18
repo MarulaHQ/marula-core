@@ -40,10 +40,15 @@ function localDateIn(days: number): string {
 const DAY1 = localDateIn(1);
 const DAY2 = localDateIn(2);
 
+// A slot at `hour` on the reader's clock, on tomorrow's local date. Built from
+// local wall-clock, not from `...Z`: the portal groups a slot under the day the
+// client reads it on, so a fixture pinned to UTC lands on the day before for
+// every client west of Greenwich.
 function slots(hour: number): { starts_at: string; ends_at: string } {
+  const starts = new Date(`${DAY1}T${String(hour).padStart(2, "0")}:00:00`);
   return {
-    starts_at: `${DAY1}T0${hour % 10}:00:00.000Z`,
-    ends_at: `${DAY1}T0${(hour % 10) + 1}:00:00.000Z`,
+    starts_at: starts.toISOString(),
+    ends_at: new Date(starts.getTime() + 3_600_000).toISOString(),
   };
 }
 
@@ -128,8 +133,7 @@ describe("/portal/schedule", () => {
     expect(timeGroup).toBeInTheDocument();
 
     // Times are the only thing on the time buttons — the day was already
-    // picked, so the button is not a sentence. The two fixture slots are
-    // 03:00Z and 05:00Z; the labels are the machine's local renderings.
+    // picked, so the button is not a sentence.
     const times = Array.from(
       timeGroup.querySelectorAll('[data-testid^="portal-slot-"]'),
     );
@@ -137,8 +141,8 @@ describe("/portal/schedule", () => {
     const local = (iso: string) =>
       new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
     expect(times.map((t) => t.textContent)).toEqual([
-      local(`${DAY1}T03:00:00.000Z`),
-      local(`${DAY1}T05:00:00.000Z`),
+      local(slots(13).starts_at),
+      local(slots(15).starts_at),
     ]);
     fireEvent.click(times[0] as HTMLElement);
 
@@ -158,7 +162,7 @@ describe("/portal/schedule", () => {
     const body = mock.lastBody<Record<string, unknown>>("POST", "/api/v1/portal/appointment-requests");
     expect(body.user_id).toBe("u9");
     expect(body.title).toBe("A new starter or a leaver");
-    expect(body.starts_at).toBe(`${DAY1}T03:00:00.000Z`);
+    expect(body.starts_at).toBe(slots(13).starts_at);
     expect(body.kind).toBe("remote");
     expect((body.idempotency_key as string).startsWith("portal-req-")).toBe(true);
     cleanup();
@@ -177,8 +181,8 @@ describe("/portal/schedule", () => {
       },
     }));
     // Two people hold the SAME clock hour on the day in hand (the seed's
-    // Diego and Tessa both open 09:00Z) — the buttons must say who each is
-    // with, or the client would be booking "whoever" (capture review,
+    // Diego and Tessa both open the same slot) — the buttons must say who each
+    // is with, or the client would be booking "whoever" (capture review,
     // batch 9).
     mock.on("GET", "/api/v1/portal/schedule/slots", () => ({
       json: [
@@ -199,8 +203,8 @@ describe("/portal/schedule", () => {
       timeGroup.querySelectorAll('[data-testid^="portal-slot-"]'),
     );
     expect(timeButtons).toHaveLength(3);
-    // The two buttons sharing 03:00Z carry first names; the unique 05:00Z
-    // does not (the pack's day is one person, so it draws bare times).
+    // The two buttons sharing an hour carry first names; the unique hour does
+    // not (the pack's day is one person, so it draws bare times).
     expect(timeButtons[0]?.textContent).toContain("Diego");
     expect(timeButtons[1]?.textContent).toContain("Tessa");
     expect(timeButtons[2]?.textContent).not.toContain("Tessa");
