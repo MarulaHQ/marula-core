@@ -137,14 +137,16 @@ function installMeasure() {
   return true;
 }
 
-/** Build a state record for one row. */
-const MEASURE_ROW = (rowSelector) => {
+/** Build a state record for one row. `preferredIndex` selects which row; the
+ *  caller passes the row it actually put into the state, so a selection made on
+ *  row 0 is never read back from row 1. */
+const MEASURE_ROW = ({ rowSelector, index: preferredIndex }) => {
   const m = window.__m;
   const rows = [...document.querySelectorAll(rowSelector)].filter(
     (r) => r.querySelector("td") && !r.querySelector(":scope > th"),
   );
   if (!rows.length) return { ok: false, why: `no data rows matched ${rowSelector}` };
-  const idx = Math.min(1, rows.length - 1);
+  const idx = Math.min(preferredIndex ?? 1, rows.length - 1);
   const row = rows[idx];
   const cont = m.scrollContainer(row);
   const cr = m.rect(cont);
@@ -215,6 +217,31 @@ const findings = {
 };
 const consoleErrors = [];
 const pageErrors = [];
+const crashes = [];
+
+// Write after every surface, so a crash late in the run costs one surface
+// instead of the whole matrix.
+function flush() {
+  findings.consoleErrors = consoleErrors;
+  findings.pageErrors = pageErrors;
+  findings.crashes = crashes;
+  writeFileSync(resolve(OUT, "rendered-states.json"), JSON.stringify(findings, null, 2) + "\n");
+}
+
+// A rejected route handler used to kill the process and lose the run. Record
+// the rejection and keep going.
+process.on("unhandledRejection", (reason) => {
+  const line = `unhandledRejection: ${reason?.message ?? reason}`;
+  crashes.push(line);
+  console.error(`  ! ${line}`);
+  flush();
+});
+process.on("uncaughtException", (err) => {
+  crashes.push(`uncaughtException: ${err?.message ?? err}`);
+  console.error(`  ! uncaughtException: ${err?.message ?? err}`);
+  flush();
+  process.exit(0);
+});
 
 async function newSession() {
   const context = await browser.newContext({ viewport: VIEWPORT });
@@ -300,55 +327,94 @@ async function probeSurface(page, surface, lists) {
   }
   rec.rowSelector = rowSel;
 
-  const measure = async (label) => {
+  const measure = async (label, index) => {
     try {
-      rec.states[label] = await page.evaluate(MEASURE_ROW, rowSel);
+      rec.states[label] = await page.evaluate(MEASURE_ROW, { rowSelector: rowSel, index });
     } catch (e) {
       rec.states[label] = { ok: false, why: String(e.message ?? e) };
     }
   };
   const rowLoc = () => page.locator(rowSel).filter({ has: page.locator("td") });
+  // The pointer sits somewhere after every click; park it off the table so a
+  // hover state never masquerades as a selection or a cursor state.
+  const parkPointer = async () => {
+    await page.mouse.move(4, 4);
+    await page.waitForTimeout(160);
+  };
 
   // ---- baseline + hover --------------------------------------------------------
-  await measure("row-default");
+  await parkPointer();
+  const rowCount = await rowLoc().count();
+  const focusIndex = Math.min(1, rowCount - 1);
+  await measure("row-default", focusIndex);
   try {
-    const rows = rowLoc();
-    const n = await rows.count();
-    await rows.nth(Math.min(1, n - 1)).hover({ timeout: 5000 });
+    await rowLoc().nth(focusIndex).hover({ timeout: 5000 });
     await page.waitForTimeout(140);
-    await measure("row-hover");
-    await page.mouse.move(4, 4);
-    await page.waitForTimeout(120);
+    await measure("row-hover", focusIndex);
   } catch (e) {
     rec.states["row-hover"] = { ok: false, why: String(e.message ?? e) };
   }
+  await parkPointer();
 
-  // ---- select: scan the first rows for an enabled selection control ------------
+  // ---- select: scan the rows for an enabled selection control -------------------
+  // Two control shapes exist in the app: a raw `input[type=checkbox]`
+  // (approvals, and the money cluster) and the kit `Checkbox`, which is a
+  // `[role=checkbox]` button (the tickets ledger and its derivatives). A probe
+  // that only looked for the input missed half the fleet. Row `focusIndex` is
+  // tried first, so the row that is measured is the row that was selected.
   let selected = false;
   let selectHow = null;
-  const scan = Math.min(await rowLoc().count(), 6);
-  for (let i = 0; i < scan; i++) {
-    const cb = rowLoc().nth(i).locator("input[type=checkbox]").first();
-    if ((await cb.count()) === 0) continue;
-    if (await cb.isDisabled()) continue;
-    try {
-      await cb.check({ timeout: 4000, force: true });
-      await page.waitForTimeout(250);
-      selected = true;
-      selectHow = `checkbox in row ${i}`;
-      break;
-    } catch {
-      /* next row */
+  let selectedIndex = focusIndex;
+  const order = [...new Set([focusIndex, 0, 2, 3, 4, 5])].filter((i) => i < rowCount);
+  for (const i of order) {
+    if (selected) break;
+    const row = rowLoc().nth(i);
+    const input = row.locator("input[type=checkbox]").first();
+    if ((await input.count()) && !(await input.isDisabled())) {
+      try {
+        await input.check({ timeout: 4000, force: true });
+        await page.waitForTimeout(250);
+        await parkPointer();
+        const live = await page.evaluate(MEASURE_ROW, { rowSelector: rowSel, index: i });
+        const gotState = /selected|sel\b/.test(live.rowClass ?? "") || live.rowAttrs?.dataSelected === "true";
+        selected = gotState;
+        selectHow = `input[type=checkbox] in row ${i}${gotState ? "" : " (no state appeared)"}`;
+        selectedIndex = i;
+        rec.states["row-selected"] = { ...live, selectionMechanism: selectHow };
+        break;
+      } catch {
+        /* next control */
+      }
+    }
+    const roleCb = row.locator("[role=checkbox]").first();
+    if ((await roleCb.count()) && (await roleCb.isVisible().catch(() => false))) {
+      try {
+        await roleCb.click({ timeout: 4000 });
+        await page.waitForTimeout(250);
+        await parkPointer();
+        const live = await page.evaluate(MEASURE_ROW, { rowSelector: rowSel, index: i });
+        const gotState = /selected|sel\b/.test(live.rowClass ?? "") || live.rowAttrs?.dataSelected === "true";
+        if (gotState) {
+          selected = true;
+          selectHow = `[role=checkbox] in row ${i}`;
+          selectedIndex = i;
+          rec.states["row-selected"] = { ...live, selectionMechanism: selectHow };
+          break;
+        }
+      } catch {
+        /* next */
+      }
     }
   }
   if (!selected) {
     try {
-      await rowLoc().nth(Math.min(1, scan - 1)).locator("td").nth(1).click({ timeout: 4000, position: { x: 4, y: 4 } });
+      await rowLoc().nth(focusIndex).locator("td").nth(1).click({ timeout: 4000, position: { x: 4, y: 4 } });
       await page.waitForTimeout(250);
-      const live = await page.evaluate(MEASURE_ROW, rowSel);
-      const gotState =
-        /selected|sel\b/.test(live.rowClass ?? "") || live.rowAttrs?.dataSelected === "true";
+      await parkPointer();
+      const live = await page.evaluate(MEASURE_ROW, { rowSelector: rowSel, index: focusIndex });
+      const gotState = /selected|sel\b/.test(live.rowClass ?? "") || live.rowAttrs?.dataSelected === "true";
       selected = gotState;
+      selectedIndex = focusIndex;
       selectHow = gotState ? "row click (no checkbox on the surface)" : null;
       rec.states["row-selected"] = gotState
         ? { ...live, selectionMechanism: selectHow }
@@ -356,24 +422,47 @@ async function probeSurface(page, surface, lists) {
     } catch (e) {
       rec.states["row-selected"] = { ok: false, why: `no checkbox; row click failed: ${e.message ?? e}` };
     }
-  } else {
-    await measure("row-selected");
-    rec.states["row-selected"].selectionMechanism = selectHow;
+  }
+
+  // Does the surface even HAVE a selected state? A control can exist while the
+  // state does not appear (a checkbox in a column the surface does not wire to
+  // the row's own state), so this is recorded, not assumed.
+  if (selected) {
+    const s = rec.states["row-selected"];
+    rec.states["row-selected"].stateVisible =
+      s.row?.boxShadow !== "none" ||
+      (s.row?.backgroundColor !== "rgba(0, 0, 0, 0)" && s.row?.backgroundColor !== "rgb(239, 238, 234)") ||
+      (s.cells ?? []).some((c) => c.boxShadow !== "none") ||
+      (s.cells ?? []).some((c) => c.backgroundColor !== "rgba(0, 0, 0, 0)");
+    // The collision the pack defends against with `!important`: hover on top of
+    // selected. Measured because a selected tint that hover replaces is a real
+    // difference from the drawn pack, not a nicety.
+    try {
+      await rowLoc().nth(selectedIndex).hover({ timeout: 4000 });
+      await page.waitForTimeout(160);
+      await measure("row-selected-hovered", selectedIndex);
+    } catch (e) {
+      rec.states["row-selected-hovered"] = { ok: false, why: String(e.message ?? e) };
+    }
+    await parkPointer();
   }
 
   // ---- current: click the row body, away from its controls ---------------------
   try {
-    await rowLoc().nth(Math.min(1, scan - 1)).locator("td").nth(2).click({ timeout: 4000, position: { x: 4, y: 4 } });
+    const idx = selected ? selectedIndex : focusIndex;
+    await rowLoc().nth(idx).locator("td").nth(2).click({ timeout: 4000, position: { x: 4, y: 4 } });
     await page.waitForTimeout(260);
-    await measure("row-current");
-    if (selected) rec.states["row-selected-and-current"] = await page.evaluate(MEASURE_ROW, rowSel);
+    await parkPointer();
+    await measure("row-current", idx);
+    if (selected) rec.states["row-selected-and-current"] = await page.evaluate(MEASURE_ROW, { rowSelector: rowSel, index: selectedIndex });
   } catch (e) {
     rec.states["row-current"] = { ok: false, why: String(e.message ?? e) };
   }
 
   // ---- focus-visible -----------------------------------------------------------
   try {
-    const r = rowLoc().nth(Math.min(1, scan - 1));
+    const idx = selected ? selectedIndex : focusIndex;
+    const r = rowLoc().nth(idx);
     const tookRowFocus = await r.evaluate((el) => {
       const before = document.activeElement;
       el.focus();
@@ -384,14 +473,14 @@ async function probeSurface(page, surface, lists) {
     if (tookRowFocus) {
       await r.focus();
       await page.waitForTimeout(160);
-      const m = await page.evaluate(MEASURE_ROW, rowSel);
+      const m = await page.evaluate(MEASURE_ROW, { rowSelector: rowSel, index: idx });
       rec.states["row-focus-visible"] = { ...m, focusVisibleMatched: await r.evaluate((el) => el.matches(":focus-visible")) };
     } else {
       const ctl = r.locator("a,button,input,[tabindex]").first();
       if (await ctl.count()) {
         await ctl.focus();
         await page.waitForTimeout(160);
-        const m = await page.evaluate(MEASURE_ROW, rowSel);
+        const m = await page.evaluate(MEASURE_ROW, { rowSelector: rowSel, index: idx });
         rec.states["row-focus-visible"] = {
           ...m,
           focusTarget: "control-in-row",
@@ -432,6 +521,40 @@ async function probeSurface(page, surface, lists) {
     }, rowSel);
   } catch (e) {
     rec.states.containerEdge = { ok: false, why: String(e.message ?? e) };
+  }
+
+  // ---- cell content clip -------------------------------------------------------
+  // The row's box can sit inside its container while a cell still clips its own
+  // content. With `overflow: hidden` and no `text-overflow: ellipsis`, the
+  // reader gets a hard cut with no ellipsis to say so.
+  try {
+    rec.states.contentClip = await page.evaluate((sel) => {
+      const rows = [...document.querySelectorAll(sel)].filter((r) => r.querySelector("td"));
+      if (!rows.length) return { ok: false, why: "no rows" };
+      const row = rows[Math.min(1, rows.length - 1)];
+      const cells = [...row.querySelectorAll(":scope > td")];
+      return {
+        ok: true,
+        cells: cells.map((c, i) => {
+          const cs = getComputedStyle(c);
+          return {
+            i,
+            clientWidth: c.clientWidth,
+            scrollWidth: c.scrollWidth,
+            clipped: c.scrollWidth > c.clientWidth + 1,
+            overflowX: cs.overflowX,
+            textOverflow: cs.textOverflow,
+            text: (c.textContent ?? "").trim().slice(0, 50),
+          };
+        }),
+        clippedCells: cells.filter((c) => c.scrollWidth > c.clientWidth + 1).length,
+        clippedWithoutEllipsis: cells.filter(
+          (c) => c.scrollWidth > c.clientWidth + 1 && getComputedStyle(c).textOverflow !== "ellipsis",
+        ).length,
+      };
+    }, rowSel);
+  } catch (e) {
+    rec.states.contentClip = { ok: false, why: String(e.message ?? e) };
   }
 
   // ---- bulk bar -----------------------------------------------------------------
@@ -601,7 +724,11 @@ async function probeSurface(page, surface, lists) {
   // ---- empty -------------------------------------------------------------------
   try {
     await open();
-    const search = page.locator("main input[type=search], main input[placeholder*='Search' i], main input[placeholder*='Filter' i]").first();
+    const search = page
+      .locator(
+        "main input[type=search], main input[placeholder*='Search' i], main input[placeholder*='Filter' i], main input[placeholder*='Find' i]",
+      )
+      .first();
     if (await search.count()) {
       await search.fill("zzz-nothing-matches-p47", { timeout: 5000 });
       await page.waitForTimeout(900);
@@ -645,8 +772,15 @@ async function probeSurface(page, surface, lists) {
     };
     try {
       await page.route(sameEndpoint, async (route) => {
-        await new Promise((r) => setTimeout(r, 4000));
-        await route.continue();
+        await new Promise((r) => setTimeout(r, 3000));
+        // The navigation can abort the request while it is held; Playwright
+        // then reports the route as already handled. Swallow it — the point of
+        // this probe is what the page paints while the request is in flight.
+        try {
+          await route.continue();
+        } catch {
+          /* aborted by the navigation */
+        }
       });
       const nav = page.goto(`${WEB}${surface.path}`, { waitUntil: "commit", timeout: 30_000 });
       await page.waitForTimeout(1100);
@@ -671,7 +805,7 @@ async function probeSurface(page, surface, lists) {
 
     try {
       await page.route(sameEndpoint, (route) =>
-        route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"p47 probe"}' }),
+        route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"p47 probe"}' }).catch(() => {}),
       );
       await open();
       rec.states.error = await page.evaluate((sel) => {
@@ -716,12 +850,18 @@ for (const surface of list) {
       `ok (rows=${st["row-default"]?.rowCount ?? "?"}, sel=${st["row-selected"]?.ok ? "yes" : "no"}, cur=${st["row-current"]?.ok ? "yes" : "no"})${flag}`,
     );
     if (wantShots && SHOT_KEYS.includes(surface.key)) {
+      // The probes above end on an injected 500, so reload to the surface's own
+      // state before shooting; otherwise every shot would be of the probe, not
+      // of the product.
+      await page.goto(`${WEB}${surface.path}`, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+      await page.waitForTimeout(1200);
       await page.screenshot({ path: resolve(SHOTS, `${surface.key}-state.png`) });
     }
   } catch (e) {
     findings.surfaces[surface.key] = { ok: false, error: String(e?.message ?? e) };
     console.log(`FAILED: ${e?.message ?? e}`);
   }
+  flush();
 }
 
 const portalOnly = only ? !only.some((k) => SURFACES.some((s) => s.key === k)) : true;
@@ -739,6 +879,7 @@ if (portalOnly) {
         findings.portal[surface.key] = { ok: false, error: String(e?.message ?? e) };
         console.log(`FAILED: ${e?.message ?? e}`);
       }
+      flush();
     }
   } catch (e) {
     findings.portal = { ok: false, error: `portal login failed: ${e?.message ?? e}` };
