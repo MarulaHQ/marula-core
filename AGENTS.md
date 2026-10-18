@@ -192,8 +192,17 @@ all lanes):
   them, background them, or continue until the user replies.
 - The lane's native to-do list marks the gate step pending with the pause
   noted, so an idle lane reads as "waiting for go-ahead", not stalled.
-- Merge only after the user-approved gate run is green (repo close-out rules
-  unchanged: landing record, TASKLIST row, no worktree removal by tooling).
+- Merge only after the user-approved gate run is green. Close-out is the landing
+  record, the TASKLIST row, and the merge.
+- **Worktree cleanup after landing (corrected 2026-10-18, user directive).** The
+  old "no worktree removal by tooling" rule was written for **Kilo Code**, whose
+  worktree handling is fragile, and it still applies there: leave anything under
+  `~/.local/share/kilo/worktree-pool/` alone. **OpenCode lanes clear their own
+  worktree once the lane has fully landed** — branch merged into `main`, landing
+  record written, tracker row moved. Confirm with `git worktree list` that the
+  branch is merged and the tree clean, then remove it. Never remove a worktree
+  whose branch is unmerged, whose tree is dirty, or that hosts a stack registered
+  in `scripts/dev-status.sh`.
 
 ## Lane to-do lists (all agent worktrees)
 
