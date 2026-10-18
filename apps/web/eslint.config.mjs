@@ -55,6 +55,10 @@
  *     which does not know `rounded-ctl`. Wave 25's own verification step
  *     ("after a local `pnpm turbo run build --filter @marula-core/ui`") was
  *     load-bearing for a reason nobody had written down.
+ *     NO LONGER TRUE, 2026-10-19: the kit's `exports` point at `src` and the
+ *     app transpiles it, so `@marula-core/ui/*.css` resolves from source and
+ *     the build is no longer load-bearing for this rule. Verified by deleting
+ *     `packages/ui/dist` outright: lint stays at 0 errors.
  *   - Re-measured counts, warn posture, over the whole apps/web surface:
  *     no-unknown-classes 0 (was 51 at baseline, 1274 with the blind chain),
  *     require-static-classes 20 / 9 files, no-inline-styles 1520 / 112 files,

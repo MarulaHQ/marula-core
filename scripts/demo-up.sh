@@ -248,9 +248,8 @@ build_services() {
   log "building core-api + realtime + worker (first run compiles — expect minutes)"
   (cd "$REPO_ROOT" && cargo build -q -p core-api -p realtime -p worker) \
     || die "cargo build failed — full log above"
-  log "building the @marula-core/ui package the web app imports"
-  (cd "$REPO_ROOT" && pnpm --filter @marula-core/ui build) \
-    || die "the @marula-core/ui build failed — run: pnpm --filter @marula-core/ui build"
+  # No kit pre-build: the app resolves @marula-core/ui from src and transpiles
+  # it (2026-10-19), so nothing has to be built for the web app to import it.
 }
 
 spawn() { # spawn <name> <port> <cmd...>

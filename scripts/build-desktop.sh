@@ -20,10 +20,10 @@ START_TS=$(date +%s)
 WEB_DIR=apps/web
 
 echo "==> [1/4] building the Next standalone bundle"
-# packages/ui must be built first: globals.css imports
-# @marula-core/ui/{tokens,theme,components}.css, which resolve to ./dist/*.css.
-# Without dist the import fails and the bundle ships without the token layer.
-pnpm --filter @marula-core/ui build
+# No kit pre-build: @marula-core/ui resolves from source (its exports point at
+# ./src/*.css) and the app transpiles it, so globals.css pulls the token layer
+# from src rather than from dist. Verified 2026-10-19 by building with
+# packages/ui/dist deleted — the bundle still carries --m-ink and kit classes.
 pnpm --filter @marula-core/web build
 STANDALONE="$WEB_DIR/.next/standalone"
 [ -f "$STANDALONE/server.js" ] || { echo "error: $STANDALONE/server.js missing" >&2; exit 1; }
