@@ -62,6 +62,7 @@ import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
 import { downloadRowsCsv } from "../../lib/csv-download";
+import { RecordWindow } from "../../components/record-window";
 import { friendlyMutationText, resultErrorText } from "../../lib/error-copy";
 import {
   hms,
@@ -111,6 +112,12 @@ type QueueItem = {
     title: string;
     client_name?: string | null;
   } | null;
+  /**
+   * The member's own zone on the wire (Wave 50 T2). The queue is read in the
+   * approver's frame, so this is what the pane draws beside it; absent when the
+   * member row is gone.
+   */
+  user_timezone?: string | null;
 };
 
 /** The pack's exact refusal copy (pack §5): named, never a silent guess. */
@@ -167,6 +174,11 @@ function clockTime(iso: string | null | undefined): string {
     hour12: false,
   });
 }
+
+/**
+ * Approvals read the member's window beside the approver's; that aside lives
+ * in `components/record-window.tsx` so it can be tested on its own.
+ */
 
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -1693,7 +1705,13 @@ function ContextPane({
         <div style={{ flex: 1, minWidth: 0 }}>
           <b style={{ display: "block" }}>{personName}</b>
           <span style={{ color: "var(--m-text-secondary)", fontSize: 13 }}>
-            {fmtWhen(e.started_at)} to {clockTime(e.ended_at)} ·{" "}
+            {fmtWhen(e.started_at)} to {clockTime(e.ended_at)}{" "}
+            <RecordWindow
+              start={e.started_at}
+              end={e.ended_at}
+              zone={item.user_timezone}
+            />{" "}
+            ·{" "}
             <b style={{ color: "var(--m-text)" }}>{hms(e.minutes)}</b> ·{" "}
             {e.work_type !== undefined && e.work_type !== null ? categoryLabel(e.work_type) : "Uncategorized"}
           </span>

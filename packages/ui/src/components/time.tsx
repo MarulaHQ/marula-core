@@ -17,6 +17,7 @@
 import { forwardRef, type ComponentProps } from "react";
 import { cn } from "../lib/cn";
 import {
+  dayKeyInTimeZone,
   formatInTimeZone,
   toDate,
   zoneAbbreviation,
@@ -58,8 +59,7 @@ export const Time = forwardRef<HTMLTimeElement, TimeProps>(function Time(
 
 Time.displayName = "Time";
 
-export interface DualTimeProps extends Omit<ComponentProps<"time">, "children" | "dateTime"> {
-  /** ISO string, epoch millis or Date. */
+export interface DualTimeProps extends Omit<ComponentProps<"time">, "children" | "dateTime"> {  /** ISO string, epoch millis or Date. */
   value: string | number | Date;
   /** The zone the record belongs to — a site, a calendar, an SLA window. */
   zone: string;
@@ -103,7 +103,12 @@ export const DualTime = forwardRef<HTMLTimeElement, DualTimeProps>(function Dual
     );
   }
 
-  const secondary = formatInTimeZone(value, zone, kind, locale);
+  const secondary = formatInTimeZone(
+    value,
+    zone,
+    secondaryKind(value, kind, viewerZone, zone),
+    locale,
+  );
   const abbreviation = showZone ? zoneAbbreviation(zone, date ?? new Date()) : "";
   const secondaryText = abbreviation === "" ? secondary : `${secondary} ${abbreviation}`;
 
@@ -125,3 +130,23 @@ export const DualTime = forwardRef<HTMLTimeElement, DualTimeProps>(function Dual
 });
 
 DualTime.displayName = "DualTime";
+
+/**
+ * The record reading's kind.
+ *
+ * A clock that crosses the day boundary needs its date: `Sun 18 Oct, 23:30 UTC`
+ * inside a row the reader filed under Monday is honest, while a bare `23:30`
+ * beside `09:30 Mon` is a puzzle. Date-only readings already carry the day, so
+ * they pass through untouched.
+ */
+function secondaryKind(
+  value: string | number | Date,
+  kind: TimeKind,
+  viewerZone: string,
+  recordZone: string,
+): TimeKind {
+  if (kind !== "time") return kind;
+  const recordDay = dayKeyInTimeZone(value, recordZone);
+  const viewerDay = dayKeyInTimeZone(value, viewerZone);
+  return recordDay !== viewerDay ? "datetime" : "time";
+}

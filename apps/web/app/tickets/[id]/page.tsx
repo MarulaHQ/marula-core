@@ -27,6 +27,7 @@ import { snapshotOf } from "@marula-core/sdk";
 import {
   Badge,
   Button,
+  DualTime,
   Spinner,
   StatusStepper,
 } from "@marula-core/ui";
@@ -38,6 +39,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { rejectionText } from "../../../lib/error-copy";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { useTimeDisplay } from "../../../lib/use-time-display";
+import { useTimeFormat } from "../../../lib/use-time-format";
 import { useTimer } from "../../../lib/use-timer";
 import {
   api,
@@ -195,6 +198,13 @@ export default function TicketWorkbenchPage() {
   const ticket = model?.ticket ?? null;
   const statuses = model?.statuses ?? [];
   const workflow = model?.workflow ?? { mode: "floor" as const, edges: [] };
+
+  // Wave 50 T2: the record's own clock. The site's zone when the ticket has a
+  // site that names one, the org default otherwise, and the reader's own zone
+  // as the only reading when they have turned the second clock off.
+  const time = useTimeFormat();
+  const display = useTimeDisplay();
+  const recordZone = display.zoneFor(ticket?.site_timezone ?? null, time.timeZone);
 
   // Org directory (author names).
   const [namesByUser, setNamesByUser] = useState<Map<string, string>>(new Map());
@@ -1246,11 +1256,25 @@ async function changeStatus(statusId: string): Promise<void> {
                 <dt style={{ color: "var(--m-text-muted)" }}>Assignee</dt>
                 <dd>{ticket.assignee_id == null ? "Unassigned" : namesByUser.get(ticket.assignee_id) ?? ticket.assignee_id.slice(0, 8)}</dd>
                 <dt style={{ color: "var(--m-text-muted)" }}>Created</dt>
-                <dd>{new Date(ticket.created_at ?? Date.now()).toLocaleString()}</dd>
+                <dd>
+                  <DualTime
+                    value={ticket.created_at ?? Date.now()}
+                    zone={recordZone}
+                    viewerZone={time.timeZone}
+                    kind="datetime"
+                  />
+                </dd>
                 {ticket.resolved_at != null && (
                   <>
                     <dt style={{ color: "var(--m-text-muted)" }}>Resolved</dt>
-                    <dd>{new Date(ticket.resolved_at).toLocaleString()}</dd>
+                    <dd>
+                      <DualTime
+                        value={ticket.resolved_at}
+                        zone={recordZone}
+                        viewerZone={time.timeZone}
+                        kind="datetime"
+                      />
+                    </dd>
                   </>
                 )}
               </dl>
@@ -1352,9 +1376,14 @@ async function changeStatus(statusId: string): Promise<void> {
                         {c.kind === "client_visible" ? "Client-visible" : c.kind === "in_house_update" ? "In-house" : "Internal"}
                       </Badge>
                       <span className="font-medium">{namesByUser.get(c.author_id ?? "") ?? "Unknown author"}</span>
-                      <time className="ml-auto" style={{ color: "var(--m-text-muted)" }}>
-                        {new Date(c.created_at).toLocaleString()}
-                      </time>
+                      <DualTime
+                        className="ml-auto"
+                        style={{ color: "var(--m-text-muted)" }}
+                        value={c.created_at}
+                        zone={recordZone}
+                        viewerZone={time.timeZone}
+                        kind="datetime"
+                      />
                     </header>
                     <div className="whitespace-pre-wrap" style={{ color: "var(--m-text-secondary)" }}>{c.body}</div>
                   </article>

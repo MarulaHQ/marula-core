@@ -36,10 +36,15 @@ import {
   Badge,
   useTheme,
 } from "@marula-core/ui";
+import { Switch } from "@marula-core/ui/kit";
 import type { Theme } from "@marula-core/ui";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, apiBaseUrl, authHeaders, useRequireAuth } from "../../../lib/api";
+import {
+  SHOW_RECORD_TIME_KEY,
+  useTimeDisplay,
+} from "../../../lib/use-time-display";
 import { useToursState } from "../../../lib/help/help-settings";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 
@@ -406,6 +411,15 @@ function TimeZoneCard({
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [deviceZone, setDeviceZone] = useState<string | null>(null);
+  // The second-clock switch lives with the zone, because that is the pair of
+  // decisions a person makes about time: what clock is mine, and do I want to
+  // see the record's beside it.
+  const display = useTimeDisplay();
+  const [recordBusy, setRecordBusy] = useState(false);
+  const [recordNote, setRecordNote] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [recordError, setRecordError] = useState<string | null>(null);
 
   useEffect(() => setDeviceZone(browserTimeZone()), []);
   useEffect(() => setValue(zone), [zone]);
@@ -434,6 +448,28 @@ function TimeZoneCard({
     }
     onSaved(res.data.timezone);
     setState("saved");
+  }
+
+  /**
+   * Writes the switch, then re-reads the session values so the ticket and
+   * approvals surfaces pick the change up without a reload.
+   */
+  async function saveRecordTime(next: boolean): Promise<void> {
+    setRecordBusy(true);
+    setRecordNote("saving");
+    setRecordError(null);
+    const res = await api.api.PUT("/api/v1/settings/user", {
+      body: { key: SHOW_RECORD_TIME_KEY, value: next },
+    });
+    if (res.error !== undefined) {
+      setRecordError(friendlyMutationText(res.error));
+      setRecordNote("error");
+      setRecordBusy(false);
+      return;
+    }
+    await display.refresh();
+    setRecordNote("saved");
+    setRecordBusy(false);
   }
 
   return (
@@ -476,6 +512,33 @@ function TimeZoneCard({
           ) : null}
           <SaveNote state={state} error={error} testId="pref-timezone" />
         </div>
+      </div>
+      <div
+        className="grid gap-2 border-t pt-3"
+        style={{ borderColor: "var(--m-border)" }}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="grid gap-1">
+            <Label htmlFor="pref-record-time">Show each record&apos;s time zone</Label>
+            <FieldHint id="pref-record-time-hint">
+              A ticket&apos;s site clock, or the clock a teammate logged their time
+              in, drawn beside your own when the two differ. When they match there
+              is nothing extra to read.
+            </FieldHint>
+          </div>
+          <Switch
+            id="pref-record-time"
+            checked={display.showRecordTime}
+            disabled={recordBusy}
+            aria-describedby="pref-record-time-hint"
+            onCheckedChange={(next) => void saveRecordTime(next)}
+          />
+        </div>
+        <SaveNote
+          state={recordNote}
+          error={recordError}
+          testId="pref-record-time"
+        />
       </div>
     </Card>
   );

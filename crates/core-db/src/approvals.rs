@@ -590,10 +590,12 @@ where
          te.approval_submitted_by, te.approval_submitted_at, \
          te.approval_decided_by, te.approval_decided_at, \
          EXISTS (SELECT 1 FROM invoice_time_entries l WHERE l.time_entry_id = te.id) AS locked, \
-         t.number AS ticket_number, t.title AS ticket_title, c.name AS client_name \
+         t.number AS ticket_number, t.title AS ticket_title, c.name AS client_name, \
+         u.timezone AS user_timezone \
        FROM time_entries te \
        LEFT JOIN tickets t ON t.id = te.ticket_id \
        LEFT JOIN clients c ON c.id = t.client_id \
+       LEFT JOIN users u ON u.id = te.user_id \
        WHERE te.org_id = $1 \
          AND ($2::text IS NULL OR te.approval_status = $2) \
          AND ($3::uuid IS NULL OR te.user_id = $3) \
@@ -621,6 +623,7 @@ where
             let ticket_number: Option<String> = row.get("ticket_number");
             let ticket_title: Option<String> = row.get("ticket_title");
             let client_name: Option<String> = row.get("client_name");
+            let user_timezone: Option<String> = row.get("user_timezone");
             let ticket_id: Option<Uuid> = row.get("ticket_id");
             let entry = map_row(row);
             let ticket = match (ticket_id, ticket_number, ticket_title) {
@@ -642,6 +645,7 @@ where
                 decided_by,
                 decided_at,
                 locked,
+                user_timezone,
             }
         })
         .collect())

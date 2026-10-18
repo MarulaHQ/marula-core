@@ -14,6 +14,7 @@ import { snapshotOf } from "@marula-core/sdk";
 import {
   Badge,
   Button,
+  DualTime,
   EmptyState,
   Spinner,
   Table,
@@ -37,6 +38,8 @@ import {
   useRequireAuth,
 } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
+import { useTimeDisplay } from "../../lib/use-time-display";
+import { useTimeFormat } from "../../lib/use-time-format";
 import { windowScopedKey } from "../../lib/popout/window-key";
 import {
   makeMyWorkSpec,
@@ -150,6 +153,12 @@ export function TicketWorkspaceClassic(): ReactNode {
   ]);
 
   const ticket = model?.ticket ?? null;
+
+  // Wave 50 T2: the record's own clock (site → org default → UTC), drawn only
+  // when the reader wants the second reading.
+  const time = useTimeFormat();
+  const display = useTimeDisplay();
+  const recordZone = display.zoneFor(ticket?.site_timezone ?? null, time.timeZone);
   const statuses = model?.statuses ?? [];
   const workflow = model?.workflow ?? { mode: "floor" as const, edges: [] };
 
@@ -761,9 +770,14 @@ export function TicketWorkspaceClassic(): ReactNode {
                 {c.kind === "client_visible" ? "Client-visible" : c.kind === "in_house_update" ? "In-house" : "Internal"}
               </Badge>
               <span className="font-medium">{namesByUser.get(c.author_id ?? "") ?? "Unknown author"}</span>
-              <time className="ml-auto" style={{ color: "var(--m-text-muted)" }}>
-                {new Date(c.created_at).toLocaleString()}
-              </time>
+              <DualTime
+                className="ml-auto"
+                style={{ color: "var(--m-text-muted)" }}
+                value={c.created_at}
+                zone={recordZone}
+                viewerZone={time.timeZone}
+                kind="datetime"
+              />
             </header>
             <div className="grid gap-0.5">
               {c.body.split("\n").map((line, idx) => (
@@ -804,11 +818,27 @@ export function TicketWorkspaceClassic(): ReactNode {
         <dt style={{ color: "var(--m-text-muted)" }}>Assignee</dt>
         <dd>{ticket?.assignee_id == null ? "Unassigned" : namesByUser.get(ticket.assignee_id) ?? ticket.assignee_id.slice(0, 8)}</dd>
         <dt style={{ color: "var(--m-text-muted)" }}>Created</dt>
-        <dd>{ticket ? new Date(ticket.created_at ?? Date.now()).toLocaleString() : null}</dd>
+        <dd>
+          {ticket ? (
+            <DualTime
+              value={ticket.created_at ?? Date.now()}
+              zone={recordZone}
+              viewerZone={time.timeZone}
+              kind="datetime"
+            />
+          ) : null}
+        </dd>
         {ticket?.resolved_at != null && (
           <>
             <dt style={{ color: "var(--m-text-muted)" }}>Resolved</dt>
-            <dd>{new Date(ticket.resolved_at).toLocaleString()}</dd>
+            <dd>
+              <DualTime
+                value={ticket.resolved_at}
+                zone={recordZone}
+                viewerZone={time.timeZone}
+                kind="datetime"
+              />
+            </dd>
           </>
         )}
       </dl>

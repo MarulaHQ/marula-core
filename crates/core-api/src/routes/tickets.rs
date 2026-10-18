@@ -429,7 +429,7 @@ pub async fn list(
         },
     )
     .await?;
-    let enriched = TicketWithFields::load_many(&mut *tx, org_id, rows).await?;
+    let enriched = TicketWithFields::load_many(&mut tx, org_id, rows).await?;
     tx.commit().await.map_err(ApiError::from)?;
     // A full page hints another exists; anchor it to the LAST row (the
     // sort order is global + id-tiebroken, so this anchor is exact).
@@ -689,7 +689,9 @@ pub async fn create(
         )
         .await?;
 
-        let enriched = TicketWithFields::new(ticket, applied);
+        let site_timezone =
+            super::custom_fields::site_zone(&mut ctx.tx, org_id, ticket.site_id).await?;
+        let enriched = TicketWithFields::new(ticket, applied, site_timezone);
         let after = serde_json::to_value(&enriched.ticket).unwrap_or(Value::Null);
         let mutation = instant::record(
             &mut ctx,
@@ -741,7 +743,7 @@ pub async fn get_one(
         .await
         .map_err(ApiError::from)?;
     let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
-    let enriched = TicketWithFields::load(&mut *tx, org_id, ticket).await?;
+    let enriched = TicketWithFields::load(&mut tx, org_id, ticket).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(enriched))
 }
@@ -906,7 +908,7 @@ pub async fn patch(
             )
             .await?;
         }
-        let enriched = TicketWithFields::load(&mut *ctx.tx, org_id, after).await?;
+        let enriched = TicketWithFields::load(&mut ctx.tx, org_id, after).await?;
         let mutation = instant::record(
             &mut ctx,
             instant::RecordSpec {
