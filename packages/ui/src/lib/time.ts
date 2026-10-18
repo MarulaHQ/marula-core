@@ -214,6 +214,37 @@ export function formatInTimeZone(
 }
 
 /**
+ * Formats an instant in the reader's own clock — the machine's zone.
+ *
+ * This is the one formatter here that takes no zone, and it exists because two
+ * kinds of reading are not the org's records. The first is the reader's own
+ * immediate clock: "now", and the axis of a day they are living through. The
+ * second is a surface whose *geometry* is drawn in the local wall clock — a
+ * day grid, a week grid — where printing the row labels in another zone than
+ * the grid would put the label beside the wrong row.
+ *
+ * The locale is pinned like every other reading, so "09:00" and "Sun 18 Oct"
+ * mean the same thing on every machine; only the zone follows the device, and
+ * deliberately. Anything that belongs to a record — a ticket, a run, a site's
+ * appointment — goes through {@link formatInTimeZone} with a named zone
+ * instead.
+ */
+export function formatWallClock(
+  value: string | number | Date | null | undefined,
+  kind: TimeKind = "datetime",
+  locale?: string,
+): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const date = toDate(value);
+  if (date === null) return "—";
+  try {
+    return new Intl.DateTimeFormat(locale ?? DEFAULT_TIME_LOCALE, KIND_OPTIONS[kind]).format(date);
+  } catch {
+    return "—";
+  }
+}
+
+/**
  * Formats a bare `YYYY-MM-DD` day key.
  *
  * A day key is a calendar day, not an instant, so it has no zone of its own and
@@ -232,6 +263,23 @@ export function formatDayKey(
 ): string {
   if (typeof key !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return "—";
   return formatInTimeZone(`${key}T00:00:00Z`, FALLBACK_TIME_ZONE, kind, locale);
+}
+
+/**
+ * Moves a `YYYY-MM-DD` key by whole calendar days.
+ *
+ * Calendar arithmetic, not instant arithmetic: "the day before" is a property
+ * of the key, and subtracting 24 hours from an instant lands an hour off on the
+ * two days a year a zone changes its offset. A surface asking "was this
+ * yesterday?" compares keys, so it needs this rather than a millisecond
+ * subtraction. Returns the input unchanged when it is not a day key.
+ */
+export function shiftDayKey(key: string, days: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return key;
+  const [year, month, day] = key.split("-").map(Number);
+  const moved = new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, (day ?? 1) + days));
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${moved.getUTCFullYear()}-${pad(moved.getUTCMonth() + 1)}-${pad(moved.getUTCDate())}`;
 }
 
 /** `SAST`, `GMT+2`, `EDT` — whatever this zone calls itself at that instant. */

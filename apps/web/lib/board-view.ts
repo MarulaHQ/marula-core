@@ -7,6 +7,7 @@
 // mapping the ticket status bar uses), so light and dark stay in lockstep.
 // Non-purpose: no data fetching, no envelope writes, no React.
 import type { components } from "@marula-core/sdk";
+import { formatInTimeZone } from "@marula-core/ui";
 
 export type BoardStatus = components["schemas"]["BoardStatus"];
 export type BoardTicket = components["schemas"]["Ticket"];
@@ -142,15 +143,16 @@ export interface DueChip {
  * Due-date chip: danger when overdue, warning inside 24h, neutral label
  * otherwise. Absent due date → null (no chip).
  */
-export function dueChip(dueAt: string | null | undefined, now: number): DueChip | null {
+export function dueChip(
+  dueAt: string | null | undefined,
+  now: number,
+  timeZone: string,
+): DueChip | null {
   if (dueAt === null || dueAt === undefined) return null;
   const due = Date.parse(dueAt);
   if (Number.isNaN(due)) return null;
   const diffMs = due - now;
-  const label = new Date(dueAt).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
+  const label = formatInTimeZone(dueAt, timeZone, "dayMonth");
   if (diffMs < 0) return { label: `Overdue · ${label}`, tone: "danger" };
   if (diffMs < 24 * 60 * 60 * 1000) return { label, tone: "warning" };
   return { label, tone: "neutral" };

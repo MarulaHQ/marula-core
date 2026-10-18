@@ -23,6 +23,7 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { LocalTime } from "./local-time";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../lib/api";
@@ -110,12 +111,12 @@ export function ReportDeliveryHistory({ scheduleId, scheduleName }: { scheduleId
                 <tbody>
                   {deliveries.map((d) => (
                     <Tr key={d.id}>
-                      <Td className="text-[12px] tabular-nums">{new Date(d.slot_at).toLocaleString()}</Td>
+                      <Td className="text-[12px] tabular-nums"><LocalTime value={d.slot_at} kind="datetime" /></Td>
                       <Td>
                         <Badge tone={statusTone(d.status)}>{d.status}</Badge>
                       </Td>
                       <Td className="text-[12px]">{detailSummary(d.detail)}</Td>
-                      <Td className="text-[12px]">{new Date(d.recorded_at).toLocaleString()}</Td>
+                      <Td className="text-[12px]"><LocalTime value={d.recorded_at} kind="datetime" /></Td>
                     </Tr>
                   ))}
                 </tbody>

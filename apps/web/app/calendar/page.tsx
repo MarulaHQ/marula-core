@@ -28,6 +28,7 @@ import {
   Label,
   Spinner,
 } from "@marula-core/ui";
+import { formatWallClock } from "@marula-core/ui";
 import CalendarSyncPanel from "../../components/calendar-sync-panel";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api, useRequireAuth } from "../../lib/api";
@@ -113,7 +114,7 @@ function localInputValue(d: Date): string {
 
 function labelForRange(view: ViewMode, anchor: Date): string {
   if (view === "month") {
-    return anchor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    return formatWallClock(anchor, "monthYear");
   }
   const start = mondayOf(anchor);
   const end = new Date(start);
@@ -486,7 +487,7 @@ function WeekGrid({
             return (
               <div key={d.toISOString()} className="px-2 py-2 text-center">
                 <div className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                  {d.toLocaleDateString(undefined, { weekday: "short" })}
+                  {formatWallClock(d, "weekdayOnly")}
                 </div>
                 <div className="text-[13px] font-medium" style={{ color: "var(--m-text)" }}>
                   {d.getDate()}
@@ -688,8 +689,8 @@ function WeekBlock({
   const flagged = overlaps.has(entry.id);
   const breached = entry.kind === "ticket_deadline" && start.getTime() < Date.now();
   const timeLabel = isInstant
-    ? `due ${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-    : `${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}–${end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    ? `due ${formatWallClock(start, "time")}`
+    : `${formatWallClock(start, "time")}–${formatWallClock(end, "time")}`;
   const laneWidth = 100 / laneCount;
   const classPrefix =
     entry.kind === "synced_busy" && !entry.title.startsWith("Synced")
@@ -830,7 +831,7 @@ function MonthGrid({
                     borderRight: "1px solid var(--m-border)",
                     opacity: inMonth ? 1 : 0.6,
                   }}
-                  aria-label={`${d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}, ${dayEntries.length} entries — open week`}
+                  aria-label={`${formatWallClock(d, "longDate")}, ${dayEntries.length} entries — open week`}
                   data-testid={"month-day"}
                   data-month-day={isoDay(d)}
                 >
@@ -897,7 +898,7 @@ function AgendaList({
               className="flex items-center gap-2 px-4 py-2 text-[12px] font-semibold"
               style={{ background: "var(--m-bg-subtle)", color: "var(--m-text-secondary)" }}
             >
-              {day.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+              {formatWallClock(day, "day")}
               <TodayBadge day={day} />
               <span className="ml-auto font-normal tabular-nums" style={{ color: "var(--m-text-muted)" }}>
                 {dayEntries.length === 0 ? "nothing scheduled" : `${dayEntries.length} entr${dayEntries.length === 1 ? "y" : "ies"}`}
@@ -919,8 +920,8 @@ function AgendaList({
                 >
                   <span className="w-28 shrink-0 text-[12px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
                     {entry.kind === "ticket_deadline"
-                      ? `due ${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-                      : `${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}–${end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+                      ? `due ${formatWallClock(start, "time")}`
+                      : `${formatWallClock(start, "time")}–${formatWallClock(end, "time")}`}
                   </span>
                   <Badge
                     tone={
@@ -1013,9 +1014,9 @@ function EventDetailsDialog({
       <DialogContent title={entry.title} description={CLASS_LABEL[entry.kind]}>
         <div className="grid gap-3 p-4">
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            {s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} ·{" "}
-            {s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}–
-            {e.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            {formatWallClock(s, "longDate")} ·{" "}
+            {formatWallClock(s, "time")}–
+            {formatWallClock(e, "time")}
             {entry.kind === "appointment" && entry.itemKind != null ? ` · ${entry.itemKind.replaceAll("_", " ")}` : ""}
           </p>
           {entry.kind === "appointment" && entry.travelMinutes > 0 ? (

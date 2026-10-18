@@ -52,6 +52,7 @@ import {
   applyDensity,
   useDensity,
 } from "@marula-core/ui";
+import { LocalTime } from "../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -699,7 +700,7 @@ export default function KbPage() {
                             ) : null}
                             {c.key === "created" ? (
                               <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                                {new Date(a.created_at).toLocaleDateString()}
+                                <LocalTime value={a.created_at} kind="date" />
                               </span>
                             ) : null}
                           </Td>
@@ -1236,8 +1237,8 @@ function ArticleViewer({
             <Badge tone={category?.client_visible ? "success" : "warning"}>client-facing</Badge>
           ) : null}
           <span>
-            /{article.slug} · created {new Date(article.created_at).toLocaleDateString()} · updated{" "}
-            {new Date(article.updated_at).toLocaleDateString()}
+            /{article.slug} · created <LocalTime value={article.created_at} kind="date" /> · updated{" "}
+            <LocalTime value={article.updated_at} kind="date" />
           </span>
         </div>
       ) : null}

@@ -12,9 +12,11 @@ import {
   browserTimeZone,
   dayKeyInTimeZone,
   formatDayKey,
+  formatWallClock,
   isTimeZone,
   offsetLabel,
   resolveTimeZone,
+  shiftDayKey,
   timeZoneOffsetMinutes,
   timeZoneOptions,
 } from "../../src/lib/time";
@@ -150,5 +152,29 @@ describe("zone helpers", () => {
     const values = timeZoneOptions(new Date(), "Asia/Calcutta").map((option) => option.value);
     expect(values).toContain("Asia/Calcutta");
     expect(values).toContain("UTC");
+  });
+});
+
+describe("shiftDayKey", () => {
+  it("moves a key by whole days across month and year ends", () => {
+    expect(shiftDayKey("2026-10-15", -1)).toBe("2026-10-14");
+    expect(shiftDayKey("2026-11-01", -1)).toBe("2026-10-31");
+    expect(shiftDayKey("2027-01-01", -1)).toBe("2026-12-31");
+    expect(shiftDayKey("2026-02-28", 1)).toBe("2026-03-01");
+  });
+
+  it("leaves a value that is not a day key alone", () => {
+    expect(shiftDayKey("2026-10-15T09:00:00Z", -1)).toBe("2026-10-15T09:00:00Z");
+  });
+});
+
+describe("formatWallClock", () => {
+  it("draws the reader's own clock, in the pinned format", () => {
+    // Deliberately the machine's zone: this is the reading that is *not* about
+    // a record, so only the shape is asserted, never an absolute hour.
+    const local = new Date(2026, 9, 18, 9, 5);
+    expect(formatWallClock(local, "time")).toBe("09:05");
+    expect(formatWallClock(local, "day")).toBe("Sun 18 Oct");
+    expect(formatWallClock(local, "longDate")).toBe("Sunday 18 October");
   });
 });

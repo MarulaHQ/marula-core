@@ -26,6 +26,7 @@ import { formatNoteBody, initialsOf } from "../../lib/note-format";
 import type { TimerSession } from "../../lib/use-timer";
 import { ModelPicker, useLazySurfacePick } from "../ai/model-picker";
 import { NoteComposer, type NoteComposerHandle } from "./note-composer";
+import { LocalTime } from "../local-time";
 
 type TicketComment = components["schemas"]["TicketComment"];
 type ChecklistItem = components["schemas"]["ChecklistItem"];
@@ -692,9 +693,11 @@ function NoteRow({ comment, authorName, inSession, staggerIndex }: NoteRowProps)
           <span className={isMachine ? "workbar-machine-pill" : ""} style={isMachine ? { color: "var(--m-accent)" } : undefined}>
             {isMachine ? "auto · task" : authorName}
           </span>
-          <time title={comment.created_at}>
-            {new Date(comment.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          </time>
+          <LocalTime
+            title={comment.created_at}
+            value={comment.created_at}
+            kind="time"
+          />
           {comment.updated_at != null && <span>edited</span>}
         </p>
       </div>

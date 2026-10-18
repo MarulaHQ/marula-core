@@ -25,6 +25,11 @@ import {
   Kbd,
   Spinner,
 } from "@marula-core/ui";
+import {
+  browserTimeZone,
+  dayKeyInTimeZone,
+  formatWallClock,
+} from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -277,11 +282,7 @@ export default function TodayPage() {
   const firstName = (auth.me?.display_name ?? "").split(/\s+/)[0] ?? "";
   const hour = new Date(now).getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const yesterdayLabel = new Date(now - 86_400_000).toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
+  const yesterdayLabel = formatWallClock(now - 86_400_000, "day");
 
   return (
     <div className="flex h-full flex-col">
@@ -301,7 +302,7 @@ export default function TodayPage() {
                 className="text-[10px] font-semibold uppercase tracking-wide"
                 style={{ color: "var(--m-text-muted)" }}
               >
-                {new Date(now).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
+                {formatWallClock(now, "longDate")}
               </p>
               <h1 className="text-2xl font-semibold tracking-tight">
                 {firstName !== "" ? `${greeting}, ${firstName}` : greeting}
@@ -347,7 +348,7 @@ export default function TodayPage() {
               value={changed.length}
               line={
                 lastVisit !== null
-                  ? `Since you were last here at ${new Date(lastVisit).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`
+                  ? `Since you were last here at ${formatWallClock(lastVisit, "time")}`
                   : "You are up to date"
               }
               anchor="due-today"
@@ -523,7 +524,7 @@ export default function TodayPage() {
                             }}
                             title={
                               dueIso !== null && dueIso !== undefined
-                                ? `Due ${new Date(dueIso).toLocaleString()}`
+                                ? `Due ${formatWallClock(dueIso, "datetime")}`
                                 : undefined
                             }
                           >
@@ -679,8 +680,7 @@ function windowLabel(mins: number): string {
 
 /** "Mon 28 Sep (yesterday)" — the quick-log dialog's fixed day. */
 function yesterdayLabel(): string {
-  const y = new Date(Date.now() - 86_400_000);
-  return `${y.toLocaleDateString(undefined, { weekday: "short" })} ${y.getDate()} ${y.toLocaleString(undefined, { month: "short" })} (yesterday)`;
+  return `${formatWallClock(Date.now() - 86_400_000, "day")} (yesterday)`;
 }
 
 /** The pack's kbd hint chips (C / L) ride the header buttons as kit `Kbd`. */
@@ -827,7 +827,12 @@ function QuickLogForm({
         });
         if (!cancelled) {
           setDayEntries(
-            (res.data ?? []).filter((e) => e.started_at.slice(0, 10) === yesterdayIso()),
+            (res.data ?? []).filter(
+            // The surface's frame is the reader's own clock, so "yesterday" is
+            // compared as a day key in that frame. The stored instant's UTC
+            // date agrees only for a reader in UTC.
+            (e) => dayKeyInTimeZone(e.started_at, browserTimeZone()) === yesterdayIso(),
+          ),
           );
         }
       } catch {
@@ -1224,11 +1229,7 @@ function QuickLogForm({
 function endTimeFrom(start: string, minutes: number): string {
   const started = new Date(`${yesterdayIso()}T${start}:00`);
   if (Number.isNaN(started.getTime()) || !Number.isFinite(minutes)) return "";
-  return new Date(started.getTime() + minutes * 60_000).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatWallClock(started.getTime() + minutes * 60_000, "time");
 }
 
 /** "MAR-100" — the overlapping entry's ticket, matched against the queue
@@ -1265,7 +1266,6 @@ function gapHint(
   if (dayEnd - cursor >= 30 * 60_000) windows.push({ from: cursor, to: dayEnd });
   const open = windows.find((w) => w.to - w.from >= overlapEnd.getTime() - overlapStart.getTime());
   if (open === undefined) return "No free hour left on yesterday's timeline — shorten the entry or let it overlap.";
-  const fmt = (ms: number) =>
-    new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const fmt = (ms: number) => formatWallClock(ms, "time");
   return `Yesterday's gap is ${fmt(open.from)} to ${fmt(open.to)}.`;
 }

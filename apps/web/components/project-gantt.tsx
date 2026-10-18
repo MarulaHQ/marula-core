@@ -24,6 +24,7 @@ import {
 import type { components } from "@marula-core/sdk";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { formatNumber } from "@marula-core/ui";
 
 type Gantt = components["schemas"]["ProjectGanttView"];
 type Phase = components["schemas"]["PhaseGanttView"];
@@ -398,7 +399,7 @@ function BurnLabel({ phase }: { phase: Phase }) {
 
 function formatMinor(minor: number, currency: string | null | undefined): string {
   const value = minor / 100;
-  return `${currency ?? ""} ${value.toLocaleString(undefined, {
+  return `${currency ?? ""} ${formatNumber(value, {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   })}`.trim();

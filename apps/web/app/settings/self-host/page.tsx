@@ -140,7 +140,7 @@ function StateDot({ state }: { state: ServiceState }) {
   );
 }
 
-/** The reader's zone comes in because a bare `toLocaleString()` answered with
+/** The reader's zone comes in because a bare date call used to answer with
  *  whatever the machine was set to. */
 function when(iso: string | null, timeZone: string): string {
   if (iso === null) return "never";

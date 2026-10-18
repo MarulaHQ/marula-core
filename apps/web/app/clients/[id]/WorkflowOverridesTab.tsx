@@ -24,11 +24,13 @@ import {
   SelectValue,
   Spinner,
 } from "@marula-core/ui";
+import { formatInTimeZone } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { api } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { useTimeFormat } from "../../../lib/use-time-format";
 
 type ClientWorkflowResolution = components["schemas"]["ClientWorkflowResolution"];
 type OverrideEntry = components["schemas"]["OverrideEntry"];
@@ -52,15 +54,15 @@ function detailText(entry: OverrideEntry): string | null {
   return "set";
 }
 
-function overrideRowText(entry: OverrideEntry): string | null {
+function overrideRowText(entry: OverrideEntry, timeZone: string): string | null {
   const row = entry.client_override;
   if (row === null || row === undefined) return null;
   const who = row.changed_by !== null && row.changed_by !== undefined ? row.changed_by.slice(0, 8) : "—";
-  const when = new Date(row.updated_at).toLocaleString();
-  return `set by ${who} · ${when}`;
+  return `set by ${who} · ${formatInTimeZone(row.updated_at, timeZone, "datetime")}`;
 }
 
 export default function WorkflowOverridesTab({ clientId }: { clientId: string }): ReactNode {
+  const { timeZone } = useTimeFormat();
   const [resolution, setResolution] = useState<ClientWorkflowResolution | null>(null);
   const [boards, setBoards] = useState<Board[] | null>(null);
   const [slaPolicies, setSlaPolicies] = useState<SlaPolicy[] | null>(null);
@@ -183,9 +185,9 @@ export default function WorkflowOverridesTab({ clientId }: { clientId: string })
             <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
               {entry.description}
             </p>
-            {overrideRowText(entry) !== null && (
+            {overrideRowText(entry, timeZone) !== null && (
               <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                {overrideRowText(entry)}
+                {overrideRowText(entry, timeZone)}
               </p>
             )}
             {entry.issues.length > 0 && (

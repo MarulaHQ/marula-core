@@ -59,6 +59,7 @@ import {
   applyDensity,
   useDensity,
 } from "@marula-core/ui";
+import { LocalTime } from "../../components/local-time";
 import { AssistantCard } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -1067,7 +1068,7 @@ export default function AutomationsPage() {
                             className="tabular-nums text-[12px]"
                             style={{ color: "var(--m-text-secondary)" }}
                           >
-                            {r.updated_at == null ? "—" : new Date(r.updated_at).toLocaleDateString()}
+                            {r.updated_at == null ? "—" : <LocalTime value={r.updated_at} kind="date" />}
                           </span>
                         ) : null}
                       </Td>
