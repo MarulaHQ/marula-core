@@ -19,7 +19,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { friendlyMutationText } from "../../../lib/error-copy";
-import { Spinner } from "@marula-core/ui";
+import {
+  Spinner,
+  dayKeyInTimeZone,
+  formatDayKey,
+  formatInTimeZone,
+  shiftDayKey,
+} from "@marula-core/ui";
 import {
   portalApi,
   useRequirePortalAuth,
@@ -27,6 +33,7 @@ import {
   type PortalStaffSlots,
 } from "../../../lib/portal-api";
 import { clockTime, longDate, timeRange } from "../../../lib/portal-copy";
+import { useTimeFormat } from "../../../lib/use-time-format";
 import {
   ConfirmedPill,
   Field,
@@ -37,28 +44,22 @@ import {
 
 type Slot = { userId: string; name: string; starts: string; ends: string };
 
-function dayLabel(iso: string): string {
-  const d = new Date(iso);
-  const today = new Date();
-  const local = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const delta = Math.round(
-    (new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - local.getTime()) / 86_400_000,
-  );
-  if (delta === 0) return "Today";
-  if (delta === 1) return "Tomorrow";
-  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-}
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
-/** The day-chip label: "Wed 30 Sep", or "Today"/"Tomorrow" when that is
- *  nearer than the date. */
-function dayChip(iso: string): string {
-  const label = dayLabel(iso);
-  if (label === "Today" || label === "Tomorrow") return label;
-  return new Date(iso).toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
+/**
+ * "Wed 30 Sep", or "Today"/"Tomorrow" when that is nearer than the date.
+ *
+ * The value is normalised to a day key in the reader's zone first, so the word
+ * and the date it replaces agree: a slot at 23:00Z is Wednesday to a client in
+ * London and Thursday to one in Sydney, and each of them books on their own
+ * calendar. A value that already is a day key is used as it stands.
+ */
+function dayLabel(value: string, timeZone: string): string {
+  const key = DAY_KEY.test(value) ? value : dayKeyInTimeZone(value, timeZone);
+  const today = dayKeyInTimeZone(Date.now(), timeZone);
+  if (key === today) return "Today";
+  if (key === shiftDayKey(today, 1)) return "Tomorrow";
+  return formatDayKey(key, "day");
 }
 
 const REASONS = [
@@ -70,6 +71,7 @@ const REASONS = [
 
 export default function PortalSchedulePage() {
   useRequirePortalAuth();
+  const { timeZone } = useTimeFormat();
   const range = useMemo(() => {
     const from = new Date().toISOString().slice(0, 10);
     const to = new Date(Date.now() + 13 * 24 * 3600 * 1000).toISOString().slice(0, 10);
@@ -124,7 +126,7 @@ export default function PortalSchedulePage() {
     const byDay = new Map<string, Slot[]>();
     for (const staff of slots) {
       for (const slot of staff.slots) {
-        const key = slot.starts_at.slice(0, 10);
+        const key = dayKeyInTimeZone(slot.starts_at, timeZone);
         const list = byDay.get(key) ?? [];
         list.push({
           userId: staff.user_id,
@@ -141,13 +143,11 @@ export default function PortalSchedulePage() {
       .slice(0, 6)
       .map(([day, list]) => ({
         day,
-        label: dayLabel(list[0]?.starts ?? day),
-        // The chip label the rail of days shows: "Wed 30 Sep", or
-        // "Today"/"Tomorrow" when that is nearer than the date.
-        chip: dayChip(list[0]?.starts ?? day),
+        // The chip label the rail of days shows, and the heading of the row.
+        label: dayLabel(list[0]?.starts ?? day, timeZone),
         slots: list,
       }));
-  }, [slots]);
+  }, [slots, timeZone]);
 
   const confirmed = useMemo(
     () => (requests === null ? [] : requests.filter((r) => r.status === "approved")),
@@ -173,7 +173,7 @@ export default function PortalSchedulePage() {
         ends_at: picked.ends,
         kind: "remote",
       });
-      setRequested(`${picked.name} · ${longDate(picked.starts)} at ${clockTime(picked.starts)}`);
+      setRequested(`${picked.name} · ${longDate(picked.starts, timeZone)} at ${clockTime(picked.starts, timeZone)}`);
       setPicked(null);
       setTitle("");
     } catch (err) {
@@ -221,16 +221,16 @@ export default function PortalSchedulePage() {
             <div className="portal-row" key={r.id} style={{ gridTemplateColumns: "70px minmax(0, 1fr) auto" }}>
               <span className="portal-row__title">
                 <b style={{ fontSize: 20, lineHeight: 1 }}>
-                  {new Date(r.starts_at).getDate()}
+                  {Number(dayKeyInTimeZone(r.starts_at, timeZone).slice(8))}
                 </b>
                 <span>
-                  {new Date(r.starts_at).toLocaleDateString(undefined, { month: "short" })}
+                  {formatInTimeZone(r.starts_at, timeZone, "month")}
                 </span>
               </span>
               <span className="portal-row__title">
                 <b>{r.title}</b>
                 <span>
-                  {timeRange(r.starts_at, r.ends_at)}
+                  {timeRange(r.starts_at, r.ends_at, timeZone)}
                   {r.notes !== null && r.notes !== "" ? ` · ${r.notes}` : ""}
                 </span>
               </span>
@@ -247,7 +247,7 @@ export default function PortalSchedulePage() {
               <span className="portal-row__title">
                 <b>{r.title}</b>
                 <span>
-                  {dayLabel(r.starts_at)}, {timeRange(r.starts_at, r.ends_at)}
+                  {dayLabel(r.starts_at, timeZone)}, {timeRange(r.starts_at, r.ends_at, timeZone)}
                 </span>
               </span>
               <RequestedPill />
@@ -297,7 +297,7 @@ export default function PortalSchedulePage() {
                     onClick={() => setPickedDay(d.day)}
                     data-testid={`portal-day-${d.day}`}
                   >
-                    {d.chip}
+                    {d.label}
                   </button>
                 ))}
               </div>
@@ -317,11 +317,11 @@ export default function PortalSchedulePage() {
                   // says who it is with, first name only.
                   const timeCount = new Map<string, number>();
                   for (const s of daySlots) {
-                    const label = clockTime(s.starts);
+                    const label = clockTime(s.starts, timeZone);
                     timeCount.set(label, (timeCount.get(label) ?? 0) + 1);
                   }
                   return daySlots.map((s) => {
-                    const label = clockTime(s.starts);
+                    const label = clockTime(s.starts, timeZone);
                     const shared = (timeCount.get(label) ?? 0) > 1;
                     const who = shared ? ` · ${s.name.split(" ")[0]}` : "";
                     return (

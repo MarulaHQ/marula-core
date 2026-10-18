@@ -43,6 +43,7 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -627,7 +628,7 @@ export default function InvoiceDetailPage() {
                 <tbody>
                   {invoice.payments.map((p) => (
                     <Tr key={p.id} className="row-hover">
-                      <Td className="text-[12px]">{new Date(p.received_at).toLocaleString()}</Td>
+                      <Td className="text-[12px]"><LocalTime value={p.received_at} kind="datetime" /></Td>
                       <Td>
                         <Badge tone="neutral">{p.provider === "none" ? "EFT" : p.provider}</Badge>
                       </Td>
@@ -813,7 +814,13 @@ export default function InvoiceDetailPage() {
                 <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
                   Last note: “{invoice.dunning_note}”
                   {invoice.dunning_updated_at != null
-                    ? ` (${new Date(invoice.dunning_updated_at).toLocaleString()})`
+                    ? (
+                        <>
+                          {" ("}
+                          <LocalTime value={invoice.dunning_updated_at} kind="datetime" />
+                          {")"}
+                        </>
+                      )
                     : ""}
                 </p>
               ) : null}

@@ -46,6 +46,7 @@ import {
   applyDensity,
   useDensity,
 } from "@marula-core/ui";
+import { LocalTime } from "../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import {
   BlushNote,
@@ -385,7 +386,7 @@ export default function DocumentsPage() {
                         {c.key === "version" ? `v${d.current_version}` : null}
                         {c.key === "updated" ? (
                           <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                            {new Date(d.updated_at).toLocaleDateString()}
+                            <LocalTime value={d.updated_at} kind="date" />
                           </span>
                         ) : null}
                       </Td>

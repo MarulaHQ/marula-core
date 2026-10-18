@@ -28,10 +28,17 @@ import type { components } from "@marula-core/sdk";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Spinner } from "@marula-core/ui";
+import {
+  dayKeyInTimeZone,
+  formatDayKey,
+  formatInTimeZone,
+  shiftDayKey,
+} from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import { applyEntryTheme } from "../../../lib/entry-theme";
 import { api } from "../../../lib/api";
 import { portalOrgName } from "../../../lib/portal-branding";
+import { useTimeFormat } from "../../../lib/use-time-format";
 
 type PublicLinkView = components["schemas"]["PublicLinkView"];
 
@@ -39,6 +46,8 @@ const SLOT_CHUNK_MINUTES = 30;
 
 /** Typed error envelope bodies arrive untyped here (responses carry no
  *  content schema); the codes map to friendly public copy. */
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
 function friendlyLinkError(error: unknown): string {
   const body = error as { error?: { code?: number; message?: string } } | undefined;
   const code = body?.error?.code;
@@ -56,21 +65,24 @@ function friendlyLinkError(error: unknown): string {
   return "Each booking link works for a short while, then it stops.";
 }
 
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+function fmtTime(iso: string, timeZone: string): string {
+  return formatInTimeZone(iso, timeZone, "time");
 }
 
-function fmtDay(iso: string): string {
-  const d = new Date(iso);
-  const today = new Date();
-  const delta = Math.round(
-    (new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() -
-      new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()) /
-      86_400_000,
-  );
-  if (delta === 0) return "Today";
-  if (delta === 1) return "Tomorrow";
-  return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+/**
+ * "Today" / "Tomorrow" / "Thursday 18 October".
+ *
+ * The value is normalised to a day key in the reader's zone first, so the word
+ * and the date agree: a 09:00 slot is today to the visitor booking it and
+ * tomorrow to nobody. A visitor has no account here, so the zone is the
+ * device's — the only one they have.
+ */
+function fmtDay(value: string, timeZone: string): string {
+  const key = DAY_KEY.test(value) ? value : dayKeyInTimeZone(value, timeZone);
+  const today = dayKeyInTimeZone(Date.now(), timeZone);
+  if (key === today) return "Today";
+  if (key === shiftDayKey(today, 1)) return "Tomorrow";
+  return formatDayKey(key, "longDate");
 }
 
 /** "6 hours", "2 days" — the shape of a time left, in words. */
@@ -84,17 +96,19 @@ function untilText(iso: string, now: Date = new Date()): string {
 }
 
 function ExpiryPill({ expiresAt }: { expiresAt: string }) {
+  const { timeZone } = useTimeFormat();
   const left = untilText(expiresAt);
   // The one coloured element on this surface, and only inside a day.
   const soon = !left.endsWith("days") && !left.endsWith("expired");
   return (
     <span className={soon ? "share-pill share-pill--blush" : "share-pill"}>
-      {soon ? `Expires in ${left}` : `Expires ${new Date(expiresAt).toLocaleString()}`}
+      {soon ? `Expires in ${left}` : `Expires ${formatInTimeZone(expiresAt, timeZone, "datetime")}`}
     </span>
   );
 }
 
 export default function PublicBookingPage(): ReactNode {
+  const { timeZone } = useTimeFormat();
   const params = useParams<{ token: string }>();
   const token = params?.token ?? "";
   const desk = portalOrgName() ?? "your service desk";
@@ -153,7 +167,7 @@ export default function PublicBookingPage(): ReactNode {
     all.sort((a, b) => (a < b ? -1 : 1));
     const groups = new Map<string, string[]>();
     for (const iso of all.slice(0, 60)) {
-      const key = fmtDay(iso);
+      const key = fmtDay(iso, timeZone);
       groups.set(key, [...(groups.get(key) ?? []), iso]);
     }
     return [...groups.entries()];
@@ -222,7 +236,7 @@ export default function PublicBookingPage(): ReactNode {
           </span>
           <h1 className="share-card__h">Booked.</h1>
           <p className="share-card__p">
-            {selected !== null && `${fmtDay(selected)} at ${fmtTime(selected)}`}. {desk} has it, and
+            {selected !== null && `${fmtDay(selected, timeZone)} at ${fmtTime(selected, timeZone)}`}. {desk} has it, and
             you&apos;ll get a confirmation by email.
           </p>
         </div>
@@ -279,7 +293,7 @@ export default function PublicBookingPage(): ReactNode {
                       onClick={() => setSelected(iso)}
                       data-testid={`share-slot-${iso}`}
                     >
-                      {fmtTime(iso)}
+                      {fmtTime(iso, timeZone)}
                     </button>
                   ))}
                 </div>
@@ -338,7 +352,7 @@ export default function PublicBookingPage(): ReactNode {
         {view.expires_at !== null && view.expires_at !== undefined && (
           <div className="share-expiry">
             {view.is_expired === true ? (
-              <span>Expired {new Date(view.expires_at).toLocaleString()}</span>
+              <span>Expired {formatInTimeZone(view.expires_at, timeZone, "datetime")}</span>
             ) : (
               <ExpiryPill expiresAt={view.expires_at} />
             )}

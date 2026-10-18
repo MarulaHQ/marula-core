@@ -15,7 +15,7 @@
 // voice. Nothing here takes a status pair, because nothing here is a status.
 "use client";
 
-import { Badge, EmptyState, Spinner } from "@marula-core/ui";
+import { Badge, EmptyState, Spinner, formatDayKey, formatNumber } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
@@ -50,12 +50,16 @@ export function fieldValueLabel(kind: string, value: unknown): string {
     case "bool":
       return value === true || value === "true" ? "Yes" : "No";
     case "date": {
-      const parsed = new Date(String(value));
-      return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString();
+      // A date field holds a `YYYY-MM-DD` day, not an instant
+      // (`crates/core-domain/src/custom_fields.rs` parses `%Y-%m-%d`). Reading
+      // it as an instant put it at midnight UTC and printed the day before for
+      // every reader west of Greenwich, so it is read in its own frame.
+      const text = String(value);
+      return /^\d{4}-\d{2}-\d{2}$/.test(text) ? formatDayKey(text, "date") : text;
     }
     case "number": {
       const num = typeof value === "number" ? value : Number(value);
-      return Number.isNaN(num) ? String(value) : num.toLocaleString();
+      return Number.isNaN(num) ? String(value) : formatNumber(num);
     }
     case "multiselect":
       return Array.isArray(value)

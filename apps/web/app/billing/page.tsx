@@ -50,6 +50,7 @@ import {
   applyDensity,
   type FilterClause,
 } from "@marula-core/ui";
+import { LocalTime } from "../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -763,7 +764,7 @@ export default function BillingPage() {
                       {r.currency != null ? money(r.total_minor, r.currency) : "…"}
                     </Td>
                     <Td className="text-[12px]">
-                      {r.created_at !== undefined ? new Date(r.created_at).toLocaleString() : "—"}
+                      {r.created_at !== undefined ? <LocalTime value={r.created_at} kind="datetime" /> : "—"}
                     </Td>
                   </Tr>
                 ))}

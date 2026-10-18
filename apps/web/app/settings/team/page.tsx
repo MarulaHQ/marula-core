@@ -41,6 +41,7 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
@@ -423,7 +424,7 @@ export default function TeamSettingsPage() {
                   </div>
                   {inviteResult.invite.expires_at !== null && inviteResult.invite.expires_at !== undefined ? (
                     <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                      Expires {new Date(inviteResult.invite.expires_at).toLocaleString()}.
+                      Expires <LocalTime value={inviteResult.invite.expires_at} kind="datetime" />.
                     </p>
                   ) : null}
                   <p className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>

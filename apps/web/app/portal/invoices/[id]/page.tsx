@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from "react";
 import { friendlyMutationText } from "../../../../lib/error-copy";
 import { Spinner } from "@marula-core/ui";
 import { portalApi, useRequirePortalAuth, type PortalInvoiceDetail } from "../../../../lib/portal-api";
+import { useTimeFormat } from "../../../../lib/use-time-format";
 import { longDate, money, overdueDays } from "../../../../lib/portal-copy";
 import {
   Note,
@@ -37,6 +38,7 @@ function lineLabel(line: { kind: string; description: string; quantity_minutes: 
 
 export default function PortalInvoicePage() {
   useRequirePortalAuth();
+  const { timeZone } = useTimeFormat();
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [detail, setDetail] = useState<PortalInvoiceDetail | null>(null);
@@ -109,12 +111,12 @@ export default function PortalInvoicePage() {
         <div>
           <h1 className="portal-title">{inv.number}</h1>
           <p className="portal-lead">
-            Issued {longDate(inv.issued_at)} · Due {longDate(inv.due_on)}
+            Issued {longDate(inv.issued_at, timeZone)} · Due {longDate(inv.due_on, timeZone)}
           </p>
         </div>
         {outstanding ? (
           days === null ? (
-            <span className="portal-pill portal-pill--received">Due {longDate(inv.due_on)}</span>
+            <span className="portal-pill portal-pill--received">Due {longDate(inv.due_on, timeZone)}</span>
           ) : (
             <OverduePill days={days} />
           )
@@ -186,7 +188,7 @@ export default function PortalInvoicePage() {
           {detail.payments.map((p) => (
             <div className="portal-row" key={p.id}>
               <span className="portal-row__title">
-                <b>{longDate(p.received_at)}</b>
+                <b>{longDate(p.received_at, timeZone)}</b>
                 <span>{p.provider.replace(/_/g, " ")}</span>
               </span>
               <b className="portal-row__amount">{money(p.amount_minor, p.currency)}</b>

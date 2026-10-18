@@ -36,6 +36,7 @@ import {
   StatusPill,
   ticketNote,
 } from "../../../components/portal/portal-ui";
+import { useTimeFormat } from "../../../lib/use-time-format";
 
 interface Row {
   id: string;
@@ -52,6 +53,7 @@ interface Row {
 
 export default function PortalTicketsPage() {
   useRequirePortalAuth();
+  const { timeZone } = useTimeFormat();
   const router = useRouter();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -160,7 +162,7 @@ export default function PortalTicketsPage() {
               <PortalRow
                 key={t.id}
                 title={t.title}
-                meta={`#${t.number} · ${t.statusLabel ?? ticketNote(t.category)} · ${stamp(t.updated_at)}`}
+                meta={`#${t.number} · ${t.statusLabel ?? ticketNote(t.category)} · ${stamp(t.updated_at, timeZone)}`}
                 highlight={status === "waiting"}
                 onClick={() => router.push(`/portal/tickets/${t.id}`)}
                 trailing={<StatusPill status={status} />}
@@ -177,7 +179,7 @@ export default function PortalTicketsPage() {
             <PortalRow
               key={t.id}
               title={t.title}
-              meta={`#${t.number} · ${CLIENT_STATUS.resolved.note} · ${stamp(t.updated_at)}`}
+              meta={`#${t.number} · ${CLIENT_STATUS.resolved.note} · ${stamp(t.updated_at, timeZone)}`}
               onClick={() => router.push(`/portal/tickets/${t.id}`)}
               trailing={
                 <>
@@ -210,7 +212,7 @@ export default function PortalTicketsPage() {
               <div>
                 <h2>How did we do?</h2>
                 <p>
-                  Ticket #{csatTicket.number} · {longDate(new Date().toISOString())}
+                  Ticket #{csatTicket.number} · {longDate(new Date().toISOString(), timeZone)}
                 </p>
               </div>
             </div>

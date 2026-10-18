@@ -33,6 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
@@ -768,7 +769,7 @@ export default function IntegrationsSettingsPage() {
                               <Badge tone={verdict.tone}>{verdict.label}</Badge>
                             </div>
                             <div className="flex items-center justify-between gap-2 tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-                              <span title={d.created_at}>{new Date(d.created_at).toLocaleString()}</span>
+                              <span><LocalTime value={d.created_at} kind="datetime" /></span>
                               <span>{d.last_error ?? ""}</span>
                             </div>
                           </div>
@@ -1227,7 +1228,7 @@ function IngestLogPanel({
           >
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                {new Date(row.at).toLocaleString()}
+                <LocalTime value={row.at} kind="datetime" />
               </span>
               <Badge tone={row.tone}>{row.label}</Badge>
             </div>

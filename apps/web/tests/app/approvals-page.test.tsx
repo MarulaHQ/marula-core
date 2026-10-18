@@ -60,9 +60,12 @@ function queueItem(over: Record<string, unknown>) {
   };
 }
 
-function setupApi(permissions: string[] = ["special:approve_time"]): MockApi {
+function setupApi(
+  permissions: string[] = ["special:approve_time"],
+  timezone = "UTC",
+): MockApi {
   const mock = new MockApi();
-  mock.on("GET", "/api/v1/me", () => ({ json: { ...ME_FIXTURE, permissions } }));
+  mock.on("GET", "/api/v1/me", () => ({ json: { ...ME_FIXTURE, permissions, timezone } }));
   mock.on("GET", "/api/v1/time-entries/approvals/queue", (ctx) => ({
     json:
       ctx.query.status === "rejected"
@@ -105,6 +108,16 @@ describe("/approvals", () => {
     expect(screen.getAllByText("0:30").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/ticket 30000000/).length).toBe(2);
     expect(screen.getByTestId("queue-bar")).toBeInTheDocument();
+    cleanup();
+  });
+
+  it("draws the queue in the approver's own zone, not the machine's", async () => {
+    // 09:00Z is 18:00 in Tokyo. The account's zone decides the reading; the
+    // machine's zone is whatever the suite happens to run in.
+    setupApi(["special:approve_time"], "Asia/Tokyo");
+    mount(<ApprovalsPage />);
+    await screen.findAllByText("1:30");
+    expect(screen.getAllByText("18:00").length).toBeGreaterThan(0);
     cleanup();
   });
 

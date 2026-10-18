@@ -16,6 +16,7 @@ import { useCallback, useEffect, useState } from "react";
 import { friendlyMutationText } from "../../../../../lib/error-copy";
 import { Spinner } from "@marula-core/ui";
 import { portalApi, useRequirePortalAuth, type PortalKbArticle } from "../../../../../lib/portal-api";
+import { useTimeFormat } from "../../../../../lib/use-time-format";
 import { longDate } from "../../../../../lib/portal-copy";
 import { DESK_NAME } from "../../../../../components/portal/portal-shell";
 import { PortalCard, PortalIcon } from "../../../../../components/portal/portal-ui";
@@ -81,6 +82,7 @@ function ArticleBody({ body }: { body: string }) {
 
 export default function PortalKbArticlePage() {
   useRequirePortalAuth();
+  const { timeZone } = useTimeFormat();
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [article, setArticle] = useState<PortalKbArticle | null>(null);
@@ -135,7 +137,7 @@ export default function PortalKbArticlePage() {
       <div>
         <h1 className="portal-title">{article.title}</h1>
         <p className="portal-lead">
-          Published by {DESK_NAME} · Updated {longDate(article.updated_at)}
+          Published by {DESK_NAME} · Updated {longDate(article.updated_at, timeZone)}
         </p>
       </div>
       <PortalCard testId="portal-kb-article">

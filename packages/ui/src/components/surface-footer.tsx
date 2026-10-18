@@ -31,6 +31,7 @@
  */
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
+import { formatNumber } from "../lib/number";
 
 /** One keyboard pair, the way the pack prints them: `J K` + `move`. */
 export interface SurfaceFooterHint {
@@ -100,10 +101,10 @@ export function SurfaceFooter({
         {/* Real spaces, not only the flex gap: a screen reader hears
             "12 of 12 tickets", and a reader that drops the gap still reads
             words rather than "12of12tickets". */}
-        <b className="m-surface-footer-num">{shown.toLocaleString()}</b>{" "}
+        <b className="m-surface-footer-num">{formatNumber(shown)}</b>{" "}
         {total === undefined ? null : (
           <>
-            of <b className="m-surface-footer-num">{total.toLocaleString()}</b>{" "}
+            of <b className="m-surface-footer-num">{formatNumber(total)}</b>{" "}
           </>
         )}
         {word}
@@ -118,7 +119,7 @@ export function SurfaceFooter({
         >
           {loadingMore
             ? "Loading…"
-            : (loadMoreLabel ?? `Load ${loadMoreCount.toLocaleString()} more`)}
+            : (loadMoreLabel ?? `Load ${formatNumber(loadMoreCount)} more`)}
         </button>
       )}
       {children}

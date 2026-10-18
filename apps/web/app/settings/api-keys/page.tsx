@@ -24,6 +24,7 @@ import {
   Input,
   Label,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
@@ -301,10 +302,10 @@ export default function ApiKeysSettingsPage() {
                     </span>
                   </td>
                   <td className="p-2 tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                    {new Date(k.created_at).toLocaleDateString()}
+                    <LocalTime value={k.created_at} kind="date" />
                   </td>
                   <td className="p-2 tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                    {k.last_used_at != null ? new Date(k.last_used_at).toLocaleString() : "never"}
+                    {k.last_used_at != null ? <LocalTime value={k.last_used_at} kind="datetime" /> : "never"}
                   </td>
                   <td className="p-2 text-right">
                     {k.revoked_at != null ? (

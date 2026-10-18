@@ -9,6 +9,7 @@ import type { components } from "@marula-core/sdk";
 import { api } from "./api";
 import { friendlyMutationError, friendlyMutationText } from "./error-copy";
 import { runEnvelopeMutation } from "./envelope-write";
+import { formatWallClock } from "@marula-core/ui";
 
 export type DayPackSource = components["schemas"]["DayPackSourceView"];
 export type DayPackHolder = components["schemas"]["DayPackHolderView"];
@@ -189,7 +190,7 @@ export function qtyText(qtyMilli: number): string {
 }
 
 export function timeText(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return formatWallClock(iso, "time");
 }
 
 /** "Van · 2" / "Shelf A-3 · 4" — where to grab it, from the read model. */
@@ -233,11 +234,7 @@ export function availabilityTone(
 }
 
 function dayLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
+  return formatWallClock(iso, "day");
 }
 
 /** "Dana has it, due Thu" — the honest unavailable state, never a bare no. */

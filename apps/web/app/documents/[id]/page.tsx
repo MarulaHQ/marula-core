@@ -37,6 +37,7 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -391,7 +392,9 @@ export default function DocumentDetailPage() {
               ·{" "}
               {doc.content_updated_at === null || doc.content_updated_at === undefined
                 ? "no content revision yet"
-                : `updated ${new Date(doc.content_updated_at).toLocaleString()}`}
+                : (
+                  <>updated <LocalTime value={doc.content_updated_at} kind="datetime" /></>
+                )}
             </span>
             {doc.restored_from_version != null ? (
               <Badge tone="warning">restored from v{doc.restored_from_version}</Badge>
@@ -527,7 +530,7 @@ export default function DocumentDetailPage() {
                             {v.restored_from_version != null ? ` (restored from v${v.restored_from_version})` : ""}
                           </Td>
                           <Td className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                            {new Date(v.created_at).toLocaleString()}
+                            <LocalTime value={v.created_at} kind="datetime" />
                           </Td>
                           <Td className="text-right">
                             {isCurrent ? (

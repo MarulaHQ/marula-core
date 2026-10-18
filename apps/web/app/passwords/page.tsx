@@ -55,6 +55,8 @@ import {
   applyDensity,
   useDensity,
 } from "@marula-core/ui";
+import { formatNumber } from "@marula-core/ui";
+import { LocalTime } from "../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -743,7 +745,7 @@ export default function VaultPage() {
                                 <StatusPill tone="warning">rotation due</StatusPill>
                               ) : (
                                 <span className="tabular-nums">
-                                  {new Date(e.expires_at).toLocaleDateString()}
+                                  <LocalTime value={e.expires_at} kind="date" />
                                 </span>
                               )
                             ) : null}
@@ -872,7 +874,7 @@ export default function VaultPage() {
                                     <span style={{ color: "var(--m-text-muted)" }}>never</span>
                                   ) : (
                                     <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                                      {new Date(r.expires_at).toLocaleDateString()}
+                                      <LocalTime value={r.expires_at} kind="date" />
                                     </span>
                                   )
                                 ) : null}
@@ -1071,7 +1073,7 @@ export default function VaultPage() {
               <ul className="grid gap-1 text-[13px]">
                 {history.map((h) => (
                   <li key={h.id} className="rounded-[0.5rem] border px-3 py-2" style={{ borderColor: "var(--m-border)" }}>
-                    Secret changed · {new Date(h.created_at).toLocaleString()}
+                    Secret changed · <LocalTime value={h.created_at} kind="datetime" />
                   </li>
                 ))}
               </ul>
@@ -1327,14 +1329,14 @@ function RecordDialog({
                   ? "—"
                   : new Date(current.expires_at) < new Date()
                     ? "expired"
-                    : new Date(current.expires_at).toLocaleDateString()}
+                    : <LocalTime value={current.expires_at} kind="date" />}
               </MetaRow>
               <MetaRow label="Rotation">
                 {current.rotate_at == null
                   ? "—"
                   : new Date(current.rotate_at) < new Date()
                     ? "rotation due"
-                    : `rotate by ${new Date(current.rotate_at).toLocaleDateString()}`}
+                    : <>rotate by <LocalTime value={current.rotate_at} kind="date" /></>}
               </MetaRow>
             </dl>
 
@@ -1716,7 +1718,7 @@ function DocumentFilePanel({
           <span className="break-all text-[11px]">{record.file_sha256 ?? "—"}</span>
         </MetaRow>
         <MetaRow label="Bytes">
-          <span className="tabular-nums">{record.file_bytes != null ? record.file_bytes.toLocaleString() : "—"}</span>
+          <span className="tabular-nums">{record.file_bytes != null ? formatNumber(record.file_bytes) : "—"}</span>
         </MetaRow>
       </dl>
       {canReveal ? (

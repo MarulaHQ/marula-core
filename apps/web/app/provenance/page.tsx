@@ -30,9 +30,11 @@ import {
   type FilterClause,
   type FilterField,
 } from "@marula-core/ui";
+import { formatInTimeZone } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTimeFormat } from "../../lib/use-time-format";
 import { api, useRequireAuth } from "../../lib/api";
 import { rejectionText } from "../../lib/error-copy";
 import {
@@ -87,6 +89,7 @@ type ProvRow = {
 };
 
 export default function ProvenancePage() {
+  const { timeZone } = useTimeFormat();
   const auth = useRequireAuth();
   const prefs = useDataSurfacePrefs();
 
@@ -156,12 +159,7 @@ export default function ProvenancePage() {
       (events ?? []).map((e) => ({
         key: `${e.write_id ?? e.idempotency_key ?? e.occurred_at}-${e.seq}-${e.field}`,
         occurred: e.occurred_at,
-        occurredLabel: new Date(e.occurred_at).toLocaleString("en-GB", {
-          day: "numeric",
-          month: "short",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+        occurredLabel: formatInTimeZone(e.occurred_at, timeZone, "dayTime"),
         actorKind: e.actor_kind,
         entity: e.entity,
         op: e.op,
@@ -172,7 +170,7 @@ export default function ProvenancePage() {
         after: valueCell(e.after),
         seq: e.seq,
       })),
-    [events],
+    [events, timeZone],
   );
 
   const columns: readonly InsightColumn<ProvRow>[] = useMemo(

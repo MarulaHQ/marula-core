@@ -29,6 +29,7 @@
  */
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
+import { formatNumber } from "../lib/number";
 
 export interface BulkActionBarProps {
   /** How many rows are selected. */
@@ -75,7 +76,7 @@ export function BulkActionBar({
       data-testid={testId}
     >
       <span className="m-bulk-bar-count" data-testid={countTestId}>
-        {count.toLocaleString()} selected
+        {formatNumber(count)} selected
       </span>
       <span className="m-bulk-bar-actions">
         {children}

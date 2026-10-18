@@ -33,6 +33,7 @@ import {
   SelectValue,
   Spinner,
 } from "@marula-core/ui";
+import { LocalTime } from "./local-time";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
@@ -220,9 +221,14 @@ export function SecretSharePanel({
                   <span className="truncate">{l.label !== "" ? l.label : "share link"}</span>
                   <span className="text-[11px]" style={{ color: "var(--m-text-secondary)" }}>
                     expires{" "}
-                    {l.expires_at != null ? new Date(l.expires_at).toLocaleString() : "—"}
+                    {l.expires_at != null ? <LocalTime value={l.expires_at} kind="datetime" /> : "—"}
                     {l.consumed_at != null
-                      ? ` · claimed ${new Date(l.consumed_at).toLocaleString()}`
+                      ? (
+                        <>
+                          {" · claimed "}
+                          <LocalTime value={l.consumed_at} kind="datetime" />
+                        </>
+                      )
                       : ""}
                   </span>
                 </span>

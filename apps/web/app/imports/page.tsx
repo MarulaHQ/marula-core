@@ -38,6 +38,7 @@ import {
   applyDensity,
   useDensity,
 } from "@marula-core/ui";
+import { formatInTimeZone, formatNumber } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import {
   BlushNote,
@@ -56,6 +57,7 @@ import {
 } from "../../components/knowledge/ledger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
+import { useTimeFormat } from "../../lib/use-time-format";
 
 type ImportTemplate = components["schemas"]["TemplateViewResponse"];
 type BatchViewResponse = components["schemas"]["BatchViewResponse"];
@@ -124,7 +126,7 @@ const RIGHT_COLUMNS = new Set<HistoryColumnKey>([
 
 /** One cell of the run-history ledger, used by both the table and the export so
  *  a downloaded file can never disagree with the screen it came from. */
-function historyCell(key: HistoryColumnKey, b: BatchViewResponse): string {
+function historyCell(key: HistoryColumnKey, b: BatchViewResponse, timeZone: string): string {
   if (key === "label") return b.label;
   if (key === "entity") return b.entity_kind;
   if (key === "policy") return b.conflict_policy;
@@ -133,7 +135,7 @@ function historyCell(key: HistoryColumnKey, b: BatchViewResponse): string {
   if (key === "updated") return String(b.rows_updated);
   if (key === "skipped") return String(b.rows_skipped);
   if (key === "failed") return String(b.rows_failed);
-  return b.finished_at == null ? "—" : new Date(b.finished_at).toLocaleString();
+  return b.finished_at == null ? "—" : formatInTimeZone(b.finished_at, timeZone, "datetime");
 }
 
 function parseCsv(text: string): ParsedCsv {
@@ -173,6 +175,7 @@ function parseCsv(text: string): ParsedCsv {
 }
 
 export default function ImportsPage() {
+  const { timeZone } = useTimeFormat();
   const auth = useRequireAuth();
   const [templates, setTemplates] = useState<ImportTemplate[] | null>(null);
   const [batches, setBatches] = useState<BatchViewResponse[] | null>(null);
@@ -391,10 +394,10 @@ export default function ImportsPage() {
     `${ENTITY_KINDS.find((k) => k.value === kind)?.label ?? kind} · ${POLICIES.find((p) => p.value === policy)?.label ?? policy}`,
     parsed === null
       ? "No payload yet"
-      : `${parsed.rows.length.toLocaleString()} row${parsed.rows.length === 1 ? "" : "s"}, ${parsed.headers.length} columns`,
+      : `${formatNumber(parsed.rows.length)} row${parsed.rows.length === 1 ? "" : "s"}, ${parsed.headers.length} columns`,
     report === null
       ? "Not probed yet — nothing has been written"
-      : `${report.summary.ok.toLocaleString()} would be created, ${report.summary.failed.toLocaleString()} would fail`,
+      : `${formatNumber(report.summary.ok)} would be created, ${formatNumber(report.summary.failed)} would fail`,
     parsed === null
       ? "Mapping needs a payload"
       : `${parsed.headers.length} column${parsed.headers.length === 1 ? "" : "s"} to map`,
@@ -551,7 +554,7 @@ export default function ImportsPage() {
             </Button>
             {parsed !== null ? (
               <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                {parsed.rows.length.toLocaleString()} row{parsed.rows.length === 1 ? "" : "s"},{" "}
+                {formatNumber(parsed.rows.length)} row{parsed.rows.length === 1 ? "" : "s"},{" "}
                 {parsed.headers.length} column{parsed.headers.length === 1 ? "" : "s"}
               </span>
             ) : null}
@@ -615,11 +618,11 @@ export default function ImportsPage() {
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-2">
-                <StatusPill tone="success">{report.summary.ok.toLocaleString()} would be created</StatusPill>
-                <StatusPill tone="neutral">{report.summary.would_update.toLocaleString()} updated</StatusPill>
-                <StatusPill tone="neutral">{report.summary.would_skip.toLocaleString()} skipped</StatusPill>
+                <StatusPill tone="success">{formatNumber(report.summary.ok)} would be created</StatusPill>
+                <StatusPill tone="neutral">{formatNumber(report.summary.would_update)} updated</StatusPill>
+                <StatusPill tone="neutral">{formatNumber(report.summary.would_skip)} skipped</StatusPill>
                 <StatusPill tone={report.summary.failed > 0 ? "warning" : "success"}>
-                  {report.summary.failed.toLocaleString()} failed
+                  {formatNumber(report.summary.failed)} failed
                 </StatusPill>
               </div>
               {report.rows.length > 0 ? (
@@ -784,7 +787,7 @@ export default function ImportsPage() {
                   "import-runs.csv",
                   shownHistoryColumns.map((c) => c.label),
                   historyRows.map((b) =>
-                    shownHistoryColumns.map((c) => historyCell(c.key, b)),
+                    shownHistoryColumns.map((c) => historyCell(c.key, b, timeZone)),
                   ),
                 );
               }}
@@ -873,7 +876,7 @@ export default function ImportsPage() {
                               ) : null}
                             </div>
                           ) : null}
-                          {c.key !== "label" ? historyCell(c.key, b) : null}
+                          {c.key !== "label" ? historyCell(c.key, b, timeZone) : null}
                         </Td>
                       ))}
                     </Tr>

@@ -19,6 +19,7 @@ import {
   Badge,
   EmptyState,
 } from "@marula-core/ui";
+import { formatNumber } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 
 /* ---------- icons (the kit's one door, at the ledger's sizes) ---------- */
@@ -185,7 +186,7 @@ export function StatPill({
         style={{ background: STAT_DOT[tone] }}
       />
       {label}
-      <span className="tabular-nums">{count.toLocaleString()}</span>
+      <span className="tabular-nums">{formatNumber(count)}</span>
     </button>
   );
 }
@@ -251,11 +252,11 @@ export function LedgerFooter({
     >
       <span>
         <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
-          {shown.toLocaleString()}
+          {formatNumber(shown)}
         </b>{" "}
         of{" "}
         <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
-          {total.toLocaleString()}
+          {formatNumber(total)}
         </b>{" "}
         {noun}
       </span>
@@ -316,7 +317,7 @@ export function SelectionBar({
       role="region"
       aria-label={`${count} ${noun} selected`}
     >
-      <span className="tabular-nums font-bold">{count.toLocaleString()}</span>
+      <span className="tabular-nums font-bold">{formatNumber(count)}</span>
       <span>selected</span>
       {children}
       <button

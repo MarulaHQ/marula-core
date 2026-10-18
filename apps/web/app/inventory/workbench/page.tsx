@@ -29,12 +29,15 @@ import {
   EmptyState,
   Spinner,
 } from "@marula-core/ui";
+import { formatInTimeZone } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { useTimeFormat } from "../../../lib/use-time-format";
 
 type CandidateView = components["schemas"]["CandidateView"];
 type MergeWorkbenchView = components["schemas"]["MergeWorkbenchView"];
@@ -79,14 +82,15 @@ function fieldPreview(v: unknown): string {
   return s.length > 120 ? `${s.slice(0, 120)}…` : s;
 }
 
-function sourceEntry(v: unknown): string | null {
+function sourceEntry(v: unknown, timeZone: string): string | null {
   if (v === null || typeof v !== "object") return null;
   const o = v as Record<string, unknown>;
   const src = typeof o.source_system === "string" ? o.source_system : null;
   const at = typeof o.observed_at === "string" ? o.observed_at : null;
   const contradiction = o.contradicts_curated === true;
   if (src === null && !contradiction) return null;
-  return `${src ?? "?"}${at ? ` · seen ${new Date(at).toLocaleDateString()}` : ""}${contradiction ? " · contradicts curated" : ""}`;
+  const seen = at === null ? "" : ` · seen ${formatInTimeZone(at, timeZone, "date")}`;
+  return `${src ?? "?"}${seen}${contradiction ? " · contradicts curated" : ""}`;
 }
 
 // ---- the queue (left rail) ----------------------------------------------------
@@ -736,7 +740,7 @@ function SourceCard({
         </span>
         {links.map((l) => (
           <p key={`${l.source_system}-${l.external_id}`} className="text-[11px]" style={{ color: "var(--m-text-secondary)" }}>
-            {`${l.source_system} · ${l.external_id} · last seen ${new Date(l.last_seen_at).toLocaleDateString()}`}
+            {l.source_system} · {l.external_id} · last seen <LocalTime value={l.last_seen_at} kind="date" />
           </p>
         ))}
         {links.length === 0 && <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>No source links yet.</p>}
@@ -784,6 +788,7 @@ function CiDetail({
   busyId: string | null;
   onAction: (c: CandidateView, action: "accept" | "reject" | "defer" | "restore") => void;
 }): ReactNode {
+  const { timeZone } = useTimeFormat();
   const c = detail.candidate;
   const isPending = c.status === "pending";
   return (
@@ -900,8 +905,8 @@ function CiDetail({
                 candVal !== undefined &&
                 primaryVal !== undefined &&
                 JSON.stringify(candVal) !== JSON.stringify(primaryVal);
-              const primarySrc = sourceEntry(f.primary_source);
-              const candSrc = sourceEntry(f.candidate_source);
+              const primarySrc = sourceEntry(f.primary_source, timeZone);
+              const candSrc = sourceEntry(f.candidate_source, timeZone);
               return (
                 <div
                   key={`cmp-${f.key}`}
@@ -961,8 +966,8 @@ function CiDetail({
                 candVal !== undefined &&
                 primaryVal !== undefined &&
                 JSON.stringify(candVal) !== JSON.stringify(primaryVal);
-              const primarySrc = sourceEntry(f.primary_source);
-              const candSrc = sourceEntry(f.candidate_source);
+              const primarySrc = sourceEntry(f.primary_source, timeZone);
+              const candSrc = sourceEntry(f.candidate_source, timeZone);
               return (
                 <div
                   key={f.key}

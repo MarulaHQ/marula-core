@@ -37,6 +37,7 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { formatInTimeZone } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -70,6 +71,7 @@ import {
   serialStatusLabel,
   serialStatusTone,
 } from "../../../lib/stock-format";
+import { useTimeFormat } from "../../../lib/use-time-format";
 
 type StockItemView = components["schemas"]["StockItemView"];
 type StockLocationView = components["schemas"]["StockLocationView"];
@@ -99,18 +101,8 @@ function parseThresholdValue(text: string): number | null | "invalid" {
   return parsed === null ? "invalid" : parsed;
 }
 
-function shortWhen(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 export default function StockItemDetailPage(): ReactNode {
+  const { timeZone } = useTimeFormat();
   const auth = useRequireAuth();
   const params = useParams<{ id: string }>();
   const itemId = params.id;
@@ -780,7 +772,7 @@ export default function StockItemDetailPage(): ReactNode {
           <tbody>
             {movements.map((movement) => (
               <Tr key={movement.id} className="row-hover" data-testid={`stock-ledger-row-${movement.id}`}>
-                <Td className="whitespace-nowrap text-xs">{shortWhen(movement.created_at)}</Td>
+                <Td className="whitespace-nowrap text-xs">{formatInTimeZone(movement.created_at, timeZone, "dayTime")}</Td>
                 <Td className="text-xs">{movementLabel(movement.kind)}</Td>
  <Td className="text-right text-sm tabular-nums">
                   {formatSignedQty(movement.qty_milli, itemValue.unit)}

@@ -38,11 +38,14 @@ import {
   Label,
   Spinner,
 } from "@marula-core/ui";
+import { formatInTimeZone } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE, api } from "../lib/api";
 import { friendlyMutationText, resultErrorText } from "../lib/error-copy";
 import { overlapsInterval, type CalendarEntry } from "../lib/calendar-view";
+import { LocalTime } from "./local-time";
+import { useTimeFormat } from "../lib/use-time-format";
 
 type Connection = components["schemas"]["CalendarSyncConnection"];
 type Direction = components["schemas"]["CalendarSyncDirection"];
@@ -101,7 +104,7 @@ function statusDotColor(status: string): string {
   return "var(--m-text-muted)";
 }
 
-function fmtWhen(iso: string | null | undefined): string {
+function fmtWhen(iso: string | null | undefined, timeZone: string): string {
   if (!iso) return "never";
   const then = new Date(iso).getTime();
   const mins = Math.max(0, Math.round((Date.now() - then) / 60_000));
@@ -109,15 +112,11 @@ function fmtWhen(iso: string | null | undefined): string {
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatInTimeZone(iso, timeZone, "dayTime");
 }
 
 export default function CalendarSyncPanel({ entries }: { entries?: CalendarEntry[] } = {}) {
+  const { timeZone } = useTimeFormat();
   const [connections, setConnections] = useState<Connection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -480,6 +479,7 @@ export default function CalendarSyncPanel({ entries }: { entries?: CalendarEntry
               outcome={outcome?.id === conn.id ? outcome : null}
               confirmDelete={confirmDeleteId === conn.id}
               entries={entries}
+              timeZone={timeZone}
               onSync={() => void run(conn)}
               onReconnect={() => void reconnect(conn.id)}
               onRotate={() => void rotate(conn)}
@@ -500,6 +500,7 @@ function ConnectionRow({
   outcome,
   confirmDelete,
   entries,
+  timeZone,
   onSync,
   onReconnect,
   onRotate,
@@ -512,6 +513,7 @@ function ConnectionRow({
   outcome: { text: string; overlaps: number } | null;
   confirmDelete: boolean;
   entries?: CalendarEntry[];
+  timeZone: string;
   onSync: () => void;
   /** Resume a delegated consent flow that was started and abandoned. */
   onReconnect: () => void;
@@ -559,7 +561,7 @@ function ConnectionRow({
             <Badge tone={statusTone(conn.status)}>{statusLabel(conn.status)}</Badge>
           </div>
           <div className="mt-0.5 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-            {DIRECTION_COPY[conn.direction] ?? conn.direction} · last sync {fmtWhen(conn.last_synced_at)}
+            {DIRECTION_COPY[conn.direction] ?? conn.direction} · last sync {fmtWhen(conn.last_synced_at, timeZone)}
           </div>
           {conn.status === "error" && conn.last_error && (
             <p role="alert" className="mt-1 text-[12px]" style={{ color: "var(--m-status-danger-fg)" }}>
@@ -702,12 +704,7 @@ function InboundMirror({ connId, entries }: { connId: string; entries?: Calendar
           >
             <span className="truncate font-medium">{event.title ?? "External event"}</span>
             <span className="tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-              {new Date(event.starts_at).toLocaleString(undefined, {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              <LocalTime value={event.starts_at} kind="dayTime" />
             </span>
             {hit !== undefined ? (
               <span className="font-semibold" style={{ color: "var(--m-status-warning-fg)" }}>

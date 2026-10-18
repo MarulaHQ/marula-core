@@ -9,6 +9,7 @@
 
 import type { components } from "@marula-core/sdk";
 import { Button, Card, Spinner } from "@marula-core/ui";
+import { formatWallClock } from "@marula-core/ui";
 import { Icon, type IconName } from "@marula-core/ui/kit";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
@@ -106,7 +107,7 @@ export function dayRowsFrom(
 export function DayRowView({ row, now }: { row: DayRow; now: number }) {
   const time =
     row.start !== null
-      ? row.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+      ? formatWallClock(row.start, "time")
       : "";
   const duration = row.minutes !== null ? row.minutes >= 60 ? `${Math.floor(row.minutes / 60)}h` : `${row.minutes}m` : null;
   const glyph: Record<DayRow["kind"], IconName> = {
@@ -217,11 +218,7 @@ export function DayRowView({ row, now }: { row: DayRow; now: number }) {
 }
 
 function endLabel(start: Date, minutes: number): string {
-  return new Date(start.getTime() + minutes * 60_000).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatWallClock(start.getTime() + minutes * 60_000, "time");
 }
 
 /** The pack's two-column day body. Left: Your day. Right: Yesterday's
@@ -300,8 +297,7 @@ export function YourDayPanel({ now }: { now: number }) {
             Your day
           </h2>
           <span className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-            {new Date(now).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })} · now{" "}
-            {new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+            {formatWallClock(now, "day")} · now {formatWallClock(now, "time")}
           </span>
         </div>
         {body}
@@ -406,7 +402,7 @@ export function YesterdayCard({ now }: { now: number }) {
       </div>
       {day === null ? (
         <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-          No time expected for {yesterday.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}.
+          No time expected for {formatWallClock(yesterday, "day")}.
         </p>
       ) : (
         <>
@@ -640,7 +636,7 @@ function draftLabel(draft: TravelDraft): string {
   const end = new Date(draft.ended_at);
   const when = Number.isNaN(start.getTime())
     ? null
-    : `${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}–${Number.isNaN(end.getTime()) ? "" : end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+    : `${formatWallClock(start, "time")}–${Number.isNaN(end.getTime()) ? "" : formatWallClock(end, "time")}`;
   const distance =
     draft.distance > 0
       ? `${Math.round(draft.distance)} ${draft.distance_unit === "mi" ? "mi" : "km"}`
@@ -650,12 +646,11 @@ function draftLabel(draft: TravelDraft): string {
 }
 
 function windowLabel(startsAt: string, endsAt: string): string {
-  const opts: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hour12: false };
   const start = new Date(startsAt);
   const end = new Date(endsAt);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return "";
   const sameDay = start.toDateString() === end.toDateString();
-  const from = start.toLocaleTimeString([], opts);
-  const to = end.toLocaleTimeString([], opts);
-  return sameDay ? `${from}–${to}` : `${from}–${end.toLocaleDateString(undefined, { day: "numeric", month: "short" })} ${to}`;
+  const from = formatWallClock(start, "time");
+  const to = formatWallClock(end, "time");
+  return sameDay ? `${from}–${to}` : `${from}–${formatWallClock(end, "dayMonth")} ${to}`;
 }

@@ -14,6 +14,7 @@
 // per-user digest controls (Notifications page owns those).
 "use client";
 
+import { useTimeFormat } from "../../../lib/use-time-format";
 import { friendlyMutationText } from "../../../lib/error-copy";
 import {
   Badge,
@@ -37,6 +38,8 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { formatInTimeZone } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import {
@@ -190,10 +193,8 @@ function shortAddress(list: string[]): string {
   return `${first} +${list.length - 1}`;
 }
 
-function when(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString();
+function when(iso: string, timeZone: string): string {
+  return formatInTimeZone(iso, timeZone, "datetime");
 }
 
 export default function EmailSettingsPage() {
@@ -637,6 +638,7 @@ function SendingCard({
   defaultProbeTo: string;
   onSaved: () => void;
 }) {
+  const { timeZone } = useTimeFormat();
   const out = settings.outbound;
   const [transport, setTransport] = useState(out.transport);
   const [fromAddress, setFromAddress] = useState(out.from_address);
@@ -1136,7 +1138,7 @@ function SendingCard({
                 </Badge>
                 <span style={{ color: "var(--m-text-secondary)" }}>
                   {secret.label}
-                  {secret.updatedAt ? ` · updated ${when(secret.updatedAt)}` : ""}
+                  {secret.updatedAt ? ` · updated ${when(secret.updatedAt, timeZone)}` : ""}
                 </span>
               </div>
             ))}
@@ -1213,6 +1215,7 @@ function LedgerCard({
   onStatusFilter: (status: string) => void;
   onRefresh: () => void;
 }) {
+  const { timeZone } = useTimeFormat();
   const rows = ledger.rows.filter(
     (row) => statusFilter === "all" || row.status === statusFilter,
   );
@@ -1305,7 +1308,7 @@ function LedgerCard({
                     style={{ borderColor: "var(--m-border)" }}
                   >
                     <Td className="px-3 py-2 text-[12px]" style={{ whiteSpace: "nowrap" }}>
-                      {when(row.created_at)}
+                      {when(row.created_at, timeZone)}
                     </Td>
                     <Td className="px-3 py-2 text-[12px]" style={{ fontFamily: "var(--m-font-mono)" }}>
                       {shortAddress(row.to_addresses)}

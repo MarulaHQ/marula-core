@@ -16,6 +16,7 @@
 "use client";
 
 import { Button, Card, Spinner } from "@marula-core/ui";
+import { formatDayKey } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -450,11 +451,7 @@ export function DayPackPanel({ date, meUserId, meName }: DayPackPanelProps): Rea
                 style={{ color: "var(--m-text-muted)" }}
               >
                 Tomorrow ·{" "}
-                {new Date(`${view.tomorrow.date}T00:00:00`).toLocaleDateString(undefined, {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                })}
+                {formatDayKey(view.tomorrow.date, "day")}
               </span>
               <span className="text-[10px]" style={{ color: "var(--m-text-muted)" }}>
                 {view.tomorrow.stops.length} stop{view.tomorrow.stops.length === 1 ? "" : "s"}

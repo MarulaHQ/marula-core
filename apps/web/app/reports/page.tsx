@@ -47,6 +47,7 @@ import {
   type FilterClause,
   type FilterField,
 } from "@marula-core/ui";
+import { LocalTime } from "../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -202,7 +203,7 @@ function ReportsInner() {
         sortValue: (r) => r.updated,
         render: (r) => (
           <span className="whitespace-nowrap text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-            {new Date(r.updated).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+            <LocalTime value={r.updated} kind="date" />
           </span>
         ),
       },
@@ -889,7 +890,7 @@ function ReportsInner() {
                       </Td>
                       <Td className="whitespace-nowrap text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                         {s.next_run_at
-                          ? new Date(s.next_run_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+                          ? <LocalTime value={s.next_run_at} kind="dayTime" />
                           : "—"}
                       </Td>
                       <Td className="whitespace-nowrap text-[13px] tabular-nums">
@@ -899,7 +900,7 @@ function ReportsInner() {
                           </span>
                         ) : s.last_run_at ? (
                           <span style={{ color: "var(--m-text-secondary)" }}>
-                            {new Date(s.last_run_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                            <LocalTime value={s.last_run_at} kind="dayTime" />
                           </span>
                         ) : (
                           "—"

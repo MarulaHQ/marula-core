@@ -28,6 +28,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";
 import { useDialogA11y } from "../../lib/a11y/use-dialog-a11y";
+import { LocalTime, RecordTime } from "../local-time";
 
 type MeetingType = components["schemas"]["MeetingType"];
 type SchedulingLink = components["schemas"]["SchedulingLink"];
@@ -36,6 +37,8 @@ type SchedulingLinkBooking = components["schemas"]["SchedulingLinkBooking"];
 export interface SchedulingPodProps {
   ticketId: string;
   ticketTitle: string;
+  /** The ticket's site zone, so a booked slot draws the site's clock too. */
+  siteTimezone?: string | null;
 }
 
 function derivedState(link: SchedulingLink): "active" | "viewed" | "scheduled" | "expired" | "revoked" {
@@ -56,7 +59,7 @@ const STATE_TONE: Record<string, "neutral" | "success" | "warning" | "danger"> =
   revoked: "danger",
 };
 
-export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): ReactNode {
+export function SchedulingPod({ ticketId, ticketTitle, siteTimezone = null }: SchedulingPodProps): ReactNode {
   const [types, setTypes] = useState<MeetingType[] | null>(null);
   const [links, setLinks] = useState<SchedulingLink[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -233,11 +236,11 @@ export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): Re
                     </span>
                     {link.scheduled_at !== null && link.scheduled_at !== undefined && (
                       <span style={{ color: "var(--m-status-success-fg)" }}>
-                        booked {new Date(link.scheduled_at).toLocaleString()}
+                        booked <RecordTime value={link.scheduled_at} zone={siteTimezone} kind="datetime" />
                       </span>
                     )}
                     <span className="ml-auto" style={{ color: "var(--m-text-muted)" }}>
-                      created {new Date(link.created_at).toLocaleDateString()}
+                      created <LocalTime value={link.created_at} kind="date" />
                     </span>
                     {state === "scheduled" && (
                       <Button
@@ -295,7 +298,7 @@ export function SchedulingPod({ ticketId, ticketTitle }: SchedulingPodProps): Re
                             <span style={{ color: "var(--m-text-secondary)" }}>{b.booker_email}</span>
                           )}
                           <span style={{ color: "var(--m-text-muted)" }}>
-                            {new Date(b.created_at).toLocaleString()}
+                            <LocalTime value={b.created_at} kind="datetime" />
                           </span>
                           {b.booker_notes !== null && b.booker_notes !== "" && (
                             <span className="w-full" style={{ color: "var(--m-text-secondary)" }}>

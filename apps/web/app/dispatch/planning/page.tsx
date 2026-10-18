@@ -15,7 +15,7 @@
 "use client";
 
 import "../dispatch.css";
-import { EmptyState, Spinner } from "@marula-core/ui";
+import { EmptyState, Spinner, formatDayKey } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -297,8 +297,8 @@ export default function DispatchPlanningPage() {
                 <div className="dp-depth" data-testid="capacity-depth">
                   <div className="dp-depth-row h">
                     <div>Technician</div>
-                    {horizon.map((d) => (
-                      <div key={d.date}>{weekdayLabel(d.date, 0).split(" ")[0]} {d.date.slice(8)}</div>
+                    {horizon.map((d, i) => (
+                      <div key={d.date}>{weekdayLabel(d.date, i)}</div>
                     ))}
                   </div>
                   {capacity?.technicians?.map((t) => (
@@ -411,8 +411,18 @@ export default function DispatchPlanningPage() {
   );
 }
 
+/**
+ * The weekday of a horizon column.
+ *
+ * `date` is a bare `YYYY-MM-DD` key from the horizon — a calendar day with no
+ * time of day and therefore no zone to read it in. `formatDayKey` reads it in
+ * its own frame; the reader's zone would move Thursday to Wednesday for anyone
+ * west of UTC. That is why this label is not drawn through `LocalTime`.
+ *
+ * The fallback keeps the frozen pack week's own label when the key does not
+ * parse, so the chart still reads as a week while the horizon loads.
+ */
 function weekdayLabel(date: string, i: number): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return FROZEN_WEEK[i]?.[0] ?? `Day ${i + 1}`;
-  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", timeZone: "UTC" });
+  const label = formatDayKey(date, "weekdayDay");
+  return label === "—" ? FROZEN_WEEK[i]?.[0] ?? `Day ${i + 1}` : label;
 }

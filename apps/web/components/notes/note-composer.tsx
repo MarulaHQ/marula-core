@@ -19,6 +19,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type Reac
 
 import { api } from "../../lib/api";
 import { formatNoteBody } from "../../lib/note-format";
+import { formatWallClock } from "@marula-core/ui";
 
 type NoteDraftResponse = components["schemas"]["NoteDraftResponse"];
 
@@ -119,9 +120,7 @@ export const NoteComposer = forwardRef<NoteComposerHandle, NoteComposerProps>(
           });
           if (data?.draft) {
             draftKeyRef.current = data.draft.idempotency_key;
-            setSavedAt(
-              new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            );
+            setSavedAt(formatWallClock(Date.now(), "time"));
           }
           setSaveState("saved");
         } catch {

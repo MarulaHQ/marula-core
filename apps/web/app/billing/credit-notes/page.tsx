@@ -45,6 +45,7 @@ import {
   applyDensity,
   type FilterClause,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -954,7 +955,7 @@ function CreditNotesInner() {
                       <tbody>
                         {detail.applications.map((app) => (
                           <Tr key={app.id}>
-                            <Td className="text-[12px]">{new Date(app.created_at).toLocaleString()}</Td>
+                            <Td className="text-[12px]"><LocalTime value={app.created_at} kind="datetime" /></Td>
                             <Td className="text-[12px]">
                               <Link href={`/billing/${app.invoice_id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
                                 invoice

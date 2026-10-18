@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { friendlyMutationText } from "../../../lib/error-copy";
 import { Spinner } from "@marula-core/ui";
 import { portalApi, useRequirePortalAuth, type PortalQuote } from "../../../lib/portal-api";
+import { useTimeFormat } from "../../../lib/use-time-format";
 import { longDate, money } from "../../../lib/portal-copy";
 import {
   PortalCard,
@@ -40,6 +41,7 @@ function quotePill(status: PortalQuote["status"]) {
 
 export default function PortalQuotesPage() {
   useRequirePortalAuth();
+  const { timeZone } = useTimeFormat();
   const router = useRouter();
   const [quotes, setQuotes] = useState<PortalQuote[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +112,7 @@ export default function PortalQuotesPage() {
     <PortalRow
       key={q.id}
       title={q.notes ?? `Quote ${q.number}`}
-      meta={`${q.number} · Valid until ${longDate(q.valid_until)}`}
+      meta={`${q.number} · Valid until ${longDate(q.valid_until, timeZone)}`}
       columns="minmax(0, 1fr) 130px auto"
       highlight={q.status === "sent"}
       onClick={() => router.push(`/portal/quotes/${q.id}`)}

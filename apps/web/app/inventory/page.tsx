@@ -24,6 +24,7 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
+import { LocalTime } from "../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -419,7 +420,7 @@ export default function InventoryPage(): ReactNode {
                     <Td>
                       <Badge tone={m.status === "split" ? "warning" : "success"}>{m.status}</Badge>
                     </Td>
-                    <Td>{new Date(m.merged_at).toLocaleString()}</Td>
+                    <Td><LocalTime value={m.merged_at} kind="datetime" /></Td>
                     <Td>
                       {(() => {
                         const f = (m.moved ?? null) as

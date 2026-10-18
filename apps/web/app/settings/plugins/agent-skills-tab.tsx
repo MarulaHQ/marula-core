@@ -20,6 +20,7 @@ import {
   Label,
   Spinner,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import { useState } from "react";
 import { api } from "../../../lib/api";
 import { envelopeOf, reasonCopy } from "../../../lib/error-copy";
@@ -233,7 +234,7 @@ export function AgentSkillsTab({
                         <span style={{ color: row.enabled ? "var(--m-status-success-fg)" : "var(--m-text-muted)" }}>
                           {row.enabled ? "enabled" : "disabled"}
                         </span>
-                        <span style={{ color: "var(--m-text-muted)" }}>{new Date(row.created_at).toLocaleString()}</span>
+                        <span style={{ color: "var(--m-text-muted)" }}><LocalTime value={row.created_at} kind="datetime" /></span>
                       </li>
                     ))}
                   </ol>

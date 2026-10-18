@@ -18,6 +18,7 @@ import {
   Input,
   Label,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import { Icon } from "@marula-core/ui/kit";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -542,7 +543,7 @@ export default function SecuritySettingsPage() {
               <span>
                 {s.current ? "This device" : (s.user_agent ?? "Unknown client")}
                 {" · "}
-                {new Date(s.created_at).toLocaleString()}
+                <LocalTime value={s.created_at} kind="datetime" />
               </span>
               {!s.current && (
                 <Button

@@ -49,6 +49,7 @@ import {
   Spinner,
   type StatusTone,
 } from "@marula-core/ui";
+import { formatInTimeZone } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
@@ -56,6 +57,7 @@ import { api, useRequireAuth } from "../../../lib/api";
 import { friendlyMutationError, rejectionText } from "../../../lib/error-copy";
 import { fmtMins, money } from "../../../lib/format";
 import { useTimeCategories } from "../../../lib/use-time-categories";
+import { useTimeFormat } from "../../../lib/use-time-format";
 
 type Contract = components["schemas"]["Contract"];
 type Workspace = components["schemas"]["VerificationWorkspace"];
@@ -105,15 +107,6 @@ function firstOfMonth(offsetMonths = 0): string {
   d.setUTCDate(1);
   d.setUTCMonth(d.getUTCMonth() + offsetMonths);
   return d.toISOString().slice(0, 10);
-}
-
-function when(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 /** The badge is the row's billing fate, so it reads first and reads
@@ -468,6 +461,7 @@ function EntryRow({
   categories: { slug: string; label: string }[];
   onAction: (entry: EntryView) => void;
 }) {
+  const { timeZone } = useTimeFormat();
   const badge = badgeTone(entry);
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -476,7 +470,7 @@ function EntryRow({
       <td className="py-2 pr-3 align-top">
         <div className="flex flex-col gap-0.5">
           <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text)" }}>
-            {when(entry.started_at)} · {entry.user_name}
+            {formatInTimeZone(entry.started_at, timeZone, "dayTime")} · {entry.user_name}
           </span>
           <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
             {entry.work_type ?? "No category — prices at the contract default"}
@@ -560,6 +554,7 @@ export default function BillingVerificationPage() {
 }
 
 function BillingVerificationWorkspace() {
+  const { timeZone } = useTimeFormat();
   const auth = useRequireAuth();
   const { categories } = useTimeCategories();
   // The run composer links here with the window it was about to bill, so
@@ -922,7 +917,7 @@ function BillingVerificationWorkspace() {
                 {workspace.signoff && (
                   <div className="mt-1 text-xs" style={{ color: "var(--m-status-success-fg)" }} data-testid="verify-signoff-state">
                     <div>
-                      Signed off {when(workspace.signoff.signed_at)}
+                      Signed off {formatInTimeZone(workspace.signoff.signed_at, timeZone, "dayTime")}
                       {workspace.signoff.run_id ? " · claimed by a run" : " · not yet run"}
                     </div>
                     {workspace.signoff.reviewer_note ? (

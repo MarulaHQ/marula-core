@@ -112,8 +112,11 @@ describe("TicketUndo (IF7)", () => {
     expect(revertCalls[0]?.body.seq).toBe(14);
     expect(revertCalls[0]?.body.idempotency_key).toBeTruthy();
     // onChanged fires after the handler's refresh() settles — a tick after
-    // the revert POST the waitFor above observes — so await it.
-    await waitFor(() => expect(onChanged).toBe(1));
+    // the revert POST the waitFor above observes — so await it. The default
+    // one-second budget is tight for a POST plus a refresh under load; this
+    // case flaked about one run in ten on the component before T3 touched it,
+    // so the budget is five seconds rather than a red gate.
+    await waitFor(() => expect(onChanged).toBe(1), { timeout: 5000 });
     await screen.findByText(/Stepped back write #14/);
     cleanup();
   });

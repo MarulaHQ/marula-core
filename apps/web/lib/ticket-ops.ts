@@ -9,6 +9,7 @@
 //
 // Non-purpose: no fetching and no rendering. Surfaces own their own requests and
 // their own markup; this owns the vocabulary they share.
+import { formatInTimeZone } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import type { BadgePriority, BadgeTone } from "@marula-core/ui";
 import type { FilterClause, FilterOperator } from "@marula-core/ui";
@@ -150,8 +151,14 @@ function within(ms: number, suffix: "left" | "over"): string {
   return `${days}d ${suffix}`;
 }
 
-/** "2h ago", "just now". Absolute dates hide the recency that matters here. */
-export function relativeTime(iso: string, now: number = Date.now()): string {
+/**
+ * "2h ago", "just now". Absolute dates hide the recency that matters here.
+ *
+ * Past the month mark the phrase stops helping and a date takes over, and that
+ * date is drawn in the reader's zone: an item filed at 23:40 was filed today,
+ * not tomorrow, for the person reading it.
+ */
+export function relativeTime(iso: string, timeZone: string, now: number = Date.now()): string {
   const diffMs = now - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60_000);
   if (mins < 1) return "just now";
@@ -160,7 +167,7 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return formatInTimeZone(iso, timeZone, "date");
 }
 
 /**

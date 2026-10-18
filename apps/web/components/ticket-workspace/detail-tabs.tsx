@@ -15,6 +15,8 @@ import {
 } from "@marula-core/ui";
 import type { ReactNode } from "react";
 
+import { RecordTime } from "../local-time";
+
 type Ticket = components["schemas"]["TicketWithFields"];
 
 export type DetailTabId = "original" | "notes" | "tasks" | "details" | "related" | "links" | "money";
@@ -77,11 +79,13 @@ export function OriginalRequest({ ticket }: { ticket: Ticket }): ReactNode {
           {ticket.number}
         </span>
         <Badge tone="neutral">Original request</Badge>
-        <time className="ml-auto text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-          {ticket.created_at !== null && ticket.created_at !== undefined
-            ? new Date(ticket.created_at).toLocaleString()
-            : null}
-        </time>
+        <RecordTime
+          className="ml-auto text-[11px]"
+          style={{ color: "var(--m-text-muted)" }}
+          value={ticket.created_at}
+          zone={ticket.site_timezone}
+          kind="datetime"
+        />
       </div>
       <p className="whitespace-pre-wrap text-sm">{ticket.body ?? "(No request body recorded.)"}</p>
     </section>

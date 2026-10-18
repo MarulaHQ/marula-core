@@ -11,13 +11,60 @@
  *
  * The defect this closes is recorded in `design/qa-p50-tz-display-foundation/`:
  * 157 non-test `toLocale*` sites formatted in the viewer's OS zone, and one
- * passed a hardcoded `"UTC"`.
+ * passed a hardcoded `"UTC"`. The sweep that removed them
+ * (`design/qa-p50-tz-surface-rollout/`) found the pinned one was right — it read
+ * a day key, which has no zone to inherit — and kept the pin as
+ * {@link formatDayKey}.
  */
 export const FALLBACK_TIME_ZONE = "UTC";
 
-/** Kinds a surface actually draws. Options stay in one table so two screens
- * cannot format the same instant two ways. */
-export type TimeKind = "time" | "date" | "datetime" | "weekday";
+/**
+ * The format the kit draws in.
+ *
+ * The zone varies by reader, and should. The format should not: two people on
+ * one call comparing two screens need the same shape, and a suite can only
+ * assert a reading that is pinned. Day-first with a short month name is the
+ * house shape — a month *name* leaves no room for the 10/11 reading error, so
+ * pinning the field order costs nothing. A caller with a real reason still
+ * passes `locale`.
+ */
+export const DEFAULT_TIME_LOCALE = "en-GB";
+
+/**
+ * Kinds a surface actually draws. Options stay in one table so two screens
+ * cannot format the same instant two ways.
+ *
+ * The list grew in the surface sweep (T3): the four shapes T1 needed were
+ * `time`, `date`, `datetime` and `weekday`, and a survey of the remaining 151
+ * call sites found eight more in use. Each name below is a shape a real surface
+ * draws, not a knob — a page that wants a ninth shape should argue for it here
+ * rather than reach for `Intl` and inherit the machine's zone.
+ */
+export type TimeKind =
+  /** 14:33 */
+  | "time"
+  /** 18 Oct 2026 */
+  | "date"
+  /** 18 Oct 2026, 14:33 */
+  | "datetime"
+  /** Thu, 18 Oct, 14:33 */
+  | "weekday"
+  /** Thu, 18 Oct */
+  | "day"
+  /** 18 Oct */
+  | "dayMonth"
+  /** 18 Oct, 14:33 */
+  | "dayTime"
+  /** Thursday, 18 October */
+  | "longDate"
+  /** Oct */
+  | "month"
+  /** October 2026 */
+  | "monthYear"
+  /** Thu */
+  | "weekdayOnly"
+  /** Thu 18 */
+  | "weekdayDay";
 
 const KIND_OPTIONS: Record<TimeKind, Intl.DateTimeFormatOptions> = {
   time: { hour: "2-digit", minute: "2-digit", hourCycle: "h23" },
@@ -31,6 +78,14 @@ const KIND_OPTIONS: Record<TimeKind, Intl.DateTimeFormatOptions> = {
     hourCycle: "h23",
   },
   weekday: { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" },
+  day: { weekday: "short", day: "2-digit", month: "short" },
+  dayMonth: { day: "2-digit", month: "short" },
+  dayTime: { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" },
+  longDate: { weekday: "long", day: "numeric", month: "long" },
+  month: { month: "short" },
+  monthYear: { month: "long", year: "numeric" },
+  weekdayOnly: { weekday: "short" },
+  weekdayDay: { weekday: "short", day: "numeric" },
 };
 
 /**
@@ -112,7 +167,7 @@ export function isTimeZone(value: string | null | undefined): value is string {
   if (value === FALLBACK_TIME_ZONE) return true;
   if (supportedTimeZones().includes(value)) return true;
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(0);
+    new Intl.DateTimeFormat(DEFAULT_TIME_LOCALE, { timeZone: value }).format(0);
     return true;
   } catch {
     return false;
@@ -139,26 +194,109 @@ export function toDate(value: string | number | Date): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Formats one instant in one zone. `—` for an unparseable value or zone. */
+/**
+ * Formats one instant in one zone. `—` for a missing value, an unparseable
+ * value or a zone Intl does not know.
+ *
+ * The missing check is not defensive padding: `new Date(null)` is the epoch, so
+ * without it a null column would draw "01 Jan 1970" at every call site, and
+ * every caller that knew its field could be null had to say so itself.
+ */
 export function formatInTimeZone(
-  value: string | number | Date,
+  value: string | number | Date | null | undefined,
   timeZone: string,
   kind: TimeKind = "time",
   locale?: string,
 ): string {
+  if (value === null || value === undefined || value === "") return "—";
   const date = toDate(value);
   if (date === null) return "—";
   try {
-    return new Intl.DateTimeFormat(locale, { ...KIND_OPTIONS[kind], timeZone }).format(date);
+    return new Intl.DateTimeFormat(locale ?? DEFAULT_TIME_LOCALE, {
+      ...KIND_OPTIONS[kind],
+      timeZone,
+    }).format(date);
   } catch {
     return "—";
   }
 }
 
+/**
+ * Formats an instant in the reader's own clock — the machine's zone.
+ *
+ * This is the one formatter here that takes no zone, and it exists because two
+ * kinds of reading are not the org's records. The first is the reader's own
+ * immediate clock: "now", and the axis of a day they are living through. The
+ * second is a surface whose *geometry* is drawn in the local wall clock — a
+ * day grid, a week grid — where printing the row labels in another zone than
+ * the grid would put the label beside the wrong row.
+ *
+ * The locale is pinned like every other reading, so "09:00" and "Sun 18 Oct"
+ * mean the same thing on every machine; only the zone follows the device, and
+ * deliberately. Anything that belongs to a record — a ticket, a run, a site's
+ * appointment — goes through {@link formatInTimeZone} with a named zone
+ * instead.
+ */
+export function formatWallClock(
+  value: string | number | Date | null | undefined,
+  kind: TimeKind = "datetime",
+  locale?: string,
+): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const date = toDate(value);
+  if (date === null) return "—";
+  try {
+    return new Intl.DateTimeFormat(locale ?? DEFAULT_TIME_LOCALE, KIND_OPTIONS[kind]).format(date);
+  } catch {
+    return "—";
+  }
+}
+
+/**
+ * Formats a bare `YYYY-MM-DD` day key.
+ *
+ * A day key is a calendar day, not an instant, so it has no zone of its own and
+ * must not be read in the reader's. "Thursday" is a property of `2026-10-15`,
+ * and an afternoon west of UTC does not make it Wednesday. The key is therefore
+ * read in one neutral frame — midnight UTC, which is the same calendar date in
+ * every zone from `UTC-12` to `UTC+12`.
+ *
+ * Surfaces that group by "today" want {@link dayKeyInTimeZone} instead: that one
+ * answers which day an *instant* falls on, and there the zone is the point.
+ */
+export function formatDayKey(
+  key: string | null | undefined,
+  kind: TimeKind = "day",
+  locale?: string,
+): string {
+  if (typeof key !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return "—";
+  return formatInTimeZone(`${key}T00:00:00Z`, FALLBACK_TIME_ZONE, kind, locale);
+}
+
+/**
+ * Moves a `YYYY-MM-DD` key by whole calendar days.
+ *
+ * Calendar arithmetic, not instant arithmetic: "the day before" is a property
+ * of the key, and subtracting 24 hours from an instant lands an hour off on the
+ * two days a year a zone changes its offset. A surface asking "was this
+ * yesterday?" compares keys, so it needs this rather than a millisecond
+ * subtraction. Returns the input unchanged when it is not a day key.
+ */
+export function shiftDayKey(key: string, days: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return key;
+  const [year, month, day] = key.split("-").map(Number);
+  const moved = new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, (day ?? 1) + days));
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${moved.getUTCFullYear()}-${pad(moved.getUTCMonth() + 1)}-${pad(moved.getUTCDate())}`;
+}
+
 /** `SAST`, `GMT+2`, `EDT` — whatever this zone calls itself at that instant. */
 export function zoneAbbreviation(timeZone: string, at: Date = new Date()): string {
   try {
-    const parts = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "short" }).formatToParts(at);
+    const parts = new Intl.DateTimeFormat(DEFAULT_TIME_LOCALE, {
+      timeZone,
+      timeZoneName: "short",
+    }).formatToParts(at);
     return parts.find((part) => part.type === "timeZoneName")?.value ?? "";
   } catch {
     return "";
@@ -168,7 +306,7 @@ export function zoneAbbreviation(timeZone: string, at: Date = new Date()): strin
 /** The zone's offset from UTC at that instant, in minutes east of UTC. */
 export function timeZoneOffsetMinutes(timeZone: string, at: Date = new Date()): number {
   try {
-    const parts = new Intl.DateTimeFormat("en-US", {
+    const parts = new Intl.DateTimeFormat(DEFAULT_TIME_LOCALE, {
       timeZone,
       hourCycle: "h23",
       year: "numeric",
@@ -233,7 +371,7 @@ export function dayKeyInTimeZone(value: string | number | Date, timeZone: string
   const date = toDate(value);
   if (date === null) return "";
   try {
-    const parts = new Intl.DateTimeFormat("en-US", {
+    const parts = new Intl.DateTimeFormat(DEFAULT_TIME_LOCALE, {
       timeZone,
       year: "numeric",
       month: "2-digit",

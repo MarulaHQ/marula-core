@@ -54,6 +54,7 @@ import {
   applyDensity,
   useDensity,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -612,13 +613,13 @@ export default function SecretsVaultPage() {
                                 <span style={{ color: "var(--m-text-muted)" }}>never</span>
                               ) : (
                                 <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                                  {new Date(r.expires_at).toLocaleDateString()}
+                                  <LocalTime value={r.expires_at} kind="date" />
                                 </span>
                               )
                             ) : null}
                             {c.key === "updated" ? (
                               <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                                {new Date(r.updated_at).toLocaleDateString()}
+                                <LocalTime value={r.updated_at} kind="date" />
                               </span>
                             ) : null}
                           </Td>
@@ -889,7 +890,7 @@ function RecordDialog({
                   ? "—"
                   : new Date(current.expires_at) < new Date()
                     ? "expired"
-                    : new Date(current.expires_at).toLocaleDateString()}
+                    : <LocalTime value={current.expires_at} kind="date" />}
               </MetaRow>
             </dl>
 

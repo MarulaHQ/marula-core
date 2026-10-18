@@ -27,6 +27,7 @@ import {
   SelectValue,
   Spinner,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
@@ -367,7 +368,7 @@ export default function InventorySettingsPage(): ReactNode {
           {wf !== null && wf.last_run_at !== null && (
             <div className="grid gap-1 rounded p-3" style={{ background: "var(--m-surface)" }} data-testid="jev-last-run">
               <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                {`last run ${new Date(wf.last_run_at as string).toLocaleString()}`}
+                {<>last run <LocalTime value={wf.last_run_at as string} kind="datetime" /></>}
               </span>
               <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
                 {`${last.scanned ?? 0} scanned · ${last.asked ?? 0} asked · ${last.above_threshold ?? 0} at/above threshold · ${last.auto_merged ?? 0} auto-merged`}

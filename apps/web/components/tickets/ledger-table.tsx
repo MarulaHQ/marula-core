@@ -27,6 +27,7 @@ import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { MergeBanner } from "./merge-banner";
+import { useTimeFormat } from "../../lib/use-time-format";
 import {
   CATEGORY_LABEL,
   relativeTime,
@@ -254,6 +255,7 @@ export function TicketRowView({
   onToggle: (on: boolean) => void;
   onTake?: (row: TicketRow) => void;
 }): React.JSX.Element {
+  const { timeZone } = useTimeFormat();
   const survivor = row.merged_into_ticket_id ?? null;
   // Rows past the stagger limit share delay 0, so a full page does not still
   // be revealing while the reader is already on the last row. The delay is set
@@ -281,6 +283,7 @@ export function TicketRowView({
               names={names}
               onTake={onTake}
               myId={myId}
+              timeZone={timeZone}
             />
           </Td>
         ))}
@@ -308,9 +311,12 @@ export function TicketCell({
   names,
   onTake,
   myId,
+  timeZone,
 }: {
   columnKey: string;
   row: TicketRow;
+  /** The reader's zone, so a row's "2d ago" opens with the right day. */
+  timeZone: string;
   sla: components["schemas"]["TicketSlaStatus"] | null;
   people: Record<string, string>;
   clients: Record<string, string>;
@@ -432,7 +438,7 @@ export function TicketCell({
     case "updated_at":
       return (
         <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-          {relativeTime(row.updated_at)}
+          {relativeTime(row.updated_at, timeZone)}
         </span>
       );
     // The pack's available-but-hidden four. Each reads "—" when its name map
@@ -469,7 +475,7 @@ export function TicketCell({
     case "created_at":
       return (
         <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-          {relativeTime(row.created_at)}
+          {relativeTime(row.created_at, timeZone)}
         </span>
       );
     default:

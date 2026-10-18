@@ -36,6 +36,7 @@ import {
   SelectValue,
   Spinner,
 } from "@marula-core/ui";
+import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -861,8 +862,8 @@ export default function AssetDetailPage() {
                 <span className="text-[13px] font-medium">{i.connector_type}</span>
                 <Badge>linked</Badge>
                 <span className="ml-auto text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                  linked {new Date(i.linked_at).toLocaleString()} · updated{" "}
-                  {new Date(i.updated_at).toLocaleString()}
+                  linked <LocalTime value={i.linked_at} kind="datetime" /> · updated{" "}
+                  <LocalTime value={i.updated_at} kind="datetime" />
                 </span>
               </div>
             ))}
@@ -1040,7 +1041,7 @@ export default function AssetDetailPage() {
                   <Badge>{e.actor_kind}</Badge>
                   {e.undo ? <Badge>undo</Badge> : null}
                   <span className="ml-auto text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                    {new Date(e.occurred_at).toLocaleString()}
+                    <LocalTime value={e.occurred_at} kind="datetime" />
                   </span>
                 </div>
                 <p className="mt-1 break-all text-[12px]" style={{ color: "var(--m-text-secondary)" }}>

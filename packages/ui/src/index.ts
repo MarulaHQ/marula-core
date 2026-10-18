@@ -8,6 +8,7 @@
 
 export { cn } from "./lib/cn";
 export * from "./lib/time";
+export * from "./lib/number";
 export * from "./tokens";
 export * from "./theme";
 export {

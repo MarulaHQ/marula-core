@@ -145,19 +145,19 @@ describe("priorityTone", () => {
 describe("dueChip", () => {
   const now = Date.parse("2026-09-17T12:00:00Z");
   it("no due date → no chip", () => {
-    expect(dueChip(null, now)).toBeNull();
-    expect(dueChip(undefined, now)).toBeNull();
+    expect(dueChip(null, now, "UTC")).toBeNull();
+    expect(dueChip(undefined, now, "UTC")).toBeNull();
   });
   it("overdue renders danger", () => {
-    const chip = dueChip("2026-09-16T00:00:00Z", now);
+    const chip = dueChip("2026-09-16T00:00:00Z", now, "UTC");
     expect(chip?.tone).toBe("danger");
     expect(chip?.label).toContain("Overdue");
   });
   it("inside 24h renders warning", () => {
-    expect(dueChip("2026-09-17T20:00:00Z", now)?.tone).toBe("warning");
+    expect(dueChip("2026-09-17T20:00:00Z", now, "UTC")?.tone).toBe("warning");
   });
   it("beyond 24h renders neutral with date label", () => {
-    const chip = dueChip("2026-09-20T00:00:00Z", now);
+    const chip = dueChip("2026-09-20T00:00:00Z", now, "UTC");
     expect(chip?.tone).toBe("neutral");
     expect(chip?.label).not.toContain("Overdue");
   });
