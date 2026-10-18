@@ -16,6 +16,7 @@
     "target:check": "python3 scripts/lane-target-guard.py check --all-profiles",
     "e2e:stack": "bash scripts/e2e-stack.sh",
     "e2e:build-web": "bash scripts/e2e-build-web.sh",
+    "demo:smoke": "bash scripts/demo-smoke.sh",
     "e2e": "pnpm exec playwright test --config=e2e/playwright.config.ts && node e2e/flake-gate.ts"
   },
   "devDependencies": {

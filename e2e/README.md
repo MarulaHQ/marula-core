@@ -30,6 +30,30 @@ The stack script reseeds (`seed-demo --force`), truncates `auth_lockouts` /
 bootstrap. Every suite run starts from the identical demo org. Nothing a
 previous lane left behind is inherited.
 
+## The demo smoke — the path every demo depends on
+
+`e2e/flows/demo-smoke.spec.ts` walks the one happy path a prospect sees:
+login → ticket create → note → timer start/stop → time entry → invoice draft →
+portal view → BYOK surface. It rides `pnpm e2e` like any other spec, so every
+lane that runs the suite keeps the demo path green, and it runs in the light and
+dark projects only.
+
+For a demo-focused run — boot, build, run just this spec, tear down — use one
+command:
+
+```
+pnpm demo:smoke                     # boot, build, run, tear down
+pnpm demo:smoke --keep              # leave the stack up afterwards
+pnpm demo:smoke --no-boot           # use the stack already up
+pnpm demo:smoke --ai-key "$OPENAI_API_KEY"   # also run the live BYOK probe
+```
+
+`scripts/demo-smoke.sh` boots through `scripts/e2e-stack.sh`, builds the web
+bundle, runs the spec, and (with a key) runs `scripts/demo-ai-probe.mjs` for the
+live completion + embedding proof. Without a key the spec still proves the AI
+surface and its admission posture — the demo stack boots no provider runtime, so
+a live call is the probe's job, not the suite's.
+
 ## Order-independence rule for flow authors
 
 Flows must be green in ANY order, in BOTH projects (light before dark), and on
