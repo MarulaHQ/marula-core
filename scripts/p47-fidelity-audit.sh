@@ -42,7 +42,8 @@ done
 
 mkdir -p "$LOGS" "$PACK_DIFF_DIR"
 
-want() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
+# --only accepts a comma-separated list of leg numbers.
+want() { [ -z "$ONLY" ] || printf ',%s,' "$ONLY" | grep -q ",$1,"; }
 
 if [ "$BOOT" = "1" ]; then
   echo "[audit] booting the stack through scripts/e2e-stack.sh"
@@ -68,6 +69,8 @@ echo "[audit] run $RUN_ID — api ${E2E_API_URL:-?} web ${E2E_WEB_URL:-?}"
 # gets nothing for free, and every capture below navigates a browser. Kill by
 # PID: Next renames the process, so `pkill -f standalone/server.js` misses it
 # (recorded by design/qa-p41-ui-clients/LANDING.md:135).
+# invoked through the step runner; a static check cannot see it
+# shellcheck disable=SC2329
 WEB_PID=""
 start_web() {
   if [ -z "${E2E_WEB_URL:-}" ] || [ -z "${E2E_WEB_PORT:-}" ]; then
@@ -98,6 +101,8 @@ start_web() {
   echo "[audit] web never answered on $E2E_WEB_URL — log: $LOGS/web.log" >&2
   return 1
 }
+# reached only through the EXIT trap below
+# shellcheck disable=SC2329
 stop_web() {
   if [ -n "$WEB_PID" ] && kill -0 "$WEB_PID" 2>/dev/null; then
     kill "$WEB_PID" 2>/dev/null
