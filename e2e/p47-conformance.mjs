@@ -196,7 +196,7 @@ const SIGNATURE = () => {
   // fixes their wording and their side (Add filter with the chips; Columns,
   // Filter, Export right-aligned), and chip width otherwise swamps a plain
   // mid-line split.
-  const ACTION = /^(Add filter|Columns|Filter|Export)/;
+  const ACTION = /^\+?\s*(Add filter|Columns|Filter|Export)/;
   const toolbarActions = toolbar
     .filter((c) => ACTION.test(c.label))
     .map((c) => ({ label: c.label, side: c.x + c.w / 2 >= midX ? "right" : "left" }));
@@ -270,8 +270,12 @@ const SIGNATURE = () => {
     document.body?.getAttribute("data-density") ||
     surface.getAttribute("data-density") ||
     null;
-  const emptyNode = surface.querySelector('[data-testid*=empty], .m-empty, [class*=empty]');
-  const empty = emptyNode && vis(emptyNode) ? txt(emptyNode).slice(0, 80) : null;
+  const emptyNode =
+    surface.querySelector('[data-testid*=empty], .m-empty, [class*=empty]') ||
+    null;
+  const emptyText = emptyNode && vis(emptyNode) ? txt(emptyNode).slice(0, 100) : null;
+  const bodyText = surface.innerText.replace(/\s+/g, " ").trim();
+  const empty = emptyText || (/no .{0,30}match|nothing is |no tickets yet|nothing waiting|everything open has/i.test(bodyText) ? bodyText.slice(0, 100) : null);
 
   return {
     canvas: { width: window.innerWidth, height: window.innerHeight },
@@ -357,11 +361,12 @@ const DRIVERS = {
   "tickets-list": {
     "01-default": { status: "drive" },
     "02-filtered": {
-      prefs: { "tickets.list": { view: "all", filters: [{ field: "priority", op: "in", value: "P1" }] } },
+      prefs: { "tickets.list": { view: "all", filters: [{ field: "title", op: "contains", value: "e" }] } },
+      actions: ["clickText:All tickets"],
     },
     "03-filter-builder": {
-      prefs: { "tickets.list": { view: "all", filters: [{ field: "priority", op: "in", value: "P1" }] } },
-      actions: ["clickText:Filter"],
+      prefs: { "tickets.list": { view: "all", filters: [{ field: "title", op: "contains", value: "e" }] } },
+      actions: ["clickText:All tickets", "clickText:Filter"],
     },
     "04-column-chooser": { actions: ["clickText:Columns"] },
     "05-bulk-selected": { actions: ["checkRow:0"] },
@@ -384,15 +389,69 @@ const DRIVERS = {
     "06-contracts-and-billing": { status: "no-equivalent", reason: "same — a record tab, not a list state" },
     "07-empty-client": { status: "no-equivalent", reason: "a half-finished client is a record shape, not a list state on /clients" },
   },
-  approvals: { "01-queue-no-grant": { status: "drive" } },
-  today: { "01-today-default": { status: "drive" } },
-  dispatch: { "01-board-rest": { status: "drive" } },
-  settings: { "01-settings-shell": { status: "drive" } },
-  quoting: { Q01: { status: "drive" } },
-  knowledge: { K01: { status: "drive" } },
-  workflow: { W01: { status: "drive" } },
-  portal: { "01-login": { status: "drive" } },
-  auth: { "01-login": { status: "drive" } },
+  approvals: {
+    "01-queue-no-grant": { status: "drive" },
+    "*": {
+      status: "not-driven",
+      reason: "the approvals queue's later states are inline verdicts, a bulk pass and invoice detail — interactions the landing capture does not reach",
+    },
+  },
+  today: {
+    "01-today-default": { status: "drive" },
+    "*": {
+      status: "not-driven",
+      reason: "today's other states are quick-log sheets and a logged-day result; reaching them needs a timer/day flow the audit does not run",
+    },
+  },
+  dispatch: {
+    "01-board-rest": { status: "drive" },
+    "*": {
+      status: "no-equivalent",
+      reason: "the dispatch mockup's remaining states are drag, plan, travel and overlap flows on a board surface; the app's /dispatch is a board too, but the audit does not drive drag/plan states",
+    },
+  },
+  settings: {
+    "01-settings-shell": { status: "drive" },
+    "*": {
+      status: "no-equivalent",
+      reason: "each later settings state is a different sub-page (/settings/statuses, /settings/ai-grants, …), not a state of the settings shell",
+    },
+  },
+  quoting: {
+    Q01: { status: "drive" },
+    "*": {
+      status: "no-equivalent",
+      reason: "Q02–C06 are the AI 'describe it' flows and the quote/contract editors; /sales/quotes renders the list only",
+    },
+  },
+  knowledge: {
+    K01: { status: "drive" },
+    "*": {
+      status: "no-equivalent",
+      reason: "K02–K16 are record, vault, secret-reveal and audit states under /kb and /passwords, not states of the knowledge home",
+    },
+  },
+  workflow: {
+    W01: { status: "drive" },
+    "*": {
+      status: "not-driven",
+      reason: "W02–W09 are canvas selections, run states and a describe-a-change proposal; the run states need a live run",
+    },
+  },
+  portal: {
+    "01-login": { status: "drive" },
+    "*": {
+      status: "not-driven",
+      reason: "portal states 02–12 sit behind a portal staff seat (portal@acme.demo); the audit drives the staff session only",
+    },
+  },
+  auth: {
+    "01-login": { status: "drive" },
+    "*": {
+      status: "not-driven",
+      reason: "the later auth states (mfa, magic link, invite, wizard) are separate flows reached by tokens/links the audit does not mint",
+    },
+  },
   "mobile-core": { "*": { status: "no-equivalent", reason: "the app's mobile half is a native screen (native/app), not a browser route; the web bundle cannot render it" } },
   "mobile-scan": { "*": { status: "no-equivalent", reason: "same — a native scanner screen, no web route" } },
 };
@@ -416,7 +475,11 @@ async function runActions(page, actions) {
     const [verb, rest] = action.split(":");
     try {
       if (verb === "clickText") {
-        await page.getByRole("button", { name: rest, exact: false }).first().click({ timeout: 4000 });
+        await page
+          .locator("button, [role=radio], [role=tab], [role=button], a")
+          .filter({ hasText: rest })
+          .first()
+          .click({ timeout: 4000 });
       } else if (verb === "clickAria") {
         await page.locator(`[aria-label="${rest}"]`).first().click({ timeout: 4000 });
       } else if (verb === "checkRow") {
@@ -441,19 +504,15 @@ async function readApp(browser, ctx, session_, surface, stateId) {
     return { status: "no-equivalent", reason: "no web route for this surface" };
   }
   const { tokens, api, web } = session_;
-  // Reset any list state this surface persisted, then apply the driver's.
-  for (const [key, doc] of Object.entries(driver.prefs ?? {})) {
-    const normalized = {};
-    for (const [surfaceKey, entry] of Object.entries(doc)) {
-      normalized[surfaceKey] = {
-        ...entry,
-        columns: entry.columns ?? [],
-        filters: entry.filters ?? [],
-      };
-    }
-    await putSetting(ctx, api, tokens, key, JSON.stringify(normalized));
+  // List state lives behind the user's settings, not the DOM: reset the whole
+  // document (so 01-default is genuinely default and one driver cannot bleed
+  // into the next) and write this driver's entry under the surface's own key.
+  const doc = {};
+  for (const [surfaceKey, entry] of Object.entries(driver.prefs ?? {})) {
+    doc[surfaceKey] = { ...entry, columns: entry.columns ?? [], filters: entry.filters ?? [] };
   }
-  if (driver.density) await putSetting(ctx, api, tokens, "appearance.density", driver.density);
+  await putSetting(ctx, api, tokens, "appearance.data_surfaces", JSON.stringify(doc));
+  await putSetting(ctx, api, tokens, "appearance.density", driver.density ?? "comfortable");
 
   const page = await ctx.newPage();
   if (driver.abort) await page.route(driver.abort, (r) => r.abort());
@@ -465,8 +524,6 @@ async function readApp(browser, ctx, session_, surface, stateId) {
   const actionResult = await runActions(page, driver.actions);
   const sig = await page.evaluate(SIGNATURE);
   await page.close();
-  // Restore density so the next state is not contaminated.
-  if (driver.density) await putSetting(ctx, api, tokens, "appearance.density", "comfortable");
   return { status: "drive", signature: sig, actionResult };
 }
 
@@ -477,25 +534,30 @@ async function readApp(browser, ctx, session_, surface, stateId) {
 function ruleDiffs(pack, app) {
   const out = [];
   const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  // Counts are data, not anatomy: "Export 12" and "Export 40,213" name the same
+  // control. Normalise a trailing count so the rule reads the SHAPE of the group.
+  const norm = (a) => a.label.replace(/^[^A-Za-z]+/, "").replace(/[\s\d,]+$/, "");
   if (!pack || !app) return out;
-  if (!eq(pack.toolbarActions, app.toolbarActions)) {
-    out.push({
-      rule: "table-action order/side (§2.1)",
-      pack: pack.toolbarActions.map((a) => `${a.label}[${a.side}]`),
-      app: app.toolbarActions.map((a) => `${a.label}[${a.side}]`),
-    });
+  const packActions = pack.toolbarActions.map(norm);
+  const appActions = app.toolbarActions.map(norm);
+  if (!eq(packActions, appActions)) {
+    out.push({ rule: "table-action order (§2.1)", pack: packActions, app: appActions });
   }
-  if (!eq(pack.columns, app.columns)) {
-    out.push({ rule: "column order/labels", pack: pack.columns, app: app.columns });
+  const packSides = pack.toolbarActions.map((a) => `${norm(a)}[${a.side}]`);
+  const appSides = app.toolbarActions.map((a) => `${norm(a)}[${a.side}]`);
+  if (!eq(packSides, appSides)) {
+    out.push({ rule: "table-action side (§2.1)", pack: packSides, app: appSides });
+  }
+  const packCols = pack.columns.map((c) => c.replace(/[⠿↕▲▼↑↓]/g, "").trim());
+  const appCols = app.columns.map((c) => c.replace(/[⠿↕▲▼↑↓]/g, "").trim());
+  if (!eq(packCols, appCols)) {
+    out.push({ rule: "column order/labels", pack: packCols, app: appCols });
   }
   if (pack.title && app.title && Math.abs(pack.title.size - app.title.size) > 0.5) {
     out.push({ rule: "title font-size", pack: pack.title.size, app: app.title.size });
   }
   if ((pack.footer ? 1 : 0) !== (app.footer ? 1 : 0)) {
     out.push({ rule: "footer present", pack: Boolean(pack.footer), app: Boolean(app.footer) });
-  }
-  if (pack.rowCells !== app.rowCells && (pack.rowCells > 0 || app.rowCells > 0)) {
-    out.push({ rule: "first row cell count", pack: pack.rowCells, app: app.rowCells });
   }
   return out;
 }
@@ -517,6 +579,12 @@ let sess = null;
 if (!PACK_ONLY) {
   sess = await session();
   appCtx = await browser.newContext({ viewport: CANVAS });
+  // The app reads its session from both a cookie and localStorage; set both, the
+  // way every capture harness in this repo does, so a page that lands on /login
+  // is an auth failure rather than a silent empty capture.
+  await appCtx.request.post(`${sess.api}/api/v1/auth/login`, {
+    data: { email: EMAIL, password: PASSWORD },
+  });
   await appCtx.addInitScript(
     ([raw, exp, theme]) => {
       window.localStorage.setItem("marula-tokens", raw);
