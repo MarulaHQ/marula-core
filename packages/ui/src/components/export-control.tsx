@@ -18,6 +18,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
+import { formatNumber } from "../lib/number";
 import { Icon } from "../kit";
 
 export type ExportFormat = "csv" | "xlsx";
@@ -114,13 +115,13 @@ export function ExportControl({
         <Icon name="download" size={14} />
         {working ? "Working…" : label}
         <span className="m-toolbar-count" aria-hidden="true">
-          {rowCount.toLocaleString()}
+          {formatNumber(rowCount)}
         </span>
       </button>
       {open ? (
         <div className="m-export-menu" role="menu" aria-label={`${label} to a file`}>
           <p className="m-export-count" role="note">
-            {rowCount.toLocaleString()} {rowCount === 1 ? "row" : "rows"}, exactly what is on screen.
+            {formatNumber(rowCount)} {rowCount === 1 ? "row" : "rows"}, exactly what is on screen.
           </p>
           {formats.map((format) => (
             <button
@@ -136,7 +137,7 @@ export function ExportControl({
           ))}
           {isAsync ? (
             <p className="m-export-note">
-              Over {asyncThreshold.toLocaleString()} rows, so this runs in the background and lands
+              Over {formatNumber(asyncThreshold)} rows, so this runs in the background and lands
               in your notifications.
             </p>
           ) : null}

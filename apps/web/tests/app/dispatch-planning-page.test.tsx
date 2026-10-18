@@ -70,6 +70,21 @@ describe("/dispatch/planning integration", () => {
     cleanup();
   });
 
+  it("labels the horizon's day columns from the day key, not the reader's clock", async () => {
+    // 2026-09-03 is a Thursday. A bare `YYYY-MM-DD` has no time in it, so the
+    // label is a property of the day and must not move with the reader's zone.
+    setupApi();
+    render(
+      <AuthProvider>
+        <DispatchPlanningPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("Dana Tech");
+    expect(screen.getAllByText("Thu 3").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Fri 4").length).toBeGreaterThan(0);
+    cleanup();
+  });
+
   it("shows the typed not-available-yet state when the connector API is absent", async () => {
     setupApi();
     const user = userEvent.setup();
