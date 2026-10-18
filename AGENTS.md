@@ -46,6 +46,30 @@ A fresh worktree has no `node_modules` and no build output. Install and build
 there at lane start; do not fall back to the primary checkout to dodge the
 install, which is how a lane ends up editing `main`'s working tree.
 
+## Lane preflight — the row's premise comes first (BINDING, added 2026-10-18)
+
+A lane's first act is to test the premise it was launched on, not to start building:
+
+```
+node scripts/check-tracker-freshness.mjs --row <ID>
+```
+
+It reports what git can prove about that row: the row's own branch merged into `main`, a
+claimed merge sha that is not in `main`'s history, a cited path that no longer exists, a
+gate the row quotes that already passes, fire-order prose that still calls a merged lane
+"in flight". If it flags the row, read the code the row cites and decide before writing
+anything — the check reports, it does not rule.
+
+When the premise is already satisfied — the work is on `main`, or the file the row points
+at was deleted by the lane that closed it — STOP. Report `STALE ROW <ID> — <evidence>` to
+the coordinator, with the check's output, and end the turn. Do not invent adjacent work to
+fill the lane, and do not move the row yourself: a human decides whether the row is stale
+or the check is wrong.
+
+The rule exists because five lanes launched against satisfied premises: `p43-signature-pad`,
+`p45-rag-vector-namespace`, `p47-org-resource-quota-api`, `p44-ui-shared-css-closeout`, and
+the eight Wave 49 rows that sat live for a day after every one of them had merged.
+
 ## UI skills (vendored design-engineering skills)
 
 `/skills` on ui-skills.com, vendored to `.kilo/skills/` (ui-skills-root, improve-ui,

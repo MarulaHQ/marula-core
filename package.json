@@ -11,6 +11,8 @@
     "test": "turbo run test",
     "accept": "tsx scripts/acceptance.ts",
     "evidence:check": "node scripts/check-evidence-writes.mjs",
+    "tracker:check": "node scripts/check-tracker-freshness.mjs",
+    "hooks:check": "node scripts/check-hook-paths.mjs",
     "target:check": "python3 scripts/lane-target-guard.py check --all-profiles",
     "e2e:stack": "bash scripts/e2e-stack.sh",
     "e2e:build-web": "bash scripts/e2e-build-web.sh",
