@@ -95,28 +95,77 @@ const SIGNATURE = () => {
   const txt = (el) => (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 48);
   const round = (n) => Math.round(n);
 
-  // The declared region map, both sides. The pack declares its regions as ids
-  // inside main.page (#tb toolbar, #tbl table, #ft footer); our kit declares
-  // its own (the labelled DataToolbar, the .m-table, the .m-surface-footer).
-  // Everything else about the two DOMs is free to differ, which is the point.
-  const region = (packSel, appSel) =>
-    document.querySelector(packSel) || document.querySelector(appSel) || null;
-  const tb = region("#tb", '[aria-label="Ticket list controls"]');
-  const tbl = region("#tbl", "table.m-table") || document.querySelector("table");
-  const ft = region("#ft", ".m-surface-footer");
+  // The anchor. Every web mockup wraps its surface in `main.page` (nine of
+  // nine), and the preview harness sits outside it - so this single selector
+  // both locates the surface and excludes the chrome, with no per-file map.
+  // Our app has a bare `<main>`. The toolbar is every control above the
+  // anchor's largest child, which is the list.
+  const CHROME = ["#jump", "#toast", "#overlays", "#modal", "#sheets"];
+  const inChrome = (el) => CHROME.some((sel) => el.closest(sel) !== null);
+  const anchor = document.querySelector("main.page") || document.querySelector("main");
+  const bandBottom = (() => {
+    // 1. The anchor's largest child - the list - when the mockup nests it.
+    if (anchor) {
+      let best = null;
+      let bestArea = 0;
+      for (const kid of anchor.children) {
+        if (inChrome(kid)) continue;
+        const r = kid.getBoundingClientRect();
+        if (r.width * r.height > bestArea) {
+          bestArea = r.width * r.height;
+          best = r.top;
+        }
+      }
+      if (best !== null && bestArea > 0) return best;
+    }
+    // 2. The top of the biggest cluster of same-height rows anywhere on the
+    //    page. Survives display:contents, nested wrappers and any naming.
+    const byHeight = new Map();
+    for (const el of document.querySelectorAll("body *")) {
+      if (inChrome(el)) continue;
+      const r = el.getBoundingClientRect();
+      const h = Math.round(r.height);
+      if (h < 24 || h > 80 || r.width < 200) continue;
+      if (!byHeight.has(h)) byHeight.set(h, []);
+      byHeight.get(h).push(r.top);
+    }
+    let bestN = 0;
+    let clusterTop = null;
+    for (const tops of byHeight.values()) {
+      if (tops.length > bestN) {
+        bestN = tops.length;
+        clusterTop = Math.min(...tops);
+      }
+    }
+    if (bestN >= 5) return clusterTop;
+    // 3. Last resort: a fixed band under the surface's top edge.
+    return anchor ? anchor.getBoundingClientRect().top + 180 : null;
+  })();
 
+  const tbl = document.querySelector("table");
+  const ft = document.querySelector("#ft") || document.querySelector(".m-surface-footer") || null;
   const tableBox = tbl ? tbl.getBoundingClientRect() : null;
 
-  // Toolbar: every control inside the declared toolbar region, in reading order.
+  // Toolbar: every control above the list band, in reading order.
   const controls = [];
-  const scope = tb ?? document.body;
-  for (const el of scope.querySelectorAll("button, a[href], [role=button], [role=radio], [role=combobox], select, input")) {
-    if (!vis(el)) continue;
+  for (const el of document.querySelectorAll("button, a[href], [role=button], [role=radio], [role=combobox], select, input")) {
+    if (!vis(el) || inChrome(el)) continue;
     const r = el.getBoundingClientRect();
+    if (bandBottom !== null && r.bottom > bandBottom + 1) continue;
+    if (r.width < 8 || r.height < 8) continue;
     if (r.width < 8 || r.height < 8) continue;
     const label = txt(el) || el.getAttribute("aria-label") || el.getAttribute("placeholder") || "";
     if (label === "") continue;
     controls.push({ label, x: round(r.left), y: round(r.top), w: round(r.width), h: round(r.height) });
+  }
+  // The toolbar is the row IMMEDIATELY above the list, not every control above
+  // it (the mockups carry a top bar and a preview theme switcher above that).
+  // Keep the lowest band, allowing for a wrapped toolbar.
+  if (controls.length > 0) {
+    const lowest = Math.max(...controls.map((c) => c.y));
+    const band = controls.filter((c) => lowest - c.y <= 64);
+    controls.length = 0;
+    controls.push(...band);
   }
   controls.sort((a, b) => (Math.abs(a.y - b.y) > 12 ? a.y - b.y : a.x - b.x));
 
@@ -168,7 +217,7 @@ const SIGNATURE = () => {
     firstRow: row.map((c) => c.text),
     rowCells: row.length,
     footer: ft && vis(ft) ? [txt(ft)] : [],
-    regionsFound: { toolbar: tb !== null, table: tbl !== null, footer: ft !== null },
+    regionsFound: { toolbar: bandBottom !== null, table: tbl !== null, footer: ft !== null },
     canvas: { width: window.innerWidth, height: window.innerHeight },
     tableBox: tableBox ? { x: round(tableBox.left), y: round(tableBox.top), w: round(tableBox.width), h: round(tableBox.height) } : null,
   };
