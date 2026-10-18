@@ -1,31 +1,38 @@
 // p47-conformance.mjs — Wave 47 lane A13, `p47-vision-captures`.
 //
-// The missing instrument. `check-pack-geometry.py` compares numbers, and
-// `p41-pack-diff.py` scores ink; neither can test a *rule*. The pack states its
-// rules in prose per area (`DESIGN-NOTES-*.md`) and ships the HTML each surface
-// was rendered from (`source/*.html`). This renders BOTH sides and diffs the
-// same structural signature, so a difference cannot hide behind a class name.
+// The rule-level instrument. `check-pack-geometry.py` compares declared numbers
+// and `p41-pack-diff.py` scores ink; neither can test a *rule*. The pack states
+// its rules in prose per area (`DESIGN-NOTES-*.md`) and ships the HTML each
+// surface was rendered from (`source/*.html`). This renders BOTH sides and diffs
+// the same structural signature, so a difference cannot hide behind a class name.
 //
-// For each surface it extracts, from the pack's mockup and from our route:
+// The anchor is the mockup's own state selector. Every one of the thirteen
+// mockups carries `<select id="jump" aria-label="Jump to state">`, and the
+// selector lives in the preview harness (`div.viewer`) which sits outside the
+// surface. The surface is the harness's next sibling's `<main>` (the screen for
+// the two mobile files). That is a declared relationship, not a geometric guess,
+// so it locates the surface and excludes the chrome on every mockup at once.
 //
-//   TOOLBAR   every interactive control in the band between the page title and
-//             the table's top edge, in reading order. This is the check that
-//             catches DESIGN-NOTES-tickets §2.1 ("Columns, Filter and Export
-//             right-aligned") without anyone reading the notes.
-//   COLUMNS   the table's header cells, in order, as labels.
-//   ROW       the first body row's cell count and the text shape of each cell.
-//   FOOTER    the visible text in the band below the table.
-//   REGIONS   the box each of the above occupies, normalised to the canvas, so
-//             a region that is present but mis-sized is visible too.
+// For each surface and each declared state this extracts, from the pack's
+// mockup and from our route, the same signature:
+//
+//   TOOLBAR      every control in the band between the page title and the table,
+//                in reading order, plus the right-hand group split out (the
+//                group §2.1 fixes as Columns, Filter, Export).
+//   COLUMNS      the header row's cells, in order.
+//   ROW          the first body row's cell count and text shape.
+//   FOOTER       the visible text below the table.
+//   STATE        density attribute, open panels, empty and error shapes.
+//   REGIONS      the box each region occupies, normalised to the canvas.
 //
 // Usage:
-//   node e2e/p47-conformance.mjs                 # every mapped surface
+//   node e2e/p47-conformance.mjs                       # pack + app, mapped states
+//   node e2e/p47-conformance.mjs --pack-only           # no stack needed
 //   node e2e/p47-conformance.mjs --only tickets-list
-//   node e2e/p47-conformance.mjs --pack-only     # no stack needed
+//   node e2e/p47-conformance.mjs --pack-only --themes  # pack side, both themes
 //
-// The pack side needs no stack at all (`--pack-only` dumps the declarations,
-// which is the yardstick). The app side reads `e2e/.e2e-stack.env` and expects
-// the web bundle up, exactly like the capture harnesses.
+// The pack side needs no stack (`--pack-only` is the yardstick). The app side
+// reads `e2e/.e2e-stack.env` and expects the web bundle up.
 import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -34,7 +41,9 @@ const LANE = "design/qa-p47-vision-captures";
 const OUT = resolve(LANE, "conformance");
 mkdirSync(OUT, { recursive: true });
 
-const PACK = process.env.MARULA_PACK_ROOT ?? "/Users/iordn/Documents/GitHub/Marula/brand/packs/core-surface-pack";
+const PACK =
+  process.env.MARULA_PACK_ROOT ??
+  "/Users/iordn/Documents/GitHub/Marula/brand/packs/core-surface-pack";
 const CANVAS = { width: 1600, height: 994 };
 const EMAIL = "owner@demo.local";
 const PASSWORD = "demo-password-123";
@@ -45,26 +54,32 @@ const arg = (name, dflt) => {
 };
 const ONLY = arg("only", null);
 const PACK_ONLY = process.argv.includes("--pack-only");
-const STATES = process.argv.includes("--states");
+const WITH_THEMES = process.argv.includes("--themes");
 
-/* The nine web areas the pack draws, each with the mockup file it was rendered
- * from and the route that renders it. The route is what makes this a
- * conformance check rather than a picture review. */
+/* The thirteen mockups the pack ships, each with the route that renders it in
+ * our app (null where we have no equivalent — the two mobile files are native
+ * screens, and the app's native half is not a browser surface). `surface` is the
+ * app-side preference key when the route reads `useDataSurfacePrefs`. */
 const SURFACES = [
-  { id: "tickets-list", source: "tickets-list.html", route: "/tickets" },
-  { id: "clients", source: "clients.html", route: "/clients" },
-  { id: "approvals", source: "approvals.html", route: "/approvals" },
-  { id: "today", source: "today.html", route: "/today" },
-  { id: "dispatch", source: "dispatch.html", route: "/dispatch" },
-  { id: "settings", source: "settings.html", route: "/settings" },
-  { id: "quoting", source: "quoting.html", route: "/sales/quotes" },
-  { id: "knowledge", source: "knowledge-vault.html", route: "/documents" },
-  { id: "workflow", source: "workflow-builder.html", route: "/automations" },
+  { id: "tickets-list", source: "tickets-list.html", route: "/tickets", surface: "tickets.list", themes: ["neutral", "dark"] },
+  { id: "clients", source: "clients.html", route: "/clients", surface: "clients.list", themes: ["neutral", "dark"] },
+  { id: "approvals", source: "approvals.html", route: "/approvals", themes: ["neutral", "dark"] },
+  { id: "today", source: "today.html", route: "/today", themes: ["neutral", "dark"] },
+  { id: "dispatch", source: "dispatch.html", route: "/dispatch", themes: ["neutral", "dark"] },
+  { id: "settings", source: "settings.html", route: "/settings", themes: ["neutral", "dark"] },
+  { id: "quoting", source: "quoting.html", route: "/sales/quotes", themes: ["neutral", "dark"] },
+  { id: "knowledge", source: "knowledge-vault.html", route: "/documents", themes: ["neutral", "dark"] },
+  { id: "workflow", source: "workflow-builder.html", route: "/automations", themes: ["neutral", "dark"] },
+  { id: "portal", source: "portal.html", route: "/portal", themes: ["sand", "dark"] },
+  { id: "auth", source: "auth.html", route: "/login", themes: ["neutral", "dark"] },
+  { id: "mobile-core", source: "mobile-core.html", route: null, themes: ["light", "dark"] },
+  { id: "mobile-scan", source: "mobile-scan.html", route: null, themes: ["light", "dark"] },
 ].filter((s) => ONLY === null || s.id === ONLY);
 
-async function token() {
+async function session() {
   const envPath = resolve("e2e/.e2e-stack.env");
-  if (!existsSync(envPath)) throw new Error("e2e/.e2e-stack.env missing — boot the stack or pass --pack-only");
+  if (!existsSync(envPath))
+    throw new Error("e2e/.e2e-stack.env missing — boot the stack or pass --pack-only");
   const env = Object.fromEntries(
     readFileSync(envPath, "utf8")
       .split("\n")
@@ -83,8 +98,8 @@ async function token() {
 
 /* ---------------------------------------------------------------------------
  * The signature. One function, run inside both pages, so the two sides are
- * measured by identical code — which is the whole reason this works where a
- * screenshot comparison does not.
+ * measured by identical code — the whole reason this works where a screenshot
+ * diff does not.
  * ---------------------------------------------------------------------- */
 const SIGNATURE = () => {
   const vis = (el) => {
@@ -93,240 +108,482 @@ const SIGNATURE = () => {
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };
-  const txt = (el) => (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 48);
+  const txt = (el) => (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
   const round = (n) => Math.round(n);
 
-  // The anchor. Every web mockup wraps its surface in `main.page` (nine of
-  // nine), and the preview harness sits outside it - so this single selector
-  // both locates the surface and excludes the chrome, with no per-file map.
-  // Our app has a bare `<main>`. The toolbar is every control above the
-  // anchor's largest child, which is the list.
-  const CHROME = ["#jump", "#toast", "#overlays", "#modal", "#sheets"];
-  const inChrome = (el) => CHROME.some((sel) => el.closest(sel) !== null);
-  const anchor = document.querySelector("main.page") || document.querySelector("main");
-  const bandBottom = (() => {
-    // 1. The anchor's largest child - the list - when the mockup nests it.
-    if (anchor) {
-      let best = null;
-      let bestArea = 0;
-      for (const kid of anchor.children) {
-        if (inChrome(kid)) continue;
-        const r = kid.getBoundingClientRect();
-        if (r.width * r.height > bestArea) {
-          bestArea = r.width * r.height;
-          best = r.top;
-        }
-      }
-      if (best !== null && bestArea > 0) return best;
-    }
-    // 2. The top of the biggest cluster of same-height rows anywhere on the
-    //    page. Survives display:contents, nested wrappers and any naming.
-    const byHeight = new Map();
-    for (const el of document.querySelectorAll("body *")) {
-      if (inChrome(el)) continue;
-      const r = el.getBoundingClientRect();
-      const h = Math.round(r.height);
-      if (h < 24 || h > 80 || r.width < 200) continue;
-      if (!byHeight.has(h)) byHeight.set(h, []);
-      byHeight.get(h).push(r.top);
-    }
+  /* --- the anchor ------------------------------------------------------- */
+  // The pack asserts it by selector: `#jump` is the state switcher, it lives in
+  // the harness (`div.viewer`), and the surface is the harness's next sibling's
+  // `<main>` / the phone screen. Our app has no `#jump`, so it falls through to
+  // the app shell's own `<main>`. Either way the chrome is excluded by being
+  // outside the declared container, not by a height guess.
+  const jump = document.querySelector("#jump");
+  const viewer = jump && jump.closest(".viewer");
+  const frame = viewer ? viewer.nextElementSibling || viewer.parentElement : null;
+  // Inside the frame, prefer the declared content landmark. A few states have
+  // none (portal's login is full-bleed), so the frame itself is the surface —
+  // never `body`, which would readmit the harness the frame exists to exclude.
+  const surface =
+    (frame && (frame.querySelector("main") || frame.querySelector(".scr") || frame)) ||
+    document.querySelector("#m-main-content") ||
+    document.querySelector("main.page") ||
+    document.querySelector("main") ||
+    document.body;
+  const surfaceBox = surface.getBoundingClientRect();
+
+  /* --- the list --------------------------------------------------------- */
+  // The pack draws its lists as div rows, not `<table>`, and names them
+  // differently per surface: `#tbl`, `.tbl`, `.tbody`, or a header row `.hd`
+  // over same-class rows. The detector takes the declared container when it
+  // exists and otherwise the surface's densest cluster of same-class siblings.
+  const declaredList =
+    surface.querySelector("#tbl") ||
+    surface.querySelector(".tbl") ||
+    surface.querySelector("table") ||
+    surface.querySelector(".tbody") ||
+    null;
+  const clusterList = (() => {
+    let best = null;
     let bestN = 0;
-    let clusterTop = null;
-    for (const tops of byHeight.values()) {
-      if (tops.length > bestN) {
-        bestN = tops.length;
-        clusterTop = Math.min(...tops);
+    for (const el of surface.querySelectorAll("div, ul, section")) {
+      const kids = [...el.children];
+      if (kids.length < 3) continue;
+      const counts = {};
+      for (const k of kids) {
+        const cls = typeof k.className === "string" ? k.className.split(/\s+/)[0] : "";
+        if (cls) counts[cls] = (counts[cls] ?? 0) + 1;
+      }
+      const n = Math.max(0, ...Object.values(counts));
+      if (n > bestN) {
+        bestN = n;
+        best = el;
       }
     }
-    if (bestN >= 5) return clusterTop;
-    // 3. Last resort: a fixed band under the surface's top edge.
-    return anchor ? anchor.getBoundingClientRect().top + 180 : null;
+    return bestN >= 4 ? best : null;
   })();
-
-  const tbl = document.querySelector("table");
-  const ft = document.querySelector("#ft") || document.querySelector(".m-surface-footer") || null;
+  const tbl = declaredList || clusterList;
   const tableBox = tbl ? tbl.getBoundingClientRect() : null;
+  const listTop = tableBox ? tableBox.top : surfaceBox.top + 200;
 
-  // Toolbar: every control above the list band, in reading order.
+  /* --- the toolbar ------------------------------------------------------ */
+  // Every control inside the surface that sits above the list's top edge, then
+  // the lowest band of those (the toolbar row immediately above the list — the
+  // page header's own buttons sit far higher and drop out). The pack's `#tb` is
+  // used when present; otherwise the band is read structurally.
   const controls = [];
-  for (const el of document.querySelectorAll("button, a[href], [role=button], [role=radio], [role=combobox], select, input")) {
-    if (!vis(el) || inChrome(el)) continue;
+  const seen = new Set();
+  for (const el of surface.querySelectorAll(
+    "button, a[href], [role=button], [role=radio], [role=checkbox], select, input",
+  )) {
+    if (!vis(el) || seen.has(el)) continue;
     const r = el.getBoundingClientRect();
-    if (bandBottom !== null && r.bottom > bandBottom + 1) continue;
+    if (r.bottom > listTop + 2) continue;
     if (r.width < 8 || r.height < 8) continue;
-    if (r.width < 8 || r.height < 8) continue;
-    const label = txt(el) || el.getAttribute("aria-label") || el.getAttribute("placeholder") || "";
+    const label =
+      txt(el) || el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.getAttribute("title") || "";
     if (label === "") continue;
     controls.push({ label, x: round(r.left), y: round(r.top), w: round(r.width), h: round(r.height) });
+    seen.add(el);
   }
-  // The toolbar is the row IMMEDIATELY above the list, not every control above
-  // it (the mockups carry a top bar and a preview theme switcher above that).
-  // Keep the lowest band, allowing for a wrapped toolbar.
+  let toolbar = [];
   if (controls.length > 0) {
     const lowest = Math.max(...controls.map((c) => c.y));
-    const band = controls.filter((c) => lowest - c.y <= 64);
-    controls.length = 0;
-    controls.push(...band);
+    toolbar = controls.filter((c) => lowest - c.y <= 64);
+    toolbar.sort((a, b) => (Math.abs(a.y - b.y) > 12 ? a.y - b.y : a.x - b.x));
   }
-  controls.sort((a, b) => (Math.abs(a.y - b.y) > 12 ? a.y - b.y : a.x - b.x));
+  const midX = surfaceBox.left + surfaceBox.width / 2;
+  // The table-action controls, with the side of the strip each sits on. §2.1
+  // fixes their wording and their side (Add filter with the chips; Columns,
+  // Filter, Export right-aligned), and chip width otherwise swamps a plain
+  // mid-line split.
+  const ACTION = /^(Add filter|Columns|Filter|Export)/;
+  const toolbarActions = toolbar
+    .filter((c) => ACTION.test(c.label))
+    .map((c) => ({ label: c.label, side: c.x + c.w / 2 >= midX ? "right" : "left" }));
+  const toolbarRight = toolbar
+    .filter((c) => c.x + c.w / 2 >= midX)
+    .map((c) => c.label);
 
-  // Columns: the header row's cells, in x order. Our kit uses thead/th; the
-  // pack draws its header with divs under .hd.
+  /* --- columns and first row ------------------------------------------- */
   const columns = [];
-  if (tbl) {
-    const ths = tbl.querySelectorAll("thead th").length
-      ? [...tbl.querySelectorAll("thead th")]
-      : [...tbl.querySelectorAll(".hd > *, .hd")].flatMap((el) => (el.children.length ? [...el.children] : [el]));
-    for (const th of ths) {
-      if (!vis(th)) continue;
-      const r = th.getBoundingClientRect();
-      columns.push({ label: txt(th), x: round(r.left), w: round(r.width) });
-    }
-    columns.sort((a, b) => a.x - b.x);
-  }
-
-  // The first body row's cells.
   const row = [];
-  const firstRow = tbl
-    ? tbl.querySelector("tbody tr") ?? tbl.querySelector(".tr:not(.hd)")
-    : null;
-  if (firstRow) {
-    const cells = firstRow.querySelectorAll("td").length
-      ? [...firstRow.querySelectorAll("td")]
-      : [...firstRow.children];
-    for (const td of cells) {
-      if (!vis(td)) continue;
-      const r = td.getBoundingClientRect();
-      row.push({ text: txt(td), x: round(r.left), w: round(r.width) });
+  if (tbl) {
+    // Prefer a real table head; the div lists carry a `.hd` row instead.
+    const headRow =
+      tbl.querySelector("thead tr") ||
+      [...tbl.children].find(
+        (c) => typeof c.className === "string" && /(^|\s)(hd|head|th)(\s|$)/.test(c.className),
+      ) ||
+      null;
+    if (headRow) {
+      const cells = headRow.querySelectorAll("th").length
+        ? [...headRow.querySelectorAll("th")]
+        : [...headRow.children];
+      for (const th of cells) {
+        if (!vis(th)) continue;
+        const r = th.getBoundingClientRect();
+        columns.push({ label: txt(th), x: round(r.left), w: round(r.width) });
+      }
+      columns.sort((a, b) => a.x - b.x);
     }
-    row.sort((a, b) => a.x - b.x);
+    const bodyRow =
+      tbl.querySelector("tbody tr") ||
+      [...tbl.children].find((c) => c !== headRow && vis(c) && c.getBoundingClientRect().height > 8) ||
+      null;
+    if (bodyRow) {
+      const cells = bodyRow.querySelectorAll("td").length
+        ? [...bodyRow.querySelectorAll("td")]
+        : [...bodyRow.children];
+      for (const td of cells) {
+        if (!vis(td)) continue;
+        const r = td.getBoundingClientRect();
+        row.push({ text: txt(td), x: round(r.left), w: round(r.width) });
+      }
+      row.sort((a, b) => a.x - b.x);
+    }
   }
 
-  const title = (() => {
-    const h = document.querySelector("h1");
-    if (!h || !vis(h)) return null;
+  /* --- footer ----------------------------------------------------------- */
+  const footerEl =
+    surface.querySelector("#ft") ||
+    surface.querySelector(".ft2") ||
+    surface.querySelector(".m-surface-footer") ||
+    surface.querySelector("[data-testid=surface-footer]") ||
+    null;
+  const footerText = footerEl && vis(footerEl) ? txt(footerEl) : "";
+  const footerBox = footerEl && vis(footerEl) ? footerEl.getBoundingClientRect() : null;
+
+  /* --- title ------------------------------------------------------------ */
+  const h = surface.querySelector("h1") || document.querySelector("h1");
+  let title = null;
+  if (h && vis(h)) {
     const st = getComputedStyle(h);
     const r = h.getBoundingClientRect();
-    return { text: txt(h), size: parseFloat(st.fontSize), weight: st.fontWeight, x: round(r.left), y: round(r.top) };
-  })();
+    title = { text: txt(h), size: parseFloat(st.fontSize), weight: st.fontWeight, x: round(r.left), y: round(r.top) };
+  }
+
+  /* --- interaction state ------------------------------------------------ */
+  const openPanels = [...surface.querySelectorAll('[role=dialog], [role=menu], [role=listbox]')].filter(vis).length +
+    [...document.querySelectorAll("#modal > *, #overlays > *, #sheets > *")].filter(vis).length;
+  const density =
+    document.documentElement.getAttribute("data-density") ||
+    document.body?.getAttribute("data-density") ||
+    surface.getAttribute("data-density") ||
+    null;
+  const emptyNode = surface.querySelector('[data-testid*=empty], .m-empty, [class*=empty]');
+  const empty = emptyNode && vis(emptyNode) ? txt(emptyNode).slice(0, 80) : null;
 
   return {
+    canvas: { width: window.innerWidth, height: window.innerHeight },
+    surfaceBox: { x: round(surfaceBox.left), y: round(surfaceBox.top), w: round(surfaceBox.width), h: round(surfaceBox.height) },
     title,
-    toolbar: controls.map((c) => c.label),
-    toolbarBoxes: controls,
+    toolbar: toolbar.map((c) => c.label),
+    toolbarActions,
+    toolbarRight,
     columns: columns.map((c) => c.label),
     firstRow: row.map((c) => c.text),
     rowCells: row.length,
-    footer: ft && vis(ft) ? [txt(ft)] : [],
-    regionsFound: { toolbar: bandBottom !== null, table: tbl !== null, footer: ft !== null },
-    canvas: { width: window.innerWidth, height: window.innerHeight },
+    footer: footerText,
+    footerBox: footerBox ? { x: round(footerBox.left), y: round(footerBox.top), w: round(footerBox.width), h: round(footerBox.height) } : null,
     tableBox: tableBox ? { x: round(tableBox.left), y: round(tableBox.top), w: round(tableBox.width), h: round(tableBox.height) } : null,
+    state: { density, openPanels, empty },
   };
 };
 
 /* ---------------------------------------------------------------------------
- * Run.
+ * Pack side: open each mockup, walk its declared themes and states.
  * ---------------------------------------------------------------------- */
-const browser = await chromium.launch();
-const report = { generatedAt: new Date().toISOString(), pack: PACK, canvas: CANVAS, surfaces: [] };
+async function readPack(browser, surface) {
+  const source = resolve(PACK, "source", surface.source);
+  if (!existsSync(source)) return { error: `no pack source at ${source}` };
+  const page = await browser.newPage({ viewport: CANVAS });
+  await page.goto(`file://${source}`, { waitUntil: "load", timeout: 60_000 });
+  await page.waitForTimeout(900);
 
-let ctx = null;
-let tokens = null;
-let web = null;
-if (!PACK_ONLY) {
-  const session = await token();
-  tokens = session.tokens;
-  web = session.web;
-  ctx = await browser.newContext({ viewport: CANVAS });
-  await ctx.request.post(`${session.api}/api/v1/auth/login`, { data: { email: EMAIL, password: PASSWORD } });
-  await ctx.request.put(`${session.api}/api/v1/settings/user`, {
-    data: { key: "tours.disabled", value: true },
+  const declared = await page.evaluate(() => ({
+    states: [...document.querySelectorAll("#jump option")].map((o) => ({
+      id: o.value,
+      title: o.textContent.replace(/^\s*\d+\s*·\s*/, "").replace(/^[QKC]\d*\s*·?\s*/, "").trim(),
+    })),
+    themes: [...document.querySelectorAll("[data-theme-set]")].map((b) => b.dataset.themeSet),
+  }));
+
+  const themes = WITH_THEMES ? declared.themes : [declared.themes[0]].filter(Boolean);
+  const byState = [];
+  for (const st of declared.states) {
+    const rec = { id: st.id, title: st.title, themes: {} };
+    for (const theme of themes) {
+      if (theme) {
+        await page.evaluate((t) => {
+          const b = document.querySelector(`[data-theme-set="${t}"]`);
+          if (b) b.click();
+        }, theme);
+      }
+      await page.evaluate((v) => {
+        const j = document.querySelector("#jump");
+        if (!j) return;
+        j.value = v;
+        j.dispatchEvent(new Event("change", { bubbles: true }));
+      }, st.id);
+      await page.waitForTimeout(220);
+      rec.themes[theme ?? "default"] = await page.evaluate(SIGNATURE);
+    }
+    byState.push(rec);
+  }
+  await page.close();
+  return { declared, page: byState };
+}
+
+/* ---------------------------------------------------------------------------
+ * App side: per-state drivers.
+ *
+ * A driver says how to reach the equivalent of one pack state in our app, or
+ * that there is no equivalent. It is deliberately data, not a maze of `if`s:
+ * the audit's finding is the list of states with no counterpart, so a missing
+ * entry is a first-class outcome (`no-equivalent` / `not-driven`) rather than a
+ * silent skip.
+ *
+ *   status   "drive" (default) | "no-equivalent" | "not-driven"
+ *   reason   why, for the two non-drive statuses
+ *   prefs    { [surfaceKey]: { view?, filters?, sort? } } written to the user's
+ *            settings before navigation (list state lives behind the API)
+ *   density  "comfortable" | "compact" | "dense"
+ *   actions  an ordered mini-language executed after load:
+ *              "clickText:<text>"  "clickAria:<label>"  "checkRow:0"
+ *   route    an override for this state
+ *   abort    a URL glob whose requests are aborted (the error state)
+ * ---------------------------------------------------------------------- */
+const DRIVERS = {
+  "tickets-list": {
+    "01-default": { status: "drive" },
+    "02-filtered": {
+      prefs: { "tickets.list": { view: "all", filters: [{ field: "priority", op: "in", value: "P1" }] } },
+    },
+    "03-filter-builder": {
+      prefs: { "tickets.list": { view: "all", filters: [{ field: "priority", op: "in", value: "P1" }] } },
+      actions: ["clickText:Filter"],
+    },
+    "04-column-chooser": { actions: ["clickText:Columns"] },
+    "05-bulk-selected": { actions: ["checkRow:0"] },
+    "06-bulk-move-conflict": { status: "not-driven", reason: "needs a multi-board selection and the move dialog; the modal is a workbench flow, not reachable from the list toolbar alone" },
+    "07-export-large": { actions: ["clickText:Export"] },
+    "08-density-compact": { density: "compact" },
+    "09-density-dense": { density: "dense" },
+    "10-empty-no-results": {
+      prefs: { "tickets.list": { view: "all", filters: [{ field: "title", op: "contains", value: "zzzznomatch" }] } },
+    },
+    "11-empty-quiet-queue": { status: "not-driven", reason: "the quiet queue needs an account with nothing assigned; forcing it means mutating seeded data" },
+    "12-load-error": { abort: "**/api/v1/tickets*" },
+  },
+  clients: {
+    "01-clients-list": { status: "drive" },
+    "02-list-possible-duplicate": { status: "not-driven", reason: "the duplicate strip renders only with a dedupe AI grant and a real duplicate pair in seed" },
+    "03-client-overview": { status: "not-driven", reason: "the client record is a different route (/clients/[id]); a landing comparison has no state to drive" },
+    "04-contacts": { status: "no-equivalent", reason: "the app's client record is a route, not a pack state; contacts are not a list state on /clients" },
+    "05-sites-and-devices": { status: "no-equivalent", reason: "same — a record tab, not a list state" },
+    "06-contracts-and-billing": { status: "no-equivalent", reason: "same — a record tab, not a list state" },
+    "07-empty-client": { status: "no-equivalent", reason: "a half-finished client is a record shape, not a list state on /clients" },
+  },
+  approvals: { "01-queue-no-grant": { status: "drive" } },
+  today: { "01-today-default": { status: "drive" } },
+  dispatch: { "01-board-rest": { status: "drive" } },
+  settings: { "01-settings-shell": { status: "drive" } },
+  quoting: { Q01: { status: "drive" } },
+  knowledge: { K01: { status: "drive" } },
+  workflow: { W01: { status: "drive" } },
+  portal: { "01-login": { status: "drive" } },
+  auth: { "01-login": { status: "drive" } },
+  "mobile-core": { "*": { status: "no-equivalent", reason: "the app's mobile half is a native screen (native/app), not a browser route; the web bundle cannot render it" } },
+  "mobile-scan": { "*": { status: "no-equivalent", reason: "same — a native scanner screen, no web route" } },
+};
+
+function driverFor(surfaceId, stateId) {
+  const table = DRIVERS[surfaceId];
+  if (!table) return { status: "not-driven", reason: "no driver table for this surface" };
+  return table[stateId] ?? table["*"] ?? { status: "not-driven", reason: "no driver authored for this state" };
+}
+
+async function putSetting(ctx, api, tokens, key, value) {
+  const res = await ctx.request.put(`${api}/api/v1/settings/user`, {
+    data: { key, value },
     headers: { authorization: `Bearer ${tokens.access_token}` },
   });
-  await ctx.addInitScript(([raw, exp]) => {
-    window.localStorage.setItem("marula-tokens", raw);
-    window.localStorage.setItem("marula-tokens-exp", exp);
-    window.localStorage.setItem("marula-theme", "light");
-    window.localStorage.setItem("marula-theme-preset", "marula");
-  }, [JSON.stringify(tokens), String(Date.now() + tokens.expires_in * 1000 - 30_000)]);
+  return res.ok();
+}
+
+async function runActions(page, actions) {
+  for (const action of actions ?? []) {
+    const [verb, rest] = action.split(":");
+    try {
+      if (verb === "clickText") {
+        await page.getByRole("button", { name: rest, exact: false }).first().click({ timeout: 4000 });
+      } else if (verb === "clickAria") {
+        await page.locator(`[aria-label="${rest}"]`).first().click({ timeout: 4000 });
+      } else if (verb === "checkRow") {
+        await page.locator("tbody tr").first().locator('input[type="checkbox"], [role="checkbox"], button').first().click({ timeout: 4000 });
+      }
+    } catch {
+      // An action that does not land is itself a finding: the driver recorded
+      // the attempt and the state reads as reached-but-empty. Do not throw.
+      return { action, ok: false };
+    }
+    await page.waitForTimeout(250);
+  }
+  return { ok: true };
+}
+
+async function readApp(browser, ctx, session_, surface, stateId) {
+  const driver = driverFor(surface.id, stateId);
+  if (driver.status === "no-equivalent" || driver.status === "not-driven") {
+    return { status: driver.status, reason: driver.reason };
+  }
+  if (surface.route === null) {
+    return { status: "no-equivalent", reason: "no web route for this surface" };
+  }
+  const { tokens, api, web } = session_;
+  // Reset any list state this surface persisted, then apply the driver's.
+  for (const [key, doc] of Object.entries(driver.prefs ?? {})) {
+    const normalized = {};
+    for (const [surfaceKey, entry] of Object.entries(doc)) {
+      normalized[surfaceKey] = {
+        ...entry,
+        columns: entry.columns ?? [],
+        filters: entry.filters ?? [],
+      };
+    }
+    await putSetting(ctx, api, tokens, key, JSON.stringify(normalized));
+  }
+  if (driver.density) await putSetting(ctx, api, tokens, "appearance.density", driver.density);
+
+  const page = await ctx.newPage();
+  if (driver.abort) await page.route(driver.abort, (r) => r.abort());
+  await page
+    .goto(`${web}${driver.route ?? surface.route}`, { waitUntil: "domcontentloaded", timeout: 60_000 })
+    .catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+  await page.waitForTimeout(1200);
+  const actionResult = await runActions(page, driver.actions);
+  const sig = await page.evaluate(SIGNATURE);
+  await page.close();
+  // Restore density so the next state is not contaminated.
+  if (driver.density) await putSetting(ctx, api, tokens, "appearance.density", "comfortable");
+  return { status: "drive", signature: sig, actionResult };
+}
+
+/* ---------------------------------------------------------------------------
+ * Rule diffs. Each compares one field and records both sides so a reader can
+ * judge, not just a boolean.
+ * ---------------------------------------------------------------------- */
+function ruleDiffs(pack, app) {
+  const out = [];
+  const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  if (!pack || !app) return out;
+  if (!eq(pack.toolbarActions, app.toolbarActions)) {
+    out.push({
+      rule: "table-action order/side (§2.1)",
+      pack: pack.toolbarActions.map((a) => `${a.label}[${a.side}]`),
+      app: app.toolbarActions.map((a) => `${a.label}[${a.side}]`),
+    });
+  }
+  if (!eq(pack.columns, app.columns)) {
+    out.push({ rule: "column order/labels", pack: pack.columns, app: app.columns });
+  }
+  if (pack.title && app.title && Math.abs(pack.title.size - app.title.size) > 0.5) {
+    out.push({ rule: "title font-size", pack: pack.title.size, app: app.title.size });
+  }
+  if ((pack.footer ? 1 : 0) !== (app.footer ? 1 : 0)) {
+    out.push({ rule: "footer present", pack: Boolean(pack.footer), app: Boolean(app.footer) });
+  }
+  if (pack.rowCells !== app.rowCells && (pack.rowCells > 0 || app.rowCells > 0)) {
+    out.push({ rule: "first row cell count", pack: pack.rowCells, app: app.rowCells });
+  }
+  return out;
+}
+
+/* ---------------------------------------------------------------------------
+ * Run.
+ * ---------------------------------------------------------------------- */
+const browser = await chromium.launch({ });
+const report = {
+  generatedAt: new Date().toISOString(),
+  pack: PACK,
+  canvas: CANVAS,
+  withThemes: WITH_THEMES,
+  surfaces: [],
+};
+
+let appCtx = null;
+let sess = null;
+if (!PACK_ONLY) {
+  sess = await session();
+  appCtx = await browser.newContext({ viewport: CANVAS });
+  await appCtx.addInitScript(
+    ([raw, exp, theme]) => {
+      window.localStorage.setItem("marula-tokens", raw);
+      window.localStorage.setItem("marula-tokens-exp", exp);
+      window.localStorage.setItem("marula-theme", theme);
+      window.localStorage.setItem("marula-theme-preset", "marula");
+    },
+    [JSON.stringify(sess.tokens), String(Date.now() + sess.tokens.expires_in * 1000 - 30_000), "light"],
+  );
 }
 
 for (const surface of SURFACES) {
-  const sourcePath = resolve(PACK, "source", surface.source);
-  if (!existsSync(sourcePath)) {
-    report.surfaces.push({ id: surface.id, error: `no pack source at ${sourcePath}` });
+  const packSide = await readPack(browser, surface);
+  if (packSide.error) {
+    report.surfaces.push({ id: surface.id, error: packSide.error });
     continue;
   }
-  const packPage = await browser.newPage({ viewport: CANVAS });
-  await packPage.goto(`file://${sourcePath}`, { waitUntil: "load", timeout: 60_000 });
-  await packPage.waitForTimeout(1200);
-  const pack = await packPage.evaluate(SIGNATURE);
-
-  // Every mockup declares its states: an ST array of [id, title, apply] that
-  // populates <select id="jump">, driven by its own change handler
-  // (clients.html:274,387,389). Walking that select turns the pack side from one
-  // landing view into a per-state catalogue - 169 states, not 13.
-  const packStates = [];
-  if (STATES) {
-    const ids = await packPage.evaluate(() =>
-      [...document.querySelectorAll("#jump option")].map((o) => ({
-        id: o.value,
-        title: o.textContent.replace(/^\s*\d+\s*·\s*/, "").trim(),
-      })),
-    );
-    for (const st of ids) {
-      await packPage.evaluate((v) => {
-        const sel = document.querySelector("#jump");
-        if (!sel) return;
-        sel.value = v;
-        sel.dispatchEvent(new Event("change", { bubbles: true }));
-      }, st.id);
-      await packPage.waitForTimeout(350);
-      const sig = await packPage.evaluate(SIGNATURE);
-      packStates.push({ id: st.id, title: st.title, toolbar: sig.toolbar, columns: sig.columns, rowCells: sig.rowCells, footer: sig.footer });
+  const record = {
+    id: surface.id,
+    source: surface.source,
+    route: surface.route,
+    themes: packSide.declared.themes,
+    stateCount: packSide.page.length,
+    states: [],
+  };
+  for (const st of packSide.page) {
+    const packSig = st.themes[Object.keys(st.themes)[0]] ?? null;
+    const entry = { id: st.id, title: st.title, packThemes: st.themes, app: null, deltas: [] };
+    if (!PACK_ONLY) {
+      const app = await readApp(browser, appCtx, sess, surface, st.id);
+      entry.app = app;
+      if (app.status === "drive") {
+        entry.deltas = ruleDiffs(packSig, app.signature);
+      }
     }
+    record.states.push(entry);
   }
-  await packPage.close();
-
-  let app = null;
-  if (!PACK_ONLY) {
-    const page = await ctx.newPage();
-    await page.goto(`${web}${surface.route}`, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
-    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
-    await page.waitForTimeout(1500);
-    app = await page.evaluate(SIGNATURE);
-    await page.close();
-  }
-
-  const deltas = [];
-  if (app) {
-    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-    if (!same(pack.toolbar, app.toolbar)) {
-      deltas.push({ rule: "toolbar order", pack: pack.toolbar, app: app.toolbar });
-    }
-    if (!same(pack.columns, app.columns)) {
-      deltas.push({ rule: "column order/labels", pack: pack.columns, app: app.columns });
-    }
-    if (pack.rowCells !== app.rowCells) {
-      deltas.push({ rule: "row cell count", pack: pack.rowCells, app: app.rowCells });
-    }
-    if (pack.title && app.title && Math.abs(pack.title.size - app.title.size) > 0.5) {
-      deltas.push({ rule: "title font-size", pack: pack.title.size, app: app.title.size });
-    }
-    if (!same(pack.footer, app.footer)) {
-      deltas.push({ rule: "footer text", pack: pack.footer, app: app.footer });
-    }
-  }
-  report.surfaces.push({ id: surface.id, route: surface.route, source: surface.source, pack, app, deltas, packStates });
-  console.log(`\n[${surface.id}] ${app ? `${deltas.length} rule(s) differ` : "pack side only"}`);
-  for (const d of deltas) {
-    console.log(`  ! ${d.rule}`);
-    console.log(`      pack: ${JSON.stringify(d.pack)}`);
-    console.log(`      app : ${JSON.stringify(d.app)}`);
-  }
+  report.surfaces.push(record);
+  const states = record.states.length;
+  const driven = record.states.filter((s) => s.app?.status === "drive").length;
+  const noEq = record.states.filter((s) => s.app?.status === "no-equivalent").length;
+  const notDriven = record.states.filter((s) => s.app?.status === "not-driven").length;
+  console.log(
+    `[${surface.id}] ${states} pack states | app: ${driven} driven, ${noEq} no-equivalent, ${notDriven} not-driven`,
+  );
 }
 
 writeFileSync(resolve(OUT, "CONFORMANCE.json"), JSON.stringify(report, null, 2));
-console.log(`\n[conformance] ${report.surfaces.length} surfaces -> ${OUT}/CONFORMANCE.json`);
-if (ctx) await ctx.close();
+const totals = report.surfaces.reduce(
+  (acc, s) => {
+    if (s.error) return acc;
+    acc.states += s.stateCount;
+    for (const st of s.states) {
+      const a = st.app?.status;
+      if (a === "drive") acc.driven += 1;
+      else if (a === "no-equivalent") acc.noEq += 1;
+      else if (a === "not-driven") acc.notDriven += 1;
+    }
+    acc.deltas += s.states.reduce((n, st) => n + st.deltas.length, 0);
+    return acc;
+  },
+  { states: 0, driven: 0, noEq: 0, notDriven: 0, deltas: 0 },
+);
+console.log(
+  `\n[conformance] ${report.surfaces.length} surfaces, ${totals.states} pack states, ` +
+    `${totals.driven} app-driven, ${totals.noEq} no-equivalent, ${totals.notDriven} not-driven, ${totals.deltas} rule deltas`,
+);
+console.log(`[conformance] -> ${OUT}/CONFORMANCE.json`);
+if (appCtx) await appCtx.close();
 await browser.close();
