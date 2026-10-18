@@ -8,23 +8,15 @@
  * appears when two states meet (selected + current on the same row) is
  * measurable rather than inferred.
  *
- * What it drives per surface:
- *   - density: comfortable / compact / dense (row height, control height)
- *   - row hover
- *   - row focus-visible (row focusability recorded either way)
- *   - row selected
- *   - row current
- *   - row selected + current together
- *   - toolbar control hover + focus + disabled controls
- *   - panels: filter builder, column chooser, export menu
- *   - bulk bar
- *   - container edges: row/cell right edge vs the scroll container, and
- *     scrollWidth > clientWidth
- *   - empty / error / loading
+ * Per surface it drives: the three density steps; row hover; row
+ * focus-visible; row selected; row current; both states at once; the toolbar
+ * controls (hover, focus, disabled); the filter builder, column chooser and
+ * export menu; the bulk bar; empty; error; loading; and the row's right edge
+ * against its scroll container.
  *
  * Every measurement is a getComputedStyle value or a getBoundingClientRect
- * number. Nothing here is an impression. A probe that cannot run records
- * `{ ok: false, why }` with a reason — never a silent gap.
+ * number. A probe that cannot run records `{ ok: false, why }` with a reason —
+ * never a silent gap, and never the word "inconclusive".
  *
  * Usage (after `scripts/e2e-stack.sh up` and `scripts/e2e-build-web.sh`):
  *   node scripts/p47-rendered-states-harness.mjs                 # all surfaces
@@ -62,13 +54,12 @@ const VIEWPORT = { width: 1600, height: 994 };
 const STAFF = { email: "owner@demo.local", password: "demo-password-123" };
 
 const args = process.argv.slice(2);
-const only = args.includes("--surface")
-  ? args[args.indexOf("--surface") + 1].split(",")
-  : null;
+const only = args.includes("--surface") ? args[args.indexOf("--surface") + 1].split(",") : null;
 const wantShots = args.includes("--shots");
+const SHOT_KEYS = ["approvals", "billing", "tickets", "clients", "contracts", "quotes"];
 
 /* ------------------------------------------------------------------ *
- * Surfaces. `rows` is the generic row selector; `table` guards readiness.
+ * Surfaces
  * ------------------------------------------------------------------ */
 const SURFACES = [
   { key: "approvals", path: "/approvals", note: "money.css row modifiers — the proving defect" },
@@ -103,7 +94,6 @@ const SURFACES = [
   { key: "passwords", path: "/passwords" },
 ];
 
-/* Portal surfaces (separate session). */
 const PORTAL_SURFACES = [
   { key: "portal-tickets", path: "/portal/tickets" },
   { key: "portal-invoices", path: "/portal/invoices" },
@@ -112,30 +102,8 @@ const PORTAL_SURFACES = [
 ];
 
 /* ------------------------------------------------------------------ *
- * Page-side measurement helpers (serialised into the browser).
+ * Page-side measurement library (installed once per page).
  * ------------------------------------------------------------------ */
-
-const PAGE_API = {
-  /** Computed paint values of one element. */
-  paint(el) {
-    const cs = getComputedStyle(el);
-    return {
-      backgroundColor: cs.backgroundColor,
-      backgroundImage: cs.backgroundImage,
-      boxShadow: cs.boxShadow,
-      outline: `${cs.outlineWidth} ${cs.outlineStyle} ${cs.outlineColor}`,
-      borderTop: `${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}`,
-      borderRight: `${cs.borderRightWidth} ${cs.borderRightStyle} ${cs.borderRightColor}`,
-      borderBottom: `${cs.borderBottomWidth} ${cs.borderBottomStyle} ${cs.borderBottomColor}`,
-      borderLeft: `${cs.borderLeftWidth} ${cs.borderLeftStyle} ${cs.borderLeftColor}`,
-      height: cs.height,
-      position: cs.position,
-      zIndex: cs.zIndex,
-    };
-  },
-};
-
-/** Installed in the page: a small measurement library. */
 function installMeasure() {
   const paint = (el) => {
     const cs = getComputedStyle(el);
@@ -165,23 +133,23 @@ function installMeasure() {
     }
     return document.documentElement;
   };
-  const cells = (row) => [...row.querySelectorAll(":scope > td")];
-  window.__m = { paint, rect, scrollContainer, cells };
+  window.__m = { paint, rect, scrollContainer };
   return true;
 }
 
-/** Build a state record for a surface from a single evaluation. */
+/** Build a state record for one row. */
 const MEASURE_ROW = (rowSelector) => {
   const m = window.__m;
-  const rows = [...document.querySelectorAll(rowSelector)].filter((r) => r.querySelector("td") && !r.querySelector(":scope > th"));
+  const rows = [...document.querySelectorAll(rowSelector)].filter(
+    (r) => r.querySelector("td") && !r.querySelector(":scope > th"),
+  );
   if (!rows.length) return { ok: false, why: `no data rows matched ${rowSelector}` };
-  const idx = rows.length > 1 ? 1 : 0;
+  const idx = Math.min(1, rows.length - 1);
   const row = rows[idx];
-  const cs = m.cells(row);
   const cont = m.scrollContainer(row);
   const cr = m.rect(cont);
   const rr = m.rect(row);
-  const cellRecords = cs.map((c, i) => {
+  const cellRecords = [...row.querySelectorAll(":scope > td")].map((c, i) => {
     const p = m.paint(c);
     const r = m.rect(c);
     return {
@@ -198,6 +166,10 @@ const MEASURE_ROW = (rowSelector) => {
     };
   });
   const rowPaint = m.paint(row);
+  const prev = document.activeElement;
+  row.focus();
+  const rowFocusable = document.activeElement === row;
+  if (prev && prev.focus) prev.focus();
   return {
     ok: true,
     rowIndex: idx,
@@ -211,43 +183,65 @@ const MEASURE_ROW = (rowSelector) => {
       tabIndex: row.getAttribute("tabindex"),
     },
     row: { ...rowPaint, rect: rr },
-    rowFocusable: (() => {
-      const prev = document.activeElement;
-      row.focus();
-      const got = document.activeElement === row;
-      if (prev && prev.focus) prev.focus();
-      return got;
-    })(),
+    rowFocusable,
     cells: cellRecords,
+    cellCount: cellRecords.length,
     distinctCellBoxShadows: [...new Set(cellRecords.map((c) => c.boxShadow))],
     distinctCellBackgrounds: [...new Set(cellRecords.map((c) => c.backgroundColor))],
     cellsCrossingContainerRight: cellRecords.filter((c) => c.crossesContainerRight).length,
-    container: { rect: cr, scrollWidth: cont.scrollWidth, clientWidth: cont.clientWidth, overflows: cont.scrollWidth > cont.clientWidth + 1 },
+    container: {
+      rect: cr,
+      scrollWidth: cont.scrollWidth,
+      clientWidth: cont.clientWidth,
+      overflows: cont.scrollWidth > cont.clientWidth + 1,
+    },
     rowCrossesContainerRight: rr.right > cr.right + 1,
-    focusablesInRow: [...row.querySelectorAll("a,button,input,select,textarea,[tabindex]")].map((e) => e.tagName + (e.getAttribute("data-testid") ? `#${e.getAttribute("data-testid")}` : "")),
+    focusablesInRow: [...row.querySelectorAll("a,button,input,select,textarea,[tabindex]")].map(
+      (e) => e.tagName + (e.getAttribute("data-testid") ? `#${e.getAttribute("data-testid")}` : ""),
+    ),
   };
 };
 
 /* ------------------------------------------------------------------ *
- * Playwright driver
+ * Driver
  * ------------------------------------------------------------------ */
 const browser = await chromium.launch();
-
-const findings = { generatedAt: new Date().toISOString(), viewport: VIEWPORT, stack: { web: WEB, api: API }, surfaces: {}, portal: {} };
+const findings = {
+  generatedAt: new Date().toISOString(),
+  viewport: VIEWPORT,
+  stack: { web: WEB, api: API },
+  surfaces: {},
+  portal: {},
+};
 const consoleErrors = [];
 const pageErrors = [];
 
 async function newSession() {
   const context = await browser.newContext({ viewport: VIEWPORT });
   const page = await context.newPage();
+  const lists = [];
+  page.on("response", async (res) => {
+    const url = res.url();
+    if (!/\/api\/v1\//.test(url)) return;
+    if (!res.request().method().startsWith("GET")) return;
+    const ct = res.headers()["content-type"] ?? "";
+    if (!ct.includes("json")) return;
+    let len = -1;
+    try {
+      const body = await res.json();
+      len = Array.isArray(body) ? body.length : Array.isArray(body?.items) ? body.items.length : -1;
+    } catch {
+      /* not a JSON list */
+    }
+    lists.push({ url, status: res.status(), arrayLength: len });
+  });
   page.on("console", (msg) => {
     if (msg.type() === "error") consoleErrors.push(`${page.url()} :: ${msg.text()}`);
   });
   page.on("pageerror", (e) => pageErrors.push(`${page.url()} :: ${e.message}`));
-  return { context, page };
+  return { context, page, lists };
 }
 
-/** Real in-page staff login through the sign-in card. */
 async function staffLogin(page) {
   await page.goto(`${WEB}/login`, { waitUntil: "domcontentloaded", timeout: 60_000 });
   await page.fill("#login-email", STAFF.email, { timeout: 60_000 });
@@ -265,41 +259,43 @@ async function portalLogin(page, email) {
   await page.waitForFunction(() => !location.pathname.startsWith("/portal/login"), null, { timeout: 60_000 });
 }
 
-async function ready(page) {
+const ready = async (page) => {
   await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(900);
-}
+  await page.waitForTimeout(1100);
+};
 
-/** Find the first real table row on the page, by a family of selectors. */
 async function rowSelector(page) {
-  const candidates = [
-    "table.m-table tbody tr",
-    "table tbody tr",
-    "[data-testid$='-row']",
-    "tr",
-  ];
-  for (const sel of candidates) {
+  for (const sel of ["table.m-table tbody tr", "table tbody tr", "[data-testid$='-row']", "tr"]) {
     const n = await page.locator(sel).filter({ has: page.locator("td") }).count();
     if (n > 0) return sel;
   }
   return null;
 }
 
-/** Generic per-surface probe. */
-async function probeSurface(page, surface) {
+function pickRowSource(list) {
+  const arrays = list.filter((l) => l.arrayLength > 0 && l.status === 200);
+  if (!arrays.length) return null;
+  arrays.sort((a, b) => b.arrayLength - a.arrayLength);
+  return arrays[0];
+}
+
+async function probeSurface(page, surface, lists) {
   const rec = { key: surface.key, path: surface.path, note: surface.note ?? null, states: {} };
-  await page.goto(`${WEB}${surface.path}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
-  await ready(page);
-
-  // Record the row-source request so loading/error can be replayed on it.
-  const rowSource = await page.evaluate(() => window.__p47LastListUrl ?? null);
-
-  await page.evaluate(installMeasure);
+  const before = lists.length;
+  const open = async () => {
+    await page.goto(`${WEB}${surface.path}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await ready(page);
+    await page.evaluate(installMeasure);
+  };
+  await open();
 
   const rowSel = await rowSelector(page);
+  const observed = lists.slice(before);
+  rec.listResponses = observed;
+  rec.rowSource = pickRowSource(observed);
+
   if (!rowSel) {
-    rec.states.noRows = { ok: false, why: "no table/row markup found on the route" };
-    rec.rowSource = rowSource;
+    rec.states.noRows = { ok: false, why: "no table or row markup on the route — row instrument has nothing to read" };
     return rec;
   }
   rec.rowSelector = rowSel;
@@ -311,83 +307,101 @@ async function probeSurface(page, surface) {
       rec.states[label] = { ok: false, why: String(e.message ?? e) };
     }
   };
+  const rowLoc = () => page.locator(rowSel).filter({ has: page.locator("td") });
 
-  // ---- row: baseline + hover + focus
+  // ---- baseline + hover --------------------------------------------------------
   await measure("row-default");
   try {
-    const rows = page.locator(rowSel).filter({ has: page.locator("td") });
+    const rows = rowLoc();
     const n = await rows.count();
-    await rows.nth(n > 1 ? 1 : 0).hover({ timeout: 5000 });
-    await page.waitForTimeout(120);
+    await rows.nth(Math.min(1, n - 1)).hover({ timeout: 5000 });
+    await page.waitForTimeout(140);
     await measure("row-hover");
-    await page.mouse.move(5, 5);
+    await page.mouse.move(4, 4);
+    await page.waitForTimeout(120);
   } catch (e) {
     rec.states["row-hover"] = { ok: false, why: String(e.message ?? e) };
   }
 
-  // ---- row selected (checkbox) -------------------------------------------------
-  const rowLoc = page.locator(rowSel).filter({ has: page.locator("td") });
-  const cbInRow = rowLoc.nth(1).locator("input[type=checkbox]").first();
-  const cbCount = await cbInRow.count();
-  if (cbCount) {
+  // ---- select: scan the first rows for an enabled selection control ------------
+  let selected = false;
+  let selectHow = null;
+  const scan = Math.min(await rowLoc().count(), 6);
+  for (let i = 0; i < scan; i++) {
+    const cb = rowLoc().nth(i).locator("input[type=checkbox]").first();
+    if ((await cb.count()) === 0) continue;
+    if (await cb.isDisabled()) continue;
     try {
-      await cbInRow.check({ timeout: 5000, force: true });
-      await page.waitForTimeout(200);
-      await measure("row-selected");
+      await cb.check({ timeout: 4000, force: true });
+      await page.waitForTimeout(250);
+      selected = true;
+      selectHow = `checkbox in row ${i}`;
+      break;
+    } catch {
+      /* next row */
+    }
+  }
+  if (!selected) {
+    try {
+      await rowLoc().nth(Math.min(1, scan - 1)).locator("td").nth(1).click({ timeout: 4000, position: { x: 4, y: 4 } });
+      await page.waitForTimeout(250);
+      const live = await page.evaluate(MEASURE_ROW, rowSel);
+      const gotState =
+        /selected|sel\b/.test(live.rowClass ?? "") || live.rowAttrs?.dataSelected === "true";
+      selected = gotState;
+      selectHow = gotState ? "row click (no checkbox on the surface)" : null;
+      rec.states["row-selected"] = gotState
+        ? { ...live, selectionMechanism: selectHow }
+        : { ok: false, why: "no checkbox and a row click did not produce a selected state" };
     } catch (e) {
-      rec.states["row-selected"] = { ok: false, why: String(e.message ?? e) };
+      rec.states["row-selected"] = { ok: false, why: `no checkbox; row click failed: ${e.message ?? e}` };
     }
   } else {
-    rec.states["row-selected"] = { ok: false, why: "no checkbox in row 0 cell 0 — surface offers no row-selection control" };
+    await measure("row-selected");
+    rec.states["row-selected"].selectionMechanism = selectHow;
   }
 
-  // ---- row current (click the row body, away from controls) --------------------
+  // ---- current: click the row body, away from its controls ---------------------
   try {
-    const target = rowLoc.nth(1).locator("td").nth(2);
-    await target.click({ timeout: 5000, position: { x: 4, y: 4 } });
-    await page.waitForTimeout(220);
+    await rowLoc().nth(Math.min(1, scan - 1)).locator("td").nth(2).click({ timeout: 4000, position: { x: 4, y: 4 } });
+    await page.waitForTimeout(260);
     await measure("row-current");
-    await measure("row-selected-and-current");
+    if (selected) rec.states["row-selected-and-current"] = await page.evaluate(MEASURE_ROW, rowSel);
   } catch (e) {
     rec.states["row-current"] = { ok: false, why: String(e.message ?? e) };
   }
 
-  // ---- row focus-visible -------------------------------------------------------
-  // Focus the row itself if it can take focus; otherwise the first control in the
-  // row. Either way the record says which happened, so this is never "inconclusive".
+  // ---- focus-visible -----------------------------------------------------------
   try {
-    const r = page.locator(rowSel).filter({ has: page.locator("td") }).nth(1);
-    const info = await r.evaluate((el) => {
+    const r = rowLoc().nth(Math.min(1, scan - 1));
+    const tookRowFocus = await r.evaluate((el) => {
       const before = document.activeElement;
       el.focus();
-      const tookRowFocus = document.activeElement === el;
+      const took = document.activeElement === el;
       if (before && before.focus) before.focus();
-      return { tookRowFocus };
+      return took;
     });
-    if (info.tookRowFocus) {
+    if (tookRowFocus) {
       await r.focus();
-      await page.waitForTimeout(150);
+      await page.waitForTimeout(160);
       const m = await page.evaluate(MEASURE_ROW, rowSel);
-      // Confirm :focus-visible actually matched.
-      const matched = await r.evaluate((el) => el.matches(":focus-visible"));
-      rec.states["row-focus-visible"] = { ...m, focusVisibleMatched: matched };
+      rec.states["row-focus-visible"] = { ...m, focusVisibleMatched: await r.evaluate((el) => el.matches(":focus-visible")) };
     } else {
       const ctl = r.locator("a,button,input,[tabindex]").first();
       if (await ctl.count()) {
         await ctl.focus();
-        await page.waitForTimeout(150);
+        await page.waitForTimeout(160);
         const m = await page.evaluate(MEASURE_ROW, rowSel);
-        const matched = await ctl.evaluate((el) => el.matches(":focus-visible"));
         rec.states["row-focus-visible"] = {
           ...m,
           focusTarget: "control-in-row",
-          focusVisibleMatched: matched,
+          focusVisibleMatched: await ctl.evaluate((el) => el.matches(":focus-visible")),
           control: await ctl.evaluate((el) => window.__m.paint(el)),
           rowFocusable: false,
           why: "row is not focusable (no tabindex); focused the first control inside it instead",
         };
       } else {
-        rec.states["row-focus-visible"] = { ok: false, why: "row is not focusable and it holds no focusable control" };
+        rec.states["row-focus-visible"] = { ok: false, why: "row is not focusable and holds no focusable control" };
       }
     }
   } catch (e) {
@@ -403,7 +417,7 @@ async function probeSurface(page, surface) {
       if (!row) return { ok: false, why: "no rows" };
       const cont = m.scrollContainer(row);
       const cr = m.rect(cont);
-      const over = [...row.querySelectorAll(":scope > td")].map((c, i) => ({ i, right: m.rect(c).right, w: m.rect(c).w }));
+      const cells = [...row.querySelectorAll(":scope > td")].map((c, i) => ({ i, right: m.rect(c).right, w: m.rect(c).w }));
       return {
         ok: true,
         containerRect: cr,
@@ -411,80 +425,108 @@ async function probeSurface(page, surface) {
         clientWidth: cont.clientWidth,
         overflows: cont.scrollWidth > cont.clientWidth + 1,
         rowRight: m.rect(row).right,
-        cells: over,
-        cellsPastRight: over.filter((c) => c.right > cr.right + 1).length,
-        lastCellRight: over.length ? over[over.length - 1].right : null,
+        cells,
+        cellsPastRight: cells.filter((c) => c.right > cr.right + 1).length,
+        lastCellRight: cells.length ? cells[cells.length - 1].right : null,
       };
     }, rowSel);
   } catch (e) {
     rec.states.containerEdge = { ok: false, why: String(e.message ?? e) };
   }
 
-  // ---- density ladder ----------------------------------------------------------
+  // ---- bulk bar -----------------------------------------------------------------
+  try {
+    rec.states.bulkBar = await page.evaluate(() => {
+      const bar =
+        document.querySelector("[data-testid='bulk-bar']") ??
+        document.querySelector(".m-money-bulkbar") ??
+        document.querySelector("[class*='bulk']");
+      const headerRow = document.querySelector("thead tr");
+      return {
+        ok: true,
+        present: !!bar,
+        barClass: bar ? bar.className : null,
+        barText: bar ? (bar.textContent ?? "").trim().slice(0, 140) : null,
+        headerStillHasTh: headerRow ? headerRow.querySelectorAll("th").length > 0 : false,
+      };
+    });
+  } catch (e) {
+    rec.states.bulkBar = { ok: false, why: String(e.message ?? e) };
+  }
+
+  // ---- density ladder (mutate, then reload so the app re-reads it) --------------
   rec.states.density = {};
   for (const step of ["comfortable", "compact", "dense"]) {
     try {
-      await page.evaluate((s) => {
-        localStorage.setItem("marula-density", s);
-        document.documentElement.setAttribute("data-density", s);
-      }, step);
-      await page.waitForTimeout(150);
+      await page.evaluate((s) => localStorage.setItem("marula-density", s), step);
+      await open();
+      if (!(await rowSelector(page))) throw new Error("rows disappeared after reload");
       rec.states.density[step] = await page.evaluate((sel) => {
         const m = window.__m;
         const rows = [...document.querySelectorAll(sel)].filter((r) => r.querySelector("td"));
-        const row = rows[1] ?? rows[0];
-        const cs = row ? getComputedStyle(row.querySelector("td")) : null;
+        const row = rows[Math.min(1, rows.length - 1)];
+        const cell = row ? row.querySelector("td") : null;
         const inner = row ? row.querySelector("input,button,a") : null;
         return {
           ok: !!row,
           rootDensity: document.documentElement.getAttribute("data-density"),
-          cellHeight: cs ? cs.height : null,
-          rowRectHeight: row ? Math.round(row.getBoundingClientRect().height) : null,
+          cellHeight: cell ? getComputedStyle(cell).height : null,
+          rowHeight: row ? Math.round(row.getBoundingClientRect().height) : null,
           innerControl: inner ? { tag: inner.tagName, h: Math.round(inner.getBoundingClientRect().height) } : null,
+          cellPx: cell ? getComputedStyle(cell).paddingLeft : null,
+          rowVar: getComputedStyle(document.documentElement).getPropertyValue("--m-density-row").trim(),
+          _rect: row ? m.rect(row) : null,
         };
       }, rowSel);
     } catch (e) {
       rec.states.density[step] = { ok: false, why: String(e.message ?? e) };
     }
   }
-  // restore + reload so later probes see the default
-  await page.evaluate(() => {
-    localStorage.removeItem("marula-density");
-    document.documentElement.removeAttribute("data-density");
-  });
+  await page.evaluate(() => localStorage.removeItem("marula-density"));
+  await open();
 
   // ---- toolbar controls --------------------------------------------------------
   try {
     rec.states.toolbar = await page.evaluate(() => {
-      const m = window.__m;
       const scope = document.querySelector("main") ?? document.body;
-      const ctls = [...scope.querySelectorAll("button, [role=button], a.entry-btn, a[data-testid], input, select")].filter(
-        (e) => e.offsetParent !== null,
-      );
-      const cut = ctls.slice(0, 24);
+      const ctls = [...scope.querySelectorAll("button, [role=button], input, select")].filter((e) => e.offsetParent !== null);
       return {
         ok: true,
         count: ctls.length,
-        disabled: ctls.filter((e) => e.disabled || e.getAttribute("aria-disabled") === "true").map((e) => e.textContent?.trim().slice(0, 40) || e.tagName),
-        controls: cut.map((e) => ({ tag: e.tagName, label: (e.textContent ?? "").trim().slice(0, 40), disabled: !!e.disabled, testid: e.getAttribute("data-testid") })),
+        disabled: ctls
+          .filter((e) => e.disabled || e.getAttribute("aria-disabled") === "true")
+          .map((e) => (e.textContent ?? "").trim().slice(0, 40) || e.tagName),
+        controls: ctls.slice(0, 26).map((e) => ({
+          tag: e.tagName,
+          label: (e.textContent ?? "").trim().slice(0, 40),
+          disabled: !!e.disabled,
+          testid: e.getAttribute("data-testid"),
+        })),
       };
     });
-    // hover + focus the first real toolbar button
     const btn = page.locator("main button:visible, main [role=button]:visible").first();
     if (await btn.count()) {
       try {
-        const before = await btn.evaluate((el) => window.__m.paint(el));
+        const beforePaint = await btn.evaluate((el) => window.__m.paint(el));
         await btn.hover({ timeout: 4000 });
-        await page.waitForTimeout(120);
-        const after = await btn.evaluate((el) => window.__m.paint(el));
-        rec.states.toolbarHover = { ok: true, label: (await btn.textContent())?.trim().slice(0, 40), before, after, changed: JSON.stringify(before) !== JSON.stringify(after) };
+        await page.waitForTimeout(140);
+        const afterPaint = await btn.evaluate((el) => window.__m.paint(el));
+        rec.states.toolbarHover = {
+          ok: true,
+          label: (await btn.textContent())?.trim().slice(0, 40) ?? null,
+          before: beforePaint,
+          after: afterPaint,
+          changed: JSON.stringify(beforePaint) !== JSON.stringify(afterPaint),
+        };
       } catch (e) {
         rec.states.toolbarHover = { ok: false, why: String(e.message ?? e) };
       }
       try {
         await btn.focus();
-        const after = await btn.evaluate((el) => ({ ...window.__m.paint(el), focusVisible: el.matches(":focus-visible") }));
-        rec.states.toolbarFocus = { ok: true, after };
+        rec.states.toolbarFocus = {
+          ok: true,
+          after: await btn.evaluate((el) => ({ ...window.__m.paint(el), focusVisible: el.matches(":focus-visible") })),
+        };
       } catch (e) {
         rec.states.toolbarFocus = { ok: false, why: String(e.message ?? e) };
       }
@@ -493,93 +535,148 @@ async function probeSurface(page, surface) {
     rec.states.toolbar = { ok: false, why: String(e.message ?? e) };
   }
 
-  // ---- bulk bar ----------------------------------------------------------------
-  try {
-    rec.states.bulkBar = await page.evaluate((sel) => {
-      const bar =
-        document.querySelector("[data-testid='bulk-bar']") ??
-        document.querySelector(".m-money-bulkbar") ??
-        document.querySelector("[class*='bulk']");
-      const headerRow = document.querySelector("thead tr");
-      const hasTh = headerRow ? headerRow.querySelectorAll("th").length > 0 : false;
-      return {
-        ok: true,
-        present: !!bar,
-        barClass: bar ? bar.className : null,
-        barText: bar ? (bar.textContent ?? "").trim().slice(0, 120) : null,
-        headerStillTh: hasTh,
-        note: bar ? null : "no bulk bar in DOM at this point (recorded after the selection attempt)",
-      };
-    }, rowSel);
-  } catch (e) {
-    rec.states.bulkBar = { ok: false, why: String(e.message ?? e) };
-  }
-
-  // ---- panels: filter builder / column chooser / export menu -------------------
+  // ---- panels ------------------------------------------------------------------
   rec.states.panels = {};
-  const panelButtons = [
-    { name: "filter", testids: ["filter", "filter-button", "tickets-filter"], labels: ["Filter", "Add filter"] },
+  for (const p of [
+    { name: "filter", testids: ["filter", "filter-button", "tickets-filter"], labels: ["Filter", "Add filter", "Filters"] },
     { name: "columns", testids: ["columns", "column-chooser"], labels: ["Columns"] },
     { name: "export", testids: ["export"], labels: ["Export"] },
-  ];
-  for (const p of panelButtons) {
-    let opened = false;
+  ]) {
     let how = null;
     for (const label of p.labels) {
       const b = page.getByRole("button", { name: new RegExp(`^${label}\\b`, "i") }).first();
-      if (await b.count()) {
+      if ((await b.count()) && (await b.isVisible().catch(() => false))) {
         try {
           await b.click({ timeout: 3000 });
           how = `button:${label}`;
-          opened = true;
           break;
         } catch {
-          /* try the next label */
+          /* next */
         }
       }
     }
-    if (!opened) {
+    if (!how) {
       for (const t of p.testids) {
         const l = page.locator(`[data-testid="${t}"]`).first();
-        if (await l.count()) {
+        if ((await l.count()) && (await l.isVisible().catch(() => false))) {
           try {
             await l.click({ timeout: 3000 });
             how = `testid:${t}`;
-            opened = true;
             break;
           } catch {
-            /* keep trying */
+            /* next */
           }
         }
       }
     }
-    if (!opened) {
-      rec.states.panels[p.name] = { ok: false, why: "no control matched for this panel on this surface" };
+    if (!how) {
+      rec.states.panels[p.name] = { ok: false, why: "no control for this panel was found on the surface" };
       continue;
     }
-    await page.waitForTimeout(250);
-    rec.states.panels[p.name] = await page.evaluate(() => {
-      const m = window.__m;
-      const pop =
-        document.querySelector("[role=dialog]") ??
-        document.querySelector("[role=menu]") ??
-        document.querySelector("[data-radix-popper-content-wrapper]") ??
-        document.querySelector("[class*='popover'], [class*='popover']");
-      return {
-        ok: true,
-        opened: !!pop,
-        how,
-        tag: pop ? pop.tagName : null,
-        class: pop ? pop.className : null,
-        rect: pop ? m.rect(pop) : null,
-        text: pop ? (pop.textContent ?? "").trim().slice(0, 200) : null,
-      };
-    });
+    await page.waitForTimeout(300);
+    rec.states.panels[p.name] = await page.evaluate(
+      (h) => {
+        const m = window.__m;
+        const pop =
+          document.querySelector("[role=dialog]") ??
+          document.querySelector("[role=menu]") ??
+          document.querySelector("[data-radix-popper-content-wrapper]") ??
+          document.querySelector("[class*='popover']");
+        return {
+          ok: true,
+          opened: !!pop,
+          how: h,
+          tag: pop ? pop.tagName : null,
+          className: pop ? pop.className : null,
+          rect: pop ? m.rect(pop) : null,
+          text: pop ? (pop.textContent ?? "").trim().slice(0, 200) : null,
+        };
+      },
+      how,
+    );
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(180);
   }
 
-  rec.rowSource = rowSource;
+  // ---- empty -------------------------------------------------------------------
+  try {
+    await open();
+    const search = page.locator("main input[type=search], main input[placeholder*='Search' i], main input[placeholder*='Filter' i]").first();
+    if (await search.count()) {
+      await search.fill("zzz-nothing-matches-p47", { timeout: 5000 });
+      await page.waitForTimeout(900);
+      rec.states.empty = await page.evaluate((sel) => {
+        const rows = [...document.querySelectorAll(sel)].filter((r) => r.querySelector("td"));
+        const t = (document.body.innerText ?? "").toLowerCase();
+        return {
+          ok: true,
+          drivenBy: "search input",
+          rowCount: rows.length,
+          saysNothing: /no |nothing|empty|no results|matches/.test(t.slice(0, 4000)),
+          emptyTestid: document.querySelector("[data-testid*='empty']")?.getAttribute("data-testid") ?? null,
+        };
+      }, rowSel);
+      await search.fill("");
+      await page.waitForTimeout(400);
+    } else {
+      rec.states.empty = { ok: false, why: "no search input on the surface to drive an empty result" };
+    }
+  } catch (e) {
+    rec.states.empty = { ok: false, why: String(e.message ?? e) };
+  }
+
+  // ---- loading, then error, on the route's own list request --------------------
+  const src = rec.rowSource;
+  if (!src) {
+    rec.states.loading = { ok: false, why: "no JSON list response was observed on the route; nothing to delay" };
+    rec.states.error = { ok: false, why: "no JSON list response was observed on the route; nothing to fail" };
+  } else {
+    try {
+      await page.route(src.url, async (route) => {
+        await new Promise((r) => setTimeout(r, 4000));
+        await route.continue();
+      });
+      const nav = page.goto(`${WEB}${surface.path}`, { waitUntil: "commit", timeout: 30_000 });
+      await page.waitForTimeout(900);
+      await page.evaluate(installMeasure);
+      rec.states.loading = await page.evaluate((sel) => {
+        const rows = [...document.querySelectorAll(sel)].filter((r) => r.querySelector("td"));
+        const skel = document.querySelector(".m-skel, [class*='skeleton'], [aria-busy='true'], [role=status]");
+        return {
+          ok: true,
+          rowsRendered: rows.length,
+          skeletonPresent: !!skel,
+          skeletonClass: skel ? skel.className : null,
+          text: (document.body.innerText ?? "").trim().slice(0, 160),
+        };
+      }, rowSel);
+      await nav.catch(() => {});
+      await page.unroute(src.url);
+    } catch (e) {
+      rec.states.loading = { ok: false, why: String(e.message ?? e) };
+      await page.unroute(src.url).catch(() => {});
+    }
+
+    try {
+      await page.route(src.url, (route) => route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"p47 probe"}' }));
+      await open();
+      rec.states.error = await page.evaluate((sel) => {
+        const rows = [...document.querySelectorAll(sel)].filter((r) => r.querySelector("td"));
+        const alert = document.querySelector("[role=alert]");
+        return {
+          ok: true,
+          rowsRendered: rows.length,
+          alertText: alert ? (alert.textContent ?? "").trim().slice(0, 200) : null,
+          bodyHead: (document.body.innerText ?? "").trim().slice(0, 200),
+        };
+      }, rowSel);
+      await page.unroute(src.url);
+    } catch (e) {
+      rec.states.error = { ok: false, why: String(e.message ?? e) };
+      await page.unroute(src.url).catch(() => {});
+    }
+  }
+
   return rec;
 }
 
@@ -587,7 +684,7 @@ async function probeSurface(page, surface) {
  * Run
  * ------------------------------------------------------------------ */
 console.log(`p47-rendered-states harness → ${WEB}`);
-const { context, page } = await newSession();
+const { context, page, lists } = await newSession();
 await staffLogin(page);
 console.log("staff session established (owner@demo.local)");
 
@@ -595,17 +692,17 @@ const list = only ? SURFACES.filter((s) => only.includes(s.key)) : SURFACES;
 for (const surface of list) {
   process.stdout.write(`  · ${surface.key} `);
   try {
-    const rec = await probeSurface(page, surface);
+    const rec = await probeSurface(page, surface, lists);
     findings.surfaces[surface.key] = rec;
     const st = rec.states ?? {};
-    const sel = st["row-selected"];
-    const cur = st["row-current"];
-    const both = st["row-selected-and-current"];
+    const both = st["row-selected-and-current"] ?? st["row-selected"];
     const flag =
-      both?.ok && (both.distinctCellBoxShadows?.length > 1 || both.cellsCrossingContainerRight > 0) ? "  ← cell-split" : "";
-    console.log(`ok (rows=${st["row-default"]?.rowCount ?? "?"}, sel=${sel?.ok ? "yes" : "no"}, cur=${cur?.ok ? "yes" : "no"})${flag}`);
-    if (wantShots && ["approvals", "billing", "tickets", "clients", "contracts"].includes(surface.key)) {
-      await page.screenshot({ path: resolve(SHOTS, `${surface.key}-state.png`), fullPage: false });
+      both?.ok && both.distinctCellBoxShadows?.length > 1 ? `  ← ${both.distinctCellBoxShadows.length} distinct cell shadows` : "";
+    console.log(
+      `ok (rows=${st["row-default"]?.rowCount ?? "?"}, sel=${st["row-selected"]?.ok ? "yes" : "no"}, cur=${st["row-current"]?.ok ? "yes" : "no"})${flag}`,
+    );
+    if (wantShots && SHOT_KEYS.includes(surface.key)) {
+      await page.screenshot({ path: resolve(SHOTS, `${surface.key}-state.png`) });
     }
   } catch (e) {
     findings.surfaces[surface.key] = { ok: false, error: String(e?.message ?? e) };
@@ -613,7 +710,6 @@ for (const surface of list) {
   }
 }
 
-// ---- portal session --------------------------------------------------------
 const portalOnly = only ? !only.some((k) => SURFACES.some((s) => s.key === k)) : true;
 if (portalOnly) {
   const ps = await newSession();
@@ -623,7 +719,7 @@ if (portalOnly) {
     for (const surface of PORTAL_SURFACES) {
       process.stdout.write(`  · ${surface.key} `);
       try {
-        findings.portal[surface.key] = await probeSurface(ps.page, surface);
+        findings.portal[surface.key] = await probeSurface(ps.page, surface, ps.lists);
         console.log("ok");
       } catch (e) {
         findings.portal[surface.key] = { ok: false, error: String(e?.message ?? e) };
@@ -640,7 +736,9 @@ if (portalOnly) {
 findings.consoleErrors = consoleErrors;
 findings.pageErrors = pageErrors;
 writeFileSync(resolve(OUT, "rendered-states.json"), JSON.stringify(findings, null, 2) + "\n");
-console.log(`\nwrote design/qa-p47-rendered-states/rendered-states.json (${consoleErrors.length} console errors, ${pageErrors.length} page errors)`);
+console.log(
+  `\nwrote design/qa-p47-rendered-states/rendered-states.json (${consoleErrors.length} console errors, ${pageErrors.length} page errors)`,
+);
 
 await context.close();
 await browser.close();
