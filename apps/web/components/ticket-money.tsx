@@ -37,6 +37,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../lib/api";
 import { runEnvelopeMutation } from "../lib/envelope-write";
+import { LocalTime } from "./local-time";
 import { money } from "../lib/format";
 import { ticketPartDraft } from "../lib/scan/routing";
 import { ScanBar } from "./scan/scan-bar";
@@ -501,7 +502,7 @@ export function TicketMoney({ ticketId }: { ticketId: string }) {
                         {expense.description}
                       </span>
                     </Td>
-                    <Td className="text-xs">{new Date(expense.incurred_at).toLocaleDateString()}</Td>
+                    <Td className="text-xs"><LocalTime value={expense.incurred_at} kind="date" /></Td>
                     <Td className="text-right text-xs tabular-nums">{money(expense.amount_minor, expense.currency)}</Td>
                     <Td>
                       <input

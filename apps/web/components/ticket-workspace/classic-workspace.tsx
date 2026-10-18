@@ -986,7 +986,7 @@ export function TicketWorkspaceClassic(): ReactNode {
           </section>
         );
       case "scheduling":
-        return <SchedulingPod key="scheduling" ticketId={ticket.id} ticketTitle={ticket.title} />;
+        return <SchedulingPod key="scheduling" ticketId={ticket.id} ticketTitle={ticket.title} siteTimezone={ticket.site_timezone} />;
       case "taxonomy":
         return (
           <section

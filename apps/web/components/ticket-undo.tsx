@@ -18,11 +18,13 @@ import {
   Button,
   Label,
   Spinner,
+  formatInTimeZone,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { newIdempotencyKey } from "../lib/instant/instant-write";
+import { useTimeFormat } from "../lib/use-time-format";
 
 type UndoStackResponse = components["schemas"]["UndoStackResponse"];
 type UndoStep = components["schemas"]["UndoStep"];
@@ -31,8 +33,12 @@ type TicketRevertResponse = components["schemas"]["TicketRevertResponse"];
 const UNDO_STACK_PATH = "/api/v1/tickets/{id}/undo-stack";
 const REVERT_PATH = "/api/v1/tickets/{id}/revert";
 
-function describeStep(step: UndoStep): string {
-  const when = new Date(step.created_at).toLocaleString();
+/**
+ * One step as one sentence. The zone is the reader's, so the description a
+ * button announces and the row it names agree on when the step happened.
+ */
+function describeStep(step: UndoStep, timeZone: string): string {
+  const when = formatInTimeZone(step.created_at, timeZone, "datetime");
   const who = step.actor_kind === "human" ? "you" : step.actor_kind;
   return `${step.op} by ${who} · ${when}`;
 }
@@ -51,6 +57,7 @@ export function TicketUndo({
   const [message, setMessage] = useState<string | null>(null);
   const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState(false);
+  const { timeZone } = useTimeFormat();
 
   const refresh = useCallback(async () => {
     const { data, error } = await api.api.GET(UNDO_STACK_PATH, {
@@ -156,7 +163,7 @@ export function TicketUndo({
           >
             {busy ? <Spinner /> : null}
             {newestRestorable !== null
-              ? `Undo: ${describeStep(newestRestorable)}`
+              ? `Undo: ${describeStep(newestRestorable, timeZone)}`
               : "Nothing left to undo"}
           </Button>
         </>
@@ -214,7 +221,7 @@ export function TicketUndo({
               {stack.steps.map((s) => (
                 <li key={s.write_id} className="flex items-center gap-2">
                   <Badge tone={s.restorable ? "neutral" : "warning"}>{`#${s.seq}`}</Badge>
-                  <span>{describeStep(s)}</span>
+                  <span>{describeStep(s, timeZone)}</span>
                   {!s.restorable ? <Badge>not value-restorable</Badge> : null}
                 </li>
               ))}

@@ -34,6 +34,7 @@ import {
   Td,
   Th,
   Tr,
+  formatNumber,
 } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -495,7 +496,7 @@ export function TicketLinksPanel({
               <strong
                 title={moneyCurrency === null ? "Sum across lines of varying currency — open the Money tab for per-line detail" : undefined}
               >
-                {moneyCurrency !== null ? money(rollup.billable_cost_minor, moneyCurrency) : `≈ ${(rollup.billable_cost_minor / 100).toLocaleString()} (mixed currency)`}
+                {moneyCurrency !== null ? money(rollup.billable_cost_minor, moneyCurrency) : `≈ ${formatNumber(rollup.billable_cost_minor / 100)} (mixed currency)`}
               </strong>
             </span>
           </>

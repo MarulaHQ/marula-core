@@ -24,7 +24,9 @@ import {
   PageFrame,
   SkeletonRows,
 } from "../../../components/knowledge/ledger";
+import { formatInTimeZone, formatNumber } from "@marula-core/ui";
 import { api, useRequireAuth } from "../../../lib/api";
+import { useTimeFormat } from "../../../lib/use-time-format";
 import { envelopeOf, rejectionText } from "../../../lib/error-copy";
 import {
   durationText,
@@ -65,6 +67,7 @@ export default function RunLedger({
 }) {
   const auth = useRequireAuth();
   const router = useRouter();
+  const { timeZone } = useTimeFormat();
 
   const [runs, setRuns] = useState<RunView[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -315,7 +318,7 @@ export default function RunLedger({
                       <span
                         className="tabular-nums"
                         style={{ color: "var(--m-text-secondary)" }}
-                        title={new Date(run.started_at).toLocaleString()}
+                        title={formatInTimeZone(run.started_at, timeZone, "datetime")}
                       >
                         {relativeTime(run.started_at)}
                       </span>
@@ -351,7 +354,7 @@ export default function RunLedger({
         <span>
           Showing{" "}
           <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
-            {shown.toLocaleString()}
+            {formatNumber(shown)}
           </b>{" "}
           run{shown === 1 ? "" : "s"}
         </span>

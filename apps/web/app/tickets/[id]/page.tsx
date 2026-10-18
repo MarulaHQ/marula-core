@@ -1289,7 +1289,7 @@ async function changeStatus(statusId: string): Promise<void> {
               {/* Staged run (workbench-v2 plan): the scheduling pod mounts in
                   the Details tab — it is read/send-only (no note surface), so
                   it cannot conflict with the floating composer. */}
-              <SchedulingPod ticketId={ticket.id} ticketTitle={ticket.title} />
+              <SchedulingPod ticketId={ticket.id} ticketTitle={ticket.title} siteTimezone={ticket.site_timezone} />
               {/* Custom fields and tags used to be a link away in the classic
                   workspace. The value payload turned out to be
                   self-describing, so the fields cost no fetch at all and the

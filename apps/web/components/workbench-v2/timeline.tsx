@@ -15,11 +15,12 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { Spinner } from "@marula-core/ui";
+import { Spinner, formatInTimeZone } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api, downloadAttachment } from "../../lib/api";
+import { useTimeFormat } from "../../lib/use-time-format";
 import { formatSignedQty } from "../../lib/stock-format";
 import type { Attachment, TicketComment } from "../../lib/instant/read-models";
 
@@ -81,16 +82,17 @@ function kindIcon(kind: WbKind): ReactNode {
   return <Icon name="file" size={12} />;
 }
 
-function timeLabel(at: string): string {
-  const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+/**
+ * The column's clock and the day heading above it. Both take the reader's zone:
+ * the heading groups the rows under the day *they* filed them on, so a reader
+ * in Tokyo does not see a 09:00 row under yesterday's date.
+ */
+function timeLabel(at: string, timeZone: string): string {
+  return formatInTimeZone(at, timeZone, "time");
 }
 
-function dayLabel(at: string): string | null {
-  const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+function dayLabel(at: string, timeZone: string): string {
+  return formatInTimeZone(at, timeZone, "longDate");
 }
 
 const EVENT_ACTION_LABEL: Record<string, string> = {
@@ -118,6 +120,7 @@ export function WbTimeline({ ticketId, comments, attachments, namesByUser, reloa
   const [stockNames, setStockNames] = useState<Map<string, { name: string; unit: string }>>(new Map());
   const [locationNames, setLocationNames] = useState<Map<string, string>>(new Map());
   const [loadError, setLoadError] = useState<string | null>(null);
+  const { timeZone } = useTimeFormat();
 
   useEffect(() => {
     let cancelled = false;
@@ -325,7 +328,7 @@ export function WbTimeline({ ticketId, comments, attachments, namesByUser, reloa
       ) : (
         <ol className="m-wb-timeline relative">
           {filtered.map((row, i) => {
-            const day = dayLabel(row.at);
+            const day = dayLabel(row.at, timeZone);
             const showDay = day !== null && day !== lastDay;
             lastDay = day;
             return (
@@ -341,7 +344,7 @@ export function WbTimeline({ ticketId, comments, attachments, namesByUser, reloa
                   data-testid={`wb-row-${row.kind}`}
                 >
                   <div className="pt-1 text-right text-[10px]" style={{ color: "var(--m-text-muted)", fontVariantNumeric: "tabular-nums" }}>
-                    {timeLabel(row.at)}
+                    {timeLabel(row.at, timeZone)}
                   </div>
                   <div
                     className={`m-wb-event-icon z-10 grid place-items-center rounded-full border`}

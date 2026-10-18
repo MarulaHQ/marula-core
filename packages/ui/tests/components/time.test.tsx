@@ -11,6 +11,7 @@ import { DualTime, Time } from "../../src/components/time";
 import {
   browserTimeZone,
   dayKeyInTimeZone,
+  formatDayKey,
   isTimeZone,
   offsetLabel,
   resolveTimeZone,
@@ -66,6 +67,54 @@ describe("DualTime", () => {
     render(<DualTime value={INSTANT} zone="UTC" viewerZone="Africa/Johannesburg" />);
     const alt = screen.getByText(/UTC/, { selector: ".m-dual-time-alt" });
     expect(alt.textContent).not.toMatch(/Oct/);
+  });
+});
+
+describe("kind table", () => {
+  // Every shape a surface draws, asserted against a zone the machine is not in.
+  // A shape that drifts here is a shape that drifts on fifty screens.
+  const SHAPES: Array<[Parameters<typeof Time>[0]["kind"], string]> = [
+    ["time", "14:30"],
+    ["date", "18 Oct 2026"],
+    ["datetime", "18 Oct 2026, 14:30"],
+    ["weekday", "Sun 18 Oct, 14:30"],
+    ["day", "Sun 18 Oct"],
+    ["dayMonth", "18 Oct"],
+    ["dayTime", "18 Oct, 14:30"],
+    ["longDate", "Sunday 18 October"],
+    ["month", "Oct"],
+    ["monthYear", "October 2026"],
+    ["weekdayOnly", "Sun"],
+    ["weekdayDay", "Sun 18"],
+  ];
+
+  it.each(SHAPES)("draws %s as %s", (kind, expected) => {
+    const { unmount } = render(
+      <Time value={INSTANT} timeZone="Africa/Johannesburg" kind={kind} />,
+    );
+    expect(screen.getByText(expected)).toBeInTheDocument();
+    unmount();
+  });
+
+  it("pins the shape so two readers see one format", () => {
+    // The zone moves with the reader; the order of the fields does not.
+    render(<Time value={INSTANT} timeZone="Africa/Johannesburg" kind="dayTime" />);
+    expect(screen.getByText("18 Oct, 14:30")).toBeInTheDocument();
+  });
+});
+
+describe("formatDayKey", () => {
+  it("reads a bare day in its own frame, not the reader's", () => {
+    // `2026-10-15` is a Thursday. Midnight UTC of that day is still the 15th
+    // in every zone from UTC-12 to UTC+12, so the weekday cannot drift.
+    expect(formatDayKey("2026-10-15")).toBe("Thu 15 Oct");
+    expect(formatDayKey("2026-10-15", "weekdayDay")).toBe("Thu 15");
+    expect(formatDayKey("2026-10-15", "weekdayOnly")).toBe("Thu");
+  });
+
+  it("refuses a value that is not a day key", () => {
+    expect(formatDayKey("2026-10-15T09:00:00Z")).toBe("—");
+    expect(formatDayKey(null)).toBe("—");
   });
 });
 

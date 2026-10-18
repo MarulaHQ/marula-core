@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../../lib/api";
 import type { TicketComment } from "../../lib/instant/read-models";
+import { LocalTime } from "../local-time";
 
 type AuditEvent = components["schemas"]["AuditEvent"];
 type TimeEntry = components["schemas"]["TimeEntry"];
@@ -276,9 +277,12 @@ export function TicketTimeline({ ticketId, comments, namesByUser }: TimelineProp
                   </span>
                 )}
                 <span className="font-medium">{row.title}</span>
-                <time className="ml-auto" style={{ color: "var(--m-text-muted)" }}>
-                  {new Date(row.at).toLocaleString()}
-                </time>
+                <LocalTime
+                  className="ml-auto"
+                  style={{ color: "var(--m-text-muted)" }}
+                  value={row.at}
+                  kind="datetime"
+                />
               </div>
               {row.meta != null && row.meta !== "" && (
                 <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>

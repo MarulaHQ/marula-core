@@ -19,6 +19,7 @@ import { Icon } from "@marula-core/ui/kit";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { keywordsOf } from "./agent-panel";
+import { LocalTime } from "../local-time";
 import { api } from "../../lib/api";
 
 type Client = components["schemas"]["Client"];
@@ -325,7 +326,7 @@ export function WbContextPanel({ clientId, contactId, ticketId, ticketNumber, ti
                 <div className="text-[13px] font-semibold" style={{ color: slaReadout.fg }}>{slaReadout.text}</div>
                 {sla?.state?.resolution_due != null && (
                   <div className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                    Due {new Date(sla.state.resolution_due).toLocaleString()}
+                    Due <LocalTime value={sla.state.resolution_due} kind="datetime" />
                   </div>
                 )}
               </div>

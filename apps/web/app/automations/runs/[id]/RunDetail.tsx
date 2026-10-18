@@ -39,7 +39,9 @@ import {
   SELECTED_ROW_STYLE,
   SkeletonRows,
 } from "../../../../components/knowledge/ledger";
+import { formatInTimeZone } from "@marula-core/ui";
 import { api, useRequireAuth } from "../../../../lib/api";
+import { useTimeFormat } from "../../../../lib/use-time-format";
 import { envelopeOf, rejectionText } from "../../../../lib/error-copy";
 import {
   durationText,
@@ -402,6 +404,7 @@ function stepStepTime(step: RunStepView): string {
  * finish — the status chip and the trace already say that.
  */
 function RunBanner({ run, steps }: { run: RunDetailView; steps: RunStepView[] }) {
+  const { timeZone } = useTimeFormat();
   if (run.status === "failed") {
     const failed = steps.find((s) => s.status === "failed") ?? null;
     // Steps are 0-indexed; the kept prefix is every step BEFORE the failure, so
@@ -447,7 +450,7 @@ function RunBanner({ run, steps }: { run: RunDetailView; steps: RunStepView[] })
       >
         <span>
           Waiting{run.wake_on != null ? ` for ${run.wake_on}` : ""}
-          {run.wake_at != null ? ` until ${new Date(run.wake_at).toLocaleString()}` : ""}.
+          {run.wake_at != null ? ` until ${formatInTimeZone(run.wake_at, timeZone, "datetime")}` : ""}.
         </span>
         <span>The wait is stored, not held in memory — it resumes when the event arrives.</span>
       </div>
@@ -485,6 +488,7 @@ function StepPanel({
   retryBusy: RetryMode | null;
   onRetry: (mode: RetryMode) => void;
 }) {
+  const { timeZone } = useTimeFormat();
   const outcome = stepOutcome(step, run, steps);
   const failed = step.status === "failed";
   // `min-w-0` on every child: a grid item defaults to `min-width: auto`, so a
@@ -506,7 +510,7 @@ function StepPanel({
         <dt style={{ color: "var(--m-text-muted)" }}>Node</dt>
         <dd className="font-mono">{step.node_id}</dd>
         <dt style={{ color: "var(--m-text-muted)" }}>Started</dt>
-        <dd className="tabular-nums" title={new Date(step.started_at).toLocaleString()}>
+        <dd className="tabular-nums" title={formatInTimeZone(step.started_at, timeZone, "datetime")}>
           {relativeTime(step.started_at)}
         </dd>
         <dt style={{ color: "var(--m-text-muted)" }}>Time</dt>
