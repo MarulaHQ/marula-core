@@ -733,6 +733,41 @@ where
     Ok(hits)
 }
 
+/// Anchor for a fused walk: the fused score and the key of the last row
+/// served, in the order `reciprocal_rank_fusion` produces (score descending,
+/// then `(entity_kind, entity_id)` ascending — the fusion's own tiebreak).
+///
+/// A fused walk is exact only over the CANDIDATE WINDOW, which is why
+/// [`search_hybrid_page_after`] fuses with the page-1 window: every page of a
+/// walk sees the same candidates, so the ranks that produce the scores do not
+/// move between pages. The window is bounded (`candidate_limit`, at most 400),
+/// so a walk ends when the window does — and `has_more` says so instead of the
+/// old silent empty page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FusedCursor {
+    pub score: f64,
+    pub entity_kind: String,
+    pub entity_id: Uuid,
+}
+
+/// One fused page plus whether the window holds more rows after it.
+#[derive(Debug, Clone)]
+pub struct FusedPage {
+    pub hits: Vec<SearchHit>,
+    pub has_more: bool,
+}
+
+/// Is `(score, key)` strictly after `anchor` in the fused order?
+fn fused_after(score: f64, key: &SearchKey, anchor: &FusedCursor) -> bool {
+    if score < anchor.score {
+        return true;
+    }
+    if score > anchor.score {
+        return false;
+    }
+    (&key.entity_kind, key.entity_id) > (&anchor.entity_kind, anchor.entity_id)
+}
+
 /// The hybrid page: both legs ranked independently, fused by RRF in
 /// core-domain, paginated, then hydrated. Score scale differs from the
 /// legacy FTS path (RRF shares, higher is better) — same response shape.
@@ -752,24 +787,110 @@ pub async fn search_hybrid_page(
     limit: i64,
     offset: i64,
 ) -> DbResult<Vec<SearchHit>> {
-    let depth = candidate_limit(limit, offset);
+    Ok(hybrid_page_inner(
+        tx, org_id, kinds, q, trigram, client_id, embedding, limit, offset, None,
+    )
+    .await?
+    .hits)
+}
+
+/// Offset page plus `has_more`, for the legacy hybrid path.
+///
+/// `search_hybrid_page` is this with the flag dropped; the route needs the
+/// flag to decide whether a page hands out a cursor, and an approximation from
+/// `len == limit` would hand out one more cursor than the window holds.
+#[allow(clippy::too_many_arguments)]
+pub async fn search_hybrid_page_paged(
+    tx: &mut PgConnection,
+    org_id: Uuid,
+    kinds: &[String],
+    q: &str,
+    trigram: bool,
+    client_id: Option<Uuid>,
+    embedding: &[f32],
+    limit: i64,
+    offset: i64,
+) -> DbResult<FusedPage> {
+    hybrid_page_inner(
+        tx, org_id, kinds, q, trigram, client_id, embedding, limit, offset, None,
+    )
+    .await
+}
+
+/// Fused page strictly after `cursor`, over the page-1 candidate window.
+///
+/// `has_more` is exact: the inner query asks for one row past the page, so a
+/// full final page reports `false` rather than handing out a cursor that would
+/// return an empty page.
+#[allow(clippy::too_many_arguments)]
+pub async fn search_hybrid_page_after(
+    tx: &mut PgConnection,
+    org_id: Uuid,
+    kinds: &[String],
+    q: &str,
+    trigram: bool,
+    client_id: Option<Uuid>,
+    embedding: &[f32],
+    limit: i64,
+    cursor: Option<FusedCursor>,
+) -> DbResult<FusedPage> {
+    hybrid_page_inner(
+        tx, org_id, kinds, q, trigram, client_id, embedding, limit, 0, cursor,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn hybrid_page_inner(
+    tx: &mut PgConnection,
+    org_id: Uuid,
+    kinds: &[String],
+    q: &str,
+    trigram: bool,
+    client_id: Option<Uuid>,
+    embedding: &[f32],
+    limit: i64,
+    offset: i64,
+    cursor: Option<FusedCursor>,
+) -> DbResult<FusedPage> {
+    // A cursor page must fuse the same candidates as the page it continues,
+    // so it uses the page-1 window regardless of the offset the first request
+    // carried. The legacy offset path keeps the historical widening window.
+    let depth = candidate_limit(limit, if cursor.is_some() { 0 } else { offset });
     let lexical = fts_candidates(&mut *tx, org_id, kinds, q, trigram, client_id, depth).await?;
     let vector = vector_candidates(&mut *tx, org_id, kinds, embedding, client_id, depth).await?;
     let fused = reciprocal_rank_fusion(&[&lexical, &vector]);
-    let page: Vec<&(SearchKey, f64)> = fused
-        .iter()
-        .skip(usize::try_from(offset.max(0)).unwrap_or(usize::MAX))
-        .take(usize::try_from(limit.max(0)).unwrap_or(0))
-        .collect();
+
+    let want = usize::try_from(limit.max(0)).unwrap_or(0);
+    let page: Vec<(SearchKey, f64)> = match &cursor {
+        None => fused
+            .iter()
+            .skip(usize::try_from(offset.max(0)).unwrap_or(usize::MAX))
+            .take(want + 1)
+            .cloned()
+            .collect(),
+        Some(anchor) => fused
+            .iter()
+            .filter(|(k, s)| fused_after(*s, k, anchor))
+            .take(want + 1)
+            .cloned()
+            .collect(),
+    };
+    let has_more = page.len() > want;
+    let page: Vec<(SearchKey, f64)> = page.into_iter().take(want).collect();
     if page.is_empty() {
-        return Ok(Vec::new());
+        return Ok(FusedPage {
+            hits: Vec::new(),
+            has_more: false,
+        });
     }
     let keys: Vec<SearchKey> = page.iter().map(|(k, _)| k.clone()).collect();
     let scores: HashMap<(String, Uuid), f64> = page
         .iter()
         .map(|(k, s)| ((k.entity_kind.clone(), k.entity_id), *s))
         .collect();
-    hydrate_keys(&mut *tx, org_id, &keys, &scores).await
+    let hits = hydrate_keys(&mut *tx, org_id, &keys, &scores).await?;
+    Ok(FusedPage { hits, has_more })
 }
 
 /// Total distinct matches across both legs — the union the fused page is

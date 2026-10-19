@@ -93,6 +93,17 @@ fn default_limit() -> i64 {
 /// from an older build.
 const CURSOR_VERSION: &str = "v1";
 
+/// Which walk a cursor belongs to.
+///
+/// The lexical cursor carries the ranked sort tuple; the fused cursor carries
+/// the RRF score and the fusion's own tiebreak. They are not interchangeable —
+/// a lexical anchor means nothing to the fusion — so the token names its kind
+/// and the route dispatches on it.
+enum SearchAnchor {
+    Lexical(core_db::search::SearchCursor),
+    Fused(core_db::search::FusedCursor),
+}
+
 fn encode_cursor(c: core_db::search::SearchCursor) -> String {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
     use base64::Engine;
@@ -107,19 +118,73 @@ fn encode_cursor(c: core_db::search::SearchCursor) -> String {
     )
 }
 
-fn decode_cursor(raw: &str) -> Option<core_db::search::SearchCursor> {
+fn encode_fused_cursor(c: core_db::search::FusedCursor) -> String {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+    use base64::Engine;
+    B64.encode(
+        format!(
+            "{CURSOR_VERSION}|fused|{}|{}|{}",
+            c.score, c.entity_kind, c.entity_id
+        )
+        .as_bytes(),
+    )
+}
+
+/// The lexical walk's next anchor: a full page continues, a short page ends
+/// it. `indexed_at` rides on the hit because it is the sort tuple's second
+/// member; the codec drops it from the client's view.
+fn lexical_next_cursor(hits: &[core_db::search::SearchHit], limit: i64) -> Option<String> {
+    if (hits.len() as i64) < limit {
+        return None;
+    }
+    hits.last().map(|h| {
+        encode_cursor(core_db::search::SearchCursor {
+            score: h.score,
+            indexed_at: h.indexed_at,
+            entity_id: h.entity_id,
+        })
+    })
+}
+
+/// A fused walk continues only when the candidate window holds another row.
+/// `has_more` is exact, so the last page of a window never hands out a cursor
+/// that would come back empty.
+fn fused_next_cursor(page: &core_db::search::FusedPage) -> Option<String> {
+    if !page.has_more {
+        return None;
+    }
+    page.hits.last().map(|h| {
+        encode_fused_cursor(core_db::search::FusedCursor {
+            score: h.score,
+            entity_kind: h.entity_kind.clone(),
+            entity_id: h.entity_id,
+        })
+    })
+}
+
+fn decode_cursor(raw: &str) -> Option<SearchAnchor> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
     use base64::Engine;
     let text = String::from_utf8(B64.decode(raw.as_bytes()).ok()?).ok()?;
     let parts: Vec<&str> = text.split('|').collect();
-    if parts.len() != 4 || parts[0] != CURSOR_VERSION {
+    if parts.first() != Some(&CURSOR_VERSION) {
         return None;
     }
-    Some(core_db::search::SearchCursor {
-        score: parts[1].parse().ok()?,
-        indexed_at: parts[2].parse().ok()?,
-        entity_id: parts[3].parse().ok()?,
-    })
+    match parts.len() {
+        // Lexical: `v1|{score}|{indexed_at}|{entity_id}`.
+        4 => Some(SearchAnchor::Lexical(core_db::search::SearchCursor {
+            score: parts[1].parse().ok()?,
+            indexed_at: parts[2].parse().ok()?,
+            entity_id: parts[3].parse().ok()?,
+        })),
+        // Fused: `v1|fused|{score}|{entity_kind}|{entity_id}`.
+        5 if parts[1] == "fused" => Some(SearchAnchor::Fused(core_db::search::FusedCursor {
+            score: parts[2].parse().ok()?,
+            entity_kind: parts[3].to_string(),
+            entity_id: parts[4].parse().ok()?,
+        })),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -246,17 +311,32 @@ pub async fn search(
     };
 
     // Vector leg (§4.5): embed the query through the org's BYOK provider.
-    // None mode / provider failure ⇒ None ⇒ the legacy lexical path runs
+    // None mode / provider failure ⇒ None ⇒ the lexical path runs
     // byte-identically; search never 5xxs because AI is unconfigured or down.
     //
-    // A cursor walk skips the embedding call: RRF scores are rank-based and
-    // cannot be resumed from an anchor, so a page carrying a cursor is
-    // lexical by construction (see `next_cursor` on the response).
-    let query_embedding = if anchor.is_some() {
+    // A LEXICAL anchor never embeds: that walk is lexical by contract, and
+    // paying a provider call to then ignore its result would be waste. A
+    // FUSED anchor must embed, because the fusion it resumes cannot be
+    // reproduced without the query vector — if the provider is down now, the
+    // cursor cannot be honoured and the caller is told so instead of being
+    // handed a page from a different ranking.
+    let lexical_anchor = match &anchor {
+        Some(SearchAnchor::Lexical(c)) => Some(*c),
+        _ => None,
+    };
+    let fused_anchor = matches!(anchor, Some(SearchAnchor::Fused(_)));
+    let query_embedding = if lexical_anchor.is_some() {
         None
     } else {
         crate::ai::embed_search_query(&state, authed.principal.user.org_id, &trimmed).await
     };
+    if fused_anchor && query_embedding.is_none() {
+        return Err(ApiError::Validation(
+            "the fused search cannot be resumed right now (the embedding provider is \
+             unavailable); re-run the search"
+                .to_string(),
+        ));
+    }
 
     // RLS-scoped read (pool carries no app.org_id GUC): one tx around
     // both queries.
@@ -268,96 +348,109 @@ pub async fn search(
     )
     .await
     .map_err(ApiError::from)?;
-    let (hits, count, allows_cursor) = match &query_embedding {
-        Some(embedding) => (
-            core_db::search::search_hybrid_page(
-                &mut tx,
-                authed.principal.user.org_id,
-                &kinds,
-                &trimmed,
-                trigram,
-                q.client_id,
-                embedding,
-                limit,
-                offset,
-            )
-            .await?,
-            core_db::search::search_hybrid_count(
-                &mut *tx,
-                authed.principal.user.org_id,
-                &kinds,
-                &trimmed,
-                trigram,
-                q.client_id,
-                core_db::search::SEARCH_COUNT_CAP,
-            )
-            .await?,
-            // The fused path pages over a bounded candidate window; it never
-            // hands out a cursor it could not resume.
-            false,
-        ),
-        None => {
+
+    // Three shapes, dispatched by the anchor and then by embedding
+    // availability. Each computes its own `next_cursor` because the two
+    // anchors are not comparable.
+    let (hits, count, next_cursor) = if let Some(anchor) = lexical_anchor {
+        let hits = core_db::search::search_page_after(
+            &mut *tx,
+            authed.principal.user.org_id,
+            &kinds,
+            &trimmed,
+            trigram,
+            q.client_id,
+            limit,
+            Some(anchor),
+        )
+        .await?;
+        let count = core_db::search::search_count(
+            &mut *tx,
+            authed.principal.user.org_id,
+            &kinds,
+            &trimmed,
+            trigram,
+            q.client_id,
+            core_db::search::SEARCH_COUNT_CAP,
+        )
+        .await?;
+        let next = lexical_next_cursor(&hits, limit);
+        (hits, count, next)
+    } else if let Some(embedding) = query_embedding.as_ref() {
+        let page = match &anchor {
+            Some(SearchAnchor::Fused(anchor)) => {
+                core_db::search::search_hybrid_page_after(
+                    &mut tx,
+                    authed.principal.user.org_id,
+                    &kinds,
+                    &trimmed,
+                    trigram,
+                    q.client_id,
+                    embedding,
+                    limit,
+                    Some(anchor.clone()),
+                )
+                .await?
+            }
             // No cursor: the legacy offset call, byte-identical to what it
-            // was. With a cursor: resume strictly after the anchor. The
-            // first offset page may hand the client a cursor, which is how a
-            // walk migrates to keyset after one legacy request.
-            let hits = match anchor {
-                Some(anchor) => {
-                    core_db::search::search_page_after(
-                        &mut *tx,
-                        authed.principal.user.org_id,
-                        &kinds,
-                        &trimmed,
-                        trigram,
-                        q.client_id,
-                        limit,
-                        Some(anchor),
-                    )
-                    .await?
-                }
-                None => {
-                    core_db::search::search_page(
-                        &mut *tx,
-                        authed.principal.user.org_id,
-                        &kinds,
-                        &trimmed,
-                        trigram,
-                        q.client_id,
-                        limit,
-                        offset,
-                    )
-                    .await?
-                }
-            };
-            let count = core_db::search::search_count(
-                &mut *tx,
-                authed.principal.user.org_id,
-                &kinds,
-                &trimmed,
-                trigram,
-                q.client_id,
-                core_db::search::SEARCH_COUNT_CAP,
-            )
-            .await?;
-            (hits, count, true)
-        }
+            // was. It may still hand back a fused cursor, computed from
+            // whether the window holds more rows.
+            _ => {
+                core_db::search::search_hybrid_page_paged(
+                    &mut tx,
+                    authed.principal.user.org_id,
+                    &kinds,
+                    &trimmed,
+                    trigram,
+                    q.client_id,
+                    embedding,
+                    limit,
+                    offset,
+                )
+                .await?
+            }
+        };
+        let count = core_db::search::search_hybrid_count(
+            &mut *tx,
+            authed.principal.user.org_id,
+            &kinds,
+            &trimmed,
+            trigram,
+            q.client_id,
+            core_db::search::SEARCH_COUNT_CAP,
+        )
+        .await?;
+        let next = fused_next_cursor(&page);
+        (page.hits, count, next)
+    } else {
+        // No cursor and no embedding: the legacy lexical path. Its first
+        // offset page may hand the client a cursor, which is how a walk
+        // migrates to keyset after one legacy request.
+        let hits = core_db::search::search_page(
+            &mut *tx,
+            authed.principal.user.org_id,
+            &kinds,
+            &trimmed,
+            trigram,
+            q.client_id,
+            limit,
+            offset,
+        )
+        .await?;
+        let count = core_db::search::search_count(
+            &mut *tx,
+            authed.principal.user.org_id,
+            &kinds,
+            &trimmed,
+            trigram,
+            q.client_id,
+            core_db::search::SEARCH_COUNT_CAP,
+        )
+        .await?;
+        let next = lexical_next_cursor(&hits, limit);
+        (hits, count, next)
     };
     tx.commit().await.map_err(ApiError::from)?;
-
-    // A cursor on a full page is the next anchor; a short page ends the
-    // walk. `indexed_at` rides on the hit because it is the sort tuple's
-    // second member, and the codec drops it from the client's view.
-    let next_cursor = if allows_cursor && hits.len() as i64 >= limit {
-        hits.last().map(|h| {
-            encode_cursor(core_db::search::SearchCursor {
-                score: h.score,
-                indexed_at: h.indexed_at,
-                entity_id: h.entity_id,
-            })
-        })
-    } else {
-        None
-    };
 
     Ok(Json(SearchResponse {
         query: trimmed,

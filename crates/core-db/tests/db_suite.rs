@@ -7931,6 +7931,95 @@ async fn search_hybrid_vector_leg_respects_kind_allow_list() {
     );
     tx.commit().await.expect("commit");
 }
+
+/// A fused walk must serve the same rows as the fused offset walk, and must
+/// report `has_more: false` at the end of the candidate window instead of
+/// handing out a cursor that comes back empty. The window is why this works at
+/// all: every page fuses the same 50-row candidate set, so the ranks behind
+/// the scores do not move between pages.
+#[tokio::test]
+async fn search_hybrid_walk_matches_the_offset_walk_and_ends_honestly() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 136).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+    for i in 0..7_u64 {
+        idx_upsert(
+            &mut tx,
+            s.org,
+            search::SearchKind::Ticket,
+            fixed_uuid(180 + i),
+            None,
+            "relay probe",
+            "network relay body",
+        )
+        .await;
+        let mut v = embedding(0.0);
+        v[usize::try_from(i).unwrap()] = 1.0;
+        search::upsert_embedding(
+            &mut *tx,
+            s.org,
+            search::SearchKind::Ticket,
+            fixed_uuid(180 + i),
+            "bge-base-test",
+            &v,
+        )
+        .await
+        .expect("embed");
+    }
+    let kinds = ["ticket".to_string()];
+    let mut query = embedding(0.0);
+    query[0] = 1.0;
+
+    let mut offset_ids = Vec::new();
+    for page in 0..3 {
+        let hits = search::search_hybrid_page(
+            &mut tx,
+            s.org,
+            &kinds,
+            "relay",
+            false,
+            None,
+            &query,
+            3,
+            page * 3,
+        )
+        .await
+        .expect("hybrid offset page");
+        offset_ids.extend(hits.into_iter().map(|h| h.entity_id));
+    }
+
+    let mut cursor_ids = Vec::new();
+    let mut cursor = None;
+    let mut pages = 0;
+    loop {
+        let page = search::search_hybrid_page_after(
+            &mut tx, s.org, &kinds, "relay", false, None, &query, 3, cursor,
+        )
+        .await
+        .expect("fused page");
+        cursor = page.hits.last().map(|h| search::FusedCursor {
+            score: h.score,
+            entity_kind: h.entity_kind.clone(),
+            entity_id: h.entity_id,
+        });
+        let more = page.has_more;
+        cursor_ids.extend(page.hits.into_iter().map(|h| h.entity_id));
+        pages += 1;
+        if !more {
+            break;
+        }
+        assert!(pages < 10, "fused walk did not terminate");
+    }
+
+    assert_eq!(
+        cursor_ids, offset_ids,
+        "the fused walk serves the same rows in the same order"
+    );
+    assert_eq!(cursor_ids.len(), 7);
+    let unique: std::collections::HashSet<Uuid> = cursor_ids.iter().copied().collect();
+    assert_eq!(unique.len(), 7, "no row is served twice");
+    tx.commit().await.expect("commit");
+}
 // --- sign-offs (Wave 43 track 2 lane 12, migration 0127) --------------------
 //
 // The evidence row is insert-only, so these tests prove that shape rather
