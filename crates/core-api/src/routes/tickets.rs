@@ -3,13 +3,14 @@
 //! data change (§4.2) and updates SLA clock state (§1).
 
 use crate::auth::middleware::{authed, require_permission};
+use crate::cache;
 use crate::error::{ApiError, ApiResult};
 use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx;
 use crate::state::AppState;
 use axum::{
     extract::{Path, Query, State},
-    http::Extensions,
+    http::{header, Extensions, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -621,7 +622,9 @@ pub async fn create(
         .await?;
 
         // SLA clocks start now, under the org's default policy.
-        if let Ok(policy) = core_db::sla::get_default_policy(&mut *ctx.tx, org_id).await {
+        if let Some(policy) =
+            crate::routes::sla_admin::default_policy_cached(&mut ctx.tx, org_id).await
+        {
             let sla = core_domain::entities::TicketSlaState::init(
                 org_id,
                 ticket.id,
@@ -721,15 +724,23 @@ pub async fn create(
     Ok(Json(outcome.into_response()?))
 }
 
-/// GET /api/tickets/{id}
+/// GET /api/tickets/{id} — a conditional read.
+///
+/// The response carries the entity's weak validator (`ETag`) built from its
+/// monotonic write seq, so a caller that still holds that revision sends
+/// `If-None-Match` and gets a bodyless `304 Not Modified` instead of the full
+/// representation. Entities without a counter row behave exactly as before:
+/// no validator, no conditional short-circuit.
 #[utoipa::path(operation_id = "tickets_get_one", get, path = "/api/tickets/{id}", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
-    responses((status = 200, body = TicketWithFields)))]
+    responses((status = 200, body = TicketWithFields),
+              (status = 304, description = "not modified; the If-None-Match validator matched the entity's current revision")))]
 pub async fn get_one(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<TicketWithFields>> {
+    headers: HeaderMap,
+) -> ApiResult<Response> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(
         &authed.principal,
@@ -741,10 +752,45 @@ pub async fn get_one(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
+    // The per-entity seq IS the entity's revision, so it is exactly the weak
+    // validator a conditional read wants. Read it first — a point lookup on
+    // the counter's primary key, inside the same org-bound tx — so an
+    // unchanged entity short-circuits to 304 without materializing anything.
+    // No counter row (never written through the instant path) means no
+    // validator: fall through to the plain read, byte-identical to before.
+    let etag = core_db::instant::read_entity_seq(&mut *tx, org_id, "ticket", id)
+        .await?
+        .map(|seq| crate::http_version::weak_etag("ticket", &id.to_string(), seq));
+    if let Some(etag) = &etag {
+        let if_none_match = headers
+            .get(header::IF_NONE_MATCH)
+            .and_then(|value| value.to_str().ok());
+        if crate::http_version::etag_matches(if_none_match, etag) {
+            tx.commit().await.map_err(ApiError::from)?;
+            return Ok(not_modified(etag));
+        }
+    }
     let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
     let enriched = TicketWithFields::load(&mut tx, org_id, ticket).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(enriched))
+    // The 200 body stays byte-identical to the pre-ETag response; the
+    // validator is additive metadata for the caller's next conditional read.
+    let mut response = Json(enriched).into_response();
+    if let Some(etag) = &etag {
+        if let Ok(value) = axum::http::HeaderValue::from_str(etag) {
+            response.headers_mut().insert(header::ETAG, value);
+        }
+    }
+    Ok(response)
+}
+
+/// A bodyless `304 Not Modified` carrying the validator that matched.
+fn not_modified(etag: &str) -> Response {
+    let mut response = StatusCode::NOT_MODIFIED.into_response();
+    if let Ok(value) = axum::http::HeaderValue::from_str(etag) {
+        response.headers_mut().insert(header::ETAG, value);
+    }
+    response
 }
 
 /// PATCH /api/tickets/{id} — partial update; validates + upserts any
@@ -1012,12 +1058,26 @@ pub async fn sla_status(
                 ));
             };
             // Attached row wins; embedded document keeps governing otherwise.
-            let record = core_db::sla::get_policy_record(&mut *ctx.tx, org_id, state_row.policy_id)
-                .await
-                .map_err(|_| ApiError::NotFound)?;
-            let calendar = core_db::sla::resolve_policy_calendar(&mut *ctx.tx, &record)
-                .await
-                .unwrap_or_else(|_| record.calendar.clone());
+            // The governing calendar is caller-independent reference data, so
+            // it caches per (org, policy) and a hit skips both reads.
+            let cal_key =
+                crate::routes::sla_admin::policy_calendar_key(org_id, state_row.policy_id);
+            let calendar = match cache::caches()
+                .get_ref::<core_domain::entities::BusinessCalendar>(&cal_key)
+            {
+                Some(calendar) => calendar,
+                None => {
+                    let record =
+                        core_db::sla::get_policy_record(&mut *ctx.tx, org_id, state_row.policy_id)
+                            .await
+                            .map_err(|_| ApiError::NotFound)?;
+                    let calendar = core_db::sla::resolve_policy_calendar(&mut *ctx.tx, &record)
+                        .await
+                        .unwrap_or_else(|_| record.calendar.clone());
+                    cache::caches().put_ref(cal_key, calendar.clone());
+                    calendar
+                }
+            };
             let now = chrono::Utc::now();
             let position = core_domain::sla_engine::position(
                 &calendar,

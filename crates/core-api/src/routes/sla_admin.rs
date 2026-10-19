@@ -10,6 +10,7 @@
 //! evaluation loop (worker), no effect application (routes::internal).
 
 use crate::auth::middleware::{authed, require_permission};
+use crate::cache::{self, Caches};
 use crate::error::{ApiError, ApiResult};
 use crate::org_tx;
 use crate::state::AppState;
@@ -31,6 +32,53 @@ fn admin(action: Action) -> Permission {
     }
 }
 
+/// Cache keys for the low-change SLA reference reads. All share the
+/// `sla|<org>` prefix, so the `sla.*` / `calendar_exclusion.*` / `on_call.*` /
+/// `availability.*` listener flushes clear every SLA family for one org in one
+/// pass. Calendars and policies are org-level and identical for every member;
+/// the resolved governing calendar is scoped by policy id.
+pub(crate) fn calendars_key(org_id: Uuid) -> String {
+    Caches::ref_key_scoped(Caches::NS_SLA, org_id, "calendars")
+}
+
+pub(crate) fn policies_key(org_id: Uuid) -> String {
+    Caches::ref_key_scoped(Caches::NS_SLA, org_id, "policies")
+}
+
+pub(crate) fn policy_calendar_key(org_id: Uuid, policy_id: Uuid) -> String {
+    Caches::ref_key_scoped(
+        Caches::NS_SLA,
+        org_id,
+        &format!("policy-calendar:{policy_id}"),
+    )
+}
+
+pub(crate) fn default_policy_key(org_id: Uuid) -> String {
+    Caches::ref_key_scoped(Caches::NS_SLA, org_id, "default-policy")
+}
+
+/// The org's default SLA policy, cached per org so the paths that start a
+/// clock (ticket create from the API, email, alerts, recurring, taxonomy) do
+/// not re-read it each time. A hit skips the read; absent and error both fold
+/// to `None`, matching the callers' existing "no default policy" handling. The
+/// `sla|<org>` invalidation prefix clears it like the other SLA families.
+pub(crate) async fn default_policy_cached(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+) -> Option<core_domain::entities::SlaPolicy> {
+    let key = default_policy_key(org_id);
+    if let Some(policy) = cache::caches().get_ref::<core_domain::entities::SlaPolicy>(&key) {
+        return Some(policy);
+    }
+    match core_db::sla::get_default_policy(&mut *conn, org_id).await {
+        Ok(policy) => {
+            cache::caches().put_ref(key, policy.clone());
+            Some(policy)
+        }
+        Err(_) => None,
+    }
+}
+
 // --- calendars ---------------------------------------------------------------
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -49,17 +97,21 @@ pub async fn list_calendars(
 ) -> ApiResult<Json<Vec<core_domain::entities::SlaCalendar>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, admin(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    // The org's calendars are the same for every viewer, so they cache per org
+    // and a hit skips the transaction.
+    let key = calendars_key(org_id);
+    if let Some(rows) = cache::caches().get_ref::<Vec<core_domain::entities::SlaCalendar>>(&key) {
+        return Ok(Json(rows));
+    }
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org_and_user(
-        &mut tx,
-        authed.principal.user.org_id,
-        authed.principal.user.id,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    let rows = core_db::sla::list_calendars(&mut *tx, authed.principal.user.org_id).await?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::sla::list_calendars(&mut *tx, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
+    cache::caches().put_ref(key, rows.clone());
     Ok(Json(rows))
 }
 
@@ -234,17 +286,22 @@ pub async fn list_policies(
 ) -> ApiResult<Json<Vec<PolicyView>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, admin(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    // The org's policy set is the same for every viewer; cache it per org and
+    // skip the transaction on a hit. The wire projection is derived after, so
+    // only the caller-independent record is stored.
+    let key = policies_key(org_id);
+    if let Some(rows) = cache::caches().get_ref::<Vec<core_db::sla::SlaPolicyRecord>>(&key) {
+        return Ok(Json(rows.into_iter().map(policy_view).collect()));
+    }
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org_and_user(
-        &mut tx,
-        authed.principal.user.org_id,
-        authed.principal.user.id,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    let rows = core_db::sla::list_policy_records(&mut *tx, authed.principal.user.org_id).await?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::sla::list_policy_records(&mut *tx, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
+    cache::caches().put_ref(key, rows.clone());
     Ok(Json(rows.into_iter().map(policy_view).collect()))
 }
 
@@ -723,4 +780,125 @@ pub async fn delete_rule(
     )
     .await?;
     Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core_db::sla::SlaPolicyRecord;
+    use core_domain::entities::{BusinessCalendar, SlaCalendar};
+
+    fn a_business_calendar() -> BusinessCalendar {
+        BusinessCalendar {
+            name: "Default".into(),
+            timezone: "UTC".into(),
+            windows: std::array::from_fn(|_| None),
+            holidays: vec![],
+            maintenance: vec![],
+        }
+    }
+
+    fn a_calendar(org_id: Uuid, id: Uuid) -> SlaCalendar {
+        SlaCalendar {
+            id,
+            org_id,
+            name: "Default".into(),
+            calendar: a_business_calendar(),
+        }
+    }
+
+    #[test]
+    fn sla_calendars_are_served_from_the_cache_then_flushed_by_an_sla_event() {
+        let caches = cache::__enable_for_tests();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let key = calendars_key(org);
+        let value = vec![a_calendar(org, Uuid::new_v4())];
+
+        // First read: a miss, so the handler runs its query and fills the cache.
+        assert!(caches.get_ref::<Vec<SlaCalendar>>(&key).is_none());
+        caches.put_ref(key.clone(), value.clone());
+        // Second read: served from the cache; the transaction is skipped.
+        assert_eq!(caches.get_ref::<Vec<SlaCalendar>>(&key), Some(value));
+
+        // The `sla.*` / `calendar_exclusion.*` flushes are the `sla|<org>`
+        // prefix, which covers this key.
+        caches.invalidate_refs(&Caches::ref_key(Caches::NS_SLA, org));
+        assert!(caches.get_ref::<Vec<SlaCalendar>>(&key).is_none());
+    }
+
+    #[test]
+    fn sla_policies_are_served_from_the_cache_then_flushed_by_an_sla_event() {
+        let caches = cache::__enable_for_tests();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let key = policies_key(org);
+        let value = vec![SlaPolicyRecord {
+            id: Uuid::new_v4(),
+            org_id: org,
+            name: "Default".into(),
+            is_default: true,
+            targets: serde_json::json!({}),
+            calendar: a_business_calendar(),
+            calendar_id: None,
+        }];
+
+        assert!(caches.get_ref::<Vec<SlaPolicyRecord>>(&key).is_none());
+        caches.put_ref(key.clone(), value.clone());
+        let got = caches
+            .get_ref::<Vec<SlaPolicyRecord>>(&key)
+            .expect("served from the cache");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].id, value[0].id);
+
+        caches.invalidate_refs(&Caches::ref_key(Caches::NS_SLA, org));
+        assert!(caches.get_ref::<Vec<SlaPolicyRecord>>(&key).is_none());
+    }
+
+    #[test]
+    fn a_policys_resolved_calendar_is_served_then_flushed_by_an_sla_event() {
+        let caches = cache::__enable_for_tests();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let policy = Uuid::new_v4();
+        let key = policy_calendar_key(org, policy);
+        let value = a_business_calendar();
+
+        assert!(caches.get_ref::<BusinessCalendar>(&key).is_none());
+        caches.put_ref(key.clone(), value.clone());
+        assert_eq!(caches.get_ref::<BusinessCalendar>(&key), Some(value));
+
+        caches.invalidate_refs(&Caches::ref_key(Caches::NS_SLA, org));
+        assert!(caches.get_ref::<BusinessCalendar>(&key).is_none());
+    }
+
+    #[test]
+    fn the_default_policy_is_served_then_flushed_by_an_sla_event() {
+        let caches = cache::__enable_for_tests();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let key = default_policy_key(org);
+        let value = core_domain::entities::SlaPolicy {
+            id: Uuid::new_v4(),
+            org_id: org,
+            name: "Default".into(),
+            is_default: true,
+            targets: std::collections::HashMap::new(),
+            calendar: a_business_calendar(),
+        };
+
+        assert!(caches
+            .get_ref::<core_domain::entities::SlaPolicy>(&key)
+            .is_none());
+        caches.put_ref(key.clone(), value.clone());
+        assert_eq!(
+            caches.get_ref::<core_domain::entities::SlaPolicy>(&key),
+            Some(value)
+        );
+
+        caches.invalidate_refs(&Caches::ref_key(Caches::NS_SLA, org));
+        assert!(caches
+            .get_ref::<core_domain::entities::SlaPolicy>(&key)
+            .is_none());
+    }
 }

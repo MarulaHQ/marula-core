@@ -91,6 +91,21 @@ async fn main() -> anyhow::Result<()> {
             registry
         },
     };
+    // Reference cache (Wave 52 lane P3): one in-process cache per replica,
+    // invalidated by the same `marula_events` listener that fans frames out.
+    // Initialised before the listener starts so the first event already has
+    // something to invalidate.
+    let cache = core_api::cache::init(
+        config.ref_cache_ttl_secs,
+        config.ref_cache_max_entries as usize,
+    );
+    tracing::info!(
+        ttl_secs = config.ref_cache_ttl_secs,
+        max_entries = config.ref_cache_max_entries,
+        "reference cache ready"
+    );
+    tokio::spawn(core_api::cache::sweep_loop(std::sync::Arc::clone(&cache)));
+
     // Live delivery (Wave 12 lane 12): ONE dedicated LISTEN connection per
     // process receives `marula_events` notifications (migration 0068)
     // and fans contract events + presence frames out to SSE subscribers.

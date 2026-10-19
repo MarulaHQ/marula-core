@@ -3,6 +3,7 @@
 //! my-work inputs). Every mutation emits an outbox event in-tx (§4.2).
 
 use crate::auth::middleware::{authed, require_permission};
+use crate::cache::{self, Caches};
 use crate::error::{ApiError, ApiResult};
 use crate::org_tx;
 use crate::state::AppState;
@@ -33,6 +34,23 @@ fn board_manage() -> Permission {
     Permission::ManageBoards
 }
 
+/// Cache keys for the board reference reads. One scheme for all three:
+/// `board|<org>|<discriminator>`, so the `board.*` listener's prefix flush
+/// (`board|<org>`) clears every board family for one org in a single pass.
+/// Boards, statuses and transitions answer the same for every member of the
+/// org, so they cache; per-caller board membership does not and is not cached.
+fn board_defs_key(org_id: Uuid) -> String {
+    Caches::ref_key_scoped(Caches::NS_BOARD, org_id, "defs")
+}
+
+fn board_statuses_key(org_id: Uuid, board_id: Uuid) -> String {
+    Caches::ref_key_scoped(Caches::NS_BOARD, org_id, &format!("statuses:{board_id}"))
+}
+
+fn board_transitions_key(org_id: Uuid, board_id: Uuid) -> String {
+    Caches::ref_key_scoped(Caches::NS_BOARD, org_id, &format!("transitions:{board_id}"))
+}
+
 fn validate_wip_limit(limit: i32) -> ApiResult<()> {
     if !(1..=1000).contains(&limit) {
         return Err(ApiError::Validation(
@@ -61,17 +79,21 @@ pub async fn list(
 ) -> ApiResult<Json<Vec<core_domain::entities::Board>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, board_view())?;
+    let org_id = authed.principal.user.org_id;
+    // Board definitions are the same set for every member of the org, so they
+    // cache per org and a hit skips the transaction entirely.
+    let key = board_defs_key(org_id);
+    if let Some(boards) = cache::caches().get_ref::<Vec<core_domain::entities::Board>>(&key) {
+        return Ok(Json(boards));
+    }
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org_and_user(
-        &mut tx,
-        authed.principal.user.org_id,
-        authed.principal.user.id,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    let boards = core_db::boards::list_boards(&mut *tx, authed.principal.user.org_id).await?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let boards = core_db::boards::list_boards(&mut *tx, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
+    cache::caches().put_ref(key, boards.clone());
     Ok(Json(boards))
 }
 
@@ -152,17 +174,21 @@ pub async fn list_statuses(
 ) -> ApiResult<Json<Vec<core_domain::entities::BoardStatus>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, board_view())?;
+    let org_id = authed.principal.user.org_id;
+    // A board's statuses are the same for every member; cache per (org, board).
+    let key = board_statuses_key(org_id, id);
+    if let Some(statuses) = cache::caches().get_ref::<Vec<core_domain::entities::BoardStatus>>(&key)
+    {
+        return Ok(Json(statuses));
+    }
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org_and_user(
-        &mut tx,
-        authed.principal.user.org_id,
-        authed.principal.user.id,
-    )
-    .await
-    .map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
     let statuses = core_db::boards::list_statuses(&mut *tx, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
+    cache::caches().put_ref(key, statuses.clone());
     Ok(Json(statuses))
 }
 
@@ -623,17 +649,23 @@ pub async fn list_transitions(
 ) -> ApiResult<Json<BoardTransitionsResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, board_view())?;
-    // RLS-scoped read (pool carries no app.org_id GUC).
-    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org_and_user(
-        &mut tx,
-        authed.principal.user.org_id,
-        authed.principal.user.id,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    let edges = core_db::boards::list_transitions(&mut *tx, id).await?;
-    tx.commit().await.map_err(ApiError::from)?;
+    let org_id = authed.principal.user.org_id;
+    // The effective matrix depends only on the board, so cache per (org, board).
+    let key = board_transitions_key(org_id, id);
+    let edges = match cache::caches().get_ref::<Vec<TransitionEdge>>(&key) {
+        Some(edges) => edges,
+        None => {
+            // RLS-scoped read (pool carries no app.org_id GUC).
+            let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+            core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+                .await
+                .map_err(ApiError::from)?;
+            let edges = core_db::boards::list_transitions(&mut *tx, id).await?;
+            tx.commit().await.map_err(ApiError::from)?;
+            cache::caches().put_ref(key, edges.clone());
+            edges
+        }
+    };
     let mode = if edges.is_empty() {
         "floor"
     } else {
@@ -783,4 +815,105 @@ pub async fn toggle_favorite(
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
     Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core_domain::entities::{Board, BoardStatus};
+
+    fn a_board(org_id: Uuid) -> Board {
+        Board {
+            id: Uuid::new_v4(),
+            org_id,
+            name: "Support".into(),
+            description: None,
+            is_default: true,
+            require_checklist_close: false,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    fn a_status(org_id: Uuid, board_id: Uuid) -> BoardStatus {
+        BoardStatus {
+            id: Uuid::new_v4(),
+            board_id,
+            org_id,
+            name: "New".into(),
+            category: TicketStatusCategory::Open,
+            sort_order: 0,
+            is_entry: true,
+            color: None,
+            wip_limit: None,
+            client_visible: true,
+        }
+    }
+
+    #[test]
+    fn board_defs_are_served_from_the_cache_then_flushed_by_a_board_event() {
+        let caches = cache::__enable_for_tests();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let key = board_defs_key(org);
+        let value = vec![a_board(org)];
+
+        // First read: a miss, so the handler runs its query and fills the cache.
+        assert!(caches.get_ref::<Vec<Board>>(&key).is_none());
+        caches.put_ref(key.clone(), value.clone());
+        // Second read: served from the cache, the transaction is skipped.
+        assert_eq!(caches.get_ref::<Vec<Board>>(&key), Some(value));
+
+        // The `board.*` listener flush is the `board|<org>` prefix, which
+        // covers this scoped key.
+        caches.invalidate_refs(&Caches::ref_key(Caches::NS_BOARD, org));
+        assert!(caches.get_ref::<Vec<Board>>(&key).is_none());
+    }
+
+    #[test]
+    fn board_statuses_are_served_from_the_cache_then_flushed_by_a_board_event() {
+        let caches = cache::__enable_for_tests();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let board = Uuid::new_v4();
+        let key = board_statuses_key(org, board);
+        let value = vec![a_status(org, board)];
+
+        assert!(caches.get_ref::<Vec<BoardStatus>>(&key).is_none());
+        caches.put_ref(key.clone(), value.clone());
+        assert_eq!(caches.get_ref::<Vec<BoardStatus>>(&key), Some(value));
+
+        caches.invalidate_refs(&Caches::ref_key(Caches::NS_BOARD, org));
+        assert!(caches.get_ref::<Vec<BoardStatus>>(&key).is_none());
+    }
+
+    #[test]
+    fn board_transitions_are_served_from_the_cache_then_flushed_by_a_board_event() {
+        let caches = cache::__enable_for_tests();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let board = Uuid::new_v4();
+        let key = board_transitions_key(org, board);
+        let value = vec![TransitionEdge::new(Uuid::new_v4(), Uuid::new_v4())];
+
+        assert!(caches.get_ref::<Vec<TransitionEdge>>(&key).is_none());
+        caches.put_ref(key.clone(), value.clone());
+        assert_eq!(caches.get_ref::<Vec<TransitionEdge>>(&key), Some(value));
+
+        caches.invalidate_refs(&Caches::ref_key(Caches::NS_BOARD, org));
+        assert!(caches.get_ref::<Vec<TransitionEdge>>(&key).is_none());
+    }
+
+    #[test]
+    fn a_board_event_for_another_org_leaves_this_orgs_boards_cached() {
+        let caches = cache::__enable_for_tests();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let key = board_defs_key(org);
+        caches.put_ref(key.clone(), vec![a_board(org)]);
+
+        caches.invalidate_refs(&Caches::ref_key(Caches::NS_BOARD, other));
+
+        assert!(caches.get_ref::<Vec<Board>>(&key).is_some());
+    }
 }

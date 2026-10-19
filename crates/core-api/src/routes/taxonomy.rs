@@ -988,7 +988,9 @@ pub async fn move_board(
         // the org's default policy anchored NOW, exactly like creation —
         // an explicit operator decision, never a side effect.
         if req.reset_sla {
-            if let Ok(policy) = core_db::sla::get_default_policy(&mut *ctx.tx, org_id).await {
+            if let Some(policy) =
+                crate::routes::sla_admin::default_policy_cached(&mut ctx.tx, org_id).await
+            {
                 let fresh = core_domain::entities::TicketSlaState::init(
                     org_id,
                     id,

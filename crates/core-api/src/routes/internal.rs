@@ -1713,7 +1713,9 @@ pub async fn pm_generate(
         )
         .await?;
         core_db::recurring::record_run_ticket(&mut *ctx.tx, run_id, req.org_id, ticket.id).await?;
-        if let Ok(policy) = core_db::sla::get_default_policy(&mut *ctx.tx, req.org_id).await {
+        if let Some(policy) =
+            crate::routes::sla_admin::default_policy_cached(&mut ctx.tx, req.org_id).await
+        {
             let sla = core_domain::entities::TicketSlaState::init(
                 req.org_id,
                 ticket.id,

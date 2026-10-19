@@ -11,6 +11,7 @@
 //! that), no org-wide definition management (v1 scopes defs to boards).
 
 use crate::auth::middleware::{authed, require_permission};
+use crate::cache::{self, Caches};
 use crate::error::{ApiError, ApiResult};
 use crate::org_tx;
 use crate::state::AppState;
@@ -38,6 +39,18 @@ fn tickets(action: core_domain::policy::Action) -> Permission {
 
 fn board_manage() -> Permission {
     Permission::ManageBoards
+}
+
+/// Cache key for a board's governing definitions. The set is org-wide defs plus
+/// the board's own, identical for every member, so it caches per (org, board).
+/// The `custom_field.*` listener flush is the `custom-field|<org>` prefix, which
+/// covers this scoped key.
+fn defs_for_board_key(org_id: Uuid, board_id: Uuid) -> String {
+    Caches::ref_key_scoped(
+        Caches::NS_CUSTOM_FIELD,
+        org_id,
+        &format!("board:{board_id}"),
+    )
 }
 
 // --- wire shapes -------------------------------------------------------------
@@ -463,6 +476,14 @@ pub async fn list_defs(
         tickets(core_domain::policy::Action::View),
     )?;
     let org_id = authed.principal.user.org_id;
+    // The board's governing definitions are the same for every viewer of the
+    // board, so a cache hit skips the transaction. A foreign board is never
+    // cached: the org-scoped key misses, the RLS read 404s below, and nothing
+    // is stored.
+    let key = defs_for_board_key(org_id, id);
+    if let Some(defs) = cache::caches().get_ref::<Vec<core_db::custom_fields::FieldDefRow>>(&key) {
+        return Ok(Json(defs.into_iter().map(FieldDefView::from).collect()));
+    }
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
@@ -476,6 +497,7 @@ pub async fn list_defs(
         .await
         .map_err(ApiError::from)?;
     tx.commit().await.map_err(ApiError::from)?;
+    cache::caches().put_ref(key, defs.clone());
     Ok(Json(defs.into_iter().map(FieldDefView::from).collect()))
 }
 
@@ -839,4 +861,79 @@ pub async fn clear_ticket_value(
     .await?;
 
     Ok(Json(serde_json::json!({ "cleared": field_id })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core_db::custom_fields::FieldDefRow;
+
+    fn a_def(org_id: Uuid, board_id: Uuid) -> FieldDefRow {
+        FieldDefRow {
+            id: Uuid::new_v4(),
+            org_id,
+            board_id: Some(board_id),
+            entity: "ticket".into(),
+            name: "Severity".into(),
+            kind: "select".into(),
+            config: serde_json::json!({ "options": ["low", "high"] }),
+            required: false,
+            sort_order: 0,
+        }
+    }
+
+    #[test]
+    fn board_defs_are_served_from_the_cache_then_flushed_by_a_custom_field_event() {
+        let caches = cache::__enable_for_tests();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let board = Uuid::new_v4();
+        let key = defs_for_board_key(org, board);
+        let value = vec![a_def(org, board)];
+
+        // First read: a miss, so the handler runs its query and fills the cache.
+        assert!(caches.get_ref::<Vec<FieldDefRow>>(&key).is_none());
+        caches.put_ref(key.clone(), value.clone());
+        // Second read: served from the cache; the transaction is skipped.
+        let got = caches
+            .get_ref::<Vec<FieldDefRow>>(&key)
+            .expect("served from the cache");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].id, value[0].id);
+
+        // The `custom_field.*` flush is the `custom-field|<org>` prefix, which
+        // covers this board-scoped key.
+        caches.invalidate_refs(&Caches::ref_key(Caches::NS_CUSTOM_FIELD, org));
+        assert!(caches.get_ref::<Vec<FieldDefRow>>(&key).is_none());
+    }
+
+    #[test]
+    fn a_custom_field_event_for_another_org_leaves_this_orgs_defs_cached() {
+        let caches = cache::__enable_for_tests();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let board = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let key = defs_for_board_key(org, board);
+        caches.put_ref(key.clone(), vec![a_def(org, board)]);
+
+        caches.invalidate_refs(&Caches::ref_key(Caches::NS_CUSTOM_FIELD, other));
+
+        assert!(caches.get_ref::<Vec<FieldDefRow>>(&key).is_some());
+    }
+
+    #[test]
+    fn a_board_flush_does_not_clear_the_custom_field_family() {
+        let caches = cache::__enable_for_tests();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let board = Uuid::new_v4();
+        let key = defs_for_board_key(org, board);
+        caches.put_ref(key.clone(), vec![a_def(org, board)]);
+
+        // A board event clears `board|<org>`; the custom-field family survives.
+        caches.invalidate_refs(&Caches::ref_key(Caches::NS_BOARD, org));
+
+        assert!(caches.get_ref::<Vec<FieldDefRow>>(&key).is_some());
+    }
 }
