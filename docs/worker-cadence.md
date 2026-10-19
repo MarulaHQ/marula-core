@@ -9,7 +9,7 @@ profile a small install can adopt.
 
 | Loop | Kind | Default | Knob |
 |---|---|---|---|
-| outbox relay | poll | 250ms idle | fixed |
+| outbox relay | notify | 5s safety poll | `RELAY_POLL_MS`, `MARULA_RELAY_WAKEUP` |
 | Redis stream consumers (webhooks, automations, notifier, search, workflow) | blocking read | 2s block | fixed |
 | general job queue | poll | 500ms idle | `QUEUE_IDLE_MS` |
 | outbound email send | poll | 2s idle | `EMAIL_POLL_SECS` |
@@ -29,6 +29,52 @@ themselves read `now()` from Postgres, so a longer interval changes the latency
 of detection and never correctness. And a failed sweep backs off a fixed 2s
 before returning to its cadence: that 2s is error recovery, not a poll, and
 raising it would only slow recovery.
+
+## The relay is woken, not polled
+
+`0068_outbox_notify.sql` fires `pg_notify` on the outbox insert, inside the
+committing transaction, so the notification exists if and only if the row does.
+The worker holds one `PgListener` on `marula_events` and the relay runs a pass
+when one arrives. Delivery latency is one round trip instead of up to a quarter
+of a second, and an idle worker issues twelve outbox queries a minute instead of
+two hundred and forty.
+
+`RELAY_POLL_MS` (default `5000`) is the backstop, not the path: it bounds how
+long a missed notification can delay delivery during a listener reconnect.
+`MARULA_RELAY_WAKEUP=off` restores pure polling at `RELAY_POLL_MS`, which is the
+escape hatch if the listener cannot hold a connection. Setting it to `off` with
+`RELAY_POLL_MS=250` reproduces the pre-wakeup worker exactly; that is the
+baseline the idle-query measurement compares against.
+
+The notification carries no work of its own. The outbox row is the queue, the
+relay reads it in its own transaction, and a notification lost during a
+reconnect costs one safety poll. That is why the listener needs no cursor.
+
+## Scaling: two roles
+
+The loops fall into two groups that scale differently.
+
+| `WORKER_ROLES` | Runs |
+|---|---|
+| `realtime` | the outbox relay and the stream/queue consumers: webhooks, automations, notifier, search, workflow, CSAT, project billing, decision triage, the job queue, and outbound email |
+| `housekeeping` | the sweeps: SLA, PM schedules, rotation, dedupe, missing-time nudges, scheduled reports, usage refresh, digest, the workflow-run retention pass, the event-outbox retention pass |
+| `all` (default) | both groups in one process |
+
+Every replica can run `realtime`: the relay claims outbox rows inside one
+transaction with `FOR UPDATE SKIP LOCKED`, and the consumers read through Redis
+consumer groups. The sweeps claim due rows by hand and are not safe to
+duplicate, which is why they are the group to run on exactly one process. Before
+this switch, scaling the worker horizontally duplicated every loop, sweeps
+included.
+
+`/healthz` reports the loops a process does not own as `disabled` and leaves
+them out of its health decision, so a realtime-only replica is healthy without
+its eight sweeps.
+
+A one-box install that wants the sweeps off the worker entirely can run
+`WORKER_ROLES=realtime` and schedule the same passes from `pg_cron` with the
+cadence knobs above. Nothing in the sweeps needs to live in the worker process;
+it hosts them because something has to.
 
 ## The event stream is bounded, and that is not a loop
 
@@ -84,9 +130,11 @@ What each one trades:
   themselves (`OUTBOX_RETENTION_DAYS`, `workflow.run_retention_days`) decide how
   much is kept. These two decide how promptly.
 
-## Leave these two alone
+## Leave the stream consumers alone
 
-- The outbox relay (250ms) and the Redis stream consumers (2s blocking read) are
-  the real-time path. The relay feeds the live SSE stream, so a raised value shows
-  up as delayed browser updates. They are deliberately not in the profile.
+- The Redis stream consumers' 2s blocking read is the real-time path: each read
+  is one connection wait, not a query per tick, and it is what turns a published
+  event into a webhook, an automation, a notification or a workflow step. The
+  relay that feeds them is notification-driven now, so a raised block only adds
+  latency to work that already arrived.
 - The 2s error backoff inside each sweep, for the reason above.

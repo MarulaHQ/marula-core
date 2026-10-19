@@ -183,6 +183,114 @@ pub struct WorkerConfig {
     /// default 20; Wave 49 lane R1). The worker reads across orgs on the
     /// owner role, so this pool is separate from core-api's.
     pub db_pool_max: u32,
+    /// How long the relay waits between idle passes (`RELAY_POLL_MS`,
+    /// default 5000). Migration `0068` (rebranded by `0114`) fires a
+    /// notification on every outbox commit, so this is the BACKSTOP that
+    /// bounds delivery when a notification is missed — a reconnect window,
+    /// or `MARULA_RELAY_WAKEUP=off`. It is deliberately much slower than the
+    /// 250 ms poll it replaces: the poll was the delivery path, this is only
+    /// the floor under it.
+    pub relay_poll_ms: u64,
+    /// Whether the relay LISTENs on the outbox channel
+    /// (`MARULA_RELAY_WAKEUP`, default on). Off restores pure polling on
+    /// `relay_poll_ms`, which is both the escape hatch if the listener
+    /// cannot hold a connection and the baseline this lane measured.
+    pub relay_wakeup: bool,
+    /// Which loop groups this process runs (`WORKER_ROLES`, default `all`).
+    /// The two groups scale differently: the real-time path is safe on every
+    /// replica, the sweeps are not — so a scaled deployment runs `realtime`
+    /// everywhere and `housekeeping` on one process.
+    pub roles: WorkerRoles,
+}
+
+/// Which loop groups a worker process runs.
+///
+/// The split exists because the two groups scale differently. The real-time
+/// path — the outbox relay and the stream/queue consumers — is safe on every
+/// replica: the relay claims outbox rows inside one transaction and the
+/// consumers use Redis consumer groups. The sweeps claim due rows by hand
+/// and would duplicate work if several replicas ran them, which is exactly
+/// what happened before this switch existed: scaling the worker horizontally
+/// duplicated all seventeen loops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkerRoles {
+    realtime: bool,
+    housekeeping: bool,
+}
+
+impl WorkerRoles {
+    pub const fn all() -> Self {
+        Self {
+            realtime: true,
+            housekeeping: true,
+        }
+    }
+
+    pub const fn realtime_only() -> Self {
+        Self {
+            realtime: true,
+            housekeeping: false,
+        }
+    }
+
+    pub const fn housekeeping_only() -> Self {
+        Self {
+            realtime: false,
+            housekeeping: true,
+        }
+    }
+
+    pub const fn realtime(self) -> bool {
+        self.realtime
+    }
+
+    pub const fn housekeeping(self) -> bool {
+        self.housekeeping
+    }
+
+    /// The configured groups, for `/healthz` and the startup log.
+    pub const fn label(self) -> &'static str {
+        match (self.realtime, self.housekeeping) {
+            (true, true) => "all",
+            (true, false) => "realtime",
+            (false, true) => "housekeeping",
+            (false, false) => "none",
+        }
+    }
+
+    /// `all` (the default), `realtime`, `housekeeping`, or a comma-separated
+    /// combination. An empty value means `all`; an unknown token is an error
+    /// the caller reports and then falls back to `all` — a typo must never
+    /// silently stop delivery, and running everything is what the worker did
+    /// before the split existed.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("all") {
+            return Ok(Self::all());
+        }
+        let mut realtime = false;
+        let mut housekeeping = false;
+        for token in trimmed.split(',') {
+            match token.trim().to_ascii_lowercase().as_str() {
+                "all" => return Ok(Self::all()),
+                "realtime" => realtime = true,
+                "housekeeping" => housekeeping = true,
+                other => {
+                    return Err(format!(
+                        "unknown WORKER_ROLES token `{other}` (expected `all`, `realtime`, \
+                         `housekeeping`, or a comma-separated list)"
+                    ))
+                }
+            }
+        }
+        if !realtime && !housekeeping {
+            return Err("WORKER_ROLES names no runnable group".to_string());
+        }
+        Ok(Self {
+            realtime,
+            housekeeping,
+        })
+    }
 }
 
 impl WorkerConfig {
@@ -324,6 +432,26 @@ impl WorkerConfig {
             db_pool_max: lookup("MARULA_DB_POOL_MAX")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(core_db::DEFAULT_POOL_MAX),
+            relay_poll_ms: lookup("RELAY_POLL_MS")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5_000),
+            relay_wakeup: match lookup("MARULA_RELAY_WAKEUP") {
+                // An explicit value wins; anything but a clear "off" keeps
+                // the wakeup on, because losing it to a typo would silently
+                // reintroduce the poll the trigger replaced.
+                Some(v) => !matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "off" | "0" | "false" | "no"
+                ),
+                None => true,
+            },
+            roles: match lookup("WORKER_ROLES") {
+                None => WorkerRoles::all(),
+                Some(v) => WorkerRoles::parse(&v).unwrap_or_else(|error| {
+                    tracing::warn!(%error, value = %v, "WORKER_ROLES invalid; running all loops");
+                    WorkerRoles::all()
+                }),
+            },
         }
     }
 }
@@ -561,5 +689,76 @@ mod tests {
         assert_eq!(cfg.stream_maxlen, 200_000);
         assert_eq!(cfg.outbox_retention.retention_days, 30);
         assert_eq!(cfg.outbox_retention.interval_secs, 900);
+    }
+
+    /// The wakeup is on by default and only a clear negative turns it off:
+    /// a typo must not silently restore the poll the trigger replaced.
+    #[test]
+    fn relay_wakeup_defaults_on_and_negative_values_turn_it_off() {
+        let cfg = WorkerConfig::from_lookup(|_| None);
+        assert!(cfg.relay_wakeup);
+        assert_eq!(cfg.relay_poll_ms, 5_000);
+
+        for off in ["off", "OFF", "0", "false", "no"] {
+            let cfg = WorkerConfig::from_lookup(|k| match k {
+                "MARULA_RELAY_WAKEUP" => Some(off.into()),
+                _ => None,
+            });
+            assert!(!cfg.relay_wakeup, "`{off}` must mean off");
+        }
+        for on in ["on", "1", "true", "yes", "banana"] {
+            let cfg = WorkerConfig::from_lookup(|k| match k {
+                "MARULA_RELAY_WAKEUP" => Some(on.into()),
+                _ => None,
+            });
+            assert!(cfg.relay_wakeup, "`{on}` must keep the wakeup on");
+        }
+
+        // The measurement baseline is the old worker: poll only, at 250 ms.
+        let baseline = WorkerConfig::from_lookup(|k| match k {
+            "MARULA_RELAY_WAKEUP" => Some("off".into()),
+            "RELAY_POLL_MS" => Some("250".into()),
+            _ => None,
+        });
+        assert!(!baseline.relay_wakeup);
+        assert_eq!(baseline.relay_poll_ms, 250);
+    }
+
+    #[test]
+    fn worker_roles_parse_every_named_shape() {
+        assert_eq!(WorkerRoles::parse("").unwrap(), WorkerRoles::all());
+        assert_eq!(WorkerRoles::parse("  ").unwrap(), WorkerRoles::all());
+        assert_eq!(WorkerRoles::parse("all").unwrap(), WorkerRoles::all());
+        assert_eq!(
+            WorkerRoles::parse("realtime").unwrap(),
+            WorkerRoles::realtime_only()
+        );
+        assert_eq!(
+            WorkerRoles::parse("HOUSEKEEPING").unwrap(),
+            WorkerRoles::housekeeping_only()
+        );
+        assert_eq!(
+            WorkerRoles::parse("realtime,housekeeping").unwrap(),
+            WorkerRoles::all()
+        );
+        assert_eq!(
+            WorkerRoles::parse(" housekeeping , realtime ").unwrap(),
+            WorkerRoles::all()
+        );
+        // An unknown token is refused, so the caller can warn instead of
+        // guessing which half the operator meant.
+        assert!(WorkerRoles::parse("sweeps").is_err());
+        assert!(WorkerRoles::parse("realtime,worker").is_err());
+        // A lone comma names nothing runnable.
+        assert!(WorkerRoles::parse(",").is_err());
+    }
+
+    /// A default config runs every loop: the split must not change behaviour
+    /// for an install that never sets the switch.
+    #[test]
+    fn default_config_runs_every_loop_group() {
+        let cfg = WorkerConfig::from_lookup(|_| None);
+        assert!(cfg.roles.realtime());
+        assert!(cfg.roles.housekeeping());
     }
 }

@@ -10,9 +10,20 @@
 use core_db::outbox::OutboxRow;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 pub mod contract;
+
+/// The channel migration `0068_outbox_notify.sql` fires on every outbox
+/// insert (renamed from `meridian_events` by the rebrand, `0114`). The relay
+/// LISTENs on it so a committed event wakes the relay at once instead of
+/// waiting out the idle poll. The payload is the event identity, but the
+/// relay does not read it: the outbox row is the queue, and reading the
+/// payload here would only introduce a second source of truth.
+pub const NOTIFY_CHANNEL: &str = "marula_events";
 
 /// The wire envelope. `payload_schema_ref` pins the payload contract so
 /// consumers can version-gate.
@@ -269,28 +280,116 @@ async fn relay_inner(
     Ok(ids.len())
 }
 
+/// How the relay waits between passes.
+///
+/// `safety_poll` is the backstop: it bounds how long a missed notification
+/// (a reconnect window, a listener that never started) can delay delivery.
+/// `wakeup` is the fast path. `None` keeps the loop polling only, which is
+/// the shape the relay had before the trigger existed — kept because the
+/// poll rate is a deployment parameter, and because it is the baseline the
+/// wakeup is measured against.
+pub struct RelayPacing {
+    pub safety_poll: Duration,
+    pub wakeup: Option<Arc<Notify>>,
+}
+
+impl RelayPacing {
+    /// Poll only, with `safety_poll` between idle passes.
+    pub fn polling(safety_poll: Duration) -> Self {
+        Self {
+            safety_poll,
+            wakeup: None,
+        }
+    }
+
+    /// Wake on `wakeup`, with `safety_poll` as the backstop.
+    pub fn notified(safety_poll: Duration, wakeup: Arc<Notify>) -> Self {
+        Self {
+            safety_poll,
+            wakeup: Some(wakeup),
+        }
+    }
+
+    /// Idle wait: until a notification arrives, or the safety poll expires.
+    ///
+    /// The permit matters. `notify_one` stores one when no waiter is
+    /// registered, so a notification that lands while a pass is running is
+    /// not lost: the next wait returns at once instead of sleeping through
+    /// the safety poll. A burst therefore drains at the batch rate rather
+    /// than one batch per poll interval.
+    async fn wait(&self) {
+        match &self.wakeup {
+            Some(wakeup) => {
+                let _ = tokio::time::timeout(self.safety_poll, wakeup.notified()).await;
+            }
+            None => tokio::time::sleep(self.safety_poll).await,
+        }
+    }
+}
+
 /// Long-running relay task with backoff on error.
+///
+/// A non-empty pass loops without waiting, so a backlog drains at once; an
+/// empty pass waits on `pacing`. Errors back off separately and never
+/// consume a wakeup permit.
 pub async fn run_relay(
     pool: sqlx::PgPool,
     mut publisher: Publisher,
     batch: i64,
+    pacing: RelayPacing,
 ) -> Result<(), EventError> {
     let mut backoff_ms = 100_u64;
     loop {
         match relay_once(&pool, &mut publisher, batch).await {
             Ok(0) => {
                 backoff_ms = 100;
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                pacing.wait().await;
             }
             Ok(_) => {
                 backoff_ms = 100;
             }
             Err(e) => {
                 tracing::error!(error = %e, "event relay failed");
-                tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                 backoff_ms = (backoff_ms * 2).min(10_000);
             }
         }
+    }
+}
+
+/// Long-running LISTEN task for the relay, on its own dedicated connection.
+///
+/// Reconnects with backoff. A notification carries no work of its own — the
+/// outbox row is the queue and the relay reads it — so a notification lost
+/// during a reconnect costs at most one safety poll, which is why this task
+/// needs no resumable offset and no cursor.
+pub async fn run_wakeup_listener(database_url: String, wakeup: Arc<Notify>) {
+    let mut backoff = Duration::from_millis(250);
+    loop {
+        match wakeup_session(&database_url, &wakeup).await {
+            Ok(()) => {
+                // Unreachable: wakeup_session only returns on error.
+                backoff = Duration::from_millis(250);
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "relay wakeup listener disconnected; reconnecting");
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(Duration::from_secs(10));
+            }
+        }
+    }
+}
+
+async fn wakeup_session(database_url: &str, wakeup: &Notify) -> Result<(), sqlx::Error> {
+    let mut listener = sqlx::postgres::PgListener::connect(database_url).await?;
+    listener.listen(NOTIFY_CHANNEL).await?;
+    tracing::info!(
+        channel = NOTIFY_CHANNEL,
+        "outbox relay wakeup listener connected"
+    );
+    loop {
+        listener.recv().await?;
+        wakeup.notify_one();
     }
 }
 
@@ -367,5 +466,39 @@ mod tests {
             StreamBound::from_entries(1_234).maxlen_arg(),
             redis::streams::StreamMaxlen::Approx(MIN_STREAM_MAXLEN)
         );
+    }
+
+    /// A notification that lands while a pass is running must not be lost.
+    /// `notify_one` stores a permit when nobody is waiting, so the next wait
+    /// returns at once instead of sleeping through a 30-second safety poll.
+    /// This is the property a burst depends on.
+    #[tokio::test]
+    async fn a_notification_that_arrives_before_the_wait_is_not_lost() {
+        let wakeup = Arc::new(Notify::new());
+        wakeup.notify_one();
+        let pacing = RelayPacing::notified(Duration::from_secs(30), Arc::clone(&wakeup));
+        let started = std::time::Instant::now();
+        pacing.wait().await;
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "a stored permit must wake the wait immediately, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// Without a wakeup the wait is exactly the safety poll, which is the
+    /// shape the relay had before the trigger and the baseline the wakeup is
+    /// measured against.
+    #[tokio::test]
+    async fn polling_waits_the_safety_poll() {
+        let pacing = RelayPacing::polling(Duration::from_millis(50));
+        let started = std::time::Instant::now();
+        pacing.wait().await;
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= Duration::from_millis(45),
+            "an empty polling wait must not spin, took {elapsed:?}"
+        );
+        assert!(elapsed < Duration::from_secs(5), "took {elapsed:?}");
     }
 }

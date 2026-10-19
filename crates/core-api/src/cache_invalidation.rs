@@ -88,12 +88,10 @@ mod tests {
     use super::*;
     use chrono::Utc;
 
-    /// The cache is process-wide, so cases in this module that insert into it
-    /// must not interleave. Locking here keeps them serial inside the binary.
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
+    /// The cache singleton is shared with every other module's tests, so this
+    /// delegates to the one process-wide lock instead of keeping a local one.
     fn only_one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
-        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        cache::only_one_at_a_time()
     }
 
     fn frame(event_type: &str, org_id: Uuid, entity_id: Option<&str>) -> StreamFrame {

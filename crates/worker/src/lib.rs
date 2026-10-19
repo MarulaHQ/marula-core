@@ -138,14 +138,49 @@ pub async fn run(
         publisher
     };
     tracing::info!("worker connected; starting background loops");
+    tracing::info!(
+        roles = config.roles.label(),
+        relay_wakeup = config.relay_wakeup,
+        relay_poll_ms = config.relay_poll_ms,
+        "worker loop groups"
+    );
 
     let relay_alive = Arc::new(AtomicBool::new(true));
-    let relay = tokio::spawn(core_events::run_relay(
-        pool.clone(),
-        publisher,
-        config.relay_batch,
-    ));
-    {
+    if config.roles.realtime() {
+        // Wakeup path (Wave 52 lane P4): migration 0068 fires a notification
+        // inside the committing transaction, so the relay runs on the event
+        // rather than on a 250 ms poll. `relay_poll_ms` is the backstop for
+        // the reconnect window, not the delivery path.
+        let pacing = if config.relay_wakeup {
+            let wakeup = Arc::new(tokio::sync::Notify::new());
+            tokio::spawn(core_events::run_wakeup_listener(
+                config.database_url.clone(),
+                Arc::clone(&wakeup),
+            ));
+            tracing::info!(
+                channel = core_events::NOTIFY_CHANNEL,
+                safety_poll_ms = config.relay_poll_ms,
+                "outbox relay is notification-driven"
+            );
+            core_events::RelayPacing::notified(
+                std::time::Duration::from_millis(config.relay_poll_ms),
+                wakeup,
+            )
+        } else {
+            tracing::info!(
+                poll_ms = config.relay_poll_ms,
+                "outbox relay polls only (MARULA_RELAY_WAKEUP is off)"
+            );
+            core_events::RelayPacing::polling(std::time::Duration::from_millis(
+                config.relay_poll_ms,
+            ))
+        };
+        let relay = tokio::spawn(core_events::run_relay(
+            pool.clone(),
+            publisher,
+            config.relay_batch,
+            pacing,
+        ));
         // Flip the health flag if the loop ever exits (it only can by
         // panicking); /healthz then reports unhealthy so the orchestrator
         // restarts the container.
@@ -161,15 +196,17 @@ pub async fn run(
     // gets mail (prefs + quiet hours), core-api renders the branded wrapper
     // and enqueues it onto the outbound ledger — so notification mail gets
     // retries and a delivery state like every other message.
-    tokio::spawn(notifier::run_notifier(
-        pool.clone(),
-        config.redis_url.clone(),
-        Arc::new(notifier::HttpNotificationSink::new(
-            config.internal_api_url.clone(),
-            config.internal_token.clone(),
-        )),
-        shutdown.clone(),
-    ));
+    if config.roles.realtime() {
+        tokio::spawn(notifier::run_notifier(
+            pool.clone(),
+            config.redis_url.clone(),
+            Arc::new(notifier::HttpNotificationSink::new(
+                config.internal_api_url.clone(),
+                config.internal_token.clone(),
+            )),
+            shutdown.clone(),
+        ));
+    }
 
     // Outbound email send loop: transports resolve PER ORG at send time
     // (settings + sealed credential; env transport is the fallback).
@@ -181,7 +218,7 @@ pub async fn run(
             config.webhook_secret_key,
             config.email.transport_kind.clone(),
         ));
-    {
+    if config.roles.realtime() {
         let email_alive = Arc::clone(&email_alive);
         let email_config = config.email.clone();
         let email_resolver = Arc::clone(&mail_resolver);
@@ -194,24 +231,26 @@ pub async fn run(
 
     // Daily digest sweep (Wave 34 lane 8): opted-in users get one email at
     // their chosen local hour; core-api owns the once-per-day marker.
-    tokio::spawn(digest::run_digest_loop(
-        pool.clone(),
-        digest::DigestLoopConfig {
-            core_api_url: config.internal_api_url.clone(),
-            internal_token: config.internal_token.clone(),
-            poll_secs: std::env::var("DIGEST_POLL_SECS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(900),
-        },
-        shutdown.clone(),
-    ));
+    if config.roles.housekeeping() {
+        tokio::spawn(digest::run_digest_loop(
+            pool.clone(),
+            digest::DigestLoopConfig {
+                core_api_url: config.internal_api_url.clone(),
+                internal_token: config.internal_token.clone(),
+                poll_secs: std::env::var("DIGEST_POLL_SECS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(900),
+            },
+            shutdown.clone(),
+        ));
+    }
 
     // Scheduled report delivery (TASKLIST R4): transport-unset deploys
     // run the LEDGERED log-skip none mode — schedules still advance and
     // every run stays visible, so this loop has no disable switch.
     let delivery_alive = Arc::new(AtomicBool::new(true));
-    {
+    if config.roles.housekeeping() {
         let delivery_alive = Arc::clone(&delivery_alive);
         let delivery_pool = pool.clone();
         let database_url = config.database_url.clone();
@@ -236,7 +275,7 @@ pub async fn run(
     // Missing-time EOD nudge scheduler (disabled cleanly when the shared
     // internal token is unset — same none-mode as the email loop).
     let time_alive = Arc::new(AtomicBool::new(true));
-    {
+    if config.roles.housekeeping() {
         let time_alive = Arc::clone(&time_alive);
         let time_config = config.time.clone();
         let time_pool = pool.clone();
@@ -250,8 +289,8 @@ pub async fn run(
     // Unified-search indexing: consumes domain events and pushes index
     // writes through core-api's internal effect surface. Disabled cleanly
     // when no internal token is configured (fail-closed on both sides).
-    match &config.internal_token {
-        Some(token) => {
+    if config.roles.realtime() {
+        if let Some(token) = &config.internal_token {
             let sink = search_indexer::HttpIndexSink::new(&config.internal_api_url, token);
             tokio::spawn(search_indexer::run_search_indexer(
                 pool.clone(),
@@ -260,8 +299,7 @@ pub async fn run(
                 shutdown.clone(),
             ));
             tracing::info!("search indexer enabled (pushing through core-api)");
-        }
-        None => {
+        } else {
             tracing::info!("search indexer disabled: MARULA_INTERNAL_TOKEN not configured");
         }
     }
@@ -270,7 +308,7 @@ pub async fn run(
     // core-api's internal machine surface (plus signed webhook delivery).
     let queue_alive = Arc::new(AtomicBool::new(true));
     let counters = Arc::new(queue_runner::QueueCounters::default());
-    {
+    if config.roles.realtime() {
         let effect_api = effects::ReqwestEffectApi::new(
             config.internal_api_url.clone(),
             config.internal_token.clone(),
@@ -303,7 +341,7 @@ pub async fn run(
 
     // SLA evaluation sweep: DB-clock-driven ladder decisions → verdict jobs.
     let sla_alive = Arc::new(AtomicBool::new(true));
-    {
+    if config.roles.housekeeping() {
         let alive = Arc::clone(&sla_alive);
         let pool = pool.clone();
         let shutdown = shutdown.clone();
@@ -316,7 +354,7 @@ pub async fn run(
 
     // Automations consumer: event stream → matched rules → effect jobs.
     let auto_alive = Arc::new(AtomicBool::new(true));
-    {
+    if config.roles.realtime() {
         let alive = Arc::clone(&auto_alive);
         let pool = pool.clone();
         let redis_url = config.redis_url.clone();
@@ -332,7 +370,7 @@ pub async fn run(
     // (send-on-resolve, per-client interval, quiet hours) → core-api-rendered
     // tokenized mail. Disabled cleanly when no internal token is configured.
     let csat_alive = Arc::new(AtomicBool::new(true));
-    {
+    if config.roles.realtime() {
         let alive = Arc::clone(&csat_alive);
         let pool = pool.clone();
         let redis_url = config.redis_url.clone();
@@ -353,7 +391,7 @@ pub async fn run(
     // invoice run consumes the ledger (durable consumer group, at-least-once
     // with ledger-side idempotency). No internal token needed: it writes
     // only its own ledger inserts through core_db.
-    {
+    if config.roles.realtime() {
         let pool = pool.clone();
         let redis_url = config.redis_url.clone();
         let shutdown = shutdown.clone();
@@ -366,7 +404,7 @@ pub async fn run(
     // PM-schedule tick (Wave 11 lane 9): claims due recurring-ticket
     // schedules, stamps the next occurrence, enqueues pm.generate jobs.
     let pm_alive = Arc::new(AtomicBool::new(true));
-    {
+    if config.roles.housekeeping() {
         let alive = Arc::clone(&pm_alive);
         let pm_pool = pool.clone();
         let pm_shutdown = shutdown.clone();
@@ -385,7 +423,7 @@ pub async fn run(
     // read-model view. Declared with the other liveness flags because
     // /healthz reads it long after the block below has closed.
     let usage_alive = Arc::new(AtomicBool::new(true));
-    {
+    if config.roles.housekeeping() {
         let alive = Arc::clone(&usage_alive);
         let usage_pool = pool.clone();
         let usage_shutdown = shutdown.clone();
@@ -405,7 +443,7 @@ pub async fn run(
     // Event-outbox retention (Wave 52 lane P1): declared alongside, for the
     // same reason — /healthz reads it long after the spawn block closes.
     let outbox_alive = Arc::new(AtomicBool::new(true));
-    {
+    if config.roles.housekeeping() {
         let alive = Arc::clone(&rotation_alive);
         let rot_pool = pool.clone();
         let rot_shutdown = shutdown.clone();
@@ -482,7 +520,7 @@ pub async fn run(
     // subscriptions → durable webhook.deliver jobs (processed by the
     // queue runner above).
     let webhooks_alive = Arc::new(AtomicBool::new(true));
-    {
+    if config.roles.realtime() {
         let alive = Arc::clone(&webhooks_alive);
         let webhook_pool = pool.clone();
         let webhook_redis = config.redis_url.clone();
@@ -499,21 +537,23 @@ pub async fn run(
     // per trigger through core-api's internal decision seam. Disabled
     // cleanly (none mode) when no bot principal is configured — surfaces
     // act exactly as they would without a decision model.
-    if config.decision_bot_user_id.is_some() {
-        let fan_out: std::sync::Arc<dyn decision::DecisionFanOut> =
-            std::sync::Arc::new(decision::ReqwestFanOut::new(
-                config.internal_api_url.clone(),
-                config.internal_token.clone(),
+    if config.roles.realtime() {
+        if config.decision_bot_user_id.is_some() {
+            let fan_out: std::sync::Arc<dyn decision::DecisionFanOut> =
+                std::sync::Arc::new(decision::ReqwestFanOut::new(
+                    config.internal_api_url.clone(),
+                    config.internal_token.clone(),
+                ));
+            tokio::spawn(decision::run_decision_triage(
+                pool.clone(),
+                config.clone(),
+                fan_out,
+                shutdown.clone(),
             ));
-        tokio::spawn(decision::run_decision_triage(
-            pool.clone(),
-            config.clone(),
-            fan_out,
-            shutdown.clone(),
-        ));
-        tracing::info!("decision triage enabled (dispatching through core-api)");
-    } else {
-        tracing::info!("decision triage disabled: MARULA_DECISION_BOT_USER_ID not configured");
+            tracing::info!("decision triage enabled (dispatching through core-api)");
+        } else {
+            tracing::info!("decision triage disabled: MARULA_DECISION_BOT_USER_ID not configured");
+        }
     }
 
     // Workflow executor stream consumer (Wave 43 lane 15): matches each
@@ -521,7 +561,7 @@ pub async fn run(
     // against parked runs waiting on the event type (to WAKE them), durable
     // against the shared queue. Node effects cross to core-api org-scoped.
     let workflow_alive = Arc::new(AtomicBool::new(true));
-    {
+    if config.roles.realtime() {
         let alive = Arc::clone(&workflow_alive);
         let workflow_pool = pool.clone();
         let workflow_redis = config.redis_url.clone();
@@ -548,27 +588,13 @@ pub async fn run(
         outbox_alive,
         usage_alive,
         workflow_alive,
+        roles: config.roles,
     };
-    // Unified-search indexing: consumes domain events and pushes index
-    // writes through core-api's internal effect surface. Disabled cleanly
-    // when no internal token is configured (fail-closed on both sides).
-    match &config.internal_token {
-        Some(token) => {
-            let sink = search_indexer::HttpIndexSink::new(&config.internal_api_url, token);
-            let indexer_pool = pool.clone();
-            let indexer_config = config.clone();
-            tokio::spawn(search_indexer::run_search_indexer(
-                indexer_pool,
-                indexer_config,
-                sink,
-                shutdown.clone(),
-            ));
-            tracing::info!("search indexer enabled (pushing through core-api)");
-        }
-        None => {
-            tracing::info!("search indexer disabled: MARULA_INTERNAL_TOKEN not configured");
-        }
-    }
+    // The search indexer is spawned once, above, with the other real-time
+    // consumers. A second identical spawn used to sit here: it read the same
+    // stream with a plain XREAD (no consumer group), so both instances
+    // indexed every event — duplicate work on the hottest loop in the
+    // process. Removed rather than gated.
 
     let app = Router::new()
         .route("/healthz", get(healthz))
@@ -605,27 +631,107 @@ struct HealthFlags {
     outbox_alive: Arc<AtomicBool>,
     usage_alive: Arc<AtomicBool>,
     workflow_alive: Arc<AtomicBool>,
+    /// Which groups this process runs. A loop it does not own is reported
+    /// as `disabled` and does not affect `status`: a realtime-only replica
+    /// is healthy even though it runs no sweeps.
+    roles: crate::config::WorkerRoles,
 }
 
 async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Value> {
-    let ok = flags.relay_alive.load(Ordering::Relaxed)
-        && flags.email_alive.load(Ordering::Relaxed)
-        && flags.time_alive.load(Ordering::Relaxed)
-        && flags.queue_alive.load(Ordering::Relaxed)
-        && flags.sla_alive.load(Ordering::Relaxed)
-        && flags.automations_alive.load(Ordering::Relaxed)
-        && flags.webhooks_alive.load(Ordering::Relaxed)
-        && flags.delivery_alive.load(Ordering::Relaxed)
-        && flags.pm_alive.load(Ordering::Relaxed)
-        && flags.rotation_alive.load(Ordering::Relaxed)
-        && flags.retention_alive.load(Ordering::Relaxed)
-        && flags.outbox_alive.load(Ordering::Relaxed)
-        && flags.usage_alive.load(Ordering::Relaxed)
-        && flags.workflow_alive.load(Ordering::Relaxed);
+    let roles = flags.roles;
+    // (name, alive, owned here)
+    let loops: [(&str, bool, bool); 14] = [
+        (
+            "relay",
+            flags.relay_alive.load(Ordering::Relaxed),
+            roles.realtime(),
+        ),
+        (
+            "email",
+            flags.email_alive.load(Ordering::Relaxed),
+            roles.realtime(),
+        ),
+        (
+            "queue",
+            flags.queue_alive.load(Ordering::Relaxed),
+            roles.realtime(),
+        ),
+        (
+            "automations",
+            flags.automations_alive.load(Ordering::Relaxed),
+            roles.realtime(),
+        ),
+        (
+            "webhooks",
+            flags.webhooks_alive.load(Ordering::Relaxed),
+            roles.realtime(),
+        ),
+        (
+            "workflows",
+            flags.workflow_alive.load(Ordering::Relaxed),
+            roles.realtime(),
+        ),
+        (
+            "sla",
+            flags.sla_alive.load(Ordering::Relaxed),
+            roles.housekeeping(),
+        ),
+        (
+            "delivery",
+            flags.delivery_alive.load(Ordering::Relaxed),
+            roles.housekeeping(),
+        ),
+        (
+            "pm",
+            flags.pm_alive.load(Ordering::Relaxed),
+            roles.housekeeping(),
+        ),
+        (
+            "rotation",
+            flags.rotation_alive.load(Ordering::Relaxed),
+            roles.housekeeping(),
+        ),
+        (
+            "retention",
+            flags.retention_alive.load(Ordering::Relaxed),
+            roles.housekeeping(),
+        ),
+        (
+            "outbox",
+            flags.outbox_alive.load(Ordering::Relaxed),
+            roles.housekeeping(),
+        ),
+        (
+            "usage",
+            flags.usage_alive.load(Ordering::Relaxed),
+            roles.housekeeping(),
+        ),
+        (
+            "time",
+            flags.time_alive.load(Ordering::Relaxed),
+            roles.housekeeping(),
+        ),
+    ];
+    // Only the loops this process owns decide health.
+    let ok = loops.iter().all(|(_, alive, owned)| !owned || *alive);
     if ok {
-        Json(
-            json!({ "status": "ok", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER"), "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive", "rotation": "alive", "retention": "alive", "outbox": "alive", "usage": "alive", "workflows": "alive" }),
-        )
+        let mut body = serde_json::Map::new();
+        body.insert("status".into(), json!("ok"));
+        body.insert("glitchtip".into(), json!(dsn_state("GLITCHTIP_DSN_WORKER")));
+        body.insert("roles".into(), json!(roles.label()));
+        for (name, alive, owned) in loops {
+            body.insert(
+                name.to_string(),
+                json!(if !owned {
+                    "disabled"
+                } else if alive {
+                    "alive"
+                } else {
+                    "down"
+                }),
+            );
+        }
+        Json(serde_json::Value::Object(body))
     } else {
         Json(json!({ "status": "unhealthy", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER") }))
     }
@@ -670,6 +776,7 @@ mod tests {
             outbox_alive: Arc::new(AtomicBool::new(true)),
             usage_alive: Arc::new(AtomicBool::new(true)),
             workflow_alive: Arc::new(AtomicBool::new(true)),
+            roles: crate::config::WorkerRoles::all(),
         };
         let healthy = healthz(State(Arc::new(flags.clone()))).await;
         assert_eq!(healthy.0["relay"], "alive");
@@ -677,10 +784,53 @@ mod tests {
         assert_eq!(healthy.0["webhooks"], "alive");
         assert_eq!(healthy.0["delivery"], "alive");
         assert_eq!(healthy.0["outbox"], "alive");
+        assert_eq!(healthy.0["roles"], "all");
         assert_eq!(healthy.0["status"], "ok");
 
         flags.queue_alive.store(false, Ordering::Relaxed);
         let unhealthy = healthz(State(Arc::new(flags))).await;
         assert_eq!(unhealthy.0["status"], "unhealthy");
+    }
+
+    /// A role-limited replica is healthy for the loops it owns and reports
+    /// the rest as `disabled`, so an orchestrator does not read a
+    /// realtime-only worker as eight dead sweeps.
+    #[tokio::test]
+    async fn healthz_ignores_loops_this_process_does_not_own() {
+        let mut flags = HealthFlags {
+            rotation_alive: Arc::new(AtomicBool::new(true)),
+            relay_alive: Arc::new(AtomicBool::new(true)),
+            email_alive: Arc::new(AtomicBool::new(true)),
+            time_alive: Arc::new(AtomicBool::new(true)),
+            queue_alive: Arc::new(AtomicBool::new(true)),
+            sla_alive: Arc::new(AtomicBool::new(true)),
+            automations_alive: Arc::new(AtomicBool::new(true)),
+            webhooks_alive: Arc::new(AtomicBool::new(true)),
+            delivery_alive: Arc::new(AtomicBool::new(true)),
+            pm_alive: Arc::new(AtomicBool::new(true)),
+            retention_alive: Arc::new(AtomicBool::new(true)),
+            outbox_alive: Arc::new(AtomicBool::new(true)),
+            usage_alive: Arc::new(AtomicBool::new(true)),
+            workflow_alive: Arc::new(AtomicBool::new(true)),
+            roles: crate::config::WorkerRoles::realtime_only(),
+        };
+        let body = healthz(State(Arc::new(flags.clone()))).await;
+        assert_eq!(body.0["status"], "ok");
+        assert_eq!(body.0["roles"], "realtime");
+        assert_eq!(body.0["relay"], "alive");
+        assert_eq!(body.0["webhooks"], "alive");
+        assert_eq!(body.0["sla"], "disabled");
+        assert_eq!(body.0["outbox"], "disabled");
+        assert_eq!(body.0["time"], "disabled");
+
+        // A sweep that has never been started cannot take the replica down,
+        // but the loops it does own still can.
+        flags.roles = crate::config::WorkerRoles::housekeeping_only();
+        let body = healthz(State(Arc::new(flags.clone()))).await;
+        assert_eq!(body.0["status"], "ok");
+        assert_eq!(body.0["relay"], "disabled");
+        flags.rotation_alive.store(false, Ordering::Relaxed);
+        let body = healthz(State(Arc::new(flags))).await;
+        assert_eq!(body.0["status"], "unhealthy");
     }
 }

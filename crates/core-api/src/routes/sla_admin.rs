@@ -809,6 +809,7 @@ mod tests {
 
     #[test]
     fn sla_calendars_are_served_from_the_cache_then_flushed_by_an_sla_event() {
+        let _guard = cache::only_one_at_a_time();
         let caches = cache::__enable_for_tests();
         cache::__reset_for_tests();
         let org = Uuid::new_v4();
@@ -829,6 +830,7 @@ mod tests {
 
     #[test]
     fn sla_policies_are_served_from_the_cache_then_flushed_by_an_sla_event() {
+        let _guard = cache::only_one_at_a_time();
         let caches = cache::__enable_for_tests();
         cache::__reset_for_tests();
         let org = Uuid::new_v4();
@@ -857,6 +859,7 @@ mod tests {
 
     #[test]
     fn a_policys_resolved_calendar_is_served_then_flushed_by_an_sla_event() {
+        let _guard = cache::only_one_at_a_time();
         let caches = cache::__enable_for_tests();
         cache::__reset_for_tests();
         let org = Uuid::new_v4();
@@ -874,6 +877,7 @@ mod tests {
 
     #[test]
     fn the_default_policy_is_served_then_flushed_by_an_sla_event() {
+        let _guard = cache::only_one_at_a_time();
         let caches = cache::__enable_for_tests();
         cache::__reset_for_tests();
         let org = Uuid::new_v4();

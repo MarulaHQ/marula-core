@@ -884,6 +884,7 @@ mod tests {
 
     #[test]
     fn board_defs_are_served_from_the_cache_then_flushed_by_a_custom_field_event() {
+        let _guard = cache::only_one_at_a_time();
         let caches = cache::__enable_for_tests();
         cache::__reset_for_tests();
         let org = Uuid::new_v4();
@@ -909,6 +910,7 @@ mod tests {
 
     #[test]
     fn a_custom_field_event_for_another_org_leaves_this_orgs_defs_cached() {
+        let _guard = cache::only_one_at_a_time();
         let caches = cache::__enable_for_tests();
         cache::__reset_for_tests();
         let org = Uuid::new_v4();
@@ -924,6 +926,7 @@ mod tests {
 
     #[test]
     fn a_board_flush_does_not_clear_the_custom_field_family() {
+        let _guard = cache::only_one_at_a_time();
         let caches = cache::__enable_for_tests();
         cache::__reset_for_tests();
         let org = Uuid::new_v4();

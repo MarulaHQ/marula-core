@@ -3331,13 +3331,10 @@ mod tests {
     use super::*;
     use crate::cache::{self, Caches};
 
-    /// The cache singleton is process-wide, so cases here that insert into it
-    /// must not interleave. Locking keeps them serial inside the binary,
-    /// matching the guard `cache_invalidation`'s tests use.
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
+    /// The cache singleton is shared with every other module's tests, so this
+    /// delegates to the one process-wide lock instead of keeping a local one.
     fn only_one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
-        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        cache::only_one_at_a_time()
     }
 
     fn catalog_entry(org: Uuid) -> core_db::ai_policy::AiModelCatalogEntry {

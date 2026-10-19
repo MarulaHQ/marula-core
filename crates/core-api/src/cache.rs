@@ -307,6 +307,20 @@ pub fn __enable_for_tests() -> Arc<Caches> {
     caches
 }
 
+/// Serializes every unit test that drives the process-wide cache.
+///
+/// The cache is global on purpose — a per-request cache is not a cache — but
+/// that means tests in different modules share one singleton, and a reset in
+/// one module wipes a key another module just inserted. A `static` per module
+/// serializes that module against itself and nothing else, which is exactly
+/// the race this replaces: `boards` and `sla_admin` asserted a hit while
+/// `settings` reset the map. This is the single lock they all take.
+#[cfg(test)]
+pub fn only_one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Drops expired entries on a timer so an idle process does not hold memory it
 /// will never serve. The read path already hides expired entries, so this is
 /// housekeeping rather than correctness, and a slow tick is fine.

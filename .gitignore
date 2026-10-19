@@ -125,3 +125,9 @@ apps/web/.harness/probe-*.mjs
 apps/web/.harness/probe-*.html
 apps/web/.harness/fragments.json
 apps/web/.harness/in.css
+
+# Agent hook wiring (trail rewrites it per checkout with absolute paths, so a
+# tracked copy is machine-local and every worktree lane starts dirty). Wave 47
+# lane A18 untracked it; Wave 52 lanes P2/P3 re-added it by hand. Keep it
+# ignored — scripts/check-hook-paths.mjs is the guard.
+.cursor/hooks.json
