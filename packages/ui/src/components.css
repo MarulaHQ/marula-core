@@ -1142,9 +1142,24 @@
   min-width: 0;
 }
 
+/* The views keep their one-line shape. A switch that wraps its tabs is read as
+   two rows of controls, and it also steals the width the chips need. */
+.m-data-toolbar-views {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+.m-data-toolbar-views > * {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
 /* The chip row is the only part of the strip that may give ground. */
 .m-data-toolbar-chips {
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -1482,6 +1497,7 @@
   padding: 0;
   list-style: none;
   min-width: 0;
+  overflow: hidden;
 }
 
 /* The pack's `+ Add filter` chip: dashed, quiet, and always ends the row. */
@@ -1537,6 +1553,10 @@
   font-size: 13px;
   font-weight: 500;
   max-width: 320px;
+  /* The chip gives ground before the strip does: allow the text to shrink and
+     ellipsize, keeping the remove button whole. Without this its content width
+     held the strip open and the Add chip drew over the chip it clipped. */
+  min-width: 0;
 }
 
 .m-filter-chip-text {

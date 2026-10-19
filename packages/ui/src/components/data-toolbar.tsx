@@ -78,7 +78,7 @@ export function DataToolbar({
     <div className={cn("m-data-toolbar", className)} role="group" aria-label={label}>
       {title === undefined ? null : <div className="m-data-toolbar-title">{title}</div>}
       <div className="m-data-toolbar-main">
-        {views}
+        {views === undefined ? null : <div className="m-data-toolbar-views">{views}</div>}
         {middle === undefined ? null : (
           <div className="m-data-toolbar-chips">{middle}</div>
         )}
