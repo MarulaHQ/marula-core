@@ -49,6 +49,7 @@ pub mod federation;
 pub mod fx;
 pub mod hardening;
 pub mod imports;
+pub mod instant;
 pub mod integrations;
 pub mod invoices;
 pub mod kb;

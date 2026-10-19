@@ -494,7 +494,8 @@ async fn anchor_storm(
     )
     .await?;
 
-    if let Ok(policy) = core_db::sla::get_default_policy(&mut *ctx.tx, org_id).await {
+    if let Some(policy) = crate::routes::sla_admin::default_policy_cached(&mut ctx.tx, org_id).await
+    {
         let sla = core_domain::entities::TicketSlaState::init(
             org_id,
             ticket.id,

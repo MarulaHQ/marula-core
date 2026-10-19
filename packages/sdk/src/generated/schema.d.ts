@@ -11395,7 +11395,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/tickets/{id} */
+        /**
+         * GET /api/tickets/{id} — a conditional read.
+         * @description The response carries the entity's weak validator (`ETag`) built from its
+         *     monotonic write seq, so a caller that still holds that revision sends
+         *     `If-None-Match` and gets a bodyless `304 Not Modified` instead of the full
+         *     representation. Entities without a counter row behave exactly as before:
+         *     no validator, no conditional short-circuit.
+         */
         get: operations["tickets_get_one"];
         put?: never;
         post?: never;
@@ -54021,6 +54028,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TicketWithFields"];
                 };
+            };
+            /** @description not modified; the If-None-Match validator matched the entity's current revision */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

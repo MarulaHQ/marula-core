@@ -135,7 +135,23 @@ subscribers; presence is in-process memory with a TTL, relayed between replicas 
 the `marula_presence` NOTIFY channel and emitted as `type: "presence"` frames on
 the same stream. `crates/core-api/src/routes/events.rs` serves the stream, and
 `routes/presence.rs` serves the roster read and the heartbeat write. There is no
-separate socket service. `crates/worker` owns the queue runner plus these loops: SLA, PM,
+separate socket service. The same listener also drives the in-process reference
+cache (`crates/core-api/src/cache.rs`), after the stream has one live leg to
+invalidate from.
+
+Cached values are only the ones whose answer changes on an event that listener
+already sees: the caller's principal, org settings and brand, board definitions
+and transitions, custom field definitions, SLA policies and calendars, and the
+org-level AI policy and BYOK resolution. One cache per replica, and no shared
+store: `LISTEN`/`NOTIFY` reaches every replica, so one mutation invalidates all of
+them with no network hop and no second thing to keep healthy. Two knobs:
+`MARULA_REF_CACHE_TTL_SECS` (default 30) is the backstop for a missed
+invalidation and never the mechanism, and `MARULA_REF_CACHE_MAX_ENTRIES` (default
+4096) bounds each namespace with least-recently-used eviction. A value the stream
+cannot invalidate is not cached, and a read whose answer depends on the caller's
+permissions is not cached under an org key.
+
+`crates/worker` owns the queue runner plus these loops: SLA, PM,
 rotation, dedupe, time, digest, CSAT, automations, notifications, email, delivery,
 search indexer, outbound webhooks, project billing, decision fan-out, the two
 retention sweeps (workflow runs, event outbox), and org usage refresh. The event

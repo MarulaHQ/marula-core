@@ -15,6 +15,7 @@
 //! per-setting history beyond audit_events.
 
 use crate::auth::middleware::{authed, require_permission};
+use crate::cache::{self, Caches};
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 use axum::{extract::State, http::Extensions, Json};
@@ -84,7 +85,11 @@ pub struct RegistryResponse {
 }
 
 /// One effective value: registry default overlaid by any stored override.
-#[derive(Debug, Serialize, ToSchema)]
+// `Clone` because the cached org projection hands the same rows back on a hit;
+// ownership keeps the handler free of a borrow into the cache. A plain comment,
+// not a doc comment: this struct is a published OpenAPI schema, and a note about
+// our caching belongs to us, not to the contract consumers read.
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct ValueView {
     pub key: String,
     /// JSON payload typed by the declaration's kind.
@@ -180,6 +185,13 @@ pub async fn org_values_get(
 ) -> ApiResult<Json<Vec<ValueView>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     let org_id = authed.principal.user.org_id;
+    // A hit returns the projection without opening a transaction: the whole
+    // tx below exists for this one read. Invalidation: `org.*` and
+    // `setting.updated` clear this key (crate::cache_invalidation).
+    let key = Caches::ref_key(Caches::NS_ORG_SETTINGS, org_id);
+    if let Some(values) = cache::caches().get_ref::<Vec<ValueView>>(&key) {
+        return Ok(Json(values));
+    }
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
@@ -187,6 +199,7 @@ pub async fn org_values_get(
         .map_err(ApiError::from)?;
     let values = effective_values(&mut tx, org_id, SettingScope::Org, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
+    cache::caches().put_ref(key, values.clone());
     Ok(Json(values))
 }
 
@@ -485,7 +498,7 @@ pub async fn user_value_put(
 
 // --- org profile -------------------------------------------------------------
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct OrgProfileResponse {
     pub id: Uuid,
     pub name: String,
@@ -517,6 +530,14 @@ pub async fn org_profile_get(
 ) -> ApiResult<Json<OrgProfileResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     let org_id = authed.principal.user.org_id;
+    // Org identity is caller-independent, and the tx below exists for this one
+    // read, so a hit skips it. Scoped under the org-settings namespace, so the
+    // same `org.*` / `setting.updated` invalidation that clears the settings
+    // projection clears this too.
+    let key = Caches::ref_key_scoped(Caches::NS_ORG_SETTINGS, org_id, "profile");
+    if let Some(profile) = cache::caches().get_ref::<OrgProfileResponse>(&key) {
+        return Ok(Json(profile));
+    }
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
@@ -524,13 +545,15 @@ pub async fn org_profile_get(
         .map_err(ApiError::from)?;
     let org = core_db::orgs::get_org(&mut *tx, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(OrgProfileResponse {
+    let profile = OrgProfileResponse {
         id: org.id,
         name: org.name,
         slug: org.slug,
         ticket_prefix: org.ticket_prefix,
         base_currency: org.base_currency,
-    }))
+    };
+    cache::caches().put_ref(key, profile.clone());
+    Ok(Json(profile))
 }
 
 /// PATCH /api/org — updates name and/or ticket prefix (Admin:edit).
@@ -654,4 +677,103 @@ pub async fn org_profile_patch(
     })
     .await
     .map(Json)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::{self, Caches};
+
+    /// The cache singleton is process-wide, so cases here that insert into it
+    /// must not interleave. Locking keeps them serial inside the binary,
+    /// matching the guard `cache_invalidation`'s tests use.
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn only_one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn sample_values() -> Vec<ValueView> {
+        vec![
+            ValueView {
+                key: "ai.features_enabled".to_string(),
+                value: serde_json::json!(true),
+            },
+            ValueView {
+                key: "email.signoff".to_string(),
+                value: serde_json::json!("— The team"),
+            },
+        ]
+    }
+
+    fn sample_profile(org: Uuid) -> OrgProfileResponse {
+        OrgProfileResponse {
+            id: org,
+            name: "Marula".to_string(),
+            slug: "marula".to_string(),
+            ticket_prefix: "MAR".to_string(),
+            base_currency: "USD".to_string(),
+        }
+    }
+
+    fn frame(event_type: &str, org_id: Uuid) -> crate::realtime::StreamFrame {
+        crate::realtime::StreamFrame {
+            event_type: event_type.to_string(),
+            org_id,
+            entity: "setting".to_string(),
+            entity_id: None,
+            seq: Some(1),
+            at: chrono::Utc::now(),
+            viewers: None,
+            id: Some(Uuid::new_v4()),
+        }
+    }
+
+    #[test]
+    fn org_settings_and_profile_ride_one_invalidated_prefix() {
+        let _guard = only_one_at_a_time();
+        let caches = cache::__enable_for_tests();
+        let org = Uuid::new_v4();
+        let other_org = Uuid::new_v4();
+
+        let values_key = Caches::ref_key(Caches::NS_ORG_SETTINGS, org);
+        let profile_key = Caches::ref_key_scoped(Caches::NS_ORG_SETTINGS, org, "profile");
+        let other_values_key = Caches::ref_key(Caches::NS_ORG_SETTINGS, other_org);
+
+        // The profile caches under a discriminator, but still starts with the
+        // plain key — which is the prefix `org.*` / `setting.updated` clears,
+        // so a single invalidation drops both families.
+        assert!(
+            profile_key.starts_with(values_key.as_str()),
+            "{profile_key} must sit under {values_key}"
+        );
+
+        caches.put_ref(values_key.clone(), sample_values());
+        caches.put_ref(profile_key.clone(), sample_profile(org));
+        caches.put_ref(other_values_key.clone(), sample_values());
+
+        // A second read is served from the cache (the value survives typed).
+        assert_eq!(
+            caches
+                .get_ref::<Vec<ValueView>>(&values_key)
+                .map(|v| v.len()),
+            Some(2)
+        );
+        assert_eq!(
+            caches
+                .get_ref::<OrgProfileResponse>(&profile_key)
+                .map(|p| p.slug),
+            Some("marula".to_string())
+        );
+
+        // After the org-settings invalidation fires — `setting.updated` is the
+        // event `org_value_put` emits — both entries are gone and another org's
+        // settings are untouched.
+        crate::cache_invalidation::invalidate_for(&frame("setting.updated", org));
+        assert!(caches.get_ref::<Vec<ValueView>>(&values_key).is_none());
+        assert!(caches.get_ref::<OrgProfileResponse>(&profile_key).is_none());
+        assert!(caches
+            .get_ref::<Vec<ValueView>>(&other_values_key)
+            .is_some());
+    }
 }

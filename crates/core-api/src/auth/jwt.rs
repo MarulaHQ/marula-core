@@ -295,6 +295,8 @@ MCowBQYDK2VwAyEACifTR92KS0nfpnia/3uCznrkBrmzfHxV+nqX3Xhxw0w=
             trusted_proxies: crate::client_ip::TrustedProxies::default(),
             db_pool_max: core_db::DEFAULT_POOL_MAX,
             reporting_pool_max: 25,
+            ref_cache_ttl_secs: crate::cache::DEFAULT_TTL_SECS,
+            ref_cache_max_entries: crate::cache::DEFAULT_MAX_ENTRIES as u32,
             all_in_one: false,
             worker_database_url: None,
             worker_bind_addr: "0.0.0.0:8082".into(),

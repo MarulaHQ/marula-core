@@ -575,16 +575,24 @@ async fn listener_session(database_url: &str) -> Result<(), sqlx::Error> {
         let notification = listener.recv().await?;
         match notification.channel() {
             NOTIFY_CHANNEL => match serde_json::from_str::<NotifyFrame>(notification.payload()) {
-                Ok(n) => hub().publish(StreamFrame {
-                    id: Some(n.id),
-                    event_type: n.event_type,
-                    org_id: n.org_id,
-                    entity: n.entity,
-                    entity_id: n.entity_id,
-                    seq: n.seq,
-                    at: n.at,
-                    viewers: None,
-                }),
+                Ok(n) => {
+                    let frame = StreamFrame {
+                        id: Some(n.id),
+                        event_type: n.event_type,
+                        org_id: n.org_id,
+                        entity: n.entity,
+                        entity_id: n.entity_id,
+                        seq: n.seq,
+                        at: n.at,
+                        viewers: None,
+                    };
+                    // Reference cache (Wave 52 lane P3): the same event that
+                    // reaches subscribers drops the cached values it changed,
+                    // so a stale read cannot outlive its mutation by more than
+                    // the time to fan this frame out.
+                    crate::cache_invalidation::invalidate_for(&frame);
+                    hub().publish(frame);
+                }
                 Err(e) => {
                     tracing::warn!(error = %e, "malformed notify payload on {NOTIFY_CHANNEL}")
                 }

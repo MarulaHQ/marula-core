@@ -188,38 +188,59 @@ pub async fn require_auth(
     let claims = crate::auth::jwt::verify_access_token(&state.config, &token)
         .ok_or_else(|| ApiError::Unauthorized("invalid or expired token".into()))?;
 
-    // Load user + roles fresh per request. Two cheap indexed queries; the
-    // correctness win (instant revocation) outweighs the cost at v1 scale.
-    // The reads run inside an org-bound transaction: `users`/`user_roles`
-    // are RLS-scoped by `app.org_id`, and the pool connection carries no
-    // scope of its own — an unscoped read hides every row (fresh
-    // connection) or dies casting "" to uuid (post-scoped connection).
-    let mut tx = state
-        .pool
-        .begin()
-        .await
-        .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
-    core_db::set_org_and_user(&mut tx, claims.org, claims.sub)
-        .await
-        .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
-    let user = core_db::users::get_user(&mut *tx, claims.org, claims.sub)
-        .await
-        .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
-    if !user.is_active {
-        return Err(ApiError::Unauthorized("account disabled".into()));
-    }
-    let roles = core_db::users::roles_for_user(&mut *tx, claims.sub, claims.org).await?;
-    tx.commit()
-        .await
-        .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
-    let permissions = resolve_permissions(&roles);
+    // Wave 52 lane P3: the principal is cached per replica for
+    // `ref_cache_ttl_secs` and dropped the moment a `user.*` or `role.*` event
+    // lands (`crate::cache_invalidation`), so the two indexed queries below run
+    // once per (org, user) per TTL window rather than once per request.
+    // Deactivation stays honest for the same reason revocation always was: it
+    // is a mutation like any other, so it emits an event like any other.
+    let caches = crate::cache::caches();
+    let cache_key = (claims.org, claims.sub);
+    let cached = if caches.enabled() {
+        caches.principal.get(&cache_key)
+    } else {
+        None
+    };
+    let principal = match cached {
+        Some(cached) => cached,
+        None => {
+            // The reads run inside an org-bound transaction: `users`/`user_roles`
+            // are RLS-scoped by `app.org_id`, and the pool connection carries no
+            // scope of its own — an unscoped read hides every row (fresh
+            // connection) or dies casting "" to uuid (post-scoped connection).
+            let mut tx = state
+                .pool
+                .begin()
+                .await
+                .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
+            core_db::set_org_and_user(&mut tx, claims.org, claims.sub)
+                .await
+                .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
+            let user = core_db::users::get_user(&mut *tx, claims.org, claims.sub)
+                .await
+                .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
+            if !user.is_active {
+                return Err(ApiError::Unauthorized("account disabled".into()));
+            }
+            let roles = core_db::users::roles_for_user(&mut *tx, claims.sub, claims.org).await?;
+            tx.commit()
+                .await
+                .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
+            let permissions = resolve_permissions(&roles);
+            let principal = core_domain::entities::Principal {
+                user,
+                roles,
+                permissions,
+            };
+            if caches.enabled() {
+                caches.principal.insert(cache_key, principal.clone());
+            }
+            principal
+        }
+    };
 
     request.extensions_mut().insert(AuthedUser {
-        principal: core_domain::entities::Principal {
-            user,
-            roles,
-            permissions,
-        },
+        principal,
         session_id: Some(claims.sid),
         via_api_key: false,
     });

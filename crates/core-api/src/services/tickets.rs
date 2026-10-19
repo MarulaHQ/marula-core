@@ -19,6 +19,7 @@
 //! its author, never as a more powerful system user.
 
 use crate::auth::middleware::require_permission;
+use crate::cache;
 use crate::error::{ApiError, ApiResult};
 use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx;
@@ -207,18 +208,25 @@ async fn apply_transition(
     // over the embedded default document).
     let now = chrono::Utc::now();
     if let Ok(Some(mut sla_state)) = core_db::sla::get_ticket_state(&mut *ctx.tx, id).await {
-        let calendar = match core_db::sla::get_policy_record(
-            &mut *ctx.tx,
-            org_id,
-            sla_state.policy_id,
-        )
-        .await
-        {
-            Ok(record) => core_db::sla::resolve_policy_calendar(&mut *ctx.tx, &record)
-                .await
-                .unwrap_or_else(|_| record.calendar.clone()),
-            Err(_) => return Err(ApiError::NotFound),
-        };
+        // The governing calendar is caller-independent reference data: cache it
+        // per (org, policy) so a status change does not re-read the policy and
+        // its attached calendar row on every transition.
+        let cal_key = crate::routes::sla_admin::policy_calendar_key(org_id, sla_state.policy_id);
+        let calendar =
+            match cache::caches().get_ref::<core_domain::entities::BusinessCalendar>(&cal_key) {
+                Some(calendar) => calendar,
+                None => {
+                    let record =
+                        core_db::sla::get_policy_record(&mut *ctx.tx, org_id, sla_state.policy_id)
+                            .await
+                            .map_err(|_| ApiError::NotFound)?;
+                    let calendar = core_db::sla::resolve_policy_calendar(&mut *ctx.tx, &record)
+                        .await
+                        .unwrap_or_else(|_| record.calendar.clone());
+                    cache::caches().put_ref(cal_key, calendar.clone());
+                    calendar
+                }
+            };
         sla_state.apply_category(target.category, now, &calendar);
         core_db::sla::upsert_ticket_state(&mut *ctx.tx, &sla_state).await?;
     }

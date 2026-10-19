@@ -195,6 +195,16 @@ pub struct Config {
     /// Worker health-endpoint listen address in all-in-one mode
     /// (`MARULA_WORKER_BIND_ADDR`, default `0.0.0.0:8082`).
     pub worker_bind_addr: String,
+    /// Reference-cache TTL (Wave 52 lane P3). Env
+    /// `MARULA_REF_CACHE_TTL_SECS` (default 30). The backstop for a missed
+    /// invalidation, never the mechanism: `crate::cache_invalidation` drops an
+    /// entry the moment its event arrives. A shorter TTL trades hit rate for a
+    /// shorter worst-case staleness window.
+    pub ref_cache_ttl_secs: u64,
+    /// Ceiling on entries per cache namespace (`MARULA_REF_CACHE_MAX_ENTRIES`,
+    /// default 4096). Eviction is least-recently-used, so a busy replica with
+    /// more live principals than this thrashes rather than growing.
+    pub ref_cache_max_entries: u32,
 }
 
 /// Which distance/duration provider the process registers (Wave 32 lane 7).
@@ -370,6 +380,8 @@ impl Config {
             max_upload_bytes: core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
             db_pool_max: core_db::DEFAULT_POOL_MAX,
             reporting_pool_max: 25,
+            ref_cache_ttl_secs: crate::cache::DEFAULT_TTL_SECS,
+            ref_cache_max_entries: crate::cache::DEFAULT_MAX_ENTRIES as u32,
             // Desktop shell is the API only; the worker still runs as its
             // own process on that profile.
             all_in_one: false,
@@ -631,6 +643,18 @@ impl Config {
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
             db_pool_max: parse_pool_max("MARULA_DB_POOL_MAX", core_db::DEFAULT_POOL_MAX)?,
             reporting_pool_max: parse_pool_max("MARULA_REPORTING_POOL_MAX", 25)?,
+            ref_cache_ttl_secs: parse_bounded_u64(
+                "MARULA_REF_CACHE_TTL_SECS",
+                crate::cache::DEFAULT_TTL_SECS,
+                1,
+                86_400,
+            )?,
+            ref_cache_max_entries: parse_bounded_u64(
+                "MARULA_REF_CACHE_MAX_ENTRIES",
+                crate::cache::DEFAULT_MAX_ENTRIES as u64,
+                1,
+                1_048_576,
+            )? as u32,
             migration_rate_limit_per_min: std::env::var("MARULA_MIGRATION_RATE_LIMIT_PER_MIN")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -868,6 +892,20 @@ fn parse_pool_max_value(raw: Option<String>, default: u32, var: &str) -> Result<
     }
 }
 
+/// Parses a bounded count/seconds knob. Fail-closed on a present-but-invalid
+/// value, the same posture `parse_pool_max` takes: a wrong cache ceiling is a
+/// capacity decision, not a cosmetic one.
+fn parse_bounded_u64(var: &str, default: u64, min: u64, max: u64) -> Result<u64, String> {
+    match std::env::var(var) {
+        Err(_) => Ok(default),
+        Ok(v) => match v.trim().parse::<u64>() {
+            Ok(n) if (min..=max).contains(&n) => Ok(n),
+            Ok(n) => Err(format!("{var} must be between {min} and {max} (got {n})")),
+            Err(_) => Err(format!("{var} must be an integer (got {v:?})")),
+        },
+    }
+}
+
 fn derive_dev_key(jwt_secret: &str) -> SecretKey {
     SecretKey(core_db::demo::derive_dev_seal_key(jwt_secret))
 }
@@ -919,6 +957,8 @@ impl Config {
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
             db_pool_max: core_db::DEFAULT_POOL_MAX,
             reporting_pool_max: 25,
+            ref_cache_ttl_secs: crate::cache::DEFAULT_TTL_SECS,
+            ref_cache_max_entries: crate::cache::DEFAULT_MAX_ENTRIES as u32,
             all_in_one: false,
             worker_database_url: None,
             worker_bind_addr: "0.0.0.0:8082".into(),

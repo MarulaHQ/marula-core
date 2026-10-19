@@ -23,6 +23,7 @@
 //! rows, or event payloads; no chat transport or tool loop (lane 2).
 
 use crate::auth::middleware::{authed, require_permission};
+use crate::cache::{self, Caches};
 use crate::error::{ApiError, ApiResult};
 use crate::instant::{self, InstantClaim, MutationOutcome, MutationParams};
 use crate::org_tx;
@@ -545,6 +546,87 @@ where
     Ok(Some((provider, model)))
 }
 
+// --- cached org-level reads --------------------------------------------------------
+
+/// The org's curated model catalog, cached under `NS_AI`.
+///
+/// Caller-independent: every caller resolves against the same org allowlist,
+/// so no permission filter shapes it. Every catalog mutation emits an `ai.*`
+/// event, which clears this namespace (see `crate::cache_invalidation`). A hit
+/// returns an owned `Vec`, and a miss falls through to the real read.
+async fn cached_catalog(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+) -> ApiResult<Vec<core_db::ai_policy::AiModelCatalogEntry>> {
+    let key = Caches::ref_key_scoped(Caches::NS_AI, org_id, "catalog");
+    if let Some(cached) =
+        cache::caches().get_ref::<Vec<core_db::ai_policy::AiModelCatalogEntry>>(&key)
+    {
+        return Ok(cached);
+    }
+    let entries = core_db::ai_policy::list_catalog(&mut *tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
+    cache::caches().put_ref(key, entries.clone());
+    Ok(entries)
+}
+
+/// The visible surface registry for an org, cached under `NS_AI`: globally
+/// seeded rows plus this org's plugin registrations. Caller-independent;
+/// surface mutations emit `ai.*` events.
+async fn cached_surfaces(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+) -> ApiResult<Vec<core_db::ai_policy::AiSurface>> {
+    let key = Caches::ref_key_scoped(Caches::NS_AI, org_id, "surfaces");
+    if let Some(cached) = cache::caches().get_ref::<Vec<core_db::ai_policy::AiSurface>>(&key) {
+        return Ok(cached);
+    }
+    let surfaces = core_db::ai_policy::list_surfaces(&mut *tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
+    cache::caches().put_ref(key, surfaces.clone());
+    Ok(surfaces)
+}
+
+/// One surface resolved by key, cached under `NS_AI`. Only hits are cached; an
+/// unknown key stays a miss plus the real lookup, because that is the 404 path
+/// and not worth a negative entry. Surface mutations emit `ai.*` events.
+async fn cached_surface_by_key(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    surface_key: &str,
+) -> ApiResult<Option<core_db::ai_policy::AiSurface>> {
+    let key = Caches::ref_key_scoped(Caches::NS_AI, org_id, &format!("surface:{surface_key}"));
+    if let Some(cached) = cache::caches().get_ref::<core_db::ai_policy::AiSurface>(&key) {
+        return Ok(Some(cached));
+    }
+    let surface = core_db::ai_policy::get_surface_by_key(&mut *tx, org_id, surface_key)
+        .await
+        .map_err(ApiError::from)?;
+    if let Some(surface) = &surface {
+        cache::caches().put_ref(key, surface.clone());
+    }
+    Ok(surface)
+}
+
+/// Every grant in the org, cached under `NS_AI`. The whole set, not the
+/// caller's slice — grant changes emit `ai.*` events.
+async fn cached_grants(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+) -> ApiResult<Vec<core_db::ai_policy::AiSurfaceGrant>> {
+    let key = Caches::ref_key_scoped(Caches::NS_AI, org_id, "grants");
+    if let Some(cached) = cache::caches().get_ref::<Vec<core_db::ai_policy::AiSurfaceGrant>>(&key) {
+        return Ok(cached);
+    }
+    let grants = core_db::ai_policy::list_grants(&mut *tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
+    cache::caches().put_ref(key, grants.clone());
+    Ok(grants)
+}
+
 // --- matrix ------------------------------------------------------------------------
 
 /// GET /settings/ai/matrix — the full admin view.
@@ -566,15 +648,9 @@ pub async fn get_matrix(
     let user_id = authed.principal.user.id;
 
     let mut tx = org_bound_tx(&state, org_id, user_id).await?;
-    let surfaces = core_db::ai_policy::list_surfaces(&mut *tx, org_id)
-        .await
-        .map_err(ApiError::from)?;
-    let grants = core_db::ai_policy::list_grants(&mut *tx, org_id)
-        .await
-        .map_err(ApiError::from)?;
-    let catalog = core_db::ai_policy::list_catalog(&mut *tx, org_id)
-        .await
-        .map_err(ApiError::from)?;
+    let surfaces = cached_surfaces(&mut tx, org_id).await?;
+    let grants = cached_grants(&mut tx, org_id).await?;
+    let catalog = cached_catalog(&mut tx, org_id).await?;
     let caps = core_db::ai_policy::list_caps(&mut *tx, org_id)
         .await
         .map_err(ApiError::from)?;
@@ -1752,12 +1828,8 @@ pub async fn get_my_surfaces(
     let user_id = authed.principal.user.id;
 
     let mut tx = org_bound_tx(&state, org_id, user_id).await?;
-    let surfaces = core_db::ai_policy::list_surfaces(&mut *tx, org_id)
-        .await
-        .map_err(ApiError::from)?;
-    let catalog = core_db::ai_policy::list_catalog(&mut *tx, org_id)
-        .await
-        .map_err(ApiError::from)?;
+    let surfaces = cached_surfaces(&mut tx, org_id).await?;
+    let catalog = cached_catalog(&mut tx, org_id).await?;
     let mut out = Vec::new();
     for surface in surfaces {
         if surface.kind == "internal" {
@@ -2872,9 +2944,8 @@ pub(super) async fn authorize_surface_call(
         });
     }
 
-    let surface = core_db::ai_policy::get_surface_by_key(&mut *tx, org_id, surface_key)
-        .await
-        .map_err(ApiError::from)?
+    let surface = cached_surface_by_key(&mut *tx, org_id, surface_key)
+        .await?
         .ok_or(ApiError::RlsSparse)?;
     if surface.kind == "internal" && !internal_core_call {
         return Err(ApiError::AiCallRefused {
@@ -2907,9 +2978,7 @@ pub(super) async fn authorize_surface_call(
     }
 
     // Allowlist = enabled catalog entries (global for the surface).
-    let catalog = core_db::ai_policy::list_catalog(&mut *tx, org_id)
-        .await
-        .map_err(ApiError::from)?;
+    let catalog = cached_catalog(&mut *tx, org_id).await?;
     let allowlist: Vec<(String, String)> = catalog
         .iter()
         .filter(|c| c.enabled)
@@ -3254,5 +3323,142 @@ async fn resolve_pick(
             ),
             surface: surface_key.to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::{self, Caches};
+
+    /// The cache singleton is process-wide, so cases here that insert into it
+    /// must not interleave. Locking keeps them serial inside the binary,
+    /// matching the guard `cache_invalidation`'s tests use.
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn only_one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn catalog_entry(org: Uuid) -> core_db::ai_policy::AiModelCatalogEntry {
+        core_db::ai_policy::AiModelCatalogEntry {
+            id: Uuid::now_v7(),
+            org_id: org,
+            provider: "openai".to_string(),
+            model: "gpt-4o-mini".to_string(),
+            label: "GPT-4o mini".to_string(),
+            capabilities: serde_json::json!(["completion"]),
+            cost_weight: 1,
+            enabled: true,
+        }
+    }
+
+    fn surface(org: Uuid) -> core_db::ai_policy::AiSurface {
+        let now = chrono::Utc::now();
+        core_db::ai_policy::AiSurface {
+            id: Uuid::now_v7(),
+            org_id: Some(org),
+            key: "ticket_summary".to_string(),
+            label: "Ticket summary".to_string(),
+            kind: "native".to_string(),
+            description: String::new(),
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn grant(org: Uuid) -> core_db::ai_policy::AiSurfaceGrant {
+        let now = chrono::Utc::now();
+        core_db::ai_policy::AiSurfaceGrant {
+            id: Uuid::now_v7(),
+            org_id: org,
+            surface_id: Uuid::now_v7(),
+            surface_key: "ticket_summary".to_string(),
+            grantee_kind: "role".to_string(),
+            role_id: Some(Uuid::now_v7()),
+            user_id: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn frame(event_type: &str, org_id: Uuid) -> crate::realtime::StreamFrame {
+        crate::realtime::StreamFrame {
+            event_type: event_type.to_string(),
+            org_id,
+            entity: "ai".to_string(),
+            entity_id: None,
+            seq: Some(1),
+            at: chrono::Utc::now(),
+            viewers: None,
+            id: Some(Uuid::new_v4()),
+        }
+    }
+
+    #[test]
+    fn the_ai_family_caches_per_org_and_one_event_clears_it() {
+        let _guard = only_one_at_a_time();
+        let caches = cache::__enable_for_tests();
+        let org = Uuid::new_v4();
+        let other_org = Uuid::new_v4();
+
+        let catalog_key = Caches::ref_key_scoped(Caches::NS_AI, org, "catalog");
+        let surfaces_key = Caches::ref_key_scoped(Caches::NS_AI, org, "surfaces");
+        let grants_key = Caches::ref_key_scoped(Caches::NS_AI, org, "grants");
+        let surface_key = Caches::ref_key_scoped(Caches::NS_AI, org, "surface:ticket_summary");
+        let other_catalog_key = Caches::ref_key_scoped(Caches::NS_AI, other_org, "catalog");
+
+        // Every AI family key sits under the plain org prefix — the exact
+        // string `cache_invalidation` clears for an `ai.*` event.
+        let prefix = Caches::ref_key(Caches::NS_AI, org);
+        for key in [&catalog_key, &surfaces_key, &grants_key, &surface_key] {
+            assert!(
+                key.as_str().starts_with(prefix.as_str()),
+                "{key} must sit under {prefix}"
+            );
+        }
+
+        caches.put_ref(catalog_key.clone(), vec![catalog_entry(org)]);
+        caches.put_ref(surfaces_key.clone(), vec![surface(org)]);
+        caches.put_ref(surface_key.clone(), surface(org));
+        caches.put_ref(grants_key.clone(), vec![grant(org)]);
+        caches.put_ref(other_catalog_key.clone(), vec![catalog_entry(other_org)]);
+
+        // A second read is served from the cache (surviving typed).
+        assert_eq!(
+            caches
+                .get_ref::<Vec<core_db::ai_policy::AiModelCatalogEntry>>(&catalog_key)
+                .map(|v| v.len()),
+            Some(1)
+        );
+        assert!(caches
+            .get_ref::<core_db::ai_policy::AiSurface>(&surface_key)
+            .is_some());
+        assert!(caches
+            .get_ref::<Vec<core_db::ai_policy::AiSurfaceGrant>>(&grants_key)
+            .is_some());
+
+        // An `ai.*` event — what a catalog / grant / surface mutation emits —
+        // drops exactly this org's AI family, and nothing else.
+        crate::cache_invalidation::invalidate_for(&frame("ai.model_catalog_updated", org));
+        assert!(caches
+            .get_ref::<Vec<core_db::ai_policy::AiModelCatalogEntry>>(&catalog_key)
+            .is_none());
+        assert!(caches
+            .get_ref::<Vec<core_db::ai_policy::AiSurface>>(&surfaces_key)
+            .is_none());
+        assert!(caches
+            .get_ref::<core_db::ai_policy::AiSurface>(&surface_key)
+            .is_none());
+        assert!(caches
+            .get_ref::<Vec<core_db::ai_policy::AiSurfaceGrant>>(&grants_key)
+            .is_none());
+        assert!(
+            caches
+                .get_ref::<Vec<core_db::ai_policy::AiModelCatalogEntry>>(&other_catalog_key)
+                .is_some(),
+            "another org's AI family survives"
+        );
     }
 }
