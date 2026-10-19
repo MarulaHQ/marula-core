@@ -233,7 +233,7 @@
    drawn as a box around every cell — the grid of boxes the approvals queue
    showed. Both classes ride the kit `<Tr>` in that queue, so the state lands
    on the `tr` and each device paints once. The combined state keeps the gold
-   bar the pack holds (`#E8B83A`, here `--m-gold`); it used to re-colour the
+   bar the pack holds (the pack's gold, here `--m-gold`); it used to re-colour the
    first cell's bar to `--m-accent-active`, a value the pack never uses. The
    fill stays `!important` because the pack's own `.tr.sel` is, so a row hover
    cannot wash the selected tint out. */
