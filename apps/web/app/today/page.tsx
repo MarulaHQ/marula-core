@@ -24,6 +24,7 @@ import {
   EmptyState,
   Kbd,
   Spinner,
+  SurfaceHeader,
 } from "@marula-core/ui";
 import {
   browserTimeZone,
@@ -295,34 +296,33 @@ export default function TodayPage() {
           style={{ borderColor: "var(--m-border)" }}
         >
           {/* Pack header: the date over the greeting, New ticket / Quick log
-              to the right with their kbd chips. */}
-          <header className="m-rise flex flex-wrap items-center justify-between gap-3">
-            <div className="grid gap-0.5">
-              <p
-                className="text-[10px] font-semibold uppercase tracking-wide"
-                style={{ color: "var(--m-text-muted)" }}
-              >
-                {formatWallClock(now, "longDate")}
-              </p>
-              <h1 className="text-2xl font-semibold tracking-tight">
-                {firstName !== "" ? `${greeting}, ${firstName}` : greeting}
-              </h1>
-            </div>
-            <div className="flex items-center gap-2">
-              {boardHref !== null && (
-                <a
-                  href={boardHref}
-                  className="flex items-center gap-1.5 rounded-[var(--m-radius-container)] px-2.5 py-1.5 text-xs font-medium hover:underline"
-                  style={{ border: "1px solid var(--m-border)", color: "var(--m-text)" }}
-                >
-                  <Icon name="plus" size={14} /> New ticket <Kbd tone="muted">C</Kbd>
-                </a>
-              )}
-              <Button size="sm" onClick={() => setLogOpen(true)}>
-                <Icon name="clock" size={14} /> Quick log <Kbd tone="muted">L</Kbd>
-              </Button>
-            </div>
-          </header>
+              to the right with their kbd chips. Routed through SurfaceHeader
+              at the `hero` step (28px) so the title scale is decided in one
+              place instead of spelled here — the pack draws this greeting at
+              28 (source/today.html .tdh h1), and the eyebrow at 14px
+              secondary (.tdh .d), which is the step SurfaceHeader wears. */}
+          <SurfaceHeader
+            size="hero"
+            className="m-rise"
+            eyebrow={formatWallClock(now, "longDate")}
+            title={firstName !== "" ? `${greeting}, ${firstName}` : greeting}
+            actions={
+              <>
+                {boardHref !== null && (
+                  <a
+                    href={boardHref}
+                    className="flex items-center gap-1.5 rounded-[var(--m-radius-container)] px-2.5 py-1.5 text-xs font-medium hover:underline"
+                    style={{ border: "1px solid var(--m-border)", color: "var(--m-text)" }}
+                  >
+                    <Icon name="plus" size={14} /> New ticket <Kbd tone="muted">C</Kbd>
+                  </a>
+                )}
+                <Button size="sm" onClick={() => setLogOpen(true)}>
+                  <Icon name="clock" size={14} /> Quick log <Kbd tone="muted">L</Kbd>
+                </Button>
+              </>
+            }
+          />
 
           {/* Wave 26 onboarding: sticky entry affordance above the attention strip */}
           <OnboardingResumeBanner />

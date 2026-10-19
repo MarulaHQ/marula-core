@@ -187,7 +187,11 @@ export default function DocumentsPage() {
 
   return (
     <PageFrame>
+      {/* The Knowledge area's home heading, at the pack's `hero` step (28px —
+          source/knowledge-vault.html K01/K15). The other knowledge states
+          keep the ledger step (26px, DESIGN-NOTES-knowledge.md §3). */}
       <SurfaceHeader
+        size="hero"
         title="Documents"
         description="Org-global or per client · versioned"
         meta={

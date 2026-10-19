@@ -35,6 +35,21 @@ const CHOICES: readonly { value: number; word: string }[] = [
   { value: 1, word: "Poor" },
 ];
 
+/** The page's own heading, at the portal's 26px title step (`portal.css`
+ *  `.portal-title`), in EVERY state — the form, the thank-you, the load and
+ *  the expired-link error. The pack draws it on the feedback page
+ *  (source/portal.html, `csat()`), and the audit measured its absence on a
+ *  state where only the error branch rendered. One heading, so the step is
+ *  never spelled twice. */
+function CsatHeading({ lead }: { lead?: string }) {
+  return (
+    <div>
+      <h1 className="portal-title">How did we do?</h1>
+      {lead !== undefined && <p className="portal-lead">{lead}</p>}
+    </div>
+  );
+}
+
 function CsatInner() {
   const router = useRouter();
   const params = useSearchParams();
@@ -81,37 +96,40 @@ function CsatInner() {
 
   if (error !== null && view === null) {
     return (
-      <PortalCard>
-        <div className="portal-card__body">
-          <p className="portal-field__error" role="alert">
-            <PortalIcon name="alert" size={14} />
-            <span>{error}</span>
-          </p>
-          <p>
-            <button type="button" className="portal-link" onClick={() => router.push("/portal/tickets")}>
-              Back to your tickets
-            </button>
-          </p>
-        </div>
-      </PortalCard>
+      <>
+        <CsatHeading />
+        <PortalCard>
+          <div className="portal-card__body">
+            <p className="portal-field__error" role="alert">
+              <PortalIcon name="alert" size={14} />
+              <span>{error}</span>
+            </p>
+            <p>
+              <button type="button" className="portal-link" onClick={() => router.push("/portal/tickets")}>
+                Back to your tickets
+              </button>
+            </p>
+          </div>
+        </PortalCard>
+      </>
     );
   }
 
   if (view === null) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", padding: "64px 0" }}>
-        <Spinner aria-label="Loading the question" />
-      </div>
+      <>
+        <CsatHeading />
+        <div style={{ display: "flex", justifyContent: "center", padding: "64px 0" }}>
+          <Spinner aria-label="Loading the question" />
+        </div>
+      </>
     );
   }
 
   if (view.status === "responded") {
     return (
       <>
-        <div>
-          <h1 className="portal-title">How did we do?</h1>
-          <p className="portal-lead">{view.ticket_subject}</p>
-        </div>
+        <CsatHeading lead={view.ticket_subject} />
         <PortalCard testId="portal-csat-thanks">
           <PortalEmpty
             title="Thank you"
@@ -146,12 +164,7 @@ function CsatInner() {
           Your tickets
         </button>
       </div>
-      <div>
-        <h1 className="portal-title">How did we do?</h1>
-        <p className="portal-lead">
-          {view.ticket_subject} · #{view.ticket_number}
-        </p>
-      </div>
+      <CsatHeading lead={`${view.ticket_subject} · #${view.ticket_number}`} />
 
       <div className="portal-scale" role="radiogroup" aria-label="How did we do?">
         {CHOICES.map((c) => (

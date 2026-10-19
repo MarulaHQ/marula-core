@@ -11,10 +11,15 @@
  * alone is currently spelled four different ways (`text-lg`, `text-xl`,
  * `text-2xl`, `text-[26px]`). This is the one place it is decided.
  *
- * Two title sizes, because the pack draws two:
+ * Three title sizes, because the pack draws three for a page heading:
  *
- * - `surface` (default) — the data-surface template. A large title with the
- *   meta pills on its baseline. This is the ledger shape, and it is the one
+ * - `hero` — the home/greeting heading the pack draws at 28px: `/today`'s
+ *   "Good morning, Tumi" (`source/today.html`, `.tdh h1`) and the Knowledge
+ *   home hero (`source/knowledge-vault.html`, K01 and K15). A surface that
+ *   opens a whole area, rather than one list inside it, wears this step.
+ * - `surface` (default) — the data-surface template. A large title at 26px
+ *   with the meta pills on its baseline. This is the ledger shape
+ *   (DESIGN-NOTES-tickets.md §3, "Title 26 px semibold"), and it is the one
  *   the pack's own references use.
  * - `compact` — the settings/utility shape: a smaller title over a
  *   description. `SettingsHeader` in the settings feature folder is exactly
@@ -34,7 +39,7 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 
-export type SurfaceHeaderSize = "surface" | "compact";
+export type SurfaceHeaderSize = "hero" | "surface" | "compact";
 
 export interface SurfaceHeaderProps {
   /** The page's name. The only `h1` a staff page should contain. */

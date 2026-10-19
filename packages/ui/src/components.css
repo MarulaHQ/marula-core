@@ -2232,8 +2232,14 @@
   letter-spacing: -0.01em;
 }
 
-/* The two sizes the pack draws. `surface` is the ledger shape every
-   `web/<area>/states` sheet uses; `compact` is the settings/utility shape. */
+/* The three sizes the pack draws. `hero` is the home/greeting heading (28px:
+   `source/today.html` `.tdh h1`, `source/knowledge-vault.html` K01/K15),
+   `surface` is the ledger shape every `web/<area>/states` sheet uses (26px,
+   DESIGN-NOTES-tickets.md §3) and `compact` is the settings/utility shape. */
+
+.m-surface-header-title-hero {
+  font-size: 28px;
+}
 
 .m-surface-header-title-surface {
   font-size: 26px;
