@@ -275,6 +275,22 @@ describe("ColumnChooser", () => {
     await userEvent.click(screen.getByRole("button", { name: /Columns/ }));
     expect(screen.getByRole("checkbox")).toBeDisabled();
   });
+
+  it("states that the choice is saved on every device, with the count", async () => {
+    // DESIGN-NOTES-tickets.md §5: the chooser "states that the choice is saved
+    // for the user on every device". The pack prints it under the heading.
+    render(
+      <ColumnChooser
+        columns={[
+          { key: "ref", label: "Number", visible: true },
+          { key: "sla", label: "SLA", visible: false },
+        ]}
+        onChange={() => {}}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Columns/ }));
+    expect(screen.getByText(/1 shown\. Saved for you, on every device\./)).toBeInTheDocument();
+  });
 });
 
 describe("ViewSwitch", () => {
