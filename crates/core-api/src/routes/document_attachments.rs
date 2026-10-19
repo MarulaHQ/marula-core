@@ -2,16 +2,16 @@
 //! documents surface over the core-store ObjectStore seam (2.14).
 //!
 //! Purpose: the SAME doctrine as the ticket attachment surface, pointed
-//! at documents — every upload passes the core-domain allowlist gate,
-//! hashes to sha256, reuses already-stored objects per org
-//! (content-addressed dedup — the key space is SHARED with the ticket
-//! attachments table, and delete reclaims the object only when NO row in
-//! EITHER table still references the key), and persists its metadata row
-//! plus `document_attachment.added` in ONE org-bound transaction.
+//! at documents — every upload passes the core-domain allowlist gate AND
+//! the scan gate (Wave 52 lane P6a; the key space is SHARED with ticket
+//! attachments, so one object must never be admitted through this door and
+//! held at the other), hashes to sha256, reuses already-stored objects per
+//! org (content-addressed dedup — delete reclaims the object only when NO
+//! row in EITHER table still references the key), and persists its metadata
+//! row plus `document_attachment.added` in ONE org-bound transaction.
 //! Downloads stream behind documents authz — no public URLs in v1.
 //!
-//! Non-purpose: no multipart parsing, no magic-byte provenance beyond the
-//! shared admission gate, no versioning ties — attachments are
+//! Non-purpose: no multipart parsing, no versioning ties — attachments are
 //! independent of the document's version history (deleting an attachment
 //! never touches document_versions).
 
@@ -138,14 +138,44 @@ pub async fn upload(
     let mut hasher = Sha256::new();
     hasher.update(&body);
     let sha256_hex = hex::encode(hasher.finalize());
+
+    // The scan gate (Wave 52 lane P6a), before the transaction and before any
+    // byte is stored: the key space here is SHARED with ticket attachments, so
+    // one object must never be admitted through this door and held at the
+    // other. A scanner that cannot answer refuses the upload outright.
+    let verdict = crate::scan_gate::gate(&state, &body).await?;
+    let status = verdict.status;
+    let scanner_name = verdict.scanner;
+    let detail = verdict.detail.clone();
     let storage_key = core_store::attachment_key(org_id, &sha256_hex);
     let store = std::sync::Arc::clone(&state.store);
 
-    let attachment = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    let gated = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         // Visibility gate: the document must exist in THIS org (RLS).
         core_db::documents::get_document(&mut *ctx.tx, org_id, document_id)
             .await
             .map_err(ApiError::from)?;
+
+        if status == core_domain::entities::ScanStatus::Infected {
+            crate::scan_gate::quarantine(
+                &mut ctx.tx,
+                store.as_ref(),
+                crate::scan_gate::Rejection {
+                    org_id,
+                    sha256: &sha256_hex,
+                    filename: &filename,
+                    content_type: &content_type,
+                    size_bytes: body.len() as i64,
+                    bytes: body.clone(),
+                    // A document upload has no ticket target to record.
+                    ticket_id: None,
+                    uploaded_by_user_id: Some(user_id),
+                    verdict: &verdict,
+                },
+            )
+            .await?;
+            return Ok((ctx, crate::scan_gate::Gated::Quarantined { detail }));
+        }
 
         // Content-addressed dedup on the shared key space: consult BOTH
         // tables before putting bytes.
@@ -164,6 +194,26 @@ pub async fn upload(
                 .await
                 .map_err(crate::routes::attachments::store_error)?;
         }
+        // The verdict belongs to the object; the first admission is what
+        // happened, so a second surface's upload does not rewrite it.
+        core_db::attachment_scans::record_admitted(
+            &mut ctx.tx,
+            core_db::attachment_scans::NewScan {
+                org_id,
+                sha256: &sha256_hex,
+                status,
+                detail: detail.as_deref(),
+                scanner: scanner_name,
+                size_bytes: body.len() as i64,
+                content_type: &content_type,
+                filename: &filename,
+                storage_key: &storage_key,
+                ticket_id: None,
+                uploaded_by_user_id: Some(user_id),
+                uploaded_by_portal_user_id: None,
+            },
+        )
+        .await?;
 
         let row = core_db::document_attachments::insert(
             &mut ctx.tx,
@@ -217,10 +267,15 @@ pub async fn upload(
             },
         )
         .await?;
-        Ok((ctx, row))
+        Ok((ctx, crate::scan_gate::Gated::Admitted(row)))
     })
     .await?;
-    Ok(Json(attachment.into()))
+    match gated {
+        crate::scan_gate::Gated::Admitted(row) => Ok(Json(row.into())),
+        crate::scan_gate::Gated::Quarantined { detail } => {
+            Err(ApiError::UploadQuarantined { detail })
+        }
+    }
 }
 
 /// GET /api/documents/{id}/attachments — newest-first list for one doc.

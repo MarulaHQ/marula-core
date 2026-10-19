@@ -30,8 +30,63 @@ const PNG_BYTES: &[u8] = &[
 ];
 const EXE_BYTES: &[u8] = &[0x4D, 0x5A, 0x90, 0x00, 1, 2, 3];
 const PDF_BYTES: &[u8] = b"%PDF-1.7 minimal";
+/// A valid PDF whose bytes carry the marker the scripted scanner reads as a
+/// malware signature. The allowlist gate must admit it (it is a real PDF
+/// header) so the SCAN gate is what refuses it — otherwise the test would
+/// pass for the wrong reason.
+const INFECTED_PDF_BYTES: &[u8] = b"%PDF-1.7 [VIRUS] payload";
+/// Same shape, marker for "the scanner cannot be reached".
+const SCANNER_DOWN_PDF_BYTES: &[u8] = b"%PDF-1.7 [SCAN-DOWN] payload";
+
+/// Scripted scanner for the gate tests: `[VIRUS]` ⇒ infected, `[SCAN-DOWN]`
+/// ⇒ unavailable (the fail-closed path), anything else clean. Deterministic
+/// stand-in for clamd on the BYTES leg, which is the leg uploads take.
+struct GateScan;
+
+#[async_trait::async_trait]
+impl core_mail::ScanProvider for GateScan {
+    fn name(&self) -> &'static str {
+        "gate-scripted"
+    }
+
+    async fn scan(&self, body_text: &str) -> Result<core_mail::ScanVerdict, core_mail::ScanError> {
+        self.scan_bytes(body_text.as_bytes()).await
+    }
+
+    async fn scan_bytes(
+        &self,
+        bytes: &[u8],
+    ) -> Result<core_mail::ScanVerdict, core_mail::ScanError> {
+        if bytes.windows(7).any(|w| w == b"[VIRUS]") {
+            return Ok(core_mail::ScanVerdict {
+                infected: true,
+                skipped: false,
+                detail: Some("stream: Eicar-Test-Signature FOUND".into()),
+            });
+        }
+        if bytes.windows(11).any(|w| w == b"[SCAN-DOWN]") {
+            return Err(core_mail::ScanError::Unavailable(
+                "gate-scripted: refused to answer".into(),
+            ));
+        }
+        Ok(core_mail::ScanVerdict {
+            infected: false,
+            skipped: false,
+            detail: None,
+        })
+    }
+}
 
 async fn test_state() -> (AppState, Arc<core_store::memory::MemoryStore>) {
+    test_state_with(None).await
+}
+
+/// Builds the app state with a chosen scanner. `None` keeps the config-built
+/// edge (none mode), which is what every pre-gate test here exercises; the
+/// gate tests inject [`GateScan`] so a verdict can be forced.
+async fn test_state_with(
+    scanner: Option<Arc<dyn core_mail::ScanProvider>>,
+) -> (AppState, Arc<core_store::memory::MemoryStore>) {
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
@@ -45,11 +100,20 @@ async fn test_state() -> (AppState, Arc<core_store::memory::MemoryStore>) {
     let reporting_url = config.database_url.clone();
     config.database_url = admin_url;
     let store = Arc::new(core_store::memory::MemoryStore::new());
+    let mail = match scanner {
+        Some(scanner) => Arc::new(core_api::email::MailStack {
+            transport: Arc::new(core_mail::NoopTransport),
+            scanner,
+            from_address: config.email_from_address.clone(),
+            from_name: config.email_from_name.clone(),
+        }),
+        None => Arc::new(core_api::email::MailStack::from_config(&config)),
+    };
     let state = AppState {
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
+        mail,
         store: std::sync::Arc::clone(&store) as Arc<dyn core_store::ObjectStore>,
         routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
         reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
@@ -503,7 +567,12 @@ async fn upload_download_matrix_dedup_link_and_authz() {
 async fn portal_attachment_visibility_is_note_kind_scoped() {
     let (state, _store) = test_state().await;
     let app = core_api::routes::build_router(state.clone());
-    let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
+    // A full uuid, not a prefix of one: the first eight hex chars of a v7
+    // uuid are a millisecond timestamp, so two runs in the same second used
+    // to produce the same portal email — and `portal_resolve_login` resolves
+    // an email with `LIMIT 1` across orgs, so the second run logged in as the
+    // previous run's org and every ticket was a 404.
+    let tag = Uuid::now_v7().simple().to_string();
     let org = seed_org(&app, &tag).await;
 
     // Expose the default board to client A.
@@ -612,7 +681,9 @@ async fn portal_attachment_visibility_is_note_kind_scoped() {
         None,
     )
     .await;
+    let list_status = list_response.status();
     let listed = body_json(list_response).await;
+    assert_eq!(list_status, 200, "portal attachment list failed: {listed}");
     let ids: Vec<&str> = listed
         .as_array()
         .expect("portal attachment list must be a JSON array")
@@ -663,4 +734,229 @@ async fn portal_attachment_visibility_is_note_kind_scoped() {
     )
     .await;
     assert_eq!(response.status(), 401, "staff endpoint rejects portal JWT");
+}
+
+/// Reads the verdict row for one object under the org's RLS scope, so the
+/// assertion holds whether or not the test role happens to own the table.
+async fn scan_row(state: &AppState, org_id: Uuid, sha: &str) -> Option<(String, String, bool)> {
+    let mut tx = state.pool.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("org scope");
+    let row = sqlx::query_as(
+        "SELECT status, storage_key, quarantined_at IS NOT NULL \
+         FROM attachment_scans WHERE org_id = $1 AND sha256 = $2",
+    )
+    .bind(org_id)
+    .bind(sha)
+    .fetch_optional(&mut *tx)
+    .await
+    .expect("verdict lookup");
+    row
+}
+
+/// The scan gate, end to end through the real router (Wave 52 lane P6a).
+///
+/// Three claims, each one a way the gate could be wrong: an infection is
+/// refused AND recorded (nothing admitted, bytes quarantined); a scanner
+/// that cannot answer refuses the upload and stores NOTHING (fail closed);
+/// and a clean verdict is on record, naming the adapter that decided.
+#[tokio::test]
+async fn scan_gate_quarantines_infections_and_fails_closed() {
+    let scanner: Arc<dyn core_mail::ScanProvider> = Arc::new(GateScan);
+    let (state, store) = test_state_with(Some(scanner)).await;
+    let app = core_api::routes::build_router(state.clone());
+    let org = seed_org(&app, "gate").await;
+
+    let sha = |bytes: &[u8]| {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(bytes))
+    };
+
+    // --- 1. CLEAN: admitted, and the verdict is on record with its adapter -
+    let response = send_raw(
+        &app,
+        axum::http::Method::POST,
+        &upload_uri(&org.ticket_a),
+        Some(&org.token),
+        &[
+            ("x-filename", "ok.pdf"),
+            ("content-type", "application/pdf"),
+        ],
+        Some(PDF_BYTES.to_vec()),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "clean bytes are admitted");
+    let admitted = body_json(response).await;
+    let org_id = Uuid::parse_str(admitted["org_id"].as_str().unwrap()).expect("org id");
+    let clean_sha = sha(PDF_BYTES);
+    let (status, storage_key, quarantined) = scan_row(&state, org_id, &clean_sha)
+        .await
+        .expect("a clean verdict is recorded");
+    assert_eq!(status, "clean");
+    assert!(
+        storage_key.contains("/attachments/") && !quarantined,
+        "admitted bytes live at their canonical key: {storage_key}"
+    );
+
+    // --- 2. INFECTED: typed 422, no attachment, bytes held elsewhere ------
+    let infected_sha = sha(INFECTED_PDF_BYTES);
+    let response = send_raw(
+        &app,
+        axum::http::Method::POST,
+        &upload_uri(&org.ticket_a),
+        Some(&org.token),
+        &[
+            ("x-filename", "invoice.pdf"),
+            ("content-type", "application/pdf"),
+        ],
+        Some(INFECTED_PDF_BYTES.to_vec()),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        422,
+        "an infected upload is refused, not admitted"
+    );
+    let body = body_json(response).await;
+    assert_eq!(body["error"]["reason"], "upload_quarantined");
+    assert_eq!(body["error"]["code"], 422);
+    assert!(
+        body["error"]["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Eicar"),
+        "the scanner's detail rides the refusal: {body}"
+    );
+
+    // The record exists, is infected, and points at the quarantine namespace.
+    let (status, storage_key, quarantined) = scan_row(&state, org_id, &infected_sha)
+        .await
+        .expect("quarantine row was written");
+    assert_eq!(status, "infected");
+    assert!(quarantined, "an infection carries its quarantine timestamp");
+    assert!(
+        storage_key.contains("/quarantine/") && storage_key.ends_with(&infected_sha),
+        "bytes live under the quarantine namespace at the same digest: {storage_key}"
+    );
+
+    // Infected bytes went to the quarantine key and NEVER to the admitted
+    // one, and the ticket lists only the clean file.
+    let puts: Vec<String> = store
+        .ops()
+        .iter()
+        .filter_map(|op| match op {
+            core_store::ObjectRecordedOp::Put { key } => Some(key.clone()),
+            core_store::ObjectRecordedOp::Delete { .. } => None,
+        })
+        .collect();
+    assert!(puts.iter().any(|k| k.contains("/quarantine/")));
+    assert!(
+        !puts
+            .iter()
+            .any(|k| k.contains("/attachments/") && k.ends_with(&infected_sha)),
+        "infected bytes must never reach the admitted namespace: {puts:?}"
+    );
+    let listed = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &upload_uri(&org.ticket_a),
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        listed.as_array().map(Vec::len),
+        Some(1),
+        "the refusal attached nothing: only the clean file is on the ticket"
+    );
+
+    // --- 3. SCANNER DOWN: 503, and NOTHING written at all -----------------
+    let down_sha = sha(SCANNER_DOWN_PDF_BYTES);
+    let ops_before = store.ops().len();
+    let response = send_raw(
+        &app,
+        axum::http::Method::POST,
+        &upload_uri(&org.ticket_a),
+        Some(&org.token),
+        &[
+            ("x-filename", "quote.pdf"),
+            ("content-type", "application/pdf"),
+        ],
+        Some(SCANNER_DOWN_PDF_BYTES.to_vec()),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        503,
+        "an unreachable scanner is a refusal, never an admission"
+    );
+    let body = body_json(response).await;
+    assert_eq!(body["error"]["reason"], "service_unavailable");
+
+    assert_eq!(
+        store.ops().len(),
+        ops_before,
+        "a refused upload writes nothing to the object store"
+    );
+    assert!(
+        scan_row(&state, org_id, &down_sha).await.is_none(),
+        "no verdict row exists for bytes that were never admitted"
+    );
+    let listed = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &upload_uri(&org.ticket_a),
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(listed.as_array().map(Vec::len), Some(1));
+}
+
+/// None mode admits, and says so: the record must read `skipped`, not
+/// `clean`. Conflating the two is how "nobody looked" becomes "a scanner
+/// passed it" on a deployment without one.
+#[tokio::test]
+async fn none_mode_admits_and_records_a_skip() {
+    let (state, _store) = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let org = seed_org(&app, "nonemode").await;
+
+    let response = send_raw(
+        &app,
+        axum::http::Method::POST,
+        &upload_uri(&org.ticket_a),
+        Some(&org.token),
+        &[
+            ("x-filename", "screenshot.png"),
+            ("content-type", "image/png"),
+        ],
+        Some(PNG_BYTES.to_vec()),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "none mode still admits uploads");
+    let admitted = body_json(response).await;
+    let org_id = Uuid::parse_str(admitted["org_id"].as_str().unwrap()).expect("org id");
+
+    use sha2::{Digest, Sha256};
+    let sha = hex::encode(Sha256::digest(PNG_BYTES));
+    let (status, scanner) = {
+        let mut tx = state.pool.begin().await.expect("tx");
+        core_db::set_org(&mut tx, org_id).await.expect("org scope");
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT status, scanner FROM attachment_scans WHERE org_id = $1 AND sha256 = $2",
+        )
+        .bind(org_id)
+        .bind(&sha)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("skip recorded")
+    };
+    assert_eq!(status, "skipped");
+    assert_eq!(scanner, "none");
 }

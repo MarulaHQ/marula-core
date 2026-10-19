@@ -352,6 +352,13 @@ pub mod types {
     pub const ATTACHMENT_ADDED: &str = "attachment.added";
     pub const ATTACHMENT_LINKED: &str = "attachment.linked";
     pub const ATTACHMENT_DELETED: &str = "attachment.deleted";
+    /// The scan gate refused an upload (Wave 52 lane P6a): the bytes failed
+    /// a malware scan, so no `attachments` row exists — the object is held
+    /// under its quarantine key and the record on `attachment_scans` is the
+    /// thing an operator acts on. Emitted in the same transaction as that
+    /// record, so the stream can never show a quarantine the database does
+    /// not hold.
+    pub const ATTACHMENT_QUARANTINED: &str = "attachment.quarantined";
     /// Documents attachments (Wave 17 lane 13, migration 0089): the
     /// documents surface over the same content-addressed seam — a distinct
     /// family from `attachment.*` (that one is ticket/email-shaped).
@@ -1788,6 +1795,27 @@ pub struct AttachmentAdded {
     pub size_bytes: i64,
     /// sha256 hex — consumers can verify integrity after download.
     pub sha256: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub uploaded_by_user_id: Option<uuid::Uuid>,
+}
+
+/// attachment.quarantined — a scan gate refused these bytes. There is no
+/// attachment row: `sha256` is the object's identity and the record an
+/// operator acts on.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AttachmentQuarantined {
+    /// Lowercase hex sha256 — the quarantined object's identity.
+    pub sha256: String,
+    pub filename: String,
+    pub content_type: String,
+    pub size_bytes: i64,
+    /// Scanner adapter that produced the verdict (`clamd`, `none`).
+    pub scanner: String,
+    /// The scanner's detail string, when it gave one.
+    pub detail: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub ticket_id: Option<uuid::Uuid>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub uploaded_by_user_id: Option<uuid::Uuid>,
 }
