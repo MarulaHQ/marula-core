@@ -13,6 +13,7 @@
     "evidence:check": "node scripts/check-evidence-writes.mjs",
     "time:check": "node scripts/check-time-display.mjs",
     "tracker:check": "node scripts/check-tracker-freshness.mjs",
+    "rows:check": "node scripts/p47-row-effect-check.mjs --strict",
     "hooks:check": "node scripts/check-hook-paths.mjs",
     "target:check": "python3 scripts/lane-target-guard.py check --all-profiles",
     "e2e:stack": "bash scripts/e2e-stack.sh",

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -34,6 +35,21 @@ for _up in range(6):
     for _ in range(_up + 1):
         _p = _p.parent
     PACK_CANDIDATES.append(_p / "brand/packs/core-surface-pack/source/tickets-list.html")
+
+# A lane worktree lives outside the org home, so the walk-up above cannot reach
+# `brand/`. Git's common dir points at the shared checkout, and its parent is
+# the org home, which is where the pack lives for every worktree.
+try:
+    _common = subprocess.check_output(
+        ["git", "rev-parse", "--git-common-dir"], cwd=REPO, text=True
+    ).strip()
+    _org = Path(_common).resolve().parent.parent
+    PACK_CANDIDATES.insert(
+        0, _org / "brand/packs/core-surface-pack/source/tickets-list.html"
+    )
+except Exception:
+    pass
+
 PACK = Path(os.environ["MARULA_PACK_ROOT"]) / "source/tickets-list.html" \
     if os.environ.get("MARULA_PACK_ROOT") else next((c for c in PACK_CANDIDATES if c.exists()), PACK_CANDIDATES[0])
 
@@ -103,23 +119,43 @@ def main() -> int:
             f"hdr={declared.get('hdr')} pill={declared.get('pill')} px={declared.get('px')}"
         )
 
-    # 2. This lane must state the same scale.
+    # 2. The ledger aliases the kit's density ladder, and the ladder carries the
+    #    pack's numbers. Check both halves. The old check demanded a literal in
+    #    ledger.css, which reported the alias as a mismatch even though it
+    #    resolved to the pack's value.
+    tokens_css = (REPO / "packages/ui/src/tokens.css").read_text(encoding="utf-8")
+    if "--m-ledger-pill: var(--m-density-pill)" not in mine:
+        failures.append("lane --m-ledger-pill no longer aliases --m-density-pill")
+    if "--m-ledger-hdr: var(--m-density-hdr)" not in mine:
+        failures.append("lane --m-ledger-hdr no longer aliases --m-density-hdr")
     for density, pill, hdr in (
         ("comfortable", "24px", "44px"),
         ("compact", "22px", "40px"),
         ("dense", "20px", "32px"),
     ):
-        prefix = "" if density == "comfortable" else f':root[data-density="{density}"] '
-        got_pill = re.search(
-            rf"{re.escape(prefix)}\{{[^}}]*--m-ledger-pill:\s*(\d+px)", mine
-        )
-        got_hdr = re.search(
-            rf"{re.escape(prefix)}\{{[^}}]*--m-ledger-hdr:\s*(\d+px)", mine
-        )
+        if density == "comfortable":
+            # The default ladder is the first declaration in `:root`; there are
+            # several `:root` blocks in this file, so read the declaration
+            # rather than the block.
+            scope = tokens_css
+        else:
+            token_block = re.search(
+                rf'\[data-density="{density}"\]\s*\{{([^}}]*)\}}', tokens_css
+            )
+            if token_block is None:
+                failures.append(f"tokens.css has no [data-density={density}] block")
+                continue
+            scope = token_block.group(1)
+        got_pill = re.search(r"--m-density-pill:\s*(\d+px)", scope)
+        got_hdr = re.search(r"--m-density-hdr:\s*(\d+px)", scope)
         if got_pill is None or got_pill.group(1) != pill:
-            failures.append(f"lane {density} --m-ledger-pill is not {pill}")
+            failures.append(
+                f"tokens.css {density} --m-density-pill is {got_pill.group(1) if got_pill else None}, pack says {pill}"
+            )
         if got_hdr is None or got_hdr.group(1) != hdr:
-            failures.append(f"lane {density} --m-ledger-hdr is not {hdr}")
+            failures.append(
+                f"tokens.css {density} --m-density-hdr is {got_hdr.group(1) if got_hdr else None}, pack says {hdr}"
+            )
 
     # 3. The pill box, measured off the pack's rule.
     pack_pill = block(pack, ".pill", "gap") or ""
@@ -171,7 +207,11 @@ def main() -> int:
             failures.append(
                 f"--m-accent ({mine_accent.group(1)}) is not the pack's --acc ({pack_acc.group(1)})"
             )
-    sel = re.search(r'tbody tr\[data-selected="true"\]\s*\{([^}]*)\}', mine)
+    # The row state moved to the shared kit sheet when the row-effect lane landed
+    # (p51-row-treatment), so the rule is no longer in the ledger stylesheet.
+    shared = (REPO / "packages/ui/src/components.css").read_text(encoding="utf-8")
+    sel = re.search(r'tbody tr\[data-selected="true"\]\s*\{([^}]*)\}', mine) \
+        or re.search(r'tbody tr\[data-selected="true"\]\s*\{([^}]*)\}', shared)
     if sel is None or "var(--m-accent)" not in sel.group(1):
         failures.append("lane selected row does not wear --m-accent (the pack's --acc)")
 
