@@ -124,6 +124,12 @@ export default function SearchPage() {
   const [rawQuery, setRawQuery] = useState("");
   const [response, setResponse] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  // Keyset walk state (Wave 52 lane P5 follow-up): `next_cursor` is the opaque
+  // anchor the API hands back when a page is full. It is null on the fused
+  // (embedding) path, where the server cannot resume, so the footer simply
+  // stops offering more.
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
   // Server-backed pins: the caller's own, newest-first.
@@ -139,6 +145,7 @@ export default function SearchPage() {
   const runSearch = useCallback(async (q: string, seq: number) => {
     if (q.length < 2) {
       setResponse(null);
+      setNextCursor(null);
       setLoading(false);
       setError(null);
       return;
@@ -150,6 +157,7 @@ export default function SearchPage() {
       if (apiError !== undefined) throw new Error("search failed");
       if (seq !== seqRef.current) return;
       setResponse(data);
+      setNextCursor(data.next_cursor ?? null);
       setError(null);
     } catch (err) {
       if (seq !== seqRef.current) return;
@@ -162,9 +170,42 @@ export default function SearchPage() {
   useEffect(() => {
     seqRef.current += 1;
     setCursorIndex(null);
+    setNextCursor(null);
+    setLoadingMore(false);
     setLoading(true);
     void runSearch(query, seqRef.current);
   }, [query, runSearch]);
+
+  const loadMore = useCallback(async () => {
+    if (nextCursor === null || loadingMore) return;
+    const seq = seqRef.current;
+    setLoadingMore(true);
+    try {
+      const { data, error: apiError } = await api.api.GET("/api/v1/search", {
+        params: { query: { q: query, limit: 50, cursor: nextCursor } },
+      });
+      if (apiError !== undefined) throw new Error("search failed");
+      if (seq !== seqRef.current) return;
+      setResponse((current) => {
+        if (current === null) return data;
+        const seen = new Set(
+          current.results.map((r) => `${r.entity_kind}:${r.entity_id}`),
+        );
+        const added = data.results.filter(
+          (r) => !seen.has(`${r.entity_kind}:${r.entity_id}`),
+        );
+        return { ...data, results: [...current.results, ...added] };
+      });
+      setNextCursor(data.next_cursor ?? null);
+      setError(null);
+    } catch (err) {
+      if (seq === seqRef.current) {
+        setError(friendlyMutationText(err, "More results did not load."));
+      }
+    } finally {
+      if (seq === seqRef.current) setLoadingMore(false);
+    }
+  }, [nextCursor, loadingMore, query]);
 
   useEffect(() => {
     setRecent(loadRecent());
@@ -452,6 +493,7 @@ export default function SearchPage() {
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
             <span className="tabular-nums font-semibold" style={{ color: "var(--m-text)" }}>
               {response.total}
+              {response.total_capped ? "+" : ""}
             </span>{" "}
             match{response.total === 1 ? "" : "es"}
             {" · "}
@@ -548,9 +590,24 @@ export default function SearchPage() {
         ) : null}
 
         {response !== null && response.total > (response.results?.length ?? 0) && (
-          <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-            Showing {response.results?.length ?? 0} of {response.total} matches.
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+              Showing {response.results?.length ?? 0} of {response.total}
+              {response.total_capped ? "+" : ""} matches.
+            </p>
+            {nextCursor !== null ? (
+              <button
+                type="button"
+                data-testid="search-load-more"
+                disabled={loadingMore}
+                onClick={() => void loadMore()}
+                className="rounded-full border px-2.5 py-1 text-[12px] transition-opacity duration-100 hover:opacity-80 disabled:opacity-50"
+                style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
+              >
+                {loadingMore ? "Loading…" : "Load more"}
+              </button>
+            ) : null}
+          </div>
         )}
         <div ref={cursorRef} className="hidden" />
       </main>
