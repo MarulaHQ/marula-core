@@ -190,10 +190,14 @@ export const Th = forwardRef<HTMLTableCellElement, ThProps>(
           dropSide === "after" && "is-drop-after",
           className,
         )}
+        /* A fluid table gets its widths from the colgroup's fractions. An
+           inline pixel width here would win the fixed-layout pass and put the
+           table back at the sum of its stored widths, which is the overhang
+           this prop exists to remove. */
         style={
-          width === undefined
+          width === undefined || fluid
             ? style
-            : { ...style, width: `${width}px`, minWidth: fluid ? 0 : `${width}px` }
+            : { ...style, width: `${width}px`, minWidth: `${width}px` }
         }
         tabIndex={reorderable || resizableHere ? 0 : undefined}
         onKeyDown={onHeaderKeyDown}

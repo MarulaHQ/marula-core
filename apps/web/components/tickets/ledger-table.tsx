@@ -118,11 +118,15 @@ export function TicketTable({
   onTake?: (row: TicketRow) => void;
 }): React.JSX.Element {
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
-  /* Stored widths are the user's proportion, not a floor. Summed and spent as
-     fractions of the table, they fill the container exactly instead of adding
-     up to 1182px inside a 1104px column — which is what pushed the last header
-     (and its divider) past the viewport at 1280. */
+  /* Stored widths are the user's proportion, not a floor. Turned into
+     percentages of the whole table, selection column included, they sum to
+     100% and fill the container instead of adding up to 1182px inside a 1104px
+     column, which is what pushed the last header past the viewport at 1280. */
+  const selectionWidth = 40;
   const widthTotal = columns.reduce((sum, column) => sum + (column.width ?? 0), 0);
+  const tableTotal = selectionWidth + widthTotal;
+  const share = (width: number): string =>
+    tableTotal > 0 ? `${((width / tableTotal) * 100).toFixed(4)}%` : "auto";
   return (
     <>
       <Table className="m-table-fluid">
@@ -133,16 +137,9 @@ export function TicketTable({
             whether or not a row is selected. `fixed` + fractions is what keeps
             the geometry inside the card. */}
         <colgroup>
-          <col style={{ width: 40 }} />
+          <col style={{ width: share(selectionWidth) }} />
           {columns.map((column) => (
-            <col
-              key={column.key}
-              style={
-                widthTotal > 0 && column.width !== undefined
-                  ? { width: `calc((100% - 40px) * ${(column.width / widthTotal).toFixed(6)})` }
-                  : undefined
-              }
-            />
+            <col key={column.key} style={{ width: share(column.width ?? 0) }} />
           ))}
         </colgroup>
         <thead>

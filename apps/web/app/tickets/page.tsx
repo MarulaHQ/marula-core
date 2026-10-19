@@ -107,7 +107,11 @@ const COLUMN_DEFS: ColumnDef[] = [
   { key: "category", label: "Status", visible: true, width: 116, sortable: true },
   { key: "sla", label: "SLA", visible: true, width: 116, sortable: true },
   { key: "assignee", label: "Assignee", visible: true, width: 150, sortable: false },
-  { key: "updated_at", label: "Last activity", visible: true, width: 104, sortable: true },
+  /* 170, not 104: the header carries a reorder grip, the label and the sort
+     mark in one nowrap line. At 104 the label and mark were clipped once the
+     ledger was scaled to its container. The proportions keep the whole table
+     inside the card. */
+  { key: "updated_at", label: "Last activity", visible: true, width: 170, sortable: true },
   // The pack's "available but hidden" six: Contact, Board, Type and Created
   // are derivable from the row payload, so they ship as choosable columns
   // that cost their name read only while shown. Time logged and Source are
