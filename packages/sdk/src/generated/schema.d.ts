@@ -15355,6 +15355,12 @@ export interface components {
         CatalogueNode: {
             agent_description: string;
             emits: string[];
+            /**
+             * @description Whether the executor can run this node today (Wave 43 lane 20, item
+             *     C). The authoring model is told, so it does not place a node the
+             *     validator will refuse.
+             */
+            executable: boolean;
             family: string;
             id: string;
             idempotent: boolean;
@@ -21992,6 +21998,12 @@ export interface components {
              *     refusal reads.
              */
             emits: string[];
+            /**
+             * @description Whether the executor can actually apply this node today (Wave 43
+             *     lane 20, item C). A palette should gray out a node whose flag is
+             *     false: `WorkflowDocument::validate` refuses to save one.
+             */
+            executable: boolean;
             /**
              * @description The executor path this node rides: a closed domain operation for a
              *     Tier A wrapper, the generic path for Tier B, the plugin surface

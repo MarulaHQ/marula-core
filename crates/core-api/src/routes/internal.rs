@@ -2066,8 +2066,12 @@ pub async fn workflow_node(
     let node_id = req.node_id.clone();
     let params = req.params.clone();
     let context = req.context.clone();
+    // A clone of the pool so the `ticket.transition` arm can call the shared
+    // service (item E), which opens its own transaction.
+    let pool = state.pool.clone();
     let output = org_tx::with_org_tx(&state, org_id, actor, move |mut ctx| async move {
-        let output = execute_workflow_node(&mut ctx, org_id, &node_id, &params, &context).await?;
+        let output =
+            execute_workflow_node(&mut ctx, &pool, org_id, &node_id, &params, &context).await?;
         Ok((ctx, output))
     })
     .await?;
@@ -2081,6 +2085,7 @@ pub async fn workflow_node(
 /// A node this build cannot apply is refused, never skipped.
 async fn execute_workflow_node(
     ctx: &mut org_tx::OrgTx<'_>,
+    pool: &sqlx::PgPool,
     org_id: Uuid,
     node_id: &str,
     params: &Value,
@@ -2088,6 +2093,47 @@ async fn execute_workflow_node(
 ) -> ApiResult<Value> {
     let marker = serde_json::json!({ core_domain::automations::VIA_AUTOMATION_KEY: true });
     match node_id {
+        "ticket.transition" => {
+            // This node CANNOT be a thin wrapper (item E): the legal path
+            // carries WIP caps, the checklist gate, board RBAC, the
+            // instant-first replay and the audit row. It rides the shared
+            // service so the gate a workflow must pass is the gate the
+            // ticket surface passes.
+            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
+            let status_name = params
+                .get("status")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ApiError::Validation("ticket.transition: status is required".into())
+                })?;
+            // The registry param is a status NAME; the transition API takes
+            // the board's status id, so resolve it against this ticket's board.
+            let statuses = core_db::boards::list_statuses(&mut *ctx.tx, ticket.board_id).await?;
+            let status_id = statuses
+                .iter()
+                .find(|s| s.name == status_name)
+                .map(|s| s.id)
+                .ok_or_else(|| {
+                    ApiError::Validation(format!(
+                        "ticket.transition: board has no status named {status_name:?}"
+                    ))
+                })?;
+            // The run acts as its AUTHOR: materialise that principal so the
+            // shared service re-derives permission and board RBAC exactly as
+            // a session request would, never bypassing them.
+            let principal = workflow_principal(ctx, org_id).await?;
+            crate::services::tickets::transition_status_with_pool(
+                pool,
+                &principal,
+                ticket.id,
+                crate::routes::tickets::ChangeStatusRequest {
+                    status_id,
+                    instant: Default::default(),
+                },
+            )
+            .await?;
+            Ok(json!({ "ticketId": ticket.id, "status": status_name }))
+        }
         "ticket.assign" => {
             let ticket = workflow_ticket(ctx, org_id, params, context).await?;
             let assignee = params
@@ -2450,6 +2496,33 @@ async fn workflow_ticket(
     core_db::tickets::get_ticket(&mut *ctx.tx, org_id, ticket_id)
         .await
         .map_err(|_| ApiError::NotFound)
+}
+
+/// Materialises the run author's principal (item E). The workflow node
+/// endpoint runs inside `with_org_tx(actor)`, but board RBAC needs a full
+/// `Principal` (user + roles + permissions) — the same shape a session
+/// builds. Reusing it means a `ticket.transition` authored by a technician
+/// refuses on the board matrix exactly as their own session would.
+async fn workflow_principal(
+    ctx: &mut org_tx::OrgTx<'_>,
+    org_id: Uuid,
+) -> ApiResult<core_domain::entities::Principal> {
+    let actor = ctx.user_id;
+    let user = core_db::users::get_user(&mut *ctx.tx, org_id, actor)
+        .await
+        .map_err(|_| ApiError::Unauthorized("the run's author is not a valid user".into()))?;
+    if !user.is_active {
+        return Err(ApiError::Forbidden(
+            "the run's author is no longer active".into(),
+        ));
+    }
+    let roles = core_db::users::roles_for_user(&mut *ctx.tx, actor, org_id).await?;
+    let permissions = crate::auth::middleware::resolve_permissions(&roles);
+    Ok(core_domain::entities::Principal {
+        user,
+        roles,
+        permissions,
+    })
 }
 
 /// The ticket id from the run context: `event.ticket_id` (the triggering

@@ -18,8 +18,8 @@
 #                                     # attach + EXIT trap tears down ONLY this run
 #   E2E_KEEP=1 …                      # keep the PG container after teardown
 #   E2E_FOLLOW=1 …                    # stay attached and stream the core-api +
-#                                     #   realtime logs (Ctrl-C stops following;
-#                                     #   the stack keeps running)
+#                                     #   realtime + worker logs (Ctrl-C stops
+#                                     #   following; the stack keeps running)
 #
 # Run ids: the canonical shape is `e2e-<digits>` (new_run_id below), and the
 # containers are `marula-e2e-pg-<RUN_ID>` / `marula-e2e-redis-<RUN_ID>`. `down`
@@ -27,8 +27,8 @@
 # removes nothing — `docker rm -f` exits 0 for a container that does not exist,
 # which is how five orphaned stacks once "tore down" while still running.
 #
-# `up` RETURNS as soon as core-api answers its health check. core-api and
-# realtime are detached with their own stdio (`</dev/null`, logs under
+# `up` RETURNS once core-api, realtime and the worker are all healthy. All
+# three detach with their own stdio (`</dev/null`, logs under
 # .kilo/e2e-logs/<run>/) so piping this script's output can never block — the
 # old shape left both daemons holding the caller's stdout pipe, which stranded
 # any `… up | tail` invocation forever (Wave 47 lane A7).
@@ -385,8 +385,10 @@ if [ -n "${E2E_PG_CONTAINER:-}" ] || [ -n "${CI:-}" ]; then
   export DATABASE_URL="${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/marula_test}"
   export BIND_ADDR="${BIND_ADDR:-0.0.0.0:${API_PORT}}"
   export JWT_SECRET="${JWT_SECRET:-e2e-demo-secret-not-for-production}"
+  export MARULA_INTERNAL_TOKEN="${MARULA_INTERNAL_TOKEN:-e2e-internal-token-not-for-production}"
   export WEB_BASE_URL="${WEB_BASE_URL:-http://localhost:${WEB_PORT}}"
   export CORS_ORIGIN="${CORS_ORIGIN:-http://localhost:${WEB_PORT}}"
+  WORKER_PORT="${WORKER_PORT:-8082}"
   echo "[e2e-stack] hosted mode (CI/E2E_PG_CONTAINER): fixed env, no per-run isolation"
 else
   RUN_ID="$(new_run_id)"
@@ -399,7 +401,14 @@ else
   export JWT_SECRET="$(openssl rand -hex 32 2>/dev/null || true)"
   [ ${#JWT_SECRET} -eq 64 ] || die "openssl rand -hex 32 unavailable"
   export MARULA_SECRET_KEY="$JWT_SECRET" # same dev seal key as the seed
+  # The worker↔api internal token (Wave 43 lane 20, item G). core-api only
+  # serves `/api/internal/*` when this is set, and the worker's node endpoint
+  # and `workflow.resume` consumer both need it — without it no lane could
+  # execute a workflow against a stack booted by this script.
+  export MARULA_INTERNAL_TOKEN="$(openssl rand -hex 32 2>/dev/null || true)"
+  [ ${#MARULA_INTERNAL_TOKEN} -eq 64 ] || die "openssl rand -hex 32 unavailable"
   REDIS_PORT="$(free_port 26379)"
+  WORKER_PORT="$(free_port 28882)"
   export REDIS_URL="redis://localhost:${REDIS_PORT}/0"
   export CORS_ORIGIN="http://localhost:${WEB_PORT}"
   export BIND_ADDR="0.0.0.0:${API_PORT}"
@@ -569,6 +578,41 @@ curl -fsS "http://${API_HOST}/api/v1/health" >/dev/null \
   || die "core-api never became healthy on ${API_HOST} — see $LOG_DIR/core-api.log"
 echo "[e2e-stack] core-api healthy — demo env ready (owner@demo.local / demo-password-123)"
 
+########## worker ##########
+# The executor's home (Wave 43 lane 20, item G). The workflow stream
+# consumer, the job queue that runs `workflow.resume`, and the `/api/internal`
+# node endpoint all live behind the worker: without it booted, an event-
+# triggered workflow has nobody to match the envelope, enqueue the run, or
+# apply a node — which is why every workflow run before this lane needed a
+# hand-rolled boot. Same shared target guard as the other release builds.
+if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
+  run_stage "shared-target guard (release, worker)" \
+    "python3 scripts/lane-target-guard.py check --profile release --fix" \
+    || die "shared-target guard refused the worker build — read its reason above"
+fi
+run_stage "build worker (release)" 'cargo build -p worker --release'
+WORKER_BIN="$(cargo metadata -q --no-deps --format-version 1 | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/worker"
+echo "[e2e-stack] boot worker on 0.0.0.0:${WORKER_PORT}"
+# BOTH URLs point at this run's core-api. `CORE_API_URL` feeds the email and
+# time loops; `INTERNAL_API_URL` is the seam the WORKFLOW executor posts node
+# effects through (worker/effects.rs), so a stale default of 127.0.0.1:8080
+# would make every node unreachable on a per-run port.
+CORE_API_URL="http://${API_HOST}" \
+  INTERNAL_API_URL="http://${API_HOST}" \
+  BIND_ADDR="0.0.0.0:${WORKER_PORT}" \
+  "$WORKER_BIN" >"$LOG_DIR/worker.log" 2>&1 </dev/null &
+WORKER_PID=$!
+disown "$WORKER_PID" 2>/dev/null || true
+echo "[e2e-stack] waiting for worker health on 0.0.0.0:${WORKER_PORT} (up to 30s) …"
+for _ in $(seq 1 30); do
+  curl -fsS "http://localhost:${WORKER_PORT}/healthz" >/dev/null 2>&1 && break
+  sleep 1
+done
+curl -fsS "http://localhost:${WORKER_PORT}/healthz" >/dev/null \
+  || die "worker never became healthy on :${WORKER_PORT} — see $LOG_DIR/worker.log"
+echo "[e2e-stack] worker healthy — workflows can trigger and execute on this stack"
+
 # ########## env file for Playwright (kills NEXT_PUBLIC_API_URL drift) ##########
 cat > "$ENV_FILE" <<EOF
 MARULA_RUN_ID=$RUN_ID
@@ -578,6 +622,10 @@ E2E_WEB_PORT=$WEB_PORT
 E2E_WEB_URL=http://localhost:$WEB_PORT
 E2E_WS_PORT=$WS_PORT
 E2E_WS_URL=ws://localhost:$WS_PORT/ws
+E2E_WORKER_PORT=$WORKER_PORT
+E2E_WORKER_URL=http://localhost:$WORKER_PORT
+E2E_INTERNAL_TOKEN=$MARULA_INTERNAL_TOKEN
+MARULA_INTERNAL_TOKEN=$MARULA_INTERNAL_TOKEN
 E2E_DATABASE_URL=$DATABASE_URL
 DATABASE_URL=$DATABASE_URL
 BIND_ADDR=$BIND_ADDR
@@ -592,9 +640,9 @@ echo "[e2e-stack] wrote $ENV_FILE (run $RUN_ID; shared with Playwright + e2e-bui
 
 # ########## pid registry for dev-status.sh ##########
 FINGERPRINT="$(printf '%s' "$JWT_SECRET" | cut -c1-8)-$(echo "$DATABASE_URL" | sed 's|.*/||')-$API_PORT"
-python3 - "$ENV_FILE" "$API_PID" "$WS_PID" "$REGISTRY_DIR" "$RUN_ID" "$FINGERPRINT" "$LOG_DIR" <<'PY' || true
+python3 - "$ENV_FILE" "$API_PID" "$WS_PID" "$WORKER_PID" "$REGISTRY_DIR" "$RUN_ID" "$FINGERPRINT" "$LOG_DIR" <<'PY' || true
 import json, os, sys, time
-envfile, api, ws, regdir, run_id, fingerprint, log_dir = sys.argv[1:8]
+envfile, api, ws, worker, regdir, run_id, fingerprint, log_dir = sys.argv[1:9]
 env = {}
 for line in open(envfile):
     line = line.strip()
@@ -612,6 +660,8 @@ reg = {
          "log": os.path.join(log_dir, "core-api.log")},
         {"name": "realtime", "pid": int(ws), "source": "local", "port": env.get("E2E_WS_PORT", ""),
          "log": os.path.join(log_dir, "realtime.log")},
+        {"name": "worker", "pid": int(worker), "source": "local", "port": env.get("E2E_WORKER_PORT", ""),
+         "log": os.path.join(log_dir, "worker.log")},
     ],
 }
 os.makedirs(regdir, exist_ok=True)
@@ -624,17 +674,17 @@ echo "[e2e-stack] registered run in $REGISTRY_DIR — check scripts/dev-status.s
 UP_COMPLETE=1
 
 ########## console summary — a boot is never silent ##########
-echo "[e2e-stack] run $RUN_ID ready — api http://${API_HOST}/  ws :${WS_PORT}  web :${WEB_PORT}"
-for _svc in core-api realtime; do
+echo "[e2e-stack] run $RUN_ID ready — api http://${API_HOST}/  ws :${WS_PORT}  worker :${WORKER_PORT}  web :${WEB_PORT}"
+for _svc in core-api realtime worker; do
   echo "[e2e-stack] --- $_svc log (last 5 lines) ---"
   tail -n 5 "$LOG_DIR/$_svc.log" 2>/dev/null | sed 's/^/    /' || true
 done
 
 if [ "${E2E_FOLLOW:-0}" = "1" ]; then
-  # Live view: stay attached and stream both logs. Ctrl-C stops following ONLY —
+  # Live view: stay attached and stream every log. Ctrl-C stops following ONLY —
   # the stack keeps running; teardown stays `e2e-stack.sh down $RUN_ID`.
   echo "[e2e-stack] following service logs — Ctrl-C stops following (stack keeps running)"
-  tail -n 0 -f "$LOG_DIR/core-api.log" "$LOG_DIR/realtime.log" || true
+  tail -n 0 -f "$LOG_DIR/core-api.log" "$LOG_DIR/realtime.log" "$LOG_DIR/worker.log" || true
   exit 0
 fi
 

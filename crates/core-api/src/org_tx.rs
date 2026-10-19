@@ -45,8 +45,18 @@ impl OrgTx<'_> {
 
 /// Begins an org-bound transaction for the principal.
 pub async fn begin(state: &AppState, org_id: Uuid, user_id: Uuid) -> ApiResult<OrgTx<'static>> {
-    let mut tx = state
-        .pool
+    begin_pool(&state.pool, org_id, user_id).await
+}
+
+/// Same as [`begin`], from a bare pool. A service function shared between an
+/// HTTP route and an internal seam has the pool, not the whole `AppState`;
+/// the binding is identical, so there is one implementation.
+pub async fn begin_pool(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    user_id: Uuid,
+) -> ApiResult<OrgTx<'static>> {
+    let mut tx = pool
         .begin()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
