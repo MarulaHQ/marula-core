@@ -18,7 +18,7 @@
 "use client";
 
 import "./dispatch.css";
-import { Badge, ColumnChooser, ExportControl, type ChoosableColumn as ChooserColumn } from "@marula-core/ui";
+import { Badge, ColumnChooser, DensitySwitch, ExportControl, type ChoosableColumn as ChooserColumn } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -1891,8 +1891,18 @@ export default function DispatchBoardPage() {
   }
 
   // ---- footer -----------------------------------------------------------
+  // The pack's board footer (DESIGN-NOTES.md §B2: legend, density control,
+  // keyboard hints) worn on the template's own strip. `.m-surface-footer` is
+  // what every other surface's footer carries, and the audit that sent this
+  // lane here reads exactly that root to answer "is a footer present" — the
+  // private `.dp-ft` name it used before was invisible to it. It is composed
+  // from the strip's parts rather than `SurfaceFooter` because a board has no
+  // rows to count and that component's count and load-more shape belongs to
+  // list surfaces. The density control is the kit's `DensitySwitch` — the
+  // pack's own footer control (§B9), identical to every ledger footer — where
+  // this page used to hand-roll a text segment.
   const renderFooter = (
-    <div className="dp-ft">
+    <div className="m-surface-footer dp-ft" role="group" aria-label="Board footer" data-testid="dispatch-footer">
       <span className="dp-legend">
         <span>
           <LocationIcon size={14} /> On site
@@ -1912,17 +1922,8 @@ export default function DispatchBoardPage() {
           </span>
         )}
       </span>
-      <span className="dp-sp" style={{ flex: 1 }} />
-      <span className="dens">
-        <span>Density</span>
-        <span className="dp-seg" role="group" aria-label="Density">
-          {(["comfortable", "compact", "dense"] as const).map((k) => (
-            <button key={k} type="button" aria-pressed={density === k} aria-label={k} onClick={() => setDensityState(k)}>
-              {k === "comfortable" ? "Comfortable" : k === "compact" ? "Compact" : "Dense"}
-            </button>
-          ))}
-        </span>
-      </span>
+      <span className="m-surface-footer-gap" />
+      <DensitySwitch value={density} onChange={setDensityState} label="Density" />
       <span className="dp-kbd">←</span>
       <span className="dp-kbd">→</span>
       <span className="dp-kbd">↑</span>

@@ -93,10 +93,16 @@ describe("/dispatch board", () => {
       </AuthProvider>,
     );
     await screen.findByTestId("dispatch-board-root");
+    // The board footer is the template strip (`.m-surface-footer`) and its
+    // density control is the kit's DensitySwitch, so the audit that reads the
+    // strip's own root finds it and the steps are radio steps, not pressed
+    // buttons.
+    const footer = screen.getByTestId("dispatch-footer");
+    expect(footer).toHaveClass("m-surface-footer");
     expect(document.documentElement.getAttribute("data-density")).toBe("comfortable");
-    await user.click(screen.getByRole("button", { name: "compact" }));
+    await user.click(screen.getByRole("radio", { name: "Compact" }));
     expect(document.documentElement.getAttribute("data-density")).toBe("compact");
-    await user.click(screen.getByRole("button", { name: "dense" }));
+    await user.click(screen.getByRole("radio", { name: "Dense" }));
     expect(document.documentElement.getAttribute("data-density")).toBe("dense");
     cleanup();
   });

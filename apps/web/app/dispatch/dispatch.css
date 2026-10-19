@@ -1128,29 +1128,22 @@
 }
 
 /* footer */
+/* The pack's board footer is the template strip (DESIGN-NOTES.md §B2), so it
+ * wears the kit's `.m-surface-footer` root and takes the strip's layout from
+ * there. Two of the strip's own properties do not apply to a board and the
+ * page pins them here instead: `.dp` already carries the page inset (24px), so
+ * the strip must not add its own `--m-density-px` on top of it, and the pack
+ * draws no rule above the board footer, so the strip's `border-top` comes off.
+ * What remains is the pack's own footer geometry (its `.ft2`): 52px tall, a
+ * 14px gap, muted 13px. */
 .dp-ft {
   height: 52px;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
   gap: 14px;
   color: var(--m-text-muted);
   font-size: 13px;
-}
-.dp-ft b {
-  color: var(--m-text);
-  font-variant-numeric: tabular-nums;
-}
-.dp-ft .dens {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.dp-ft .dp-seg button {
-  height: 30px;
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
+  padding: 0;
+  border-top: 0;
 }
 .dp-legend {
   display: flex;
