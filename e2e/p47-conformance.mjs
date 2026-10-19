@@ -134,8 +134,8 @@ const SIGNATURE = () => {
   /* --- the list --------------------------------------------------------- */
   // The pack draws its lists as div rows, not `<table>`, and names them
   // differently per surface: `#tbl`, `.tbl`, `.tbody`, or a header row `.hd`
-  // over same-class rows. The detector takes the declared container when it
-  // exists and otherwise the surface's densest cluster of same-class siblings.
+  // over its rows. The declared container is a fast path; where none exists the
+  // band is found by geometry (below), so the rule never depends on a name.
   const declaredList =
     surface.querySelector("#tbl") ||
     surface.querySelector(".tbl") ||
@@ -148,6 +148,14 @@ const SIGNATURE = () => {
     surface.querySelector("[data-testid$=-table]") ||
     surface.querySelector('[role="table"], [role="grid"]') ||
     null;
+  // No declared container: the region is found by its rows, four or more
+  // siblings that read alike. This is a shape test, not a name test — a
+  // surface that names its rows something else is still measured — so the
+  // rule never hangs on a fixed list of class names. (A stricter rendered-box
+  // test was trialled and rejected: it read a 6-cell OTP pad and a card grid as
+  // lists, 13 pack regions reclassified, mostly false positives. The kit's own
+  // list container is a real `table.m-table`, already caught by the declared
+  // `table` marker, so the class cluster is the safe generalisation here.)
   const clusterList = (() => {
     let best = null;
     let bestN = 0;
@@ -249,15 +257,60 @@ const SIGNATURE = () => {
     }
   }
 
-  /* --- footer ----------------------------------------------------------- */
+  /* --- footer -----------------------------------------------------------
+   * A footer is the strip that carries the surface's summary and the density
+   * control — `DESIGN-NOTES-tickets.md` §11: "the footer carries the density
+   * control, so it is present in every state". Three surfaces name that strip
+   * three ways: the pack draws `#ft` / `.ft2`, the kit names it
+   * `.m-surface-footer`, and Dispatch names its own `.dp-ft`. Those markers
+   * are fast paths; the region itself is found by what it holds — a density
+   * control — and the strip is the short, wide band around it. A name list
+   * cannot answer "is a footer here", because a surface is free to name its
+   * own region: the earlier name list named the dispatch footer absent on all
+   * 28 driven states, and the capture shows it on screen.
+   */
+  const densityStep = /^(comfortable|compact|dense)$/i;
+  const densityControlIn = () => {
+    const labelled = [...surface.querySelectorAll("[role=group], [role=radiogroup], fieldset, .seg, .dp-seg")].find(
+      (el) => vis(el) && /density/i.test(el.getAttribute("aria-label") || ""),
+    );
+    if (labelled) return labelled;
+    // No accessible name: a group whose children are the three density steps.
+    return (
+      [...surface.querySelectorAll("[role=group], [role=radiogroup], fieldset, div, span")].find((el) => {
+        if (!vis(el) || el.children.length < 3 || el.children.length > 6) return false;
+        const steps = [...el.children].filter(vis).map((c) => (c.getAttribute("aria-label") || txt(c)).trim());
+        return steps.filter((s) => densityStep.test(s)).length >= 3;
+      }) || null
+    );
+  };
+  const densityStrip = () => {
+    const control = densityControlIn();
+    if (!control) return null;
+    // Climb to the strip: the ancestor that is still a short band. A footer is
+    // one ~52px row; the surface it sits in is not.
+    let el = control;
+    while (
+      el.parentElement &&
+      el.parentElement !== surface &&
+      el.parentElement !== document.body &&
+      vis(el.parentElement) &&
+      el.parentElement.getBoundingClientRect().height <= 140
+    ) {
+      el = el.parentElement;
+    }
+    return el;
+  };
   const footerEl =
-    surface.querySelector("#ft") ||
-    surface.querySelector(".ft2") ||
-    surface.querySelector(".m-surface-footer") ||
-    surface.querySelector("[data-testid=surface-footer]") ||
-    null;
-  const footerText = footerEl && vis(footerEl) ? txt(footerEl) : "";
-  const footerBox = footerEl && vis(footerEl) ? footerEl.getBoundingClientRect() : null;
+    [
+      surface.querySelector("#ft"),
+      surface.querySelector(".ft2"),
+      surface.querySelector(".m-surface-footer"),
+      surface.querySelector("[data-testid=surface-footer]"),
+      densityStrip(),
+    ].find((el) => el && vis(el) && txt(el) !== "") || null;
+  const footerText = footerEl ? txt(footerEl) : "";
+  const footerBox = footerEl ? footerEl.getBoundingClientRect() : null;
 
   /* --- title ------------------------------------------------------------ */
   const h = surface.querySelector("h1") || document.querySelector("h1");
