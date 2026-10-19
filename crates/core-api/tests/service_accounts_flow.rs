@@ -540,6 +540,85 @@ fn org_uuid(s: &str) -> Uuid {
     Uuid::parse_str(s).expect("valid uuid")
 }
 
+/// The GRANT CEILING. A machine account carries only
+/// `special:manage_api_keys`, which is the grant an admin hands a credential
+/// rotator. It must not be able to mint authority it does not hold, and it
+/// must not be able to rewrite its own row at all: before the fix it could
+/// PATCH its own scopes to `admin:edit` and the rest of the admin specials and
+/// then use them with the same certificate.
+#[tokio::test]
+#[serial_test::serial]
+async fn a_machine_account_cannot_mint_grants_it_does_not_hold() {
+    let base = spawn_router(test_state(core_api::client_ip::TrustedProxies::default()).await).await;
+    let (token, org_id, _admin) = register_org(&base, "cert-ceiling").await;
+    let caller_fp = fp(0x91);
+    let own_id = create_account(
+        &base,
+        &token,
+        &org_id,
+        "rotator",
+        &caller_fp,
+        vec!["special:manage_api_keys"],
+    )
+    .await;
+
+    // A second account asking for a grant the caller does not hold: refused by
+    // the ceiling, not silently stored.
+    let escalated = http()
+        .await
+        .post(format!("{base}/api/v1/orgs/{org_id}/service-accounts"))
+        .header("x-marula-client-cert", &caller_fp)
+        .json(&json!({
+            "name": "escalated",
+            "cert_fingerprint": fp(0x92),
+            "scopes": ["special:manage_api_keys", "admin:edit"],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        escalated.status(),
+        403,
+        "a machine account must not grant a permission it does not hold"
+    );
+
+    // Its own row is off limits even for a grant set inside its own ceiling,
+    // so a certificate can never rotate its own authority.
+    let self_edit = http()
+        .await
+        .patch(format!(
+            "{base}/api/v1/orgs/{org_id}/service-accounts/{own_id}"
+        ))
+        .header("x-marula-client-cert", &caller_fp)
+        .json(&json!({ "scopes": ["special:manage_api_keys"] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        self_edit.status(),
+        403,
+        "a service account may not change its own grants"
+    );
+
+    // The ceiling does not narrow a real admin: the owner still holds the
+    // whole matrix and can grant any key.
+    let resp = http()
+        .await
+        .patch(format!(
+            "{base}/api/v1/orgs/{org_id}/service-accounts/{own_id}"
+        ))
+        .bearer_auth(&token)
+        .json(&json!({ "scopes": ["special:manage_api_keys", "admin:edit"] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "an org owner still passes the ceiling for any grant"
+    );
+}
+
 #[tokio::test]
 #[serial_test::serial]
 async fn a_patch_updates_scopes_status_and_expiry_through_one_lifecycle_owner() {

@@ -1535,6 +1535,13 @@ pub struct PluginCatalogEntry {
     pub name: String,
     pub description: String,
     pub publisher: String,
+    /// The org that published this entry, or `None` for an
+    /// operator-authored entry. The registry is server-wide, so this is
+    /// the only per-entry ownership the catalog routes can bind to: a
+    /// tenant admin may mutate only the entries its own org published,
+    /// and a `None` entry is immutable through those routes.
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub origin_org_id: Option<Uuid>,
     pub latest_version: Option<String>,
     pub interface_version: u32,
     /// Registry-level revocation: NULL = live; set = revoked (denies

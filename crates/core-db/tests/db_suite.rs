@@ -4589,6 +4589,8 @@ async fn seeded_connector_endpoints_follow_the_install_lifecycle() {
         name: "RMM".into(),
         description: "d".into(),
         publisher: "p".into(),
+        // Owned by no org in the fixture: a seeded/operator entry.
+        origin_org_id: None,
         latest_version: Some("1.0.0".into()),
         interface_version: core_domain::entities::PLUGIN_RUNTIME_INTERFACE_VERSION,
         revoked_at: None,

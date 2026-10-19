@@ -4109,11 +4109,17 @@ you go, because the escalation record is what the SLA credit claim is read from 
     // plugin_catalog is GLOBAL (no org_id, no cascade): upsert by slug and
     // reuse the existing catalog row so reset→reseed converges.
     sqlx::query(
-        "INSERT INTO plugin_catalog (id, slug, name, description, publisher, latest_version, interface_version)
-         VALUES ($1, 'sample-stock-ticker', 'Sample stock ticker', 'Demo plugin: ticker side panel.', 'marula-demo', '1.0.0', 1)
+        "INSERT INTO plugin_catalog (id, slug, name, description, publisher, origin_org_id,
+                                     latest_version, interface_version)
+         VALUES ($1, 'sample-stock-ticker', 'Sample stock ticker', 'Demo plugin: ticker side panel.',
+                 'marula-demo', $2, '1.0.0', 1)
          ON CONFLICT (slug) DO NOTHING",
     )
     .bind(demo_uuid(870))
+    // The demo org owns the demo plugin, so the demo can still exercise the
+    // revoke path; a NULL origin would make it operator-owned and immutable
+    // through the tenant catalog routes.
+    .bind(DEMO_ORG_ID)
     .execute(&mut *tx)
     .await?;
     let plugin_catalog_id: Uuid =

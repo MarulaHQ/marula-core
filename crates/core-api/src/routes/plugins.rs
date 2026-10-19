@@ -337,6 +337,10 @@ pub async fn publish_catalog_entry(
         name: manifest.name.clone(),
         description: req.description.trim().to_string(),
         publisher: req.publisher.trim().to_string(),
+        // Bind the entry to the org that published it. The registry is
+        // server-wide, so this is what stops a different tenant's admin
+        // from appending to or revoking this entry later.
+        origin_org_id: Some(authed.principal.user.org_id),
         latest_version: Some(manifest.version.clone()),
         interface_version: PLUGIN_RUNTIME_INTERFACE_VERSION,
         revoked_at: None,
@@ -423,6 +427,15 @@ pub async fn append_catalog_version(
     let now = chrono::Utc::now();
     let entry = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
         let entry = core_db::plugins::get_catalog_entry(&mut tx.tx, &slug).await?;
+        // The registry is server-wide, so the org id on the transaction is not
+        // an ownership check by itself. A tenant admin may append only to the
+        // entries its own org published; a `None` origin is an operator or
+        // seeded entry, which is immutable through this tenant route.
+        if entry.origin_org_id != Some(org_id) {
+            return Err(ApiError::Forbidden(
+                "this catalog entry belongs to another publisher".into(),
+            ));
+        }
         // The manifest carries the entry's name; validate after fetch.
         let manifest = build_manifest(&entry.name, &req.version, &req.manifest)?;
         parse_capability_keys(&manifest.capabilities)?;
@@ -484,6 +497,14 @@ pub async fn revoke_catalog_entry(
     let now = chrono::Utc::now();
     let entry = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
         let entry = core_db::plugins::get_catalog_entry(&mut tx.tx, &slug).await?;
+        // Publishing org only: the revoke cascades into every tenant's
+        // installs, so a different org's admin must not reach it. A `None`
+        // origin is an operator or seeded entry, immutable through this route.
+        if entry.origin_org_id != Some(org_id) {
+            return Err(ApiError::Forbidden(
+                "this catalog entry belongs to another publisher".into(),
+            ));
+        }
         let affected =
             core_db::plugins::revoke_catalog_entry(&mut tx.tx, entry.id, &reason, now).await?;
         core_db::audit::insert(

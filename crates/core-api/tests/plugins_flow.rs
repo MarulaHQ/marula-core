@@ -889,3 +889,97 @@ async fn sandbox_seam_denies_by_default() {
     let body = body_json(response).await;
     assert_eq!(body["error"]["reason"], "unauthorized", "{body}");
 }
+
+/// Cross-publisher isolation on the server-wide catalog. `plugin_catalog` has
+/// no org_id and no RLS, so before the ownership stamp a second org's admin
+/// could append a version to another publisher's entry, or revoke an entry
+/// every tenant had installed. Both routes must refuse a foreign publisher,
+/// and an operator/seeded entry (NULL origin) must be immutable through them.
+#[tokio::test]
+async fn a_second_org_cannot_mutate_another_publishers_catalog_entry() {
+    let (_state, router) = test_state().await;
+
+    let slug = format!("publisher-{}", Uuid::now_v7().simple());
+    let owner_a = register_org(&router, format!("pub-a-{}", Uuid::now_v7().simple())).await;
+    let owner_b = register_org(&router, format!("pub-b-{}", Uuid::now_v7().simple())).await;
+
+    let entry_slug = format!("owned-{}", Uuid::now_v7().simple());
+    let published = send(
+        &router,
+        axum::http::Method::POST,
+        "/api/plugins/catalog",
+        Some(&owner_a),
+        Some(publish_body(&entry_slug, &["tickets.read"])),
+    )
+    .await;
+    assert_eq!(
+        published.status(),
+        201,
+        "org A publishes its own entry: {slug}"
+    );
+
+    // Org B appends a version to A's entry: refused.
+    let foreign_append = send(
+        &router,
+        axum::http::Method::POST,
+        &format!("/api/plugins/catalog/{entry_slug}/versions"),
+        Some(&owner_b),
+        Some(json!({
+            "version": "9.9.9",
+            "manifest": { "description": "injected by another tenant", "capabilities": [] },
+        })),
+    )
+    .await;
+    assert_eq!(
+        foreign_append.status(),
+        axum::http::StatusCode::FORBIDDEN,
+        "a foreign publisher must not append a version"
+    );
+
+    // Org B revokes A's entry: refused (the revoke cascades into every org).
+    let foreign_revoke = send(
+        &router,
+        axum::http::Method::POST,
+        &format!("/api/plugins/catalog/{entry_slug}/revoke"),
+        Some(&owner_b),
+        Some(json!({ "reason": "taken down by another tenant" })),
+    )
+    .await;
+    assert_eq!(
+        foreign_revoke.status(),
+        axum::http::StatusCode::FORBIDDEN,
+        "a foreign publisher must not revoke an entry"
+    );
+
+    // The publishing org keeps both capabilities.
+    let own_append = send(
+        &router,
+        axum::http::Method::POST,
+        &format!("/api/plugins/catalog/{entry_slug}/versions"),
+        Some(&owner_a),
+        Some(json!({
+            "version": "1.1.0",
+            "manifest": { "description": "own follow-up", "capabilities": [] },
+        })),
+    )
+    .await;
+    assert_eq!(
+        own_append.status(),
+        201,
+        "the publishing org still appends to its own entry"
+    );
+
+    let own_revoke = send(
+        &router,
+        axum::http::Method::POST,
+        &format!("/api/plugins/catalog/{entry_slug}/revoke"),
+        Some(&owner_a),
+        Some(json!({ "reason": "own decision" })),
+    )
+    .await;
+    assert_eq!(
+        own_revoke.status(),
+        200,
+        "the publishing org still revokes its own entry"
+    );
+}

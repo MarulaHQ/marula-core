@@ -216,6 +216,8 @@ async fn provenance_chain_should_survive_terminal_uninstall() {
         name: "Provenance Plugin".into(),
         description: "d".into(),
         publisher: "marula".into(),
+        // Owned by no org in the fixture: a seeded/operator entry.
+        origin_org_id: None,
         latest_version: Some("1.0.0".into()),
         interface_version: 1,
         revoked_at: None,
@@ -325,6 +327,8 @@ async fn update_proposal_should_pin_the_old_version_until_consented() {
         name: "Consent Plugin".into(),
         description: String::new(),
         publisher: "marula".into(),
+        // Owned by no org in the fixture: a seeded/operator entry.
+        origin_org_id: None,
         latest_version: Some("1.1.0".into()),
         interface_version: 1,
         revoked_at: None,
@@ -489,6 +493,8 @@ async fn install_settings_should_validate_against_the_manifest_schema() {
         name: "Settings Plugin".into(),
         description: String::new(),
         publisher: "marula".into(),
+        // Owned by no org in the fixture: a seeded/operator entry.
+        origin_org_id: None,
         latest_version: Some("1.0.0".into()),
         interface_version: 1,
         revoked_at: None,

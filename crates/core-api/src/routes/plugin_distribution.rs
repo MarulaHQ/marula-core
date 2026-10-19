@@ -983,6 +983,19 @@ pub async fn approve_staged(
                                     .into(),
                             ));
                         }
+                        // A staged import appends only to the entry its OWN org
+                        // created through this path. The slug is derived from
+                        // untrusted manifest text, so a collision must never
+                        // silently adopt another publisher's identity: a `None`
+                        // origin is an operator or seeded entry and is not an
+                        // append target here either.
+                        if existing.origin_org_id != Some(org_id) {
+                            return Err(ApiError::Conflict(
+                                "that catalog slug belongs to another publisher; publish \
+                                 under a name this org owns"
+                                    .into(),
+                            ));
+                        }
                         core_db::plugins::append_version(
                             &mut tx.tx,
                             existing.id,
@@ -1004,6 +1017,9 @@ pub async fn approve_staged(
                             name: manifest.name.clone(),
                             description: manifest.description.clone(),
                             publisher: "staged-import".into(),
+                            // Stamped with the importing org, so this org alone
+                            // can append to or revoke the entry it created.
+                            origin_org_id: Some(org_id),
                             latest_version: Some(manifest.version.clone()),
                             interface_version: PLUGIN_RUNTIME_INTERFACE_VERSION,
                             revoked_at: None,

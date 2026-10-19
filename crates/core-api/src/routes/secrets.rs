@@ -320,8 +320,25 @@ pub async fn update_folder(
     }
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
     let folder = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let before = core_db::secret_vault::get_folder(&mut *ctx.tx, org_id, id).await?;
+        // The FOLDER-level category gate. A restricted chain denies edits to
+        // the folder object itself, not only to the records inside it.
+        // Without this, a principal the category denies could clear
+        // `restricted` here and then read the chain the gate exists to
+        // protect; the same route also retitles and re-slugs the chain.
+        if before.restricted {
+            let allowed =
+                core_db::secret_vault::folder_access(&mut ctx.tx, org_id, &role_ids, id, true)
+                    .await
+                    .map_err(ApiError::from)?;
+            if !allowed {
+                return Err(ApiError::Forbidden(
+                    "restricted chain locked to your role; request a grant to change it".into(),
+                ));
+            }
+        }
         let folder = core_db::secret_vault::update_folder(
             &mut ctx.tx,
             org_id,

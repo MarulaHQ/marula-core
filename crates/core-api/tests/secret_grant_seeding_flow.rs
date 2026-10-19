@@ -246,3 +246,105 @@ async fn new_org_restricted_chain_serves_admin_and_denies_technician() {
         "admin must edit the restricted chain via the runtime-seeded grants"
     );
 }
+
+/// The FOLDER-level category gate. A Technician holds the full Secrets matrix
+/// (View/Create/Edit/Delete) but receives no restricted-category grant, because
+/// the seeding hands those to owner/admin only. Before the fix, the folder
+/// object itself was not gated, so the technician could PATCH the restricted
+/// chain to `restricted: false` and then read the records the gate exists to
+/// protect. The gate must deny the technician and still admit the granted
+/// admin.
+#[tokio::test]
+async fn a_role_without_the_category_grant_cannot_unrestrict_a_restricted_chain() {
+    let (_state, router) = test_state().await;
+    let slug = format!("grant-unrestrict-{}", Uuid::now_v7().simple());
+    let owner = register_org(&router, slug.clone()).await;
+    let admin = invite_and_activate(&router, &owner, &format!("admin@{slug}.test"), "admin").await;
+    let technician =
+        invite_and_activate(&router, &owner, &format!("tech@{slug}.test"), "technician").await;
+
+    let created = send(
+        &router,
+        axum::http::Method::POST,
+        "/api/secrets/folders",
+        Some(&owner),
+        Some(json!({
+            "slug": "restricted-chain",
+            "label": "Restricted chain",
+            "kind": "api_keys",
+            "restricted": true,
+        })),
+    )
+    .await;
+    let body = body_json(created).await;
+    let folder_id = body["id"]
+        .as_str()
+        .expect("restricted folder create returns an id")
+        .to_string();
+
+    let record = send(
+        &router,
+        axum::http::Method::POST,
+        "/api/secrets/records",
+        Some(&owner),
+        Some(json!({
+            "folder_id": folder_id,
+            "kind": "api_key",
+            "title": "Chain secret",
+            "fields": [{"field_key": "secret", "value": "s3cr3t"}]
+        })),
+    )
+    .await;
+    let record_body = body_json(record).await;
+    let record_id = record_body["id"]
+        .as_str()
+        .expect("record create returns an id")
+        .to_string();
+
+    // The technician clears the restricted flag: refused, because the folder
+    // object carries the same category gate as the records inside it.
+    let denied = send(
+        &router,
+        axum::http::Method::PATCH,
+        &format!("/api/secrets/folders/{folder_id}"),
+        Some(&technician),
+        Some(json!({ "restricted": false })),
+    )
+    .await;
+    assert_eq!(
+        denied.status(),
+        axum::http::StatusCode::FORBIDDEN,
+        "a role without the category grant must not clear the restricted flag"
+    );
+
+    // The flag survived the attempt, so the record is still closed to it.
+    let tech_read = send(
+        &router,
+        axum::http::Method::GET,
+        &format!("/api/secrets/records/{record_id}"),
+        Some(&technician),
+        None,
+    )
+    .await;
+    assert_ne!(
+        tech_read.status(),
+        200,
+        "the chain must still deny the technician after the refused edit"
+    );
+
+    // The seeded admin grant still admits the same edit: the gate narrows to
+    // the category, it does not close the folder to everyone.
+    let allowed = send(
+        &router,
+        axum::http::Method::PATCH,
+        &format!("/api/secrets/folders/{folder_id}"),
+        Some(&admin),
+        Some(json!({ "label": "Restricted chain (renamed)" })),
+    )
+    .await;
+    assert_eq!(
+        allowed.status(),
+        axum::http::StatusCode::OK,
+        "the runtime-seeded admin grant still allows a restricted-folder edit"
+    );
+}

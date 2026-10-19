@@ -145,6 +145,46 @@ fn validate_grants(scopes: &[String]) -> ApiResult<()> {
     Ok(())
 }
 
+/// The GRANT CEILING. A caller may pass on only authority it already holds:
+/// no credential, human or machine, writes a grant set wider than its own
+/// permission set. Without this, a machine account holding
+/// `special:manage_api_keys` could PATCH its own scopes to `admin:edit` and
+/// the other admin specials and then use them with the certificate it already
+/// holds. `validate_grants` proves the keys resolve; this proves the caller
+/// owns what it hands out.
+fn require_grantable(authed: &crate::auth::AuthedUser, scopes: &[String]) -> ApiResult<()> {
+    for key in scopes {
+        let Some(perm) = permission_from_key(key) else {
+            // `validate_grants` owns the unknown-key message; keep this
+            // fail-closed in case it is ever reordered.
+            return Err(ApiError::Validation(format!(
+                "unknown permission grant {key:?}; grants must be policy keys"
+            )));
+        };
+        if !core_domain::policy::check(&authed.principal.permissions, perm).is_allowed() {
+            return Err(ApiError::Forbidden(format!(
+                "cannot grant {key:?}: the caller does not hold it"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// A machine credential must not rewrite its own grant set. The ceiling above
+/// already denies escalation; this closes the case where one machine account
+/// edits another's scopes, which has no second party in the loop. Only a
+/// client-certificate principal can match its own row id, because a staff
+/// principal's id is a `users.id` and a service account's is a
+/// `service_accounts.id`.
+fn refuse_self_grant_change(authed: &crate::auth::AuthedUser, id: Uuid) -> ApiResult<()> {
+    if authed.via_api_key && authed.principal.user.id == id {
+        return Err(ApiError::Forbidden(
+            "a service account may not change its own grants".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_status(status: &str) -> ApiResult<()> {
     match status {
         "active" | "suspended" => Ok(()),
@@ -336,6 +376,7 @@ pub async fn create(
         )));
     }
     validate_grants(&req.scopes)?;
+    require_grantable(&authed, &req.scopes)?;
     let fingerprint = normalize_fingerprint(&req.cert_fingerprint).ok_or_else(|| {
         ApiError::Validation("cert_fingerprint must be a 64-char hex SHA-256 digest".into())
     })?;
@@ -412,6 +453,8 @@ pub async fn update(
     }
     if let Some(scopes) = req.scopes.as_ref() {
         validate_grants(scopes)?;
+        require_grantable(&authed, scopes)?;
+        refuse_self_grant_change(&authed, id)?;
     }
     // Expiry override: the double-Option distinguishes "absent ⇒ keep"
     // (None) from "present as null ⇒ clear" (Some(None)) from

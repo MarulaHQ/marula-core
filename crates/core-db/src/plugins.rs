@@ -20,8 +20,8 @@ use core_domain::entities::{
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-const CATALOG_COLS: &str = "id, slug, name, description, publisher, latest_version, \
-     interface_version, revoked_at, revoked_reason, created_at, updated_at";
+const CATALOG_COLS: &str = "id, slug, name, description, publisher, origin_org_id, \
+     latest_version, interface_version, revoked_at, revoked_reason, created_at, updated_at";
 
 fn row_to_catalog_entry(row: &sqlx::postgres::PgRow) -> DbResult<PluginCatalogEntry> {
     Ok(PluginCatalogEntry {
@@ -30,6 +30,7 @@ fn row_to_catalog_entry(row: &sqlx::postgres::PgRow) -> DbResult<PluginCatalogEn
         name: row.get("name"),
         description: row.get("description"),
         publisher: row.get("publisher"),
+        origin_org_id: row.get("origin_org_id"),
         latest_version: row.get("latest_version"),
         interface_version: row.get::<i32, _>("interface_version") as u32,
         revoked_at: row.get("revoked_at"),
@@ -110,13 +111,14 @@ pub async fn create_catalog_entry(
 ) -> DbResult<()> {
     sqlx::query!(
         r#"INSERT INTO plugin_catalog (id, slug, name, description, publisher,
-                                       latest_version, interface_version)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+                                       origin_org_id, latest_version, interface_version)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
         entry.id,
         entry.slug,
         entry.name,
         entry.description,
         entry.publisher,
+        entry.origin_org_id,
         version.version,
         entry.interface_version as i32,
     )
