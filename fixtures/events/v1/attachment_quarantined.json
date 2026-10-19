@@ -1,0 +1,17 @@
+{
+  "event_type": "attachment.quarantined",
+  "entity": "attachment",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.1.0",
+  "payload": {
+    "content_type": "application/pdf",
+    "detail": "stream: Eicar-Test-Signature FOUND",
+    "filename": "invoice-scan.pdf",
+    "scanner": "clamd",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "size_bytes": 44180,
+    "ticket_id": "00000000-0000-0000-0000-000000000001",
+    "uploaded_by_user_id": "00000000-0000-0000-0000-000000000005"
+  }
+}

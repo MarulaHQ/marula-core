@@ -82,3 +82,47 @@ pub struct Attachment {
     pub uploaded_by_portal_user_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
 }
+
+/// One stored object's scan verdict (Wave 52 lane P6a, migration 0139).
+///
+/// Keyed by the object, not the upload: `attachments` rows are per-owner and
+/// several may share one content-addressed object, while the verdict belongs
+/// to the bytes and is reached by `(org_id, sha256)`. An infected object has
+/// no `Attachment` row at all — `status` says where the bytes live, and the
+/// release fields carry the admin override trail.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachmentScan {
+    pub org_id: Uuid,
+    /// Lowercase hex sha256 — the object's identity within the org.
+    pub sha256: String,
+    /// `clean` (a scanner passed it), `skipped` (none mode: nobody looked),
+    /// or `infected` (signature found; the bytes are quarantined).
+    pub status: super::email::ScanStatus,
+    /// Signature name for an infection, or the none-mode note for a skip.
+    pub detail: Option<String>,
+    /// Adapter that produced the verdict (`clamd`, `none`).
+    pub scanner: String,
+    pub size_bytes: i64,
+    pub content_type: String,
+    pub filename: String,
+    /// Admission key for clean/skipped objects; quarantine key when infected.
+    pub storage_key: String,
+    pub ticket_id: Option<Uuid>,
+    pub uploaded_by_user_id: Option<Uuid>,
+    pub uploaded_by_portal_user_id: Option<Uuid>,
+    pub scanned_at: DateTime<Utc>,
+    /// Set exactly when `status` is `infected`.
+    pub quarantined_at: Option<DateTime<Utc>>,
+    /// Release override, when an admin has admitted the object anyway.
+    pub released_at: Option<DateTime<Utc>>,
+    pub released_by_user_id: Option<Uuid>,
+    pub release_reason: Option<String>,
+}
+
+impl AttachmentScan {
+    /// True when the bytes were rejected and are held for an operator.
+    #[must_use]
+    pub fn is_quarantined(&self) -> bool {
+        self.status == super::email::ScanStatus::Infected
+    }
+}

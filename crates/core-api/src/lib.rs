@@ -18,6 +18,7 @@ pub mod otel_http;
 pub mod realtime;
 pub mod routes;
 pub mod routing;
+pub mod scan_gate;
 pub mod services;
 pub mod state;
 pub mod vault_scale;

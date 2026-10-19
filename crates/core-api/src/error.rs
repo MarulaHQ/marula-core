@@ -143,6 +143,17 @@ pub enum ApiError {
     /// surfaces such as the internal effect surface without its token).
     #[error("service unavailable: {0}")]
     Unavailable(String),
+    /// Typed 422 for an upload the scan gate refused (Wave 52 lane P6a):
+    /// the bytes were scanned, a signature was found, and NOTHING was
+    /// admitted — the object is held under its quarantine key for an
+    /// operator. Kept distinct from `Validation` because retrying the same
+    /// bytes cannot succeed, and the client should say what was found
+    /// rather than re-prompt for a different filename.
+    #[error("upload rejected by the malware scan")]
+    UploadQuarantined {
+        /// The scanner's detail string (usually the signature name).
+        detail: Option<String>,
+    },
     /// A fail-policy import chunk was rejected transactionally (TASKLIST
     /// D2): nothing from that chunk was written; the full per-row report
     /// rides the 409 so clients can correct and retry without re-upload.
@@ -754,6 +765,14 @@ impl IntoResponse for ApiError {
                 m.clone(),
                 None,
             ),
+            ApiError::UploadQuarantined { detail } => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "upload_quarantined",
+                "the file was rejected by the malware scanner and is held for an operator; \
+                 nothing was attached"
+                    .to_string(),
+                Some(json!({ "detail": detail })),
+            ),
             ApiError::TimeEntryLocked { entry_id } => (
                 StatusCode::CONFLICT,
                 "time_entry_locked",
@@ -950,6 +969,12 @@ mod tests {
                 "rate_limited",
             ),
             (ApiError::Unavailable("x".into()), "service_unavailable"),
+            (
+                ApiError::UploadQuarantined {
+                    detail: Some("Eicar-Test-Signature".into()),
+                },
+                "upload_quarantined",
+            ),
             (
                 ApiError::Internal(anyhow::anyhow!("boom")),
                 "internal_error",

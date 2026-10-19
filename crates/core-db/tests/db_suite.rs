@@ -22,13 +22,13 @@ mod common;
 use common::TestDb;
 use common::{fixed_uuid, org_tx, test_db, FUTURE, PAST};
 use core_db::{
-    audit, automations, notifications as notif, orgs, outbox, portal, queue, search, sign_offs,
-    sla, tickets, timers, users, DbError, DbResult,
+    attachment_scans, audit, automations, notifications as notif, orgs, outbox, portal, queue,
+    search, sign_offs, sla, tickets, timers, users, DbError, DbResult,
 };
 use core_domain::entities::{
     Actor, Attachment, AttachmentKind, AuditEvent, BusinessCalendar, NotificationPreference,
-    PortalRole, PortalUser, PortalUserStatus, SignOffSignerKind, SlaCalendar, Ticket, TimeEntry,
-    TimerSession,
+    PortalRole, PortalUser, PortalUserStatus, ScanStatus, SignOffSignerKind, SlaCalendar, Ticket,
+    TimeEntry, TimerSession,
 };
 use core_domain::policy::BuiltinRole;
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
@@ -9352,4 +9352,132 @@ async fn seed_secret_document(
     .execute(&mut *tx)
     .await
     .expect("secret record insert");
+}
+
+// --- attachment scan verdicts (Wave 52 lane P6a, migration 0139) -------------
+
+/// The verdict belongs to the OBJECT, not the upload: a second admission of
+/// the same digest keeps the first record, an infection ESCALATES bytes that
+/// passed before, and the schema refuses a half-set infection.
+#[tokio::test]
+async fn attachment_scan_verdicts_are_first_wins_and_escalate() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 190).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+    let sha = "b".repeat(64);
+    let admit_key = format!("org/{}/attachments/{sha}", s.org);
+    let q_key = format!("org/{}/quarantine/{sha}", s.org);
+
+    let clean = attachment_scans::record_admitted(
+        &mut tx,
+        attachment_scans::NewScan {
+            org_id: s.org,
+            sha256: &sha,
+            status: ScanStatus::Clean,
+            detail: None,
+            scanner: "clamd",
+            size_bytes: 42,
+            content_type: "application/pdf",
+            filename: "invoice.pdf",
+            storage_key: &admit_key,
+            ticket_id: None,
+            uploaded_by_user_id: None,
+            uploaded_by_portal_user_id: None,
+        },
+    )
+    .await
+    .expect("first admission records");
+    assert!(matches!(
+        clean,
+        attachment_scans::AdmitOutcome::Recorded(scan) if scan.status == ScanStatus::Clean
+    ));
+
+    // A second upload of the same bytes does NOT rewrite the record: the
+    // first admission is what happened, and paying for a second scan must not
+    // be a way to launder the row.
+    let again = attachment_scans::record_admitted(
+        &mut tx,
+        attachment_scans::NewScan {
+            org_id: s.org,
+            sha256: &sha,
+            status: ScanStatus::Skipped,
+            detail: Some("none mode"),
+            scanner: "none",
+            size_bytes: 42,
+            content_type: "application/pdf",
+            filename: "renamed.pdf",
+            storage_key: &admit_key,
+            ticket_id: None,
+            uploaded_by_user_id: None,
+            uploaded_by_portal_user_id: None,
+        },
+    )
+    .await
+    .expect("second admission is absorbed");
+    match again {
+        attachment_scans::AdmitOutcome::AlreadyRecorded(scan) => {
+            assert_eq!(scan.status, ScanStatus::Clean, "the first verdict stands");
+            assert_eq!(scan.scanner, "clamd");
+            assert_eq!(scan.filename, "invoice.pdf");
+        }
+        attachment_scans::AdmitOutcome::Recorded(_) => {
+            panic!("a second admission must not write a new verdict")
+        }
+    }
+
+    // Scanner databases move: bytes that passed can be found later. The
+    // record escalates and follows the quarantine copy the caller wrote.
+    let escalated = attachment_scans::record_quarantine(
+        &mut tx,
+        attachment_scans::NewScan {
+            org_id: s.org,
+            sha256: &sha,
+            status: ScanStatus::Infected,
+            detail: Some("stream: Eicar-Test-Signature FOUND"),
+            scanner: "clamd",
+            size_bytes: 42,
+            content_type: "application/pdf",
+            filename: "invoice.pdf",
+            storage_key: &q_key,
+            ticket_id: None,
+            uploaded_by_user_id: None,
+            uploaded_by_portal_user_id: None,
+        },
+    )
+    .await
+    .expect("infection escalates the admitted row");
+    assert!(escalated.is_quarantined());
+    assert_eq!(escalated.status, ScanStatus::Infected);
+    assert_eq!(escalated.storage_key, q_key);
+    assert!(
+        escalated.quarantined_at.is_some(),
+        "an infection carries its timestamp"
+    );
+
+    let listed = attachment_scans::list_quarantined(&mut tx, s.org)
+        .await
+        .expect("quarantine list");
+    assert_eq!(listed.len(), 1, "the escalation appears in the admin list");
+    assert_eq!(listed[0].sha256, sha);
+
+    tx.commit().await.expect("commit");
+
+    // The schema refuses a half-set infection. This runs on its OWN
+    // transaction: a failed statement aborts the surrounding one, so a bad
+    // insert sharing the committed work above would only prove that Postgres
+    // rolls back after an error.
+    let mut tx = org_tx(&db.app, s.org).await;
+    let half_set = sqlx::query(
+        "INSERT INTO attachment_scans (org_id, sha256, status, scanner, size_bytes, \
+         content_type, filename, storage_key) \
+         VALUES ($1, $2, 'infected', 'clamd', 5, 'text/plain', 'x', 'org/x/quarantine/y')",
+    )
+    .bind(s.org)
+    .bind("c".repeat(64))
+    .execute(&mut *tx)
+    .await;
+    assert!(
+        half_set.is_err(),
+        "status='infected' with no quarantined_at must be refused"
+    );
 }

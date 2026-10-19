@@ -122,6 +122,7 @@ impl ScanProvider for ScriptedScan {
     async fn scan(&self, body_text: &str) -> Result<ScanVerdict, ScanError> {
         Ok(ScanVerdict {
             infected: body_text.contains("[VIRUS]"),
+            skipped: false,
             detail: None,
         })
     }

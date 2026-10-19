@@ -13,6 +13,7 @@ pub mod ai_policy;
 pub mod alerting;
 pub mod approvals;
 pub mod assets;
+pub mod attachment_scans;
 pub mod attachments;
 pub mod audit;
 pub mod automations;

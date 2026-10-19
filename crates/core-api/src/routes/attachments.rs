@@ -3,15 +3,24 @@
 //!
 //! Purpose: the ONLY door for binary objects into Marula. Every upload
 //! passes the core-domain allowlist gate (size cap + magic bytes vs
-//! declared type vs extension), hashes to sha256, reuses already-stored
-//! objects per org (content-addressed dedup), and persists its metadata
-//! row plus `attachment.added` in ONE org-bound transaction. Downloads
-//! stream through this API behind authz — no public/presigned URLs in v1.
+//! declared type vs extension), passes the malware SCAN GATE, hashes to
+//! sha256, reuses already-stored objects per org (content-addressed dedup),
+//! and persists its metadata row plus `attachment.added` in ONE org-bound
+//! transaction. Downloads stream through this API behind authz — no
+//! public/presigned URLs in v1.
+//!
+//! The scan gate (Wave 52 lane P6a) runs BEFORE anything is stored, and it
+//! fails CLOSED: a scanner that cannot answer ends the request with a 503
+//! and nothing is written. Bytes a scanner names infected never reach the
+//! admitted namespace — they go to `org/<org>/quarantine/<sha256>` with an
+//! `attachment_scans` row and `attachment.quarantined`, and the uploader
+//! gets a typed 422. None mode (no scanner configured) admits with a
+//! `skipped` verdict on record, never a silent `clean`.
 //!
 //! Non-purpose: no multipart parsing (single raw octet-stream bodies only,
-//! filename/content-type carried as headers), no virus scanning (email
-//! path scans upstream via `core-mail::ScanProvider`), no image
-//! processing, no quota accounting.
+//! filename/content-type carried as headers), no image processing, no
+//! quota accounting, no quarantine administration (the P6c admin surface
+//! owns list/release/delete over `attachment_scans`).
 
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
@@ -26,7 +35,9 @@ use axum::{
     Json,
 };
 use core_domain::entities::Attachment;
-use core_domain::events::{types, AttachmentAdded, AttachmentDeleted};
+use core_domain::entities::ScanStatus;
+use core_domain::events::types;
+use core_domain::events::{AttachmentAdded, AttachmentDeleted, AttachmentQuarantined};
 use core_domain::policy::{Action, BoardOp, Module, Permission};
 /// Tickets-module permission shorthand (mirrors the sibling lane files).
 pub fn tickets(action: Action) -> Permission {
@@ -106,10 +117,21 @@ pub async fn upload(
     let mut hasher = Sha256::new();
     hasher.update(&body);
     let sha256_hex = hex::encode(hasher.finalize());
+
+    // --- the scan gate -------------------------------------------------
+    // Before the transaction opens, so a refusal costs no connection and no
+    // lock, and before any byte is stored. A scanner that cannot answer is a
+    // REFUSAL, not an admission: "unknown" must never be recorded as clean.
+    let verdict = crate::scan_gate::gate(&state, &body).await?;
+    let status = verdict.status;
+    let scanner_name = verdict.scanner;
+    // Cloned rather than moved: the closure below still borrows the whole
+    // verdict to hand the quarantine writer its detail.
+    let detail = verdict.detail.clone();
     let storage_key = core_store::attachment_key(org_id, &sha256_hex);
     let store = std::sync::Arc::clone(&state.store);
 
-    let attachment = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    let gated = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
         authorize_board_op(
             &mut ctx.tx,
@@ -119,8 +141,62 @@ pub async fn upload(
         )
         .await?;
 
-        // Content-addressed dedup: skip the PUT when this org already
-        // holds these exact bytes; rows still get their own identity.
+        let new_scan = core_db::attachment_scans::NewScan {
+            org_id,
+            sha256: &sha256_hex,
+            status,
+            detail: detail.as_deref(),
+            scanner: scanner_name,
+            size_bytes: body.len() as i64,
+            content_type: &content_type,
+            filename: &filename,
+            storage_key: &storage_key,
+            ticket_id: Some(id),
+            uploaded_by_user_id: Some(user_id),
+            uploaded_by_portal_user_id: None,
+        };
+
+        if status == ScanStatus::Infected {
+            // The bytes are held, never admitted: a separate namespace, a
+            // verdict row that is the operator's record, and no attachment.
+            crate::scan_gate::quarantine(
+                &mut ctx.tx,
+                store.as_ref(),
+                crate::scan_gate::Rejection {
+                    org_id,
+                    sha256: &sha256_hex,
+                    filename: &filename,
+                    content_type: &content_type,
+                    size_bytes: body.len() as i64,
+                    bytes: body.clone(),
+                    ticket_id: Some(id),
+                    uploaded_by_user_id: Some(user_id),
+                    verdict: &verdict,
+                },
+            )
+            .await?;
+            ctx.emit(
+                types::ATTACHMENT_QUARANTINED,
+                "attachment",
+                Some(sha256_hex.as_str()),
+                &serde_json::to_value(AttachmentQuarantined {
+                    sha256: sha256_hex.clone(),
+                    filename: filename.clone(),
+                    content_type: content_type.clone(),
+                    size_bytes: body.len() as i64,
+                    scanner: scanner_name.to_string(),
+                    detail: detail.clone(),
+                    ticket_id: Some(id),
+                    uploaded_by_user_id: Some(user_id),
+                })
+                .unwrap_or_default(),
+            )
+            .await?;
+            return Ok((ctx, crate::scan_gate::Gated::Quarantined { detail }));
+        }
+
+        // Admitted: content-addressed dedup skips the PUT when this org
+        // already holds these exact bytes; rows still get their own identity.
         let existing =
             core_db::attachments::find_existing_object_key(&mut ctx.tx, org_id, &sha256_hex)
                 .await?;
@@ -130,6 +206,9 @@ pub async fn upload(
                 .await
                 .map_err(store_error)?;
         }
+        // The verdict belongs to the object, so a second row for the same
+        // digest keeps the first admission's record rather than re-writing it.
+        core_db::attachment_scans::record_admitted(&mut ctx.tx, new_scan).await?;
 
         let attachment = core_db::attachments::insert(
             &mut ctx.tx,
@@ -169,11 +248,18 @@ pub async fn upload(
             .unwrap_or_default(),
         )
         .await?;
-        Ok((ctx, attachment))
+        Ok((ctx, crate::scan_gate::Gated::Admitted(attachment)))
     })
     .await?;
 
-    Ok(Json(attachment))
+    // The transaction above COMMITTED the quarantine record, so the refusal
+    // that follows is a report about a fact on disk, not an aborted write.
+    match gated {
+        crate::scan_gate::Gated::Admitted(attachment) => Ok(Json(attachment)),
+        crate::scan_gate::Gated::Quarantined { detail } => {
+            Err(ApiError::UploadQuarantined { detail })
+        }
+    }
 }
 
 /// GET /api/tickets/{id}/attachments — every attachment on one ticket.

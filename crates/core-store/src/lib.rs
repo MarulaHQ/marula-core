@@ -139,6 +139,16 @@ pub fn attachment_key(org_id: uuid::Uuid, sha256_hex: &str) -> String {
     format!("org/{org_id}/attachments/{sha256_hex}")
 }
 
+/// Builds the quarantine key for bytes an admission gate refused: the same
+/// content address under a different namespace. Keeping the digest means a
+/// released object moves back to its one true key rather than being
+/// re-hashed, and the namespace prefix means a key alone still says which
+/// side of the gate the object is on.
+#[must_use]
+pub fn quarantine_key(org_id: uuid::Uuid, sha256_hex: &str) -> String {
+    format!("org/{org_id}/quarantine/{sha256_hex}")
+}
+
 /// Which backend a process should use. Parsed from config; unknown values
 /// degrade to the documented none mode rather than failing boot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -207,5 +217,21 @@ mod tests {
             "org/00000000-0000-0000-0000-000000000000/attachments/cafe"
         );
         assert!(validate_key(&k).is_ok());
+    }
+
+    #[test]
+    fn quarantine_key_shares_the_digest_but_not_the_namespace() {
+        let org = uuid::Uuid::nil();
+        let q = quarantine_key(org, "cafe");
+        assert_eq!(
+            q,
+            "org/00000000-0000-0000-0000-000000000000/quarantine/cafe"
+        );
+        assert!(validate_key(&q).is_ok());
+        // Same digest, different namespace: neither key can be mistaken for
+        // the other, and the digest survives a release so the object can be
+        // admitted under its canonical key without re-hashing.
+        assert_ne!(q, attachment_key(org, "cafe"));
+        assert!(q.ends_with("/cafe") && attachment_key(org, "cafe").ends_with("/cafe"));
     }
 }
