@@ -30,7 +30,7 @@ Versioning is two fields:
   "core_version": "0.1.0",
   "image": {
     "name": "marula-core",
-    "roles": ["core-api", "realtime", "worker", "marula-core-cli"],
+    "roles": ["core-api", "worker", "marula-core-cli"],
     "dockerfile": "deploy/Dockerfile.rust",
     "role_arg": "BIN"
   },
@@ -39,7 +39,7 @@ Versioning is two fields:
       "name": "all-in-one",
       "title": "...", "description": "...",
       "services": [{ "name": "core-api", "role": "core-api",
-                     "ports": [8080, 8081, 8082],
+                     "ports": [8080, 8082],
                      "needs": ["postgres", "redis"] }],
       "sets": { "MARULA_ALL_IN_ONE": "1", "...": "..." }
     }
@@ -55,9 +55,9 @@ Versioning is two fields:
 One image runs any role. The `role_arg` selects the binary (`BIN`), so a
 deployment builds or pulls the image once and runs each role as a process.
 
-`profiles` are the named deployment shapes. `split` runs core-api, realtime and
+`profiles` are the named deployment shapes. `split` runs core-api and
 worker as separate processes. `all-in-one` runs one core-api that hosts the
-worker loops and the realtime hub, and `sets` carries the presets that make it
+worker loops and serves the SSE live-push stream, and `sets` carries the presets that make it
 so plus the small-install cadence profile.
 
 `params` is the runtime surface: every env var a deployment may set, its group,

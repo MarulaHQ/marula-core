@@ -107,7 +107,6 @@ the origin otherwise.
 | `/api`, `/api/*` | `core-api:8080` | canonical `/api/v1` and legacy `/api` |
 | `/openapi.json` | `core-api:8080` | SDK contract |
 | `/healthz` | `core-api:8080` | liveness, rewritten to `/api/health` (core-api's real route) |
-| `/ws` | `realtime:8081` | WebSocket upgrade |
 
 `/internal/*` is deliberately not routed. That is the worker-to-core effect
 seam, guarded by its own token; the console answering 404 for it is the
@@ -153,11 +152,6 @@ openssl s_client -connect "$MARULA_DOMAIN:443" -servername "$MARULA_DOMAIN" </de
 curl -fsS "https://$MARULA_DOMAIN/healthz"          # core-api liveness
 curl -fsS "https://$MARULA_DOMAIN/openapi.json" | head -c 40
 curl -fsS "https://$MARULA_DOMAIN/api/health"
-
-# the WebSocket path reaches the hub, not the console: a plain GET with no
-# upgrade header is 400 from axum's upgrade extractor, and a 404 would mean
-# the request went to web instead
-curl -isS "https://$MARULA_DOMAIN/ws" | head -1
 
 # the proxy forwards the client identity core-api resolves
 curl -fsS -H 'X-Forwarded-For: 198.51.100.7' "https://$MARULA_DOMAIN/healthz" >/dev/null

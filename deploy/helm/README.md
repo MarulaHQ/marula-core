@@ -3,7 +3,7 @@
 Values-driven chart that mirrors `deploy/docker-compose.yml`. It deploys
 Postgres (the pgvector image for parity with production, or an external
 instance), Redis, a migrations job wired as a pre-upgrade hook, core-api,
-realtime, worker and web. Mailpit and Garage are opt-in profiles. Garage
+worker and web. Mailpit and Garage are opt-in profiles. Garage
 runs as a headless stateful service with a layout-bootstrap job, which
 replaced the MinIO sample. An ingress ships with the chart and is disabled
 until you want it.
@@ -45,7 +45,6 @@ coreApi:
   trustedProxies: "173.245.48.0/20,104.16.0.0/13"   # edge + controller
 web:
   nextPublicApiUrl: https://marula.example.com      # baked at build time
-  nextPublicWsUrl: wss://marula.example.com/ws      # ditto
 ```
 
 | Path | Backend | Why |
@@ -54,7 +53,6 @@ web:
 | `/api`, `/api/*` | core-api | REST, canonical `/api/v1` and legacy `/api` |
 | `/openapi.json` | core-api | SDK contract |
 | `/api/health` | core-api | liveness for probes outside the cluster (`/api/v1/health` on the canonical mount; a bare `/healthz` is a core-api 404) |
-| `/ws` | realtime | the WebSocket upgrade |
 
 `/internal/*` is deliberately not routed: that is the worker-to-core effect
 seam, guarded by its own token. An unmatched path falls through to web.
@@ -78,11 +76,8 @@ choice, and the origin IP-range firewall guidance are in
 The same two modes exist for the compose stack, in `deploy/edge/` — the
 decision does not change with the orchestrator.
 
-### Three settings that are easy to miss
+### Two settings that are easy to miss
 
-- **`web.nextPublicWsUrl`.** Baked into the client bundle like the API URL.
-  Left empty the client derives the socket address from the API base and
-  port 8081, which is a port an ingress does not publish.
 - **`coreApi.trustedProxies`.** Behind an edge or CDN, list BOTH the edge's
   published ranges AND the ingress controller's. The real-client walk skips
   every trusted hop, so a controller that is not in the list makes the
@@ -96,14 +91,13 @@ decision does not change with the orchestrator.
 ## Scaling
 
 Every app component is stateless and scales horizontally. The chart gives
-each of the four a real per-service resource envelope, replacing the one
+each of the three a real per-service resource envelope, replacing the one
 chart-wide default, and each block carries an `autoscaling` stanza that is
 off by default.
 
 | Component | requests (cpu / memory) | limits (cpu / memory) | HPA max |
 |---|---|---|---|
 | core-api | 500m / 256Mi | 2 / 512Mi | 6 |
-| realtime | 250m / 128Mi | 1 / 384Mi | 4 |
 | worker | 250m / 256Mi | 1 / 512Mi | 6 |
 | web | 100m / 128Mi | 1 / 512Mi | 4 |
 
@@ -129,7 +123,6 @@ opens its own Postgres connections: 45 at the R1 defaults (20 app + 25
 reporting), per `docs/perf.md` §5. Six replicas would ask for 270 connections
 against Postgres's default `max_connections = 100`. Scale core-api only
 behind a session pooler (PgBouncer or pgcat), or with `max_connections`
-raised to match. Worker and realtime do not share that shape. The worker
-claims work with `FOR UPDATE SKIP LOCKED` (`core-db/src/outbox.rs:47`,
-`core-db/src/queue.rs:105`), so replicas never double-process a row, and
-realtime is stateless pub/sub.
+raised to match. The worker does not share that shape: it claims work with
+`FOR UPDATE SKIP LOCKED` (`core-db/src/outbox.rs:47`,
+`core-db/src/queue.rs:105`), so replicas never double-process a row.

@@ -1,8 +1,7 @@
 # Marula local stack.
 #
 # Purpose: one command brings up the full Stage-1 system — Postgres (pg18 +
-# pgvector), Valkey (Redis-compatible), schema migration, core-api, realtime
-# WS hub, worker.
+# pgvector), Valkey (Redis-compatible), schema migration, core-api, worker.
 #
 # Role split matters: migrations and the worker run as the TABLE OWNER
 # (`marula`, RLS-bypassing — the relay must read every org's outbox),
@@ -19,7 +18,7 @@
 # Usage:
 #   docker compose -f deploy/docker-compose.yml up --build
 #
-# Ports: 15432 pg · 16379 valkey · 8080 api · 8081 ws · 8082 worker-health
+# Ports: 15432 pg · 16379 valkey · 8080 api · 8082 worker-health
 #        · 3000 web · (stage2 profile) 3900-3903 garage · 1025/8025 mailpit
 #        · (observability profile) 4317/4318 otel-collector · 3200 tempo
 #        · 3100 loki · 3001 grafana · 8010 glitchtip · 3002 uptime-kuma
@@ -238,7 +237,6 @@ services:
       # MARULA_*_URL vars are PUBLIC browser URLs — leave them empty on a
       # laptop (localhost defaults are pointless across hosts) and set them
       # when the stack runs on a server.
-      REALTIME_INTERNAL_URL: ${REALTIME_INTERNAL_URL:-http://realtime:8081}
       WORKER_INTERNAL_URL: ${WORKER_INTERNAL_URL:-http://worker:8082}
       MARULA_GLITCHTIP_URL: ${MARULA_GLITCHTIP_URL:-}
       MARULA_GRAFANA_URL: ${MARULA_GRAFANA_URL:-}
@@ -256,37 +254,6 @@ services:
       CLAMD_ADDR: ${CLAMD_ADDR:-clamav:3310}
     ports:
       - "8080:8080"
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-
-  realtime:
-    mem_limit: 384m
-    cpus: 1.0
-    logging: *default-logging
-    <<: *cap-common
-    # Rust image nonroot uid 65532; stateless (Redis + WS only) — read-only rootfs.
-    read_only: true
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile.rust
-      args: { BIN: realtime }
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      BIND_ADDR: 0.0.0.0:8081
-      JWT_SECRET: ${JWT_SECRET:-5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e}
-      # EdDSA verification key when core-api runs the asymmetric posture
-      # (Wave 34 lane 6); empty keeps the HS256-only posture.
-      MARULA_JWT_EDDSA_PUBLIC_KEY: ${MARULA_JWT_EDDSA_PUBLIC_KEY:-}
-      # OpenTelemetry (TASKLIST 2.18): empty ⇒ none mode; see header.
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      # GlitchTip DSN presence for the self-host pane (Wave 36 lane 3);
-      # the value itself is never printed by any surface.
-      GLITCHTIP_DSN_REALTIME: ${GLITCHTIP_DSN_REALTIME:-}
-    ports:
-      - "8081:8081"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -430,7 +397,7 @@ services:
 
   # ---- Observability slots (TASKLIST 2.18; --profile observability) ----
   #
-  # Wiring: core-api/realtime/worker export OTLP/HTTP (protobuf) to the
+  # Wiring: core-api and worker export OTLP/HTTP (protobuf) to the
   # collector when OTEL_EXPORTER_OTLP_ENDPOINT is set (see header); the
   # collector fans out traces → Tempo, metrics → its own Prometheus
   # exposition (:18899, scraped by Grafana's MarulaMetrics datasource),

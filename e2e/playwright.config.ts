@@ -16,7 +16,7 @@ import * as path from "node:path";
 import { MAX_RETRIES } from "./helpers/budget";
 
 // RUN-TIME env file written by scripts/e2e-stack.sh (p37-env-orchestration):
-// per-run API/web/WS ports + addresses. Loading it here kills the
+// per-run API/web ports + addresses. Loading it here kills the
 // NEXT_PUBLIC_API_URL / port drift between manual boots and Playwright's
 // webServer (report class 2): when the stack script produced the file, its
 // values win; otherwise the historical defaults apply.

@@ -1,11 +1,10 @@
 {{- if .Values.ingress.enabled -}}
 {{- $apiPort := .Values.service.coreApi.port -}}
 {{- $webPort := .Values.service.web.port -}}
-{{- $wsPort := .Values.service.realtime.port -}}
 {{- /*
 Proxy annotations for Marula's seams. The tuned defaults come first and
 ingress.annotations wins: an operator adding their own controller
-annotations must not have to re-state the body ceiling or the WebSocket
+annotations must not have to re-state the body ceiling or the streaming
 timeouts to keep them.
 */}}
 {{- $annotations := dict
@@ -65,27 +64,12 @@ spec:
           balancer, Uptime Kuma). The route is core-api's own: {base}/health,
           which is /api/health (and /api/v1/health on the canonical mount),
           already covered by the /api prefix above. A bare /healthz is NOT
-          routed here, deliberately: core-api answers it 404, realtime is the
+          routed here, deliberately: core-api answers it 404, the worker is the
           service that serves /healthz on its own port, and an ingress cannot
           rewrite a path onto /api/health without a controller-specific
           annotation that then applies to every path in this resource.
           Configure probes for /api/health and read a real answer.
           */}}
-          {{- /*
-          The realtime seam. Routed to the hub, not to web: a GET /ws with no
-          upgrade header has to reach the upgrade handler (which replies 400
-          from axum's WebSocketUpgrade extractor, not a 404 from the console).
-          nginx-ingress handles the upgrade itself once the path reaches it,
-          which is why no extra annotation is needed and why the long
-          timeouts matter more than the route.
-          */}}
-          - path: /ws
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "marula.fullname" . }}-realtime
-                port:
-                  number: {{ $wsPort }}
           - path: /
             pathType: Prefix
             backend:

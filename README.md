@@ -43,7 +43,7 @@ Some things we care about enough to enforce in CI:
 
 **Assistants that ask first and leave a paper trail.** Skills are versioned manifests, not prompt spaghetti. Guardrail rules run before every tool call. Assistant-suggested changes to a ticket or record wait as *proposed, awaiting approval*: nothing silently rewrites your team's work, and client-visible or external actions always require a human click. The audit log records who did what, person or assistant, and stays append-only. Answering "who changed this" takes one search. There is an MCP server too, so Claude, DeepSeek, or your own scripts can work inside the PSA under the same rules as everyone else. See [`docs/site/`](docs/site/index.md), [`docs/instant-first.md`](docs/instant-first.md), and [`docs/10-agent-platform.md`](docs/10-agent-platform.md).
 
-**Fast by default, with no Save button to chase.** Ticket list p95 stays under `150 ms` at `50k` tickets, and WebSocket delivery stays under `100 ms`. Those are CI gates, not aspirations. Edits save automatically with instant feedback and full undo, so you can press Ctrl/Cmd+Z to step back through changes the server already recorded.
+**Fast by default, with no Save button to chase.** Ticket list p95 stays under `150 ms` at `50k` tickets, and live-stream delivery stays under `100 ms`. Those are CI gates, not aspirations. Edits save automatically with instant feedback and full undo, so you can press Ctrl/Cmd+Z to step back through changes the server already recorded.
 
 ## Quick start
 
@@ -81,13 +81,13 @@ marula dev
 
 ```
 web (Next.js) ──► core-api (Rust/Axum) ──► PostgreSQL (RLS · FTS · pgvector)
-        │                │   outbox ──► Redis streams ──► realtime (WebSocket hub)
+        │                │   outbox event trail ──► SSE live stream on core-api
         │                ├── worker (jobs: email · SLA · sync · AI hooks)
         │                └── plugin-host (Extism WASM + HTTP connectors)
         └── @marula-core/sdk clients · MCP server · signed webhooks
 ```
 
-One writer. Every mutation emits a versioned domain event. REST, WebSocket, webhooks, plugins, and MCP are four surfaces over one contract.
+One writer. Every mutation emits a versioned domain event. REST, the SSE live stream, webhooks, plugins, and MCP are surfaces over one contract.
 
 ## Documentation
 
@@ -136,7 +136,6 @@ crates/
 ├── core-domain/    # entities, policies, domain services (pure, heavily tested)
 ├── core-db/        # SQLx queries + migrations
 ├── core-events/    # outbox, versioned event envelope, Redis stream publisher
-├── realtime/       # WebSocket hub service
 ├── worker/         # Postgres-backed job queue + job definitions
 ├── plugin-host/    # Extism WASM runtime + connector proxy
 ├── mcp-server/     # MCP protocol adapter — derived from OpenAPI + capability registry

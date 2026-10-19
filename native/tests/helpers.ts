@@ -1,56 +1,73 @@
-// Test doubles for the realtime hub and the SDK transport.
+// Test doubles for the SSE live leg and the SDK transport.
 
-import type { SocketLike } from "@/core/realtime";
+import type { WireEventSource } from "@/core/realtime";
 
-export class FakeSocket implements SocketLike {
+/** One EventSource double. `open`/`receive`/`serverClose` drive the client's
+ * listeners; `close` records an intentional stop. */
+export class FakeEventSource implements WireEventSource {
   readyState = 0;
-  sent: string[] = [];
-  onopen: ((event?: unknown) => void) | null = null;
-  onmessage: ((event: { data: unknown }) => void) | null = null;
-  onclose: ((event?: unknown) => void) | null = null;
-  onerror: ((event?: unknown) => void) | null = null;
-
-  send(data: string): void {
-    this.sent.push(data);
-  }
+  closed = false;
+  private readonly listeners = new Map<string, Set<(event?: unknown) => void>>();
 
   close(): void {
-    this.readyState = 3;
-    this.onclose?.();
+    this.closed = true;
+    this.readyState = 2;
+  }
+
+  addEventListener(type: "open" | "error" | "message", fn: (event?: unknown) => void): void {
+    const set = this.listeners.get(type) ?? new Set();
+    set.add(fn);
+    this.listeners.set(type, set);
+  }
+
+  removeEventListener(type: "open" | "error" | "message", fn: (event?: unknown) => void): void {
+    this.listeners.get(type)?.delete(fn);
   }
 
   open(): void {
     this.readyState = 1;
-    this.onopen?.();
+    this.emit("open");
   }
 
-  receive(frame: unknown): void {
-    this.onmessage?.({ data: JSON.stringify(frame) });
+  /** Deliver one frame as a message event, with the frame's SSE `id:` field. */
+  receive(frame: unknown, lastEventId = ""): void {
+    this.receiveRaw(JSON.stringify(frame), lastEventId);
   }
 
-  frames(): Record<string, unknown>[] {
-    return this.sent.map((raw) => JSON.parse(raw) as Record<string, unknown>);
+  /** Deliver a raw `data:` payload (for malformed-frame cases). */
+  receiveRaw(data: string, lastEventId = ""): void {
+    this.emit("message", { data, lastEventId });
   }
 
+  /** A refused stream: readyState CLOSED, then an error (the client reconnects). */
   serverClose(): void {
-    this.readyState = 3;
-    this.onclose?.();
+    this.readyState = 2;
+    this.emit("error");
+  }
+
+  /** A transient drop the source retries itself (state stays CONNECTING/OPEN). */
+  fail(): void {
+    this.emit("error");
+  }
+
+  private emit(type: string, event?: unknown): void {
+    for (const fn of [...(this.listeners.get(type) ?? [])]) fn(event);
   }
 }
 
-export class FakeSocketFactory {
-  sockets: FakeSocket[] = [];
+export class FakeEventSourceFactory {
+  sources: FakeEventSource[] = [];
 
-  create(): FakeSocket {
-    const socket = new FakeSocket();
-    this.sockets.push(socket);
-    return socket;
+  create(): FakeEventSource {
+    const source = new FakeEventSource();
+    this.sources.push(source);
+    return source;
   }
 
-  latest(): FakeSocket {
-    const socket = this.sockets[this.sockets.length - 1];
-    if (socket === undefined) throw new Error("no socket created yet");
-    return socket;
+  latest(): FakeEventSource {
+    const source = this.sources[this.sources.length - 1];
+    if (source === undefined) throw new Error("no source created yet");
+    return source;
   }
 }
 

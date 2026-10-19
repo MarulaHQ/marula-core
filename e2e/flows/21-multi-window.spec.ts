@@ -63,7 +63,7 @@ test("two windows, one mutation, both update (note posted in popout shows in mai
   await popout.getByTestId("note-post").click();
   await expect(popout.getByText(body).first()).toBeVisible({ timeout: 20_000 });
 
-  // The MAIN window surfaces it live — BroadcastChannel echo + realtime hub.
+  // The MAIN window surfaces it live — BroadcastChannel echo + the SSE live stream.
   await expect(authedPage.getByText(body).first()).toBeVisible({ timeout: 20_000 });
 });
 

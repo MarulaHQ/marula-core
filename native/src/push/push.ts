@@ -2,8 +2,8 @@
 //
 // Purpose: request permission, set the Android channel, acquire the device
 // push token, and route notification taps into the app's deep links. The
-// notification-center fan-out (`notification.created` over the realtime
-// socket) already reaches every signed-in client; native push adds the
+// notification-center fan-out (`notification.created` over the live event
+// stream) already reaches every signed-in client; native push adds the
 // background leg.
 //
 // Honest gap (recorded in the landing record): the server contract has no
@@ -36,7 +36,7 @@ export interface PushState {
 }
 
 const NOT_CONFIGURED_DETAIL =
-  "Native push needs an EAS project id and a server device-registration endpoint. The in-app notification center works today over the live socket.";
+  "Native push needs an EAS project id and a server device-registration endpoint. The in-app notification center works today over the live event stream.";
 
 export async function registerForPush(projectId: string): Promise<PushState> {
   if (Platform.OS === "web") {

@@ -8,7 +8,7 @@
 //   duplicating navigation, and phantom presence can be cleaned up.
 // - entity echo: the local leg of cross-window consistency — when one
 //   window's optimistic write lands, siblings hear about it immediately
-//   (the realtime SSE/WS hub remains the authoritative second leg).
+//   (the SSE hub remains the authoritative second leg).
 // - session events: one logout / re-login is broadcast so EVERY window
 //   reflects the session honestly — expired session signs out all, one
 //   re-login restores all.

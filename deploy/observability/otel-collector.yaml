@@ -1,6 +1,6 @@
 # OpenTelemetry Collector — the single ingest point for Marula telemetry.
 #
-# Purpose: receive OTLP from core-api / realtime / worker and route each
+# Purpose: receive OTLP from core-api and worker, and route each
 # signal to its store:
 #   traces  → Tempo   (OTLP/HTTP, http://tempo:4318)
 #   metrics → Prometheus exposition on :18899, scraped by Grafana's

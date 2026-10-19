@@ -12,7 +12,7 @@
 // flex child of the shell column — NEVER a fixed overlay occluding content.
 //
 // Non-purpose: no timer math (server owns segments — useTimer reconciles
-// via timer.* WS events); no ticket queue — Switch deep-links to /today
+// via timer.* stream events); no ticket queue — Switch deep-links to /today
 // where per-ticket start lives.
 "use client";
 

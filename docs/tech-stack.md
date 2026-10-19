@@ -87,7 +87,7 @@ gate drift.
 
 | Concern | Choice |
 | --- | --- |
-| Server | Axum 0.8 (WebSocket feature enabled) on Tokio 1 (full) |
+| Server | Axum 0.8 on Tokio 1 (full) |
 | Middleware | Tower 0.5, `tower-http` 0.6 (trace, CORS) |
 | OpenAPI | `utoipa` 5 + `utoipa-scalar` 0.2 |
 | Serialization | `serde`, `serde_json`, `serde_urlencoded` |
@@ -122,16 +122,20 @@ MCP server.
 | `core-otel` | Telemetry init, instruments, redaction |
 | `plugin-host` | Plugin install, capability grants, signed distribution |
 | `mcp-server` | Model Context Protocol over stdio and HTTP |
-| `realtime` | WebSocket hub, presence, relay |
 | `worker` | Queue runner and background sweeps |
 | `perf-harness` | Seed generator, p95 measurement, load runner (test infra) |
 | `marula-core-cli` | `clap` 4 CLI: migrate, seed-demo, upgrade, pin dumps |
 
-## 8. Realtime and background work
+## 8. Live delivery and background work
 
-`crates/realtime` runs an Axum WebSocket hub. It verifies JWTs on connect, tracks
-presence, and relays through Valkey pub-sub so a horizontally scaled fleet shares one
-channel state. `crates/worker` owns the queue runner plus these loops: SLA, PM,
+Live delivery is one leg: the SSE stream at `GET /api/events/stream`, served by
+`crates/core-api`. `crates/core-api/src/realtime.rs` listens to the Postgres
+`marula_events` NOTIFY channel and fans contract-event frames out to org-scoped
+subscribers; presence is in-process memory with a TTL, relayed between replicas on
+the `marula_presence` NOTIFY channel and emitted as `type: "presence"` frames on
+the same stream. `crates/core-api/src/routes/events.rs` serves the stream, and
+`routes/presence.rs` serves the roster read and the heartbeat write. There is no
+separate socket service. `crates/worker` owns the queue runner plus these loops: SLA, PM,
 rotation, dedupe, time, digest, CSAT, automations, notifications, email, delivery,
 search indexer, outbound webhooks, project billing, decision fan-out, the two
 retention sweeps (workflow runs, event outbox), and org usage refresh. The event
@@ -143,7 +147,7 @@ stream it publishes to is capped at a fixed entry count — see
 | Store | What runs | Client |
 | --- | --- | --- |
 | Postgres 18 + pgvector 0.8 | Primary data, embeddings | `sqlx` 0.8 (runtime-tokio, rustls, postgres, uuid, chrono, json, migrate) |
-| Valkey 8.1.10 | Cache, pub-sub, realtime relay | `redis` 0.27 |
+| Valkey 8.1.10 | Cache, event pub-sub | `redis` 0.27 |
 | Garage 1.1 | S3-compatible object storage | `object_store` 0.12 (aws feature) |
 | ClamAV 1.5.4 | Attachment scanning | `core-mail` scan module |
 | Mailpit 1.31.3 | Local SMTP sink | Dev only |

@@ -200,11 +200,11 @@ A default stack, by process, opens:
 | --- | --- | --- | --- |
 | core-api | app | 20 | `MARULA_DB_POOL_MAX` |
 | core-api | reporting (RLS role) | 25 | `MARULA_REPORTING_POOL_MAX` |
+| core-api | LISTEN (event trail + presence NOTIFY) | 1 | — |
 | worker | app (owner role) | 20 | `MARULA_DB_POOL_MAX` |
 | worker | delivery reporting | 5 | `DELIVERY_POOL_MAX` |
-| realtime | LISTEN connection | 1 | — |
 
-That is **45 (core-api) + 25 (worker) + 1 (listener) = 71 connections**
+That is **46 (core-api) + 25 (worker) = 71 connections**
 for the default one-box stack against the Postgres default
 `max_connections = 100` — thinner headroom than the earlier "51" figure,
 which counted a webhooks pool that only exists in a test fixture, not in

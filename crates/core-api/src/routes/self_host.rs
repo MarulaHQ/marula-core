@@ -2,7 +2,7 @@
 //!
 //! Purpose: one owner/admin read surface answering the self-hoster's real
 //! question — "does the operator ever see the ops stack?" It returns the
-//! stack health sweep (database, Valkey, realtime, worker, and the API
+//! stack health sweep (database, Valkey, worker, and the API
 //! itself), the ClamAV scan state with the recently quarantined messages
 //! (RLS-scoped), which GlitchTip DSNs are configured per service (a boolean
 //! per service — never the DSN), the external-UI links the operator set,
@@ -80,17 +80,13 @@ pub async fn get(
     }
     tx.commit().await.map_err(ApiError::from)?;
 
-    // --- stack sweep (bounded; the two HTTP probes run concurrently) ---
+    // --- stack sweep (bounded) ---
     let client = reqwest::Client::builder()
         .timeout(PROBE_TIMEOUT)
         .build()
         .unwrap_or_default();
-    let realtime_url = env_text("REALTIME_INTERNAL_URL");
     let worker_url = env_text("WORKER_INTERNAL_URL");
-    let (realtime, worker) = tokio::join!(
-        probe_optional_http(&client, realtime_url.as_deref()),
-        probe_optional_http(&client, worker_url.as_deref()),
-    );
+    let worker = probe_optional_http(&client, worker_url.as_deref()).await;
     let database = probe_database(&state).await;
     let valkey = probe_valkey(&state.config.redis_url).await;
 
@@ -117,13 +113,6 @@ pub async fn get(
             loops: None,
         },
         ServiceView {
-            id: "realtime".into(),
-            label: "realtime hub".into(),
-            state: realtime.state.into(),
-            detail: realtime.detail.clone(),
-            loops: None,
-        },
-        ServiceView {
             id: "worker".into(),
             label: "worker".into(),
             state: worker.state.into(),
@@ -142,11 +131,6 @@ pub async fn get(
                 "unset".into()
             },
             detail: Some("read from this process's environment".into()),
-        },
-        DsnRow {
-            service: "realtime".into(),
-            state: dsn_state(&realtime.body),
-            detail: Some(dsn_detail(&realtime)),
         },
         DsnRow {
             service: "worker".into(),

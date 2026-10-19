@@ -15,9 +15,11 @@
 //!    never mounted, which parity alone cannot catch.
 //! 3. Auth-parity fixtures: unauthenticated 401 shapes and failed-login
 //!    bodies are byte-equal across prefixes.
-//! 4. Scope guards: WS/realtime stays OUT of this router (the hub is a
-//!    separate binary/port); the machine-only search endpoints stay
-//!    UNVERSIONED by design; Scalar docs stay root-level only.
+//! 4. Scope guards: the live leg is this API's own SSE stream
+//!    (`/api/events/stream`, plus the presence routes) on the API's single
+//!    published port — no second live-push binary or port; the machine-only
+//!    search endpoints stay UNVERSIONED by design; Scalar docs stay
+//!    root-level only.
 //! 5. Snapshot drift gate: the served `/openapi.json` equals the committed
 //!    SDK snapshot exactly (key-for-key), that snapshot documents v1 paths
 //!    exclusively (zero legacy keys), and it covers no nonexistent surface
@@ -409,12 +411,43 @@ async fn authenticated_read_parity_on_representative_fixtures() {
 }
 
 #[tokio::test]
-async fn realtime_and_docs_stay_outside_both_mounts() {
+async fn live_leg_is_the_api_stream_and_docs_stay_at_root() {
     let state = test_state().await;
     let app = core_api::routes::build_router(state.clone());
 
-    // The realtime hub is a separate binary/port (crates/realtime): its
-    // socket path must NOT appear inside either API mount.
+    // The live leg is THIS API's own SSE stream, mounted on this process's
+    // one published port at `/api/events/stream` and dual-mounted under the
+    // versioned prefix like every other route. The presence routes ride the
+    // same in-process machinery. Auth rejects these unauthenticated probes
+    // (401 or 405); what matters is that the routes are REGISTERED — an
+    // empty-body 404 is axum's unmatched sentinel and means never mounted.
+    for uri in [
+        format!("{LEGACY}/events/stream"),
+        format!("{CANONICAL}/events/stream"),
+    ] {
+        let (status, body) =
+            status_and_body(send(&app, axum::http::Method::GET, &uri, None, None).await).await;
+        assert!(
+            !(status == 404 && body.is_empty()),
+            "{uri} is the live leg and must be mounted"
+        );
+    }
+    for uri in [
+        format!("{LEGACY}/presence/heartbeat"),
+        format!("{CANONICAL}/presence/heartbeat"),
+    ] {
+        let (status, body) = status_and_body(
+            send(&app, axum::http::Method::POST, &uri, None, Some(json!({}))).await,
+        )
+        .await;
+        assert!(
+            !(status == 404 && body.is_empty()),
+            "{uri} is part of the live leg and must be mounted"
+        );
+    }
+
+    // No second live-push surface is published: the retired WebSocket hub's
+    // paths are gone from both mounts, so nothing shadows the stream.
     for uri in [
         format!("{LEGACY}/ws"),
         format!("{CANONICAL}/ws"),

@@ -37,7 +37,7 @@ Because custom fields, board workflows, and automation rules are stored as struc
 
 Marula guarantees stability across four public boundaries:
 
-- The REST and WebSocket APIs (`/api/v1/…`)
+- The REST and SSE APIs (`/api/v1/…`, `/api/events/stream`)
 - Versioned domain events and webhooks
 - The plugin manifest contract
 - Declared customizations and `ops.v1_*` reporting views

@@ -8,7 +8,7 @@
 // Purpose: mirror the web auth semantics exactly (typed IF3 failures,
 // MFA-gated login via the bridge token, rotating refresh cookies replaced by
 // the SecureStore-held refresh pair) while adding the native-only legs:
-// platform biometric unlock and a proactive refresh so the realtime socket
+// platform biometric unlock and a proactive refresh so the event stream
 // always reconnects with a live access token.
 //
 // Non-purpose: no routing (expo-router redirects off `status`) and no cache

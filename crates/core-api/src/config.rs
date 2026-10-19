@@ -181,9 +181,9 @@ pub struct Config {
     /// pool, so it carries its own ceiling.
     pub reporting_pool_max: u32,
     /// All-in-one hosting (Wave 49 lane R4): env `MARULA_ALL_IN_ONE=1` runs
-    /// the worker loops and the realtime hub inside THIS process, so a
-    /// demo/tiny install needs one container instead of three. Unset keeps
-    /// the split topology the compose stack ships.
+    /// the worker loops inside THIS process, so a demo/tiny install needs
+    /// one container instead of two. Unset keeps the split topology the
+    /// compose stack ships.
     pub all_in_one: bool,
     /// OWNER-role Postgres URL for the embedded worker loops
     /// (`MARULA_WORKER_DATABASE_URL`). Required when `all_in_one` is on:
@@ -192,10 +192,6 @@ pub struct Config {
     /// outbox relay publish nothing, silently (RLS filters every row with
     /// no error; see `crates/worker` config notes).
     pub worker_database_url: Option<String>,
-    /// Realtime-hub listen address in all-in-one mode
-    /// (`MARULA_REALTIME_BIND_ADDR`, default `0.0.0.0:8081`). Distinct from
-    /// `bind_addr` because both servers share one process.
-    pub realtime_bind_addr: String,
     /// Worker health-endpoint listen address in all-in-one mode
     /// (`MARULA_WORKER_BIND_ADDR`, default `0.0.0.0:8082`).
     pub worker_bind_addr: String,
@@ -347,8 +343,8 @@ impl Config {
         let jwt_secret = Config::DEV_JWT_SECRET.to_string();
         Self {
             database_url,
-            // core-api never connects to Redis in-process (the realtime
-            // hub rides Postgres LISTEN); the field exists for compose
+            // core-api never connects to Redis in-process (its live event
+            // stream rides Postgres LISTEN); the field exists for compose
             // wiring, so an unreachable placeholder documents that.
             redis_url: "redis://127.0.0.1:1/0".into(),
             bind_addr: format!("127.0.0.1:{api_port}"),
@@ -374,11 +370,10 @@ impl Config {
             max_upload_bytes: core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
             db_pool_max: core_db::DEFAULT_POOL_MAX,
             reporting_pool_max: 25,
-            // Desktop shell is the API only; the split services (worker,
-            // realtime) still run as their own processes on that profile.
+            // Desktop shell is the API only; the worker still runs as its
+            // own process on that profile.
             all_in_one: false,
             worker_database_url: None,
-            realtime_bind_addr: "0.0.0.0:8081".into(),
             worker_bind_addr: "0.0.0.0:8082".into(),
             migration_rate_limit_per_min: 600,
             dispatch_rate_limit_per_min: 600,
@@ -421,8 +416,8 @@ impl Config {
     ///
     /// * the embedded worker has no OWNER-role URL (`MARULA_WORKER_DATABASE_URL`),
     ///   so its cross-org reads would return nothing under the app role's RLS;
-    /// * two of the three in-process servers agree on a port, so one fails
-    ///   to bind after the others are already running.
+    /// * the API's own server and the worker's health server agree on a port,
+    ///   so one fails to bind after the other is already running.
     pub fn validate_all_in_one(&self) -> Result<(), String> {
         if !self.all_in_one {
             return Ok(());
@@ -443,30 +438,21 @@ impl Config {
         }
         if let Some((a, b)) = self.all_in_one_port_clash() {
             return Err(format!(
-                "MARULA_ALL_IN_ONE=1 needs three distinct ports, but {a} and {b} share \
-                 one: BIND_ADDR={}, MARULA_REALTIME_BIND_ADDR={}, \
-                 MARULA_WORKER_BIND_ADDR={}",
-                self.bind_addr, self.realtime_bind_addr, self.worker_bind_addr
+                "MARULA_ALL_IN_ONE=1 needs two distinct ports, but {a} and {b} share \
+                 one: BIND_ADDR={}, MARULA_WORKER_BIND_ADDR={}",
+                self.bind_addr, self.worker_bind_addr
             ));
         }
         Ok(())
     }
 
-    /// The first pair of the three listen addresses that end in the same
-    /// port, as `(VAR_A, VAR_B)` for the error copy.
+    /// The two listen addresses that collide, as `(VAR_A, VAR_B)` for the
+    /// error copy: the API's own server and the worker's health server
+    /// cannot share a port in one process.
     fn all_in_one_port_clash(&self) -> Option<(String, String)> {
         let port = |addr: &str| addr.rsplit(':').next().unwrap_or("").trim().to_string();
-        let binders = [
-            ("BIND_ADDR", &self.bind_addr),
-            ("MARULA_REALTIME_BIND_ADDR", &self.realtime_bind_addr),
-            ("MARULA_WORKER_BIND_ADDR", &self.worker_bind_addr),
-        ];
-        for i in 0..binders.len() {
-            for j in (i + 1)..binders.len() {
-                if port(binders[i].1) == port(binders[j].1) {
-                    return Some((binders[i].0.to_string(), binders[j].0.to_string()));
-                }
-            }
+        if port(&self.bind_addr) == port(&self.worker_bind_addr) {
+            return Some(("BIND_ADDR".into(), "MARULA_WORKER_BIND_ADDR".into()));
         }
         None
     }
@@ -680,8 +666,6 @@ impl Config {
             worker_database_url: std::env::var("MARULA_WORKER_DATABASE_URL")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
-            realtime_bind_addr: std::env::var("MARULA_REALTIME_BIND_ADDR")
-                .unwrap_or_else(|_| "0.0.0.0:8081".into()),
             worker_bind_addr: std::env::var("MARULA_WORKER_BIND_ADDR")
                 .unwrap_or_else(|_| "0.0.0.0:8082".into()),
         };
@@ -837,7 +821,8 @@ fn jwt_signing_from_env() -> Result<Option<JwtSigningKey>, String> {
         (None, Some(_)) => {
             return Err(
                 "MARULA_JWT_EDDSA_PUBLIC_KEY is set without MARULA_JWT_EDDSA_PRIVATE_KEY — \
-                 core-api both signs and verifies; the public-only posture belongs to realtime"
+                 the process must be able to sign the tokens it verifies (generate the pair with: \
+                 openssl genpkey -algorithm ED25519)"
                     .into(),
             )
         }
@@ -936,7 +921,6 @@ impl Config {
             reporting_pool_max: 25,
             all_in_one: false,
             worker_database_url: None,
-            realtime_bind_addr: "0.0.0.0:8081".into(),
             worker_bind_addr: "0.0.0.0:8082".into(),
             migration_rate_limit_per_min: 600,
             dispatch_rate_limit_per_min: 600,
@@ -1228,24 +1212,18 @@ mod all_in_one_tests {
         assert!(c.validate_all_in_one().is_err());
     }
 
-    /// One process serving three ports: a shared port means one server
-    /// fails to bind after the others are live, so the clash is refused
-    /// up front.
+    /// One process serving two ports: a shared port means one server fails
+    /// to bind after the other is live, so the clash is refused up front.
+    /// Host spelling is irrelevant — the port is what collides.
     #[test]
-    fn refuses_a_shared_port_between_the_three_servers() {
+    fn refuses_a_shared_port_between_the_two_servers() {
         let mut c = enabled();
         c.bind_addr = "0.0.0.0:8080".into();
-        c.realtime_bind_addr = "0.0.0.0:8081".into();
         c.worker_bind_addr = "0.0.0.0:8082".into();
         assert!(c.validate_all_in_one().is_ok());
 
-        c.realtime_bind_addr = "0.0.0.0:8080".into();
+        c.worker_bind_addr = "127.0.0.1:8080".into();
         let err = c.validate_all_in_one().unwrap_err();
         assert!(err.contains("distinct ports"), "got: {err}");
-
-        // Host spelling is irrelevant; the port is what collides.
-        c.realtime_bind_addr = "0.0.0.0:8081".into();
-        c.worker_bind_addr = "127.0.0.1:8081".into();
-        assert!(c.validate_all_in_one().is_err());
     }
 }

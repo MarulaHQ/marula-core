@@ -10,9 +10,9 @@
 //! outbox emission for every mutation, and RBAC gating (no scheduling
 //! grant ⇒ 403) with cross-org isolation.
 //!
-//! Non-purpose: pure capacity math (core-domain suite), WS delivery of
-//! the org channel (realtime crate suite), drag-state reducer logic
-//! (apps/web vitest).
+//! Non-purpose: pure capacity math (core-domain suite), live-stream
+//! delivery of the org channel (the SSE suite in `realtime_flow.rs`),
+//! drag-state reducer logic (apps/web vitest).
 
 use axum::Router;
 use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};

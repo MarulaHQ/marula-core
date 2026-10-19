@@ -41,7 +41,7 @@ export interface Runtime {
 
 /** SSE URL for one stream scope (null = org-wide), auth via `?token=` —
  * EventSource cannot set headers; the server accepts the query token on
- * the stream path only (same posture as the /ws upgrade). */
+ * the stream path only. */
 function streamUrl(scope: string | null): string | null {
   const tokens = loadTokens();
   if (tokens === null) return null;

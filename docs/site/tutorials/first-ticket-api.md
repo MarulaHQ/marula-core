@@ -73,7 +73,7 @@ curl -s "localhost:8080/api/v1/events?limit=5" \
   -H "authorization: Bearer $TOKEN"
 ```
 
-You will see `ticket.created` along with the timer and time-entry events ready for webhooks, automation rules, and the WebSocket hub.
+You will see `ticket.created` along with the timer and time-entry events ready for webhooks, automation rules, and the live stream.
 
 ## What you learned
 

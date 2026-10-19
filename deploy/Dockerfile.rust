@@ -1,7 +1,7 @@
 # Marula backend image builder.
 #
 # Purpose: one parameterized image for all Rust binaries (core-api,
-# realtime, worker, marula-core-cli). Build with --build-arg BIN=<name>.
+# worker, marula-core-cli). Build with --build-arg BIN=<name>.
 # Non-purpose: no frontend build here; apps/web gets its own image when
 # it lands.
 #

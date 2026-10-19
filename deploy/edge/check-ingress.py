@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Assert the rendered chart's Ingress routes exactly the four seams.
+"""Assert the rendered chart's Ingress routes exactly the three seams.
 
 Split out of check-edge.sh so the assertion parses the Ingress document
-instead of grepping the whole render: realtime and the worker carry their
-own `path: /healthz` readinessProbes, and a grep over the render cannot
-tell those apart from an ingress route (it once reported a pass for a
-healthz route that had already been removed).
+instead of grepping the whole render: the worker carries its own
+`path: /healthz` readinessProbe, and a grep over the render cannot tell
+that apart from an ingress route (it once reported a pass for a healthz
+route that had already been removed).
 
 Usage: check-ingress.py <rendered-manifests.yaml>
 """
@@ -28,7 +28,7 @@ def main(path: str) -> int:
         for p in rules[0]["http"]["paths"]
     ]
     got = {path for path, _ in paths}
-    want = {"/api", "/openapi.json", "/ws", "/"}
+    want = {"/api", "/openapi.json", "/"}
     services = {name for _, name in paths}
 
     problems = []
@@ -36,8 +36,6 @@ def main(path: str) -> int:
         problems.append(f"ingress paths are {sorted(got)}, expected {sorted(want)}")
     if "/healthz" in got:
         problems.append("ingress routes /healthz, which core-api answers 404")
-    if not any(name.endswith("-realtime") for name in services):
-        problems.append("no ingress path reaches the realtime service")
     if not any(name.endswith("-core-api") for name in services):
         problems.append("no ingress path reaches core-api")
     if not any(name.endswith("-web") for name in services):

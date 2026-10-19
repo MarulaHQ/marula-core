@@ -89,7 +89,6 @@ jobs:
       # Per-run, non-default ports. Two previews on one host must not
       # collide, and the overlay reads these instead of hardcoding.
       PREVIEW_API_PORT: 8080
-      PREVIEW_WS_PORT: 8081
       PREVIEW_WEB_PORT: 3000
       # The owner-provided target. Repository variables, not secrets: none
       # of these four is a credential, and a host name or URL has no
@@ -207,7 +206,6 @@ jobs:
           PREVIEW_MARULA_SECRET_KEY: ${{ env.PREVIEW_MARULA_SECRET_KEY }}
           PREVIEW_API_URL: ${{ env.PREVIEW_API_URL }}
           PREVIEW_API_PORT: ${{ env.PREVIEW_API_PORT }}
-          PREVIEW_WS_PORT: ${{ env.PREVIEW_WS_PORT }}
           PREVIEW_WEB_PORT: ${{ env.PREVIEW_WEB_PORT }}
           PREVIEW_CORS_ORIGIN: ${{ env.PREVIEW_CORS_ORIGIN }}
           PREVIEW_PUBLIC_URL: ${{ env.PREVIEW_PUBLIC_URL }}
@@ -237,25 +235,25 @@ jobs:
           ssh "$PREVIEW_HOST" bash -s -- \
             "$PREVIEW_JWT_SECRET" "$PREVIEW_MARULA_SECRET_KEY" \
             "$PREVIEW_API_URL" "$PREVIEW_API_PORT" \
-            "$PREVIEW_WS_PORT" "$PREVIEW_WEB_PORT" \
+            "$PREVIEW_WEB_PORT" \
             "$PREVIEW_CORS_ORIGIN" "$PREVIEW_PUBLIC_URL" \
             "$PREVIEW_TLS_MODE" "${CF_API_TOKEN:-}" \
             "${MARULA_DOMAIN:-}" <<'REMOTE'
           set -euo pipefail
           PREVIEW_JWT_SECRET="$1"; PREVIEW_MARULA_SECRET_KEY="$2"
           PREVIEW_API_URL="$3"; PREVIEW_API_PORT="$4"
-          PREVIEW_WS_PORT="$5"; PREVIEW_WEB_PORT="$6"
-          PREVIEW_CORS_ORIGIN="$7"; PREVIEW_PUBLIC_URL="$8"
-          PREVIEW_TLS_MODE="$9"; CF_API_TOKEN="${10}"
-          MARULA_DOMAIN="${11}"
+          PREVIEW_WEB_PORT="$5"
+          PREVIEW_CORS_ORIGIN="$6"; PREVIEW_PUBLIC_URL="$7"
+          PREVIEW_TLS_MODE="$8"; CF_API_TOKEN="${9}"
+          MARULA_DOMAIN="${10}"
           export PREVIEW_JWT_SECRET PREVIEW_MARULA_SECRET_KEY PREVIEW_API_URL \
-                 PREVIEW_API_PORT PREVIEW_WS_PORT PREVIEW_WEB_PORT \
+                 PREVIEW_API_PORT PREVIEW_WEB_PORT \
                  PREVIEW_CORS_ORIGIN PREVIEW_PUBLIC_URL CF_API_TOKEN \
                  MARULA_DOMAIN
           cd "$PREVIEW_CHECKOUT"
 
           # The TLS front door, when asked for. The edge overlay is LAST:
-          # its `ports: !override []` on core-api/realtime/web is what
+          # its `ports: !override []` on core-api and web is what
           # takes the raw ports off the network, and compose only applies
           # that replacement when the file carrying it comes last. Layered
           # first it would be a decoration over the same published ports.
@@ -269,9 +267,6 @@ jobs:
             # takes its certificate from deploy/edge/certs on the host.
             export MARULA_TLS_MODE="$PREVIEW_TLS_MODE"
             export ACME_EMAIL="${PREVIEW_ACME_EMAIL:-}"
-            # The edge removes the raw 8081, so the socket has to be dialled
-            # through the proxy path or the browser fails to connect.
-            export PREVIEW_WS_URL="wss://${MARULA_DOMAIN}/ws"
           fi
           docker compose "${COMPOSE_FILES[@]}" "${PROFILE_ARGS[@]}" up --build -d
 

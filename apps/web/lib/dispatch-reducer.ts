@@ -503,7 +503,7 @@ export function dispatchReducer(
       const rest = { ...state.pending };
       delete rest[action.key];
       // Assign optimism used a TEMP block id: clear it here and let the
-      // authoritative appointment (WS echo / reload) land via
+      // authoritative appointment (the drop response or a reload) land via
       // reconcile_upsert under its real id.
       const technicians =
         entry.kind === "assign"

@@ -142,13 +142,14 @@ pub async fn stream(
         futures_util::stream::empty::<Result<SseEvent, Infallible>>().boxed()
     };
 
-    let frames = futures_util::stream::unfold(rx, |mut rx| async move {
-        rx.recv().await.map(|frame| {
-            let id = frame.id.map(|u| u.to_string());
-            let data = serde_json::to_string(&*frame).unwrap_or_else(|_| "{}".to_string());
-            (Ok::<_, Infallible>(sse_frame(data, id)), rx)
-        })
-    });
+    let frames =
+        futures_util::stream::unfold((rx, LiveSession::open()), |(mut rx, session)| async move {
+            rx.recv().await.map(|frame| {
+                let id = frame.id.map(|u| u.to_string());
+                let data = serde_json::to_string(&*frame).unwrap_or_else(|_| "{}".to_string());
+                (Ok::<_, Infallible>(sse_frame(data, id)), (rx, session))
+            })
+        });
     let body = Sse::new(replay_stream.chain(cutoff_stream).chain(frames)).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(15))
@@ -162,5 +163,26 @@ fn sse_frame(data: String, id: Option<String>) -> SseEvent {
     match id {
         Some(id) => event.id(id),
         None => event,
+    }
+}
+
+/// Counts one live-stream session for as long as its response body lives.
+///
+/// The gauge is decremented in `Drop`, so it stays exact however the session
+/// ends: the client disconnects, the hub shuts down, or the stream finishes on
+/// its own. The guard rides inside the frame stream's state, so the body
+/// dropping the stream drops the guard with it.
+struct LiveSession;
+
+impl LiveSession {
+    fn open() -> Self {
+        core_otel::metrics::live_session_opened();
+        Self
+    }
+}
+
+impl Drop for LiveSession {
+    fn drop(&mut self) {
+        core_otel::metrics::live_session_closed();
     }
 }

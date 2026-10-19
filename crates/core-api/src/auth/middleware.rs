@@ -157,8 +157,7 @@ pub async fn require_auth(
     }
 
     // SSE browser clients (native EventSource) cannot set request
-    // headers, so the events stream accepts `?token=` as a fallback —
-    // the same posture as the /ws upgrade (crates/realtime ws.rs).
+    // headers, so the events stream accepts `?token=` as a fallback.
     // Scoped to the stream path only: every other endpoint keeps
     // header-only auth so tokens never leak into URLs/ logs elsewhere.
     let query_token = if request.uri().path() == "/api/events/stream" {

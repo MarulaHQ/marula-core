@@ -37,7 +37,7 @@ network, not about Marula.
 
 ### 1. SSH tunnel (no infrastructure)
 
-The overlay binds the web, API and WS ports on `0.0.0.0`, so a tunnel on
+The overlay binds the web and API ports on `0.0.0.0`, so a tunnel on
 your laptop reaches them:
 
 ```sh
@@ -72,7 +72,6 @@ export ACME_EMAIL=ops@example.com                  # direct and cf-dns01 only
 export PREVIEW_PUBLIC_URL=https://pr-482.preview.example.com
 export PREVIEW_API_URL=https://pr-482.preview.example.com
 export PREVIEW_CORS_ORIGIN=https://pr-482.preview.example.com
-export PREVIEW_WS_URL=wss://pr-482.preview.example.com/ws
 
 docker compose -f deploy/docker-compose.yml \
                -f deploy/preview/compose.preview.yml \
@@ -85,14 +84,13 @@ Three things about that command that are easy to get wrong:
 - **Order.** The edge overlay clears the raw ports with
   `ports: !override []`, and compose applies that replacement only if the
   edge file comes last. Layered first, the proxy is a decoration and
-  8080/8081/3000 stay published.
-- **One URL for all three.** When TLS is on, the browser reaches the API
-  and the socket through the same origin as the console. That is what
-  makes `PREVIEW_API_URL` equal `PREVIEW_PUBLIC_URL` here, and why
-  `PREVIEW_WS_URL` is a `wss://` path instead of a port.
-- **The build arg is baked.** `NEXT_PUBLIC_API_URL` and
-  `NEXT_PUBLIC_WS_URL` are compiled into the client bundle, so changing
-  either after `up --build` changes nothing until you rebuild.
+  8080/3000 stay published.
+- **One URL for both.** When TLS is on, the browser reaches the API
+  through the same origin as the console. That is what makes
+  `PREVIEW_API_URL` equal `PREVIEW_PUBLIC_URL` here.
+- **The build arg is baked.** `NEXT_PUBLIC_API_URL` is compiled into the
+  client bundle, so changing it after `up --build` changes nothing until
+  you rebuild.
 
 Which TLS mode fits a preview host depends on how the wildcard domain is
 managed, exactly as it does for a real instance — the full decision and the
@@ -132,14 +130,13 @@ docker compose -f deploy/docker-compose.yml \
 ```
 
 The three URLs have to agree with each other and with what the browser
-uses. `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` are baked into the
-client bundle at build time, so changing either after `up --build` changes
-nothing until you rebuild — the most common reason a preview "points at
-the wrong place".
+uses. `NEXT_PUBLIC_API_URL` is baked into the client bundle at build time,
+so changing it after `up --build` changes nothing until you rebuild — the
+most common reason a preview "points at the wrong place".
 
 ## What the overlay deliberately changes
 
-**Published interfaces.** Exactly three: web, API, WebSocket. Postgres,
+**Published interfaces.** Exactly two: web and API. Postgres,
 Valkey and the worker's health port are pulled *back* to unpublished.
 Compose merges a `ports:` list from an overlay rather than replacing it,
 so the overlay uses `!override` to clear them — omitting the key would

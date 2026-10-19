@@ -1,6 +1,7 @@
 // InstantStream — SSE live leg: frame dispatch, scope refcounting, resume
 // resync, presence routing (never the reconcile path).
-import { describe, expect, it, vi, beforeEach } from "vitest";import { EventBus } from "../../lib/instant/event-bus";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { EventBus } from "../../lib/instant/event-bus";
 import { InstantStream, type WireEventSource } from "../../lib/instant/stream";
 import { __resetInstantRuntimeForTests, instantRuntime } from "../../lib/instant/runtime";
 import { seedAuthTokens } from "../helpers/mock-api";
@@ -162,6 +163,31 @@ describe("InstantStream", () => {
     created[0]!.open();
     await Promise.resolve();
     expect(rehydrate).not.toHaveBeenCalled();
+  });
+
+  it("notifies status listeners of connection transitions", () => {
+    const created: FakeSource[] = [];
+    const { stream } = makeStream(created);
+    const statuses: string[] = [];
+    stream.onStatus((s) => statuses.push(s));
+    // onStatus replays the current state on attach.
+    expect(statuses).toEqual(["closed"]);
+    const off = stream.subscribeOrg();
+    expect(statuses).toEqual(["closed", "connecting"]);
+    created[0]!.open();
+    expect(statuses).toEqual(["closed", "connecting", "open"]);
+    // A transient drop keeps the source alive for the browser to reconnect.
+    created[0]!.fail(false);
+    expect(statuses).toEqual(["closed", "connecting", "open", "connecting"]);
+    off();
+    expect(statuses).toEqual([
+      "closed",
+      "connecting",
+      "open",
+      "connecting",
+      "closed",
+    ]);
+    stream.stop();
   });
 
   it("reconnects with a fresh source when the server refuses (readyState CLOSED)", () => {

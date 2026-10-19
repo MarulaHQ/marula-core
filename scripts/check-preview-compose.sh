@@ -11,7 +11,7 @@
 # that only the merge can show:
 #
 #   1. The base's hardening survived the merge on every service.
-#   2. Exactly three interfaces are published (web, api, ws) — the database
+#   2. Exactly two interfaces are published (web, api) — the database
 #      and cache are NOT, which a per-file scan could not tell either way.
 #   3. The two required secrets are still required (a `?`-guard is a compose
 #      parse error, so this is asserted by expecting the failure).
@@ -74,7 +74,7 @@ def has(svc, key, want):
     v = (s.get(svc) or {}).get(key)
     return v is not None and want in (v if isinstance(v, list) else [v])
 # Only the services the overlay names; the rest are untouched base services.
-named = [n for n in ("core-api", "realtime", "worker", "web", "postgres", "redis")]
+named = [n for n in ("core-api", "worker", "web", "postgres", "redis")]
 cap = all(has(n, "cap_drop", "ALL") for n in named)
 def has_nnp(svc):
     # Compose normalises this to a bare "no-new-privileges" on output (the
@@ -91,7 +91,7 @@ PY
 [ "$CAPDROP" = "yes" ] && pass "cap_drop ALL on every overlay service" || fail "a service lost cap_drop ALL in the merge"
 [ "$SNO" = "yes" ] && pass "no-new-privileges on every overlay service" || fail "a service lost no-new-privileges in the merge"
 
-echo "== 4. exactly three interfaces are published =="
+echo "== 4. exactly two interfaces are published =="
 python3 - "$MERGED" <<'PY'
 import sys, yaml
 d = yaml.safe_load(open(sys.argv[1]))
@@ -100,14 +100,14 @@ published = {}
 for name, svc in s.items():
     for p in (svc.get("ports") or []):
         published.setdefault(name, []).append(f"{p.get('host_ip')}:{p.get('published')}")
-want = {"core-api", "realtime", "web"}
+want = {"core-api", "web"}
 got = set(published)
 ok = True
 if got != want:
     print(f"  ✗ published services are {sorted(got)}, expected {sorted(want)}")
     ok = False
 else:
-    print("  ✓ only web, api and ws are published")
+    print("  ✓ only web and api are published")
 for leak in ("postgres", "redis", "worker", "migrate", "garage", "mailpit"):
     if leak in got:
         print(f"  ✗ {leak} is published on the host — the overlay's !override is not load-bearing")

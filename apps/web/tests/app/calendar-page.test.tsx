@@ -2,7 +2,7 @@
 // differentiation (appointment / on call / synced busy / time off /
 // ticket deadline), overlap flagging consistent with the sync panel, and
 // the reschedule path riding POST /appointments/{id}/move (Wave 17 lane 4).
-import { describe, expect, it, beforeEach, afterAll, vi } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
 import CalendarPage from "../../app/calendar/page";
@@ -12,16 +12,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => "/calendar",
 }));
-
-/** jsdom has no usable WebSocket; the instant stream must degrade quietly. */
-class FakeWebSocket {
-  close(): void {}
-  send(): void {}
-}
-vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
-afterAll(() => {
-  vi.unstubAllGlobals();
-});
 
 const ME_ID = ME_FIXTURE.user_id;
 const APPT_ID = "00000000-0000-4000-8000-0000000000a1";

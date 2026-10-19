@@ -66,15 +66,15 @@
     },
     {
       "id": 4,
-      "title": "WebSocket sessions",
-      "description": "marula.ws.sessions up-down counter (current open sessions).",
+      "title": "Live stream sessions",
+      "description": "marula.live.sessions up-down counter (current open SSE sessions).",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "marula-metrics" },
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
       "targets": [
         {
           "refId": "A",
-          "expr": "max({__name__=~\"marula_ws_sessions.*\"})",
+          "expr": "max({__name__=~\"marula_live_sessions.*\"})",
           "legendFormat": "sessions"
         }
       ]

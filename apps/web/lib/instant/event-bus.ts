@@ -1,6 +1,6 @@
 // Event bus — a tiny synchronous pub/sub for parsed instant events.
 //
-// Purpose: decouple the socket (producer) from the store, the offline
+// Purpose: decouple the stream (producer) from the store, the offline
 // queue (reconnect triggers) and any UI listeners (consumers). One place
 // to subscribe without threading callbacks through component trees.
 //

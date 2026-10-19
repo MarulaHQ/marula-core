@@ -30,7 +30,7 @@ arrangement.
 Every window is a live peer. Post a note in the popout and it appears in
 the main window the moment it lands — no refresh, no stale mirror. The
 same goes the other way, and both windows stay in sync through the
-realtime stream even when the popout was opened hours ago.
+live stream even when the popout was opened hours ago.
 
 Sign-in is shared: sign out in one window and every window signs out; sign
 back in once and they all come back.

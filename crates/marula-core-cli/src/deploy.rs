@@ -136,7 +136,7 @@ pub fn descriptor() -> DeployDescriptor {
         core_version: env!("CARGO_PKG_VERSION"),
         image: ImageSpec {
             name: "marula-core",
-            roles: vec!["core-api", "realtime", "worker", "marula-core-cli"],
+            roles: vec!["core-api", "worker", "marula-core-cli"],
             dockerfile: "deploy/Dockerfile.rust",
             role_arg: "BIN",
         },
@@ -151,19 +151,13 @@ fn profiles() -> Vec<Profile> {
     let split = Profile {
         name: "split",
         title: "Split services",
-        description: "The default topology: core-api, realtime and worker run as separate processes so each scales and restarts on its own. The compose stack ships this shape.",
+        description: "The default topology: core-api and worker run as separate processes so each scales and restarts on its own. The compose stack ships this shape.",
         services: vec![
             Service {
                 name: "core-api",
                 role: "core-api",
                 ports: vec![8080],
                 needs: vec!["postgres", "redis"],
-            },
-            Service {
-                name: "realtime",
-                role: "realtime",
-                ports: vec![8081],
-                needs: vec!["redis"],
             },
             Service {
                 name: "worker",
@@ -178,11 +172,11 @@ fn profiles() -> Vec<Profile> {
     let all_in_one = Profile {
         name: "all-in-one",
         title: "All-in-one (demo / one-box)",
-        description: "One core-api process hosts the worker loops and the realtime hub, so a small box runs a single application container. See docs/all-in-one.md.",
+        description: "One core-api process hosts the worker loops and serves the SSE live-push stream, so a small box runs a single application container. See docs/all-in-one.md.",
         services: vec![Service {
             name: "core-api",
             role: "core-api",
-            ports: vec![8080, 8081, 8082],
+            ports: vec![8080, 8082],
             needs: vec!["postgres", "redis"],
         }],
         sets: BTreeMap::from([
@@ -216,7 +210,7 @@ fn params() -> Vec<Param> {
             Boolean,
             Some("false"),
             false,
-            "Host the worker loops and the realtime hub inside core-api.",
+            "Host the worker loops inside core-api.",
         ),
         param(
             "BIND_ADDR",
@@ -225,14 +219,6 @@ fn params() -> Vec<Param> {
             Some("0.0.0.0:8080"),
             false,
             "core-api HTTP listen address.",
-        ),
-        param(
-            "MARULA_REALTIME_BIND_ADDR",
-            "topology",
-            String,
-            Some("0.0.0.0:8081"),
-            false,
-            "Realtime hub listen address in all-in-one mode.",
         ),
         param(
             "MARULA_WORKER_BIND_ADDR",
@@ -314,7 +300,7 @@ fn params() -> Vec<Param> {
             Url,
             Some("redis://localhost:16379/0"),
             false,
-            "Redis/Valkey URL for the outbox relay, realtime hub and stream consumers.",
+            "Redis/Valkey URL for the outbox relay and stream consumers.",
         ),
         // secrets
         requires(
@@ -816,9 +802,9 @@ mod tests {
             p.sets.contains_key("MARULA_WORKER_DATABASE_URL"),
             "all-in-one must preset the owner-role URL"
         );
-        // One process, so one service, exposing all three ports.
+        // One process, so one service, exposing the API and worker-health ports.
         assert_eq!(p.services.len(), 1);
-        assert_eq!(p.services[0].ports, vec![8080, 8081, 8082]);
+        assert_eq!(p.services[0].ports, vec![8080, 8082]);
     }
 
     #[test]
@@ -828,7 +814,7 @@ mod tests {
             .find(|p| p.name == "split")
             .expect("split profile");
         let roles: Vec<&str> = p.services.iter().map(|s| s.role).collect();
-        assert_eq!(roles, vec!["core-api", "realtime", "worker"]);
+        assert_eq!(roles, vec!["core-api", "worker"]);
         assert!(p.sets.is_empty(), "split ships the defaults");
     }
 

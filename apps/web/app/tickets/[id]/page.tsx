@@ -14,7 +14,7 @@
 // old-vs-new comparison during the transition.
 //
 // Data flows through the IF4/IF5 instant layer exactly as the classic
-// workspace: hydrate-once detail snapshot, WS deltas, optimistic writes
+// workspace: hydrate-once detail snapshot, stream deltas, optimistic writes
 // reconciling from the IF2 envelope (or queued durably offline). Every
 // surface consumes the regen'd typed SDK; gaps render typed "not
 // available yet" states — never fake data or dead buttons.

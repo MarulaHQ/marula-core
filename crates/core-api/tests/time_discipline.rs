@@ -8,8 +8,8 @@
 //! center wiring (`missing_time` kind), the self/manager gap reports, and
 //! the org time-settings round-trip.
 //!
-//! Non-purpose: WS hub delivery (realtime crate's own suite) and pure
-//! domain rules (core-domain unit/proptest suites).
+//! Non-purpose: live-stream delivery (the SSE suite in `realtime_flow.rs`)
+//! and pure domain rules (core-domain unit/proptest suites).
 
 use axum::Router;
 use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};

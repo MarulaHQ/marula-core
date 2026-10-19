@@ -8,7 +8,6 @@
  *   bash scripts/e2e-stack.sh up
  *   . e2e/.e2e-stack.env
  *   EXPO_PUBLIC_API_URL=http://localhost:$E2E_API_PORT \
- *   EXPO_PUBLIC_WS_URL=$E2E_WS_URL \
  *   pnpm --filter @marula-core/native exec expo start --web --port $E2E_WEB_PORT
  *   node native/scripts/capture-web-tech-day.mjs
  *

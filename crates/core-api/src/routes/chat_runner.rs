@@ -14,10 +14,10 @@
 //!   record changes stay IF8 proposals with the approval-default dial.
 //! - Run the bounded tool loop: model call → tool-result feedback →
 //!   iterate to completion, at most [`MAX_LOOP_STEPS`] model turns, every
-//!   loop frame streaming to the client over SSE. SSE (not WS) because
-//!   the loop is request-scoped and starts/ends with the POST — the
-//!   realtime WS fan-out rides the worker's outbox stream, which cannot
-//!   stream a live in-process loop, and lane 1's edge is REST.
+//!   loop frame streaming to the client over SSE. SSE because the loop is
+//!   request-scoped and starts/ends with the POST — the event fan-out
+//!   rides the worker's outbox stream, which cannot stream a live
+//!   in-process loop, and lane 1's edge is REST.
 //! - Every model call AND every tool call lands in the append-only
 //!   `ai_usage_ledger` (tool rows carry zero tokens — they are reads) and
 //!   the provenance audit (`Actor::Agent` rows naming the for_user) —

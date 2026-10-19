@@ -2,7 +2,7 @@
 
 The Expo / React Native client. Wave 33 lane 1 ships the foundation: auth
 with MFA and biometric sign-in, the app shell, an offline-first read cache, a
-replay-safe write queue, live sync over the realtime hub, push registration,
+replay-safe write queue, live sync over the event stream, push registration,
 deep links, and the adaptive two-pane layout. Field screens (scanning,
 receiving, the technician's day) build on top of these seams.
 
@@ -18,19 +18,17 @@ native-behavior check (camera, haptics, offline queue, push).
 
 | Service | Port | Notes |
 |---|---|---|
-| Metro / Expo dev server | 8181 | Per-lane convention. 8081 is the realtime hub |
+| Metro / Expo dev server | 8181 | Per-lane convention |
 | Expo web | 8182 | `pnpm --filter @marula-core/native dev:web` |
-| core-api | per-run | From `scripts/e2e-stack.sh up` (random high port) |
-| realtime WS | per-run | Same, `/ws` path |
+| core-api | per-run | From `scripts/e2e-stack.sh up` (random high port); serves the live stream |
 
 ```bash
-# 1. Boot the stack (Postgres + Valkey + core-api + realtime + demo seed)
+# 1. Boot the stack (Postgres + Valkey + core-api + demo seed)
 bash scripts/e2e-stack.sh up
 . e2e/.e2e-stack.env
 
-# 2. Point the app at it and start Metro
+# 2. Point the app at it and start Metro (live sync rides the API's stream)
 EXPO_PUBLIC_API_URL="http://localhost:${API_PORT}" \
-EXPO_PUBLIC_WS_URL="ws://localhost:${WS_PORT}/ws" \
 pnpm --filter @marula-core/native dev
 
 # iOS Simulator (Xcode required)
@@ -59,10 +57,10 @@ pnpm tsx native/scripts/live-sync-proof.ts
 ```
 
 That harness runs the real `SyncEngine`, `WriteQueue`, and `RealtimeClient`
-against the API: an offline note replays exactly once, a mentioned teammate's
-socket receives the comment live, a board-subscribed socket receives ticket
-updates, timer start/stop materialize a time entry, and consumption and tool
-checkout replays each land one ledger/status change.
+against the API: an offline note replays exactly once, a teammate's stream
+receives the comment live, a second stream receives ticket updates, timer
+start/stop materialize a time entry, and consumption and tool checkout
+replays each land one ledger/status change.
 
 Maestro flows live in `native/e2e/flows` and drive the simulator build:
 
@@ -107,9 +105,11 @@ tests/                vitest: replay invariants, parity with the web copy
 - **Timers and notes are server entities.** The app never keeps a private
   timer; `GET /timers/active` is the source of truth, and every timer mutation
   (start, pause, resume, stop) is queued.
-- **Live sync** holds one authed socket to `/ws`, subscribes the org channel
-  plus each board the loaded work belongs to, and routes contract events onto
-  cache invalidation. See `docs/rn-groundwork.md` for the wire shapes.
+- **Live sync** holds one authed stream to `/api/events/stream`, which is
+  org-scoped: every contract event the org commits arrives there, including the
+  comment, stock and tool events the deleted WebSocket hub routed per user or
+  not at all. Those events land on cache invalidation. See
+  `docs/rn-groundwork.md` for the wire shapes.
 
 ## Adaptive layout
 
@@ -130,15 +130,8 @@ the foundation's checks above.
    Android channel, and acquires a device token, but the server has no device
    token registration route and the worker's fan-out has no APNs/FCM
    transport. Until a contract lane adds both, the in-app notification center
-   (live over the socket) is the only push surface.
-3. **Same-user second-client comment routing.** `ticket_comment` events route
-   only to mentioned users (`crates/realtime/src/channel.rs`), so the author's
-   other clients reconcile on refocus rather than live. Routing the comment to
-   the board channel would close the phone-to-desktop note leg.
-4. **Cross-client stock and tool events.** Stock movements and tool checkouts
-   emit events the realtime hub has no route for, so those read models
-   reconcile on refocus and reconnect rather than live.
-5. **Simulator and TestFlight legs.** The foundation host runs no Xcode, so
+   (live over the event stream) is the only push surface.
+3. **Simulator and TestFlight legs.** The foundation host runs no Xcode, so
    simulator captures, Maestro runs, and TestFlight checklist items (real
    camera scan, push delivery, App Store review) are pending hardware or
    runner access. The CI workflow in `.github/workflows/native.yml.disabled`

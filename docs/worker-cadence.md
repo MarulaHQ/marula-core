@@ -87,6 +87,6 @@ What each one trades:
 ## Leave these two alone
 
 - The outbox relay (250ms) and the Redis stream consumers (2s blocking read) are
-  the real-time path. The relay feeds the WebSocket hub, so a raised value shows
+  the real-time path. The relay feeds the live SSE stream, so a raised value shows
   up as delayed browser updates. They are deliberately not in the profile.
 - The 2s error backoff inside each sweep, for the reason above.

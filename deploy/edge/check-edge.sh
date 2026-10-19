@@ -88,13 +88,9 @@ one("cf-dns01", "propagation_delay")
 # The routing table itself: the seams, the body ceiling, and the one path
 # that must never be routed.
 for needle in ("max_size {$MARULA_MAX_UPLOAD_MB:25}MiB",
-               "reverse_proxy @ws {$REALTIME_UPSTREAM:realtime:8081}",
                "reverse_proxy @api {$CORE_API_UPSTREAM:core-api:8080}",
                "reverse_proxy {$WEB_UPSTREAM:web:3000}",
-               "trusted_proxies private_ranges",
-               "flush_interval -1",
-               "stream_timeout 0",
-               "stream_close_delay 60s"):
+               "trusted_proxies private_ranges"):
     if needle not in routes:
         problems.append(f"marula-routes.caddy: missing {needle!r}")
 if re.search(r"(^|\s)internal\b", routes):
@@ -113,8 +109,6 @@ if "path /healthz" not in routes or "rewrite * /api/health" not in routes:
     problems.append("marula-routes.caddy: /healthz is not rewritten onto /api/health")
 if "path /api /api/* /openapi.json /healthz" in routes:
     problems.append("marula-routes.caddy: /healthz is passed through to core-api, which 404s it")
-if "path /ws" not in routes:
-    problems.append("marula-routes.caddy: no /ws matcher")
 
 # Balanced braces in every file (a Caddyfile missing one fails at parse).
 for name, text in list(modes.items()) + [("marula-routes.caddy", routes)]:
@@ -243,7 +237,7 @@ python3 - "$ROOT" <<'PY' || FAIL=$((FAIL + 1))
 import re, sys, pathlib
 src = (pathlib.Path(sys.argv[1]) / "deploy/edge/compose.edge.yml").read_text()
 problems = []
-for svc in ("core-api", "realtime", "web", "postgres", "worker"):
+for svc in ("core-api", "web", "postgres", "worker"):
     block = re.search(rf"^  {re.escape(svc)}:\n((?:    .*\n|\n)*?)(?=^  \S|^\S|\Z)", src, re.M)
     if not block:
         problems.append(f"no {svc} block in the overlay")
@@ -255,7 +249,7 @@ if problems:
     for p in problems:
         print(f"  FAIL {p}")
     sys.exit(1)
-print("  ok   core-api, realtime, web, postgres and worker are all pulled back")
+print("  ok   core-api, web, postgres and worker are all pulled back")
 PY
 
 head "Certificate material"
@@ -303,7 +297,6 @@ coreApi:
   trustedProxies: "173.245.48.0/20,104.16.0.0/13"
 web:
   nextPublicApiUrl: https://marula.example.com
-  nextPublicWsUrl: wss://marula.example.com/ws
 EOF
 	if helm lint "$ROOT/deploy/helm/marula" >/dev/null 2>&1; then
 		ok "helm lint"
@@ -313,12 +306,12 @@ EOF
 	if helm template marula "$ROOT/deploy/helm/marula" -f "$vals" --set digestPinningEnforced=false \
 		--set nonMarulaDigestPinningEnforced=false >/tmp/marula-edge-template.yaml 2>&1; then
 		ok "helm template renders with the ingress on"
-		# Parse the Ingress document, not the whole render: realtime's and
-		# the worker's readinessProbes legitimately carry `path: /healthz`,
-		# so a grep over the render cannot tell the ingress's routes apart
-		# from theirs — it reported a pass for a route that was gone.
+		# Parse the Ingress document, not the whole render: the worker's
+		# readinessProbe legitimately carries `path: /healthz`, so a grep
+		# over the render cannot tell the ingress's routes apart from its —
+		# it reported a pass for a route that was gone.
 		if python3 "$EDGE/check-ingress.py" /tmp/marula-edge-template.yaml; then
-			ok "the ingress routes exactly /api, /openapi.json, /ws and / (no /healthz)"
+			ok "the ingress routes exactly /api, /openapi.json and / (no /healthz)"
 		else
 			bad "the ingress paths are wrong (see above)"
 		fi

@@ -4,7 +4,7 @@
 > someone, and you want one command between a clone and a working demo.
 
 `scripts/demo-up.sh` takes a fresh clone to a booted, seeded demo. Postgres
-and Valkey run in Docker. core-api, realtime, the worker, and the web
+and Valkey run in Docker. core-api, the worker, and the web
 console run natively from the repo. Nothing is deployed and nothing leaves
 your machine.
 
@@ -23,7 +23,7 @@ scripts/demo-up.sh
 The script preflights the tools, starts Postgres on 15432 and Valkey on
 16379 (`deploy/docker-compose.yml`, the ports the [local stack
 reference](../reference/self-host-local-stack.md) pins), applies the
-schema, seeds the demo org, builds and boots the four services, then
+schema, seeds the demo org, builds and boots the three services, then
 prints the logins. The first run compiles the Rust workspace and the web
 app, so expect minutes. After that, re-runs take seconds.
 
@@ -36,8 +36,7 @@ made during a demo.
 | Service | URL | Notes |
 |---|---|---|
 | web console | http://localhost:3000 | dev server, or `--web prod` for a build |
-| core-api | http://localhost:8080 | the single write surface, spec at /openapi.json |
-| realtime | ws://localhost:8081 | live updates |
+| core-api | http://localhost:8080 | the single write surface, spec at /openapi.json; also serves the SSE live stream |
 | worker | http://127.0.0.1:8082/healthz | background loops |
 
 Four logins, password `demo-password-123`:
@@ -87,7 +86,7 @@ loads, and every call after that is fast.
 ```sh
 scripts/demo-up.sh reset          # reseed the demo org, keep the stack
 scripts/demo-up.sh reset --fresh  # destroy the database volume, rebuild, reseed
-scripts/demo-up.sh stop           # stop the four app processes
+scripts/demo-up.sh stop           # stop the three app processes
 scripts/demo-up.sh stop --infra   # ... and the Postgres/Valkey containers
 ```
 

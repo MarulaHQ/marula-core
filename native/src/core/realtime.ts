@@ -1,15 +1,25 @@
-// Live-sync client for the realtime WebSocket hub (crates/realtime).
+// Live-sync client for the core-api SSE event stream.
 //
-// Purpose: hold one authed socket to `/ws`, keep a resubscribable channel
-// set, parse the server's typed frames (hello / subscribed / pong /
-// presence / event / error), detect a dead link with a heartbeat, and
-// reconnect with capped exponential backoff. The wire protocol is mirrored
-// from crates/realtime/src/protocol.rs; the event envelope mirrors
-// core_events::Envelope.
+// Purpose: hold one authed `EventSource` to `/api/events/stream?token=<jwt>`,
+// parse the server's frames (contract events plus ephemeral presence), and
+// reconnect with capped exponential backoff. The wire contract is the `data:`
+// JSON of one `StreamFrame` (`crates/core-api/src/realtime.rs`, served by
+// `routes/events.rs`): `{type, org_id, entity, entity_id, seq, at}` with the
+// event uuid on the SSE `id:` field. This leg mirrors the web client,
+// `apps/web/lib/instant/stream.ts` — same status vocabulary, same backoff,
+// same event/presence split.
+//
+// SSE is one-directional: there is no client→server subscribe frame. The
+// stream is org-scoped by construction (every frame the org commits is
+// delivered on the one connection), so `subscribe`/`unsubscribe` are kept for
+// the sync engine's channel bookkeeping and tracked locally — see `subscribe`.
 //
 // Non-purpose: no cache or UI decisions — consumers subscribe to events and
 // decide what to invalidate (see sync.ts).
 
+/** The core-events identity of one contract-event frame. The stream carries
+ * no `payload` (routes/events.rs ships the identity only) and puts the event
+ * uuid on the SSE `id:` field, so nested entity ids resolve from `entity_id`. */
 export interface EventEnvelope {
   id: string;
   type: string;
@@ -17,192 +27,119 @@ export interface EventEnvelope {
   entity: string;
   entity_id: string | null;
   occurred_at: string;
-  payload_schema_ref: string;
-  payload: Record<string, unknown>;
+  /** Per-entity ledger seq; absent for events emitted outside the instant
+   * path, which clients treat as always-apply. */
+  seq?: number | null;
+  /** Reserved: the stream carries no payload today. A frame type that adds
+   * one lands here with no signature change. */
+  payload?: Record<string, unknown>;
 }
 
-export interface SocketLike {
+/** The minimal EventSource wire contract (structural: fakes satisfy it). */
+export interface WireEventSource {
   readonly readyState: number;
-  send(data: string): void;
-  close(code?: number, reason?: string): void;
-  onopen: ((event?: unknown) => void) | null;
-  onmessage: ((event: { data: unknown }) => void) | null;
-  onclose: ((event?: unknown) => void) | null;
-  onerror: ((event?: unknown) => void) | null;
+  close(): void;
+  addEventListener(type: "open" | "error" | "message", fn: (event?: unknown) => void): void;
+  removeEventListener(type: "open" | "error" | "message", fn: (event?: unknown) => void): void;
 }
 
-export type SocketFactory = (url: string) => SocketLike;
+export type EventSourceFactory = (url: string) => WireEventSource;
 
-export type RealtimeStatus =
-  | "idle"
-  | "connecting"
-  | "open"
-  | "reconnecting"
-  | "closed";
-
-interface ServerFrame {
-  type: string;
-  channel?: string;
-  event?: EventEnvelope;
-  users?: string[];
-  message?: string;
-  user_id?: string;
-  org_id?: string;
-}
+/** Mirrors the web stream's vocabulary: `connecting` covers the first attempt
+ * and every retry (the source owns native retries), `closed` is both the
+ * initial state and the intentional stop. */
+export type RealtimeStatus = "connecting" | "open" | "closed";
 
 export interface RealtimeDeps {
-  /** Full ws URL without the token, e.g. ws://host:8081/ws */
+  /** Full SSE URL without the token, e.g. http://host:8080/api/events/stream */
   url: () => string;
   token: () => string | null;
-  socketFactory: SocketFactory;
-  /** Base reconnect delay; doubles up to maxDelayMs. */
-  baseDelayMs?: number;
-  maxDelayMs?: number;
-  heartbeatMs?: number;
-  /** No server frame within this window forces a reconnect. */
-  silentForMs?: number;
-  random?: () => number;
+  factory: EventSourceFactory;
+  /** Ceiling for the client's own reconnects, in ms; doubles from 1s. */
+  maxBackoffMs?: number;
 }
+
+interface StreamFrameJson {
+  type?: string;
+  org_id?: string;
+  entity?: string;
+  entity_id?: string | null;
+  seq?: number | null;
+  at?: string;
+}
+
+type ParsedFrame =
+  | { kind: "event"; envelope: EventEnvelope; channel: string; orgId: string }
+  | { kind: "presence"; orgId: string };
 
 export class RealtimeClient {
   private readonly deps: Required<RealtimeDeps>;
-  private socket: SocketLike | null = null;
+  private source: WireEventSource | null = null;
   private readonly channels = new Set<string>();
   private readonly eventListeners = new Set<(envelope: EventEnvelope, channel: string) => void>();
   private readonly statusListeners = new Set<(status: RealtimeStatus) => void>();
   private readonly helloListeners = new Set<(userId: string, orgId: string) => void>();
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private lastFrameAt = 0;
+  private helloSent = false;
   private closedByUser = false;
-  private connectPromise: Promise<void> | null = null;
-  private status: RealtimeStatus = "idle";
+  private status: RealtimeStatus = "closed";
 
   constructor(deps: RealtimeDeps) {
-    this.deps = {
-      baseDelayMs: 1_000,
-      maxDelayMs: 30_000,
-      heartbeatMs: 25_000,
-      silentForMs: 60_000,
-      random: Math.random,
-      ...deps,
-    };
+    this.deps = { maxBackoffMs: 15_000, ...deps };
   }
 
   getStatus(): RealtimeStatus {
     return this.status;
   }
 
-  /** Opens the socket. Resolves once connected (or fails open — callers
-   * treat a rejected connect as "offline", never as fatal). */
-  connect(): Promise<void> {
-    if (this.socket !== null && this.socket.readyState <= 1) return Promise.resolve();
-    if (this.connectPromise !== null) return this.connectPromise;
+  /** Opens the stream. Idempotent: a live or in-flight source is left alone,
+   * and without a token the client stays closed and opens nothing. */
+  connect(): void {
+    if (this.source !== null) return;
     this.closedByUser = false;
-    this.connectPromise = new Promise<void>((resolve) => {
-      const token = this.deps.token();
-      if (token === null) {
-        this.setStatus("idle");
-        resolve();
-        return;
-      }
-      const separator = this.deps.url().includes("?") ? "&" : "?";
-      const socketUrl = `${this.deps.url()}${separator}token=${encodeURIComponent(token)}`;
-      this.setStatus("connecting");
-      let settled = false;
-      let socket: SocketLike;
-      try {
-        socket = this.deps.socketFactory(socketUrl);
-      } catch {
-        this.setStatus("reconnecting");
-        this.scheduleReconnect();
-        resolve();
-        return;
-      }
-      this.socket = socket;
-      socket.onopen = () => {
-        this.reconnectAttempt = 0;
-        this.lastFrameAt = Date.now();
-        this.setStatus("open");
-        for (const channel of this.channels) this.sendFrame({ type: "subscribe", channel });
-        this.startHeartbeat();
-        if (!settled) {
-          settled = true;
-          resolve();
-        }
-      };
-      socket.onmessage = (event) => {
-        this.lastFrameAt = Date.now();
-        const frame = parseFrame(event.data);
-        if (frame === null) return;
-        if (frame.type === "event" && frame.event !== undefined) {
-          for (const listener of this.eventListeners) {
-            listener(frame.event, frame.channel ?? "");
-          }
-          return;
-        }
-        if (frame.type === "hello" && frame.user_id !== undefined && frame.org_id !== undefined) {
-          for (const listener of this.helloListeners) listener(frame.user_id, frame.org_id);
-          return;
-        }
-        if (frame.type === "error") {
-          // Frames carry no request ids; a rejected subscribe is recoverable
-          // and does not close the link.
-          return;
-        }
-      };
-      socket.onerror = () => {
-        // onclose follows on every real implementation; reconnect there.
-        if (!settled) {
-          settled = true;
-          resolve();
-        }
-      };
-      socket.onclose = () => {
-        this.stopHeartbeat();
-        this.socket = null;
-        if (this.closedByUser) {
-          this.setStatus("closed");
-          return;
-        }
-        this.setStatus("reconnecting");
-        this.scheduleReconnect();
-        if (!settled) {
-          settled = true;
-          resolve();
-        }
-      };
-    }).finally(() => {
-      this.connectPromise = null;
-    });
-    return this.connectPromise;
+    const token = this.deps.token();
+    if (token === null) {
+      this.setStatus("closed");
+      return;
+    }
+    const separator = this.deps.url().includes("?") ? "&" : "?";
+    const streamUrl = `${this.deps.url()}${separator}token=${encodeURIComponent(token)}`;
+    this.setStatus("connecting");
+    let source: WireEventSource;
+    try {
+      source = this.deps.factory(streamUrl);
+    } catch {
+      this.scheduleReconnect();
+      return;
+    }
+    this.source = source;
+    source.addEventListener("open", () => this.handleOpen(source));
+    source.addEventListener("message", (event) => this.handleMessage(source, event));
+    source.addEventListener("error", () => this.handleError(source));
   }
 
   /** Intentional close — no reconnect. */
   close(): void {
     this.closedByUser = true;
     this.cancelReconnect();
-    this.stopHeartbeat();
-    const socket = this.socket;
-    this.socket = null;
-    socket?.close();
+    const source = this.source;
+    this.source = null;
+    source?.close();
     this.setStatus("closed");
   }
 
+  /** The stream is org-scoped, so every channel is already covered by the one
+   * connection. The set is kept for API compatibility and for callers that
+   * diff it; nothing is sent on the wire. A future per-ticket scope would map
+   * a `ticket:<id>` channel onto `?ticket=<id>`, but no caller subscribes one
+   * today, so no second connection is opened. */
   subscribe(channel: string): void {
-    if (this.channels.has(channel)) return;
     this.channels.add(channel);
-    if (this.socket !== null && this.socket.readyState === 1) {
-      this.sendFrame({ type: "subscribe", channel });
-    }
   }
 
   unsubscribe(channel: string): void {
-    if (!this.channels.delete(channel)) return;
-    if (this.socket !== null && this.socket.readyState === 1) {
-      this.sendFrame({ type: "unsubscribe", channel });
-    }
+    this.channels.delete(channel);
   }
 
   subscribedChannels(): string[] {
@@ -223,6 +160,10 @@ export class RealtimeClient {
     };
   }
 
+  /** SSE has no hello frame. The closest signal is the stream's own ready
+   * announcement: the first frame of each connection is scoped to the org the
+   * token belongs to, so it fires once per open with that `org_id`. The user
+   * id is not on the wire and is reported as an empty string. */
   onHello(listener: (userId: string, orgId: string) => void): () => void {
     this.helloListeners.add(listener);
     return () => {
@@ -230,39 +171,57 @@ export class RealtimeClient {
     };
   }
 
-  private sendFrame(frame: Record<string, unknown>): void {
-    if (this.socket === null || this.socket.readyState !== 1) return;
-    this.socket.send(JSON.stringify(frame));
+  private handleOpen(source: WireEventSource): void {
+    // Ignore a late `open` from a source that was already replaced or closed.
+    if (this.source !== source) return;
+    this.reconnectAttempt = 0;
+    this.helloSent = false;
+    this.setStatus("open");
   }
 
-  private startHeartbeat(): void {
-    this.stopHeartbeat();
-    this.heartbeatTimer = setInterval(() => {
-      if (Date.now() - this.lastFrameAt > this.deps.silentForMs) {
-        this.socket?.close();
-        return;
-      }
-      this.sendFrame({ type: "ping" });
-    }, this.deps.heartbeatMs);
+  private handleMessage(source: WireEventSource, event: unknown): void {
+    // A frame queued on a source that has since been replaced or closed is
+    // not part of the live stream.
+    if (this.source !== source) return;
+    const raw = (event as { data?: unknown } | null | undefined)?.data;
+    if (typeof raw !== "string") return;
+    const lastEventId = (event as { lastEventId?: unknown } | null | undefined)?.lastEventId;
+    const frame = parseFrame(raw, typeof lastEventId === "string" ? lastEventId : "");
+    if (frame === null) return;
+    if (!this.helloSent && frame.orgId !== "") {
+      this.helloSent = true;
+      for (const listener of this.helloListeners) listener("", frame.orgId);
+    }
+    // Presence frames are EPHEMERAL — they never reach the event path. Native
+    // has no roster surface yet, so they are parsed and dropped.
+    if (frame.kind === "presence") return;
+    for (const listener of this.eventListeners) listener(frame.envelope, frame.channel);
   }
 
-  private stopHeartbeat(): void {
-    if (this.heartbeatTimer !== null) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
+  private handleError(source: WireEventSource): void {
+    // A stale source's error must not touch the live connection's status.
+    if (this.source !== source) return;
+    this.setStatus("connecting");
+    // readyState CLOSED (2) means the server refused and the source gave up —
+    // a 401 from an expired token, or the per-user 429 cap. Reconnect
+    // ourselves with a fresh URL and token after backoff. Any other state is
+    // a transient drop the source retries natively (resending Last-Event-ID),
+    // so there is nothing to do here.
+    if (source.readyState === 2) {
+      this.source = null;
+      source.close();
+      this.scheduleReconnect();
     }
   }
 
   private scheduleReconnect(): void {
-    this.cancelReconnect();
-    const exponent = Math.min(this.reconnectAttempt, 5);
-    const base = Math.min(this.deps.baseDelayMs * 2 ** exponent, this.deps.maxDelayMs);
-    const jitter = base * 0.2 * this.deps.random();
+    if (this.closedByUser || this.reconnectTimer !== null) return;
     this.reconnectAttempt += 1;
+    const delay = Math.min(1_000 * 2 ** this.reconnectAttempt, this.deps.maxBackoffMs);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.connect();
-    }, base + jitter);
+      if (!this.closedByUser) this.connect();
+    }, delay);
   }
 
   private cancelReconnect(): void {
@@ -279,13 +238,30 @@ export class RealtimeClient {
   }
 }
 
-function parseFrame(data: unknown): ServerFrame | null {
-  const text = typeof data === "string" ? data : null;
-  if (text === null) return null;
+function parseFrame(raw: string, lastEventId: string): ParsedFrame | null {
+  let frame: StreamFrameJson;
   try {
-    const parsed = JSON.parse(text) as ServerFrame;
-    return typeof parsed.type === "string" ? parsed : null;
+    frame = JSON.parse(raw) as StreamFrameJson;
   } catch {
     return null;
   }
+  if (typeof frame?.type !== "string") return null;
+  const orgId = typeof frame.org_id === "string" ? frame.org_id : "";
+  if (frame.type === "presence") return { kind: "presence", orgId };
+  if (typeof frame.entity !== "string") return null;
+  const envelope: EventEnvelope = {
+    id: lastEventId,
+    type: frame.type,
+    org_id: orgId,
+    entity: frame.entity,
+    entity_id: typeof frame.entity_id === "string" ? frame.entity_id : null,
+    occurred_at: typeof frame.at === "string" ? frame.at : new Date().toISOString(),
+    seq: typeof frame.seq === "number" ? frame.seq : null,
+  };
+  return {
+    kind: "event",
+    envelope,
+    channel: orgId !== "" ? `org:${orgId}` : "",
+    orgId,
+  };
 }

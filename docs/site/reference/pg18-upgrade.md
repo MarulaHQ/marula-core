@@ -18,7 +18,7 @@ Two paths:
 1. Take a backup that has actually restored once. If you use the backup
    profile, run `deploy/backup/restore.sh` against last night's dump first.
    A backup that has never restored is not a backup.
-2. Stop writes. In compose, `docker compose stop core-api worker realtime web`.
+2. Stop writes. In compose, `docker compose stop core-api worker web`.
 3. Note the current major: `cat <pgdata>/PG_VERSION` should print `17`.
 
 ## Path A — dump / restore (compose)

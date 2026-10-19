@@ -2,7 +2,7 @@
 //
 // Purpose: useSyncExternalStore-backed cache reads with hydrate-once
 // semantics (known data renders synchronously — no loading flash, no
-// refetch), refcounted socket channel subscriptions, the optimistic write
+// refetch), refcounted stream scope subscriptions, the optimistic write
 // entry point, and the outbox state for surfacing per-op results.
 //
 // Non-purpose: no read-model definitions (read-models.ts), no transport.
@@ -83,10 +83,10 @@ export function useInstantCollection<T>(
 
 /**
  * Refcounted live-leg subscription for this view. The SSE stream is
- * org-wide — one connection serves every channel a view used to pick
- * individually (board:<id>, user:<id>, org:<id>), so any non-empty
- * subscription keeps the org stream open. Empty arrays are ignored so
- * pages can await ids discovered by hydration.
+ * org-wide — one connection serves every channel a view names, so any
+ * non-empty subscription keeps the org stream open; the names stay as the
+ * view's scope labels and do not change the wire. Empty arrays are ignored
+ * so pages can await ids discovered by hydration.
  */
 export function useInstantChannels(channels: string[]): void {
   const runtime = instantRuntime();

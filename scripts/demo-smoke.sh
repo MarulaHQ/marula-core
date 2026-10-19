@@ -107,7 +107,6 @@ set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"
 set +a
-export NEXT_PUBLIC_WS_PORT="${E2E_WS_PORT:-}"
 log "run $RUN_ID — api ${E2E_API_URL:-?} web ${E2E_WEB_URL:-?}"
 
 log "building the web bundle for the suite"

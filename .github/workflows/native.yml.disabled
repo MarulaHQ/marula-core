@@ -42,7 +42,7 @@ jobs:
         run: pnpm --filter @marula-core/native typecheck
       - name: Lint
         run: pnpm --filter @marula-core/native lint
-      - name: Unit tests (offline queue, cache, realtime, sync engine)
+      - name: Unit tests (offline queue, cache, live stream, sync engine)
         run: pnpm --filter @marula-core/native test
       - name: Expo web export (bundle check — fast-iteration surface)
         run: pnpm --filter @marula-core/native export:web
@@ -80,11 +80,12 @@ jobs:
           set -a
           . e2e/.e2e-stack.env
           set +a
-          # The stack env names the API/WS URLs (E2E_API_URL / E2E_WS_URL);
-          # the app reads EXPO_PUBLIC_* at bundle time. The app trims a
-          # trailing slash itself, so either form is safe.
+          # The stack env names the API URL (E2E_API_URL); the app reads
+          # EXPO_PUBLIC_* at bundle time. The live leg is core-api's SSE
+          # stream at /api/events/stream. The app trims a trailing slash
+          # itself, so either form is safe.
           echo "EXPO_PUBLIC_API_URL=${E2E_API_URL}" >> "$GITHUB_ENV"
-          echo "EXPO_PUBLIC_WS_URL=${E2E_WS_URL}" >> "$GITHUB_ENV"
+          echo "EXPO_PUBLIC_SSE_URL=${E2E_API_URL%/}/api/events/stream" >> "$GITHUB_ENV"
       - name: Boot a simulator
         run: |
           DEVICE=$(xcrun simctl list devices available | grep -m1 'iPhone' | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')

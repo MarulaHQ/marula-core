@@ -270,7 +270,7 @@ for (const [minutes, workType] of [
 }
 
 // The release is staged by the WORKER on ProjectMilestoneCompleted, and
-// `scripts/e2e-stack.sh` boots core-api + realtime only — no worker — so
+// `scripts/e2e-stack.sh` boots core-api only — no worker — so
 // this poll is expected to come up empty in this stack. The probe prints
 // its status either way, because a 403 would look identical to "no rows"
 // and only one of those is an environment fact.

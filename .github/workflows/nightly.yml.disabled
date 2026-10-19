@@ -59,9 +59,9 @@ jobs:
       # Privileged role for migrations + deterministic seeding.
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_perf
       REDIS_URL: redis://localhost:6379
-      # Dev-only CI constants: core-api and realtime refuse to boot
-      # without explicit values since Wave 19 (fail-closed). They never
-      # leave this ephemeral runner.
+      # Dev-only CI constants: core-api refuses to boot without explicit
+      # values since Wave 19 (fail-closed). It never leaves this ephemeral
+      # runner.
       JWT_SECRET: 5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e
       MARULA_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
     steps:
