@@ -104,10 +104,35 @@ async function token() {
 /** The measurement runs in the page: it walks every element that renders text
  *  and every interactive control, and returns the tail of violations only. */
 const PROBE = () => {
+  const colorCanvas = document.createElement("canvas");
+  const colorCtx = colorCanvas.getContext("2d");
+  /** Any CSS colour the browser paints resolves to rgb or hex here. The old
+   *  parser only read rgb(), so an oklch or color-mix() foreground fell through
+   *  and the maths ran on a value nobody measured. */
   const parseColor = (value) => {
-    const m = /rgba?\(([^)]+)\)/.exec(value || "");
-    if (!m) return null;
-    const parts = m[1].split(",").map((s) => parseFloat(s.trim()));
+    if (!value || value === "transparent" || value === "none") return null;
+    const direct = /rgba?\(([^)]+)\)/.exec(value);
+    if (direct) {
+      const parts = direct[1].split(",").map((s) => parseFloat(s.trim()));
+      return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+    }
+    if (!colorCtx) return null;
+    colorCtx.fillStyle = "#010203"; // sentinel: an unsupported value leaves it
+    colorCtx.fillStyle = value;
+    const resolved = colorCtx.fillStyle;
+    if (resolved === "#010203") return null;
+    const hex = /^#([0-9a-f]{6})$/i.exec(resolved);
+    if (hex) {
+      return {
+        r: parseInt(hex[1].slice(0, 2), 16),
+        g: parseInt(hex[1].slice(2, 4), 16),
+        b: parseInt(hex[1].slice(4, 6), 16),
+        a: 1,
+      };
+    }
+    const rgba = /rgba?\(([^)]+)\)/.exec(resolved);
+    if (!rgba) return null;
+    const parts = rgba[1].split(",").map((s) => parseFloat(s.trim()));
     return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
   };
   const over = (fg, bg) => ({
@@ -126,11 +151,30 @@ const PROBE = () => {
     const lb = lum(b);
     return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
   };
+  /** The paint under the text, or null when it cannot be read. A gradient has
+   *  no single colour; the first stop is the ground the text sits on. */
+  const firstPaint = (el) => {
+    const style = getComputedStyle(el);
+    const bg = parseColor(style.backgroundColor);
+    if (bg && bg.a > 0.95) return bg;
+    if (style.backgroundImage && style.backgroundImage !== "none") {
+      const stops = [...style.backgroundImage.matchAll(
+        /(?:rgba?|oklch|hsl|color)\([^)]*\)|#[0-9a-f]{3,8}\b/gi,
+      )]
+        .map((m) => parseColor(m[0]))
+        .filter(Boolean);
+      return stops.length > 0 ? stops[0] : null;
+    }
+    return undefined;
+  };
   const effectiveBg = (el) => {
     let node = el;
     while (node && node !== document.documentElement.parentElement) {
-      const c = parseColor(getComputedStyle(node).backgroundColor);
-      if (c && c.a > 0.95) return c;
+      const c = firstPaint(node);
+      // null is an unreadable ground (a gradient whose stops the canvas refused);
+      // skipping the row is honest, assuming white is not.
+      if (c === null) return null;
+      if (c) return c;
       node = node.parentElement;
     }
     return { r: 255, g: 255, b: 255, a: 1 };
@@ -146,6 +190,16 @@ const PROBE = () => {
   const targets = [];
   const clipped = [];
   const seen = new Set();
+  const seenTargets = new Set();
+  const isInteractive = (node) => {
+    const t = node.tagName.toLowerCase();
+    return (
+      t === "button" || t === "a" || t === "select" || t === "textarea" || t === "input" ||
+      node.getAttribute("role") === "button" || node.getAttribute("role") === "radio" ||
+      node.getAttribute("role") === "checkbox" || node.getAttribute("role") === "menuitem" ||
+      node.getAttribute("role") === "tab" || node.hasAttribute("onclick")
+    );
+  };
 
   for (const el of document.querySelectorAll("body *")) {
     const style = getComputedStyle(el);
@@ -164,8 +218,8 @@ const PROBE = () => {
       if (!seen.has(key)) {
         seen.add(key);
         const fg = parseColor(style.color);
-        if (fg) {
-          const bg = effectiveBg(el);
+        const bg = effectiveBg(el);
+        if (fg && bg) {
           const r = ratio(over(fg, bg), bg);
           const size = parseFloat(style.fontSize);
           const weight = parseInt(style.fontWeight, 10) || 400;
@@ -183,18 +237,23 @@ const PROBE = () => {
       }
     }
 
-    // Pointer targets.
+    // Pointer targets. Measure the control, not a leaf inside it: walk to the
+    // highest interactive ancestor, so a button wrapping spans and an icon is
+    // one target and its height is the height a finger actually hits.
     const tag = el.tagName.toLowerCase();
-    const interactive =
-      tag === "button" || tag === "a" || tag === "select" || tag === "textarea" || tag === "input" ||
-      el.getAttribute("role") === "button" || el.getAttribute("role") === "radio" ||
-      el.getAttribute("role") === "checkbox" || el.getAttribute("role") === "menuitem" ||
-      el.getAttribute("role") === "tab" || el.hasAttribute("onclick");
-    if (interactive && tag !== "a") {
-      const h = Math.round(rect.height);
-      if (h > 0 && h < 32) {
-        const name = (el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || "").trim().slice(0, 40);
-        targets.push({ el: label(el), name, height: h });
+    if (isInteractive(el) && tag !== "a") {
+      let control = el;
+      for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+        if (!isInteractive(parent)) break;
+        control = parent;
+      }
+      if (!seenTargets.has(control)) {
+        seenTargets.add(control);
+        const h = Math.round(control.getBoundingClientRect().height);
+        if (h > 0 && h < 32) {
+          const name = (control.getAttribute("aria-label") || control.getAttribute("title") || control.textContent || "").trim().slice(0, 40);
+          targets.push({ el: label(control), name, height: h });
+        }
       }
     }
   }

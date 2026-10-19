@@ -303,7 +303,12 @@ console.log(`cell-treatment hits : ${cellHits.length}`);
 console.log(`row-treatment hits  : ${rowHits.length} (the correct authoring — counter-examples)`);
 for (const h of rowHits) console.log(`    ✓ ${h.span}  ${h.selector}  [${h.signals.join(", ")}]`);
 console.log("");
-console.log(`proving case ${target}:228-238 present: ${found ? "YES" : "NO — detector is wrong"}`);
+const proving = found
+  ? "present: YES"
+  : cellHits.length > 0
+    ? "present: NO — detector is wrong"
+    : "present: NO (fixed by p51-row-treatment; zero cell hits is the correct result)";
+console.log(`proving case ${target}:228-238 ${proving}`);
 console.log("");
 
 if (process.argv.includes("--strict") && cellHits.length && !found) {

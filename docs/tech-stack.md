@@ -80,8 +80,8 @@ time.
 | `@marula-core/layout` | AGPL-3.0 | Multi-pane layout engine: pane tree, CSS grid plus container queries, per-user panel persistence |
 
 The brand constraint on shared UI is one implementation, composed rather than
-reimplemented. `scripts/check-shared-chrome.mjs` and `scripts/check-theme-packs.mjs`
-gate drift.
+reimplemented. `scripts/check-shared-chrome.mjs`, `scripts/check-theme-packs.mjs`
+and `pnpm rows:check` (`scripts/p47-row-effect-check.mjs`) gate drift.
 
 ## 6. Backend — HTTP surface (`crates/core-api`)
 
