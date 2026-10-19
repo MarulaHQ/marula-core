@@ -287,7 +287,7 @@ rule and nowhere near enough for a workflow. The proposal, by tier.
 | Money | `quote.create`, `quote.send`, `quote.convert`, `invoice.create`, `invoice.recordPayment`, `invoice.void`, `creditNote.issue`, `contract.create` |
 | Scheduling | `appointment.create`, `appointment.update`, `appointment.cancel`, `dispatch.assign`, `dispatch.updateStatus`, `appointmentRequest.approve`, `appointmentRequest.decline` |
 | Communication | `email.send`, `notification.send`, `sms.send` (if the org has a provider), `csat.request`, `portal.notify` |
-| Field service | `alert.acknowledge`, `alert.resolve`, `travelDraft.create`, `signOff.capture` (lane 12), `signOff.file` |
+| Field service | `alert.acknowledge`, `alert.resolve`, `travelDraft.create`, `signOff.capture` (lane 12) |
 | Assets | `stockItem.create`, `stockItem.move` (a real ledger movement, never an UPDATE), `toolCheckout`, `toolCheckin`, `loan.issue`, `loan.return`, `purchaseOrder.create`, `purchaseOrder.receive`, `purchaseOrder.postBill` |
 | Records | `document.create`, `document.attach`, `attachment.upload`, `kbArticle.create`, `kbArticle.update`, `secret.record` (write-only; never read a secret value into a workflow) |
 | Projects | `project.create`, `projectPhase.complete`, `projectTask.create`, `projectTask.complete` |

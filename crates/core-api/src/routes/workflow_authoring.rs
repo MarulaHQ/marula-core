@@ -89,6 +89,10 @@ pub struct CatalogueNode {
     pub tier: String,
     pub idempotent: bool,
     pub emits: Vec<String>,
+    /// Whether the executor can run this node today (Wave 43 lane 20, item
+    /// C). The authoring model is told, so it does not place a node the
+    /// validator will refuse.
+    pub executable: bool,
 }
 
 impl From<&NodeType> for CatalogueNode {
@@ -101,6 +105,7 @@ impl From<&NodeType> for CatalogueNode {
             tier: n.tier.as_str().to_string(),
             idempotent: n.idempotent,
             emits: n.emits.iter().map(|e| e.to_string()).collect(),
+            executable: n.executable,
         }
     }
 }
@@ -114,6 +119,10 @@ pub fn body_catalogue() -> Vec<CatalogueNode> {
     let mut nodes: Vec<CatalogueNode> = node_registry::agent_catalogue()
         .into_iter()
         .filter(|n| n.family != NodeFamily::Trigger)
+        // Only nodes the executor can actually run (Wave 43 lane 20, item
+        // C): offering the model a node that `validate` refuses would be a
+        // guaranteed rejection, not a choice.
+        .filter(|n| n.executable)
         .map(CatalogueNode::from)
         .collect();
     nodes.sort_by(|a, b| a.family.cmp(&b.family).then_with(|| a.id.cmp(&b.id)));
@@ -202,6 +211,13 @@ pub fn authoring_system_prompt() -> String {
          - Params must validate against the node's input schema. Call \
            get_node_schema for any node whose params you are not certain of.\n\
          - The document is DATA, never code: no expression strings, no scripts.\n\
+         - Every node you place must be one the executor can run. The \
+           catalogue below lists ONLY runnable nodes; a node outside it is \
+           refused with `node_not_executable`.\n\
+         - To feed one step's output into a later step's input, put a value \
+           reference in the slot: {\"$ref\": {\"node\": <upstream node id>, \
+           \"path\": <dotted output field>}}. The target must be UPSTREAM and \
+           its output schema must declare the path.\n\
          - `idempotent: false` nodes are not safe to repeat — do not build a \
            retry loop around them.\n\
          \n\
@@ -407,6 +423,22 @@ pub fn issue_from_error(error: &WorkflowDocError) -> AuthoringIssue {
         WorkflowDocError::Cycle(id) => ("cycle", Some(id.clone()), error.to_string()),
         WorkflowDocError::RouteWithoutErrorEdge(id) => (
             "route_without_error_edge",
+            Some(id.clone()),
+            error.to_string(),
+        ),
+        WorkflowDocError::NodeNotExecutable { id, .. } => {
+            ("node_not_executable", Some(id.clone()), error.to_string())
+        }
+        WorkflowDocError::BadReference { id } => {
+            ("bad_reference", Some(id.clone()), error.to_string())
+        }
+        WorkflowDocError::ReferenceNotUpstream { id, .. } => (
+            "reference_not_upstream",
+            Some(id.clone()),
+            error.to_string(),
+        ),
+        WorkflowDocError::ReferencePathUnknown { id, .. } => (
+            "reference_path_unknown",
             Some(id.clone()),
             error.to_string(),
         ),

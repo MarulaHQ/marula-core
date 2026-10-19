@@ -83,8 +83,47 @@ fn the_catalogue_is_narrow() {
     // declaration per domain operation, and Tier C is the plugin slots. If
     // the count grows past the recorded shape, the catalogue is drifting
     // toward the 200-node list the reference document rejects.
-    assert_eq!(all().len(), 125, "catalogue size changed — record why");
-    assert_eq!(tier_a().len(), 121);
+    assert_eq!(all().len(), 124, "catalogue size changed — record why");
+    assert_eq!(tier_a().len(), 120);
+}
+
+#[test]
+fn the_executable_flag_matches_what_the_executor_implements() {
+    // Item C: the catalogue declares what the executor can run. The set is
+    // small on purpose (7 node ids + the condition/control/value families);
+    // what matters is that the flag is TRUE for those and FALSE for a
+    // declared-but-unimplemented node, so `validate` refuses the latter.
+    for id in [
+        "ticket.assign",
+        "ticket.setPriority",
+        "ticket.update",
+        "ticket.transition",
+        "ticket.comment",
+        "ticket.internalNote",
+        "notification.send",
+        "plugin.action",
+        "field.equals",
+        "number.between",
+        "date.withinLast",
+        "condition.else",
+        "value.reference",
+        "flow.branch",
+    ] {
+        assert!(get(id).unwrap().executable, "{id} should be executable");
+    }
+    for id in [
+        "ticket.create",
+        "ticket.setTags",
+        "signOff.capture",
+        "sms.send",
+    ] {
+        assert!(
+            !get(id).unwrap().executable,
+            "{id} has no executor arm yet, so it must not claim to be executable"
+        );
+    }
+    // The one condition that needs the database is refused at author time.
+    assert!(!get("decision.matches").unwrap().executable);
 }
 
 #[test]
@@ -267,7 +306,7 @@ fn every_tier_a_action_emits_the_event_its_operation_produces() {
             checked += 1;
         }
     }
-    assert_eq!(checked, 69, "every closed operation must have a wrapper");
+    assert_eq!(checked, 68, "every closed operation must have a wrapper");
 }
 
 #[test]

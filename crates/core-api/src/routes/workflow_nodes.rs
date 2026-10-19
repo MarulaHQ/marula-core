@@ -56,6 +56,10 @@ pub struct NodeView {
     /// The event types this node can produce, the seam the static loop
     /// refusal reads.
     pub emits: Vec<String>,
+    /// Whether the executor can actually apply this node today (Wave 43
+    /// lane 20, item C). A palette should gray out a node whose flag is
+    /// false: `WorkflowDocument::validate` refuses to save one.
+    pub executable: bool,
 }
 
 impl From<&NodeType> for NodeView {
@@ -74,6 +78,7 @@ impl From<&NodeType> for NodeView {
             output_schema: node_registry::output_schema(n.id)
                 .unwrap_or_else(|| serde_json::json!({})),
             emits: n.emits.iter().map(|e| e.to_string()).collect(),
+            executable: n.executable,
         }
     }
 }

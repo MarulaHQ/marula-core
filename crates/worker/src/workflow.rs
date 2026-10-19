@@ -115,9 +115,19 @@ struct RunContext {
     run_id: uuid::Uuid,
     /// The author the run executes as (spec item B).
     actor_user_id: uuid::Uuid,
-    /// The triggering envelope's payload, when an event started or woke
-    /// this run. Read by conditions and by the event waits.
+    /// The triggering envelope's PAYLOAD (Wave 43 lane 20, item A) — the
+    /// same value core-api resolves a ticket from (`context.event.ticket_id`).
+    /// It used to carry the whole envelope, which is why a ticket-writing
+    /// node with no explicit `ticketId` refused: the payload was one level
+    /// down. `event_type` and `event_entity` ride separately so the parking
+    /// nodes and the condition scope still see them.
     event: Value,
+    /// The triggering event's type (`ticket.created`, …), when an event
+    /// started or woke this run.
+    event_type: Option<String>,
+    /// The triggering event's entity name (`ticket`, `client`, …), so a
+    /// condition may name a subject field (`ticket.priority`).
+    event_entity: Option<String>,
     /// True when this attempt CONTINUES a parked run: a park node the run
     /// stops at re-evaluates rather than parking again blindly.
     resumed: bool,
@@ -246,9 +256,11 @@ async fn handle_entry(
 /// Starts runs for every enabled workflow document listening for this
 /// event type, and wakes every parked run waiting on it.
 async fn match_envelope(pool: &PgPool, envelope: &Envelope) -> anyhow::Result<()> {
-    // The whole envelope rides the job: its `type` is what a wait matches,
-    // and its `payload` is the context a reference reads.
-    let event = serde_json::to_value(envelope).unwrap_or(Value::Null);
+    // The PAYLOAD rides the job as `event`: it is the value a node reads a
+    // ticket from (`context.event.ticket_id`) and the subject a condition
+    // reads a field from. The type and entity ride beside it — the whole
+    // envelope used to be `event`, which is the disagreement item A fixed.
+    let event = envelope.payload.clone();
     let mut tx = pool.begin().await?;
 
     // (1) START: enabled workflow documents whose trigger is this event.
@@ -263,7 +275,9 @@ async fn match_envelope(pool: &PgPool, envelope: &Envelope) -> anyhow::Result<()
             "op": "start",
             "rule_id": rule.id,
             "trigger_event_id": envelope.id,
-            "event": event,
+            "event": event.clone(),
+            "event_type": envelope.event_type,
+            "event_entity": envelope.entity,
         });
         if let Err(error) = enqueue_resume(&mut *tx, envelope.org_id, payload).await {
             tracing::error!(%error, rule_id = %rule.id, "workflow start enqueue failed; leaving unacked");
@@ -278,7 +292,9 @@ async fn match_envelope(pool: &PgPool, envelope: &Envelope) -> anyhow::Result<()
         let payload = json!({
             "op": "resume",
             "run_id": run.id,
-            "event": event,
+            "event": event.clone(),
+            "event_type": envelope.event_type,
+            "event_entity": envelope.entity,
         });
         if let Err(error) = enqueue_resume(&mut *tx, envelope.org_id, payload).await {
             tracing::error!(%error, run_id = %run.id, "workflow resume enqueue failed; leaving unacked");
@@ -404,6 +420,16 @@ async fn process_start<E: EffectApi>(
         run_id: run.id,
         actor_user_id: author,
         event,
+        event_type: job
+            .payload
+            .get("event_type")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        event_entity: job
+            .payload
+            .get("event_entity")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         resumed: false,
     };
     execute_run(pool, effects, &ctx, &doc, WorkflowCursor::start()).await
@@ -481,6 +507,16 @@ async fn process_resume<E: EffectApi>(
         run_id: run.id,
         actor_user_id: author,
         event,
+        event_type: job
+            .payload
+            .get("event_type")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        event_entity: job
+            .payload
+            .get("event_entity")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         resumed: true,
     };
     execute_run(pool, effects, &ctx, &doc, cursor).await
@@ -997,12 +1033,19 @@ async fn execute_node<E: EffectApi>(
     match workflow_document::executor_path(&node.node_type) {
         Some(ExecutorPath::Value) => value_node(cursor, node),
         Some(ExecutorPath::Control) => control_node(ctx, cursor, node),
-        Some(ExecutorPath::Condition)
-        | Some(ExecutorPath::DomainWrapper(_))
+        // Conditions are pure predicates over the run context, evaluated
+        // HERE in the worker (Wave 43 lane 20, item B/C): the cursor holds
+        // every upstream output, and the alternative — round-tripping to
+        // core-api — would need the whole output set on the wire. The one
+        // exception, `decision.matches`, reads recorded answers from the
+        // database and is marked unimplemented in the catalogue, so it can
+        // never be authored.
+        Some(ExecutorPath::Condition) => condition_node(ctx, cursor, node),
+        Some(ExecutorPath::DomainWrapper(_))
         | Some(ExecutorPath::DomainUpdate)
         | Some(ExecutorPath::DomainQuery)
         | Some(ExecutorPath::Ai(_))
-        | Some(ExecutorPath::Plugin(_)) => call_node(effects, ctx, node).await,
+        | Some(ExecutorPath::Plugin(_)) => call_node(effects, ctx, cursor, node).await,
         Some(ExecutorPath::Trigger) => NodeExec::Failed {
             code: "trigger_in_body".into(),
             error: "a trigger node is a document entry, never a step".into(),
@@ -1082,6 +1125,182 @@ fn value_node(cursor: &WorkflowCursor, node: &WorkflowNode) -> NodeExec {
     }
 }
 
+/// The pure condition nodes (Wave 43 lane 20, items B and C). Each answers
+/// ONE question about the run context and returns `{"matched": bool, …}` —
+/// the key `flow.branch` reads. Nothing here writes and nothing crosses to
+/// core-api: the cursor already holds every upstream output, so a predicate
+/// is a pure function of the run context.
+///
+/// `decision.matches` is the one condition that needs recorded answers from
+/// the database. It is marked unimplemented in the catalogue, so
+/// `WorkflowDocument::validate` refuses a document that places it before a
+/// run ever starts, and it falls to the default arm here.
+fn condition_node(ctx: &RunContext, cursor: &WorkflowCursor, node: &WorkflowNode) -> NodeExec {
+    let field = node
+        .params
+        .get("field")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let lhs = condition_value(ctx, cursor, field);
+    let rhs = node.params.get("value").cloned().unwrap_or(Value::Null);
+    let param_num = |key: &str| node.params.get(key).and_then(numeric);
+
+    let matched = match node.node_type.as_str() {
+        "condition.else" => true,
+        "field.equals" => lhs == rhs,
+        "field.notEquals" => lhs != rhs,
+        "field.contains" => {
+            let needle = node
+                .params
+                .get("needle")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            value_to_text(&lhs)
+                .to_lowercase()
+                .contains(&needle.to_lowercase())
+        }
+        "field.isEmpty" => is_empty_value(&lhs),
+        "number.gt" => numeric(&lhs)
+            .zip(numeric(&rhs))
+            .map(|(l, r)| l > r)
+            .unwrap_or(false),
+        "number.gte" => numeric(&lhs)
+            .zip(numeric(&rhs))
+            .map(|(l, r)| l >= r)
+            .unwrap_or(false),
+        "number.lt" => numeric(&lhs)
+            .zip(numeric(&rhs))
+            .map(|(l, r)| l < r)
+            .unwrap_or(false),
+        "number.lte" => numeric(&lhs)
+            .zip(numeric(&rhs))
+            .map(|(l, r)| l <= r)
+            .unwrap_or(false),
+        "number.between" => match (numeric(&lhs), param_num("min"), param_num("max")) {
+            (Some(v), Some(min), Some(max)) => v >= min && v <= max,
+            _ => false,
+        },
+        "date.isBefore" => match (as_instant(&lhs), as_instant(&rhs)) {
+            (Some(l), Some(r)) => l < r,
+            _ => false,
+        },
+        "date.isAfter" => match (as_instant(&lhs), as_instant(&rhs)) {
+            (Some(l), Some(r)) => l > r,
+            _ => false,
+        },
+        "date.withinLast" => {
+            let window = node
+                .params
+                .get("window")
+                .and_then(Value::as_str)
+                .and_then(parse_duration)
+                .unwrap_or(0);
+            match as_instant(&lhs) {
+                Some(l) => {
+                    let now = chrono::Utc::now();
+                    l <= now && now - l <= chrono::Duration::seconds(window)
+                }
+                None => false,
+            }
+        }
+        "date.isOverdue" => match as_instant(&lhs) {
+            Some(l) => l < chrono::Utc::now(),
+            None => false,
+        },
+        "list.contains" => lhs
+            .as_array()
+            .map(|items| items.contains(&rhs))
+            .unwrap_or(false),
+        "list.length.gte" => {
+            let want = node
+                .params
+                .get("length")
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+            lhs.as_array()
+                .map(|items| items.len() as i64 >= want)
+                .unwrap_or(false)
+        }
+        "list.isEmpty" => lhs
+            .as_array()
+            .map(|items| items.is_empty())
+            .unwrap_or(false),
+        other => {
+            return NodeExec::Failed {
+                code: "condition_unimplemented".into(),
+                error: format!("condition {other:?} has no worker evaluator"),
+            }
+        }
+    };
+    NodeExec::Succeeded {
+        output: json!({ "matched": matched, "field": field }),
+        edges: EdgeOutcome::All,
+    }
+}
+
+/// Resolves a condition's `field` against the run context. The scope is
+/// explicit so an author can always tell where a value came from:
+///
+/// * `event.<path>` — the triggering payload;
+/// * `nodes.<id>.<path>` — an upstream node's recorded output;
+/// * `<entity>.<path>` — a field of the triggering SUBJECT, where `<entity>`
+///   is the event's entity (`ticket.priority` on a `ticket.created` run);
+/// * anything else — a bare dotted path, read from the payload.
+fn condition_value(ctx: &RunContext, cursor: &WorkflowCursor, field: &str) -> Value {
+    if field.is_empty() {
+        return Value::Null;
+    }
+    if let Some(rest) = field.strip_prefix("event.") {
+        return lookup_path(&ctx.event, rest);
+    }
+    if let Some(rest) = field.strip_prefix("nodes.") {
+        let (id, path) = rest.split_once('.').unwrap_or((rest, ""));
+        return cursor
+            .outputs
+            .get(id)
+            .map(|out| lookup_path(out, path))
+            .unwrap_or(Value::Null);
+    }
+    if let Some(entity) = ctx.event_entity.as_deref() {
+        if let Some(rest) = field
+            .strip_prefix(entity)
+            .and_then(|rest| rest.strip_prefix('.'))
+        {
+            return lookup_path(&ctx.event, rest);
+        }
+    }
+    lookup_path(&ctx.event, field)
+}
+
+/// A JSON value as a float: numbers directly, numeric strings parsed.
+fn numeric(value: &Value) -> Option<f64> {
+    match value {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => s.trim().parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
+/// A JSON value as an RFC 3339 instant.
+fn as_instant(value: &Value) -> Option<chrono::DateTime<chrono::Utc>> {
+    let raw = value.as_str()?;
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+}
+
+/// "Empty" for a field: absent/null, an empty string, an empty array or an
+/// empty object. Mirrors what `field.isEmpty` and `list.isEmpty` describe.
+fn is_empty_value(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(s) => s.is_empty(),
+        Value::Array(items) => items.is_empty(),
+        Value::Object(map) => map.is_empty(),
+        _ => false,
+    }
+}
+
 /// The control nodes that do not park: branch, switch, join, parallel,
 /// errorHandler, retry. `flow.foreach` is handled in the async walk.
 fn control_node(ctx: &RunContext, cursor: &WorkflowCursor, node: &WorkflowNode) -> NodeExec {
@@ -1099,7 +1318,7 @@ fn control_node(ctx: &RunContext, cursor: &WorkflowCursor, node: &WorkflowNode) 
             let holds = cursor
                 .outputs
                 .get(condition)
-                .and_then(|o| o.get("holds"))
+                .and_then(|o| o.get("matched"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             let label = if holds {
@@ -1187,8 +1406,9 @@ fn parking_node(
     if !ctx.resumed {
         return park_decision(node, node_type);
     }
-    // Resumed: was the wait satisfied?
-    let event_type = ctx.event.get("type").and_then(Value::as_str);
+    // Resumed: was the wait satisfied? The event TYPE rides beside the
+    // payload now (item A), so a wait still matches on the type.
+    let event_type = ctx.event_type.as_deref();
     match node_type {
         FLOW_DELAY | FLOW_WAIT_UNTIL => {
             // A time wake always satisfies a pure time wait.
@@ -1382,13 +1602,35 @@ fn park_decision(node: &WorkflowNode, node_type: &str) -> NodeExec {
 }
 
 /// Calls core-api's org-scoped node endpoint for one effect-bearing node.
-async fn call_node<E: EffectApi>(effects: &E, ctx: &RunContext, node: &WorkflowNode) -> NodeExec {
+async fn call_node<E: EffectApi>(
+    effects: &E,
+    ctx: &RunContext,
+    cursor: &WorkflowCursor,
+    node: &WorkflowNode,
+) -> NodeExec {
+    // Any `$ref` in the params is resolved against the run's recorded
+    // outputs BEFORE the call (item F): this is how one step's value
+    // reaches the next step's input. A ref to a node that has not run is a
+    // typed step failure, never a silent null.
+    let params = match resolve_params(cursor, &node.params) {
+        Ok(params) => params,
+        Err(error) => {
+            return NodeExec::Failed {
+                code: "unresolved_reference".into(),
+                error,
+            }
+        }
+    };
     let body = json!({
         "org_id": ctx.org_id,
         "actor_user_id": ctx.actor_user_id,
         "node_id": node.node_type,
-        "params": node.params,
-        "context": { "event": ctx.event, "run_id": ctx.run_id },
+        "params": params,
+        "context": {
+            "event": ctx.event,
+            "event_type": ctx.event_type,
+            "run_id": ctx.run_id,
+        },
     });
     let (outcome, response) = effects.post_json(NODE_ENDPOINT, body).await;
     match outcome {
@@ -1423,6 +1665,41 @@ async fn call_node<E: EffectApi>(effects: &E, ctx: &RunContext, node: &WorkflowN
 // ---------------------------------------------------------------------------
 // small pure helpers
 // ---------------------------------------------------------------------------
+
+/// Resolves every value reference (`$ref`) in one node's params against the
+/// run's recorded outputs (item F). Recurses through objects and arrays so a
+/// ref may sit anywhere a value can. A malformed ref, or one naming a node
+/// with no recorded output, is a typed string error the caller turns into a
+/// step failure — the document was validated at save time, so a missing
+/// target here means the upstream step did not produce an output.
+fn resolve_params(cursor: &WorkflowCursor, params: &Value) -> Result<Value, String> {
+    if node_registry::is_param_ref(params) {
+        let (target, path) = node_registry::param_ref_parts(params)
+            .ok_or_else(|| "malformed value reference: expected {node, path}".to_string())?;
+        let output = cursor
+            .outputs
+            .get(target)
+            .ok_or_else(|| format!("value reference to {target:?}, which has not run yet"))?;
+        return Ok(lookup_path(output, path));
+    }
+    match params {
+        Value::Object(map) => {
+            let mut out = serde_json::Map::with_capacity(map.len());
+            for (key, value) in map {
+                out.insert(key.clone(), resolve_params(cursor, value)?);
+            }
+            Ok(Value::Object(out))
+        }
+        Value::Array(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                out.push(resolve_params(cursor, item)?);
+            }
+            Ok(Value::Array(out))
+        }
+        other => Ok(other.clone()),
+    }
+}
 
 /// Reads a dotted path out of a JSON value. An absent path is `Null`.
 fn lookup_path(value: &Value, path: &str) -> Value {
@@ -1637,5 +1914,138 @@ mod tests {
             NodeExec::Failed { code, .. } => assert_eq!(code, "bad_duration"),
             _ => panic!("a bad duration fails"),
         }
+    }
+
+    fn test_ctx(event: Value, entity: Option<&str>) -> RunContext {
+        RunContext {
+            org_id: uuid::Uuid::nil(),
+            run_id: uuid::Uuid::nil(),
+            actor_user_id: uuid::Uuid::nil(),
+            event,
+            event_type: Some("ticket.created".into()),
+            event_entity: entity.map(str::to_string),
+            resumed: false,
+        }
+    }
+
+    fn succeeded_matched(exec: NodeExec) -> bool {
+        match exec {
+            NodeExec::Succeeded { output, .. } => output
+                .get("matched")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            _ => panic!("a condition succeeds"),
+        }
+    }
+
+    #[test]
+    fn conditions_read_the_subject_the_payload_and_upstream_outputs() {
+        // `ticket.priority` resolves against the triggering SUBJECT (the
+        // event's entity), which is the shape item A made reachable.
+        let ctx = test_ctx(
+            json!({ "ticket_id": "t", "priority": "p1" }),
+            Some("ticket"),
+        );
+        let cursor = WorkflowCursor::start();
+        let node = WorkflowNode {
+            id: "c".into(),
+            node_type: "field.equals".into(),
+            params: json!({ "field": "ticket.priority", "value": "p1" }),
+        };
+        assert!(succeeded_matched(condition_node(&ctx, &cursor, &node)));
+
+        // A bare path reads the payload, and `event.` is an explicit root.
+        let node = WorkflowNode {
+            id: "c".into(),
+            node_type: "field.isEmpty".into(),
+            params: json!({ "field": "event.missing" }),
+        };
+        assert!(succeeded_matched(condition_node(&ctx, &cursor, &node)));
+
+        // `nodes.<id>.<path>` reads an upstream node's recorded output.
+        let mut cursor = WorkflowCursor::start();
+        cursor.record_node("check", json!({ "matched": false }));
+        let node = WorkflowNode {
+            id: "c".into(),
+            node_type: "field.equals".into(),
+            params: json!({ "field": "nodes.check.matched", "value": false }),
+        };
+        assert!(succeeded_matched(condition_node(&ctx, &cursor, &node)));
+    }
+
+    #[test]
+    fn numeric_and_list_conditions_compare_as_declared() {
+        let ctx = test_ctx(json!({ "hours": 5, "tags": ["a", "b"], "empty": [] }), None);
+        let cursor = WorkflowCursor::start();
+        let gt = WorkflowNode {
+            id: "n".into(),
+            node_type: "number.gt".into(),
+            params: json!({ "field": "hours", "value": 4 }),
+        };
+        assert!(succeeded_matched(condition_node(&ctx, &cursor, &gt)));
+        let between = WorkflowNode {
+            id: "n".into(),
+            node_type: "number.between".into(),
+            params: json!({ "field": "hours", "min": 6, "max": 9 }),
+        };
+        assert!(!succeeded_matched(condition_node(&ctx, &cursor, &between)));
+        let contains = WorkflowNode {
+            id: "l".into(),
+            node_type: "list.contains".into(),
+            params: json!({ "field": "tags", "value": "b" }),
+        };
+        assert!(succeeded_matched(condition_node(&ctx, &cursor, &contains)));
+        let empty = WorkflowNode {
+            id: "l".into(),
+            node_type: "list.isEmpty".into(),
+            params: json!({ "field": "empty" }),
+        };
+        assert!(succeeded_matched(condition_node(&ctx, &cursor, &empty)));
+    }
+
+    #[test]
+    fn flow_branch_reads_the_matched_key_conditions_write() {
+        // Item B: the branch arm read `outputs[cond]["holds"]` while every
+        // condition declares `matched`, so every branch took the false arm.
+        let ctx = test_ctx(json!({}), None);
+        let mut cursor = WorkflowCursor::start();
+        cursor.record_node("c1", json!({ "matched": true }));
+        let branch = WorkflowNode {
+            id: "b".into(),
+            node_type: FLOW_BRANCH.into(),
+            params: json!({ "condition": "c1" }),
+        };
+        match control_node(&ctx, &cursor, &branch) {
+            NodeExec::Succeeded { edges, .. } => match edges {
+                EdgeOutcome::Labels(labels) => {
+                    assert_eq!(labels, vec![DEFAULT_TRUE_LABEL.to_string()])
+                }
+                _ => panic!("a branch fires one labelled edge"),
+            },
+            _ => panic!("a branch succeeds"),
+        }
+    }
+
+    #[test]
+    fn value_references_resolve_against_recorded_outputs() {
+        // Item F: capture's output feeds the next step's uuid slot.
+        let mut cursor = WorkflowCursor::start();
+        cursor.record_node(
+            "capture",
+            json!({ "signOffId": "abc", "nested": { "x": 2 } }),
+        );
+        let params = json!({
+            "attachmentId": { "$ref": { "node": "capture", "path": "signOffId" } },
+            "nested": { "$ref": { "node": "capture", "path": "nested.x" } },
+            "keep": "literal"
+        });
+        let resolved = resolve_params(&cursor, &params).expect("refs resolve");
+        assert_eq!(resolved["attachmentId"], json!("abc"));
+        assert_eq!(resolved["nested"], json!(2));
+        assert_eq!(resolved["keep"], json!("literal"));
+
+        // A ref to a node that has not run is a typed error, not a null.
+        let missing = resolve_params(&cursor, &json!({ "$ref": { "node": "nope", "path": "" } }));
+        assert!(missing.is_err());
     }
 }

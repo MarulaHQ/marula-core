@@ -243,6 +243,20 @@ pub enum WorkflowDocError {
     Cycle(String),
     #[error("node {0:?} declares onError=route but has no {ERROR_LABEL:?}-labelled outgoing edge")]
     RouteWithoutErrorEdge(String),
+    #[error(
+        "node {id:?} uses {node_type:?}, which this build's executor cannot run — the catalogue marks it unimplemented, so the document is refused at author time instead of failing at run time"
+    )]
+    NodeNotExecutable { id: String, node_type: String },
+    #[error("node {id:?} has a value reference that is not an object of {{node, path}}")]
+    BadReference { id: String },
+    #[error("node {id:?} references node {target:?}, which is not upstream of it")]
+    ReferenceNotUpstream { id: String, target: String },
+    #[error("node {id:?} references {target:?} field {path:?}, which its output schema does not declare")]
+    ReferencePathUnknown {
+        id: String,
+        target: String,
+        path: String,
+    },
 }
 
 impl From<WorkflowDocError> for crate::error::DomainError {
@@ -301,6 +315,16 @@ impl WorkflowDocument {
                     detail: e.to_string(),
                 }
             })?;
+            // Coverage (Wave 43 lane 20, item C): the catalogue declares
+            // whether the executor can run a node today. One that cannot is
+            // refused HERE, at author time — the alternative is a document
+            // that saves cleanly and dies at step 0 of a run.
+            if !declared.executable {
+                return Err(WorkflowDocError::NodeNotExecutable {
+                    id: node.id.clone(),
+                    node_type: node.node_type.clone(),
+                });
+            }
         }
 
         // (2) Edge endpoints and identity.
@@ -319,6 +343,12 @@ impl WorkflowDocument {
                 return Err(WorkflowDocError::DuplicateEdge(edge.key()));
             }
         }
+
+        // (2b) Value references ($ref) resolve against an upstream node's
+        // output (Wave 43 lane 20, item F). Checked here, at author time:
+        // the target must exist upstream, and the path must be one that
+        // node's output schema actually declares.
+        self.validate_references()?;
 
         // (3) Rule (a): the document is data, never code.
         if let Some((path, detail)) =
@@ -354,11 +384,62 @@ impl WorkflowDocument {
         Ok(())
     }
 
+    /// Enforces the `$ref` value-reference contract (Wave 43 lane 20, item
+    /// F): every reference names a node UPSTREAM of the referencing one and
+    /// a dotted path that node's declared output schema actually carries.
+    /// Without this check a typo would resolve to `null` at run time and
+    /// silently feed a null into the next step.
+    fn validate_references(&self) -> Result<(), WorkflowDocError> {
+        for node in &self.nodes {
+            let mut stack: Vec<&Value> = vec![&node.params];
+            while let Some(value) = stack.pop() {
+                if node_registry::is_param_ref(value) {
+                    let Some((target, path)) = node_registry::param_ref_parts(value) else {
+                        return Err(WorkflowDocError::BadReference {
+                            id: node.id.clone(),
+                        });
+                    };
+                    // The target must be a node in this document that runs
+                    // BEFORE the referencing node.
+                    if self.node(target).is_none()
+                        || !self.reachable_from([target.to_string()]).contains(&node.id)
+                    {
+                        return Err(WorkflowDocError::ReferenceNotUpstream {
+                            id: node.id.clone(),
+                            target: target.to_string(),
+                        });
+                    }
+                    // The path must be one the target's output declares. The
+                    // ref names a node ID, so resolve its TYPE first.
+                    let target_type = self
+                        .node(target)
+                        .map(|n| n.node_type.as_str())
+                        .unwrap_or_default();
+                    let output =
+                        node_registry::output_schema(target_type).unwrap_or(Value::Null);
+                    if !schema_declares_path(&output, path) {
+                        return Err(WorkflowDocError::ReferencePathUnknown {
+                            id: node.id.clone(),
+                            target: target.to_string(),
+                            path: path.to_string(),
+                        });
+                    }
+                    continue;
+                }
+                match value {
+                    Value::Object(map) => stack.extend(map.values()),
+                    Value::Array(items) => stack.extend(items.iter()),
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// The node by id, if declared.
     pub fn node(&self, id: &str) -> Option<&WorkflowNode> {
         self.nodes.iter().find(|n| n.id == id)
     }
-
     /// Every edge leaving a node, in document order.
     pub fn outgoing(&self, id: &str) -> Vec<&WorkflowEdge> {
         self.edges.iter().filter(|e| e.from == id).collect()
@@ -678,6 +759,38 @@ pub fn is_terminal_node(node_type: &str) -> bool {
 /// The executor path a node rides, resolved from the registry.
 pub fn executor_path(node_type: &str) -> Option<ExecutorPath> {
     node_registry::get(node_type).map(|n| n.executor)
+}
+
+/// Whether a declared output schema carries a dotted path (Wave 43 lane 20,
+/// item F). An open object (`{"type":"object"}` with no `properties`) or an
+/// object with `additionalProperties` accepts the remaining path — the
+/// registry's default schema is exactly that, and a node that declares no
+/// fields cannot have its fields checked. Arrays descend into `items`.
+fn schema_declares_path(schema: &Value, path: &str) -> bool {
+    if path.is_empty() {
+        return true;
+    }
+    let mut current = schema;
+    for segment in path.split('.').filter(|s| !s.is_empty()) {
+        if current.get("type").and_then(Value::as_str) == Some("array") {
+            match current.get("items") {
+                Some(items) => {
+                    current = items;
+                    continue;
+                }
+                None => return true,
+            }
+        }
+        let Some(props) = current.get("properties") else {
+            return current.get("type").and_then(Value::as_str) == Some("object")
+                || current.get("additionalProperties").is_some();
+        };
+        match props.get(segment) {
+            Some(next) => current = next,
+            None => return false,
+        }
+    }
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -1005,6 +1118,92 @@ mod tests {
         assert!(matches!(
             doc.validate(),
             Err(WorkflowDocError::UnknownNodeType { .. })
+        ));
+    }
+
+    #[test]
+    fn a_node_the_executor_cannot_run_is_refused_at_author_time() {
+        // Item C: `ticket.setTags` is declared in the catalogue but has no
+        // executor arm, so a document that places it must not save.
+        let mut doc = minimal();
+        doc.nodes[0] = node("a", "ticket.setTags", json!({ "tags": [] }));
+        assert!(matches!(
+            doc.validate(),
+            Err(WorkflowDocError::NodeNotExecutable { .. })
+        ));
+    }
+
+    /// entry → step, with the step carrying the given params.
+    fn with_step(step_type: &str, step_params: Value) -> WorkflowDocument {
+        WorkflowDocument {
+            version: DOCUMENT_VERSION.to_string(),
+            nodes: vec![
+                node("a", "ticket.update", json!({ "fields": {} })),
+                node("b", step_type, step_params),
+                node("z", FLOW_STOP, json!({})),
+            ],
+            edges: vec![edge("a", "b", None), edge("b", "z", None)],
+            loop_max_depth: 1,
+        }
+    }
+
+    #[test]
+    fn a_value_reference_resolves_a_typed_slot_from_an_upstream_node() {
+        // Item F: capture-to-file style handoff — a `$ref` satisfies the
+        // typed `title` slot (a literal `{{…}}` could not).
+        let doc = with_step(
+            "notification.send",
+            json!({
+                "userIds": ["00000000-0000-0000-0000-000000000001"],
+                "kind": "escalation",
+                "title": { "$ref": { "node": "a", "path": "ticketId" } }
+            }),
+        );
+        doc.validate().expect("a well-formed ref validates");
+    }
+
+    #[test]
+    fn a_reference_to_a_non_upstream_node_is_refused() {
+        let doc = with_step(
+            "notification.send",
+            json!({
+                "userIds": ["00000000-0000-0000-0000-000000000001"],
+                "kind": "escalation",
+                "title": { "$ref": { "node": "z", "path": "ticketId" } }
+            }),
+        );
+        assert!(matches!(
+            doc.validate(),
+            Err(WorkflowDocError::ReferenceNotUpstream { .. })
+        ));
+    }
+
+    #[test]
+    fn a_reference_to_an_undeclared_output_path_is_refused() {
+        let doc = with_step(
+            "notification.send",
+            json!({
+                "userIds": ["00000000-0000-0000-0000-000000000001"],
+                "kind": "escalation",
+                "title": { "$ref": { "node": "a", "path": "notAField" } }
+            }),
+        );
+        assert!(matches!(
+            doc.validate(),
+            Err(WorkflowDocError::ReferencePathUnknown { .. })
+        ));
+        // A malformed ref body is refused too.
+        let bad = with_step(
+            "notification.send",
+            json!({
+                "userIds": ["00000000-0000-0000-0000-000000000001"],
+                "kind": "escalation",
+                "title": { "$ref": "a.ticketId" }
+            }),
+        );
+        assert!(matches!(
+            bad.validate(),
+            Err(WorkflowDocError::BadReference { .. })
         ));
     }
 

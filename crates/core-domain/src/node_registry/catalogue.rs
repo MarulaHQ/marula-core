@@ -264,6 +264,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"value":{}},"required":["field","value"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"value":{}}}"#),
 
@@ -275,6 +276,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"value":{}},"required":["field","value"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"value":{}}}"#),
 
@@ -286,6 +288,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"needle":{"type":"string","maxLength":2000}},"required":["field","needle"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"needle":{"type":"string"}}}"#),
 
@@ -297,6 +300,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200}},"required":["field"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"}}}"#),
 
@@ -309,6 +313,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"value":{"type":"number"}},"required":["field","value"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"value":{"type":"number"}}}"#),
 
@@ -320,6 +325,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"value":{"type":"number"}},"required":["field","value"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"value":{"type":"number"}}}"#),
 
@@ -331,6 +337,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"value":{"type":"number"}},"required":["field","value"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"value":{"type":"number"}}}"#),
 
@@ -342,6 +349,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"value":{"type":"number"}},"required":["field","value"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"value":{"type":"number"}}}"#),
 
@@ -354,6 +362,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"min":{"type":"number"},"max":{"type":"number"}},"required":["field","min","max"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"min":{"type":"number"},"max":{"type":"number"}}}"#),
 
@@ -365,6 +374,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"at":{"type":"string"}},"required":["field","at"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"at":{"type":"string"}}}"#),
 
@@ -376,6 +386,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"at":{"type":"string"}},"required":["field","at"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"at":{"type":"string"}}}"#),
 
@@ -388,6 +399,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"window":{"type":"string","maxLength":32}},"required":["field","window"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"window":{"type":"string"}}}"#),
 
@@ -400,6 +412,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200}},"required":["field"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"}}}"#),
 
@@ -411,6 +424,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"value":{}},"required":["field","value"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"}}}"#),
 
@@ -422,6 +436,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200},"length":{"type":"integer","minimum":0}},"required":["field","length"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"},"length":{"type":"integer"}}}"#),
 
@@ -433,6 +448,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"field":{"type":"string","minLength":1,"maxLength":200}},"required":["field"]}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"},"field":{"type":"string"}}}"#),
 
@@ -460,6 +476,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::Condition,
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{}}"#)
     .output(r#"{"type":"object","properties":{"matched":{"type":"boolean"}}}"#),
 
@@ -493,6 +510,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::DomainWrapper(DomainOp::TicketUpdate),
     )
+    .executable()
     .idempotent(DomainOp::TicketUpdate.idempotent())
     .emits(&["ticket.updated"])
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"fields":{"type":"object"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["fields"]}"#)
@@ -506,9 +524,10 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::DomainWrapper(DomainOp::TicketTransition),
     )
+    .executable()
     .idempotent(DomainOp::TicketTransition.idempotent())
     .emits(&["ticket.status_changed"])
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"status":{"type":"string","minLength":1,"maxLength":80},"comment":{"type":"string","maxLength":20000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["status"]}"#)
+    .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"status":{"type":"string","minLength":1,"maxLength":80},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["status"]}"#)
     .output(r#"{"type":"object","properties":{"ticketId":{"type":"string","format":"uuid"},"status":{"type":"string"}}}"#),
 
     ACTION_TICKET_ASSIGN: NodeType::new(
@@ -519,6 +538,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::DomainWrapper(DomainOp::TicketAssign),
     )
+    .executable()
     .idempotent(DomainOp::TicketAssign.idempotent())
     .emits(&["ticket.assigned"])
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"userId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":[]}"#)
@@ -532,6 +552,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::DomainWrapper(DomainOp::TicketComment),
     )
+    .executable()
     .idempotent(DomainOp::TicketComment.idempotent())
     .emits(&["ticket.comment_added"])
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"body":{"type":"string","minLength":1,"maxLength":20000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["body"]}"#)
@@ -545,6 +566,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::DomainWrapper(DomainOp::TicketInternalNote),
     )
+    .executable()
     .idempotent(DomainOp::TicketInternalNote.idempotent())
     .emits(&["ticket.comment_added"])
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"body":{"type":"string","minLength":1,"maxLength":20000},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["body"]}"#)
@@ -558,6 +580,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::DomainWrapper(DomainOp::TicketSetPriority),
     )
+    .executable()
     .idempotent(DomainOp::TicketSetPriority.idempotent())
     .emits(&["ticket.updated"])
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"priority":{"type":"string","enum":["p1","p2","p3","p4"]},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["priority"]}"#)
@@ -1029,6 +1052,7 @@ declare_nodes! {
         NodeTier::A,
         ExecutorPath::DomainWrapper(DomainOp::NotificationSend),
     )
+    .executable()
     .idempotent(DomainOp::NotificationSend.idempotent())
     .emits(&["notification.created"])
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"userIds":{"type":"array","items":{"type":"string","format":"uuid"},"minItems":1},"kind":{"type":"string","enum":["mention","assignment","sla_risk","sla_breach","escalation","missing_time","ticket_update","report_delivery","ai_cap_warn","secret_rotation","dedupe_report","scan_detection"]},"title":{"type":"string","minLength":1,"maxLength":300},"body":{"type":"string","maxLength":20000},"ticketId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["userIds","kind","title"]}"#)
@@ -1126,18 +1150,6 @@ declare_nodes! {
     .idempotent(DomainOp::SignOffCapture.idempotent())
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"ticketId":{"type":"string","format":"uuid","description":"The ticket to act on; omit to use the ticket that triggered the run"},"signerName":{"type":"string","minLength":1,"maxLength":200},"attachmentId":{"type":"string","format":"uuid"},"consentVersion":{"type":"string","maxLength":40},"witnessId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["signerName","attachmentId","consentVersion"]}"#)
     .output(r#"{"type":"object","properties":{"signOffId":{"type":"string","format":"uuid"},"capturedAt":{"type":"string"}}}"#),
-
-    ACTION_SIGN_OFF_FILE: NodeType::new(
-        "signOff.file",
-        "File sign-off",
-        "Attaches a captured sign-off to the record it belongs on. Not safe to repeat.",
-        NodeFamily::Action,
-        NodeTier::A,
-        ExecutorPath::DomainWrapper(DomainOp::SignOffFile),
-    )
-    .idempotent(DomainOp::SignOffFile.idempotent())
-    .input(r#"{"type":"object","additionalProperties":false,"properties":{"signOffId":{"type":"string","format":"uuid"},"timeEntryId":{"type":"string","format":"uuid"},"ticketId":{"type":"string","format":"uuid"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["signOffId"]}"#)
-    .output(r#"{"type":"object","properties":{"signOffId":{"type":"string","format":"uuid"},"filed":{"type":"boolean"}}}"#),
 
 // ---------------------------------------------------------------------------
 // Tier A actions — assets and stock
@@ -1447,6 +1459,7 @@ declare_nodes! {
         NodeTier::C,
         ExecutorPath::Plugin(super::PluginNodeKind::Action),
     )
+    .executable()
     .input(r#"{"type":"object","additionalProperties":false,"properties":{"entryKey":{"type":"string","minLength":1,"maxLength":200},"params":{"type":"object"},"onError":{"type":"string","enum":["halt","continue","route"]}},"required":["entryKey"]}"#)
     .output(r#"{"type":"object","properties":{"entryKey":{"type":"string"},"result":{"type":"object"},"skipped":{"type":"boolean"},"reason":{"type":"string"}}}"#),
 

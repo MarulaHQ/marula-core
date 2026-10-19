@@ -348,7 +348,6 @@ pub enum DomainOp {
     AlertResolve,
     TravelDraftCreate,
     SignOffCapture,
-    SignOffFile,
     // assets
     StockItemCreate,
     StockItemMove,
@@ -374,7 +373,7 @@ pub enum DomainOp {
 }
 
 impl DomainOp {
-    pub const ALL: [DomainOp; 69] = [
+    pub const ALL: [DomainOp; 68] = [
         Self::TicketCreate,
         Self::TicketUpdate,
         Self::TicketTransition,
@@ -424,7 +423,6 @@ impl DomainOp {
         Self::AlertResolve,
         Self::TravelDraftCreate,
         Self::SignOffCapture,
-        Self::SignOffFile,
         Self::StockItemCreate,
         Self::StockItemMove,
         Self::ToolCheckout,
@@ -499,7 +497,6 @@ impl DomainOp {
             Self::AlertResolve => "alert.resolve",
             Self::TravelDraftCreate => "travel_draft.create",
             Self::SignOffCapture => "sign_off.capture",
-            Self::SignOffFile => "sign_off.file",
             Self::StockItemCreate => "stock_item.create",
             Self::StockItemMove => "stock_item.move",
             Self::ToolCheckout => "tool.checkout",
@@ -568,7 +565,7 @@ impl DomainOp {
             Self::CsatRequest => "csat",
             Self::AlertAcknowledge | Self::AlertResolve => "alert",
             Self::TravelDraftCreate => "travel_draft",
-            Self::SignOffCapture | Self::SignOffFile => "sign_off",
+            Self::SignOffCapture => "sign_off",
             Self::StockItemCreate | Self::StockItemMove => "stock_item",
             Self::ToolCheckout | Self::ToolCheckin => "tool",
             Self::LoanIssue | Self::LoanReturn => "loan",
@@ -658,7 +655,7 @@ impl DomainOp {
             // No dedicated event today: the write is observable through the
             // entity's own stream, and the loop refusal must stay
             // conservative (an unlinkable op can never deadlock a wait).
-            Self::SmsSend | Self::SignOffCapture | Self::SignOffFile => "",
+            Self::SmsSend | Self::SignOffCapture => "",
         }
     }
 
@@ -700,7 +697,6 @@ impl DomainOp {
                 | Self::PortalNotify
                 | Self::TravelDraftCreate
                 | Self::SignOffCapture
-                | Self::SignOffFile
                 | Self::StockItemCreate
                 | Self::StockItemMove
                 | Self::ToolCheckout
@@ -743,6 +739,16 @@ pub struct NodeType {
     /// Event types this node can produce — the seam lane 15's static loop
     /// refusal reads. Empty for reads, conditions and values.
     pub emits: &'static [&'static str],
+    /// Whether the executor can actually APPLY this node today (Wave 43
+    /// lane 20, item C). The catalogue declares ~90 nodes; the executor
+    /// implements a handful, so without this flag the palette offers an
+    /// author a node that saves cleanly and refuses at step 0. The
+    /// default is derived from the executor path — engine-internal paths
+    /// (trigger/value/control) are executable by construction, every
+    /// effect-bearing path must opt in with `.executable()`. `validate`
+    /// refuses a document that places a node whose flag is false, and the
+    /// palette/schema views carry the same flag so a UI can gray it out.
+    pub executable: bool,
 }
 
 impl NodeType {
@@ -769,7 +775,20 @@ impl NodeType {
             input_schema: r#"{"type":"object"}"#,
             output_schema: r#"{"type":"object"}"#,
             emits: &[],
+            executable: matches!(
+                executor,
+                ExecutorPath::Trigger | ExecutorPath::Value | ExecutorPath::Control
+            ),
         }
+    }
+
+    /// Declares that the executor can apply this node today. Required for
+    /// every effect-bearing node (actions, conditions, AI edges, plugin
+    /// nodes): the default is `false` so a new declaration is refused at
+    /// author time until a lane implements it, never silently offered.
+    pub const fn executable(mut self) -> Self {
+        self.executable = true;
+        self
     }
 
     pub const fn idempotent(mut self, idempotent: bool) -> Self {
@@ -1197,6 +1216,14 @@ fn validate_declared_at(schema: &Value, path: &str) -> Result<(), SchemaViolatio
 }
 
 fn validate_at(schema: &Value, instance: &Value, path: &str) -> Result<(), SchemaViolation> {
+    // A value reference satisfies ANY slot (Wave 43 lane 20, item F): it is
+    // resolved at execution time to an upstream node's output, so its
+    // runtime type is not knowable here. The ref's own shape and reachability
+    // are checked by `WorkflowDocument::validate_references`; the schema is
+    // therefore not consulted for the ref body.
+    if is_param_ref(instance) {
+        return Ok(());
+    }
     // Boolean schemas: `true` admits anything, `false` admits nothing.
     if let Some(admit) = schema.as_bool() {
         return if admit {
@@ -1545,6 +1572,10 @@ impl PluginNodeContract {
                     .unwrap_or_else(|| r#"{"type":"object"}"#.to_string()),
             ),
             emits,
+            // A plugin ACTION rides the implemented `plugin.action` arm; a
+            // plugin READ has none of its own yet, so it is not advertised
+            // as runnable (Wave 43 lane 20, item C).
+            executable: matches!(self.kind, PluginNodeKind::Action),
         }
     }
 }
@@ -1580,6 +1611,39 @@ pub fn automation_action_node(tag: &str) -> Option<&'static str> {
         .iter()
         .find(|(t, _)| *t == tag)
         .map(|(_, node)| *node)
+}
+
+// ---------------------------------------------------------------------------
+// Value references (Wave 43 lane 20, item F)
+// ---------------------------------------------------------------------------
+
+/// True when a params value is a value-reference object:
+/// `{"$ref": {"node": "<id>", "path": "<dotted.path>"}}`.
+///
+/// This is the shape one step's output travels to a later step's input in.
+/// It is deliberately NOT a templating string — the document bans `${`,
+/// `<%`, `javascript:` and `eval(`, and typed slots (`{"format":"uuid"}`)
+/// would reject a `{{…}}` literal anyway. `$ref` is data, so it survives
+/// the code scan and the schema validator treats it as satisfying any slot.
+pub fn is_param_ref(value: &Value) -> bool {
+    value
+        .as_object()
+        .map(|o| o.len() == 1 && o.contains_key("$ref"))
+        .unwrap_or(false)
+}
+
+/// The `(node, path)` a value reference names, when its body is well formed.
+/// A `{"$ref": …}` whose body is not `{node, path}` returns `None`; the
+/// author-time validator turns that into a typed refusal rather than a
+/// silent `null`.
+pub fn param_ref_parts(value: &Value) -> Option<(&str, &str)> {
+    if !is_param_ref(value) {
+        return None;
+    }
+    let body = value.get("$ref")?;
+    let node = body.get("node")?.as_str()?;
+    let path = body.get("path").and_then(Value::as_str).unwrap_or("");
+    Some((node, path))
 }
 
 #[cfg(test)]
