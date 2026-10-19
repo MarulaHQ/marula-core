@@ -1,7 +1,7 @@
 # Release pipeline (TASKLIST U10b + Wave 38 p38-container-hardening).
 #
 # On a vX.Y.Z tag:
-#   1. Build + push five images to GHCR, pinned by digest, with provenance
+#   1. Build + push four images to GHCR, pinned by digest, with provenance
 #      attestations (buildx) and SBOMs (syft), both uploaded as artifacts
 #      AND attested into the registry.
 #   2. Scan every built image with trivy and lint every Dockerfile with
@@ -53,9 +53,6 @@ jobs:
           - image: marula-core-api
             dockerfile: deploy/Dockerfile.rust
             build_args: BIN=core-api
-          - image: marula-realtime
-            dockerfile: deploy/Dockerfile.rust
-            build_args: BIN=realtime
           - image: marula-worker
             dockerfile: deploy/Dockerfile.rust
             build_args: BIN=worker
@@ -137,8 +134,6 @@ jobs:
       matrix:
         include:
           - image: marula-core-api
-            dockerfile: deploy/Dockerfile.rust
-          - image: marula-realtime
             dockerfile: deploy/Dockerfile.rust
           - image: marula-worker
             dockerfile: deploy/Dockerfile.rust

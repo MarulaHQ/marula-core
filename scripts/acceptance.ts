@@ -3,10 +3,10 @@
  * a timer → close → time entry appears. Runs against a live core-api using
  * @marula-core/sdk itself — so it doubles as an end-to-end SDK test.
  *
- * Usage: pnpm accept [--url http://localhost:8080] [--ws-url ws://localhost:8081] [--skip-perf]
+ * Usage: pnpm accept [--url http://localhost:8080] [--stream-url http://localhost:8080/api/events/stream] [--skip-perf]
  * Requires: core-api running with its Postgres. Checks [1]–[9] need ONLY that.
  * Check [10] exercises the full push chain (api → outbox → relay → Redis →
- * hub → socket) and needs Redis + worker + realtime up; if the hub is not
+ * core-api SSE stream) and needs Redis + worker up; if the stream is not
  * reachable it reports SKIP instead of FAIL so API-only runs stay green.
  * Check [11] measures p95 latency of UI-backed calls against the <100 ms
  * budget (BUILD-PROMPT §Stage-1); --skip-perf opts out.
@@ -84,7 +84,9 @@ const ticket = await typed(
   }),
   "create ticket",
 );
-check("ticket number allocated", /^MER-\d+$/.test(ticket.number));
+// The prefix is the schema default for a fresh org. Migration 0114 (the Marula
+// rebrand) moved it from MER to MAR, which is why this expectation says MAR.
+check("ticket number allocated", /^MAR-\d+$/.test(ticket.number));
 
 // 5. Timer: start → working set shows it → stop materializes an entry.
 console.log("\n[5] timer start/stop");
@@ -141,70 +143,77 @@ const crossRead = await outsider.api.GET("/api/tickets/{id}", {
 });
 check("cross-org ticket read rejected", crossRead.error !== undefined);
 
-// 10. Push chain: api mutation → outbox → relay → Redis → hub → this socket.
-// SKIPs (does not fail) when the realtime hub isn't running, so API-only
-// environments still pass; a connected socket that never sees its event FAILS.
-console.log("\n[10] websocket event delivery");
-const wsUrl = (() => {
-  if (process.argv.includes("--ws-url")) return process.argv[process.argv.indexOf("--ws-url") + 1];
-  const env = process.env.ACCEPTANCE_WS_URL;
+// 10. Push chain: api mutation → outbox → relay → Redis → core-api SSE
+// stream. SKIPs (does not fail) when the stream isn't reachable, so API-only
+// environments still pass; a connected stream that never sees its event FAILS.
+console.log("\n[10] live event delivery");
+const streamUrl = (() => {
+  if (process.argv.includes("--stream-url")) return process.argv[process.argv.indexOf("--stream-url") + 1];
+  const env = process.env.ACCEPTANCE_STREAM_URL;
   if (env) return env;
   const u = new URL(API_URL);
-  u.protocol = "ws";
-  u.port = "8081";
-  u.pathname = "/ws";
+  u.pathname = "/api/events/stream";
+  u.search = "";
   return u.toString();
 })();
 let sawEvent = false;
 try {
-  const ws = await new Promise<WebSocket>((resolve, reject) => {
-    const sock = new WebSocket(`${wsUrl}?token=${rotated.access_token}`);
-    const t = setTimeout(() => {
-      sock.close();
-      reject(new Error("connect timeout"));
-    }, 4000);
-    sock.onopen = () => {
-      clearTimeout(t);
-      resolve(sock);
-    };
-    sock.onerror = () => {
-      clearTimeout(t);
-      reject(new Error("socket error"));
-    };
+  // The stream is the one live push leg: core-api serves
+  // GET /api/events/stream?token=<jwt> and pushes frames off the response
+  // body. Node ships no global EventSource, so read the body directly.
+  const controller = new AbortController();
+  const response = await fetch(`${streamUrl}?token=${encodeURIComponent(rotated.access_token)}`, {
+    headers: { accept: "text/event-stream" },
+    signal: controller.signal,
   });
-  const nextMessage = <T = unknown>(timeoutMs: number): Promise<T> =>
-    new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error("message timeout")), timeoutMs);
-      ws.onmessage = (m) => {
-        clearTimeout(t);
-        resolve(JSON.parse(String(m.data)));
-      };
-    });
-  type ServerFrame = { type: string; channel?: string; event?: { type: string; entity_id?: string } };
-  const hello = await nextMessage<ServerFrame>(4000);
-  check("hub authenticates jwt and says hello", hello.type === "hello");
-  ws.send(JSON.stringify({ type: "subscribe", channel: `board:${boards[0].id}` }));
-  const subbed = await nextMessage<ServerFrame>(4000);
-  check("board subscribe confirmed", subbed.type === "subscribed" && subbed.channel === `board:${boards[0].id}`);
+  if (!response.ok || response.body === null) throw new Error(`stream http ${response.status}`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  // SSE frames are flat: `{type, org_id, entity, entity_id, seq, at}`. There
+  // is no `event` wrapper — that nesting belonged to the deleted WebSocket hub.
+  const frames: Array<{ type?: string; entity_id?: string }> = [];
+  let buffer = "";
+  const pump = (async () => {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary !== -1) {
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const data = block
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice("data:".length).trimStart())
+          .join("\n");
+        if (data !== "") frames.push(JSON.parse(data));
+        boundary = buffer.indexOf("\n\n");
+      }
+    }
+  })().catch(() => {});
+  // Give the connection a beat to register before the probe mutation.
+  await new Promise((r) => setTimeout(r, 300));
   const probeTicket = await typed(
     owner.api.POST("/api/tickets", {
-      body: { board_id: boards[0].id, title: "Acceptance: WS probe", priority: "p3" },
+      body: { board_id: boards[0].id, title: "Acceptance: SSE probe", priority: "p3" },
     }),
-    "create ws-probe ticket",
+    "create stream-probe ticket",
   );
-  while (true) {
-    const frame = await nextMessage<ServerFrame>(10000);
-    if (frame.type === "event" && frame.event?.type === "ticket.created" && frame.event?.entity_id === probeTicket.id) {
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline && !sawEvent) {
+    if (frames.some((f) => f.type === "ticket.created" && f.entity_id === probeTicket.id)) {
       sawEvent = true;
-      break;
+    } else {
+      await new Promise((r) => setTimeout(r, 50));
     }
-    if (frame.type === "error") throw new Error(`hub error: ${JSON.stringify(frame)}`);
   }
-  ws.close();
+  controller.abort();
+  await pump;
 } catch (err) {
-  console.log(`  skip  websocket delivery (${(err as Error).message}; full push chain needs Redis + worker + realtime up)`);
+  console.log(`  skip  live event delivery (${(err as Error).message}; full push chain needs Redis + worker up)`);
 }
-check("ticket.created pushed over ws", sawEvent);
+check("ticket.created pushed over the sse stream", sawEvent);
 
 // 11. p95 latency of UI-backed interactions against the <100 ms budget.
 if (!process.argv.includes("--skip-perf")) {

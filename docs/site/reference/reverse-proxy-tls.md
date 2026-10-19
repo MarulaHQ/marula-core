@@ -23,15 +23,13 @@ thing for a cluster. Both are described here.
 | `/api/…` | `core-api:8080` | REST + instant-first envelope, incl. `/api/health` |
 | `/openapi.json` | `core-api:8080` | SDK contract |
 | `/healthz` | `core-api:8080` | rewritten to `/api/health` — the app's own liveness route |
-| `/ws` | `realtime:8081` | must support upgrade |
+| `/api/events/stream` | `core-api:8080` | the SSE live stream; must stream, not buffer |
 
 `NEXT_PUBLIC_API_URL` is baked into the web bundle at build time — after
 adding TLS, rebuild with the public `https://` URL so the browser reaches
-the API through the proxy, not the internal service name. The realtime
-socket comes from `NEXT_PUBLIC_WS_URL`, baked the same way, and it must be
-the proxied path (`wss://<domain>/ws`). Leave it empty and the client
-derives the address from the API base and port 8081, which is the origin's
-raw port — exactly what the proxy exists to remove from the internet.
+the API through the proxy, not the internal service name. The live stream is
+an ordinary long-lived response from `core-api`, so it rides the same
+`/api/…` upstream as every other call and needs no separate address.
 
 ## Two TLS modes, and how to pick
 
@@ -209,11 +207,12 @@ security boundary, and no per-route variant of the resolver exists.
 
 ## Checks a proxy must survive
 
-- **WebSocket passthrough.** The live surfaces (boards, presence, realtime
-  envelopes) upgrade from HTTP; a proxy that buffers or times out upgrades
-  breaks them silently. The shipped configs set `flush_interval -1`, no
-  stream timeout, and a 60s close delay on reload so a config change does
-  not drop live sockets.
+- **Streamed responses.** The live surfaces (boards, presence, event
+  envelopes) arrive over `GET /api/events/stream` as `text/event-stream`. A
+  proxy that buffers the body or times the connection out breaks them
+  silently, so the shipped configs set `flush_interval -1` and no stream
+  timeout, and hold a 60s close delay on reload so a config change does not
+  drop a live stream.
 - **Request body size.** Document attachments are capped by
   `MARULA_MAX_UPLOAD_MB` (default 25), and the proxy has to carry the same
   number or uploads die at the wrong layer. Watch the unit: core-api
@@ -251,7 +250,7 @@ In Direct mode there is nothing to allowlist: the host is its own edge, so
 pretending to help.
 
 Do not publish the raw service ports on a public host, in either mode.
-The compose edge overlay pulls `8080`, `8081`, `3000`, `8082`, `15432` and
+The compose edge overlay pulls `8080`, `3000`, `8082`, `15432` and
 `16379` back to the compose network. The preview overlay's `0.0.0.0`
 publishes are the exception, and only until the edge overlay is layered on
 top of it.
@@ -285,8 +284,8 @@ openssl s_client -connect "$DOMAIN:443" -servername "$DOMAIN" </dev/null \
 curl -fsS "https://$DOMAIN/healthz"
 curl -fsS "https://$DOMAIN/api/health"
 curl -fsS "https://$DOMAIN/openapi.json" | head -c 40
-curl -isS "https://$DOMAIN/ws" | head -1     # 400 from the hub, not 404
-                                             # from the web console
+curl -isS "https://$DOMAIN/api/events/stream" | head -1   # 401 from core-api,
+                                                          # not 404 from the web console
 
 # the upload ceiling bites at the proxy (413), not the API
 # 26 MiB > 25MiB, so this is refused at the proxy. Send it authenticated:

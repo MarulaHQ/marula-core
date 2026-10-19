@@ -3,12 +3,12 @@
 // Purpose: one normalized cache of per-collection read models (board,
 // ticket detail, list, calendar). Hydration is once-per-session per
 // collection: already-known data never refetches and never flashes a
-// loading state. Live WS events arrive as deltas — a coalesced, scoped
+// loading state. Live stream events arrive as deltas — a coalesced, scoped
 // revalidation of the affected slice, not a page reload. Mutation
 // responses reconcile through the entity ledger keyed by the IF2 seq, so
 // out-of-order responses and idempotent replays cannot regress state.
 //
-// Non-purpose: no transport (socket.ts), no persistence (the outbox is
+// Non-purpose: no transport (stream.ts), no persistence (the outbox is
 // the durable part; the cache refetches snapshots on reload), no React
 // (use-instant.ts binds with useSyncExternalStore).
 

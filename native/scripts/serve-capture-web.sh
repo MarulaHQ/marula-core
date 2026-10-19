@@ -26,9 +26,8 @@ fi
 source "$env_file"
 
 export EXPO_PUBLIC_API_URL="http://localhost:${E2E_API_PORT}"
-export EXPO_PUBLIC_WS_URL="${E2E_WS_URL}"
 export CI=1
 
-echo "[serve-capture-web] api=${EXPO_PUBLIC_API_URL} ws=${EXPO_PUBLIC_WS_URL} web=${E2E_WEB_PORT}"
+echo "[serve-capture-web] api=${EXPO_PUBLIC_API_URL} web=${E2E_WEB_PORT}"
 cd "$root"
 exec pnpm --filter @marula-core/native exec expo start --web --port "${E2E_WEB_PORT}"

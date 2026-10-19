@@ -48,12 +48,10 @@ function view(overrides: Record<string, unknown> = {}) {
       { id: "core_api", label: "core-api", state: "up", detail: "served this request", loops: null },
       { id: "database", label: "PostgreSQL", state: "up", detail: "SELECT 1 answered", loops: null },
       { id: "valkey", label: "Valkey (Redis)", state: "up", detail: "valkey:6379 answered PING", loops: null },
-      { id: "realtime", label: "realtime hub", state: "up", detail: "http://realtime:8081/healthz: 200", loops: null },
       { id: "worker", label: "worker", state: "down", detail: "timed out", loops: null },
     ],
     glitchtip_dsns: [
       { service: "core-api", state: "configured", detail: "read from this process's environment" },
-      { service: "realtime", state: "unset", detail: "reported by the service's /healthz" },
       { service: "worker", state: "unknown", detail: "unknown — the service's /healthz did not answer" },
     ],
     links: {
@@ -107,7 +105,6 @@ describe("/settings/self-host integration", () => {
     expect(screen.getByText(/invoice.pdf.exe/)).toBeInTheDocument();
     // DSN presence renders per service, and the page never emits the DSN key.
     expect(screen.getByTestId("self-host-dsn-core-api")).toHaveTextContent("configured");
-    expect(screen.getByTestId("self-host-dsn-realtime")).toHaveTextContent("unset");
     expect(screen.getByTestId("self-host-dsn-worker")).toHaveTextContent("unknown");
     // A configured link is an external link; an unconfigured one is a typed state.
     expect(screen.getByRole("link", { name: /open grafana/i })).toHaveAttribute(

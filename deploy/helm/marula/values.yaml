@@ -31,8 +31,8 @@ secrets:
   emailInboundHmacSecret: ""
   emailInternalToken: ""
   # EdDSA (Ed25519) access-token signing (optional, Wave 34 lane 6): PEM
-  # contents. Set BOTH to switch core-api to EdDSA signing; realtime then
-  # verifies with the public key. Leave empty for the HS256 posture.
+  # contents. Set BOTH to switch core-api to EdDSA signing. Leave empty for
+  # the HS256 posture.
   jwtEddsaPrivateKey: ""
   jwtEddsaPublicKey: ""
   # Key id stamped on issued tokens (defaults to m1 when empty).
@@ -45,10 +45,6 @@ images:
   pullPolicy: IfNotPresent
   coreApi:
     repository: marula-core-api
-    tag: "v0.2.0"
-    digest: ""
-  realtime:
-    repository: marula-realtime
     tag: "v0.2.0"
     digest: ""
   worker:
@@ -143,25 +139,6 @@ coreApi:
     targetCPUUtilizationPercentage: 70
   extraEnv: []
 
-realtime:
-  replicaCount: 1
-  # Real per-service envelope (Wave 49 lane R2); compose cpus 1.0 / mem 384m.
-  # Socket fan-out over Redis pub/sub — low CPU, modest memory.
-  resources:
-    requests:
-      cpu: 250m
-      memory: 128Mi
-    limits:
-      cpu: "1"
-      memory: 384Mi
-  # HPA (Wave 49 lane R2). realtime is stateless pub/sub, safe to scale.
-  autoscaling:
-    enabled: false
-    minReplicas: 1
-    maxReplicas: 4
-    targetCPUUtilizationPercentage: 70
-  extraEnv: []
-
 worker:
   replicaCount: 1
   relayBatch: 200
@@ -194,11 +171,6 @@ web:
   # USER'S BROWSER uses to reach the API. Same-origin behind an ingress it
   # is https://<ingress.host>; the app appends /api itself.
   nextPublicApiUrl: ""
-  # The realtime socket, baked the same way. Left empty the client derives
-  # it from the API base and port 8081 — correct for a raw-port stack,
-  # wrong behind an ingress that publishes only 443, where it would dial a
-  # port nobody serves. Set it to wss://<ingress.host>/ws.
-  nextPublicWsUrl: ""
   # Real per-service envelope (Wave 49 lane R2); compose cpus 1.0 / mem 512m.
   # Next.js SSR/static — small CPU request, memory for the Node runtime.
   resources:
@@ -280,9 +252,6 @@ service:
   coreApi:
     type: ClusterIP
     port: 8080
-  realtime:
-    type: ClusterIP
-    port: 8081
   web:
     type: ClusterIP
     port: 3000
@@ -315,10 +284,10 @@ ingress:
     # Aligned with coreApi.maxUploadMb — the same number core-api enforces
     # per route. A body over either is refused by the ingress.
     bodySizeMb: 25
-    # WebSocket / streaming path. nginx's 60s default read timeout kills a
-    # long-lived socket; presence heartbeats run every 25s and the client's
-    # own silence window is 60s, so anything at or below that is a
-    # reconnect storm waiting for a quiet minute.
+    # Long-lived stream path. nginx's 60s default read timeout kills an idle
+    # SSE response, and core-api only writes its `ping` comment every 15s, so
+    # a timeout at or below that interval is a reconnect storm waiting for a
+    # quiet minute.
     readTimeoutSeconds: 3600
     sendTimeoutSeconds: 3600
     # Buffering off: a response frame held in a proxy buffer is a frame the
@@ -338,7 +307,6 @@ podSecurityContext:
 # runAsUser, valkey as the DHI nonroot 65532.
 runAsUserByComponent:
   coreApi: 65532
-  realtime: 65532
   worker: 65532
   cli: 65532
   web: 1000
@@ -362,8 +330,8 @@ containerSecurityContext:
     type: RuntimeDefault
 
 # Fallback resource envelope for workloads that do not set their own
-# `resources` — the bundled data plane (postgres, redis, garage). The four
-# app components (core-api, realtime, worker, web) each carry a real
+# `resources` — the bundled data plane (postgres, redis, garage). The three
+# app components (core-api, worker, web) each carry a real
 # per-service envelope in their own block (Wave 49 lane R2); the data plane
 # keeps this conservative default.
 resources:

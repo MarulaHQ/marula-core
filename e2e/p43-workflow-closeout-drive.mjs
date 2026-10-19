@@ -2,7 +2,7 @@
 // run ledger, the run detail and the operator retry.
 //
 // Why this exists: the sanctioned entry point (`scripts/e2e-stack.sh up`) boots
-// core-api and realtime but NOT the workflow worker, so no rule ever matches and
+// core-api but NOT the workflow worker, so no rule ever matches and
 // no run is ever inserted (row 20, item G). This lane boots the worker by hand
 // against the same stack (see the boot block in REVIEW.md / GATES.md) so the
 // ledger captures show real executions instead of inserted fixture rows. That is

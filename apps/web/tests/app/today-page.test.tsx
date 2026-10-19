@@ -2,7 +2,7 @@
 // overdue/due-today grouping, the attention strip, the approver-only
 // approvals count, and the instant-first timer start (idempotency-keyed
 // envelope POST) against SDK-typed mock routes.
-import { describe, expect, it, beforeEach, afterEach, afterAll, vi } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
 import TodayPage from "../../app/today/page";
@@ -14,18 +14,6 @@ vi.mock("next/navigation", () => ({
 }));
 
 const ME_ID = ME_FIXTURE.user_id;
-
-// The "due today" fixture sits NOW + 2h; freezing the clock to module-load
-
-/** jsdom has no usable WebSocket; the timer hook must degrade quietly. */
-class FakeWebSocket {
-  close(): void {}
-  send(): void {}
-}
-vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
-afterAll(() => {
-  vi.unstubAllGlobals();
-});
 
 // The "due today" fixture sits NOW + 2h; freezing the clock to module-load
 // time keeps +2h inside the same local day no matter when the suite runs.

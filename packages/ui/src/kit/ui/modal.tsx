@@ -40,7 +40,7 @@ export const DialogClose = DialogPrimitive.Close
 export const DialogTitle = DialogPrimitive.Title
 export const DialogDescription = DialogPrimitive.Description
 
-export function DialogContent({ className, children, width, closeLabel = "Close", ...props }: React.ComponentProps<typeof DialogPrimitive.Content> & { width?: number; closeLabel?: string }) {
+export function DialogContent({ className, children, width, ...props }: React.ComponentProps<typeof DialogPrimitive.Content> & { width?: number }) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 flex items-center justify-center bg-mc-scrim" />

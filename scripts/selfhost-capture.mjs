@@ -71,12 +71,10 @@ const MIXED = {
     SERVICE('core_api', 'core-api', 'up', 'served this request'),
     SERVICE('database', 'PostgreSQL', 'up', 'SELECT 1 answered'),
     SERVICE('valkey', 'Valkey (Redis)', 'up', 'valkey:6379 answered PING'),
-    SERVICE('realtime', 'realtime hub', 'up', 'http://realtime:8081/healthz: 200 OK'),
     SERVICE('worker', 'worker', 'down', 'http://worker:8082/healthz: timed out'),
   ],
   glitchtip_dsns: [
     { service: 'core-api', state: 'configured', detail: "read from this process's environment" },
-    { service: 'realtime', state: 'unset', detail: "reported by the service's /healthz" },
     { service: 'worker', state: 'unknown', detail: "unknown — the service's /healthz did not answer" },
   ],
   links: {
@@ -111,12 +109,10 @@ const UNCONFIGURED = {
     SERVICE('core_api', 'core-api', 'up', 'served this request'),
     SERVICE('database', 'PostgreSQL', 'up', 'SELECT 1 answered'),
     SERVICE('valkey', 'Valkey (Redis)', 'up', 'valkey:6379 answered PING'),
-    SERVICE('realtime', 'realtime hub', 'not_configured', 'health URL is not set for this process'),
     SERVICE('worker', 'worker', 'not_configured', 'health URL is not set for this process'),
   ],
   glitchtip_dsns: [
     { service: 'core-api', state: 'unset', detail: "read from this process's environment" },
-    { service: 'realtime', state: 'unknown', detail: "unknown — the service's /healthz did not answer" },
     { service: 'worker', state: 'unknown', detail: "unknown — the service's /healthz did not answer" },
   ],
   links: { glitchtip: null, grafana: null, tempo: null, loki: null, otel_metrics: null },
@@ -136,7 +132,6 @@ const NONE_MODE = {
   services: MIXED.services.map((s) => (s.id === 'worker' ? SERVICE('worker', 'worker', 'up', 'http://worker:8082/healthz: 200 OK') : s)),
   glitchtip_dsns: [
     { service: 'core-api', state: 'configured', detail: "read from this process's environment" },
-    { service: 'realtime', state: 'configured', detail: "reported by the service's /healthz" },
     { service: 'worker', state: 'configured', detail: "reported by the service's /healthz" },
   ],
   links: {

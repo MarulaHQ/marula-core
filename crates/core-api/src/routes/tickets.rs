@@ -1197,7 +1197,7 @@ pub async fn add_comment(
         // member directory itself until board RBAC lands), ignoring the
         // author's own handle and unknown handles. Notifications are
         // created in THIS transaction and each emits its own
-        // `notification.created` so the Redis→hub chain fans out per-user.
+        // `notification.created`, so the live stream fans out per-user.
         let tokens = core_domain::mentions::parse(req.body.trim());
         let mentioned = if tokens.is_empty() {
             Vec::new()

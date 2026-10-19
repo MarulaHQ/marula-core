@@ -31,7 +31,6 @@ source "$env_file"
 metro_port="${1:-8081}"
 
 export EXPO_PUBLIC_API_URL="http://localhost:${E2E_API_PORT}"
-export EXPO_PUBLIC_WS_URL="ws://localhost:${E2E_WS_PORT}"
 export CI=1
 
 if [[ -z "${E2E_API_PORT:-}" ]]; then
@@ -39,6 +38,6 @@ if [[ -z "${E2E_API_PORT:-}" ]]; then
   exit 1
 fi
 
-echo "[serve-ios-sim] api=${EXPO_PUBLIC_API_URL} ws=${EXPO_PUBLIC_WS_URL} metro=${metro_port}"
+echo "[serve-ios-sim] api=${EXPO_PUBLIC_API_URL} metro=${metro_port}"
 cd "$root/native"
 exec npx expo start --port "${metro_port}"

@@ -99,14 +99,14 @@ if command -v docker >/dev/null 2>&1; then
   done
   echo
   echo "To inspect:  docker logs marula-e2e-pg-<run-id>"
-  echo "Service logs:  $SHARED_ROOT/.kilo/e2e-logs/<run-id>/{core-api,realtime}.log"
+  echo "Service logs:  $SHARED_ROOT/.kilo/e2e-logs/<run-id>/{core-api,worker}.log"
 else
   echo "  (docker unavailable)"
 fi
 
 echo
-echo "== other common Marula processes (core-api / realtime / next standalone) =="
-ps -axo pid,command | grep -E "release/(core-api|realtime)|\.next/standalone/server\.js|marula-core-cli" \
+echo "== other common Marula processes (core-api / worker / next standalone) =="
+ps -axo pid,command | grep -E "release/(core-api|worker)|\.next/standalone/server\.js|marula-core-cli" \
   | grep -v grep | sed 's/^/  /' || echo "  (none)"
 echo
 echo "Teardown: bash scripts/e2e-stack.sh down <RUN_ID>   # run ids are e2e-<digits> (bare digits work too)."

@@ -2,7 +2,7 @@
 //
 // Purpose: the board's status pipeline as real kanban columns rendered
 // from the IF4 board read model: hydrate once from the snapshot, then
-// live through board-channel WS events as per-ticket deltas (IF5).
+// live through org-stream ticket events as per-ticket deltas (IF5).
 // Cards drag between columns; every drop rides the IF1/IF2 envelope
 // (idempotency key + read-your-write version) with a synchronous
 // optimistic patch and typed-rejection revert. Columns collapse, filters

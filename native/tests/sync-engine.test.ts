@@ -11,16 +11,16 @@ import type { EventEnvelope } from "@/core/realtime";
 import type { MarulaClient } from "@marula-core/sdk";
 import { startTimer } from "@/core/writes";
 
-import { FakeApi, FakeSocketFactory } from "./helpers";
+import { FakeApi, FakeEventSourceFactory } from "./helpers";
 
 let counter = 0;
 const uuid = () => `00000000-0000-4000-8000-${String(counter++).padStart(12, "0")}`;
 
 function makeEngine(
-  options: { online?: boolean; api?: FakeApi; factory?: FakeSocketFactory } = {},
+  options: { online?: boolean; api?: FakeApi; factory?: FakeEventSourceFactory } = {},
 ) {
   const api = options.api ?? new FakeApi();
-  const factory = options.factory ?? new FakeSocketFactory();
+  const factory = options.factory ?? new FakeEventSourceFactory();
   const state = { online: options.online ?? true };
   const engine = new SyncEngine({
     client: api.asClient<MarulaClient>(),
@@ -30,9 +30,9 @@ function makeEngine(
       versions: new MemoryStore(),
     },
     realtime: {
-      url: () => "ws://localhost:8081/ws",
+      url: () => "http://localhost:8080/api/events/stream",
       token: () => "tok",
-      socketFactory: () => factory.create(),
+      factory: () => factory.create(),
     },
     isOnline: () => state.online,
     uuid,
@@ -95,9 +95,9 @@ describe("SyncEngine", () => {
       client: new FakeApi().asClient<MarulaClient>(),
       stores,
       realtime: {
-        url: () => "ws://localhost:8081/ws",
+        url: () => "http://localhost:8080/api/events/stream",
         token: () => "tok",
-        socketFactory: () => new FakeSocketFactory().create(),
+        factory: () => new FakeEventSourceFactory().create(),
       },
       isOnline: () => false,
       uuid,
@@ -112,9 +112,9 @@ describe("SyncEngine", () => {
       client: api.asClient<MarulaClient>(),
       stores,
       realtime: {
-        url: () => "ws://localhost:8081/ws",
+        url: () => "http://localhost:8080/api/events/stream",
         token: () => "tok",
-        socketFactory: () => new FakeSocketFactory().create(),
+        factory: () => new FakeEventSourceFactory().create(),
       },
       isOnline: () => true,
       uuid,
@@ -132,7 +132,6 @@ describe("SyncEngine", () => {
     });
     await engine.start();
     factory.latest().open();
-    factory.latest().receive({ type: "hello", user_id: "u1", org_id: "o1" });
 
     await engine.cache.set(MODELS.ticket("t1"), { id: "t1", title: "Before" });
     const detach = engine.registerModel(
@@ -145,17 +144,17 @@ describe("SyncEngine", () => {
       },
     );
 
-    const envelope: EventEnvelope = {
-      id: "e1",
-      type: "ticket.updated",
-      org_id: "o1",
-      entity: "ticket",
-      entity_id: "t1",
-      occurred_at: "2026-09-25T00:00:00Z",
-      payload_schema_ref: "ticket.updated/1",
-      payload: { ticket_id: "t1" },
-    };
-    factory.latest().receive({ type: "event", channel: "board:b1", event: envelope });
+    factory.latest().receive(
+      {
+        type: "ticket.updated",
+        org_id: "o1",
+        entity: "ticket",
+        entity_id: "t1",
+        seq: 1,
+        at: "2026-09-25T00:00:00Z",
+      },
+      "e1",
+    );
     await vi.waitFor(() => {
       expect(engine.getModelState(MODELS.ticket("t1")).data).toEqual({
         id: "t1",
@@ -166,21 +165,21 @@ describe("SyncEngine", () => {
     detach();
   });
 
-  it("subscribes to org and board channels for live routing", async () => {
+  it("tracks the org and board channels for live routing", async () => {
     const { engine, api, factory } = makeEngine();
     api.route("GET", "/api/v1/tickets/my-work", {
       data: [{ id: "t1", board_id: "b1", number: "MAR-1", title: "x" }],
     });
     await engine.start();
     factory.latest().open();
-    factory.latest().receive({ type: "hello", user_id: "u1", org_id: "o1" });
+    // The org scope is learned from the stream's first frame, which is the
+    // SSE stand-in for a connection hello.
+    factory.latest().receive({ type: "presence", org_id: "o1", entity: "ticket", viewers: [] });
     await engine.refresh(MODELS.myWork, async (client) => {
       const result = await client.api.GET("/api/v1/tickets/my-work");
       return result.data as never;
     });
-    const frames = factory.latest().frames();
-    expect(frames).toContainEqual({ type: "subscribe", channel: "org:o1" });
-    expect(frames).toContainEqual({ type: "subscribe", channel: "board:b1" });
+    expect(engine.realtime.subscribedChannels()).toEqual(["org:o1", "board:b1"]);
   });
 });
 
@@ -193,7 +192,6 @@ describe("invalidationFor", () => {
       entity,
       entity_id: null,
       occurred_at: "2026-09-25T00:00:00Z",
-      payload_schema_ref: "x/1",
       payload,
     };
   }

@@ -27,13 +27,12 @@ Each row reports one check and one of four states: **up**, **down**,
 | core-api | The process serving the pane. |
 | PostgreSQL | A `SELECT 1` on the API's own pool. |
 | Valkey (Redis) | A bounded `PING` over the wire. The row is up only when `+PONG` comes back. |
-| realtime hub | `GET /healthz` at `REALTIME_INTERNAL_URL`. |
 | worker | `GET /healthz` at `WORKER_INTERNAL_URL`. The worker's per-loop flags (relay, email, queue, delivery, and the rest) ride the same payload. |
 
 **Not configured** means the URL variable for that service is unset on
-core-api. Compose sets both internal URLs by default. On the chart, set
-`REALTIME_INTERNAL_URL` and `WORKER_INTERNAL_URL` on the core-api workload
-to the service DNS names.
+core-api. Compose sets the worker's internal URL by default. On the chart, set
+`WORKER_INTERNAL_URL` on the core-api workload to the worker's service DNS
+name.
 
 A **down** row is the one that needs you. Start with
 `docker compose -f deploy/docker-compose.yml ps` and the logs. The detail
@@ -95,11 +94,11 @@ MARULA_GLITCHTIP_URL=http://localhost:8010   # compose's GlitchTip port
 ```
 
 The card also lists which services have a DSN configured. The DSNs are
-per-service (`GLITCHTIP_DSN_CORE_API`, `GLITCHTIP_DSN_REALTIME`,
-`GLITCHTIP_DSN_WORKER`), carried as environment variables and never
+per-service (`GLITCHTIP_DSN_CORE_API`, `GLITCHTIP_DSN_WORKER`),
+carried as environment variables and never
 printed by any surface — the pane reports presence only. Each service
 reports its own state: core-api reads its process environment, and
-realtime and the worker answer on `/healthz`.
+the worker answers on `/healthz`.
 
 Presence is all the pane can prove today. The SDK wiring that actually
 sends events from the three Rust binaries is its own work item. Until it
@@ -182,7 +181,7 @@ usage reporting lives with the attachment surfaces, not here.
    even up?
 2. `docker compose -f deploy/docker-compose.yml logs <service> --tail 50`.
 3. Probe the service's own endpoint from the host: core-api at
-   `/api/v1/health`, realtime and the worker at `/healthz`.
+   `/api/v1/health`, and the worker at `/healthz`.
 4. For Valkey, the pane's own detail text names the address it dialed.
 
 ## What you learned

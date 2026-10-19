@@ -2,7 +2,7 @@
 //! services.
 //!
 //! Purpose: wrap the operational tasks self-hosters need — applying
-//! database migrations and launching the worker / realtime services with
+//! database migrations and launching the worker service with
 //! environment-driven config identical to their standalone binaries, the
 //! upgrade preflight (U6), and the upgrade-fixture manifest emitter (U7).
 //!
@@ -35,8 +35,6 @@ enum Command {
     Migrate,
     /// Run the outbox→Redis relay worker with its /healthz endpoint.
     ServeWorker,
-    /// Run the realtime WebSocket hub.
-    ServeRealtime,
     /// Upgrade preflight + fixture tooling (policy §5/§8).
     Upgrade {
         /// Run the offline preflight: scan the customization manifest (and,
@@ -165,7 +163,6 @@ async fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
         Command::Migrate => migrate().await,
         Command::ServeWorker => serve_worker().await,
-        Command::ServeRealtime => serve_realtime().await,
         Command::Upgrade {
             check,
             manifest,
@@ -663,18 +660,7 @@ async fn serve_worker() -> anyhow::Result<()> {
         })
 }
 
-async fn serve_realtime() -> anyhow::Result<()> {
-    realtime::run(realtime::config::RealtimeConfig::from_env())
-        .await
-        .map_err(|e| {
-            e.context(
-                "realtime hub failed — check DATABASE_URL and the WS bind \
-                 settings; browsers reconnect automatically once it is up",
-            )
-        })
-}
-
-/// A watch channel that flips true on Ctrl-C; both services use it for
+/// A watch channel that flips true on Ctrl-C; the worker uses it for
 /// graceful shutdown.
 fn shutdown_watch() -> watch::Receiver<bool> {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -705,10 +691,6 @@ mod tests {
     fn parses_each_subcommand() {
         assert!(matches!(parse(&["migrate"]), Ok(Command::Migrate)));
         assert!(matches!(parse(&["serve-worker"]), Ok(Command::ServeWorker)));
-        assert!(matches!(
-            parse(&["serve-realtime"]),
-            Ok(Command::ServeRealtime)
-        ));
         assert!(matches!(
             parse(&["seed-demo"]),
             Ok(Command::SeedDemo { force: false })

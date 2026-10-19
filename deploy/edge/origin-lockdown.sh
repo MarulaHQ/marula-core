@@ -94,7 +94,7 @@ done
 	log "open to the internet — that is the path your clients arrive on."
 	log "There is no edge range to allowlist. Instead:"
 	log "  - keep the host firewall default-deny for every OTHER port"
-	log "  - never publish 8080/8081/3000/15432/16379/8082 on 0.0.0.0"
+	log "  - never publish 8080/3000/15432/16379/8082 on 0.0.0.0"
 	log "    (deploy/edge/compose.edge.yml pulls them back for you)"
 	log "  - if you later put Cloudflare in front, re-run with --apply"
 	exit 0

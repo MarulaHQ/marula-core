@@ -16,7 +16,7 @@ To make instant updates safe for a team working the same board at once, the back
 
 1. **A versioned `mutation` envelope:** Every write returns a sequence number, the record's new version, and the server timestamp so your browser reconciles immediately without polling.
 2. **Structured error reasons (`IF3`):** If a change cannot be saved (or collides with a teammate's edit made a half-second earlier), the API returns a machine-readable code like `version_conflict` so the UI can show you the exact conflict instead of a generic error toast.
-3. **Live push updates:** Every database write records a domain event in the transactional outbox and pushes it over WebSockets (`GET /api/events/stream`) in under `100 ms`, so dispatchers and technicians looking at the same ticket see updates live.
+3. **Live push updates:** Every database write records a domain event in the transactional outbox and pushes it over the SSE stream (`GET /api/events/stream`) in under `100 ms`, so dispatchers and technicians looking at the same ticket see updates live.
 4. **Server-backed undo history:** Reversible actions are tracked in the undo stack ([`v1-undo-stacks`](../../reference/read-model/v1-undo-stacks.md)) so stepping backward is a real, audited database action.
 
 ## Assistant changes always wait for human approval

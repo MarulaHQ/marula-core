@@ -1,14 +1,14 @@
 // Sync engine — the one place cache, offline queue, and live sync meet.
 //
-// Purpose: hydrate the offline cache and durable queue, keep one realtime
-// socket subscribed (user channel by the hub, org + board channels
-// explicitly), map every inbound contract event onto cache invalidation,
-// refresh whatever is stale when the link is healthy, and run mutations
-// through the replay-safe queue (optimistic render → durable enqueue →
-// typed outcome). Connectivity transitions flush the queue and reconcile.
+// Purpose: hydrate the offline cache and durable queue, keep one SSE stream
+// open (org-scoped, so every contract event the org commits arrives), map
+// every inbound event onto cache invalidation, refresh whatever is stale when
+// the link is healthy, and run mutations through the replay-safe queue
+// (optimistic render → durable enqueue → typed outcome). Connectivity
+// transitions flush the queue and reconcile.
 //
 // Non-purpose: no React. The data layer binds this with hooks; screens
-// never touch sockets, stores, or the queue directly.
+// never touch the stream, stores, or the queue directly.
 
 import type { MarulaClient } from "@marula-core/sdk";
 
@@ -33,8 +33,8 @@ import {
 import {
   RealtimeClient,
   type EventEnvelope,
+  type EventSourceFactory,
   type RealtimeStatus,
-  type SocketFactory,
 } from "./realtime";
 import type { KeyValueStore } from "./storage";
 import {
@@ -72,7 +72,7 @@ export interface SyncEngineDeps {
   realtime: {
     url: () => string;
     token: () => string | null;
-    socketFactory: SocketFactory;
+    factory: EventSourceFactory;
   };
   isOnline: () => boolean;
   /** Refresh the access token before a wire call (single-flight upstream). */
@@ -147,7 +147,7 @@ export class SyncEngine {
     this.realtime = new RealtimeClient({
       url: deps.realtime.url,
       token: deps.realtime.token,
-      socketFactory: deps.realtime.socketFactory,
+      factory: deps.realtime.factory,
     });
     // Queue changes are part of the engine's revision: the offline banner,
     // the More summary, and the inspector all read queue snapshots through
@@ -342,6 +342,8 @@ export class SyncEngine {
     if (!Array.isArray(data)) return;
     for (const row of data) {
       const boardId = (row as { board_id?: unknown }).board_id;
+      // The org-scoped stream delivers board events already; the channel is
+      // tracked locally so subscribedChannels() stays honest.
       if (typeof boardId === "string") this.realtime.subscribe(`board:${boardId}`);
     }
   }
@@ -576,9 +578,9 @@ export class SyncEngine {
 
 const VERSIONS_KEY = "marula.rn.versions";
 
-/** Entity → cache-key map for the event trail the hub delivers. Mirrors
- * crates/realtime/src/channel.rs routing plus the envelope entities each
- * core-api route emits; unknown entities simply mark nothing. */
+/** Entity → cache-key map for the contract events the stream delivers.
+ * Mirrors the `entity` each core-api route emits; unknown entities simply
+ * mark nothing. */
 export function invalidationFor(envelope: EventEnvelope): {
   keys: string[];
   prefixes: string[];

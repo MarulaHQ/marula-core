@@ -195,15 +195,15 @@ boot, openapi pin regen, scratch verification — routes through
 - `scripts/e2e-stack.sh` up: per-run DB name + random high ports + run-id-keyed
   container names (pgvector + Valkey), mechanical deterministic reseed
   (seed-demo --force + auth-lockout/onboarding/tours reset), boots core-api +
-  realtime, and writes `e2e/.e2e-stack.env` (which Playwright's config and
+  worker, and writes `e2e/.e2e-stack.env` (which Playwright's config and
   `scripts/e2e-build-web.sh` read — never set NEXT_PUBLIC_API_URL/ports by
   hand).
 - Teardown: `scripts/e2e-stack.sh down <RUN_ID>` — removes ONLY that run id's
   processes/containers; never a parallel lane's DB. (E2E_FOREGROUND traps on
   its own run id too.)
-- `scripts/e2e-stack.sh` up RETURNS as soon as core-api answers its health
-  check: core-api and realtime detach with their own stdio (`</dev/null`, logs
-  at `.kilo/e2e-logs/<run>/{core-api,realtime}.log`), so piping `up` can never
+- `scripts/e2e-stack.sh` up RETURNS once core-api and the worker answer their
+  health checks: they detach with their own stdio (`</dev/null`, logs at
+  `.kilo/e2e-logs/<run>/{core-api,worker}.log`), so piping `up` can never
   block. `up` narrates each stage with its elapsed time and prints the tail of
   both service logs when it finishes; `E2E_FOLLOW=1` streams those logs live
   instead of returning (Ctrl-C stops following, the stack keeps running). Read a

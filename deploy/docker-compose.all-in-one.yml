@@ -1,9 +1,9 @@
 # All-in-one demo / tiny-install override (Wave 49 lane R4).
 #
-# core-api runs the worker loops and the realtime hub INSIDE its own process,
-# so a small box boots three services instead of five. Layer it over the base
-# file and start ONLY the listed services — the split `worker` / `realtime`
-# services would fight core-api for ports 8081 and 8082:
+# core-api runs the worker loops INSIDE its own process, so a small box boots
+# three services instead of four. Layer it over the base file and start ONLY
+# the listed services — the split `worker` service would fight core-api for
+# port 8082:
 #
 #   docker compose \
 #     -f deploy/docker-compose.yml \
@@ -19,15 +19,14 @@ services:
       # bypass row-level security. The API's own DATABASE_URL stays the
       # RLS-scoped app role.
       MARULA_WORKER_DATABASE_URL: postgres://marula:marula@postgres:5432/marula
-      # The Settings -> Self-host pane probes the embedded services on
-      # loopback; the compose service names (realtime:8081 / worker:8082) do
-      # not exist in this topology.
-      REALTIME_INTERNAL_URL: http://127.0.0.1:8081
+      # The Settings -> Self-host pane probes the embedded worker on
+      # loopback; the compose service name (worker:8082) does not exist in
+      # this topology.
       WORKER_INTERNAL_URL: http://127.0.0.1:8082
       # Small-install cadence profile (Wave 49 lane R6). This box has few
       # orgs and little job volume, so the fast worker idles mostly wake up
       # to find nothing. The cadence map and what each value trades are in
-      # docs/worker-cadence.md. The real-time relay stays fast — it is not
+      # docs/worker-cadence.md. The live-push relay stays fast — it is not
       # in this set.
       EMAIL_POLL_SECS: "60"
       QUEUE_IDLE_MS: "60000"
@@ -37,10 +36,9 @@ services:
       USAGE_REFRESH_SECS: "900"
       DIGEST_POLL_SECS: "3600"
       RETENTION_SWEEP_SECS: "86400"
-    # The hub binds 8081 and the worker health endpoint 8082 inside this
-    # container, so publish all three. A sequence in an override replaces
+    # The worker health endpoint binds 8082 inside this container alongside
+    # the API on 8080, so publish both. A sequence in an override replaces
     # the base list, hence the repeat of 8080.
     ports:
       - "8080:8080"
-      - "8081:8081"
       - "8082:8082"

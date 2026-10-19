@@ -1,32 +1,24 @@
 // Timer read-model for the docked bar and Today strip.
 //
 // Purpose: one hook owning the caller's working set (running first),
-// live-reconciled over the `user:<me>` socket channel — every `timer.*`
-// event triggers a REST refetch so the server stays the single source of
-// truth (§4.4: render optimistically, reconcile via snapshot + events).
-// A 1s local ticker derives display elapsed from the SERVER-recorded
-// segments; drift self-corrects on every event or refetch.
+// live-reconciled off the org-wide SSE stream — every `timer.*` event
+// triggers a REST refetch so the server stays the single source of truth
+// (§4.4: render optimistically, reconcile via snapshot + events). The
+// stream owns reconnection. A 1s local ticker derives display elapsed from
+// the SERVER-recorded segments; drift self-corrects on every event or
+// refetch.
 //
 // Non-purpose: no mutations — components POST start/pause/resume/stop via
 // the SDK and call `refresh()`; no notification concerns (use-notifications
-// owns its own socket).
+// owns its own subscription).
 "use client";
 
-import { api, loadTokens, resolveApiBaseUrl, useAuth } from "./api";
+import { api, useAuth } from "./api";
+import { instantRuntime } from "./instant/runtime";
 import type { components } from "@marula-core/sdk";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type TimerSession = components["schemas"]["TimerSession"];
-
-function wsUrl(): string {
-  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
-  const base = resolveApiBaseUrl();
-  const u = new URL(base);
-  u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
-  u.port = process.env.NEXT_PUBLIC_WS_PORT ?? "8081";
-  u.pathname = "/ws";
-  return u.toString();
-}
 
 function segmentElapsed(
   s: { started_at: string; ended_at?: string | null },
@@ -64,7 +56,6 @@ export function useTimer() {
   const auth = useAuth();
   const [sessions, setSessions] = useState<TimerSession[] | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const socketRef = useRef<WebSocket | null>(null);
 
   const refresh = useCallback(async () => {
     const ws = await api.api.GET("/api/v1/timers/working-set");
@@ -75,52 +66,20 @@ export function useTimer() {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
 
-  // Live leg: any timer.* event on the user channel reconciles the set.
+  // Live leg: any timer.* event on the org-wide SSE stream reconciles the
+  // set. The stream owns reconnection and gap replay.
+  const runtime = instantRuntime();
   useEffect(() => {
     if (auth.status !== "authed" || !auth.me) return;
-    let closed = false;
-    let attempt = 0;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-
-    const connect = () => {
-      const tokens = loadTokens();
-      if (!tokens || closed) return;
-      const sock = new WebSocket(`${wsUrl()}?token=${tokens.access_token}`);
-      socketRef.current = sock;
-      sock.onopen = () => {
-        attempt = 0;
-        sock.send(
-          JSON.stringify({ type: "subscribe", channel: `user:${auth.me!.user_id}` }),
-        );
-      };
-      sock.onmessage = (m) => {
-        try {
-          const frame = JSON.parse(String(m.data)) as {
-            type: string;
-            event?: { type?: string };
-          };
-          if (frame.type === "event" && frame.event?.type?.startsWith("timer.")) {
-            void refresh();
-          }
-        } catch {
-          // ignore malformed frames; REST remains source of truth
-        }
-      };
-      sock.onclose = () => {
-        socketRef.current = null;
-        if (closed) return;
-        attempt += 1;
-        retry = setTimeout(connect, Math.min(1000 * 2 ** attempt, 15000));
-      };
-    };
-    connect();
+    const offEvents = runtime.bus.subscribe((event) => {
+      if (event.type.startsWith("timer.")) void refresh();
+    });
+    const offScope = runtime.stream.subscribeOrg();
     return () => {
-      closed = true;
-      if (retry) clearTimeout(retry);
-      socketRef.current?.close();
-      socketRef.current = null;
+      offEvents();
+      offScope();
     };
-  }, [auth.status, auth.me, refresh]);
+  }, [auth.status, auth.me, refresh, runtime]);
 
   // Display ticker: only while something is running.
   const sessionList = Array.isArray(sessions) ? sessions : [];

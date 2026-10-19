@@ -188,8 +188,8 @@ async function staffLoop() {
     await page.waitForTimeout(800);
 
     const shot = async (name, path, opts = {}) => {
-      // domcontentloaded + a settle wait: the workspace pages hold a live
-      // websocket open, and networkidle never fires on it.
+      // domcontentloaded + a settle wait: the workspace pages hold the SSE
+      // stream open, and networkidle never fires on it.
       await page.goto(`${WEB}${path}`, {
         waitUntil: "domcontentloaded",
         timeout: 60_000,

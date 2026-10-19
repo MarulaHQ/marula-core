@@ -1,9 +1,8 @@
-// Dispatch board data + realtime leg (TASKLIST 2.19).
+// Dispatch board data + live leg (TASKLIST 2.19).
 //
 // Purpose: one hook owning the /dispatch page's server state: day-view
-// fetches, the org-channel socket subscription so appointment
-// created/updated/cancelled events reconcile the board live, presence
-// queries for the online dots, and the drop handlers that wrap
+// fetches, the org-wide SSE stream so appointment created/updated/cancelled
+// events re-snapshot the board live, and the drop handlers that wrap
 // bulk-move/assign calls with optimistic confirm/reject dispatches.
 //
 // Non-purpose: no rendering and no pointer/keyboard plumbing (the page
@@ -13,7 +12,7 @@
 "use client";
 
 import type { components } from "@marula-core/sdk";
-import { api, loadTokens, resolveApiBaseUrl, useAuth } from "./api";
+import { api, useAuth } from "./api";
 import {
   dispatchReducer,
   initialDispatchState,
@@ -22,6 +21,7 @@ import {
   type QueueItem,
   type Tech,
 } from "./dispatch-reducer";
+import { instantRuntime } from "./instant/runtime";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 type TechnicianView = components["schemas"]["TechnicianView"];
@@ -31,16 +31,6 @@ type SdkQueueItem = components["schemas"]["MyWorkItem"];
 export interface RawDayView {
   date: string;
   technicians: TechnicianView[];
-}
-
-function wsUrl(): string {
-  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
-  const base = resolveApiBaseUrl();
-  const u = new URL(base);
-  u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
-  u.port = process.env.NEXT_PUBLIC_WS_PORT ?? "8081";
-  u.pathname = "/ws";
-  return u.toString();
 }
 
 function sdkToTech(t: TechnicianView): Tech {
@@ -151,69 +141,28 @@ export function useDispatchBoard(initialDate: string) {
     if (auth.status === "authed") void load(date);
   }, [auth.status, date, load]);
 
-  // Live leg: org channel reconcile + presence. Same reconnect/backoff
-  // contract as the notification dock.
+  // Live leg: the org-wide SSE stream carries appointment events. Frames
+  // are identity-only (type + entity + seq, no payload), so each one
+  // re-snapshots the day view — the server stays the single source of
+  // truth, matching the timer dock's refetch-on-event reconcile. The
+  // stream owns reconnection and gap replay. An org-wide online roster has
+  // no stream equivalent (the stream's presence is per-entity), so the
+  // board no longer queries it.
+  const runtime = instantRuntime();
   useEffect(() => {
     if (auth.status !== "authed" || !auth.me) return;
     let closed = false;
-    let attempt = 0;
-    let retry: ReturnType<typeof setTimeout> | undefined;
 
-    const connect = () => {
-      const tokens = loadTokens();
-      if (!tokens || closed) return;
-      const sock = new WebSocket(`${wsUrl()}?token=${tokens.access_token}`);
-      sock.onopen = () => {
-        attempt = 0;
-        sock.send(
-          JSON.stringify({ type: "subscribe", channel: `org:${auth.me!.org_id}` }),
-        );
-        sock.send(JSON.stringify({ type: "presence_list" }));
-      };
-      sock.onmessage = (m) => {
-        try {
-          const frame = JSON.parse(String(m.data)) as {
-            type: string;
-            users?: string[];
-            event?: {
-              type?: string;
-              payload?: Record<string, unknown>;
-            };
-          };
-          if (frame.type === "presence" && Array.isArray(frame.users)) {
-            dispatch({ type: "presence", userIds: frame.users });
-            return;
-          }
-          const evt = frame.event;
-          if (frame.type !== "event" || !evt?.type) return;
-          const payload = (evt.payload ?? {}) as Record<string, unknown>;
-          const appt = payload.appointment as SdkBlock | undefined;
-          if (
-            (evt.type === "appointment.created" ||
-              evt.type === "appointment.updated") &&
-            appt
-          ) {
-            // Tenancy is enforced at delivery time by the hub (same-org
-            // check against the token claim); nothing extra here.
-            dispatch({ type: "reconcile_upsert", block: sdkToBlock(appt) });
-          } else if (evt.type === "appointment.cancelled") {
-            const id = payload.appointment_id as string | undefined;
-            if (id) dispatch({ type: "reconcile_remove", apptId: id });
-          }
-        } catch {
-          // malformed frames ignored; REST remains source of truth
-        }
-      };
-      sock.onclose = () => {
-        if (closed) return;
-        attempt += 1;
-        retry = setTimeout(connect, Math.min(1000 * 2 ** attempt, 15000));
-      };
-      return sock;
-    };
-
-    const sockRef = { current: null as WebSocket | null };
-    sockRef.current = connect() ?? null;
+    const offEvents = runtime.bus.subscribe((event) => {
+      if (
+        event.type === "appointment.created" ||
+        event.type === "appointment.updated" ||
+        event.type === "appointment.cancelled"
+      ) {
+        void load(date);
+      }
+    });
+    const offScope = runtime.stream.subscribeOrg();
 
     // Periodic capacity resync — optimistic stats drift after remote
     // creates outside this browser's view window.
@@ -224,10 +173,10 @@ export function useDispatchBoard(initialDate: string) {
     return () => {
       closed = true;
       clearInterval(resync);
-      if (retry) clearTimeout(retry);
-      sockRef.current?.close();
+      offEvents();
+      offScope();
     };
-  }, [auth.status, auth.me, date, load]);
+  }, [auth.status, auth.me, date, load, runtime]);
 
   // --- drop handlers wrapping mutations with optimistic bookkeeping -----
 

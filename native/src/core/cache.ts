@@ -1,7 +1,7 @@
 // Offline-first read cache over the public read models.
 //
 // Purpose: hydrate once from a snapshot read model, keep entries in memory
-// and in the durable store, and let WebSocket events mark them stale. A
+// and in the durable store, and let live stream events mark them stale. A
 // screen renders the cached entity immediately, shows an offline state when
 // the server cannot be reached, and reconciles when a refresh lands — no
 // loading flash on data the client already knows (docs/instant-first.md).

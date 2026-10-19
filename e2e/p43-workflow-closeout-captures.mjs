@@ -22,7 +22,7 @@
 // Captured light + dark, plus a 375px mobile pass.
 //
 // REAL RUNS, NOT FIXTURES (stated plainly): the sanctioned entry point
-// (`scripts/e2e-stack.sh up`) boots core-api and realtime but NOT the workflow
+// (`scripts/e2e-stack.sh up`) boots core-api but NOT the workflow
 // worker, so nothing executes and the ledger would be empty. This lane therefore
 // boots the worker by hand against the same stack — the runbook block in
 // REVIEW.md / GATES.md — and drives real executions through the public

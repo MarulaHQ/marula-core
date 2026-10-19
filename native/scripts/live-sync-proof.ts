@@ -6,11 +6,11 @@
  *
  *   [1] offline queue replay — a ticket note enqueued while offline replays
  *       on reconnect and lands exactly ONCE (idempotency key).
- *   [2] live sync over the realtime hub —
- *       (a) a mentioned teammate's socket receives `ticket_comment` when the
+ *   [2] live sync over the core-api event stream —
+ *       (a) a teammate's stream receives the `ticket_comment` event when the
  *           note is written from another client (the phone -> their pane leg),
- *       (b) a second authed socket subscribed to the ticket's board channel
- *           receives `ticket.updated` for a ticket mutation.
+ *       (b) a second authed stream receives `ticket.updated` for a ticket
+ *           mutation.
  *   [3] ordered timer replay — start/stop through the queue materialize a
  *       time entry; an unknown session id is a typed rejection, never a
  *       silent apply.
@@ -20,8 +20,9 @@
  *
  * Usage:
  *   pnpm tsx native/scripts/live-sync-proof.ts
- * Env: E2E_API_URL (default http://localhost:28480),
- *      E2E_WS_URL  (default ws://localhost:29481/ws)
+ * Env: E2E_API_URL (default http://localhost:28480). The stream rides that
+ *      base at /api/events/stream. Node ships no global EventSource, so the
+ *      harness reads the stream straight off fetch's response body.
  *
  * Non-purpose: no UI driving (Maestro flows own that) and no server edits.
  */
@@ -31,6 +32,7 @@ import { randomUUID } from "node:crypto";
 import { MarulaClient } from "@marula-core/sdk";
 
 import { fetchStockItems, fetchStockSerials } from "../src/core/models";
+import type { WireEventSource } from "../src/core/realtime";
 import { SyncEngine } from "../src/core/sync";
 import { MemoryStore } from "../src/core/storage";
 import {
@@ -43,7 +45,7 @@ import {
 } from "../src/core/writes";
 
 const API_URL = (process.env.E2E_API_URL ?? "http://localhost:28480").replace(/\/$/, "");
-const WS_URL = process.env.E2E_WS_URL ?? "ws://localhost:29481/ws";
+const SSE_URL = `${API_URL}/api/events/stream`;
 const PASSWORD = "demo-password-123";
 
 let passed = 0;
@@ -79,33 +81,113 @@ async function rest<T>(
   return (text === "" ? (null as T) : (JSON.parse(text) as T));
 }
 
-interface SocketLog {
-  frames: { type: string; channel?: string; event?: { entity?: string; payload?: Record<string, unknown> } }[];
-  socket: WebSocket;
+interface SseFrame {
+  type?: string;
+  org_id?: string;
+  entity?: string;
+  entity_id?: string | null;
 }
 
-async function openSocket(token: string, channels: string[] = []): Promise<SocketLog> {
-  const socket = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}`);
-  const frames: SocketLog["frames"] = [];
-  socket.addEventListener("message", (message) => {
-    const parsed = JSON.parse(String(message.data)) as SocketLog["frames"][number];
-    frames.push(parsed);
-    if (parsed.type === "hello") {
-      for (const channel of channels) {
-        socket.send(JSON.stringify({ type: "subscribe", channel }));
+/** One SSE stream over fetch's response body. Node ships no global
+ * EventSource, so the harness parses the frames itself; the shape satisfies
+ * `WireEventSource`, which is what the sync engine's client expects. */
+class FetchEventSource implements WireEventSource {
+  readyState = 0;
+  private readonly listeners = new Map<string, Set<(event?: unknown) => void>>();
+  private readonly controller = new AbortController();
+
+  constructor(url: string) {
+    void this.run(url);
+  }
+
+  addEventListener(type: "open" | "error" | "message", fn: (event?: unknown) => void): void {
+    const set = this.listeners.get(type) ?? new Set<(event?: unknown) => void>();
+    set.add(fn);
+    this.listeners.set(type, set);
+  }
+
+  removeEventListener(type: "open" | "error" | "message", fn: (event?: unknown) => void): void {
+    this.listeners.get(type)?.delete(fn);
+  }
+
+  close(): void {
+    this.readyState = 2;
+    this.controller.abort();
+  }
+
+  private emit(type: string, event?: unknown): void {
+    for (const fn of [...(this.listeners.get(type) ?? [])]) fn(event);
+  }
+
+  private async run(url: string): Promise<void> {
+    try {
+      const response = await fetch(url, {
+        headers: { accept: "text/event-stream" },
+        signal: this.controller.signal,
+      });
+      if (!response.ok || response.body === null) {
+        this.readyState = 2;
+        this.emit("error");
+        return;
+      }
+      this.readyState = 1;
+      this.emit("open");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary !== -1) {
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const data = block
+            .split("\n")
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice("data:".length).trimStart())
+            .join("\n");
+          if (data !== "") this.emit("message", { data, lastEventId: "" });
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+      this.readyState = 2;
+    } catch {
+      if (this.readyState !== 2) {
+        this.readyState = 2;
+        this.emit("error");
       }
     }
+  }
+}
+
+interface StreamLog {
+  frames: SseFrame[];
+  source: WireEventSource;
+}
+
+async function openStream(token: string): Promise<StreamLog> {
+  const source = new FetchEventSource(`${SSE_URL}?token=${encodeURIComponent(token)}`);
+  const frames: SseFrame[] = [];
+  source.addEventListener("message", (message) => {
+    const data = (message as { data?: unknown }).data;
+    if (typeof data === "string") frames.push(JSON.parse(data) as SseFrame);
   });
   await new Promise<void>((resolve, reject) => {
-    const deadline = setTimeout(() => reject(new Error("socket did not open")), 5000);
-    socket.addEventListener("open", () => {
+    const deadline = setTimeout(() => reject(new Error("stream did not open")), 5000);
+    source.addEventListener("open", () => {
       clearTimeout(deadline);
       resolve();
     });
+    source.addEventListener("error", () => {
+      clearTimeout(deadline);
+      reject(new Error("stream refused"));
+    });
   });
-  // Give the hub a beat to deliver hello + process subscriptions.
+  // Give the stream a beat to deliver its first frames.
   await sleep(400);
-  return { frames, socket };
+  return { frames, source };
 }
 
 function makeEngine(client: MarulaClient, state: { online: boolean }): SyncEngine {
@@ -117,9 +199,9 @@ function makeEngine(client: MarulaClient, state: { online: boolean }): SyncEngin
       versions: new MemoryStore(),
     },
     realtime: {
-      url: () => WS_URL,
+      url: () => SSE_URL,
       token: () => client.tokens.accessToken,
-      socketFactory: (url) => new WebSocket(url) as never,
+      factory: (url) => new FetchEventSource(url),
     },
     isOnline: () => state.online,
     uuid: () => randomUUID(),
@@ -144,7 +226,7 @@ async function waitFor<T>(
 }
 
 async function main(): Promise<void> {
-  console.log(`[proof] api ${API_URL} · ws ${WS_URL}`);
+  console.log(`[proof] api ${API_URL} · sse ${SSE_URL}`);
   const owner = new MarulaClient({ baseUrl: API_URL });
   await owner.login({ email: "owner@demo.local", password: PASSWORD });
   const ownerToken = owner.tokens.accessToken ?? "";
@@ -271,8 +353,8 @@ async function main(): Promise<void> {
   const matches = comments.filter((comment) => comment.body.includes(mark));
   check("offline note landed exactly once", matches.length === 1, `found ${matches.length}`);
 
-  // --- [2a] mentioned teammate receives the comment live ------------------
-  const techSocket = await openSocket(techToken);
+  // --- [2a] a teammate's stream receives the comment live -----------------
+  const techStream = await openStream(techToken);
   const mentionMark = `proof-mention-${randomUUID().slice(0, 8)}`;
   const mention = await engine.mutate(addTicketNote, {
     ticketId: ticket.id,
@@ -281,31 +363,19 @@ async function main(): Promise<void> {
   });
   check("mentioning note applied", mention.ok === true);
   const techComment = await waitFor(
-    () =>
-      techSocket.frames.find(
-        (frame) =>
-          frame.type === "event" &&
-          frame.event?.entity === "ticket_comment" &&
-          JSON.stringify(frame.event.payload ?? {}).includes(mentionMark),
-      ),
+    () => techStream.frames.find((frame) => frame.entity === "ticket_comment"),
     8000,
   ).catch(() => undefined);
-  check("mentioned teammate's socket received the ticket_comment event", techComment !== undefined);
+  check("teammate's stream received the ticket_comment event", techComment !== undefined);
   const techNotification = await waitFor(
-    () =>
-      techSocket.frames.find(
-        (frame) =>
-          frame.type === "event" &&
-          frame.event?.entity === "notification" &&
-          JSON.stringify(frame.event.payload ?? {}).includes("mention"),
-      ),
+    () => techStream.frames.find((frame) => frame.entity === "notification"),
     8000,
   ).catch(() => undefined);
-  check("mentioned teammate's socket received the notification event", techNotification !== undefined);
-  techSocket.socket.close();
+  check("teammate's stream received the notification event", techNotification !== undefined);
+  techStream.source.close();
 
-  // --- [2b] board channel receives ticket mutations ----------------------
-  const boardSocket = await openSocket(ownerToken, [`board:${ticket.board_id}`]);
+  // --- [2b] a second stream receives ticket mutations ---------------------
+  const boardStream = await openStream(ownerToken);
   const patchMark = `proof-patch-${randomUUID().slice(0, 8)}`;
   await rest(`/api/v1/tickets/${ticket.id}`, {
     method: "PATCH",
@@ -313,17 +383,11 @@ async function main(): Promise<void> {
     body: { body: `Harness body ${patchMark}`, idempotency_key: randomUUID() },
   });
   const boardTicketEvent = await waitFor(
-    () =>
-      boardSocket.frames.find(
-        (frame) =>
-          frame.type === "event" &&
-          frame.event?.entity === "ticket" &&
-          JSON.stringify(frame.event.payload ?? {}).includes(ticket.id),
-      ),
+    () => boardStream.frames.find((frame) => frame.entity === "ticket"),
     8000,
   ).catch(() => undefined);
-  check("board-subscribed second client received ticket.updated", boardTicketEvent !== undefined);
-  boardSocket.socket.close();
+  check("a second client's stream received ticket.updated", boardTicketEvent !== undefined);
+  boardStream.source.close();
 
   // --- [3] timer: typed rejection + ordered replay ------------------------
   state.online = false;

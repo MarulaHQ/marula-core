@@ -16,10 +16,9 @@
 #                                below — core-api's liveness route is
 #                                {base}/health, so /api/health and
 #                                /api/v1/health answer, and a bare /healthz
-#                                is a 404 with an empty body. realtime and
-#                                the worker are the services that serve
-#                                /healthz, on their own ports.)
-#   /ws          -> realtime:8081 the WebSocket upgrade (realtime/src/lib.rs)
+#                                is a 404 with an empty body. The worker is
+#                                the service that serves /healthz, on its own
+#                                port.)
 #
 # Deliberately NOT routed: /internal/* — the worker<->core effect seam is a
 # private boundary with its own token (routes/internal.rs). An unmatched
@@ -57,55 +56,6 @@ handle @edge_health {
 
 @api {
 	path /api /api/* /openapi.json
-}
-
-# The realtime upgrade, matched on the path and not on the Connection
-# header: Caddy performs the upgrade itself, and a plain GET /ws with no
-# upgrade header has to reach the hub (it answers 401 with a typed body),
-# not be routed to the web console.
-@ws {
-	path /ws
-}
-
-# ---- WebSocket seam -------------------------------------------------------
-# The three upstreams default to the compose service names and are
-# overridable, because "the proxy runs in the app's compose network" is the
-# common case and not the only one: a split deployment (proxy on its own
-# host) and a gate run against a stack booted outside compose both need to
-# name the addresses. Ports stay in the value on purpose — a split
-# deployment is exactly where they stop matching.
-reverse_proxy @ws {$REALTIME_UPSTREAM:realtime:8081} {
-	# -1 disables response buffering. A frame sitting in a proxy buffer is
-	# a frame the board never rendered: presence, typing indicators and
-	# event envelopes are latency, not throughput.
-	flush_interval -1
-	# No stream timeout. The liveness contract is the client's own: a 25s
-	# heartbeat with a 60s silence window (native/src/core/realtime.ts).
-	# A proxy that reaps an idle-but-healthy socket turns a network blip
-	# into a reconnect storm, which is exactly the failure the presence
-	# ledger is sensitive to.
-	stream_timeout 0
-	# A config reload (or an operator's `caddy reload`) must not drop live
-	# sockets; the delay lets each client reconnect on its own schedule.
-	stream_close_delay 60s
-	# Append, never clobber. Caddy keeps an inbound X-Forwarded-For only
-	# when the direct peer is trusted, and it always appends the peer it
-	# actually saw. Behind Cloudflare that produces "<client>, <cf-edge>",
-	# which core-api walks right-to-left through its trusted set
-	# (crates/core-api/src/client_ip.rs). The Docker bridge peers are the
-	# private ranges here: publishing a host port lands the request on the
-	# bridge gateway, and trusting that one hop is what preserves the edge's
-	# client value instead of collapsing every request onto the gateway.
-	# X-Forwarded-For is Caddy's business: it appends the peer it saw and
-	# keeps an inbound value only from a trusted peer (see trusted_proxies
-	# below). X-Forwarded-Proto is NOT delegated: it is set from the actual
-	# connection, so a client cannot tell the app it arrived over https when
-	# it did not. Appending a caller-supplied scheme has no use — unlike XFF
-	# there is no upstream edge whose value we want to preserve (an edge in
-	# front of Caddy also terminates TLS, so {scheme} is already https).
-	# X-Forwarded-Host is left to Caddy, which sets it from the request Host.
-	trusted_proxies private_ranges
-	header_up X-Forwarded-Proto {scheme}
 }
 
 # ---- REST seam ------------------------------------------------------------

@@ -4,9 +4,9 @@
 #
 # Boots the exact stack the Playwright suite runs against, fully namespaced
 # PER RUN so parallel lanes/sessions never collide (no fixed ports 5432/8080/
-# 8081/3000, no shared container names, no shared DB):
+# 3000, no shared container names, no shared DB):
 #
-#   scripts/e2e-stack.sh              # up: migrate → seed → boot api+ws+redis,
+#   scripts/e2e-stack.sh              # up: migrate → seed → boot api+worker+redis,
 #                                     #     write e2e/.e2e-stack.env for Playwright
 #   scripts/e2e-stack.sh down [RUN]   # teardown ONE run (default: the local env
 #                                     # file's run id) — only its own containers
@@ -18,8 +18,8 @@
 #                                     # attach + EXIT trap tears down ONLY this run
 #   E2E_KEEP=1 …                      # keep the PG container after teardown
 #   E2E_FOLLOW=1 …                    # stay attached and stream the core-api +
-#                                     #   realtime + worker logs (Ctrl-C stops
-#                                     #   following; the stack keeps running)
+#                                     #   worker logs (Ctrl-C stops following;
+#                                     #   the stack keeps running)
 #
 # Run ids: the canonical shape is `e2e-<digits>` (new_run_id below), and the
 # containers are `marula-e2e-pg-<RUN_ID>` / `marula-e2e-redis-<RUN_ID>`. `down`
@@ -27,8 +27,8 @@
 # removes nothing — `docker rm -f` exits 0 for a container that does not exist,
 # which is how five orphaned stacks once "tore down" while still running.
 #
-# `up` RETURNS once core-api, realtime and the worker are all healthy. All
-# three detach with their own stdio (`</dev/null`, logs under
+# `up` RETURNS once core-api and the worker are both healthy. Both
+# detach with their own stdio (`</dev/null`, logs under
 # .kilo/e2e-logs/<run>/) so piping this script's output can never block — the
 # old shape left both daemons holding the caller's stdout pipe, which stranded
 # any `… up | tail` invocation forever (Wave 47 lane A7).
@@ -46,7 +46,7 @@
 #
 # Every run gets: a unique run id, its own scratch Postgres container + DB on
 # a random high port, its own scratch Valkey on a random high port, random API
-# and WS ports, unique container names keyed by run id, a fresh 64-hex JWT
+# and worker ports, unique container names keyed by run id, a fresh 64-hex JWT
 # secret + at-rest key, exported full env (SQLX_OFFLINE, REDIS_URL,
 # CORS_ORIGIN) — and the run record dropped in the SHARED root's
 # .kilo/dev-registry/ for scripts/dev-status.sh (see SHARED_ROOT below).
@@ -380,7 +380,6 @@ if [ -n "${E2E_PG_CONTAINER:-}" ] || [ -n "${CI:-}" ]; then
   DB_NAME="$(echo "${DATABASE_URL:-}" | sed 's|.*/||' || true)"
   PG_PORT=5432
   API_PORT=8080
-  WS_PORT=8081
   WEB_PORT="${E2E_WEB_PORT:-3000}"
   export DATABASE_URL="${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/marula_test}"
   export BIND_ADDR="${BIND_ADDR:-0.0.0.0:${API_PORT}}"
@@ -394,7 +393,6 @@ else
   RUN_ID="$(new_run_id)"
   PG_PORT="$(free_port 25432)"
   API_PORT="$(free_port 28480)"
-  WS_PORT="$(free_port 29481)"
   WEB_PORT="${E2E_WEB_PORT:-$(free_port 3000)}"
   DB_NAME="marula_e2e_${RUN_ID//[^a-z0-9]/_}"
   DB_NAME="${DB_NAME:0:63}"
@@ -523,7 +521,7 @@ fi
 # into a pager waits on an fd the daemons hold open forever.
 LOG_DIR="$LOG_ROOT/$RUN_ID"
 mkdir -p "$LOG_DIR"
-echo "[e2e-stack] service logs: $LOG_DIR/{core-api,realtime}.log"
+echo "[e2e-stack] service logs: $LOG_DIR/{core-api,worker}.log"
 
 ########## shared cargo target guard (Wave 47 lane A17) ##########
 # Every checkout on this machine compiles into ONE target dir (.cargo/config.toml
@@ -553,20 +551,12 @@ echo "[e2e-stack] boot core-api on ${BIND_ADDR}"
 "$BIN" >"$LOG_DIR/core-api.log" 2>&1 </dev/null &
 API_PID=$!
 disown "$API_PID" 2>/dev/null || true
-# realtime (ws) service — same JWT secret as core-api (token validation).
-run_stage "build realtime (release)" 'cargo build -p realtime --release'
-# Both release binaries are now built from THIS tree's sources: claim the shared
-# dir so the next lane's guard sees whose artifacts these are.
+# The core-api release binary is now built from THIS tree's sources: claim the
+# shared dir so the next lane's guard sees whose artifacts these are.
 if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
   run_stage "mark the shared target (release provenance)" \
-    "python3 scripts/lane-target-guard.py mark --profile release --note e2e-stack:core-api+realtime"
+    "python3 scripts/lane-target-guard.py mark --profile release --note e2e-stack:core-api"
 fi
-WS_BIN="$(cargo metadata -q --no-deps --format-version 1 | python3 -c \
-  'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/realtime"
-echo "[e2e-stack] boot realtime on 0.0.0.0:${WS_PORT}"
-BIND_ADDR="0.0.0.0:${WS_PORT}" "$WS_BIN" >"$LOG_DIR/realtime.log" 2>&1 </dev/null &
-WS_PID=$!
-disown "$WS_PID" 2>/dev/null || true
 
 API_HOST="$(echo "$BIND_ADDR" | sed 's/^[0-9]*://; s/^0\.0\.0\.0/localhost/')"
 echo "[e2e-stack] waiting for core-api health on ${API_HOST} (up to 60s) …"
@@ -620,8 +610,6 @@ E2E_API_URL=http://${API_HOST}/
 E2E_API_PORT=$API_PORT
 E2E_WEB_PORT=$WEB_PORT
 E2E_WEB_URL=http://localhost:$WEB_PORT
-E2E_WS_PORT=$WS_PORT
-E2E_WS_URL=ws://localhost:$WS_PORT/ws
 E2E_WORKER_PORT=$WORKER_PORT
 E2E_WORKER_URL=http://localhost:$WORKER_PORT
 E2E_INTERNAL_TOKEN=$MARULA_INTERNAL_TOKEN
@@ -640,9 +628,9 @@ echo "[e2e-stack] wrote $ENV_FILE (run $RUN_ID; shared with Playwright + e2e-bui
 
 # ########## pid registry for dev-status.sh ##########
 FINGERPRINT="$(printf '%s' "$JWT_SECRET" | cut -c1-8)-$(echo "$DATABASE_URL" | sed 's|.*/||')-$API_PORT"
-python3 - "$ENV_FILE" "$API_PID" "$WS_PID" "$WORKER_PID" "$REGISTRY_DIR" "$RUN_ID" "$FINGERPRINT" "$LOG_DIR" <<'PY' || true
+python3 - "$ENV_FILE" "$API_PID" "$WORKER_PID" "$REGISTRY_DIR" "$RUN_ID" "$FINGERPRINT" "$LOG_DIR" <<'PY' || true
 import json, os, sys, time
-envfile, api, ws, worker, regdir, run_id, fingerprint, log_dir = sys.argv[1:9]
+envfile, api, worker, regdir, run_id, fingerprint, log_dir = sys.argv[1:8]
 env = {}
 for line in open(envfile):
     line = line.strip()
@@ -658,8 +646,6 @@ reg = {
     "services": [
         {"name": "core-api", "pid": int(api), "source": "local", "port": env.get("E2E_API_PORT", ""),
          "log": os.path.join(log_dir, "core-api.log")},
-        {"name": "realtime", "pid": int(ws), "source": "local", "port": env.get("E2E_WS_PORT", ""),
-         "log": os.path.join(log_dir, "realtime.log")},
         {"name": "worker", "pid": int(worker), "source": "local", "port": env.get("E2E_WORKER_PORT", ""),
          "log": os.path.join(log_dir, "worker.log")},
     ],
@@ -674,8 +660,8 @@ echo "[e2e-stack] registered run in $REGISTRY_DIR — check scripts/dev-status.s
 UP_COMPLETE=1
 
 ########## console summary — a boot is never silent ##########
-echo "[e2e-stack] run $RUN_ID ready — api http://${API_HOST}/  ws :${WS_PORT}  worker :${WORKER_PORT}  web :${WEB_PORT}"
-for _svc in core-api realtime worker; do
+echo "[e2e-stack] run $RUN_ID ready — api http://${API_HOST}/  worker :${WORKER_PORT}  web :${WEB_PORT}"
+for _svc in core-api worker; do
   echo "[e2e-stack] --- $_svc log (last 5 lines) ---"
   tail -n 5 "$LOG_DIR/$_svc.log" 2>/dev/null | sed 's/^/    /' || true
 done
@@ -684,7 +670,7 @@ if [ "${E2E_FOLLOW:-0}" = "1" ]; then
   # Live view: stay attached and stream every log. Ctrl-C stops following ONLY —
   # the stack keeps running; teardown stays `e2e-stack.sh down $RUN_ID`.
   echo "[e2e-stack] following service logs — Ctrl-C stops following (stack keeps running)"
-  tail -n 0 -f "$LOG_DIR/core-api.log" "$LOG_DIR/realtime.log" "$LOG_DIR/worker.log" || true
+  tail -n 0 -f "$LOG_DIR/core-api.log" "$LOG_DIR/worker.log" || true
   exit 0
 fi
 

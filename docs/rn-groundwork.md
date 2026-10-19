@@ -12,7 +12,7 @@ envelopes, no mobile fork of anything.
 | Auth | email + password login, MFA bridge token with TOTP entry, rotating refresh pair in SecureStore, platform biometric sign-in | `native/src/auth/auth-context.tsx` |
 | Read cache | durable cache over the public read models. A screen renders cached data, marks it stale on contract events, reconciles when the link allows | `native/src/core/cache.ts` |
 | Write queue | per-entity FIFO, client-minted idempotency keys, persisted audit trail, one adopted version on a 409, typed rejection surfaced instead of a silent merge | `native/src/core/queue.ts` |
-| Live sync | one authed socket to `/ws`, org and board subscriptions, event → cache invalidation | `native/src/core/realtime.ts`, `native/src/core/sync.ts` |
+| Live sync | one authed SSE stream to `/api/events/stream`, org-scoped events → cache invalidation | `native/src/core/realtime.ts`, `native/src/core/sync.ts` |
 | Timers and notes | server-backed entities: `GET /timers/active` plus queued start/pause/resume/stop. Notes are comments with optimistic render and server reconcile | `native/src/tickets/ticket-detail.tsx` |
 | Adaptive layout | width class decides two-pane master–detail at 768pt and up. Compact pushes. Stage Manager resizes into the same breakpoint | `native/src/ui/adaptive.ts` |
 | Scan injector | paste a scan or open `marula://scan-result?text=…`. The typed resolver drives routing, ambiguity renders a picker, unknown stays unknown | `native/app/(tabs)/scan.tsx`, `native/src/core/scan.ts` |
@@ -40,11 +40,11 @@ No migration rode with it, and the mobile vocabulary parity test still holds.
 
 ## Findings a follow-up contract lane owns
 
-1. `ticket_comment` events route only to mentioned users
-   (`crates/realtime/src/channel.rs`, `routes_for`). The author's other clients
-   do not receive their own note over the socket, so the phone-to-desktop note
-   leg reconciles on refocus instead of live. Routing comments to the ticket's
-   board channel closes it.
+1. `ticket_comment` events used to route only to mentioned users in the deleted
+   per-channel socket router. The live leg is now the org-scoped SSE stream
+   (`crates/core-api/src/realtime.rs`), which delivers every contract event to
+   every subscriber in the org, so the author's other clients receive their own
+   note. Closed when the WebSocket leg was removed.
 2. Stock movements and tool checkouts emit events with no route in the same
    match arm, so those read models reconcile on refocus and reconnect.
 3. No device-token registration route exists, and the worker's fan-out has no

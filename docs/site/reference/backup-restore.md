@@ -68,7 +68,7 @@ Notes the runbook enforces:
 
 ## Restore
 
-1. Stop the services (`docker compose … stop core-api worker realtime`).
+1. Stop the services (`docker compose … stop core-api worker`).
 2. For the last-night tier: plain `pg_restore` (below). For PITR: follow
    [wal-g restore](https://github.com/wal-g/wal-g/blob/master/README.md) —
    stop Postgres, `wal-g backup-fetch`, replay WAL to the recovery target,

@@ -1,16 +1,18 @@
 // Notification center state for the web app.
 //
 // Purpose: one hook owning unread badge count, the inbox page (keyset
-// cursor), mark-read actions, and the live `user:<me>` socket subscription
-// so badges and the dock update without polling. Reconnects with backoff;
-// missed events self-heal via REST refresh on reconnect.
+// cursor), mark-read actions, and the live notification leg off the
+// org-wide SSE stream so badges and the dock update without polling. The
+// stream reconnects itself and replays the bounded gap; missed events
+// self-heal via REST refresh when the stream reopens.
 //
 // Non-purpose: no preferences editing (settings screen calls the SDK
 // directly) and no toast/toast-queue UX — the dock is the only surface.
 "use client";
 
-import { api, loadTokens, resolveApiBaseUrl, useAuth } from "./api";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { api, useAuth } from "./api";
+import { instantRuntime } from "./instant/runtime";
+import { useCallback, useEffect, useState } from "react";
 
 export interface NotificationItem {
   id: string;
@@ -25,16 +27,6 @@ export interface NotificationItem {
 export interface NotificationPage {
   items: NotificationItem[];
   next_cursor: string | null;
-}
-
-function wsUrl(): string {
-  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
-  const base = resolveApiBaseUrl();
-  const u = new URL(base);
-  u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
-  u.port = process.env.NEXT_PUBLIC_WS_PORT ?? "8081";
-  u.pathname = "/ws";
-  return u.toString();
 }
 
 const KIND_LABELS: Record<string, string> = {
@@ -88,56 +80,31 @@ export function useNotifications() {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
 
-  // Live leg: subscribe to this user's channel; created → bump + prepend,
-  // read → resync counts. Reconnects with capped backoff.
-  const socketRef = useRef<WebSocket | null>(null);
+  // Live leg: the org-wide SSE stream carries every notification in the
+  // org, and a frame holds only the event type, never the recipient. So the
+  // badge is not bumped optimistically here — another member's notification
+  // would raise this one's count. Both event types trigger a REST refresh,
+  // which answers with the caller's own unread count. The stream owns
+  // reconnection and replays the bounded gap, so reopening it self-heals
+  // missed events through that same refresh.
+  const runtime = instantRuntime();
   useEffect(() => {
     if (auth.status !== "authed" || !auth.me) return;
-    let closed = false;
-    let attempt = 0;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-
-    const connect = () => {
-      const tokens = loadTokens();
-      if (!tokens || closed) return;
-      const sock = new WebSocket(`${wsUrl()}?token=${tokens.access_token}`);
-      socketRef.current = sock;
-      sock.onopen = () => {
-        attempt = 0;
-        sock.send(JSON.stringify({ type: "subscribe", channel: `user:${auth.me!.user_id}` }));
+    const offEvents = runtime.bus.subscribe((event) => {
+      if (event.type === "notification.created" || event.type === "notification.read") {
         void refresh();
-      };
-      sock.onmessage = (m) => {
-        try {
-          const frame = JSON.parse(String(m.data)) as {
-            type: string;
-            event?: { type?: string };
-          };
-          if (frame.type === "event" && frame.event?.type === "notification.created") {
-            setUnread((n) => n + 1);
-            void refresh();
-          } else if (frame.type === "event" && frame.event?.type === "notification.read") {
-            void refresh();
-          }
-        } catch {
-          // ignore malformed frames; REST remains source of truth
-        }
-      };
-      sock.onclose = () => {
-        socketRef.current = null;
-        if (closed) return;
-        attempt += 1;
-        retry = setTimeout(connect, Math.min(1000 * 2 ** attempt, 15000));
-      };
-    };
-    connect();
+      }
+    });
+    const offStatus = runtime.stream.onStatus((status) => {
+      if (status === "open") void refresh();
+    });
+    const offScope = runtime.stream.subscribeOrg();
     return () => {
-      closed = true;
-      if (retry) clearTimeout(retry);
-      socketRef.current?.close();
-      socketRef.current = null;
+      offEvents();
+      offStatus();
+      offScope();
     };
-  }, [auth.status, auth.me, refresh]);
+  }, [auth.status, auth.me, refresh, runtime]);
 
   const markRead = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return;

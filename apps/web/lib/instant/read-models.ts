@@ -74,7 +74,6 @@ export function makeBoardSpec(
   client: ApiClient,
   boardId: string,
 ): ReadModelSpec<BoardModel> {
-  const boardChannel = `board:${boardId}`;
   async function fetchTicket(id: string): Promise<BoardTicket | null> {
     const { data } = await client.GET("/api/v1/tickets/{id}", {
       params: { path: { id } },
@@ -94,12 +93,13 @@ export function makeBoardSpec(
       });
     },
     relevant: (event) => {
-      // Board channel = the scoped WS legacy; `org:<id>` = the org-wide
-      // SSE stream (Wave 13 lane 9) — every org frame reaches every
-      // hydrated board, the entity filter keeps it cheap.
-      const delivered =
-        event.channel === boardChannel || event.channel.startsWith("org:");
-      return delivered && (event.entity === "ticket" || event.entity === "board");
+      // The org-wide SSE stream tags every frame `org:<id>` (Wave 13 lane
+      // 9) — every org frame reaches every hydrated board, the entity
+      // filter keeps it cheap.
+      return (
+        event.channel.startsWith("org:") &&
+        (event.entity === "ticket" || event.entity === "board")
+      );
     },
     async revalidate(model, event, ctx) {
       if (event.entity === "board") {
@@ -108,7 +108,7 @@ export function makeBoardSpec(
         });
         return data === undefined ? model : { ...model, statuses: data };
       }
-      // ticket event on this board's channel: patch just that ticket.
+      // Ticket event: patch just that ticket rather than re-snapshot.
       const id = event.entity_id;
       if (id === null || ctx.isPending(id)) return model;
       const ticket = await fetchTicket(id);

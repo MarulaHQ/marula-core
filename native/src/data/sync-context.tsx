@@ -4,7 +4,7 @@
 // transitions and token refresh into it, tear it down (and drop the offline
 // stores) on sign-out, and expose the read/mutation/queue hooks screens use.
 //
-// Non-purpose: no UI. Screens never see sockets, stores, or the queue.
+// Non-purpose: no UI. Screens never see the stream, stores, or the queue.
 
 import * as Crypto from "expo-crypto";
 import {
@@ -23,9 +23,9 @@ import { useAuth } from "@/auth/auth-context";
 import type { ModelState, MutationResult } from "@/core/sync";
 import { SyncEngine } from "@/core/sync";
 import type { QueuedOp } from "@/core/queue";
-import type { SocketLike } from "@/core/realtime";
+import { createSseSource } from "@/core/sse";
 import type { WriteOperation } from "@/core/writes";
-import { WS_URL } from "@/config";
+import { SSE_URL } from "@/config";
 import { useConnectivity } from "@/data/connectivity";
 import { asyncStore } from "@/data/storage";
 
@@ -78,9 +78,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         versions: asyncStore("versions"),
       },
       realtime: {
-        url: () => WS_URL,
+        url: () => SSE_URL,
         token: () => accessToken(),
-        socketFactory: (url) => new WebSocket(url) as unknown as SocketLike,
+        factory: (url) => createSseSource(url),
       },
       isOnline: () => onlineRef.current,
       ensureToken,

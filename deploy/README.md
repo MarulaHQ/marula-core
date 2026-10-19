@@ -7,8 +7,8 @@
 
 | Directory | What it is |
 |---|---|
-| `docker-compose.yml` | The local stack: Postgres, Valkey, migrations, core-api, realtime, worker, web, plus the `stage2`, `observability`, `ai` and `backup` profiles. No TLS, no published-proxy boundary — it targets development. |
-| `Dockerfile.rust` / `Dockerfile.web` | The workspace images. `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` are baked into the web bundle at build time. |
+| `docker-compose.yml` | The local stack: Postgres, Valkey, migrations, core-api, worker, web, plus the `stage2`, `observability`, `ai` and `backup` profiles. No TLS, no published-proxy boundary — it targets development. |
+| `Dockerfile.rust` / `Dockerfile.web` | The workspace images. `NEXT_PUBLIC_API_URL` is baked into the web bundle at build time. |
 | `edge/` | **The public front door.** A Caddy proxy that terminates TLS, the three TLS modes (Direct ACME, Cloudflare Origin CA, Cloudflare DNS-01), and the origin firewall helper. |
 | `preview/` | The per-PR preview environment: sizing overlay, publishing options, and the CI definition for it. |
 | `helm/marula/` | The Helm chart, with the same routing and both TLS modes expressed through `ingress`. |
@@ -32,7 +32,7 @@ docker compose -f docker-compose.yml \
                --profile edge up --build -d
 ```
 
-The overlay is last on purpose: it pulls the raw `8080`, `8081`, `3000`,
+The overlay is last on purpose: it pulls the raw `8080`, `3000`,
 `8082`, `15432` and `16379` publishes back off the network, and compose
 only applies that replacement when the file carrying it comes last.
 

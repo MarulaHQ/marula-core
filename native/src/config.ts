@@ -1,20 +1,22 @@
 // Runtime configuration and the lane's port convention.
 //
 // Port convention (Wave 33, mirrors the private high-port pattern):
-//   Metro / Expo dev server   8181   (NOT 8081 — that is the realtime hub)
+//   Metro / Expo dev server   8181
 //   Expo web fast-iteration   8182
 //   core-api                  per-run from scripts/e2e-stack.sh (random high)
-//   realtime WS               per-run from scripts/e2e-stack.sh (random high)
 //
 // Boot the stack with `scripts/e2e-stack.sh up`, read `e2e/.e2e-stack.env`,
 // then point the app at it:
 //   EXPO_PUBLIC_API_URL=http://localhost:<API_PORT> \
-//   EXPO_PUBLIC_WS_URL=ws://localhost:<WS_PORT>/ws \
 //   pnpm --filter @marula-core/native dev
+//
+// Live sync rides core-api's SSE event stream at /api/events/stream, so its
+// URL follows the API base. Set EXPO_PUBLIC_SSE_URL only when an operator
+// fronts the stream on another origin.
 //
 // iOS Simulator shares the host network, so localhost works. The Android
 // emulator maps the host at 10.0.2.2 — the defaults below handle both.
-// Physical devices need the host's LAN IP in both variables.
+// Physical devices need the host's LAN IP.
 
 import { Platform } from "react-native";
 
@@ -35,15 +37,17 @@ export const API_URL = withoutTrailingSlash(
   process.env.EXPO_PUBLIC_API_URL ?? `http://${devHost}:8080`,
 );
 
-export const WS_URL = withoutTrailingSlash(
-  process.env.EXPO_PUBLIC_WS_URL ?? `ws://${devHost}:8081/ws`,
+/** The live-sync stream. Defaults to the API base because core-api serves it;
+ * the override is for installs that front the stream on another origin. */
+export const SSE_URL = withoutTrailingSlash(
+  process.env.EXPO_PUBLIC_SSE_URL ?? `${API_URL}/api/events/stream`,
 );
 
 /** EAS project id — absent until an operator registers one (see README). */
 export const EAS_PROJECT_ID = process.env.EXPO_PUBLIC_EAS_PROJECT_ID ?? "";
 
 /** Dev-menu surfaces (airplane toggle, scan injector, queue shortcuts, the
- * API/WS readout). On in a dev client, off in release builds unless the
+ * API readout). On in a dev client, off in release builds unless the
  * verification build opts in (CI Maestro runs a Release build with this set
  * to "1" so the deterministic offline path stays testable). */
 export const DEV_TOOLS_ENABLED =

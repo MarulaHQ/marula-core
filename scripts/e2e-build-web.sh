@@ -5,17 +5,15 @@
 set -euo pipefail
 # The e2e stack script (scripts/e2e-stack.sh) writes the per-run env to
 # e2e/.e2e-stack.env; a bundle built afterward must inline THE SAME values
-# (NEXT_PUBLIC_API_URL / NEXT_PUBLIC_WS_PORT) or drift creeps back in.
+# (NEXT_PUBLIC_API_URL) or drift creeps back in.
 if [ -f e2e/.e2e-stack.env ]; then
   echo "[e2e-build-web] sourcing e2e/.e2e-stack.env (stack run present)"
   set -a; . e2e/.e2e-stack.env; set +a
-  export NEXT_PUBLIC_WS_PORT="${E2E_WS_PORT:-}"
 fi
 # The stack env carries E2E_API_URL; the bundle inlines it so the web
 # build can never drift to a stale default (p37 doctrine: the env file
 # wins, callers never hand-set ports).
 export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-${E2E_API_URL:-http://localhost:8080}}"
-export NEXT_PUBLIC_WS_PORT="${NEXT_PUBLIC_WS_PORT:-8081}"
 
 # No kit pre-build: @marula-core/ui resolves from src and is transpiled by the
 # web build (2026-10-19).

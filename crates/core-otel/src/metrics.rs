@@ -12,7 +12,7 @@
 //! |--------------------------------|-------------|---------------------|-------------|
 //! | `marula.http.requests`       | counter     | route, method, status | request rate by route/status (`rate()`); error ratio = status ≥ 400 share |
 //! | `marula.http.request.duration` | histogram (ms) | route, method   | p50/p95/p99 latency per route template |
-//! | `marula.ws.sessions`         | up-down     | –                   | current connected WS sessions (gauge) |
+//! | `marula.live.sessions`       | up-down     | –                   | current connected SSE live-stream sessions (gauge) |
 //! | `marula.outbox.lag_ms`       | gauge       | –                   | event-pipeline lag: age of oldest unpublished outbox row at last relay pass |
 //! | `marula.relay.batch_size`    | histogram   | –                   | relay throughput distribution per tick |
 //! | `marula.queue.depth`         | gauge       | state=pending\|running\|dead | backlog health; alert on dead > 0 sustained |
@@ -32,7 +32,7 @@ use std::sync::OnceLock;
 struct Instruments {
     http_requests: Counter<u64>,
     http_duration: Histogram<f64>,
-    ws_sessions: UpDownCounter<i64>,
+    live_sessions: UpDownCounter<i64>,
     outbox_lag_ms: Gauge<u64>,
     relay_batch: Histogram<u64>,
     queue_depth: Gauge<u64>,
@@ -57,9 +57,9 @@ fn instruments() -> &'static Instruments {
                 .with_unit("ms")
                 .with_description("End-to-end HTTP request duration")
                 .build(),
-            ws_sessions: meter
-                .i64_up_down_counter("marula.ws.sessions")
-                .with_description("Currently open WebSocket sessions")
+            live_sessions: meter
+                .i64_up_down_counter("marula.live.sessions")
+                .with_description("Currently open SSE live-stream sessions")
                 .build(),
             outbox_lag_ms: meter
                 .u64_gauge("marula.outbox.lag_ms")
@@ -117,14 +117,15 @@ pub fn http_request(route: &str, method: &str, status: u16, duration_ms: f64) {
     );
 }
 
-/// One WS session opened (upgrade accepted).
-pub fn ws_session_opened() {
-    instruments().ws_sessions.add(1, &[]);
+/// One live-stream session opened (an SSE response body began).
+pub fn live_session_opened() {
+    instruments().live_sessions.add(1, &[]);
 }
 
-/// One WS session closed (socket dropped or send failed).
-pub fn ws_session_closed() {
-    instruments().ws_sessions.add(-1, &[]);
+/// One live-stream session closed (the response body was dropped, whether the
+/// client walked away, the hub shut down, or the stream ended on its own).
+pub fn live_session_closed() {
+    instruments().live_sessions.add(-1, &[]);
 }
 
 /// Relay pass result: batch size histogram + outbox-lag gauge update.
@@ -204,8 +205,8 @@ mod tests {
         unsafe { std::env::remove_var(crate::telemetry::ENDPOINT_VAR) };
         http_request("/api/tickets/{id}", "GET", 200, 12.5);
         http_request("unmatched", "POST", 500, 3.0);
-        ws_session_opened();
-        ws_session_closed();
+        live_session_opened();
+        live_session_closed();
         relay_pass(7, Some(150));
         relay_pass(0, None);
         queue_depth(1, 0, 0);

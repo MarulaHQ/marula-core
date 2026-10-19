@@ -4,8 +4,8 @@
 > own its deployment.
 
 Allocation: `deploy/docker-compose.yml` is the canonical definition of the
-local stack (Postgres, Redis, schema migration, core-api, realtime
-WebSocket hub, worker, web console); the header comments there are the
+local stack (Postgres, Redis, schema migration, core-api, worker, web
+console); the header comments there are the
 ground truth for every flag listed below. What follows is the descriptive
 map — upgrade procedures live in [How to upgrade](../how-to/upgrade.md)
 and the [backup/restore runbook](backup-restore.md).
@@ -17,7 +17,6 @@ and the [backup/restore runbook](backup-restore.md).
 | Postgres (pg18 + pgvector) | 15432 | user/db `marula` |
 | Redis (Valkey) | 16379 | `noeviction`, 192 MB cap |
 | core-api | 8080 | the single write surface |
-| realtime (WS hub) | 8081 | |
 | worker | 8082 | health port |
 | web console | 3000 | `NEXT_PUBLIC_API_URL` baked at build |
 | Garage (stage2 profile) | 3900-3903 | S3-compatible object storage (S3 API 3900, admin 3903) |
@@ -31,7 +30,7 @@ and the [backup/restore runbook](backup-restore.md).
 
 For a demo or a scratch box, `scripts/demo-up.sh` is the one-command
 path: Postgres + Valkey from this compose file on the ports below, the
-migrations, the seeded demo org, and core-api / realtime / worker / web
+migrations, the seeded demo org, and core-api / worker / web
 on the host. [How to run the local demo stack](../how-to/local-demo-stack.md)
 walks it, including the desktop alternative that needs no Docker.
 
@@ -85,8 +84,8 @@ from the start — the inbound webhook mail path stays disabled until it is.
 
 Optional: asymmetric access-token signing. Set
 `MARULA_JWT_EDDSA_PRIVATE_KEY` and `MARULA_JWT_EDDSA_PUBLIC_KEY` (PEM
-contents) on core-api, and `MARULA_JWT_EDDSA_PUBLIC_KEY` on realtime, to
-sign with Ed25519 instead of the shared secret. `MARULA_JWT_KID` names
+contents) on core-api to sign with Ed25519 instead of the shared secret.
+`MARULA_JWT_KID` names
 the key (default `m1`). The pair must be complete and parse, or core-api
 refuses to boot. HS256 keeps verifying during a rollout, so you can
 switch without logging anyone out. The [threat
@@ -99,7 +98,7 @@ Every container in this stack runs least-privilege. The practical facts an
 operator needs:
 
 **Who runs.** All three Marula images drop to a fixed numeric user at
-build time. Core-api, realtime, worker, and the CLI run as the hardened
+build time. Core-api, worker, and the CLI run as the hardened
 base's `nonroot` user (uid 65532), the web console as uid 1000, the backup
 runner as uid 10003. Nothing runs as root except Postgres' one-time
 first-boot init: the official postgres entrypoint needs root to chown its

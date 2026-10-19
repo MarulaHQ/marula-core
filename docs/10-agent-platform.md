@@ -8,7 +8,7 @@ exposed to agents through capability-scoped, audited, consented surfaces.
 
 ## 1. Surfaces vs. extensions
 
-REST, WebSocket, and MCP are **surfaces** projecting ONE contract. Plugins and
+REST, the SSE live stream, and MCP are **surfaces** projecting ONE contract. Plugins and
 HTTP connectors are the actual **extensions** consuming it.
 
 - The MCP server (`crates/mcp-server`) is a separately deployable adapter whose

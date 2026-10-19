@@ -6,17 +6,17 @@ the flake gate only catches symptoms.
 ## Boot the stack through ONE script — never hand-roll
 
 `scripts/e2e-stack.sh` allocates a per-run DB name, random high ports, and
-run-id-keyed container names, boots core-api + realtime + a scratch Valkey,
+run-id-keyed container names, boots core-api + worker + a scratch Valkey,
 seeds the demo org deterministically (below), and writes `e2e/.e2e-stack.env`.
 Playwright's config and `scripts/e2e-build-web.sh` read that file — do not set
 `NEXT_PUBLIC_API_URL`/ports/scents by hand or you reintroduce boot drift
 (report class 2/3). Teardown is `scripts/e2e-stack.sh down [RUN_ID]` and only
 touches resources carrying that run id — never a parallel lane's DB.
 
-`up` returns as soon as core-api answers its health check: core-api and realtime
+`up` returns as soon as core-api answers its health check: core-api and the worker
 detach with their own stdio (`</dev/null`, logs under `.kilo/e2e-logs/<run>/`),
 so piping the boot anywhere can never block. `up` narrates every stage with its
-elapsed time and ends by printing the tail of both service logs; for a live view
+elapsed time and ends by printing the tail of each service log; for a live view
 run it again with `E2E_FOLLOW=1`, which streams those logs instead of returning
 (Ctrl-C stops following, the stack keeps running). If a boot fails, read the log
 — do not wait on a call that will not return. The run registry and those logs live
@@ -38,7 +38,7 @@ portal view → BYOK surface. It rides `pnpm e2e` like any other spec, so every
 lane that runs the suite keeps the demo path green, and it runs in the light and
 dark projects only.
 
-For a demo-focused run — boot, build, run just this spec, tear down — use one
+For a demo-focused run (boot, build, run just this spec, tear down), use one
 command:
 
 ```

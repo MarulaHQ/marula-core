@@ -7,7 +7,7 @@
 // kit — the pack drew nothing for them), below the pack's named sections.
 //
 // Purpose: hydrate from the cached read models (dispatch day, my work,
-// on-call, travel drafts) and live through WebSocket events: a rescheduled
+// on-call, travel drafts) and live through the event stream: a rescheduled
 // booking, a new unassigned ticket, or a rotation change lands here without
 // a pull-to-refresh. Accepting a booking writes through the offline queue
 // and renders before the server echo — the dispatcher's board sees the same

@@ -3,7 +3,7 @@
 // typed SLA status preferred, the ticket's own due date as the fallback, and
 // neither reading as an em dash rather than a false zero), bulk selection and
 // its priority write, and the merged-row banner.
-import { describe, expect, it, beforeEach, afterEach, afterAll, vi } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { Profiler } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
@@ -15,16 +15,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => "/tickets",
 }));
-
-/** jsdom has no usable WebSocket; the instant hooks must degrade quietly. */
-class FakeWebSocket {
-  close(): void {}
-  send(): void {}
-}
-vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
-afterAll(() => {
-  vi.unstubAllGlobals();
-});
 
 const NOW = Date.now();
 const HOUR = 3_600_000;

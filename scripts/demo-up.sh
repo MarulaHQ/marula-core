@@ -15,7 +15,7 @@
 #   3. marula-core-cli migrate  (as the table OWNER role, never marula_app)
 #   4. MARULA_DEV_TOOLS=1 marula-core-cli seed-demo --force  (first boot
 #      only — a second `up` never wipes operator edits; `reset` reseeds)
-#   5. cargo build + boot core-api (8080) / realtime (8081) / worker (8082)
+#   5. cargo build + boot core-api (8080) / worker (8082)
 #   6. web dev server on 3000 (pnpm --filter @marula-core/web dev; pass
 #      --web prod for a next build + standalone start instead)
 #   7. print the four demo logins, the BYOK checklist URL and the dev-ops
@@ -24,7 +24,7 @@
 # Usage:
 #   scripts/demo-up.sh                 # up (the default)
 #   scripts/demo-up.sh --ai            # up + the local Ollama ai profile
-#   scripts/demo-up.sh stop            # stop the four app processes
+#   scripts/demo-up.sh stop            # stop the three app processes
 #   scripts/demo-up.sh stop --infra    # ... and the compose postgres/redis
 #   scripts/demo-up.sh reset           # reseed the demo org (keeps the stack)
 #   scripts/demo-up.sh reset --fresh   # destroy the DB volume, re-up, reseed
@@ -38,7 +38,7 @@
 # MARULA_SECRET_KEY are deliberately left UNSET so every process uses the
 # documented dev fallback (MARULA_DEV_TOOLS=1, pinned dev secret — the
 # same derivation the desktop test app and the compose dev defaults use),
-# which keeps the API, realtime, and the seeder on one key. A local
+# which keeps the API and the seeder on one key. A local
 # JWT_SECRET that is not 64 hex chars makes core-api refuse to boot, so
 # the preflight fails with that message instead of a half-up stack.
 set -euo pipefail
@@ -55,7 +55,6 @@ OLLAMA_OVERRIDE="$STATE_DIR/ollama-host.yml"
 PG_PORT=15432
 REDIS_PORT=16379
 API_PORT=8080
-WS_PORT=8081
 WORKER_PORT=8082
 WEB_PORT=3000
 
@@ -67,7 +66,7 @@ API_BROWSER="http://localhost:${API_PORT}"
 WEB_URL="http://localhost:${WEB_PORT}"
 
 # The dev-tools gate every demo surface needs (seed-demo refuses without
-# it; core-api/realtime fall back to the pinned dev secret with it).
+# it; core-api falls back to the pinned dev secret with it).
 export MARULA_DEV_TOOLS=1
 # The repo ships the .sqlx cache; compile without a live database.
 export SQLX_OFFLINE=1
@@ -102,7 +101,7 @@ port_holder() { # prints "<pid> <command>" for the listener on the port, if any
 
 our_process() { # is this listener one of ours? (only these binaries are ever stopped)
   case "$1" in
-    core-api|realtime|worker|next-server|next) return 0 ;;
+    core-api|worker|next-server|next) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -245,8 +244,8 @@ ensure_web_deps() {
 
 build_services() {
   ensure_web_deps
-  log "building core-api + realtime + worker (first run compiles — expect minutes)"
-  (cd "$REPO_ROOT" && cargo build -q -p core-api -p realtime -p worker) \
+  log "building core-api + worker (first run compiles — expect minutes)"
+  (cd "$REPO_ROOT" && cargo build -q -p core-api -p worker) \
     || die "cargo build failed — full log above"
   # No kit pre-build: the app resolves @marula-core/ui from src and transpiles
   # it (2026-10-19), so nothing has to be built for the web app to import it.
@@ -268,10 +267,10 @@ boot_backend() {
   : > "$PIDSFILE"
   chmod 700 "$STATE_DIR"
 
-  local dir api ws worker
+  local dir api worker
   dir="$(target_dir)/debug"
-  api="$dir/core-api"; ws="$dir/realtime"; worker="$dir/worker"
-  for b in "$api" "$ws" "$worker"; do
+  api="$dir/core-api"; worker="$dir/worker"
+  for b in "$api" "$worker"; do
     [ -x "$b" ] || die "expected binary missing after build: $b"
   done
 
@@ -280,9 +279,6 @@ boot_backend() {
     CORS_ORIGIN="$CORS_ORIGIN" OBJECT_STORE=local \
     OBJECT_STORE_LOCAL_DIR="$OBJECT_STORE_LOCAL_DIR" \
     EMAIL_TRANSPORT=none "$api"
-
-  spawn "realtime" "$WS_PORT" env \
-    REDIS_URL="$REDIS_URL" BIND_ADDR="0.0.0.0:${WS_PORT}" "$ws"
 
   spawn "worker" "$WORKER_PORT" env \
     DATABASE_URL="$DB_OWNER" REDIS_URL="$REDIS_URL" BIND_ADDR="0.0.0.0:${WORKER_PORT}" \
@@ -296,8 +292,6 @@ boot_backend() {
   curl -fsS "$API_LOCAL/api/v1/health" >/dev/null 2>&1 \
     || die "core-api never answered /api/v1/health on :$API_PORT — log: $LOGDIR/core-api.log"
   log "core-api healthy ($API_LOCAL/api/v1/health)"
-  wait_port "$WS_PORT" realtime 30 \
-    || die "realtime never opened :$WS_PORT — log: $LOGDIR/realtime.log"
   # The worker answers /healthz once its loops are live, which lands a few
   # seconds after core-api; retry before warning so a healthy boot is quiet.
   for _ in $(seq 1 15); do
@@ -340,7 +334,6 @@ print_summary() {
 
   web console        $WEB_URL
   core-api           $API_BROWSER   (spec: $API_BROWSER/openapi.json)
-  realtime (ws)      ws://localhost:$WS_PORT
   worker health      http://127.0.0.1:$WORKER_PORT/healthz
 
   demo logins (password: demo-password-123):
@@ -353,7 +346,7 @@ print_summary() {
     BYOK checklist    $WEB_URL/settings/ai   — org switch, provider, key, per-surface grants
     dev ops           $WEB_URL/dev           — seed / reset org / time-travel
 
-  logs                $LOGDIR/{core-api,realtime,worker,web}.log
+  logs                $LOGDIR/{core-api,worker,web}.log
   reseed              scripts/demo-up.sh reset
   stop                scripts/demo-up.sh stop
 EOF
@@ -406,7 +399,7 @@ stop_all() { # stop_all [quiet]
   fi
   # Orphan sweep: only ever stop OUR binaries on the demo ports. Another
   # lane's stack (or the desktop app) holding a port is reported, not killed.
-  for port in "$API_PORT" "$WS_PORT" "$WORKER_PORT" "$WEB_PORT"; do
+  for port in "$API_PORT" "$WORKER_PORT" "$WEB_PORT"; do
     holder="$(port_holder "$port" || true)"
     [ -n "$holder" ] || continue
     pid="${holder%% *}"; cmd="${holder#* }"

@@ -1,6 +1,6 @@
-//! All-in-one hosting (Wave 49 lane R4): one process runs the HTTP API, the
-//! background worker loops and the realtime WebSocket hub, so a demo or a
-//! tiny self-host install needs a single container instead of three.
+//! All-in-one hosting (Wave 49 lane R4): one process runs the HTTP API and
+//! the background worker loops, so a demo or a tiny self-host install needs
+//! a single container instead of two.
 //!
 //! Why this is a mode and not the default: the worker's cross-org loops read
 //! on the OWNER-role Postgres connection while the API serves requests on
@@ -67,38 +67,6 @@ pub fn worker_config_with(
     })
 }
 
-/// Builds the embedded realtime hub's config from the API's own config: same
-/// Redis, same token secret, the hub's own listen port.
-pub fn realtime_config(config: &Config) -> realtime::config::RealtimeConfig {
-    realtime_config_with(config, |key| std::env::var(key).ok())
-}
-
-/// The lookup-injectable form of [`realtime_config`], for tests.
-pub fn realtime_config_with(
-    config: &Config,
-    env: impl Fn(&str) -> Option<String>,
-) -> realtime::config::RealtimeConfig {
-    let redis = config.redis_url.clone();
-    let bind = config.realtime_bind_addr.clone();
-    let jwt_secret = config.jwt_secret.clone();
-    // The hub verifies the same tokens this process signs. Prefer the EdDSA
-    // public key from the API's own signing config; fall back to the env
-    // value. The FILE form is never read here — the PEM is already in hand.
-    let eddsa_public = config
-        .jwt_signing
-        .as_ref()
-        .map(|k| k.public_pem.clone())
-        .or_else(|| env("MARULA_JWT_EDDSA_PUBLIC_KEY").filter(|v| !v.trim().is_empty()));
-    realtime::config::RealtimeConfig::from_lookup(move |key| match key {
-        "REDIS_URL" => Some(redis.clone()),
-        "BIND_ADDR" => Some(bind.clone()),
-        "JWT_SECRET" => Some(jwt_secret.clone()),
-        "MARULA_JWT_EDDSA_PUBLIC_KEY" => eddsa_public.clone(),
-        "MARULA_JWT_EDDSA_PUBLIC_KEY_FILE" => None,
-        _ => env(key),
-    })
-}
-
 /// The base URL the embedded worker uses to reach this process's
 /// `/api/internal/*` surface. In-process, so it is a loopback address
 /// derived from `bind_addr` — never the public URL, which would hairpin the
@@ -133,22 +101,9 @@ pub fn spawn_worker(
     })
 }
 
-/// Starts the realtime hub in this process, off the shared shutdown flag.
-pub fn spawn_realtime(
-    config: Arc<Config>,
-    shutdown: watch::Receiver<bool>,
-) -> tokio::task::JoinHandle<()> {
-    let realtime_config = realtime_config(&config);
-    tokio::spawn(async move {
-        if let Err(error) = realtime::run_until(realtime_config, shutdown).await {
-            tracing::error!(%error, "all-in-one: the realtime hub exited");
-        }
-    })
-}
-
 /// Completes when the shared shutdown flag is true — at once if it already
 /// is, otherwise at the next flip. The API's own serve awaits this so one
-/// Ctrl-C drains the HTTP server and the two embedded services together.
+/// Ctrl-C drains the HTTP server and the embedded worker together.
 pub async fn wait_for_shutdown(mut shutdown: watch::Receiver<bool>) {
     if *shutdown.borrow() {
         return;
@@ -165,10 +120,8 @@ mod tests {
         let mut c = Config::test_with_secret("s");
         c.bind_addr = "0.0.0.0:8080".into();
         c.redis_url = "redis://cache:6379/0".into();
-        c.realtime_bind_addr = "0.0.0.0:8081".into();
         c.worker_bind_addr = "0.0.0.0:8082".into();
         c.worker_database_url = Some("postgres://marula:marula@db:5432/marula".into());
-        c.jwt_secret = "a".repeat(64);
         c.all_in_one = true;
         c
     }
@@ -200,39 +153,5 @@ mod tests {
         let wc = worker_config_with(&c, |k| vars.get(k).cloned());
         assert_eq!(wc.internal_api_url, "http://api.internal:9000");
         assert_eq!(wc.email.core_api_url, "http://api.internal:9000");
-    }
-
-    /// The hub validates the same tokens the API signs: same Redis, same
-    /// secret, and its OWN port — not the API's.
-    #[test]
-    fn realtime_mirrors_redis_secret_and_its_own_port() {
-        let c = config();
-        let vars: HashMap<&str, String> = HashMap::new();
-        let rc = realtime_config_with(&c, |k| vars.get(k).cloned());
-        assert_eq!(rc.redis_url, "redis://cache:6379/0");
-        assert_eq!(rc.bind_addr, "0.0.0.0:8081");
-        assert_eq!(rc.jwt_secret, "a".repeat(64));
-        assert!(rc.jwt_eddsa_public_key.is_none());
-    }
-
-    /// When the API runs the asymmetric posture, the hub verifies with the
-    /// API's own public PEM, and the FILE variable is ignored — there is no
-    /// file to read in-process.
-    #[test]
-    fn realtime_prefers_the_in_process_eddsa_public_key() {
-        let mut c = config();
-        c.jwt_signing = Some(crate::config::JwtSigningKey {
-            private_pem: "private".into(),
-            public_pem: "PUBLIC-FROM-CONFIG".into(),
-            kid: "m1".into(),
-        });
-        let mut vars: HashMap<&str, String> = HashMap::new();
-        vars.insert("MARULA_JWT_EDDSA_PUBLIC_KEY_FILE", "/nope".into());
-        vars.insert("MARULA_JWT_EDDSA_PUBLIC_KEY", "PUBLIC-FROM-ENV".into());
-        let rc = realtime_config_with(&c, |k| vars.get(k).cloned());
-        assert_eq!(
-            rc.jwt_eddsa_public_key.as_deref(),
-            Some("PUBLIC-FROM-CONFIG")
-        );
     }
 }

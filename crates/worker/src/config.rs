@@ -114,7 +114,7 @@ pub struct WorkerConfig {
     /// Redis URL the outbox relay publishes into.
     pub redis_url: String,
     /// Health-endpoint listen address (`BIND_ADDR`, default
-    /// `0.0.0.0:8082`; core-api owns 8080, realtime 8081).
+    /// `0.0.0.0:8082`; core-api owns 8080).
     pub bind_addr: String,
     /// Outbox rows relayed per batch (`RELAY_BATCH`).
     pub relay_batch: i64,

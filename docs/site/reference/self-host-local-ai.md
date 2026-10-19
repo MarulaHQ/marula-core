@@ -26,7 +26,7 @@ This is a decision, not an omission, and it is worth defending because
 "bundled local Whisper" sounds like a feature you are missing.
 
 **A model is not a dependency, it is data.** The Docker layers Marula
-ships are rebuilt for every security patch to core-api, realtime, and the
+ships are rebuilt for every security patch to core-api and the
 worker. Put a few gigabytes of weights in those layers and every
 self-hoster re-downloads all of it every time you fix a CVE in something
 unrelated — and pays the registry bandwidth and the disk for models their

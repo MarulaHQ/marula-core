@@ -16,8 +16,8 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "00000000-0000-4000-8000-00000000b001" }),
 }));
 
-// Never-connecting socket stand-in: page tests drive events through the
-// runtime's test seam instead of a live wire.
+// No live EventSource: page tests drive events through the runtime's
+// `stream.deliver` test seam instead of a real wire.
 
 const BOARD_ID = "00000000-0000-4000-8000-00000000b001";
 const TICKET_A = {
