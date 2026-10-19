@@ -118,18 +118,31 @@ export function TicketTable({
   onTake?: (row: TicketRow) => void;
 }): React.JSX.Element {
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  /* Stored widths are the user's proportion, not a floor. Summed and spent as
+     fractions of the table, they fill the container exactly instead of adding
+     up to 1182px inside a 1104px column — which is what pushed the last header
+     (and its divider) past the viewport at 1280. */
+  const widthTotal = columns.reduce((sum, column) => sum + (column.width ?? 0), 0);
   return (
     <>
-      <Table>
+      <Table className="m-table-fluid">
         {/* Column widths live on a colgroup, not only on the header cells: the
             bulk bar REPLACES the header row, and with auto table layout the
             widths the header carried vanish with it — the columns then share the
             row equally and every cell wraps. The colgroup keeps the geometry
-            whether or not a row is selected. */}
+            whether or not a row is selected. `fixed` + fractions is what keeps
+            the geometry inside the card. */}
         <colgroup>
           <col style={{ width: 40 }} />
           {columns.map((column) => (
-            <col key={column.key} style={{ width: column.width }} />
+            <col
+              key={column.key}
+              style={
+                widthTotal > 0 && column.width !== undefined
+                  ? { width: `calc((100% - 40px) * ${(column.width / widthTotal).toFixed(6)})` }
+                  : undefined
+              }
+            />
           ))}
         </colgroup>
         <thead>
@@ -176,6 +189,7 @@ export function TicketTable({
                     columnCount={columns.length}
                     sortable={canSort}
                     resizable={column.width !== undefined}
+                    fluid
                     onReorder={onReorderColumns}
                     onResize={onResizeColumn}
                     aria-sort={

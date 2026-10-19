@@ -41,7 +41,10 @@ import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const LANE = "design/qa-p47-vision-captures";
+/* The evidence directory. Defaults to the audit's own lane; a follow-up lane
+   that re-runs the matrix sets LANE so it writes its own manifest and shots
+   instead of overwriting the audit it is verifying against. */
+const LANE = process.env.LANE ?? "design/qa-p47-vision-captures";
 const OUT = resolve(LANE, "captures");
 mkdirSync(OUT, { recursive: true });
 

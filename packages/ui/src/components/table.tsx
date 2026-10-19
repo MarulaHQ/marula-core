@@ -60,6 +60,10 @@ export type ThProps = ThHTMLAttributes<HTMLTableCellElement> & {
    * is not reordering, e.g. a print view). */
   sortable?: boolean;
   resizable?: boolean;
+  /** Let the column shrink below its stored width. A table that lays its
+   * columns out as fractions of its own width passes this so a stored width
+   * is a proportion, not a floor that pushes the table past the viewport. */
+  fluid?: boolean;
 };
 
 const MIN_COLUMN_WIDTH = 64;
@@ -81,6 +85,7 @@ export const Th = forwardRef<HTMLTableCellElement, ThProps>(
       onResize,
       sortable = true,
       resizable = true,
+      fluid = false,
       style,
       onKeyDown,
       ...props
@@ -185,7 +190,11 @@ export const Th = forwardRef<HTMLTableCellElement, ThProps>(
           dropSide === "after" && "is-drop-after",
           className,
         )}
-        style={width === undefined ? style : { ...style, width: `${width}px`, minWidth: `${width}px` }}
+        style={
+          width === undefined
+            ? style
+            : { ...style, width: `${width}px`, minWidth: fluid ? 0 : `${width}px` }
+        }
         tabIndex={reorderable || resizableHere ? 0 : undefined}
         onKeyDown={onHeaderKeyDown}
         onPointerMove={onThPointerMove}
