@@ -166,6 +166,19 @@ pub struct WorkerConfig {
     /// seconds: a usage row is a report an operator reads, and the per-org
     /// work is one aggregate.
     pub usage_refresh_secs: u64,
+    /// Event-outbox retention (Wave 52 lane P1): how long a PUBLISHED
+    /// `outbox_events` row is kept (`OUTBOX_RETENTION_DAYS`) and how often
+    /// the window is enforced (`OUTBOX_SWEEP_SECS`). Deliberately separate
+    /// from `retention_sweep_secs` above, which is the workflow run ledger's
+    /// — two tables, two windows, two cadences, and confusing them would
+    /// either drop events the relay still owes or keep runs forever.
+    pub outbox_retention: crate::outbox_retention_sweep::OutboxRetentionConfig,
+    /// Entries kept in the event stream before the oldest are trimmed
+    /// (`MARULA_EVENT_STREAM_MAXLEN`, default
+    /// `core_events::DEFAULT_STREAM_MAXLEN`). Clamped up to
+    /// `core_events::MIN_STREAM_MAXLEN` by the publisher, which logs the
+    /// resolved value at startup so a typo is visible rather than silent.
+    pub stream_maxlen: usize,
     /// Ceiling on the worker's own Postgres pool (`MARULA_DB_POOL_MAX`,
     /// default 20; Wave 49 lane R1). The worker reads across orgs on the
     /// owner role, so this pool is separate from core-api's.
@@ -301,6 +314,13 @@ impl WorkerConfig {
             usage_refresh_secs: lookup("USAGE_REFRESH_SECS")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(crate::usage_refresh_sweep::DEFAULT_INTERVAL_SECS),
+            outbox_retention: crate::outbox_retention_sweep::OutboxRetentionConfig::from_values(
+                lookup("OUTBOX_SWEEP_SECS").and_then(|v| v.parse().ok()),
+                lookup("OUTBOX_RETENTION_DAYS").and_then(|v| v.parse().ok()),
+            ),
+            stream_maxlen: lookup("MARULA_EVENT_STREAM_MAXLEN")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(core_events::DEFAULT_STREAM_MAXLEN),
             db_pool_max: lookup("MARULA_DB_POOL_MAX")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(core_db::DEFAULT_POOL_MAX),
@@ -514,5 +534,32 @@ mod tests {
         });
         assert_eq!(cfg.db_pool_max, 40);
         assert_eq!(cfg.delivery.pool_max, 8);
+    }
+
+    /// Wave 52 lane P1: the stream bound and the outbox window are knobs, and
+    /// their defaults are the shipped ones. The bound matters more than most:
+    /// unset must resolve to a BOUNDED stream, because the failure it guards
+    /// is Valkey refusing writes at its memory ceiling, not a slow tail.
+    #[test]
+    fn outbox_window_and_stream_bound_default_and_override() {
+        let cfg = WorkerConfig::from_lookup(|_| None);
+        assert_eq!(cfg.stream_maxlen, core_events::DEFAULT_STREAM_MAXLEN);
+        assert_eq!(
+            cfg.outbox_retention,
+            crate::outbox_retention_sweep::OutboxRetentionConfig {
+                interval_secs: crate::outbox_retention_sweep::DEFAULT_INTERVAL_SECS,
+                retention_days: crate::outbox_retention_sweep::DEFAULT_RETENTION_DAYS,
+            }
+        );
+
+        let cfg = WorkerConfig::from_lookup(|k| match k {
+            "MARULA_EVENT_STREAM_MAXLEN" => Some("200000".into()),
+            "OUTBOX_RETENTION_DAYS" => Some("30".into()),
+            "OUTBOX_SWEEP_SECS" => Some("900".into()),
+            _ => None,
+        });
+        assert_eq!(cfg.stream_maxlen, 200_000);
+        assert_eq!(cfg.outbox_retention.retention_days, 30);
+        assert_eq!(cfg.outbox_retention.interval_secs, 900);
     }
 }

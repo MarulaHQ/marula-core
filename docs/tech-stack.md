@@ -133,7 +133,10 @@ MCP server.
 presence, and relays through Valkey pub-sub so a horizontally scaled fleet shares one
 channel state. `crates/worker` owns the queue runner plus these loops: SLA, PM,
 rotation, dedupe, time, digest, CSAT, automations, notifications, email, delivery,
-search indexer, outbound webhooks, project billing, and decision fan-out.
+search indexer, outbound webhooks, project billing, decision fan-out, the two
+retention sweeps (workflow runs, event outbox), and org usage refresh. The event
+stream it publishes to is capped at a fixed entry count — see
+[worker-cadence](worker-cadence.md) for why the cap is a count, not an age.
 
 ## 9. Data and persistence
 

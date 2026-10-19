@@ -51,6 +51,83 @@ impl Envelope {
 /// The single Redis stream every event flows through.
 pub const EVENT_STREAM: &str = "marula:events";
 
+/// Entries kept in [`EVENT_STREAM`] before the oldest are trimmed.
+///
+/// The stream is bounded by COUNT rather than by age on purpose. The failure
+/// this guards against is a hard memory ceiling, not a stale tail: the shipped
+/// Valkey runs `--maxmemory 192mb --maxmemory-policy noeviction`, so an
+/// unbounded stream does not degrade gracefully — once the ceiling is reached
+/// `XADD` starts failing with OOM and the relay stops publishing, which takes
+/// every consumer down at once. A `MINID` window cannot promise headroom for a
+/// burst; a count bound can.
+///
+/// Sizing: an entry is an id, a type and the JSON payload, so call it 1-2 KiB
+/// each. 50,000 entries is roughly 50-100 MiB at the top end, which is why the
+/// default is not larger on the shipped 192 MiB instance. A deployment with a
+/// bigger Valkey raises `MARULA_EVENT_STREAM_MAXLEN`; nothing replays the
+/// stream from the head (consumers resume at the tail and reconcile the gap
+/// from a REST snapshot), so a longer stream buys history nobody reads.
+pub const DEFAULT_STREAM_MAXLEN: usize = 50_000;
+
+/// Floor a configured bound is clamped up to.
+///
+/// `core-api`'s `REPLAY_BUFFER` is 256 events, and an SSE reconnect asks the
+/// outbox — not this stream — for anything it missed. A bound at or below the
+/// replay window would still be safe, but it would leave so little room that a
+/// brief consumer stall starts costing entries, so the floor is set an order of
+/// magnitude above it. A typo or a `0` therefore lands on the floor instead of
+/// silently disabling the bound.
+pub const MIN_STREAM_MAXLEN: usize = 4_096;
+
+/// The default has to sit above the floor. A default below it would be clamped
+/// on every read, which is a configuration that lies about itself. Checked at
+/// compile time rather than in a test: neither number is an input, so a test
+/// that compared them would be asserting something clippy is right to call a
+/// constant.
+const _: () = assert!(DEFAULT_STREAM_MAXLEN > MIN_STREAM_MAXLEN);
+
+/// How many entries survive an `XADD`: the stream's trim policy, kept as a
+/// type so the clamp is one testable rule instead of an `if` at every call
+/// site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamBound {
+    maxlen: usize,
+}
+
+impl StreamBound {
+    /// Resolves a configured entry count, clamping to [`MIN_STREAM_MAXLEN`].
+    ///
+    /// Clamps rather than rejects: a self-hoster who typos `MAXLEN` should get
+    /// a bounded stream and a log line, not a worker that refuses to start.
+    pub fn from_entries(configured: usize) -> Self {
+        Self {
+            maxlen: configured.max(MIN_STREAM_MAXLEN),
+        }
+    }
+
+    /// The shipped default.
+    pub fn default_bound() -> Self {
+        Self::from_entries(DEFAULT_STREAM_MAXLEN)
+    }
+
+    /// The resolved entry count.
+    pub fn maxlen(self) -> usize {
+        self.maxlen
+    }
+
+    /// Whether a configured value was raised to the floor.
+    pub fn was_clamped(configured: usize) -> bool {
+        configured < MIN_STREAM_MAXLEN
+    }
+
+    /// The `MAXLEN` argument for `XADD`/`XTRIM`. Approximate (`~`) so Redis
+    /// trims whole macro-nodes instead of splitting enough to hit the exact
+    /// count — the cost of an exact trim is paid on every single publish.
+    fn maxlen_arg(self) -> redis::streams::StreamMaxlen {
+        redis::streams::StreamMaxlen::Approx(self.maxlen)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum EventError {
     #[error("redis: {0}")]
@@ -63,32 +140,86 @@ pub enum EventError {
 
 pub struct Publisher {
     conn: redis::aio::MultiplexedConnection,
+    bound: StreamBound,
 }
 
 impl Publisher {
+    /// Connects with the shipped default bound ([`DEFAULT_STREAM_MAXLEN`]).
     pub async fn connect(redis_url: &str) -> Result<Self, EventError> {
-        let client = redis::Client::open(redis_url)?;
-        let conn = client.get_multiplexed_async_connection().await?;
-        Ok(Self { conn })
+        Self::connect_bounded(redis_url, StreamBound::default_bound()).await
     }
 
-    /// Appends an envelope to the stream. Max-len trims to keep stream size
-    /// bounded; consumers reconcile via REST snapshots, not full replay.
+    /// Connects with an explicit bound (`MARULA_EVENT_STREAM_MAXLEN`).
+    pub async fn connect_bounded(redis_url: &str, bound: StreamBound) -> Result<Self, EventError> {
+        let client = redis::Client::open(redis_url)?;
+        let conn = client.get_multiplexed_async_connection().await?;
+        Ok(Self { conn, bound })
+    }
+
+    /// The bound this publisher trims to.
+    pub fn bound(&self) -> StreamBound {
+        self.bound
+    }
+
+    /// Appends an envelope to the stream, trimming the oldest entries past
+    /// [`StreamBound`] in the same command. Consumers reconcile via REST
+    /// snapshots, not full replay, so the trim is invisible to them.
     pub async fn publish(&mut self, envelope: &Envelope) -> Result<(), EventError> {
-        let json = envelope.to_json();
+        let id = envelope.id.to_string();
+        let json = envelope.to_json().to_string();
+        let bound = self.bound;
         let _: String = self
             .conn
-            .xadd(
+            .xadd_maxlen(
                 EVENT_STREAM,
+                bound.maxlen_arg(),
                 "*",
                 &[
-                    ("id", envelope.id.to_string().as_str()),
+                    ("id", id.as_str()),
                     ("type", envelope.event_type.as_str()),
-                    ("data", json.to_string().as_str()),
+                    ("data", json.as_str()),
                 ],
             )
             .await?;
         Ok(())
+    }
+
+    /// Clears a backlog left behind by a build that did not bound the stream.
+    ///
+    /// [`publish`](Self::publish) keeps the stream bounded from now on, but a
+    /// deployment that has been running unbounded is carrying every event it
+    /// ever emitted. Handed to a single `MAXLEN` command that backlog would
+    /// hold the Valkey event loop for the whole trim — the outage the bound
+    /// exists to prevent — so this trims in bounded chunks instead, and the
+    /// caller decides how many passes to spend.
+    ///
+    /// Returns the entries removed and whether the stream is now inside the
+    /// bound. `settled` is false when the pass cap ran out first, which means
+    /// the next publish is still facing a large trim and the caller should say
+    /// so rather than reporting a clean startup.
+    pub async fn drain_backlog(
+        &mut self,
+        chunk: usize,
+        passes: usize,
+    ) -> Result<(u64, bool), EventError> {
+        use redis::streams::{StreamTrimOptions, StreamTrimmingMode};
+
+        let mut removed = 0_u64;
+        for _ in 0..passes.max(1) {
+            let options =
+                StreamTrimOptions::maxlen(StreamTrimmingMode::Approx, self.bound.maxlen())
+                    .limit(chunk.max(1));
+            let trimmed: i64 = self.conn.xtrim_options(EVENT_STREAM, &options).await?;
+            let trimmed = trimmed.max(0) as u64;
+            removed += trimmed;
+            if trimmed == 0 {
+                // Nothing left that an approximate trim will take: either the
+                // stream is inside the bound, or the remainder is inside one
+                // macro-node, which `~` deliberately will not split.
+                return Ok((removed, true));
+            }
+        }
+        Ok((removed, false))
     }
 }
 
@@ -183,5 +314,58 @@ mod tests {
         assert_eq!(v["type"], "ticket.created");
         let round: Envelope = serde_json::from_value(v).unwrap();
         assert_eq!(round, e);
+    }
+
+    /// The default has to sit above the floor, or the shipped configuration
+    /// would be clamped at startup and log a warning on every clean install.
+    #[test]
+    fn default_bound_is_above_the_floor() {
+        let bound = StreamBound::default_bound();
+        assert_eq!(bound.maxlen(), DEFAULT_STREAM_MAXLEN);
+        assert!(!StreamBound::was_clamped(DEFAULT_STREAM_MAXLEN));
+    }
+
+    /// A bound that is zero, or below the SSE replay window, must land on the
+    /// floor rather than disabling the trim. An unbounded stream is the bug
+    /// this constant exists to prevent, so "0 means unlimited" is the one
+    /// reading that must not survive.
+    #[test]
+    fn a_bound_below_the_floor_clamps_up_instead_of_disabling_the_trim() {
+        for configured in [0_usize, 1, 255, 256, MIN_STREAM_MAXLEN - 1] {
+            let bound = StreamBound::from_entries(configured);
+            assert_eq!(
+                bound.maxlen(),
+                MIN_STREAM_MAXLEN,
+                "configured {configured} must clamp to the floor"
+            );
+            assert!(StreamBound::was_clamped(configured));
+        }
+        // At and above the floor the value is taken as given.
+        assert_eq!(
+            StreamBound::from_entries(MIN_STREAM_MAXLEN).maxlen(),
+            MIN_STREAM_MAXLEN
+        );
+        assert!(!StreamBound::was_clamped(MIN_STREAM_MAXLEN));
+        assert_eq!(StreamBound::from_entries(1_000_000).maxlen(), 1_000_000);
+    }
+
+    /// The trim argument is approximate on purpose: an exact trim splits
+    /// macro-nodes on every write, which is work Redis should not do per
+    /// event when `~` gets within a node boundary for free.
+    #[test]
+    fn the_trim_argument_is_an_approximate_maxlen() {
+        // Above the floor the configured number passes through as given.
+        let bound = StreamBound::from_entries(20_000);
+        assert_eq!(
+            bound.maxlen_arg(),
+            redis::streams::StreamMaxlen::Approx(20_000)
+        );
+        // A value that clamps is approximate as well: the mode belongs to the
+        // bound, not to the number that survived the clamp. Asserting the
+        // un-clamped 1234 here is what this test got wrong the first time.
+        assert_eq!(
+            StreamBound::from_entries(1_234).maxlen_arg(),
+            redis::streams::StreamMaxlen::Approx(MIN_STREAM_MAXLEN)
+        );
     }
 }

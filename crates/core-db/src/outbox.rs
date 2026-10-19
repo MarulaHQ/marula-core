@@ -90,6 +90,55 @@ where
     Ok(())
 }
 
+/// Deletes one batch of published rows older than the retention window.
+///
+/// Only PUBLISHED rows. An unpublished row is work still owed to the relay, so
+/// deleting one would drop a contract event — the single thing the outbox
+/// exists to prevent — which is why the predicate is not negotiable and the
+/// partial index from migration 0138 carries the same one.
+///
+/// One batch per call, oldest first, so a table that has grown for a year is
+/// trimmed by many short statements instead of one long one holding locks and
+/// generating a single enormous burst of dead tuples. The caller repeats until
+/// a batch comes back short.
+///
+/// The window is compared against `now()` INSIDE the statement, not a
+/// host-clock cutoff the caller passes in: the worker and Postgres can differ
+/// by seconds and the module rule is that every retention DECISION reads the
+/// database clock. `retention_days` is an `int` because that is what
+/// `make_interval` takes.
+///
+/// Runtime `sqlx::query` rather than the `query!` macro on purpose: this
+/// statement has no offline fixture to regenerate, so the lane does not churn
+/// the committed `.sqlx` entries for it. `tests/outbox_retention.rs` is the
+/// check that the SQL is valid and does what it claims.
+///
+/// Runs cross-org, like the other housekeeping passes, so it must be called on
+/// a pool whose role bypasses org RLS — the worker's owner pool. Under a
+/// constrained role this deletes nothing and reports success, the same silent
+/// failure mode the worker module documents for the relay.
+pub async fn prune_published(
+    pool: &sqlx::PgPool,
+    retention_days: i32,
+    batch: i64,
+) -> DbResult<u64> {
+    let result = sqlx::query(
+        r#"DELETE FROM outbox_events
+           WHERE id IN (
+             SELECT id FROM outbox_events
+             WHERE published_at IS NOT NULL
+               AND published_at < now() - make_interval(days => $1)
+             ORDER BY published_at
+             LIMIT $2
+           )"#,
+    )
+    .bind(retention_days)
+    .bind(batch.max(1))
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 #[allow(dead_code)]
 fn _assert_send() {
     fn is_send<T: Send>() {}
