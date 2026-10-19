@@ -30,7 +30,9 @@ import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const LANE = "design/qa-p47-vision-captures";
+/* Defaults to the audit lane; a follow-up lane sets LANE so its re-run writes
+   its own record instead of overwriting the audit it is verifying against. */
+const LANE = process.env.LANE ?? "design/qa-p47-vision-captures";
 const OUT = resolve(LANE, "legibility");
 mkdirSync(OUT, { recursive: true });
 
