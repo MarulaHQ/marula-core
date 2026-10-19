@@ -107,6 +107,42 @@ export interface DataSurfacePrefs {
   setDensity: (step: Density) => Promise<void>;
 }
 
+/**
+ * A named view (or tab, or lifecycle step) that follows the saved document.
+ *
+ * The initial state cannot read the document: `useDataSurfacePrefs` resolves it
+ * from the network, so on the first paint every surface sees the empty view. A
+ * plain `useState` initialiser therefore captures the fallback and keeps it,
+ * which is how a returning user got their columns and filters back but not the
+ * view they left on. This applies the saved choice once, when the document is
+ * ready, and never again — so a later click is not undone by a late read.
+ */
+export function useSavedChoice<T extends string>(
+  ready: boolean,
+  saved: string | undefined,
+  allowed: readonly T[],
+  fallback: T,
+): [T, (next: T) => void] {
+  const isAllowed = (value: string | undefined): value is T =>
+    value !== undefined && (allowed as readonly string[]).includes(value);
+  const [value, setValue] = useState<T>(() => (isAllowed(saved) ? saved : fallback));
+  const restored = useRef(false);
+  useEffect(() => {
+    if (!ready || restored.current) return;
+    if (isAllowed(saved)) {
+      restored.current = true;
+      setValue(saved);
+    } else if (saved === undefined) {
+      // Nothing was saved; the fallback is the whole answer.
+      restored.current = true;
+    }
+    // A value that is not allowed YET (a tab the user's role may take) stays
+    // pending, so the effect applies it when the role resolves. A value this
+    // surface can never render simply stays unapplied.
+  }, [ready, saved, allowed]);
+  return [value, setValue];
+}
+
 export function useDataSurfacePrefs(): DataSurfacePrefs {
   const auth = useAuth();
   const authed = auth.status === "authed";

@@ -66,11 +66,11 @@ import {
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rejectionText } from "../../lib/error-copy";
 import { api, useAuth, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
-import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
+import { useDataSurfacePrefs, useSavedChoice } from "../../lib/data-surface-prefs";
 import {
   formatPackDate,
   renewalSignal,
@@ -115,6 +115,7 @@ const VIEWS = [
   { id: "assets", label: "Assets" },
   { id: "bill", label: "Billing history" },
 ];
+const CLIENT_VIEW_IDS = VIEWS.map((v) => v.id);
 
 /** The fields the builder offers. The list derives from tickets, so it carries
  * the template's filter model (`DESIGN-NOTES-tickets.md` §6); this surface only
@@ -124,6 +125,22 @@ const CLIENT_FILTER_FIELDS: FilterField[] = [
   { key: "contact", label: "Main contact", operators: ["contains"] },
   { key: "contract", label: "Contract", operators: ["eq"] },
 ];
+
+/** Saved clauses back into the builder's shape, dropping fields this surface
+ *  cannot answer. */
+function clausesFromSaved(
+  saved: { field: string; op: string; value?: string }[],
+): FilterClause[] {
+  const allowed = new Set(CLIENT_FILTER_FIELDS.map((f) => f.key));
+  return saved
+    .filter((f) => allowed.has(f.field))
+    .map((f) => ({
+      id: `${f.field}:${f.op}:${f.value ?? ""}`,
+      field: f.field,
+      op: f.op as FilterClause["op"],
+      value: f.value,
+    }));
+}
 
 function Monogram({ name }: { name: string }) {
   const initials = name
@@ -160,12 +177,15 @@ export default function ClientsPage() {
   const auth = useRequireAuth();
   const { me } = useAuth();
   const prefs = useDataSurfacePrefs();
+  const saved = prefs.view(SURFACE);
 
   const [clients, setClients] = useState<Client[] | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [view, setView] = useState("open");
+  /* The document resolves after the first paint; apply the saved view when it
+     does, rather than capturing the empty document in the initialiser. */
+  const [view, setView] = useSavedChoice(prefs.ready, saved.view, CLIENT_VIEW_IDS, "open");
   const [query, setQuery] = useState("");
   // The template's filter model: named clauses the builder edits and the
   // chips read back, on top of the fast search box (DESIGN-NOTES-tickets.md §6,
@@ -378,7 +398,6 @@ export default function ClientsPage() {
   }
 
   // Column visibility, persisted per user on the D12 key.
-  const saved = prefs.view(SURFACE);
   const [visibleColumns, setVisibleColumns] = useState<ColumnId[]>(
     COLUMNS.filter((c) => c.defaultVisible).map((c) => c.id),
   );
@@ -389,6 +408,16 @@ export default function ClientsPage() {
     const known = COLUMNS.filter((c) => savedIds.includes(c.id));
     if (known.length > 0) setVisibleColumns(known.map((c) => c.id));
   }, [prefs.ready, saved.columns]);
+
+  /* Filters were not read back at all before: the chips wrote only columns, so
+     a saved filter was a write no visit ever applied. */
+  const filtersRestored = useRef(false);
+  useEffect(() => {
+    if (!prefs.ready || filtersRestored.current) return;
+    filtersRestored.current = true;
+    const restored = clausesFromSaved(saved.filters);
+    if (restored.length > 0) setClauses(restored);
+  }, [prefs.ready, saved.filters]);
 
   const visible = useMemo(
     () => COLUMNS.filter((c) => visibleColumns.includes(c.id)),
@@ -572,7 +601,10 @@ export default function ClientsPage() {
               hint: v.id === view ? undefined : undefined,
             }))}
             activeId={view}
-            onChange={setView}
+            onChange={(id) => {
+              setView(id);
+              void prefs.save(SURFACE, { ...saved, view: id });
+            }}
             label="Client views"
           />
         }
@@ -596,7 +628,10 @@ export default function ClientsPage() {
             <FilterChips
               fields={CLIENT_FILTER_FIELDS}
               clauses={clauses}
-              onChange={setClauses}
+              onChange={(next) => {
+                setClauses(next);
+                void prefs.save(SURFACE, { ...saved, view, filters: next });
+              }}
               label="Client filters"
               emptyHint="No filters"
               onAdd={() => setFilterOpen(true)}

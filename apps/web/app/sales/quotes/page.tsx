@@ -48,11 +48,11 @@ import {
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import { useEffect, useCallback, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api, useRequireAuth } from "../../../lib/api";
 import { downloadRowsCsv } from "../../../lib/csv-download";
-import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
+import { useDataSurfacePrefs, useSavedChoice } from "../../../lib/data-surface-prefs";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
 import { formatQtyMilli } from "../../../lib/stock-format";
@@ -106,6 +106,21 @@ const FILTER_FIELDS = [
   { key: "valid_until", label: "Valid until" },
 ];
 
+/** Saved clauses back into the builder's shape, dropping unknown fields. */
+function clausesFromSaved(
+  saved: { field: string; op: string; value?: string }[],
+): FilterClause[] {
+  const allowed = new Set(FILTER_FIELDS.map((f) => f.key));
+  return saved
+    .filter((f) => allowed.has(f.field))
+    .map((f) => ({
+      id: `${f.field}:${f.op}:${f.value ?? ""}`,
+      field: f.field,
+      op: f.op as FilterClause["op"],
+      value: f.value,
+    }));
+}
+
 const EMPTY_LINE: QuoteLineInput = {
   description: null,
   catalog_item_id: null,
@@ -130,7 +145,6 @@ export default function QuotesPage(): ReactNode {
   const [stockItems, setStockItems] = useState<StockItemView[]>([]);
   const [stockOnHand, setStockOnHand] = useState<OnHandRow[]>([]);
   const [stockPick, setStockPick] = useState<Record<number, string>>({});
-  const [statusFilter, setStatusFilter] = useState<QuoteStatus | "all">("all");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -138,9 +152,18 @@ export default function QuotesPage(): ReactNode {
   // money-cluster toolbar rule (views left, filters, Columns/Filter/Export
   // right) exactly as the invoice and credit-note ledgers do.
   const prefs = useDataSurfacePrefs();
+  const saved = useMemo(() => prefs.view("quotes"), [prefs]);
+  /* The document resolves after the first paint; apply the saved lifecycle
+     step when it does, rather than capturing "all" in the initialiser. */
+  const [statusFilter, setStatusFilter] = useSavedChoice(
+    prefs.ready,
+    saved.view,
+    STATUSES,
+    "all",
+  );
   const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<FilterClause[]>([]);
-  const savedColumns = useMemo(() => prefs.view("quotes").columns, [prefs]);
+  const savedColumns = saved.columns;
   const [columns, setColumns] = useState(() =>
     COLUMNS.map((c) => {
       const stored = savedColumns.find((s) => s.key === c.key);
@@ -162,6 +185,16 @@ export default function QuotesPage(): ReactNode {
     const known = savedColumns.map((c) => c.key).filter((k) => COLUMNS.some((c) => c.key === k));
     setOrder([...known, ...COLUMNS.map((c) => c.key).filter((k) => !known.includes(k))]);
   }, [prefs.ready, savedColumns]);
+
+  /* The filters were saved on every chip change but never read back. Apply
+     them once, after the document resolves. */
+  const filtersRestored = useRef(false);
+  useEffect(() => {
+    if (!prefs.ready || filtersRestored.current) return;
+    filtersRestored.current = true;
+    const restored = clausesFromSaved(saved.filters);
+    if (restored.length > 0) setClauses(restored);
+  }, [prefs.ready, saved.filters]);
 
   // Builder state
   const [createOpen, setCreateOpen] = useState(false);
@@ -734,7 +767,15 @@ export default function QuotesPage(): ReactNode {
           <ViewSwitch
             label="Quote lifecycle"
             activeId={statusFilter}
-            onChange={(id) => setStatusFilter(id as QuoteStatus | "all")}
+            onChange={(id) => {
+              setStatusFilter(id as QuoteStatus | "all");
+              void prefs.save("quotes", {
+                ...saved,
+                view: id,
+                columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
+                filters: clauses,
+              });
+            }}
             views={STATUSES.map((st) => ({
               id: st,
               label: st === "all" ? "All quotes" : st,
@@ -752,6 +793,8 @@ export default function QuotesPage(): ReactNode {
             onChange={(next) => {
               setClauses(next);
               void prefs.save("quotes", {
+                ...saved,
+                view: statusFilter,
                 columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
                 filters: next,
               });
@@ -766,6 +809,8 @@ export default function QuotesPage(): ReactNode {
             onChange={(next) => {
               setClauses(next);
               void prefs.save("quotes", {
+                ...saved,
+                view: statusFilter,
                 columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
                 filters: next,
               });
@@ -789,6 +834,8 @@ export default function QuotesPage(): ReactNode {
               });
               setColumns(merged);
               void prefs.save("quotes", {
+                ...saved,
+                view: statusFilter,
                 columns: merged.map((c) => ({ key: c.key, visible: c.visible })),
                 filters: clauses,
               });

@@ -60,11 +60,11 @@ import {
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
-import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
+import { useDataSurfacePrefs, useSavedChoice } from "../../lib/data-surface-prefs";
 import { useTimeFormat } from "../../lib/use-time-format";
 import { downloadRowsCsv } from "../../lib/csv-download";
 import { RecordWindow } from "../../components/record-window";
@@ -174,6 +174,8 @@ function initialsOf(name: string): string {
 }
 
 type Tab = "queue" | "approved" | "rejected" | "decisions";
+const ALL_TABS: readonly Tab[] = ["queue", "approved", "rejected", "decisions"];
+const BASIC_TABS: readonly Tab[] = ["queue", "rejected"];
 
 /** The queue's columns, in the pack's order. Person first because the table is
  *  a list of PEOPLE's time, and the ticket is the evidence for one row of it. */
@@ -229,6 +231,23 @@ const FILTER_FIELDS = [
   { key: "time", label: "Time" },
 ];
 
+/** A saved filter document, back into the builder's clause shape. Unknown
+ *  fields are dropped, so a document written by an older palette cannot put a
+ *  filter on the surface that the surface cannot answer. */
+function clausesFromSaved(
+  saved: { field: string; op: string; value?: string }[],
+): FilterClause[] {
+  const allowed = new Set(FILTER_FIELDS.map((f) => f.key));
+  return saved
+    .filter((f) => allowed.has(f.field))
+    .map((f) => ({
+      id: `${f.field}:${f.op}:${f.value ?? ""}`,
+      field: f.field,
+      op: f.op as FilterClause["op"],
+      value: f.value,
+    }));
+}
+
 export default function ApprovalsPage() {
   const auth = useRequireAuth();
   const meId = auth.me?.user_id ?? "";
@@ -237,7 +256,14 @@ export default function ApprovalsPage() {
   const categoryLabel = useCategoryLabels();
   const { timeZone } = useTimeFormat();
 
-  const [tab, setTab] = useState<Tab>("queue");
+  const saved = useMemo(() => prefs.view("approvals"), [prefs]);
+  /* The tabs an approver may land on are not the tabs a submitter may: a saved
+     "decisions" is ignored for a user who cannot read that queue. */
+  const allowedTabs = useMemo<readonly Tab[]>(
+    () => (isApprover ? ALL_TABS : BASIC_TABS),
+    [isApprover],
+  );
+  const [tab, setTab] = useSavedChoice(prefs.ready, saved.view, allowedTabs, "queue");
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -258,10 +284,10 @@ export default function ApprovalsPage() {
   const [clauses, setClauses] = useState<FilterClause[]>([]);
   const [people, setPeople] = useState<Readonly<Record<string, OrgUser>>>({});
 
-  // `prefs` is memoized, so this reads the saved document once per document
-  // rather than once per render — otherwise the effect below would rebuild the
-  // column state on every paint.
-  const savedColumns = useMemo(() => prefs.view("approvals").columns, [prefs]);
+  // `prefs` is memoized, so `saved` above is one object per document rather
+  // than one per render — otherwise the effect below would rebuild the column
+  // state on every paint.
+  const savedColumns = saved.columns;
   const [columns, setColumns] = useState(() =>
     COLUMNS.map((c) => {
       const stored = savedColumns.find((s) => s.key === c.key);
@@ -298,6 +324,17 @@ export default function ApprovalsPage() {
     setOrder([...known, ...COLUMNS.map((c) => c.key).filter((k) => !known.includes(k))]);
   }, [prefs.ready, savedColumns]);
 
+  /* Filters were persisted with every chip change but never read back, so the
+     queue came up unfiltered on the next visit. Apply them once, after the
+     document resolves, the same way the columns are applied. */
+  const filtersRestored = useRef(false);
+  useEffect(() => {
+    if (!prefs.ready || filtersRestored.current) return;
+    filtersRestored.current = true;
+    const restored = clausesFromSaved(saved.filters);
+    if (restored.length > 0) setClauses(restored);
+  }, [prefs.ready, saved.filters]);
+
   const persistColumns = useCallback(
     (next: readonly { key: string; visible: boolean; width?: number }[]) => {
       // The chooser knows keys and visibility; the labels and the "required"
@@ -315,11 +352,13 @@ export default function ApprovalsPage() {
       }).filter((c) => next.some((n) => n.key === c.key));
       setColumns(merged);
       void prefs.save("approvals", {
+        ...saved,
+        view: tab,
         columns: merged.map((c) => ({ key: c.key, visible: c.visible })),
         filters: clauses,
       });
     },
-    [prefs, clauses],
+    [prefs, clauses, saved, tab],
   );
 
   const reload = useCallback(async () => {
@@ -862,7 +901,10 @@ export default function ApprovalsPage() {
           <ViewSwitch
             label="Views"
             activeId={tab}
-            onChange={(id) => setTab(id as Tab)}
+            onChange={(id) => {
+              setTab(id as Tab);
+              void prefs.save("approvals", { ...saved, view: id });
+            }}
             views={tabs.map((t) => ({
               id: t.id,
               label: t.label,
@@ -877,6 +919,8 @@ export default function ApprovalsPage() {
             onChange={(next) => {
               setClauses(next);
               void prefs.save("approvals", {
+                ...saved,
+                view: tab,
                 columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
                 filters: next,
               });
@@ -891,6 +935,8 @@ export default function ApprovalsPage() {
             onChange={(next) => {
               setClauses(next);
               void prefs.save("approvals", {
+                ...saved,
+                view: tab,
                 columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
                 filters: next,
               });
