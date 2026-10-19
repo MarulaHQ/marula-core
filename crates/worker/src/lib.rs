@@ -33,6 +33,7 @@ pub mod effects;
 pub mod email;
 pub mod mail_config;
 pub mod notifier;
+pub mod outbox_retention_sweep;
 pub mod pm_sweep;
 pub mod project_billing;
 pub mod queue_runner;
@@ -55,6 +56,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::watch;
 
+/// Entries removed per `XTRIM` when clearing a pre-existing stream backlog at
+/// startup. Sized so one pass is a few milliseconds of Valkey's single
+/// threaded event loop rather than a visible stall.
+const STREAM_TRIM_CHUNK: usize = 5_000;
+
+/// Passes the startup backlog trim may spend, so a stream carrying hundreds of
+/// millions of entries cannot turn worker startup into a long hang. The bound
+/// on `XADD` keeps trimming afterwards; this only decides how much of an old
+/// backlog is cleared eagerly.
+const STREAM_TRIM_PASSES: usize = 200;
+
 /// Runs the worker until `shutdown` fires: connects to Postgres and Redis,
 /// spawns all background loops, and serves `/healthz` until then.
 pub async fn run(
@@ -73,11 +85,58 @@ pub async fn run(
         "worker: connecting to Postgres — check DATABASE_URL and that the \
          database is reachable (dev compose: `docker compose up -d postgres`)",
     )?;
-    let publisher = Publisher::connect(&config.redis_url).await.context(
-        "worker: connecting to Redis — check REDIS_URL and that Redis is \
-         reachable (dev compose: `docker compose up -d redis`); the relay \
-         and automations loops cannot run without it",
-    )?;
+    let publisher = {
+        // The stream is bounded by COUNT, and the bound is applied on every
+        // XADD (Wave 52 lane P1). Read the reason in
+        // `core_events::DEFAULT_STREAM_MAXLEN`: the shipped Valkey refuses
+        // writes once it hits its memory ceiling, so an unbounded stream does
+        // not grow slowly — it stops the entire event pipeline at once.
+        let bound = core_events::StreamBound::from_entries(config.stream_maxlen);
+        if core_events::StreamBound::was_clamped(config.stream_maxlen) {
+            tracing::warn!(
+                configured = config.stream_maxlen,
+                resolved = bound.maxlen(),
+                "MARULA_EVENT_STREAM_MAXLEN below the floor; clamped"
+            );
+        }
+        let mut publisher = Publisher::connect_bounded(&config.redis_url, bound)
+            .await
+            .context(
+                "worker: connecting to Redis — check REDIS_URL and that Redis is \
+                 reachable (dev compose: `docker compose up -d redis`); the relay \
+                 and automations loops cannot run without it",
+            )?;
+        tracing::info!(
+            stream_maxlen = bound.maxlen(),
+            "event stream bound resolved"
+        );
+
+        // Clear any backlog a previous unbounded build left in the stream, in
+        // bounded chunks, BEFORE the relay starts writing: the first XADD
+        // would otherwise carry the whole trim itself and block Valkey for its
+        // duration. A failure here is not fatal — the bound on XADD still
+        // applies — so it is logged and the worker starts anyway.
+        match publisher
+            .drain_backlog(STREAM_TRIM_CHUNK, STREAM_TRIM_PASSES)
+            .await
+        {
+            Ok((0, _)) => {}
+            Ok((removed, settled)) => {
+                if settled {
+                    tracing::info!(removed, "trimmed a pre-existing event-stream backlog");
+                } else {
+                    tracing::warn!(
+                        removed,
+                        "event-stream backlog not fully trimmed; the next publishes continue"
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "event-stream backlog trim failed; continuing");
+            }
+        }
+        publisher
+    };
     tracing::info!("worker connected; starting background loops");
 
     let relay_alive = Arc::new(AtomicBool::new(true));
@@ -343,6 +402,9 @@ pub async fn run(
     // Declared here with the other liveness flags because /healthz reads it
     // long after the block below has closed.
     let retention_alive = Arc::new(AtomicBool::new(true));
+    // Event-outbox retention (Wave 52 lane P1): declared alongside, for the
+    // same reason — /healthz reads it long after the spawn block closes.
+    let outbox_alive = Arc::new(AtomicBool::new(true));
     {
         let alive = Arc::clone(&rotation_alive);
         let rot_pool = pool.clone();
@@ -371,6 +433,26 @@ pub async fn run(
                 .await;
                 alive.store(false, Ordering::Relaxed);
                 tracing::error!("run retention sweep exited; reporting unhealthy");
+            });
+        }
+
+        // Event-outbox retention (Wave 52 lane P1): the same shape for the
+        // other table that grew forever. Only PUBLISHED rows are eligible —
+        // an unpublished row is an event the relay still owes a consumer.
+        {
+            let alive = Arc::clone(&outbox_alive);
+            let outbox_pool = pool.clone();
+            let outbox_shutdown = shutdown.clone();
+            let retention = config.outbox_retention;
+            tokio::spawn(async move {
+                outbox_retention_sweep::run_outbox_retention_sweep(
+                    outbox_pool,
+                    retention,
+                    outbox_shutdown,
+                )
+                .await;
+                alive.store(false, Ordering::Relaxed);
+                tracing::error!("outbox retention sweep exited; reporting unhealthy");
             });
         }
 
@@ -463,6 +545,7 @@ pub async fn run(
         pm_alive,
         rotation_alive,
         retention_alive,
+        outbox_alive,
         usage_alive,
         workflow_alive,
     };
@@ -519,6 +602,7 @@ struct HealthFlags {
     pm_alive: Arc<AtomicBool>,
     rotation_alive: Arc<AtomicBool>,
     retention_alive: Arc<AtomicBool>,
+    outbox_alive: Arc<AtomicBool>,
     usage_alive: Arc<AtomicBool>,
     workflow_alive: Arc<AtomicBool>,
 }
@@ -535,11 +619,12 @@ async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Valu
         && flags.pm_alive.load(Ordering::Relaxed)
         && flags.rotation_alive.load(Ordering::Relaxed)
         && flags.retention_alive.load(Ordering::Relaxed)
+        && flags.outbox_alive.load(Ordering::Relaxed)
         && flags.usage_alive.load(Ordering::Relaxed)
         && flags.workflow_alive.load(Ordering::Relaxed);
     if ok {
         Json(
-            json!({ "status": "ok", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER"), "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive", "rotation": "alive", "retention": "alive", "usage": "alive", "workflows": "alive" }),
+            json!({ "status": "ok", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER"), "relay": "alive", "email": "alive", "queue": "alive", "sla": "alive", "automations": "alive", "webhooks": "alive", "delivery": "alive", "pm": "alive", "rotation": "alive", "retention": "alive", "outbox": "alive", "usage": "alive", "workflows": "alive" }),
         )
     } else {
         Json(json!({ "status": "unhealthy", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER") }))
@@ -582,6 +667,7 @@ mod tests {
             delivery_alive: Arc::new(AtomicBool::new(true)),
             pm_alive: Arc::new(AtomicBool::new(true)),
             retention_alive: Arc::new(AtomicBool::new(true)),
+            outbox_alive: Arc::new(AtomicBool::new(true)),
             usage_alive: Arc::new(AtomicBool::new(true)),
             workflow_alive: Arc::new(AtomicBool::new(true)),
         };
@@ -590,6 +676,7 @@ mod tests {
         assert_eq!(healthy.0["email"], "alive");
         assert_eq!(healthy.0["webhooks"], "alive");
         assert_eq!(healthy.0["delivery"], "alive");
+        assert_eq!(healthy.0["outbox"], "alive");
         assert_eq!(healthy.0["status"], "ok");
 
         flags.queue_alive.store(false, Ordering::Relaxed);

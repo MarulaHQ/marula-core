@@ -22,12 +22,31 @@ profile a small install can adopt.
 | org usage refresh | sweep | 300s | `USAGE_REFRESH_SECS` |
 | daily digest | sweep | 900s | `DIGEST_POLL_SECS` |
 | run retention | sweep | 6h | `RETENTION_SWEEP_SECS` |
+| event-outbox retention | sweep | 6h | `OUTBOX_SWEEP_SECS` |
 
 Two things hold for every loop. It paces on the host clock, and the decisions
 themselves read `now()` from Postgres, so a longer interval changes the latency
 of detection and never correctness. And a failed sweep backs off a fixed 2s
 before returning to its cadence: that 2s is error recovery, not a poll, and
 raising it would only slow recovery.
+
+## The event stream is bounded, and that is not a loop
+
+`marula:events` keeps a fixed number of entries, set by
+`MARULA_EVENT_STREAM_MAXLEN` (default `50000`). The bound is applied on every
+`XADD`, so nothing schedules it and no cadence setting makes it longer or
+shorter. The reason it is a count rather than an age: the shipped Valkey runs
+`--maxmemory 192mb --maxmemory-policy noeviction`, so an unbounded stream does
+not get slow, it reaches the ceiling and then refuses every write — the relay
+stops publishing and every consumer stops at once. Consumers resume at the tail
+and reconcile a gap from a REST snapshot, so nothing reads the trimmed history.
+
+One thing does happen at startup: the worker trims any backlog an earlier
+unbounded build left in the stream, in chunks of
+`STREAM_TRIM_CHUNK`/`STREAM_TRIM_PASSES` (`crates/worker/src/lib.rs`), before
+the relay starts writing. Without that, the first `XADD` would carry the whole
+trim and hold Valkey's single-threaded loop for its length. If the log says the
+backlog was not fully trimmed, the remaining passes continue on later publishes.
 
 ## Small-install profile
 
@@ -44,6 +63,7 @@ DELIVERY_POLL_SECS=300
 USAGE_REFRESH_SECS=900
 DIGEST_POLL_SECS=3600
 RETENTION_SWEEP_SECS=86400
+OUTBOX_SWEEP_SECS=86400
 ```
 
 What each one trades:
@@ -57,6 +77,12 @@ What each one trades:
   scheduled reports sweep every five minutes.
 - `USAGE_REFRESH_SECS=900` and `DIGEST_POLL_SECS=3600`: monitoring numbers and the
   daily digest update less often. Neither is user-facing latency.
+- `RETENTION_SWEEP_SECS=86400` and `OUTBOX_SWEEP_SECS=86400`: the two retention
+  windows are enforced once a day instead of every six hours. A published outbox
+  row is already relayed, so neither one is a delivery path. The only cost is
+  that a day's worth of expired rows lingers until the next pass. The WINDOWS
+  themselves (`OUTBOX_RETENTION_DAYS`, `workflow.run_retention_days`) decide how
+  much is kept. These two decide how promptly.
 
 ## Leave these two alone
 

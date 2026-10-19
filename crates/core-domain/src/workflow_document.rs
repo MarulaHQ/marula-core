@@ -415,8 +415,7 @@ impl WorkflowDocument {
                         .node(target)
                         .map(|n| n.node_type.as_str())
                         .unwrap_or_default();
-                    let output =
-                        node_registry::output_schema(target_type).unwrap_or(Value::Null);
+                    let output = node_registry::output_schema(target_type).unwrap_or(Value::Null);
                     if !schema_declares_path(&output, path) {
                         return Err(WorkflowDocError::ReferencePathUnknown {
                             id: node.id.clone(),
