@@ -48,8 +48,9 @@ import {
 } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../lib/api";
+import { filterUrl, parseFilterUrl } from "../../lib/filter-url";
 import {
   useDataSurfacePrefs,
   useSavedChoice,
@@ -64,6 +65,7 @@ import { useTicketSlaMap } from "../../lib/ticket-sla";
 import {
   CATEGORY_LABEL,
   TICKET_FILTER_FIELDS,
+  matchesAnyClause,
   matchesClauses,
   priorityBadge,
   relativeTime,
@@ -219,10 +221,47 @@ export default function TicketsListPage() {
   const [attention, setAttention] = useState<null | "risk" | "breach">(null);
 
   const columns = useMemo(() => reconcileColumns(saved.columns), [saved.columns]);
-  const clauses = useMemo(() => clausesFromSaved(saved.filters), [saved.filters]);
+  /** A shared link's state, read once. Applied to the saved document below, so
+   *  the link reproduces its rows for whoever opens it. */
+  const shared = useMemo(
+    () => (typeof window === "undefined" ? {} : parseFilterUrl(window.location.search)),
+    [],
+  );
+  const clauses = useMemo(
+    () => clausesFromSaved(shared.filters ?? saved.filters),
+    [shared.filters, saved.filters],
+  );
+  const match = saved.match ?? "all";
+  const urlApplied = useRef(false);
+  useEffect(() => {
+    if (!prefs.ready || urlApplied.current) return;
+    urlApplied.current = true;
+    if (shared.view === undefined && shared.match === undefined && shared.filters === undefined) {
+      return;
+    }
+    void prefs.save(SURFACE, {
+      ...saved,
+      view: shared.view ?? saved.view,
+      match: shared.match ?? saved.match,
+      filters: shared.filters ?? saved.filters,
+    });
+  }, [prefs, prefs.ready, saved, shared]);
   // A user who never saved a view still gets the pack's default: the queue reads
   // in SLA order, breach first.
   const sort = saved.sort ?? DEFAULT_SORT;
+  /** The link that reproduces these rows, in the builder's own vocabulary. */
+  const shareUrl = useMemo(
+    () =>
+      typeof window === "undefined"
+        ? undefined
+        : filterUrl(`${window.location.origin}/tickets`, {
+            view,
+            match,
+            filters: saved.filters,
+            sort: saved.sort,
+          }),
+    [view, match, saved.filters, saved.sort],
+  );
   const visible = useMemo(() => columns.filter((c) => c.visible), [columns]);
   const visibleDefs = useMemo<LedgerColumnDef[]>(
     () =>
@@ -487,7 +526,13 @@ export default function TicketsListPage() {
       }
       return c;
     });
-    const ordered = sortTickets(base.filter((r) => matchesClauses(r, resolved)), sort);
+    const passes =
+      clauses.length === 0
+        ? () => true
+        : match === "any"
+          ? (r: TicketRow) => matchesAnyClause(r, resolved)
+          : (r: TicketRow) => matchesClauses(r, resolved);
+    const ordered = sortTickets(base.filter(passes), sort);
     // SLA is not a row field: it comes from the SLA map, so it sorts here.
     // Soonest first by default, which is the mockup's order; a ticket with no
     // policy sorts last rather than claiming first place. The sentinel is a
@@ -504,7 +549,7 @@ export default function TicketsListPage() {
       });
     }
     return ordered;
-  }, [rows, clauses, sort, view, myId, attention, sla, clients]);
+  }, [rows, clauses, match, sort, view, myId, attention, sla, clients]);
 
   // A stable identity matters: an effect keyed on `shown` (the bulk status
   // read below) would otherwise see a fresh `[]` on every render while the
@@ -564,18 +609,20 @@ export default function TicketsListPage() {
   const persist = useCallback(
     (patch: {
       view?: string;
+      match?: "all" | "any";
       columns?: SavedSurfaceView["columns"];
       filters?: SavedSurfaceView["filters"];
       sort?: SavedSurfaceView["sort"];
     }) => {
       void prefs.save(SURFACE, {
         view: patch.view ?? view,
+        match: patch.match ?? saved.match,
         columns: patch.columns ?? columns.map((c) => ({ key: c.key, visible: c.visible, width: c.width })),
         filters: patch.filters ?? saved.filters,
         sort: patch.sort ?? saved.sort,
       });
     },
-    [prefs, view, columns, saved.filters, saved.sort],
+    [prefs, view, columns, saved.filters, saved.match, saved.sort],
   );
 
   const onView = useCallback(
@@ -889,6 +936,12 @@ export default function TicketsListPage() {
             open={filterOpen}
             onOpenChange={setFilterOpen}
             label="Ticket filters"
+            match={match}
+            onMatchChange={(next) => persist({ match: next })}
+            matchCount={shown.length}
+            matchNoun="tickets"
+            shareUrl={shareUrl}
+            onSaveView={() => persist({})}
           />
         }
         columns={<ColumnChooser columns={columns} onChange={onColumns} label="Ticket columns" />}

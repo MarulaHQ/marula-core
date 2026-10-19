@@ -1277,6 +1277,75 @@
   color: var(--m-text-secondary);
 }
 
+/* The builder's model controls: how the clauses combine, the link that
+   reproduces the rows, and the live match count with its save action. The
+   pack draws all four in the filter popover (DESIGN-NOTES-tickets.md §6). */
+.m-builder-match {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-builder-seg {
+  display: inline-flex;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  overflow: hidden;
+}
+
+.m-builder-seg button {
+  height: 28px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--m-text-secondary);
+  border: 0;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.m-builder-seg button[aria-pressed="true"] {
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+}
+
+.m-builder-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--m-border);
+  padding-top: 10px;
+}
+
+.m-builder-link-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--m-text-secondary);
+}
+
+.m-builder-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-builder-foot-gap {
+  flex: 1;
+}
+
+.m-builder-count {
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}
+
+.m-builder-count b {
+  color: var(--m-text);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Column list: the table's own order, so hiding and moving are the same
    gesture and a column nobody has seen sits beside the ones they hide daily. */
 
