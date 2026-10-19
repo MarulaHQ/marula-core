@@ -134,7 +134,6 @@ interface PlanState {
   rows: PlanRow[];
   n: number;
   scopeLabel: string;
-  failed: string | null;
 }
 
 function PriChip({ p }: { p: Pri }) {
@@ -809,7 +808,7 @@ export default function DispatchBoardPage() {
           : scope.type === "filter"
             ? "From the current filter"
             : `Due ${scope.range === "day" ? "today" : scope.range === "week" ? "this week" : "in the next two weeks"}`;
-    setPlan({ rows: makePlan(l, jobs, absences), n: l.length, scopeLabel: L, failed: null });
+    setPlan({ rows: makePlan(l, jobs, absences), n: l.length, scopeLabel: L });
     setPop(null);
     setSel(null);
     setView("day");
@@ -1519,21 +1518,20 @@ export default function DispatchBoardPage() {
             <span className="dp-pill dp-pill-neu">{trv} min travel</span>
           </div>
         </div>
-        {plan.failed && (
-          <div className="dp-fail" role="alert" data-testid="plan-fail">
-            <div>
-              <b>Nothing was booked.</b> {plan.failed}
-            </div>
-            <div className="row">
-              <button type="button" className="dp-btn" onClick={() => toast("Opening the first conflict")}>
-                Show the conflict
-              </button>
-              <button type="button" className="dp-btn" onClick={() => { setPlan({ ...plan, failed: null }); toast("Checked again. Still needs your call on the conflict."); }}>
-                Retry
-              </button>
-            </div>
-          </div>
-        )}
+        {/* The pack's `17-plan-approval-failed` ("Confirm failed, nothing
+            booked") is not drawn here, and this is the ruling on it: the board
+            cannot fail its confirm. Confirm is disabled whenever `planIssues`
+            finds a blocked row or an undecided overlap, `planIssues` re-reads
+            the same `jobs`/`absences`/`policy`/`limit` that `confirmPlan`
+            books from on every render, the booking is one synchronous local
+            state update, and this surface makes no booking request and never
+            marks a technician off at runtime — so no code path reaches a
+            failed confirm, and a notice promising "Nothing was booked" with
+            "Show the conflict" and "Retry" actions would be a claim the board
+            cannot honour. It comes back with the booking write, on the travel
+            page's pattern (`actionError` + `.dp-fail`). The dead markup and
+            the `PlanState.failed` field it read were removed 2026-10-19 (audit
+            item 18). */}
         <div className="rows">
           {plan.rows.map((r, i) => {
             const e = planIssues[i];
