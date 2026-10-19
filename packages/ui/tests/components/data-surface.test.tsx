@@ -183,7 +183,7 @@ describe("FilterChips", () => {
 });
 
 describe("DataToolbar", () => {
-  it("puts the view and the chips left, and Filter, Columns and Export right", () => {
+  it("puts the view and the chips left, and Columns, Filter and Export right", () => {
     const { container } = render(
       <DataToolbar
         label="Ticket list controls"
@@ -199,7 +199,7 @@ describe("DataToolbar", () => {
     const right = main?.querySelector(".m-data-toolbar-right");
     expect(
       Array.from(right?.children ?? []).map((n) => n.textContent),
-    ).toEqual(["Filter", "Columns", "Export"]);
+    ).toEqual(["Columns", "Filter", "Export"]);
     // The strip is one row: no wrap utility, and the CSS nowrap is asserted in
     // the stylesheet rather than here.
     expect(container.querySelector(".m-data-toolbar")?.className).not.toContain("flex-wrap");

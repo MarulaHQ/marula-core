@@ -95,6 +95,11 @@ export function ColumnChooser({
   }, []);
 
   const visibleCount = columns.filter((c) => c.visible).length;
+  // The pack's chooser sub says how many are on AND that the choice is kept
+  // (`DESIGN-NOTES-tickets.md` §5: "the choice is saved for the user on every
+  // device"). Counted from the draft so it moves with the checkboxes, the way
+  // the pack's panel does before Done is pressed.
+  const draftVisible = draft.filter((c) => c.visible).length;
 
   return (
     <div className={cn("m-column-chooser", className)} ref={root}>
@@ -113,6 +118,7 @@ export function ColumnChooser({
       {open ? (
         <div className="m-column-chooser-panel" role="dialog" aria-label={label}>
           <p className="m-panel-title">{label}</p>
+          <p className="m-panel-sub">{draftVisible} shown. Saved for you, on every device.</p>
           <ul className="m-column-list">
             {draft.map((column, index) => (
               <li

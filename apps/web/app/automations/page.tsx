@@ -39,7 +39,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   Label,
   Select,
@@ -326,6 +327,7 @@ export default function AutomationsPage() {
   // (Wave 43 lane 18). Read once; the catalogue only moves with a release.
   const [triggerGroups, setTriggerGroups] = useState<TriggerGroup[] | null>(null);
   const [catalogueError, setCatalogueError] = useState<string | null>(null);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>([]);
   const [columns, setColumns] = useState<RuleColumn[]>(RULE_COLUMNS);
   const [suggestedNudge, setSuggestedNudge] = useState(false);
@@ -896,8 +898,8 @@ export default function AutomationsPage() {
               onChange={setView}
             />
           }
-          filters={
-            <FilterBar
+          chips={
+            <FilterChips
               label="Rule filters"
               emptyHint="No filters"
               fields={[
@@ -907,6 +909,21 @@ export default function AutomationsPage() {
               ]}
               clauses={clauses}
               onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+              onAdd={() => setFilterOpen(true)}
+            />
+          }
+          filter={
+            <FilterTrigger
+              label="Rule filters"
+              fields={[
+                { key: "name", label: "Rule", operators: ["contains"] },
+                { key: "trigger", label: "Trigger", operators: ["contains"] },
+                { key: "board", label: "Board", operators: ["contains"] },
+              ]}
+              clauses={clauses}
+              onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+              open={filterOpen}
+              onOpenChange={setFilterOpen}
             />
           }
           columns={

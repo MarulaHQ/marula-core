@@ -16,10 +16,15 @@
  * by collapsing (the chips' `+N more`), never by wrapping.
  *
  * The template also puts the **Filter button on the right**, beside Columns and
- * Export, with the chips reading in the middle. That is why `chips` and `filter`
- * are two slots: a surface with both gets the pack's arrangement, and the older
- * `filters` slot still renders one element in the middle for the surfaces that
- * have not split their FilterBar yet.
+ * Export, with the chips reading in the middle — and it fixes their order
+ * (`DESIGN-NOTES-tickets.md` §2 law 1: "Columns, Filter and Export
+ * right-aligned"). So the right cluster reads `columns`, `filter`, `export`,
+ * not `filter`, `columns`, `export`: the pack draws the chooser first and the
+ * builder second, and every audited surface had them transposed
+ * (`design/qa-p47-vision-captures/REMEDIATION.md` item 1). That is why `chips`
+ * and `filter` are two slots: a surface with both gets the pack's arrangement,
+ * and the older `filters` slot still renders one element in the middle for the
+ * surfaces that have not split their FilterBar yet.
  *
  * Non-purpose: this holds no state and fetches nothing. It is the layout and
  * the landmarks, so the controls stay independent and a surface that wants only
@@ -82,8 +87,8 @@ export function DataToolbar({
             three-button right side meet in the middle. */}
         {hasRight ? <span className="m-data-toolbar-gap" /> : null}
         <div className="m-data-toolbar-right">
-          {filter}
           {columns}
+          {filter}
           {exportControl}
           {trailing}
         </div>

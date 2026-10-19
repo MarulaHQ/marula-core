@@ -20,7 +20,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   Label,
   Select,
@@ -201,6 +202,7 @@ export default function ImportsPage() {
   const [templateName, setTemplateName] = useState("");
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [historyView, setHistoryView] = useState("all");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [historyClauses, setHistoryClauses] = useState<
     { id: string; field: string; op: never; value?: string }[]
   >([]);
@@ -741,8 +743,8 @@ export default function ImportsPage() {
               onChange={setHistoryView}
             />
           }
-          filters={
-            <FilterBar
+          chips={
+            <FilterChips
               label="Run history filters"
               emptyHint="No filters"
               fields={[
@@ -752,6 +754,21 @@ export default function ImportsPage() {
               ]}
               clauses={historyClauses}
               onChange={(next) => setHistoryClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+              onAdd={() => setFilterOpen(true)}
+            />
+          }
+          filter={
+            <FilterTrigger
+              label="Run history filters"
+              fields={[
+                { key: "label", label: "Label", operators: ["contains"] },
+                { key: "entity", label: "Entity", operators: ["eq"] },
+                { key: "policy", label: "Conflict policy", operators: ["eq"] },
+              ]}
+              clauses={historyClauses}
+              onChange={(next) => setHistoryClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+              open={filterOpen}
+              onOpenChange={setFilterOpen}
             />
           }
           columns={

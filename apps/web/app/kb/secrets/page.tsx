@@ -36,7 +36,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   Label,
   Select,
@@ -221,6 +222,7 @@ export default function SecretsVaultPage() {
   const [folderForDialog, setFolderForDialog] = useState<SecretFolder | null>(null);
   const [grantsOpen, setGrantsOpen] = useState(false);
   const [view, setView] = useState("all");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>(
     [],
   );
@@ -458,8 +460,8 @@ export default function SecretsVaultPage() {
                 onChange={setView}
               />
             }
-            filters={
-              <FilterBar
+            chips={
+              <FilterChips
                 label="Secret filters"
                 emptyHint="No filters"
                 fields={[
@@ -468,6 +470,20 @@ export default function SecretsVaultPage() {
                 ]}
                 clauses={clauses}
                 onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+                onAdd={() => setFilterOpen(true)}
+              />
+            }
+            filter={
+              <FilterTrigger
+                label="Secret filters"
+                fields={[
+                  { key: "title", label: "Record", operators: ["contains"] },
+                  { key: "kind", label: "Kind", operators: ["eq"] },
+                ]}
+                clauses={clauses}
+                onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+                open={filterOpen}
+                onOpenChange={setFilterOpen}
               />
             }
             columns={

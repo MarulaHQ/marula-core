@@ -40,7 +40,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   Kbd,
   Label,
@@ -253,6 +254,7 @@ export default function ApprovalsPage() {
   const [cursorId, setCursorId] = useState<string | null>(null);
   /** Review all: the flagged entries only (pack state 04). */
   const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<FilterClause[]>([]);
   const [people, setPeople] = useState<Readonly<Record<string, OrgUser>>>({});
 
@@ -868,8 +870,8 @@ export default function ApprovalsPage() {
             }))}
           />
         }
-        filters={
-          <FilterBar
+        chips={
+          <FilterChips
             fields={FILTER_FIELDS}
             clauses={clauses}
             onChange={(next) => {
@@ -879,6 +881,22 @@ export default function ApprovalsPage() {
                 filters: next,
               });
             }}
+            onAdd={() => setFilterOpen(true)}
+          />
+        }
+        filter={
+          <FilterTrigger
+            fields={FILTER_FIELDS}
+            clauses={clauses}
+            onChange={(next) => {
+              setClauses(next);
+              void prefs.save("approvals", {
+                columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
+                filters: next,
+              });
+            }}
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
           />
         }
         columns={

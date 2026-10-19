@@ -27,7 +27,8 @@ import {
   DialogContent,
   EmptyState,
   ExportControl,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   Kbd,
   Label,
@@ -127,6 +128,9 @@ function CreditNotesInner() {
   const [clientFilter, setClientFilter] = useState<string>("all");
   const [lifecycle, setLifecycle] = useState<"all" | "open" | "used" | "void">("all");
   const [clauses, setClauses] = useState<FilterClause[]>([]);
+  // One builder, two controls: the chips' `+ Add filter` and the Filter
+  // trigger open it, so the page owns the open state.
+  const [filterOpen, setFilterOpen] = useState(false);
   const prefs = useDataSurfacePrefs();
   const savedColumns = useMemo(() => prefs.view("credit-notes").columns, [prefs]);
   const [columns, setColumns] = useState(() =>
@@ -515,8 +519,8 @@ function CreditNotesInner() {
             ]}
           />
         }
-        filters={
-          <div className="flex flex-wrap items-center gap-2">
+        chips={
+          <>
             {/* The client pick is a filter, so it lives on the filter row. In
                 the header's action slot it pushed the primary action onto its
                 own line, four pixels past the row's width. */}
@@ -533,7 +537,7 @@ function CreditNotesInner() {
                 ))}
               </SelectContent>
             </Select>
-            <FilterBar
+            <FilterChips
               fields={CREDIT_FILTER_FIELDS}
               clauses={clauses}
               onChange={(next) => {
@@ -543,8 +547,24 @@ function CreditNotesInner() {
                   filters: next,
                 });
               }}
+              onAdd={() => setFilterOpen(true)}
             />
-          </div>
+          </>
+        }
+        filter={
+          <FilterTrigger
+            fields={CREDIT_FILTER_FIELDS}
+            clauses={clauses}
+            onChange={(next) => {
+              setClauses(next);
+              void prefs.save("credit-notes", {
+                columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
+                filters: next,
+              });
+            }}
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
+          />
         }
         columns={
           <ColumnChooser

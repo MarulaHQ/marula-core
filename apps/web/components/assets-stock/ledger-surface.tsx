@@ -21,7 +21,7 @@
  * 7. Empty and error states share one shape.
  *
  * Non-purpose: this owns no data. It composes the landed primitives
- * (DataToolbar, ViewSwitch, FilterBar, ColumnChooser, ExportControl,
+ * (DataToolbar, ViewSwitch, FilterChips, ColumnChooser, ExportControl,
  * DensitySwitch, Table) and hands the page its resolved column list, so the
  * page spends its code on rows rather than on chrome.
  */
@@ -32,7 +32,8 @@ import {
   DensitySwitch,
   EmptyState,
   ExportControl,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   SurfaceFooter,
   Table,
   Th,
@@ -43,7 +44,7 @@ import {
   type FilterField,
   type ViewOption,
 } from "@marula-core/ui";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { cn } from "@marula-core/ui";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
@@ -193,6 +194,9 @@ export function LedgerSurface({
   const ordered = [...resolved].sort((a, b) => a.order - b.order);
   const visible = ordered.filter((column) => column.visible);
   const selectable = onToggleRow != null;
+  // One builder, two controls: the middle chips' `+ Add filter` and the
+  // right-hand Filter trigger open it, so the page owns the open state.
+  const [filterOpen, setFilterOpen] = useState(false);
 
   function persist(view: string, nextColumns: ChoosableColumn[]): void {
     void prefs.save(surface, {
@@ -268,8 +272,8 @@ export function LedgerSurface({
             label={`${title} views`}
           />
         }
-        filters={
-          <FilterBar
+        chips={
+          <FilterChips
             fields={filterFields}
             clauses={filterClauses}
             onChange={(next) => {
@@ -278,6 +282,20 @@ export function LedgerSurface({
             }}
             label={`${title} filters`}
             emptyHint="No filters"
+            onAdd={() => setFilterOpen(true)}
+          />
+        }
+        filter={
+          <FilterTrigger
+            fields={filterFields}
+            clauses={filterClauses}
+            onChange={(next) => {
+              onFilterChange(next);
+              persist(activeView, ordered);
+            }}
+            label={`${title} filters`}
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
           />
         }
         columns={

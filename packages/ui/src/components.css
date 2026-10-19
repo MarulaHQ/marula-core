@@ -1249,6 +1249,16 @@
   color: var(--m-text-muted);
 }
 
+/* The chooser's own second line — "N shown. Saved for you, on every device."
+   (`DESIGN-NOTES-tickets.md` §5). It follows the uppercase title, so the
+   title's 8px bottom margin is pulled back to a 2px gap. */
+.m-panel-sub {
+  margin: -6px 0 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--m-text-secondary);
+}
+
 .m-panel-actions {
   display: flex;
   justify-content: flex-end;

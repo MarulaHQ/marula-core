@@ -908,6 +908,22 @@ export default function DispatchBoardPage() {
           + Add filter
         </button>
       </div>
+      {view === "queue" ? (
+        <>
+          <span className="dp-sp" style={{ flex: 1 }} />
+          {/* The pack's right group reads Columns, Filter, Export
+              (`DESIGN-NOTES-tickets.md` §2 law 1). The chooser therefore sits
+              before the Filter button rather than after it. */}
+          <ColumnChooser
+            columns={cols}
+            onChange={(next) => {
+              setCols(next);
+              const shown = next.filter((c) => c.visible).length;
+              toast(`Columns: ${shown} of ${next.length} shown`);
+            }}
+          />
+        </>
+      ) : null}
       <button type="button" className="dp-btn" aria-expanded={pop === "filter"} onClick={() => setPop(pop === "filter" ? null : "filter")}>
         Filter{chips.length ? <span className="dp-kbd" style={{ border: "none" }}>{chips.length}</span> : null}
       </button>
@@ -927,23 +943,12 @@ export default function DispatchBoardPage() {
         </div>
       )}
       {view === "queue" ? (
-        <>
-          <span className="dp-sp" style={{ flex: 1 }} />
-          <ColumnChooser
-            columns={cols}
-            onChange={(next) => {
-              setCols(next);
-              const shown = next.filter((c) => c.visible).length;
-              toast(`Columns: ${shown} of ${next.length} shown`);
-            }}
-          />
-          <ExportControl
-            columns={cols.filter((c) => c.visible).map((c) => c.key)}
-            rowCount={filteredQueue.length}
-            filters={qfilter === "all" ? undefined : { priority: qfilter }}
-            onExport={(req) => toast(`Exporting ${req.rowCount} unassigned ticket${req.rowCount === 1 ? "" : "s"} as ${req.format.toUpperCase()}`)}
-          />
-        </>
+        <ExportControl
+          columns={cols.filter((c) => c.visible).map((c) => c.key)}
+          rowCount={filteredQueue.length}
+          filters={qfilter === "all" ? undefined : { priority: qfilter }}
+          onExport={(req) => toast(`Exporting ${req.rowCount} unassigned ticket${req.rowCount === 1 ? "" : "s"} as ${req.format.toUpperCase()}`)}
+        />
       ) : null}
       <button type="button" className="dp-ib" aria-label="Dispatch settings" onClick={() => setSettings(true)}>
         <Icon name="settings" size={18} />

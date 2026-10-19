@@ -27,7 +27,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   Kbd,
   Label,
@@ -137,6 +138,7 @@ export default function QuotesPage(): ReactNode {
   // money-cluster toolbar rule (views left, filters, Columns/Filter/Export
   // right) exactly as the invoice and credit-note ledgers do.
   const prefs = useDataSurfacePrefs();
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<FilterClause[]>([]);
   const savedColumns = useMemo(() => prefs.view("quotes").columns, [prefs]);
   const [columns, setColumns] = useState(() =>
@@ -743,8 +745,8 @@ export default function QuotesPage(): ReactNode {
             }))}
           />
         }
-        filters={
-          <FilterBar
+        chips={
+          <FilterChips
             fields={FILTER_FIELDS}
             clauses={clauses}
             onChange={(next) => {
@@ -754,6 +756,22 @@ export default function QuotesPage(): ReactNode {
                 filters: next,
               });
             }}
+            onAdd={() => setFilterOpen(true)}
+          />
+        }
+        filter={
+          <FilterTrigger
+            fields={FILTER_FIELDS}
+            clauses={clauses}
+            onChange={(next) => {
+              setClauses(next);
+              void prefs.save("quotes", {
+                columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
+                filters: next,
+              });
+            }}
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
           />
         }
         columns={

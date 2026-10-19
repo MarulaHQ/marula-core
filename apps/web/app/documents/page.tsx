@@ -28,7 +28,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   Label,
   Select,
@@ -106,6 +107,7 @@ export default function DocumentsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [layoutsOpen, setLayoutsOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>(
     [],
   );
@@ -266,8 +268,8 @@ export default function DocumentsPage() {
               }}
             />
           }
-          filters={
-            <FilterBar
+          chips={
+            <FilterChips
               label="Document filters"
               emptyHint="No filters"
               fields={[
@@ -277,6 +279,21 @@ export default function DocumentsPage() {
               ]}
               clauses={clauses}
               onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+              onAdd={() => setFilterOpen(true)}
+            />
+          }
+          filter={
+            <FilterTrigger
+              label="Document filters"
+              fields={[
+                { key: "title", label: "Title", operators: ["contains"] },
+                { key: "type", label: "Type", operators: ["contains"] },
+                { key: "scope", label: "Scope", operators: ["contains"] },
+              ]}
+              clauses={clauses}
+              onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+              open={filterOpen}
+              onOpenChange={setFilterOpen}
             />
           }
           columns={

@@ -32,7 +32,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   Kbd,
   Label,
@@ -120,6 +121,7 @@ export default function BillingPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [view, setView] = useState<View>("all");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<FilterClause[]>([]);
 
   const [runOpen, setRunOpen] = useState(false);
@@ -587,8 +589,8 @@ export default function BillingPage() {
             ]}
           />
         }
-        filters={
-          <FilterBar
+        chips={
+          <FilterChips
             fields={FILTER_FIELDS}
             clauses={clauses}
             onChange={(next) => {
@@ -598,6 +600,22 @@ export default function BillingPage() {
                 filters: next,
               });
             }}
+            onAdd={() => setFilterOpen(true)}
+          />
+        }
+        filter={
+          <FilterTrigger
+            fields={FILTER_FIELDS}
+            clauses={clauses}
+            onChange={(next) => {
+              setClauses(next);
+              void prefs.save("billing", {
+                columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
+                filters: next,
+              });
+            }}
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
           />
         }
         columns={

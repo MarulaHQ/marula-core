@@ -33,7 +33,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   KbProse,
   Label,
@@ -187,6 +188,7 @@ export default function KbPage() {
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [view, setView] = useState("all");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>(
     [],
   );
@@ -465,8 +467,8 @@ export default function KbPage() {
                 onChange={setView}
               />
             }
-            filters={
-              <FilterBar
+            chips={
+              <FilterChips
                 label="Article filters"
                 emptyHint="No filters"
                 fields={[
@@ -481,6 +483,26 @@ export default function KbPage() {
                     next.map((c) => ({ ...c, op: c.op as never })),
                   )
                 }
+                onAdd={() => setFilterOpen(true)}
+              />
+            }
+            filter={
+              <FilterTrigger
+                label="Article filters"
+                fields={[
+                  { key: "title", label: "Title", operators: ["contains"] },
+                  { key: "category", label: "Category", operators: ["contains"] },
+                  { key: "status", label: "Status", operators: ["eq"] },
+                  { key: "visibility", label: "Portal", operators: ["eq"] },
+                ]}
+                clauses={clauses}
+                onChange={(next) =>
+                  setClauses(
+                    next.map((c) => ({ ...c, op: c.op as never })),
+                  )
+                }
+                open={filterOpen}
+                onOpenChange={setFilterOpen}
               />
             }
             columns={

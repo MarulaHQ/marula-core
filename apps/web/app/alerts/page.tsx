@@ -28,7 +28,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   Label,
   Select,
@@ -159,6 +160,7 @@ export default function AlertsPage() {
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [busyAlertId, setBusyAlertId] = useState<string | null>(null);
   const [sourceById, setSourceById] = useState<Map<string, AlertSourceView>>(new Map());
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>(
     [],
   );
@@ -461,8 +463,8 @@ export default function AlertsPage() {
                 onChange={(id) => setFilterStatus(id as typeof filterStatus)}
               />
             }
-            filters={
-              <FilterBar
+            chips={
+              <FilterChips
                 label="Alert filters"
                 emptyHint="No filters"
                 fields={[
@@ -474,6 +476,23 @@ export default function AlertsPage() {
                 ]}
                 clauses={clauses}
                 onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+                onAdd={() => setFilterOpen(true)}
+              />
+            }
+            filter={
+              <FilterTrigger
+                label="Alert filters"
+                fields={[
+                  { key: "title", label: "Alert", operators: ["contains"] },
+                  { key: "severity", label: "Severity", operators: ["eq"] },
+                  { key: "source", label: "Source", operators: ["contains"] },
+                  { key: "status", label: "Status", operators: ["eq"] },
+                  { key: "ticket", label: "Incident ticket id", operators: ["contains"] },
+                ]}
+                clauses={clauses}
+                onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+                open={filterOpen}
+                onOpenChange={setFilterOpen}
               />
             }
             columns={

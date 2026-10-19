@@ -26,7 +26,8 @@ import {
   DensitySwitch,
   EmptyState,
   ExportControl,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Spinner,
   SurfaceHeader,
   type ChoosableColumn,
@@ -88,6 +89,9 @@ export default function BoardsIndexPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // The filter builder's open state, owned by the page so the middle chips'
+  // `+ Add filter` and the right-hand Filter trigger open one builder.
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const columns = useMemo<ChoosableColumn[]>(() => {
     if (saved.columns.length === 0) {
@@ -265,13 +269,24 @@ export default function BoardsIndexPage() {
             ))}
           </Segmented>
         }
-        filters={
-          <FilterBar
+        chips={
+          <FilterChips
             fields={FILTER_FIELDS.map((f) => ({ key: f.key, label: f.label, operators: [...f.operators] }))}
             clauses={clauses}
             onChange={onClauses}
             label="Board filters"
             emptyHint="No filters"
+            onAdd={() => setFilterOpen(true)}
+          />
+        }
+        filter={
+          <FilterTrigger
+            fields={FILTER_FIELDS.map((f) => ({ key: f.key, label: f.label, operators: [...f.operators] }))}
+            clauses={clauses}
+            onChange={onClauses}
+            label="Board filters"
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
           />
         }
         columns={<ColumnChooser columns={columns} onChange={onColumns} label="Board columns" />}

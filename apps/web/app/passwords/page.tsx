@@ -37,7 +37,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   Label,
   Select,
@@ -240,6 +241,7 @@ export default function VaultPage() {
   const [vaultQuery, setVaultQuery] = useState("");
   const [view, setView] = useState("categories");
   const [confirmingLegacy, setConfirmingLegacy] = useState<PasswordEntry | null>(null);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<{ id: string; field: string; op: never; value?: string }[]>(
     [],
   );
@@ -596,8 +598,8 @@ export default function VaultPage() {
                 onChange={setView}
               />
             }
-            filters={
-              <FilterBar
+            chips={
+              <FilterChips
                 label="Vault filters"
                 emptyHint="No filters"
                 fields={[
@@ -608,6 +610,22 @@ export default function VaultPage() {
                 ]}
                 clauses={clauses}
                 onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+                onAdd={() => setFilterOpen(true)}
+              />
+            }
+            filter={
+              <FilterTrigger
+                label="Vault filters"
+                fields={[
+                  { key: "title", label: "Record", operators: ["contains"] },
+                  { key: "username", label: "Username", operators: ["contains"] },
+                  { key: "kind", label: "Kind", operators: ["eq"] },
+                  { key: "url", label: "URL", operators: ["contains"] },
+                ]}
+                clauses={clauses}
+                onChange={(next) => setClauses(next.map((c) => ({ ...c, op: c.op as never })))}
+                open={filterOpen}
+                onOpenChange={setFilterOpen}
               />
             }
             columns={

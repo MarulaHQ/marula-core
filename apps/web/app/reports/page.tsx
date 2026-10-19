@@ -30,7 +30,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Input,
   Label,
   Select,
@@ -137,6 +138,7 @@ function ReportsInner() {
 
   // Saved-table state: view switch (all/mine), filters, columns.
   const [view, setView] = useState<"all" | "mine">("all");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<FilterClause[]>([]);
 
   const FILTER_FIELDS: FilterField[] = useMemo(
@@ -556,13 +558,24 @@ function ReportsInner() {
                 label="Saved report views"
               />
             }
-            filters={
-              <FilterBar
+            chips={
+              <FilterChips
                 fields={FILTER_FIELDS}
                 clauses={clauses}
                 onChange={setClauses}
                 label="report filters"
                 emptyHint=""
+                onAdd={() => setFilterOpen(true)}
+              />
+            }
+            filter={
+              <FilterTrigger
+                fields={FILTER_FIELDS}
+                clauses={clauses}
+                onChange={setClauses}
+                label="report filters"
+                open={filterOpen}
+                onOpenChange={setFilterOpen}
               />
             }
             columns={

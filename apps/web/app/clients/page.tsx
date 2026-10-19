@@ -48,6 +48,8 @@ import {
   EmptyState,
   ExportControl,
   FieldHint,
+  FilterChips,
+  FilterTrigger,
   Input,
   Label,
   Spinner,
@@ -58,6 +60,8 @@ import {
   Tr,
   ViewSwitch,
   DataToolbar,
+  type FilterClause,
+  type FilterField,
 } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
@@ -112,6 +116,15 @@ const VIEWS = [
   { id: "bill", label: "Billing history" },
 ];
 
+/** The fields the builder offers. The list derives from tickets, so it carries
+ * the template's filter model (`DESIGN-NOTES-tickets.md` §6); this surface only
+ * ships the fields it can answer from data it already holds. */
+const CLIENT_FILTER_FIELDS: FilterField[] = [
+  { key: "client", label: "Client", operators: ["contains"] },
+  { key: "contact", label: "Main contact", operators: ["contains"] },
+  { key: "contract", label: "Contract", operators: ["eq"] },
+];
+
 function Monogram({ name }: { name: string }) {
   const initials = name
     .split(/\s+/)
@@ -154,6 +167,11 @@ export default function ClientsPage() {
 
   const [view, setView] = useState("open");
   const [query, setQuery] = useState("");
+  // The template's filter model: named clauses the builder edits and the
+  // chips read back, on top of the fast search box (DESIGN-NOTES-tickets.md §6,
+  // this surface's item 2 — a list that can search AND filter).
+  const [clauses, setClauses] = useState<FilterClause[]>([]);
+  const [filterOpen, setFilterOpen] = useState(false);
   // The two header shortcuts, as pressed-or-not toggles rather than separate
   // filter state: pressing one narrows the same list the view already shows.
   const [onlyRenewing, setOnlyRenewing] = useState(false);
@@ -264,6 +282,24 @@ export default function ClientsPage() {
     };
   }, [clients, activeContract, now]);
 
+  /** Whether one client answers one clause. The builder's operator list is
+   * wider than this surface can answer, so an operator it does not read is
+   * treated as non-narrowing rather than as a false "no rows". */
+  function clauseMatches(c: Client, clause: FilterClause): boolean {
+    const v = (clause.value ?? "").trim().toLowerCase();
+    if (clause.field === "client") return c.name.toLowerCase().includes(v);
+    if (clause.field === "contact") {
+      return (primaryContactLabel(c.id) ?? "").toLowerCase().includes(v);
+    }
+    if (clause.field === "contract") {
+      const has = activeContract(c.id) !== null;
+      if (v === "none") return !has;
+      if (v === "active") return has;
+      return true;
+    }
+    return true;
+  }
+
   const filtered = useMemo(() => {
     if (clients === null) return null;
     const q = query.trim().toLowerCase();
@@ -271,6 +307,7 @@ export default function ClientsPage() {
       const contract = activeContract(c.id);
       if (onlyRenewing && !insideRenewalWindow(contract?.effective_until, now)) return false;
       if (onlyNoContract && contract !== null) return false;
+      if (!clauses.every((clause) => clauseMatches(c, clause))) return false;
       if (q === "") return true;
       const contact = primaryContactLabel(c.id);
       return (
@@ -278,7 +315,7 @@ export default function ClientsPage() {
         (contact ?? "").toLowerCase().includes(q)
       );
     });
-  }, [clients, query, onlyRenewing, onlyNoContract, activeContract, now]);
+  }, [clients, query, onlyRenewing, onlyNoContract, activeContract, now, clauses]);
 
   // A client's main contact is its primary contact; without one the cell
   // says so in words rather than showing an empty column.
@@ -539,19 +576,42 @@ export default function ClientsPage() {
             label="Client views"
           />
         }
-        filters={
-          <div className="w-56">
-            {/* The wrapper carries the width, not the control: `.m-input`
-                sets `width: 100%` in an unlayered rule that outranks a
-                Tailwind utility, so `w-56` on the input is silently ignored
-                and the field stretches the toolbar onto its own row. */}
-            <Input
-              aria-label="Search clients"
-              placeholder="Search clients…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+        chips={
+          <>
+            {/* The search stays: it is the fast path to one client by name or
+                contact, and the builder's Client/Contact contains-filters are
+                the saved, shareable version of the same question. */}
+            <div className="w-56">
+              {/* The wrapper carries the width, not the control: `.m-input`
+                  sets `width: 100%` in an unlayered rule that outranks a
+                  Tailwind utility, so `w-56` on the input is silently ignored
+                  and the field stretches the toolbar onto its own row. */}
+              <Input
+                aria-label="Search clients"
+                placeholder="Search clients…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+            <FilterChips
+              fields={CLIENT_FILTER_FIELDS}
+              clauses={clauses}
+              onChange={setClauses}
+              label="Client filters"
+              emptyHint="No filters"
+              onAdd={() => setFilterOpen(true)}
             />
-          </div>
+          </>
+        }
+        filter={
+          <FilterTrigger
+            fields={CLIENT_FILTER_FIELDS}
+            clauses={clauses}
+            onChange={setClauses}
+            label="Client filters"
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
+          />
         }
         columns={
           <ColumnChooser

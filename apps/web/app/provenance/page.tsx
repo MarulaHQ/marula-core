@@ -20,7 +20,8 @@ import {
   DataToolbar,
   DensitySwitch,
   ExportControl,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Spinner,
   SurfaceHeader,
   Table,
@@ -99,6 +100,7 @@ export default function ProvenancePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [view, setView] = useState<"all" | "agent" | "imports">("all");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<FilterClause[]>([]);
 
   // The API only accepts a `field` filter ALONGSIDE an `entity` one (422
@@ -344,8 +346,8 @@ export default function ProvenancePage() {
             label="Provenance views"
           />
         }
-        filters={
-          <FilterBar
+        chips={
+          <FilterChips
             fields={filterFields}
             clauses={clauses}
             onChange={(next) => {
@@ -358,6 +360,24 @@ export default function ProvenancePage() {
             }}
             label="provenance filters"
             emptyHint=""
+            onAdd={() => setFilterOpen(true)}
+          />
+        }
+        filter={
+          <FilterTrigger
+            fields={filterFields}
+            clauses={clauses}
+            onChange={(next) => {
+              // The clause change re-runs the load effect above, whose
+              // callback depends on `clauses`. Firing load here too would
+              // race it with a stale closure: in the live app the
+              // unfiltered response lands last and the table keeps the
+              // pre-filter rows, so the chip looks like it did nothing.
+              setClausesSanitized(next);
+            }}
+            label="provenance filters"
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
           />
         }
         columns={<ColumnChooser columns={table.chooser} onChange={table.onChooser} label="Provenance columns" />}

@@ -19,7 +19,8 @@ import {
   DataToolbar,
   DensitySwitch,
   ExportControl,
-  FilterBar,
+  FilterChips,
+  FilterTrigger,
   Spinner,
   SurfaceHeader,
   Table,
@@ -94,6 +95,7 @@ export default function AuditPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [view, setView] = useState<"recent" | "agents">("recent");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<FilterClause[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -303,8 +305,8 @@ export default function AuditPage() {
             label="Audit views"
           />
         }
-        filters={
-          <FilterBar
+        chips={
+          <FilterChips
             fields={FILTER_FIELDS}
             clauses={clauses}
             onChange={(next) => {
@@ -317,6 +319,24 @@ export default function AuditPage() {
             }}
             label="audit filters"
             emptyHint=""
+            onAdd={() => setFilterOpen(true)}
+          />
+        }
+        filter={
+          <FilterTrigger
+            fields={FILTER_FIELDS}
+            clauses={clauses}
+            onChange={(next) => {
+              // The clause change re-runs the load effect above, whose
+              // callback depends on `clauses`. Firing load here too would
+              // race it with a stale closure: in the live app the
+              // unfiltered response lands last and the table keeps the
+              // pre-filter rows, so the chip looks like it did nothing.
+              setClauses(next);
+            }}
+            label="audit filters"
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
           />
         }
         columns={
