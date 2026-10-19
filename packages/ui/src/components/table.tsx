@@ -255,9 +255,20 @@ Td.displayName = "Td";
 
 export type TrProps = HTMLAttributes<HTMLTableRowElement>;
 
-/** Body row; `selected` renders the accent-soft selection state. */
-export function Tr({ selected, className, ...props }: TrProps & { selected?: boolean }) {
-  return <tr data-selected={selected ? "true" : undefined} className={cn(className)} {...props} />;
+/**
+ * Body row; `selected` renders the accent fill and gold edge bar, `current` the
+ * keyboard-cursor ring. Both land on the `tr` (the pack's `.tr.sel` /
+ * `.tr.cur`), and `packages/ui/src/components.css` paints each once per row.
+ */
+export function Tr({ selected, current, className, ...props }: TrProps & { selected?: boolean; current?: boolean }) {
+  return (
+    <tr
+      data-selected={selected ? "true" : undefined}
+      data-current={current ? "true" : undefined}
+      className={cn(className)}
+      {...props}
+    />
+  );
 }
 
 Tr.displayName = "Tr";

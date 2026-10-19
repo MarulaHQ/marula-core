@@ -1696,6 +1696,22 @@
   box-shadow: inset 3px 0 0 var(--m-gold);
 }
 
+/* The pack's cursored row (tickets-list.html `.tr.cur`): one 2px ring on the
+   row. `data-current` was emitted by the kit and read by no stylesheet, so a
+   cursored row had no row rule to match it and the two surfaces that wanted a
+   cursor invented their own — approvals a cell ring, the ticket workspace the
+   `selected` prop (design/qa-p47-rendered-states/ROWS.md). It lands on the row
+   here; the combined state keeps the gold bar `.tr.sel.cur` holds. */
+.m-table tbody tr[data-current="true"] {
+  box-shadow: inset 0 0 0 2px var(--m-focus-ring);
+}
+
+.m-table tbody tr[data-selected="true"][data-current="true"] {
+  box-shadow:
+    inset 3px 0 0 var(--m-gold),
+    inset 0 0 0 2px var(--m-focus-ring);
+}
+
 /* One hover value for every kit table. The pack's row hover is the muted
    surface, and `--m-surface-2` is that value in both modes. Approvals and
    dispatch used to paint a `color-mix` wash instead (apps/web/app/globals.css). */

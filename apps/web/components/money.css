@@ -225,18 +225,30 @@
   width: 100%;
 }
 
-.m-money-row-selected > td {
-  background: var(--m-accent);
+/* The pack paints its row states on the ROW — `.tr.sel` / `.tr.cur` /
+   `.tr.sel.cur` (brand/packs/core-surface-pack/source/tickets-list.html:126-128,
+   source/approvals.html:231-232) — one fill, one gold edge bar, one ring.
+   Scoped to `> td`, these three rules repeated every device once per cell: a
+   fill interrupted at each cell's seam, N gold bars for one row, and a ring
+   drawn as a box around every cell — the grid of boxes the approvals queue
+   showed. Both classes ride the kit `<Tr>` in that queue, so the state lands
+   on the `tr` and each device paints once. The combined state keeps the gold
+   bar the pack holds (`#E8B83A`, here `--m-gold`); it used to re-colour the
+   first cell's bar to `--m-accent-active`, a value the pack never uses. The
+   fill stays `!important` because the pack's own `.tr.sel` is, so a row hover
+   cannot wash the selected tint out. */
+.m-money-row-selected {
+  background: var(--m-accent) !important;
   box-shadow: inset 3px 0 0 var(--m-gold);
 }
 
-.m-money-row-current > td {
+.m-money-row-current {
   box-shadow: inset 0 0 0 2px var(--m-focus-ring);
 }
 
-.m-money-row-selected.m-money-row-current > td:first-child {
+.m-money-row-selected.m-money-row-current {
   box-shadow:
-    inset 3px 0 0 var(--m-accent-active),
+    inset 3px 0 0 var(--m-gold),
     inset 0 0 0 2px var(--m-focus-ring);
 }
 
