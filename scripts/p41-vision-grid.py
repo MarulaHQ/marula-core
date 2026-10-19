@@ -77,12 +77,19 @@ def grid(states, out, cols=2, pane_w=560):
 
 
 def main():
+    global CAP
     ap = argparse.ArgumentParser()
     ap.add_argument("--pack", required=True, choices=["surface", "workbench", "both"])
     ap.add_argument("--batch", type=int, default=1)
     ap.add_argument("--per", type=int, default=4, help="comparisons per grid (8 panes = 4 comparisons)")
     ap.add_argument("--out", default=None)
+    # Overridable so a later lane can grid its own captures (Wave 47 lane A13).
+    # The diff it reads is <capture-dir>/../PACK-DIFF.json, written by
+    # p41-pack-diff.py beside the same capture dir.
+    ap.add_argument("--capture-dir", default=None)
     a = ap.parse_args()
+    if a.capture_dir:
+        CAP = a.capture_dir if os.path.isabs(a.capture_dir) else os.path.join(REPO, a.capture_dir)
 
     diff = json.load(open(os.path.join(os.path.dirname(CAP), "PACK-DIFF.json")))
     rows = [r for r in diff["rows"] if r["status"] == "compared"]
