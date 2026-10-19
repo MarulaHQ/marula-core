@@ -35,6 +35,8 @@ export interface SavedSurfaceView {
   view?: string;
   columns: { key: string; visible: boolean; width?: number }[];
   filters: { field: string; op: string; value?: string }[];
+  /** How the clauses combine. Absent means "all", the pack's default. */
+  match?: "all" | "any";
   sort?: { field: string; dir: "asc" | "desc" };
 }
 
@@ -77,6 +79,7 @@ function parseDocument(raw: unknown): Document_ {
           typeof (c as { key?: unknown }).key === "string",
       ),
       filters: Array.isArray(view.filters) ? view.filters : [],
+      match: view.match === "any" ? "any" : view.match === "all" ? "all" : undefined,
       sort: view.sort,
     };
   }

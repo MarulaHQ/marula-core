@@ -1142,9 +1142,24 @@
   min-width: 0;
 }
 
+/* The views keep their one-line shape. A switch that wraps its tabs is read as
+   two rows of controls, and it also steals the width the chips need. */
+.m-data-toolbar-views {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+.m-data-toolbar-views > * {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
 /* The chip row is the only part of the strip that may give ground. */
 .m-data-toolbar-chips {
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -1275,6 +1290,75 @@
 .m-builder-label {
   font-size: 12px;
   color: var(--m-text-secondary);
+}
+
+/* The builder's model controls: how the clauses combine, the link that
+   reproduces the rows, and the live match count with its save action. The
+   pack draws all four in the filter popover (DESIGN-NOTES-tickets.md §6). */
+.m-builder-match {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-builder-seg {
+  display: inline-flex;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  overflow: hidden;
+}
+
+.m-builder-seg button {
+  height: 28px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--m-text-secondary);
+  border: 0;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.m-builder-seg button[aria-pressed="true"] {
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+}
+
+.m-builder-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--m-border);
+  padding-top: 10px;
+}
+
+.m-builder-link-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--m-text-secondary);
+}
+
+.m-builder-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-builder-foot-gap {
+  flex: 1;
+}
+
+.m-builder-count {
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}
+
+.m-builder-count b {
+  color: var(--m-text);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Column list: the table's own order, so hiding and moving are the same
@@ -1413,6 +1497,7 @@
   padding: 0;
   list-style: none;
   min-width: 0;
+  overflow: hidden;
 }
 
 /* The pack's `+ Add filter` chip: dashed, quiet, and always ends the row. */
@@ -1468,6 +1553,10 @@
   font-size: 13px;
   font-weight: 500;
   max-width: 320px;
+  /* The chip gives ground before the strip does: allow the text to shrink and
+     ellipsize, keeping the remove button whole. Without this its content width
+     held the strip open and the Add chip drew over the chip it clipped. */
+  min-width: 0;
 }
 
 .m-filter-chip-text {

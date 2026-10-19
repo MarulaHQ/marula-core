@@ -192,8 +192,8 @@ export const TICKET_FILTER_FIELDS = [
 
 /** Apply the saved clauses client-side. The list payload is one page, so the
  * filter has to run here; the server keeps its own category/priority params. */
-export function matchesClauses(row: TicketRow, clauses: FilterClause[]): boolean {
-  return clauses.every((clause) => {
+export function matchesClause(row: TicketRow, clause: FilterClause): boolean {
+  {
     const actual = (row as unknown as Record<string, unknown>)[clause.field];
     const value = (clause.value ?? "").trim();
     switch (clause.op) {
@@ -231,7 +231,17 @@ export function matchesClauses(row: TicketRow, clauses: FilterClause[]): boolean
       default:
         return true;
     }
-  });
+  }
+}
+
+/** The pack's default: every clause must hold. */
+export function matchesClauses(row: TicketRow, clauses: FilterClause[]): boolean {
+  return clauses.every((clause) => matchesClause(row, clause));
+}
+
+/** The builder's "any": one clause holding is enough. */
+export function matchesAnyClause(row: TicketRow, clauses: FilterClause[]): boolean {
+  return clauses.some((clause) => matchesClause(row, clause));
 }
 
 /** A `Title` sort also moves the number with it, because a sorted list whose

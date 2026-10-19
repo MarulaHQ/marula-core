@@ -220,6 +220,17 @@ export interface FilterTriggerProps {
   triggerLabel?: string;
   label?: string;
   className?: string;
+  /** How the clauses combine. The pack's builder chooses "all" or "any". */
+  match?: "all" | "any";
+  onMatchChange?: (next: "all" | "any") => void;
+  /** Live count of rows the current clauses match. */
+  matchCount?: number;
+  /** Plural noun for the count line, e.g. "tickets". */
+  matchNoun?: string;
+  /** The shareable URL that reproduces the current rows. */
+  shareUrl?: string;
+  /** Persist the current state as this surface's view. */
+  onSaveView?: () => void;
 }
 
 /** The right-hand builder trigger: the pack's `Filter` button and its popover. */
@@ -232,7 +243,14 @@ export function FilterTrigger({
   triggerLabel = "Filter",
   label = "Filters",
   className,
+  match,
+  onMatchChange,
+  matchCount,
+  matchNoun = "rows",
+  shareUrl,
+  onSaveView,
 }: FilterTriggerProps): React.JSX.Element {
+  const [copied, setCopied] = useState(false);
   const [selfOpen, setSelfOpen] = useState(false);
   const isOpen = open ?? selfOpen;
   const setOpen = useCallback(
@@ -305,6 +323,28 @@ export function FilterTrigger({
       </button>
       {isOpen ? (
         <div className="m-filter-builder" role="dialog" aria-label={`Add ${label.toLowerCase()}`}>
+          {match === undefined ? null : (
+            <div className="m-builder-match" role="group" aria-label="Match mode">
+              <span className="m-builder-label">Match</span>
+              <div className="m-builder-seg">
+                <button
+                  type="button"
+                  aria-pressed={match === "all"}
+                  onClick={() => onMatchChange?.("all")}
+                >
+                  all
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={match === "any"}
+                  onClick={() => onMatchChange?.("any")}
+                >
+                  any
+                </button>
+              </div>
+              <span className="m-builder-label">of these</span>
+            </div>
+          )}
           <label className="m-builder-field">
             <span className="m-builder-label">Field</span>
             <select
@@ -368,6 +408,40 @@ export function FilterTrigger({
               Add
             </button>
           </div>
+          {shareUrl === undefined ? null : (
+            <div className="m-builder-link">
+              <span className="m-builder-link-url" title={shareUrl}>
+                {shareUrl.replace(/^https?:\/\//, "")}
+              </span>
+              <button
+                type="button"
+                className="m-toolbar-button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(shareUrl).then(() => setCopied(true));
+                }}
+              >
+                {copied ? "Copied" : "Copy link"}
+              </button>
+            </div>
+          )}
+          {matchCount === undefined ? null : (
+            <div className="m-builder-foot">
+              <span className="m-builder-count">
+                <b>{matchCount}</b> {matchNoun} match
+              </span>
+              <span className="m-builder-foot-gap" />
+              {onSaveView === undefined ? null : (
+                <button type="button" className="m-toolbar-button" onClick={onSaveView}>
+                  Save as view
+                </button>
+              )}
+              {clauses.length === 0 ? null : (
+                <button type="button" className="m-toolbar-button" onClick={() => onChange([])}>
+                  Clear all
+                </button>
+              )}
+            </div>
+          )}
         </div>
       ) : null}
     </div>
