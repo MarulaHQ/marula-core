@@ -45,8 +45,8 @@ function stackEnv() {
 }
 
 const ENV = stackEnv();
-const API = process.env.E2E_API_URL ?? ENV.E2E_API_URL ?? "http://localhost:8080";
-const WEB = process.env.E2E_WEB_URL ?? ENV.E2E_WEB_URL ?? "http://localhost:3000";
+const API = (process.env.E2E_API_URL ?? ENV.E2E_API_URL ?? "http://localhost:8080").replace(/\/+$/, "");
+const WEB = (process.env.E2E_WEB_URL ?? ENV.E2E_WEB_URL ?? "http://localhost:3000").replace(/\/+$/, "");
 
 async function staffTokens() {
   const res = await fetch(`${API}/api/v1/auth/login`, {
@@ -83,7 +83,7 @@ async function staffContext(browser) {
       String(Date.now() + tokens.expires_in * 1000 - 30_000),
     ],
   );
-  return ctx;
+  return { ctx, tokens };
 }
 
 async function portalContext(browser) {
@@ -136,10 +136,35 @@ async function main() {
   );
   await anon.close();
 
-  const staff = await staffContext(browser);
+  const { ctx: staff, tokens: staffTok } = await staffContext(browser);
   const staffPage = await staff.newPage();
   for (const route of ["/today", "/documents", "/welcome", "/onboarding"]) {
     console.log(JSON.stringify(await probe(staffPage, route)));
+  }
+
+  // The wizard CARD (pack states 09–12) only renders before any step is
+  // resolved; the owner seat has three done, so /welcome takes the resumed
+  // path. Stub the summary with every step unresolved to reach the card.
+  const summaryRes = await fetch(`${API}/api/v1/onboarding`, {
+    headers: { authorization: `Bearer ${staffTok.access_token}` },
+  });
+  const stub = await summaryRes.json();
+  const zero = (steps) => {
+    for (const s of steps ?? []) {
+      s.done = false;
+      s.dismissed = false;
+      s.satisfied = false;
+      s.resolved = false;
+    }
+  };
+  zero(stub.org?.steps);
+  for (const m of stub.members ?? []) zero(m.steps);
+  const cardPage = await staff.newPage();
+  await cardPage.route("**/api/v1/onboarding", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(stub) }),
+  );
+  for (const route of ["/welcome", "/onboarding"]) {
+    console.log(JSON.stringify(await probe(cardPage, route)));
   }
   await staff.close();
 
