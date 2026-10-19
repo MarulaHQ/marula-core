@@ -50,7 +50,11 @@ import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, useRequireAuth } from "../../lib/api";
-import { useDataSurfacePrefs, type SavedSurfaceView } from "../../lib/data-surface-prefs";
+import {
+  useDataSurfacePrefs,
+  useSavedChoice,
+  type SavedSurfaceView,
+} from "../../lib/data-surface-prefs";
 import {
   TicketTable,
   type LedgerColumnDef,
@@ -71,6 +75,8 @@ import {
 
 /** The D12 key this surface's display state is saved under. */
 const SURFACE = "tickets.list";
+const TICKET_VIEW_IDS = ["mine", "unassigned", "all"] as const;
+type TicketView = (typeof TICKET_VIEW_IDS)[number];
 /** One page. Deep pages go through the keyset cursor, which a bulk-selection
  *  surface cannot act on without walking every id first. */
 const PAGE_LIMIT = 50;
@@ -175,10 +181,10 @@ export default function TicketsListPage() {
   const prefs = useDataSurfacePrefs();
   const saved = prefs.view(SURFACE);
 
-  const [view, setView] = useState<string>(() => {
-    const savedView = saved.view;
-    return savedView === "unassigned" || savedView === "all" ? savedView : "mine";
-  });
+  /* The document resolves after the first paint; the hook applies the saved
+     view once it does. A bare initialiser read the empty view and kept "mine"
+     for every returning user. */
+  const [view, setView] = useSavedChoice(prefs.ready, saved.view, TICKET_VIEW_IDS, "mine");
   const [rows, setRows] = useState<TicketRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [people, setPeople] = useState<Record<string, string>>({});
@@ -573,7 +579,7 @@ export default function TicketsListPage() {
   );
 
   const onView = useCallback(
-    (id: string) => {
+    (id: TicketView) => {
       setView(id);
       setSelected(new Set());
       persist({ view: id });
@@ -784,6 +790,34 @@ export default function TicketsListPage() {
 
   const mergedCount = shown.filter((r) => r.merged_into_ticket_id !== null && r.merged_into_ticket_id !== undefined).length;
 
+  /* The pack keeps the footer in every state, because that is where the density
+     control lives: a reader who cannot see the table is exactly the one trying
+     to widen it. One element, rendered under whichever body is showing, rather
+     than a footer that exists only once there are rows. */
+  const surfaceFooter = (
+    <SurfaceFooter
+      shown={shown.length}
+      total={viewCounts.all}
+      noun="ticket"
+      onLoadMore={hasMore ? () => void loadMore() : undefined}
+      loadMoreCount={PAGE_LIMIT}
+      loadingMore={loadingMore}
+      density={
+        <DensitySwitch
+          value={prefs.density}
+          onChange={prefs.setDensity}
+          variant="icons"
+          label="Row density"
+        />
+      }
+      trailing={
+        mergedCount === 0 ? undefined : (
+          <span className="tabular-nums">{mergedCount} merged</span>
+        )
+      }
+    />
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
       <SurfaceHeader
@@ -828,7 +862,7 @@ export default function TicketsListPage() {
       <DataToolbar
         label="Ticket list controls"
         views={
-          <Segmented type="single" value={view} onValueChange={(v) => v && onView(v)} aria-label="Ticket views">
+          <Segmented type="single" value={view} onValueChange={(v) => v && onView(v as TicketView)} aria-label="Ticket views">
             {VIEWS.map((v) => (
               <SegmentedItem key={v.id} value={v.id}>
                 {v.label}
@@ -885,6 +919,7 @@ export default function TicketsListPage() {
           <div className="p-4">
             <Spinner label="Loading tickets" />
           </div>
+          {surfaceFooter}
         </Card>
       ) : error !== null ? (
         <Card>
@@ -904,6 +939,7 @@ export default function TicketsListPage() {
               }
             />
           </div>
+          {surfaceFooter}
         </Card>
       ) : shown.length === 0 ? (
         <Card>
@@ -946,6 +982,7 @@ export default function TicketsListPage() {
               />
             )}
           </div>
+          {surfaceFooter}
         </Card>
       ) : (
         <Card className="overflow-hidden">
@@ -1078,36 +1115,7 @@ export default function TicketsListPage() {
                 : undefined
             }
           />
-          {/* The pack's footer (DESIGN-NOTES-tickets.md §3): shown-of-total on
-              the left, the load-more link next to it, then the density control.
-              Older rows are now reachable — the keyset cursor walks the queue —
-              so the strip no longer tells the reader to narrow their view. The
-              J/K/X/↵/F hint chips are absent because those keys are not wired on
-              this surface yet, and a keycap that does nothing is a lie. */}
-          <SurfaceFooter
-            shown={shown.length}
-            total={viewCounts.all}
-            noun="ticket"
-            onLoadMore={hasMore ? () => void loadMore() : undefined}
-            loadMoreCount={PAGE_LIMIT}
-            loadingMore={loadingMore}
-            density={
-              /* The pack's footer control: the density steps live here, saved
-                 per user through the same preference key as Settings, so this
-                 switch and the one in Appearance move together. */
-              <DensitySwitch
-                value={prefs.density}
-                onChange={prefs.setDensity}
-                variant="icons"
-                label="Row density"
-              />
-            }
-            trailing={
-              mergedCount === 0 ? undefined : (
-                <span className="tabular-nums">{mergedCount} merged</span>
-              )
-            }
-          />
+          {surfaceFooter}
         </Card>
       )}
     </div>
