@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.entity_kind, s.entity_id, s.parent_id, s.title,\n                  left(s.body, 512) AS body_excerpt\n           FROM search_index s\n           JOIN unnest($2::text[], $3::uuid[]) AS k(kind, id)\n             ON s.entity_kind = k.kind AND s.entity_id = k.id\n           WHERE s.org_id = $1",
+  "query": "SELECT s.entity_kind, s.entity_id, s.parent_id, s.title,\n                  left(s.body, 512) AS body_excerpt, s.indexed_at\n           FROM search_index s\n           JOIN unnest($2::text[], $3::uuid[]) AS k(kind, id)\n             ON s.entity_kind = k.kind AND s.entity_id = k.id\n           WHERE s.org_id = $1",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,11 @@
         "ordinal": 4,
         "name": "body_excerpt",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "indexed_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -41,8 +46,9 @@
       false,
       true,
       false,
-      null
+      null,
+      false
     ]
   },
-  "hash": "92055f7d075681540177fc5beb688bed6c135c788a8a9905ad2f28888ad268ed"
+  "hash": "acb9b68160f1d952331d020613d4ff49891338dec77ce36563241e44ce161bd1"
 }

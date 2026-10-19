@@ -173,6 +173,10 @@ where
 
 /// One ranked hit. `body_excerpt` is raw text for client-side snippets;
 /// `score` blends FTS rank (title/body weights) with trigram similarity.
+///
+/// `indexed_at` is not part of the client contract. It rides along because it
+/// is the second member of the sort tuple and a keyset cursor is built from
+/// the last row served; the route drops it when it maps to `SearchResult`.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SearchHit {
     pub entity_kind: String,
@@ -180,8 +184,38 @@ pub struct SearchHit {
     pub parent_id: Option<Uuid>,
     pub title: String,
     pub body_excerpt: String,
+    pub indexed_at: chrono::DateTime<chrono::Utc>,
     pub score: f64,
 }
+
+/// Keyset anchor for a ranked walk: the full sort tuple of the last row
+/// served, `(score DESC, indexed_at DESC, entity_id ASC)`.
+///
+/// `entity_id` is the final tiebreaker because score and index time both
+/// collide in real data: a body repeated on thirty rows gives thirty equal
+/// ranks. Without it a cursor could resume inside a tie and skip or repeat
+/// rows.
+///
+/// `indexed_at` and `score` are the only mutable members — re-indexing a row
+/// sets `indexed_at = now()` and can change its score. A row re-indexed
+/// mid-walk can therefore move across the anchor. The walk guarantees no
+/// duplicates and page-1 cost, not a frozen snapshot; a client that needs an
+/// exact set reconciles by id.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SearchCursor {
+    pub score: f64,
+    pub indexed_at: chrono::DateTime<chrono::Utc>,
+    pub entity_id: Uuid,
+}
+
+/// Ranking expression for the ranked page.
+///
+/// `$3` is the query text and `$4` enables the trigram fallback. It is
+/// written once because a cursor compares against it: if the page and the
+/// cursor disagreed by so much as a cast, the anchor row would not compare
+/// equal and a walk would skip a row.
+const SCORE_EXPR: &str = "(coalesce(ts_rank(tsv, websearch_to_tsquery('english', $3)), 0) * 8
+    + CASE WHEN $4 THEN coalesce(similarity(title || ' ' || body, $3), 0) ELSE 0 END)";
 
 /// Ranked page of hits. `kinds` must be non-empty (callers derive it from
 /// the principal's permissions); `trigram` enables the partial-token ILIKE
@@ -203,48 +237,144 @@ pub async fn search_page<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let rows = sqlx::query!(
-        r#"SELECT entity_kind, entity_id, parent_id, title,
-                  left(body, 512) AS body_excerpt,
-                  ts_rank(tsv, websearch_to_tsquery('english', $3)) * 8
-                    + CASE WHEN $4 THEN similarity(title || ' ' || body, $3)
-                           ELSE 0 END AS score
-           FROM search_index
-           WHERE org_id = $1
-             AND entity_kind = ANY($2)
-             AND (
-               tsv @@ websearch_to_tsquery('english', $3)
-               OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')
-             )
-             AND (
-               entity_kind <> 'document'
-               OR $5::uuid IS NULL
-               OR client_scope IS NULL
-               OR client_scope = $5
-             )
-           ORDER BY score DESC, indexed_at DESC, entity_id
-           LIMIT $6 OFFSET $7"#,
-        org_id,
-        kinds,
-        q,
-        trigram,
-        client_id,
-        limit,
-        offset
+    search_page_paged(
+        executor, org_id, kinds, q, trigram, client_id, limit, offset, None,
     )
-    .fetch_all(executor)
-    .await?;
+    .await
+}
+
+/// Ranked page strictly after `cursor` — the keyset walk (docs/perf.md F2).
+///
+/// `offset` has no meaning here: a cursor page resumes from an anchor row,
+/// so it never scans what it is not returning. `None` means the first page,
+/// which is the same as [`search_page`] with offset zero.
+///
+/// This is a separate function rather than another argument on
+/// [`search_page`] so the legacy offset callers — and their regression
+/// tests — keep the exact shape they had. The two mechanisms answer
+/// different clients during the migration window.
+#[allow(clippy::too_many_arguments)]
+pub async fn search_page_after<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    kinds: &[String],
+    q: &str,
+    trigram: bool,
+    client_id: Option<Uuid>,
+    limit: i64,
+    cursor: Option<SearchCursor>,
+) -> DbResult<Vec<SearchHit>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    search_page_paged(
+        executor, org_id, kinds, q, trigram, client_id, limit, 0, cursor,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn search_page_paged<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    kinds: &[String],
+    q: &str,
+    trigram: bool,
+    client_id: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+    cursor: Option<SearchCursor>,
+) -> DbResult<Vec<SearchHit>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    // The score is a computed expression, so the keyset predicate cannot
+    // name a column alias. The ranked rows are wrapped in a subquery and the
+    // predicate compares the projected `score`; the expression itself is
+    // still written once, in `SCORE_EXPR`.
+    let keyset_clause = if cursor.is_some() {
+        r#"WHERE (score < $8
+                  OR (score = $8 AND indexed_at < $9)
+                  OR (score = $8 AND indexed_at = $9 AND entity_id > $10))"#
+    } else {
+        ""
+    };
+    let sql = format!(
+        r#"SELECT entity_kind, entity_id, parent_id, title, body_excerpt, indexed_at, score
+           FROM (
+             SELECT entity_kind, entity_id, parent_id, title,
+                    left(body, 512) AS body_excerpt,
+                    indexed_at,
+                    ({SCORE_EXPR})::double precision AS score
+               FROM search_index
+              WHERE org_id = $1
+                AND entity_kind = ANY($2)
+                AND (
+                  tsv @@ websearch_to_tsquery('english', $3)
+                  OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')
+                )
+                AND (
+                  entity_kind <> 'document'
+                  OR $5::uuid IS NULL
+                  OR client_scope IS NULL
+                  OR client_scope = $5
+                )
+           ) ranked
+           {keyset_clause}
+           ORDER BY score DESC, indexed_at DESC, entity_id
+           LIMIT $6 OFFSET $7"#
+    );
+    let mut query = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(kinds)
+        .bind(q)
+        .bind(trigram)
+        .bind(client_id)
+        .bind(limit)
+        .bind(offset);
+    if let Some(anchor) = cursor {
+        query = query
+            .bind(anchor.score)
+            .bind(anchor.indexed_at)
+            .bind(anchor.entity_id);
+    }
+    let rows = query.fetch_all(executor).await?;
+    use sqlx::Row as _;
     Ok(rows
         .into_iter()
         .map(|row| SearchHit {
-            entity_kind: row.entity_kind,
-            entity_id: row.entity_id,
-            parent_id: row.parent_id,
-            title: row.title,
-            body_excerpt: row.body_excerpt.unwrap_or_default(),
-            score: row.score.unwrap_or(0.0),
+            entity_kind: row.get("entity_kind"),
+            entity_id: row.get("entity_id"),
+            parent_id: row.get("parent_id"),
+            title: row.get("title"),
+            body_excerpt: row.get("body_excerpt"),
+            indexed_at: row.get("indexed_at"),
+            score: row.get("score"),
         })
         .collect())
+}
+
+/// How far a count scans before it reports "at least this many".
+///
+/// The exact number is pagination metadata, and computing it means scanning
+/// the whole predicate — the second half of the OFFSET debt this lane
+/// retired. A cap turns that into "is the result set bigger than a page or
+/// two", which is all the UI uses it for.
+pub const SEARCH_COUNT_CAP: i64 = 1_000;
+
+/// A possibly-capped result count. `capped` says the real number is at least
+/// `total`; it is false only when the whole predicate was counted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchCount {
+    pub total: i64,
+    pub capped: bool,
+}
+
+fn count_from(n: i64, cap: i64) -> SearchCount {
+    SearchCount {
+        total: n.min(cap),
+        capped: n > cap,
+    }
 }
 
 /// Total matching rows for the same predicate — powers result counts and
@@ -256,34 +386,42 @@ pub async fn search_count<'e, E>(
     q: &str,
     trigram: bool,
     client_id: Option<Uuid>,
-) -> DbResult<i64>
+    cap: i64,
+) -> DbResult<SearchCount>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    // `cap + 1` is what distinguishes "exactly cap" from "more than cap"
+    // without counting the rest of the predicate.
     let row = sqlx::query!(
         r#"SELECT COUNT(*) AS total
-           FROM search_index
-           WHERE org_id = $1
-             AND entity_kind = ANY($2)
-             AND (
-               tsv @@ websearch_to_tsquery('english', $3)
-               OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')
-             )
-             AND (
-               entity_kind <> 'document'
-               OR $5::uuid IS NULL
-               OR client_scope IS NULL
-               OR client_scope = $5
-             )"#,
+           FROM (
+             SELECT 1
+               FROM search_index
+              WHERE org_id = $1
+                AND entity_kind = ANY($2)
+                AND (
+                  tsv @@ websearch_to_tsquery('english', $3)
+                  OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')
+                )
+                AND (
+                  entity_kind <> 'document'
+                  OR $5::uuid IS NULL
+                  OR client_scope IS NULL
+                  OR client_scope = $5
+                )
+              LIMIT $6
+           ) capped"#,
         org_id,
         kinds,
         q,
         trigram,
-        client_id
+        client_id,
+        cap.saturating_add(1)
     )
     .fetch_one(executor)
     .await?;
-    Ok(row.total.unwrap_or(0))
+    Ok(count_from(row.total.unwrap_or(0), cap))
 }
 
 // --- vector leg (migration 0062) ---------------------------------------------
@@ -559,7 +697,7 @@ where
     let ids: Vec<Uuid> = keys.iter().map(|k| k.entity_id).collect();
     let rows = sqlx::query!(
         r#"SELECT s.entity_kind, s.entity_id, s.parent_id, s.title,
-                  left(s.body, 512) AS body_excerpt
+                  left(s.body, 512) AS body_excerpt, s.indexed_at
            FROM search_index s
            JOIN unnest($2::text[], $3::uuid[]) AS k(kind, id)
              ON s.entity_kind = k.kind AND s.entity_id = k.id
@@ -585,6 +723,7 @@ where
             parent_id: row.parent_id,
             title: row.title,
             body_excerpt: row.body_excerpt.unwrap_or_default(),
+            indexed_at: row.indexed_at,
             score: scores
                 .get(&(key.entity_kind.clone(), key.entity_id))
                 .copied()
@@ -645,13 +784,15 @@ pub async fn search_hybrid_count<'e, E>(
     q: &str,
     trigram: bool,
     client_id: Option<Uuid>,
-) -> DbResult<i64>
+    cap: i64,
+) -> DbResult<SearchCount>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     // The vector leg has no text predicate — every embedded row of the
     // permitted kinds is a vector candidate — so the union is exactly:
-    // lexical matches ∪ embedded rows of those kinds.
+    // lexical matches ∪ embedded rows of those kinds. The cap bounds the
+    // union scan the same way `search_count` bounds the lexical one.
     let row = sqlx::query!(
         r#"SELECT COUNT(*) AS total FROM (
              SELECT entity_kind, entity_id FROM search_index
@@ -680,14 +821,16 @@ where
                        AND (s.client_scope IS NULL OR s.client_scope = $5)
                   )
                 )
+             LIMIT $6
            ) u"#,
         org_id,
         kinds,
         q,
         trigram,
-        client_id
+        client_id,
+        cap.saturating_add(1)
     )
     .fetch_one(executor)
     .await?;
-    Ok(row.total.unwrap_or(0))
+    Ok(count_from(row.total.unwrap_or(0), cap))
 }

@@ -11,6 +11,8 @@
 |---|---|---|
 | Ticket list (primary reads) | **p95 < 150ms @ 50k tickets/org** | `perf-smoke` CI job (`.github/workflows/ci.yml`) via `measure::assert_budget` |
 | Deep pagination, keyset (`cursor`, depth 40k) | same primary budget — keyset IS budgeted since Wave 15 lane 3 | same smoke (the `deep_page_keyset40k` mix) |
+| Search deep pagination, keyset (`cursor`, depth 40k) | same primary budget — Wave 52 lane P5 | same smoke (the `search_keyset40k` mix) |
+| Search deep pagination, legacy `OFFSET 40000` | 400ms regression tripwire (not a product budget) | same smoke (the `search_deep_offset40k` mix) |
 | Deep pagination, legacy `OFFSET 40000` | 400ms regression tripwire (not a product budget) | same smoke. See the finding below |
 | HTTP capacity (saturated closed-loop) | p95 ≤ 150ms @ 50k, concurrency 8, keyset mix | `Nightly perf` job (`.github/workflows/nightly.yml.disabled`) via `perf-harness load --budget-ms` |
 | Scale harness | 100k tickets/org, reproducible | `perf-harness seed/load` (nightly: measurement + 600ms tripwire, not gated) |
@@ -41,7 +43,10 @@ Test-infra crate, AGPL, not part of the API surface. Four pieces:
   commit`) through the `marula_app` pool under RLS, over five request
   mixes (page 1, priority p1, assignee, client, deep page), 5 warmups +
   40 timed runs, p50/p95/p99/max per mix, plus `EXPLAIN (ANALYZE,
-  BUFFERS)` for the page-1 mix. `perf-harness smoke` = seed + measure +
+  BUFFERS)` for the page-1 mix. Since Wave 52 lane P5 it also runs the search
+  path (`search_page` / `search_page_after`) over three mixes — page 1, the
+  legacy deep offset, and the keyset walk at the same depth — against one
+  indexed row per seeded ticket. `perf-harness smoke` = seed + measure +
   budget assert (what CI runs).
 - **HTTP load runner** (`perf-harness load`): logs the seeded harness user
   in through the real `POST /api/auth/login`, then drives
@@ -144,6 +149,34 @@ with the keyset deep-page mix in place of the offset leg:
 | 1 | 42 rps | 29.2ms | **31.2ms** | 36.1ms | 212ms |
 | 4 | 170 rps | 29.0ms | **32.2ms** | 36.6ms | 123ms |
 | 8 (saturated) | 259 rps | 32.2ms | **49.2ms** | 64.9ms | 184ms |
+
+### Wave 52 lane P5 (`p52-search-keyset`, 2026-10-19) — search after keyset
+
+Same 50k fixture (one indexed row per ticket, `network` in every title so a
+deep page is a real deep page), release build, five warmups and forty timed
+runs per mix. Search had the ticket list's old shape: `LIMIT/OFFSET` plus a
+full-predicate `COUNT(*)`. It now walks a cursor and counts a bounded floor.
+
+| Mix | p50 | p95 |
+|---|---|---|
+| search_page1 | 35.1ms | 39.8ms |
+| search_deep_offset40k (unchanged legacy) | 54.8ms | 57.8ms |
+| **search_keyset40k** | **16.6ms** | **23.0ms** |
+
+A deep search page is 2.5× cheaper than offset at the same depth, and it
+lands below the first page: the anchor predicate prunes by score before the
+sort, so a cursor page orders roughly a quarter of the corpus instead of all
+of it. Page 1 is the most expensive search shape at 39.8ms p95, because every
+matching row is scored and ordered — that is the cost of relevance ranking,
+not pagination.
+
+The exact count is gone with it: `total` is now a floor capped at 1,000 with
+`total_capped` saying so, which bounds the count query at 1,001 rows for
+`search` instead of scanning the predicate a second time.
+
+In the same run the ticket mixes held their previous numbers (page 1 at
+34.4ms p95, legacy offset at 135.1ms, keyset at 26.8ms), which is the
+control: this lane changed search only.
 
 ## 4. Findings (measure-first output. Product fixes ride later perf lanes)
 

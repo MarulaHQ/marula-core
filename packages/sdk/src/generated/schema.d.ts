@@ -26919,6 +26919,14 @@ export interface components {
              *     other kind is untouched.
              */
             client_id?: string | null;
+            /**
+             * @description Opaque keyset cursor from the previous page's `next_cursor`
+             *     (docs/perf.md F2). When present the walk resumes strictly after the
+             *     anchor row and `offset` is ignored — the two mechanisms answer
+             *     different callers, and the cursor is the one that stays at page-1
+             *     cost as depth grows.
+             */
+            cursor?: string | null;
             /** Format: int64 */
             limit?: number;
             /** Format: int64 */
@@ -26935,6 +26943,13 @@ export interface components {
             kinds: string[];
             /** Format: int64 */
             limit: number;
+            /**
+             * @description Present when this page is full and the walk may continue. Feed it
+             *     back as `cursor`. It is absent on the fused (embedding) path: RRF
+             *     scores cannot be resumed cheaply, so that path keeps offset paging
+             *     and never hands out a cursor it cannot honour.
+             */
+            next_cursor?: string | null;
             /** Format: int64 */
             offset: number;
             /** @description The trimmed query actually executed. */
@@ -26942,9 +26957,15 @@ export interface components {
             results: components["schemas"]["SearchResult"][];
             /**
              * Format: int64
-             * @description Total matches across all permitted kinds.
+             * @description Matches across all permitted kinds, counted up to a cap. Compare with
+             *     `total_capped` before showing it as an exact number.
              */
             total: number;
+            /**
+             * @description True when the predicate matched more rows than the count scanned, so
+             *     `total` is a floor rather than the exact size.
+             */
+            total_capped: boolean;
         };
         SearchResult: {
             /** Format: uuid */
@@ -50400,6 +50421,14 @@ export interface operations {
                 client_id?: string | null;
                 limit?: number;
                 offset?: number;
+                /**
+                 * @description Opaque keyset cursor from the previous page's `next_cursor`
+                 *     (docs/perf.md F2). When present the walk resumes strictly after the
+                 *     anchor row and `offset` is ignored — the two mechanisms answer
+                 *     different callers, and the cursor is the one that stays at page-1
+                 *     cost as depth grows.
+                 */
+                cursor?: string | null;
             };
             header?: never;
             path?: never;

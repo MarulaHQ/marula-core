@@ -253,6 +253,12 @@ pub async fn measure_ticket_list(
 
     let explain_default = explain_page1(app, org_id, user_id).await;
 
+    // Search mixes (Wave 52 lane P5): the same three shapes the ticket list
+    // measures, over the indexed corpus the seeder now writes. They share a
+    // budget namespace with the ticket mixes because the claim this lane
+    // makes — "keyset is flat at depth" — has to hold for search too.
+    results.extend(measure_search(app, org_id, user_id, warmup_runs, timed_runs).await?);
+
     Ok(MeasureReport {
         org_id,
         ticket_count,
@@ -262,6 +268,128 @@ pub async fn measure_ticket_list(
         mixes: results,
         explain_default,
     })
+}
+
+/// The query the search mixes run. One common term ("network") is in every
+/// seeded title, so a deep page is a deep page rather than an empty one.
+const SEARCH_Q: &str = "network";
+const SEARCH_DEPTH: i64 = 40_000;
+
+/// One search request through the real query path: the endpoint's own
+/// `search_page` / `search_page_after`, inside the same RLS-scoped
+/// transaction the handler opens.
+async fn one_search_request(
+    tx: &mut Transaction<'_, Postgres>,
+    org_id: Uuid,
+    user_id: Uuid,
+    limit: i64,
+    offset: i64,
+    cursor: Option<core_db::search::SearchCursor>,
+) -> anyhow::Result<usize> {
+    core_db::set_org_and_user(tx, org_id, user_id)
+        .await
+        .context("set org GUC")?;
+    let kinds = ["ticket".to_string()];
+    let hits = match cursor {
+        Some(anchor) => {
+            core_db::search::search_page_after(
+                &mut **tx,
+                org_id,
+                &kinds,
+                SEARCH_Q,
+                false,
+                None,
+                limit,
+                Some(anchor),
+            )
+            .await?
+        }
+        None => {
+            core_db::search::search_page(
+                &mut **tx, org_id, &kinds, SEARCH_Q, false, None, limit, offset,
+            )
+            .await?
+        }
+    };
+    Ok(hits.len())
+}
+
+/// Search mixes: first page, the legacy deep offset, and the keyset walk at
+/// the same depth. The anchor is resolved once, untimed, through the very
+/// offset scan the cursor exists to avoid.
+async fn measure_search(
+    app: &PgPool,
+    org_id: Uuid,
+    user_id: Uuid,
+    warmup_runs: usize,
+    timed_runs: usize,
+) -> anyhow::Result<Vec<MixResult>> {
+    const LIMIT: i64 = 25;
+    let mut out = Vec::new();
+
+    for (name, offset) in [
+        ("search_page1", 0_i64),
+        ("search_deep_offset40k", SEARCH_DEPTH),
+    ] {
+        for _ in 0..warmup_runs {
+            let mut tx = app.begin().await?;
+            one_search_request(&mut tx, org_id, user_id, LIMIT, offset, None).await?;
+            tx.commit().await?;
+        }
+        let mut samples = Vec::with_capacity(timed_runs);
+        for _ in 0..timed_runs {
+            let start = Instant::now();
+            let mut tx = app.begin().await?;
+            let rows = one_search_request(&mut tx, org_id, user_id, LIMIT, offset, None).await?;
+            tx.commit().await?;
+            anyhow::ensure!(rows > 0, "mix '{name}' returned an empty page");
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        out.push(summarize(name, &samples));
+    }
+
+    // Anchor at the same depth the offset mix walks.
+    let anchor = {
+        let mut tx = app.begin().await?;
+        core_db::set_org_and_user(&mut tx, org_id, user_id)
+            .await
+            .context("set org GUC (search keyset anchor)")?;
+        let hits = core_db::search::search_page(
+            &mut *tx,
+            org_id,
+            &["ticket".to_string()],
+            SEARCH_Q,
+            false,
+            None,
+            1,
+            SEARCH_DEPTH,
+        )
+        .await?;
+        hits.first().map(|h| core_db::search::SearchCursor {
+            score: h.score,
+            indexed_at: h.indexed_at,
+            entity_id: h.entity_id,
+        })
+    };
+    if let Some(anchor) = anchor {
+        for _ in 0..warmup_runs {
+            let mut tx = app.begin().await?;
+            one_search_request(&mut tx, org_id, user_id, LIMIT, 0, Some(anchor)).await?;
+            tx.commit().await?;
+        }
+        let mut samples = Vec::with_capacity(timed_runs);
+        for _ in 0..timed_runs {
+            let start = Instant::now();
+            let mut tx = app.begin().await?;
+            let rows = one_search_request(&mut tx, org_id, user_id, LIMIT, 0, Some(anchor)).await?;
+            tx.commit().await?;
+            anyhow::ensure!(rows > 0, "mix 'search_keyset40k' returned an empty page");
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        out.push(summarize("search_keyset40k", &samples));
+    }
+
+    Ok(out)
 }
 
 /// Fails when a mix's p95 exceeds its budget — the gate the smoke test and
@@ -276,14 +404,20 @@ pub async fn measure_ticket_list(
 /// the product budget.
 pub fn assert_budget(report: &MeasureReport, budget_ms: f64) -> anyhow::Result<()> {
     for mix in &report.mixes {
-        let mix_budget = if mix.name == "deep_page_offset40k" {
+        // The legacy OFFSET shapes keep regression coverage on their own
+        // headroom budget: clients on that path are mid-migration, and the
+        // product budget belongs to the keyset walk (F2).
+        let mix_budget = if matches!(
+            mix.name.as_str(),
+            "deep_page_offset40k" | "search_deep_offset40k"
+        ) {
             DEEP_PAGE_BUDGET_MS
         } else {
             budget_ms
         };
         anyhow::ensure!(
             mix.p95_ms <= mix_budget,
-            "ticket-list p95 budget exceeded: mix '{}' p95 {:.1}ms > {:.1}ms budget \
+            "p95 budget exceeded: mix '{}' p95 {:.1}ms > {:.1}ms budget \
              (@{} tickets/org)",
             mix.name,
             mix.p95_ms,

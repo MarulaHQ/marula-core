@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) AS total FROM (\n             SELECT entity_kind, entity_id FROM search_index\n              WHERE org_id = $1 AND entity_kind = ANY($2)\n                AND (\n                  tsv @@ websearch_to_tsquery('english', $3)\n                  OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')\n                )\n                AND (\n                  entity_kind <> 'document'\n                  OR $5::uuid IS NULL\n                  OR client_scope IS NULL\n                  OR client_scope = $5\n                )\n             UNION\n             SELECT e.entity_kind, e.entity_id FROM search_embeddings e\n              WHERE e.org_id = $1 AND e.entity_kind = ANY($2)\n                AND (\n                  e.entity_kind <> 'document'\n                  OR $5::uuid IS NULL\n                  OR EXISTS (\n                    SELECT 1 FROM search_index s\n                     WHERE s.org_id = e.org_id\n                       AND s.entity_kind = e.entity_kind\n                       AND s.entity_id = e.entity_id\n                       AND (s.client_scope IS NULL OR s.client_scope = $5)\n                  )\n                )\n             LIMIT $6\n           ) u",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Text",
+        "Bool",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b516d44062de81bd83f80e9035a01dc88dc105083fa3254b1602ab498cd61e57"
+}

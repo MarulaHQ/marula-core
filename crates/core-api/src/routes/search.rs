@@ -74,10 +74,52 @@ pub struct SearchQuery {
     pub limit: i64,
     #[serde(default)]
     pub offset: i64,
+    /// Opaque keyset cursor from the previous page's `next_cursor`
+    /// (docs/perf.md F2). When present the walk resumes strictly after the
+    /// anchor row and `offset` is ignored — the two mechanisms answer
+    /// different callers, and the cursor is the one that stays at page-1
+    /// cost as depth grows.
+    pub cursor: Option<String>,
 }
 
 fn default_limit() -> i64 {
     25
+}
+
+/// Keyset cursor codec: opaque URL-safe base64 of
+/// `v1|{score}|{indexed_at}|{entity_id}`. Same shape and reasoning as the
+/// ticket list's codec (`routes/tickets.rs`): the version field lets the
+/// tuple evolve without silently misreading a cursor a client is holding
+/// from an older build.
+const CURSOR_VERSION: &str = "v1";
+
+fn encode_cursor(c: core_db::search::SearchCursor) -> String {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+    use base64::Engine;
+    B64.encode(
+        format!(
+            "{CURSOR_VERSION}|{}|{}|{}",
+            c.score,
+            c.indexed_at.to_rfc3339(),
+            c.entity_id
+        )
+        .as_bytes(),
+    )
+}
+
+fn decode_cursor(raw: &str) -> Option<core_db::search::SearchCursor> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+    use base64::Engine;
+    let text = String::from_utf8(B64.decode(raw.as_bytes()).ok()?).ok()?;
+    let parts: Vec<&str> = text.split('|').collect();
+    if parts.len() != 4 || parts[0] != CURSOR_VERSION {
+        return None;
+    }
+    Some(core_db::search::SearchCursor {
+        score: parts[1].parse().ok()?,
+        indexed_at: parts[2].parse().ok()?,
+        entity_id: parts[3].parse().ok()?,
+    })
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -98,12 +140,21 @@ pub struct SearchResult {
 pub struct SearchResponse {
     /// The trimmed query actually executed.
     pub query: String,
-    /// Total matches across all permitted kinds.
+    /// Matches across all permitted kinds, counted up to a cap. Compare with
+    /// `total_capped` before showing it as an exact number.
     pub total: i64,
+    /// True when the predicate matched more rows than the count scanned, so
+    /// `total` is a floor rather than the exact size.
+    pub total_capped: bool,
     /// Kinds the principal may see, mirrored into the query filter.
     pub kinds: Vec<String>,
     pub limit: i64,
     pub offset: i64,
+    /// Present when this page is full and the walk may continue. Feed it
+    /// back as `cursor`. It is absent on the fused (embedding) path: RRF
+    /// scores cannot be resumed cheaply, so that path keeps offset paging
+    /// and never hands out a cursor it cannot honour.
+    pub next_cursor: Option<String>,
     pub results: Vec<SearchResult>,
 }
 
@@ -154,9 +205,11 @@ pub async fn search(
         return Ok(Json(SearchResponse {
             query: trimmed,
             total: 0,
+            total_capped: false,
             kinds: Vec::new(),
             limit: q.limit.clamp(1, 50),
             offset: q.offset.max(0),
+            next_cursor: None,
             results: Vec::new(),
         }));
     }
@@ -182,12 +235,28 @@ pub async fn search(
     let trigram = trimmed.chars().count() >= 3;
     let limit = q.limit.clamp(1, 50);
     let offset = q.offset.max(0);
+    let anchor = match q.cursor.as_deref() {
+        None => None,
+        Some(raw) => Some(decode_cursor(raw).ok_or_else(|| {
+            ApiError::Validation(
+                "invalid search cursor: expected the opaque value from a previous next_cursor"
+                    .to_string(),
+            )
+        })?),
+    };
 
     // Vector leg (§4.5): embed the query through the org's BYOK provider.
     // None mode / provider failure ⇒ None ⇒ the legacy lexical path runs
     // byte-identically; search never 5xxs because AI is unconfigured or down.
-    let query_embedding =
-        crate::ai::embed_search_query(&state, authed.principal.user.org_id, &trimmed).await;
+    //
+    // A cursor walk skips the embedding call: RRF scores are rank-based and
+    // cannot be resumed from an anchor, so a page carrying a cursor is
+    // lexical by construction (see `next_cursor` on the response).
+    let query_embedding = if anchor.is_some() {
+        None
+    } else {
+        crate::ai::embed_search_query(&state, authed.principal.user.org_id, &trimmed).await
+    };
 
     // RLS-scoped read (pool carries no app.org_id GUC): one tx around
     // both queries.
@@ -199,7 +268,7 @@ pub async fn search(
     )
     .await
     .map_err(ApiError::from)?;
-    let (hits, total) = match &query_embedding {
+    let (hits, count, allows_cursor) = match &query_embedding {
         Some(embedding) => (
             core_db::search::search_hybrid_page(
                 &mut tx,
@@ -220,40 +289,84 @@ pub async fn search(
                 &trimmed,
                 trigram,
                 q.client_id,
+                core_db::search::SEARCH_COUNT_CAP,
             )
             .await?,
+            // The fused path pages over a bounded candidate window; it never
+            // hands out a cursor it could not resume.
+            false,
         ),
-        None => (
-            core_db::search::search_page(
+        None => {
+            // No cursor: the legacy offset call, byte-identical to what it
+            // was. With a cursor: resume strictly after the anchor. The
+            // first offset page may hand the client a cursor, which is how a
+            // walk migrates to keyset after one legacy request.
+            let hits = match anchor {
+                Some(anchor) => {
+                    core_db::search::search_page_after(
+                        &mut *tx,
+                        authed.principal.user.org_id,
+                        &kinds,
+                        &trimmed,
+                        trigram,
+                        q.client_id,
+                        limit,
+                        Some(anchor),
+                    )
+                    .await?
+                }
+                None => {
+                    core_db::search::search_page(
+                        &mut *tx,
+                        authed.principal.user.org_id,
+                        &kinds,
+                        &trimmed,
+                        trigram,
+                        q.client_id,
+                        limit,
+                        offset,
+                    )
+                    .await?
+                }
+            };
+            let count = core_db::search::search_count(
                 &mut *tx,
                 authed.principal.user.org_id,
                 &kinds,
                 &trimmed,
                 trigram,
                 q.client_id,
-                limit,
-                offset,
+                core_db::search::SEARCH_COUNT_CAP,
             )
-            .await?,
-            core_db::search::search_count(
-                &mut *tx,
-                authed.principal.user.org_id,
-                &kinds,
-                &trimmed,
-                trigram,
-                q.client_id,
-            )
-            .await?,
-        ),
+            .await?;
+            (hits, count, true)
+        }
     };
     tx.commit().await.map_err(ApiError::from)?;
 
+    // A cursor on a full page is the next anchor; a short page ends the
+    // walk. `indexed_at` rides on the hit because it is the sort tuple's
+    // second member, and the codec drops it from the client's view.
+    let next_cursor = if allows_cursor && hits.len() as i64 >= limit {
+        hits.last().map(|h| {
+            encode_cursor(core_db::search::SearchCursor {
+                score: h.score,
+                indexed_at: h.indexed_at,
+                entity_id: h.entity_id,
+            })
+        })
+    } else {
+        None
+    };
+
     Ok(Json(SearchResponse {
         query: trimmed,
-        total,
+        total: count.total,
+        total_capped: count.capped,
         kinds,
         limit,
         offset,
+        next_cursor,
         results: hits
             .into_iter()
             .map(|h| SearchResult {
