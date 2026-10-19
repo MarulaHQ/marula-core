@@ -209,7 +209,6 @@ const TITLE_BLOCK_DEBT = [
   "apps/web/app/share/page.tsx",
   "apps/web/app/stock/[id]/page.tsx",
   "apps/web/app/tickets/[id]/page.tsx",
-  "apps/web/app/today/page.tsx",
 ];
 
 /* ------------------------------------------------------------------------- */
