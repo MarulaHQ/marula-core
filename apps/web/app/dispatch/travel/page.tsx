@@ -24,6 +24,7 @@ import { rejectionText } from "../../../lib/error-copy";
 import { useTimeFormat } from "../../../lib/use-time-format";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { DispatchFooter } from "../dispatch-footer";
 
 type TravelDraftView = components["schemas"]["TravelDraftView"] & {
   /** Wave 32 lane 7 links; the SDK gains them on the next openapi re-pin. */
@@ -829,6 +830,7 @@ export default function TravelDraftsPage() {
           </aside>
         ) : null}
       </div>
+      <DispatchFooter />
       {notice !== null && (
         <div role="status" className="dp-ovc" style={{ position: "fixed", left: "50%", bottom: 84, transform: "translateX(-50%)", width: "auto", maxWidth: "calc(100vw - 32px)", background: "var(--m-ink)", color: "var(--m-cream)", zIndex: 100 }} data-testid="toast">
           {notice}

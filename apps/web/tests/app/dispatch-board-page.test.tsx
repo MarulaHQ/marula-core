@@ -99,9 +99,13 @@ describe("/dispatch board", () => {
     // buttons.
     const footer = screen.getByTestId("dispatch-footer");
     expect(footer).toHaveClass("m-surface-footer");
-    expect(document.documentElement.getAttribute("data-density")).toBe("comfortable");
+    // The step is the account's (density.ts, D7) rather than this page's: with
+    // no stored preference the control starts on the Marula default, and
+    // picking a step writes the document attribute every control reads.
+    expect(screen.getByRole("radio", { name: "Comfortable", checked: true })).toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: "Compact" }));
     expect(document.documentElement.getAttribute("data-density")).toBe("compact");
+    expect(await screen.findByRole("radio", { name: "Compact", checked: true })).toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: "Dense" }));
     expect(document.documentElement.getAttribute("data-density")).toBe("dense");
     cleanup();

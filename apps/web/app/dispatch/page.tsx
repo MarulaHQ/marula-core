@@ -18,7 +18,8 @@
 "use client";
 
 import "./dispatch.css";
-import { Badge, ColumnChooser, DensitySwitch, ExportControl, type ChoosableColumn as ChooserColumn } from "@marula-core/ui";
+import { Badge, ColumnChooser, ExportControl, useDensity, type ChoosableColumn as ChooserColumn } from "@marula-core/ui";
+import { DispatchFooter } from "./dispatch-footer";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -160,7 +161,11 @@ function MonitorIcon({ size = 13 }: { size?: number }) {
 
 export default function DispatchBoardPage() {
   const auth = useRequireAuth();
-  const [density, setDensityState] = useState<"comfortable" | "compact" | "dense">("comfortable");
+  // The density step comes from the document attribute the whole app shares
+  // (`density.ts`, D7): the footer's switch writes it, AppearanceSync applies
+  // the account's saved step, and the board reads the same value for the queue
+  // card's third line.
+  const density = useDensity();
   const [ai, setAi] = useState(false);
   const [view, setView] = useState<View>("day");
   const [jobs, setJobs] = useState<BoardJob[]>(seedJobs);
@@ -220,13 +225,6 @@ export default function DispatchBoardPage() {
       setJobs(seedWithCollision());
     }
   }, []);
-
-  useEffect(() => {
-    document.documentElement.setAttribute("data-density", density);
-    return () => {
-      document.documentElement.removeAttribute("data-density");
-    };
-  }, [density]);
 
   // The AI plan editor is gated on the org's own `ai.features_enabled` setting:
   // no grant, no trace (§B7 — the button only exists where AI is switched on).
@@ -1888,54 +1886,6 @@ export default function DispatchBoardPage() {
     );
   }
 
-  // ---- footer -----------------------------------------------------------
-  // The pack's board footer (DESIGN-NOTES.md §B2: legend, density control,
-  // keyboard hints) worn on the template's own strip. `.m-surface-footer` is
-  // what every other surface's footer carries, and the audit that sent this
-  // lane here reads exactly that root to answer "is a footer present" — the
-  // private `.dp-ft` name it used before was invisible to it. It is composed
-  // from the strip's parts rather than `SurfaceFooter` because a board has no
-  // rows to count and that component's count and load-more shape belongs to
-  // list surfaces. The density control is the kit's `DensitySwitch` — the
-  // pack's own footer control (§B9), identical to every ledger footer — where
-  // this page used to hand-roll a text segment.
-  const renderFooter = (
-    <div className="m-surface-footer dp-ft" role="group" aria-label="Board footer" data-testid="dispatch-footer">
-      <span className="dp-legend">
-        <span>
-          <LocationIcon size={14} /> On site
-        </span>
-        <span>
-          <MonitorIcon size={14} /> Remote
-        </span>
-        <span>
-          <i className="dp-hatchsw" /> Travel
-        </span>
-        <span>
-          <StackIcon size={14} /> Double-booked
-        </span>
-        {ai && (
-          <span>
-            <i className="dp-propsw" /> Proposed
-          </span>
-        )}
-      </span>
-      <span className="m-surface-footer-gap" />
-      <DensitySwitch value={density} onChange={setDensityState} label="Density" />
-      <span className="dp-kbd">←</span>
-      <span className="dp-kbd">→</span>
-      <span className="dp-kbd">↑</span>
-      <span className="dp-kbd">↓</span>
-      <span>move</span>
-      <span className="dp-kbd">↵</span>
-      <span>pick up, drop</span>
-      <span className="dp-kbd">S</span>
-      <span>split</span>
-      <span className="dp-kbd">Esc</span>
-      <span>cancel</span>
-    </div>
-  );
-
   // ---- settings modal ---------------------------------------------------
   const renderSettings =
     settings === true ? (
@@ -2026,7 +1976,7 @@ export default function DispatchBoardPage() {
       {renderToolbar}
       {renderBanner}
       <div className="dp-view">{view === "week" ? renderWeek() : view === "queue" ? renderQueueTable() : renderBoard()}</div>
-      {renderFooter}
+      <DispatchFooter ai={ai} />
       {renderSettings}
       {toastMsg && (
         <div role="status" className="dp-ovc" style={{ position: "fixed", left: "50%", bottom: 84, transform: "translateX(-50%)", width: "auto", maxWidth: "calc(100vw - 32px)", background: "var(--m-ink)", color: "var(--m-cream)", zIndex: 100 }} data-testid="toast">

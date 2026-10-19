@@ -24,6 +24,7 @@ import { useCallback, useEffect, useState } from "react";
 import { dur } from "../../../lib/dispatch-model";
 import { api, useRequireAuth } from "../../../lib/api";
 import { CapacityForecastPanel } from "./capacity-forecast-panel";
+import { DispatchFooter } from "../dispatch-footer";
 import { PhaseAllocationsPanel } from "./phase-allocations-panel";
 import { WorkNextPanel } from "./work-next-panel";
 
@@ -407,6 +408,7 @@ export default function DispatchPlanningPage() {
           Travel and mileage drafts live on <Link href="/dispatch/travel" className="dp-linkbtn">/dispatch/travel</Link>.
         </p>
       </div>
+      <DispatchFooter />
     </div>
   );
 }
