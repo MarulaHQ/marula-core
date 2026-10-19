@@ -55,6 +55,15 @@ graphify-out/
 
 graphify-out
 
+# Archify diagram output (agent-generated, regenerable). The skill writes one
+# timestamped folder per request: the authoring candidate, the rendered HTML
+# (hundreds of KB), the finalize/delivery/browser-check receipts, and any
+# `review-N/` reruns. Same rule as `graphify-out/` and `website/public/docs/`:
+# machine output is not tracked. A diagram worth keeping is promoted by hand
+# (candidate plus HTML) into `design/` or `docs/reference/` and reviewed like
+# any other artifact, so the repo carries the ones we mean to keep.
+.archify/
+
 # Stale pre-DX10 build dir (accidentally committed; artifacts live in .kilo/target-shared)
 target-dx11/
 lockfile: package-lock.json
