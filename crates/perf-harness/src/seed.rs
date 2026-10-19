@@ -204,6 +204,28 @@ pub async fn seed(admin: &PgPool, scale: &SeedScale) -> anyhow::Result<SeedRepor
     .execute(&mut *tx)
     .await?;
 
+    // Search corpus (Wave 52 lane P5): one indexed row per ticket, the shape
+    // the indexer writes. "network" is in every title, so a deep page is a
+    // real deep page; `repeat` varies the body so scores are not all equal,
+    // and the rows that do tie exercise the cursor's `(indexed_at,
+    // entity_id)` tail.
+    sqlx::query(
+        r#"INSERT INTO search_index (id, org_id, entity_kind, entity_id, title, body, indexed_at)
+           SELECT md5('perf-search-' || g.i)::uuid,
+                  $1,
+                  'ticket',
+                  md5('perf-ticket-' || g.i)::uuid,
+                  'Perf ticket ' || g.i || ' network ' || md5('t' || g.i::text),
+                  repeat('context ', (1 + (g.i % 5))::int) ||
+                    'the network printer on floor ' || (g.i % 9) || ' keeps dropping',
+                  now() - (g.i || ' seconds')::interval
+             FROM generate_series(1, $2) AS g(i)"#,
+    )
+    .bind(PERF_ORG_ID)
+    .bind(scale.tickets)
+    .execute(&mut *tx)
+    .await?;
+
     // Ticket custom fields: three definitions, values on ~50% of tickets —
     // exactly the batched-enrichment shape the list endpoint enriches with.
     for (i, (name, kind, config)) in [
@@ -295,6 +317,15 @@ pub async fn verify_counts(admin: &PgPool, scale: &SeedScale) -> anyhow::Result<
     anyhow::ensure!(
         tickets == scale.tickets,
         "perf org ticket count {tickets} != expected {}",
+        scale.tickets
+    );
+    let indexed: i64 = sqlx::query_scalar("SELECT count(*) FROM search_index WHERE org_id = $1")
+        .bind(PERF_ORG_ID)
+        .fetch_one(admin)
+        .await?;
+    anyhow::ensure!(
+        indexed == scale.tickets,
+        "perf org search_index count {indexed} != expected {}",
         scale.tickets
     );
     Ok(())

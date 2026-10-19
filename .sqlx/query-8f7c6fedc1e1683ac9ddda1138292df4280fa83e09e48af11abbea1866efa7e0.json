@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) AS total\n           FROM (\n             SELECT 1\n               FROM search_index\n              WHERE org_id = $1\n                AND entity_kind = ANY($2)\n                AND (\n                  tsv @@ websearch_to_tsquery('english', $3)\n                  OR ($4 AND title || ' ' || body ILIKE '%' || $3 || '%')\n                )\n                AND (\n                  entity_kind <> 'document'\n                  OR $5::uuid IS NULL\n                  OR client_scope IS NULL\n                  OR client_scope = $5\n                )\n              LIMIT $6\n           ) capped",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Text",
+        "Bool",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8f7c6fedc1e1683ac9ddda1138292df4280fa83e09e48af11abbea1866efa7e0"
+}

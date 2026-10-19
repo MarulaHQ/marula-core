@@ -5698,10 +5698,12 @@ async fn search_kind_filter_and_pagination() {
         "alpha",
         false,
         None,
+        search::SEARCH_COUNT_CAP,
     )
     .await
     .expect("kind-filtered count");
-    assert_eq!(tickets_only, 3);
+    assert_eq!(tickets_only.total, 3);
+    assert!(!tickets_only.capped);
 
     let all_kinds = search::search_count(
         &mut *tx,
@@ -5710,10 +5712,11 @@ async fn search_kind_filter_and_pagination() {
         "alpha",
         false,
         None,
+        search::SEARCH_COUNT_CAP,
     )
     .await
     .expect("all-kind count");
-    assert_eq!(all_kinds, 4);
+    assert_eq!(all_kinds.total, 4);
 
     let page_one = search::search_page(
         &mut *tx,
@@ -5747,6 +5750,125 @@ async fn search_kind_filter_and_pagination() {
         .map(|h| h.entity_id)
         .collect();
     assert_eq!(page_ids.len(), 3, "pages never overlap");
+    tx.commit().await.expect("commit");
+}
+
+/// The keyset walk must reproduce the offset walk row for row, including
+/// inside a score tie (five rows share one title, so five share one rank).
+/// That tie is the case a cursor without the `(indexed_at, entity_id)`
+/// tail would skip or repeat, and it is why the anchor carries all three.
+#[tokio::test]
+async fn search_keyset_walk_matches_the_offset_walk() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 134).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+    for i in 0..10_u64 {
+        idx_upsert(
+            &mut tx,
+            s.org,
+            search::SearchKind::Ticket,
+            fixed_uuid(160 + i),
+            None,
+            if i < 5 {
+                "gamma outage"
+            } else {
+                "gamma printer"
+            },
+            "",
+        )
+        .await;
+    }
+    let kinds = ["ticket".to_string()];
+
+    let mut offset_ids = Vec::new();
+    for page in 0..4 {
+        let hits = search::search_page(&mut *tx, s.org, &kinds, "gamma", false, None, 3, page * 3)
+            .await
+            .expect("offset page");
+        offset_ids.extend(hits.into_iter().map(|h| h.entity_id));
+    }
+
+    let mut keyset_ids = Vec::new();
+    let mut cursor = None;
+    loop {
+        let hits =
+            search::search_page_after(&mut *tx, s.org, &kinds, "gamma", false, None, 3, cursor)
+                .await
+                .expect("keyset page");
+        let Some(last) = hits.last() else { break };
+        cursor = Some(search::SearchCursor {
+            score: last.score,
+            indexed_at: last.indexed_at,
+            entity_id: last.entity_id,
+        });
+        keyset_ids.extend(hits.into_iter().map(|h| h.entity_id));
+        assert!(keyset_ids.len() <= 12, "cursor walk did not terminate");
+    }
+
+    assert_eq!(
+        keyset_ids, offset_ids,
+        "the walk serves the same rows in the same order"
+    );
+    assert_eq!(keyset_ids.len(), 10);
+    let unique: std::collections::HashSet<Uuid> = keyset_ids.iter().copied().collect();
+    assert_eq!(unique.len(), 10, "no row is served twice");
+    tx.commit().await.expect("commit");
+}
+
+/// The count stops at the cap and says so. `cap + 1` is the sentinel that
+/// separates "exactly at the cap" from "more than the cap"; without it a
+/// capped count and an exact count look identical at the boundary.
+#[tokio::test]
+async fn search_count_caps_instead_of_scanning_the_whole_predicate() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 135).await;
+    let mut tx = org_tx(&db.app, s.org).await;
+    for i in 0..5_u64 {
+        idx_upsert(
+            &mut tx,
+            s.org,
+            search::SearchKind::Ticket,
+            fixed_uuid(170 + i),
+            None,
+            "delta item",
+            "",
+        )
+        .await;
+    }
+    let kinds = ["ticket".to_string()];
+
+    let exact = search::search_count(&mut *tx, s.org, &kinds, "delta", false, None, 10)
+        .await
+        .expect("count under the cap");
+    assert_eq!(
+        exact,
+        search::SearchCount {
+            total: 5,
+            capped: false
+        }
+    );
+
+    let capped = search::search_count(&mut *tx, s.org, &kinds, "delta", false, None, 3)
+        .await
+        .expect("count over the cap");
+    assert_eq!(
+        capped,
+        search::SearchCount {
+            total: 3,
+            capped: true
+        }
+    );
+
+    let at_cap = search::search_count(&mut *tx, s.org, &kinds, "delta", false, None, 5)
+        .await
+        .expect("count exactly at the cap");
+    assert_eq!(
+        at_cap,
+        search::SearchCount {
+            total: 5,
+            capped: false
+        }
+    );
     tx.commit().await.expect("commit");
 }
 
@@ -7714,10 +7836,15 @@ async fn search_hybrid_fuses_fts_and_vector_legs_by_rrf() {
         "relay",
         false,
         None,
+        search::SEARCH_COUNT_CAP,
     )
     .await
     .expect("hybrid count");
-    assert_eq!(total, 3, "lexical matches ∪ embedded rows of the kind");
+    assert_eq!(
+        total.total, 3,
+        "lexical matches ∪ embedded rows of the kind"
+    );
+    assert!(!total.capped);
     tx.commit().await.expect("commit");
 }
 
@@ -7794,11 +7921,12 @@ async fn search_hybrid_vector_leg_respects_kind_allow_list() {
         "unmatched-token",
         false,
         None,
+        search::SEARCH_COUNT_CAP,
     )
     .await
     .expect("count");
     assert_eq!(
-        total, 1,
+        total.total, 1,
         "vector candidates outside the allow-list never count"
     );
     tx.commit().await.expect("commit");
