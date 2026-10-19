@@ -60,6 +60,10 @@ export type ThProps = ThHTMLAttributes<HTMLTableCellElement> & {
    * is not reordering, e.g. a print view). */
   sortable?: boolean;
   resizable?: boolean;
+  /** Let the column shrink below its stored width. A table that lays its
+   * columns out as fractions of its own width passes this so a stored width
+   * is a proportion, not a floor that pushes the table past the viewport. */
+  fluid?: boolean;
 };
 
 const MIN_COLUMN_WIDTH = 64;
@@ -81,6 +85,7 @@ export const Th = forwardRef<HTMLTableCellElement, ThProps>(
       onResize,
       sortable = true,
       resizable = true,
+      fluid = false,
       style,
       onKeyDown,
       ...props
@@ -185,7 +190,15 @@ export const Th = forwardRef<HTMLTableCellElement, ThProps>(
           dropSide === "after" && "is-drop-after",
           className,
         )}
-        style={width === undefined ? style : { ...style, width: `${width}px`, minWidth: `${width}px` }}
+        /* A fluid table gets its widths from the colgroup's fractions. An
+           inline pixel width here would win the fixed-layout pass and put the
+           table back at the sum of its stored widths, which is the overhang
+           this prop exists to remove. */
+        style={
+          width === undefined || fluid
+            ? style
+            : { ...style, width: `${width}px`, minWidth: `${width}px` }
+        }
         tabIndex={reorderable || resizableHere ? 0 : undefined}
         onKeyDown={onHeaderKeyDown}
         onPointerMove={onThPointerMove}

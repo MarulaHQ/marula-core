@@ -118,18 +118,28 @@ export function TicketTable({
   onTake?: (row: TicketRow) => void;
 }): React.JSX.Element {
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  /* Stored widths are the user's proportion, not a floor. Turned into
+     percentages of the whole table, selection column included, they sum to
+     100% and fill the container instead of adding up to 1182px inside a 1104px
+     column, which is what pushed the last header past the viewport at 1280. */
+  const selectionWidth = 40;
+  const widthTotal = columns.reduce((sum, column) => sum + (column.width ?? 0), 0);
+  const tableTotal = selectionWidth + widthTotal;
+  const share = (width: number): string =>
+    tableTotal > 0 ? `${((width / tableTotal) * 100).toFixed(4)}%` : "auto";
   return (
     <>
-      <Table>
+      <Table className="m-table-fluid">
         {/* Column widths live on a colgroup, not only on the header cells: the
             bulk bar REPLACES the header row, and with auto table layout the
             widths the header carried vanish with it — the columns then share the
             row equally and every cell wraps. The colgroup keeps the geometry
-            whether or not a row is selected. */}
+            whether or not a row is selected. `fixed` + fractions is what keeps
+            the geometry inside the card. */}
         <colgroup>
-          <col style={{ width: 40 }} />
+          <col style={{ width: share(selectionWidth) }} />
           {columns.map((column) => (
-            <col key={column.key} style={{ width: column.width }} />
+            <col key={column.key} style={{ width: share(column.width ?? 0) }} />
           ))}
         </colgroup>
         <thead>
@@ -176,6 +186,7 @@ export function TicketTable({
                     columnCount={columns.length}
                     sortable={canSort}
                     resizable={column.width !== undefined}
+                    fluid
                     onReorder={onReorderColumns}
                     onResize={onResizeColumn}
                     aria-sort={

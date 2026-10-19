@@ -1614,10 +1614,15 @@
   position: relative;
 }
 
+/* The hit strip sits INSIDE the header, not straddling its right edge. At
+   `right: -3px` the strip's own 7px width pushed the rightmost header 4px past
+   the table, and on a table already at the viewport edge that 4px was the
+   measured overhang. The divider still reads on the boundary: the strip is
+   inside, and the 1px line is anchored to the same edge. */
 .m-th-resizer {
   position: absolute;
   top: 0;
-  right: -3px;
+  right: 0;
   width: 7px;
   height: 100%;
   cursor: col-resize;
@@ -1629,11 +1634,19 @@
   position: absolute;
   top: 25%;
   bottom: 25%;
-  left: 3px;
+  right: 0;
   width: 1px;
   background: var(--m-border-strong);
   opacity: 0;
   transition: opacity 120ms ease;
+}
+
+/* A ledger whose columns carry stored pixel widths lays them out as fractions
+   of the table instead: the same proportions, but the table cannot be wider
+   than the column that holds it. Pair it with `fluid` on each `Th` so the
+   stored width stops acting as a min-width floor. */
+.m-table-fluid {
+  table-layout: fixed;
 }
 
 .m-table th:hover .m-th-resizer::after,

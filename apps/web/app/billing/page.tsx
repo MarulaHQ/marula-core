@@ -803,46 +803,59 @@ export default function BillingPage() {
               <EmptyState message="No unbilled candidates. Ticket cost lines and expenses marked billable appear here." />
             </div>
           ) : (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Source</Th>
-                  <Th>Description</Th>
-                  <Th>Ticket</Th>
-                  <Th className="text-right">Amount</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {candidates.map((c) => (
-                  <Tr key={c.line_id} className="row-hover">
-                    <Td>
-                      <Badge tone={c.source === "cost" ? "neutral" : "success"}>{c.source}</Badge>
-                    </Td>
-                    <Td>{c.description}</Td>
-                    <Td>
-                      {/* The ticket named for a human reader: `#18402 Cable
-                          drop`, not an id prefix. */}
-                      <Link
-                        href={`/tickets/${c.ticket_id}`}
-                        title={c.ticket_title}
-                        style={{
-                          color: "var(--m-accent-text)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          display: "block",
-                        }}
-                      >
-                        #{c.ticket_number} {c.ticket_title}
-                      </Link>
-                    </Td>
- <Td className="text-right text-[12px] tabular-nums">
-                      {money(c.amount_minor, c.currency)}
-                    </Td>
-                  </Tr>
-                ))}
-              </tbody>
-            </Table>
+            /* The ticket title is one nowrap line with an ellipsis, so an auto
+               table sizes that column to the whole title and the card's
+               two-column grid (1.7fr / 1fr) cannot make it fit: the measured
+               137px and 78px overhangs were this table, not the ledger. Fixed
+               layout with stated shares lets the ellipsis do its job. */
+            <div className="m-money-scroll">
+              <Table>
+                <colgroup>
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "32%" }} />
+                  <col style={{ width: "27%" }} />
+                  <col style={{ width: "21%" }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <Th>Source</Th>
+                    <Th>Description</Th>
+                    <Th>Ticket</Th>
+                    <Th className="text-right">Amount</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {candidates.map((c) => (
+                    <Tr key={c.line_id} className="row-hover">
+                      <Td>
+                        <Badge tone={c.source === "cost" ? "neutral" : "success"}>{c.source}</Badge>
+                      </Td>
+                      <Td>{c.description}</Td>
+                      <Td>
+                        {/* The ticket named for a human reader: `#18402 Cable
+                            drop`, not an id prefix. */}
+                        <Link
+                          href={`/tickets/${c.ticket_id}`}
+                          title={c.ticket_title}
+                          style={{
+                            color: "var(--m-accent-text)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            display: "block",
+                          }}
+                        >
+                          #{c.ticket_number} {c.ticket_title}
+                        </Link>
+                      </Td>
+                      <Td className="text-right text-[12px] tabular-nums">
+                        {money(c.amount_minor, c.currency)}
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
           )}
         </MoneyCard>
       </div>
