@@ -305,20 +305,118 @@ export async function uploadAttachment(ticketId: string, file: File): Promise<Up
   return (await response.json()) as UploadedAttachment;
 }
 
-/** Streams an attachment through the API and triggers a browser download. */
-export async function downloadAttachment(attachmentId: string, filename: string): Promise<void> {
-  const response = await fetch(
-    `${apiBaseUrl()}${ATTACHMENT_DOWNLOAD_PATH.replace("{id}", attachmentId)}`,
-    { headers: authHeaders() },
-  );
-  if (!response.ok) throw new Error(`Download failed (${response.status})`);
-  const blob = await response.blob();
+/**
+ * What a download endpoint answers when asked for a ticket: `mode` says
+ * whether this deployment could sign a URL for these bytes, so the client
+ * never has to guess from a header or a status code.
+ */
+export interface AttachmentDownloadTicket {
+  mode: "presigned" | "stream";
+  /** Present exactly when `mode` is `presigned`; carries its own signature. */
+  url: string | null;
+  expires_at: string | null;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+}
+
+function parseDownloadTicket(value: unknown): AttachmentDownloadTicket | null {
+  if (value === null || typeof value !== "object") return null;
+  const candidate = value as Partial<AttachmentDownloadTicket>;
+  if (candidate.mode !== "presigned" && candidate.mode !== "stream") return null;
+  return {
+    mode: candidate.mode,
+    url: typeof candidate.url === "string" ? candidate.url : null,
+    expires_at: typeof candidate.expires_at === "string" ? candidate.expires_at : null,
+    filename: typeof candidate.filename === "string" ? candidate.filename : "",
+    content_type: candidate.content_type ?? "application/octet-stream",
+    size_bytes: typeof candidate.size_bytes === "number" ? candidate.size_bytes : 0,
+    sha256: candidate.sha256 ?? "",
+  };
+}
+
+function filenameFromDisposition(response: Response): string | null {
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(disposition);
+  return match?.[1]?.trim() ?? null;
+}
+
+function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Asks the endpoint whether it can hand out a signed URL. A deployment that
+ * cannot (local-fs, the self-host default) answers `mode: "stream"` — an
+ * answer, not a failure — and a network error answers `null`, which the
+ * caller treats the same way. Only an HTTP error propagates: that is the
+ * server refusing the download itself.
+ */
+async function fetchDownloadTicket(
+  url: string,
+): Promise<AttachmentDownloadTicket | null> {
+  try {
+    const response = await fetch(`${url}?presign=true`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(`Download failed (${response.status})`);
+    return parseDownloadTicket(await response.json().catch(() => null));
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Download failed")) {
+      throw error;
+    }
+    return null;
+  }
+}
+
+/**
+ * Fetches the signed URL straight from the store, so the API is not in the
+ * byte path at all.
+ *
+ * Returns false when the store's host cannot be read from this page — a
+ * bucket with no CORS rule for this origin, or an endpoint a browser cannot
+ * resolve. The caller then streams, so a misconfigured bucket costs bandwidth
+ * instead of the download.
+ */
+async function saveFromPresignedUrl(ticket: AttachmentDownloadTicket): Promise<boolean> {
+  if (ticket.url === null) return false;
+  try {
+    const response = await fetch(ticket.url);
+    if (!response.ok) return false;
+    saveBlob(await response.blob(), ticket.filename);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One download path for both attachment doors: ask for a ticket, save from
+ * the store when one arrives, stream when it does not. The stream is the
+ * documented fallback, not an error state.
+ */
+async function downloadViaPath(url: string, fallbackFilename: string): Promise<void> {
+  const ticket = await fetchDownloadTicket(url);
+  if (ticket !== null && (await saveFromPresignedUrl(ticket))) return;
+  const response = await fetch(url, { headers: authHeaders() });
+  if (!response.ok) throw new Error(`Download failed (${response.status})`);
+  saveBlob(await response.blob(), filenameFromDisposition(response) ?? fallbackFilename);
+}
+
+/**
+ * Downloads a ticket attachment: saves it from the store when the deployment
+ * can sign a URL, and streams it when it cannot (or when the browser cannot
+ * read the store's host).
+ */
+export async function downloadAttachment(attachmentId: string, filename: string): Promise<void> {
+  await downloadViaPath(
+    `${apiBaseUrl()}${ATTACHMENT_DOWNLOAD_PATH.replace("{id}", attachmentId)}`,
+    filename,
+  );
 }
 
 export interface UploadedDocumentAttachment {
@@ -361,30 +459,19 @@ export async function uploadDocumentAttachment(
   return (await response.json()) as UploadedDocumentAttachment;
 }
 
-/** Streams a document attachment through the API; honors content-disposition. */
+/** Downloads a document attachment; honors content-disposition when it streams. */
 export async function downloadDocumentAttachment(
   documentId: string,
   attachmentId: string,
   fallbackFilename: string,
 ): Promise<void> {
-  const response = await fetch(
-    `${apiBaseUrl()}${
-      DOCUMENT_ATTACHMENT_DOWNLOAD_PATH
-        .replace("{id}", documentId)
-        .replace("{attachment_id}", attachmentId)
-    }`,
-    { headers: authHeaders() },
+  await downloadViaPath(
+    `${apiBaseUrl()}${DOCUMENT_ATTACHMENT_DOWNLOAD_PATH.replace("{id}", documentId).replace(
+      "{attachment_id}",
+      attachmentId,
+    )}`,
+    fallbackFilename,
   );
-  if (!response.ok) throw new Error(`Download failed (${response.status})`);
-  const disposition = response.headers.get("content-disposition") ?? "";
-  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(disposition);
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = match?.[1]?.trim() ?? fallbackFilename;
-  anchor.click();
-  URL.revokeObjectURL(url);
 }
 
 export interface StagedItemResponse {

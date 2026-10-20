@@ -1981,6 +1981,11 @@ use utoipa::OpenApi;
         // attachments (TASKLIST 2.14)
         core_domain::entities::Attachment,
         core_domain::entities::AttachmentKind,
+        // download ticket: the presigned alternative to the streamed bytes
+        // (Wave 52 lane P7)
+        crate::routes::attachments::AttachmentDownloadTicket,
+        crate::routes::attachments::DownloadMode,
+        crate::routes::attachments::DownloadTicketQuery,
         // Wave 43 track 2 lane 12: sign-off evidence + consent models.
         core_domain::entities::SignOff,
         core_domain::entities::SignOffConsent,
