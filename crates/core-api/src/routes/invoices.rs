@@ -983,7 +983,7 @@ pub async fn get_invoice(
 
 /// GET /api/invoices/{id}/document — the print-ready HTML invoice
 /// document (print-to-PDF from any browser; v1 ships no PDF binary
-/// output — see TASKLIST).
+/// output — see the private build tracker).
 #[utoipa::path(operation_id = "invoices_document", get, path = "/api/invoices/{id}/document", tag = "billing", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, content_type = "text/html", body = String),

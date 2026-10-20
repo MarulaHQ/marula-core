@@ -552,7 +552,7 @@
 |---|---|---|---|
 | `GET` | `/api/v1/invoices` <a id="invoices_list"></a> | GET /api/invoices — list with client/contract/status/dunning filters. | — |
 | `GET` | `/api/v1/invoices/{id}` <a id="invoices_get_one"></a> | GET /api/invoices/{id} — the invoice aggregate (document, lines, payment receipts). | — |
-| `GET` | `/api/v1/invoices/{id}/document` <a id="invoices_document"></a> | GET /api/invoices/{id}/document — the print-ready HTML invoice document (print-to-PDF from any browser; v1 ships no PDF binary output — see TASKLIST). | — |
+| `GET` | `/api/v1/invoices/{id}/document` <a id="invoices_document"></a> | GET /api/invoices/{id}/document — the print-ready HTML invoice document (print-to-PDF from any browser; v1 ships no PDF binary output — see the private build tracker). | — |
 | `POST` | `/api/v1/invoices/{id}/dunning` <a id="invoices_dunning_transition"></a> | POST /api/invoices/{id}/dunning — move an ISSUED invoice's dunning state forward (none → reminder_sent → overdue → final_notice → collections; skipping rungs is allowed, backwards is refused). States are data: the write emits `invoice.dunning_changed` and lands in the write trail. Instant-first gated (IF1/IF2). | [DunningTransitionRequest](#schema-dunningtransitionrequest) |
 | `POST` | `/api/v1/invoices/{id}/dunning/statement` <a id="invoices_dunning_statement"></a> | POST /api/invoices/{id}/dunning/statement — generate an account statement (the client's OPEN invoices with outstanding balances) and queue it to the client's contacts through the outbound ledger (`MailTransport`; none-mode stays queued like every other leg). The statement rides the dunning path but is a document delivery, not a dunning-state change. Instant-first gated (IF1). | [SendStatementRequest](#schema-sendstatementrequest) |
 | `GET` | `/api/v1/invoices/{id}/payments` <a id="invoices_payments_list"></a> | GET /api/invoices/{id}/payments — the payment receipts. | — |
@@ -712,7 +712,7 @@
 | `DELETE` | `/api/v1/orgs/{org_id}/custom-domain` <a id="org_custom_domain_delete"></a> | `DELETE /api/v1/orgs/{org_id}/custom-domain` — clear the domain. | — |
 | `GET` | `/api/v1/orgs/{org_id}/custom-domain` <a id="org_custom_domain_get"></a> | `GET /api/v1/orgs/{org_id}/custom-domain` — current state + verification status + provider-plugin availability. | — |
 | `POST` | `/api/v1/orgs/{org_id}/custom-domain` <a id="org_custom_domain_set"></a> | `POST /api/v1/orgs/{org_id}/custom-domain` — claim a domain. | [SetCustomDomainRequest](#schema-setcustomdomainrequest) |
-| `POST` | `/api/v1/orgs/{org_id}/custom-domain/verify` <a id="org_custom_domain_verify"></a> | `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS verification (TASKLIST A8 (C)). The TXT token is the authority; the A/CNAME leg is plausibility only. | — |
+| `POST` | `/api/v1/orgs/{org_id}/custom-domain/verify` <a id="org_custom_domain_verify"></a> | `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS verification (the private build tracker A8 (C)). The TXT token is the authority; the A/CNAME leg is plausibility only. | — |
 | `GET` | `/api/v1/orgs/{org_id}/quotas` <a id="org_quotas_get"></a> | GET /api/v1/orgs/{org_id}/quotas — usage beside configured limits. | — |
 | `GET` | `/api/v1/orgs/{org_id}/service-accounts` <a id="service_accounts_list"></a> | GET /orgs/{org_id}/service-accounts — admin listing with derived cert status. | — |
 | `POST` | `/api/v1/orgs/{org_id}/service-accounts` <a id="service_accounts_create"></a> | POST /orgs/{org_id}/service-accounts — enroll a service account by pinning a certificate fingerprint with permission grants and an optional expiry. | [CreateServiceAccountRequest](#schema-createserviceaccountrequest) |
@@ -1232,7 +1232,7 @@
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
-| `GET` | `/api/v1/tickets` <a id="tickets_list"></a> | GET /api/tickets — filtered, priority-ordered list; each row carries its custom-field values (TASKLIST 2.17) fetched in one batched query. Pagination is envelope-compatible: the body stays the plain ticket array; deep-page walks pass the opaque `cursor` query param (from the previous page's `x-next-cursor` response header) and the server resumes strictly after that row — keyset, not O(offset) scan (docs/perf.md F2). | — |
+| `GET` | `/api/v1/tickets` <a id="tickets_list"></a> | GET /api/tickets — filtered, priority-ordered list; each row carries its custom-field values (the private build tracker 2.17) fetched in one batched query. Pagination is envelope-compatible: the body stays the plain ticket array; deep-page walks pass the opaque `cursor` query param (from the previous page's `x-next-cursor` response header) and the server resumes strictly after that row — keyset, not O(offset) scan (docs/perf.md F2). | — |
 | `POST` | `/api/v1/tickets` <a id="tickets_create"></a> | POST /api/tickets — allocates the human ticket number, initializes SLA clocks, validates + stores any initial custom-field values (REQUIRED definitions enforced), and emits `ticket.created` — all in one transaction. Instant-first (IF1/IF2): routed through the shared idempotency gate and returns the read-your-write `mutation` metadata. | [CreateTicketRequest](#schema-createticketrequest) |
 | `GET` | `/api/v1/tickets/{id}` <a id="tickets_get_one"></a> | GET /api/tickets/{id} — a conditional read. | — |
 | `PATCH` | `/api/v1/tickets/{id}` <a id="tickets_patch"></a> | PATCH /api/tickets/{id} — partial update; validates + upserts any provided custom-field values; emits `ticket.updated`, `ticket.field_set` (per changed field), and `ticket.assigned` when the assignee changes. Instant-first (IF1/IF2): idempotency-keyed, version- gated, and returns prior + new values for undo. | [PatchTicketRequest](#schema-patchticketrequest) |
@@ -1281,7 +1281,7 @@
 | `DELETE` | `/api/v1/tickets/{id}/tags/{tag_id}` <a id="tickets_remove_tag"></a> | DELETE /api/tickets/{id}/tags/{tag_id} — remove one applied tag. | — |
 | `GET` | `/api/v1/tickets/{id}/time-entries` <a id="tickets_ticket_time_entries"></a> | GET /api/tickets/{id}/time-entries | — |
 | `GET` | `/api/v1/tickets/{id}/undo-stack` <a id="tickets_undo_stack"></a> | GET /api/tickets/{id}/undo-stack — the per-field / per-record applied-state history read model for one record. | — |
-| `GET` | `/api/v1/tickets/my-work` <a id="tickets_my_work"></a> | GET /api/tickets/my-work — everything assigned to me, not closed, across all boards, priority-then-SLA-due ordered (the unified cross-board view from §1; TASKLIST 2.11 adds client/board annotations). | — |
+| `GET` | `/api/v1/tickets/my-work` <a id="tickets_my_work"></a> | GET /api/tickets/my-work — everything assigned to me, not closed, across all boards, priority-then-SLA-due ordered (the unified cross-board view from §1; the private build tracker 2.11 adds client/board annotations). | — |
 
 ## time-categories
 
@@ -1532,12 +1532,12 @@
 | <a id="schema-board"></a>`Board` | object |  |
 | <a id="schema-boardaddressresponse"></a>`BoardAddressResponse` | object |  |
 | <a id="schema-boardexposureview"></a>`BoardExposureView` | object |  |
-| <a id="schema-boardgroup"></a>`BoardGroup` | object | A named, ordered nav grouping of boards within one org (TASKLIST 2.11). Groups are organization-wide; `owner_id` records who controls the group. |
+| <a id="schema-boardgroup"></a>`BoardGroup` | object | A named, ordered nav grouping of boards within one org (the private build tracker 2.11). Groups are organization-wide; `owner_id` records who controls the group. |
 | <a id="schema-boardidentityview"></a>`BoardIdentityView` | object |  |
 | <a id="schema-boardmember"></a>`BoardMember` | object | An explicit per-user membership on one board carrying a board-level role tier (§6 board-level RBAC). Rows NARROW org grants; absence of a row leaves org-level governance untouched. |
 | <a id="schema-boardmemberview"></a>`BoardMemberView` | object |  |
 | <a id="schema-boardnaventry"></a>`BoardNavEntry` | object | One left-nav entry: the board plus the CALLER's annotations. |
-| <a id="schema-boardrole"></a>`BoardRole` | string | Per-board role tier stored on `board_members` rows (migration 0019, TASKLIST 2.11). Board roles sit BESIDE the org matrix and can only narrow it — see `authorize_board_scoped`. |
+| <a id="schema-boardrole"></a>`BoardRole` | string | Per-board role tier stored on `board_members` rows (migration 0019, the private build tracker 2.11). Board roles sit BESIDE the org matrix and can only narrow it — see `authorize_board_scoped`. |
 | <a id="schema-boardrouteview"></a>`BoardRouteView` | object |  |
 | <a id="schema-boardstatus"></a>`BoardStatus` | object | A per-board status. `category` is the binding contract — labels are presentation, category is behavior. |
 | <a id="schema-boardstatususage"></a>`BoardStatusUsage` | object | GET /api/boards/{id}/statuses/usage — per-status ticket counts and automation references (Wave 41 lane 12). One read serves both the settings table's TICKETS column and the delete confirm's "12 ticket |
@@ -2020,7 +2020,7 @@
 | <a id="schema-manifestclientworkflowoverride"></a>`ManifestClientWorkflowOverride` | object | One per-client workflow override row, verbatim. `state` is `set` (value overrides the org default) or `disabled` (explicit deny); an absent row means the client inherits and exports nothing. |
 | <a id="schema-manifestcustomfield"></a>`ManifestCustomField` | object | One custom field definition. `config` is the kind-specific document (select options, validation bounds, …) exactly as stored. |
 | <a id="schema-manifestescalationstep"></a>`ManifestEscalationStep` | object | One escalation ladder step. |
-| <a id="schema-manifestreportdefinition"></a>`ManifestReportDefinition` | object | One stored report definition (TASKLIST R3). The spec body rides as its stored jsonb document (`{filters, group_by, measures}`) exactly like custom-field `config` — the registry-validated view/viz slug |
+| <a id="schema-manifestreportdefinition"></a>`ManifestReportDefinition` | object | One stored report definition (the private build tracker R3). The spec body rides as its stored jsonb document (`{filters, group_by, measures}`) exactly like custom-field `config` — the registry-validated view/viz slug |
 | <a id="schema-manifestrole"></a>`ManifestRole` | object | One org-owned role row of the manifest (a custom role or a forked copy). |
 | <a id="schema-manifestsections"></a>`ManifestSections` | object | Section container. All fields are always present; empty org state is an empty array, never an absent key. New sections append here. |
 | <a id="schema-manifestsetting"></a>`ManifestSetting` | object | One org-scope settings-registry override. |
@@ -2060,7 +2060,7 @@
 | <a id="schema-movestagerequest"></a>`MoveStageRequest` | composite | POST /api/pipeline/deals/{id}/stage body — one audited transition. |
 | <a id="schema-mutationmeta"></a>`MutationMeta` | object | Read-your-write metadata every mutation response carries (IF2), merged as the additive `mutation` object alongside the entity fields. |
 | <a id="schema-mutationparams"></a>`MutationParams` | object | The autosave mutation parameters every gated create/update body carries (flattened into the request struct — purely additive fields). |
-| <a id="schema-myworkitem"></a>`MyWorkItem` | object | One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the annotations the Today screen renders per the mockup. |
+| <a id="schema-myworkitem"></a>`MyWorkItem` | object | One cross-board my-work queue row (the private build tracker 2.11): the ticket plus the annotations the Today screen renders per the mockup. |
 | <a id="schema-nodeaudience"></a>`NodeAudience` | string | Who a node is for. Decides palette visibility against the LLM tool catalogue — a power user and the authoring model should not see the same list. A plugin entry that declares nothing stays `human` unt |
 | <a id="schema-nodecatalogueview"></a>`NodeCatalogueView` | object | The catalogue read: version, digest, and the nodes the caller asked for. The version and digest let a saved document say which release it was validated against, and make two builds claiming the same r |
 | <a id="schema-nodefamily"></a>`NodeFamily` | string | Which part of the workflow surface a node belongs to. The palette groups by family; the properties panel and the LLM tool catalogue both filter on it. |
@@ -2373,7 +2373,7 @@
 | <a id="schema-reportschedulemutationresponse"></a>`ReportScheduleMutationResponse` | composite | Mutation envelope: applied schedule + read-your-write metadata (IF2). |
 | <a id="schema-reportschedulepage"></a>`ReportSchedulePage` | object | GET /api/report-schedules envelope. |
 | <a id="schema-reportscheduleview"></a>`ReportScheduleView` | object | One delivery schedule with its next-run preview (the materialized `next_run_at` the worker claims against) and definition coordinates. |
-| <a id="schema-reportspec"></a>`ReportSpec` | object | A stored report spec (TASKLIST R3). Every member is registry-validated; see [`ReportSpec::validate`]. |
+| <a id="schema-reportspec"></a>`ReportSpec` | object | A stored report spec (the private build tracker R3). Every member is registry-validated; see [`ReportSpec::validate`]. |
 | <a id="schema-resolution"></a>`Resolution` | object | The effective state of one construct after resolution. |
 | <a id="schema-resolutionsource"></a>`ResolutionSource` | string | Which layer supplied the effective value. |
 | <a id="schema-resolveddetail"></a>`ResolvedDetail` | object | Render-ready details of a resolved reference value: names and the semantic category travel WITH the resolution so consumers never branch on labels and never need a second lookup. |
@@ -2465,7 +2465,7 @@
 | <a id="schema-sessioninfo"></a>`SessionInfo` | object |  |
 | <a id="schema-setchecklistitemrequest"></a>`SetChecklistItemRequest` | composite |  |
 | <a id="schema-setcustomdomainrequest"></a>`SetCustomDomainRequest` | object |  |
-| <a id="schema-setcustomdomainresponse"></a>`SetCustomDomainResponse` | object | POST response: exactly the three fields TASKLIST A8 (B) names. |
+| <a id="schema-setcustomdomainresponse"></a>`SetCustomDomainResponse` | object | POST response: exactly the three fields the private build tracker A8 (B) names. |
 | <a id="schema-setdependenciesrequest"></a>`SetDependenciesRequest` | object |  |
 | <a id="schema-setemailverifiedrequest"></a>`SetEmailVerifiedRequest` | object |  |
 | <a id="schema-setjourneystartrequest"></a>`SetJourneyStartRequest` | composite |  |
