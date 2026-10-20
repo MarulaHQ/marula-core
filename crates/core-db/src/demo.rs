@@ -2022,7 +2022,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         approval: &'static str,
     }
     let (period_from, period_to) = last_month_window(now.date_naive());
-    let entry_specs: [DemoEntry; 10] = [
+    let entry_specs: [DemoEntry; 11] = [
         // Last month: the three entries the demo T&M invoice bills.
         DemoEntry {
             id_offset: 160,
@@ -2070,6 +2070,17 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             billable: true,
             work_type: "remote",
             notes: "Rekey log analysis",
+            approval: "submitted",
+        },
+        DemoEntry {
+            id_offset: 175,
+            ticket_index: 5,
+            user: dispatcher,
+            started: now - Duration::hours(6),
+            minutes: 35,
+            billable: true,
+            work_type: "remote",
+            notes: "Walked the client through the new portal and confirmed access",
             approval: "submitted",
         },
         DemoEntry {

@@ -33,12 +33,28 @@ export interface ExportRequest {
   filters?: unknown;
 }
 
+/** Human wording for a sort field the caller passes as a schema key. */
+function readableField(field: string): string {
+  const words = field.replace(/[_-]+/g, " ").trim();
+  return words.length === 0 ? field : words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** How many filters the caller handed us, when that can be counted at all. */
+function countFilters(filters: unknown): number | null {
+  if (filters === undefined || filters === null) return 0;
+  if (Array.isArray(filters)) return filters.length;
+  if (typeof filters === "object") return Object.keys(filters).length;
+  return null;
+}
+
 export interface ExportControlProps {
   /** Columns the export will contain, in table order. */
   columns: string[];
   /** Rows the export will contain, given the current filter. */
   rowCount: number;
   sort?: { field: string; dir: "asc" | "desc" };
+  /** Human label for the sort field; falls back to the field key. */
+  sortLabel?: string;
   filters?: unknown;
   onExport: (request: ExportRequest) => void | Promise<void>;
   /** Above this many rows the export goes through the async path, and the
@@ -53,6 +69,7 @@ export function ExportControl({
   columns,
   rowCount,
   sort,
+  sortLabel,
   filters,
   onExport,
   asyncThreshold = 5000,
@@ -65,6 +82,23 @@ export function ExportControl({
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const isAsync = rowCount > asyncThreshold;
+
+  /* What the file will hold, in the order a reader checks it: rows, filters,
+     sort, then the columns. The control already received every part; stating
+     only the rows made the menu a count rather than a description of the set. */
+  const filterCount = countFilters(filters);
+  const setSummary = [
+    `${formatNumber(rowCount)} ${rowCount === 1 ? "row" : "rows"}`,
+    filterCount === null
+      ? null
+      : filterCount === 0
+        ? "no filters"
+        : `${filterCount} ${filterCount === 1 ? "filter" : "filters"}`,
+    sort === undefined ? null : `sorted by ${sortLabel ?? readableField(sort.field)}, ${sort.dir === "asc" ? "ascending" : "descending"}`,
+    `${columns.length} ${columns.length === 1 ? "column" : "columns"}`,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
 
   useEffect(() => {
     if (!open) return;
@@ -121,7 +155,7 @@ export function ExportControl({
       {open ? (
         <div className="m-export-menu" role="menu" aria-label={`${label} to a file`}>
           <p className="m-export-count" role="note">
-            {formatNumber(rowCount)} {rowCount === 1 ? "row" : "rows"}, exactly what is on screen.
+            {setSummary} — exactly what is on screen.
           </p>
           {formats.map((format) => (
             <button

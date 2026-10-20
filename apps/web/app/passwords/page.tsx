@@ -67,7 +67,6 @@ import { runEnvelopeMutation, newIdempotencyKey } from "../../lib/envelope-write
 import {
   AlertIcon,
   HEAD_CELL_CLASS,
-  KeyHint,
   LedgerFooter,
   LockIcon,
   NoMatches,
@@ -923,13 +922,6 @@ export default function VaultPage() {
                   <PlusIcon size={14} /> New record
                 </Button>
               ) : null
-            }
-            hints={
-              <>
-                <KeyHint keys="J K" label="move" />
-                <KeyHint keys="↵" label="open" />
-                <KeyHint keys="F" label="filter" />
-              </>
             }
           />
         </div>

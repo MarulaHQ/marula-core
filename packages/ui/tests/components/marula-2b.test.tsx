@@ -216,8 +216,26 @@ describe("ExportControl", () => {
     expect(screen.getByRole("menu", { name: /Export to a file/ })).toHaveTextContent("1,284 rows");
   });
 
-  it("exports the visible columns in the order the table is showing them", async () => {
-    const onExport = vi.fn();
+  it("states the filters, sort and column count, not only the rows", async () => {
+    render(
+      <ExportControl
+        columns={["ref", "title", "status"]}
+        rowCount={18}
+        filters={[{ field: "status" }, { field: "client" }]}
+        sort={{ field: "priority", dir: "desc" }}
+        onExport={() => {}}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Export/ }));
+    const menu = screen.getByRole("menu", { name: /Export to a file/ });
+    expect(menu).toHaveTextContent("18 rows");
+    expect(menu).toHaveTextContent("2 filters");
+    expect(menu).toHaveTextContent("sorted by Priority, descending");
+    expect(menu).toHaveTextContent("3 columns");
+    expect(menu).toHaveTextContent("exactly what is on screen");
+  });
+
+  it("exports the visible columns in the order the table is showing them", async () => {    const onExport = vi.fn();
     render(
       <ExportControl
         columns={["title", "ref"]}

@@ -63,7 +63,6 @@ import {
   CheckIcon,
   FileIcon,
   HEAD_CELL_CLASS,
-  KeyHint,
   LedgerFooter,
   NoMatches,
   PageFrame,
@@ -763,14 +762,6 @@ export default function KbPage() {
             total={articles?.length ?? 0}
             noun="articles"
             density={<DensitySwitch value={density} onChange={applyDensity} />}
-            hints={
-              <>
-                <KeyHint keys="J K" label="move" />
-                <KeyHint keys="X" label="select" />
-                <KeyHint keys="↵" label="open" />
-                <KeyHint keys="F" label="filter" />
-              </>
-            }
           />
         </div>
       </div>
