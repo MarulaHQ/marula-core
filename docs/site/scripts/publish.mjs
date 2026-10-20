@@ -78,6 +78,7 @@ footer { color: var(--muted); font-size: 0.8rem; margin-top: 3rem; border-top: 1
 const SITE_TITLE = "Marula documentation";
 const SITE_CSS = "site.css";
 const QUADRANTS = [
+  ["start", "Start here"],
   ["tutorials", "Tutorials"],
   ["how-to", "How-to guides"],
   ["reference", "Reference"],

@@ -16,6 +16,24 @@ Marula is an open-source PSA (professional services automation) platform for IT 
 - **Office managers and bookkeepers:** Walk through [Your first invoice](tutorials/first-invoice.md), [Set up contract billing models](how-to/admin-contract-types.md), [Verify a billing period before invoicing](how-to/admin-billing-verification.md), and [Portal onboarding](tutorials/portal-onboarding.md).
 - **Systems administrators and developers:** See [Self-host local stack reference](reference/self-host-local-stack.md), [Upgrade to the latest release](how-to/upgrade.md), and [Call the API from TypeScript or curl](how-to/call-the-api.md).
 
+## Or start from the task
+
+[Start here](start/index.md) is the same idea, done properly: one page per
+reader, each listing tasks in the words people use and linking the page that
+answers them.
+
+| You are | Start at |
+|---|---|
+| Owner — contracts, margin, month close, access | [Owner tasks](start/owners.md) |
+| Admin — people, boards, SLA, email, portal, automations | [Admin tasks](start/admins.md) |
+| Technician — tickets, service days, stock, billable time | [Technician tasks](start/technicians.md) |
+| Operator — stand-up, backup, upgrades, monitoring | [Operator tasks](start/operators.md) |
+| Agent author — API, read model, grants, plugins | [Agent and automation tasks](start/agents.md) |
+
+Two pages cut across all of them: [Troubleshooting](troubleshooting.md) starts
+from a symptom instead of a feature, and the [Glossary](reference/glossary.md)
+defines the vocabulary the rest of the site assumes.
+
 ## Browse by section
 
 These docs follow [Diátaxis](https://diataxis.fr/). Each page belongs to one of four sections so step-by-step lessons, quick task checklists, technical specs, and design background stay easy to find.
@@ -32,6 +50,7 @@ These docs follow [Diátaxis](https://diataxis.fr/). Each page belongs to one of
 - Architecture decision records: [`docs/adr/`](../adr/)
 - Instant-first interaction doctrine: [`docs/instant-first.md`](../instant-first.md)
 - Upgrade and compatibility policy: [`docs/upgrade-compatibility-policy.md`](../upgrade-compatibility-policy.md)
+- Engineering documentation (architecture, operations internals, specs): [`docs/README.md`](../README.md) — the entry point for people building and running Marula, kept out of this site on purpose
 - Operator runbooks: canonical scaffold lives at `deploy/runbooks/` (`deploy/runbooks/README.md`), while authored runbook content lives in the site under [reference/](reference/index.md) (see the [coverage audit](DOCS-COVERAGE.md))
 - Docs coverage audit and IA plan: [`DOCS-COVERAGE.md`](DOCS-COVERAGE.md)
 - Public waitlist and marketing site: the separate `website/` package. Product positioning is quoted there and here from `MANIFESTO.md` verbatim, never re-synthesized.

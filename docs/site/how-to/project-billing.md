@@ -47,8 +47,8 @@ phase, below). The budget is the denominator for the burn read model.
 A phase with no budget always reports `none`, on purpose: no budget is
 not a zero budget, and reporting `over` on a
 never-agreed number would invent a commitment nobody made. When a phase
-crosses into `warn`, the honest responses are a change order (Wave 39
-lane 3), a client conversation, or an accepted loss — the number tells
+crosses into `warn`, the honest responses are a change order, a client
+conversation, or an accepted loss — the number tells
 you which conversation to have.
 
 ## 3. Release milestones into the run

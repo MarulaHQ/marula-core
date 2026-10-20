@@ -1,6 +1,11 @@
 # Reference
 
-Reference pages give you exact endpoints, database view columns, environment variables, and operator runbooks for lookup. For step-by-step lessons, see [Tutorials](../tutorials/index.md). For task checklists, see [How-to guides](../how-to/index.md). For design reasoning, see [Explanation](../explanation/index.md).
+Reference pages give you exact endpoints, database view columns, environment variables, and operator runbooks for lookup. For step-by-step lessons, see [Tutorials](../tutorials/index.md). For task checklists, see [How-to guides](../how-to/index.md). For design reasoning, see [Explanation](../explanation/index.md). For the vocabulary the rest of the site assumes, start with the [glossary](glossary.md).
+
+## Glossary and lookup
+
+- [Glossary](glossary.md) — the recurring PSA and Marula terms, each linked to the page that explains it. Boards and stages are in there, as are contract and billing vocabulary, provenance and audit, grants, plugins, and the N−2 window.
+- [Troubleshooting](../troubleshooting.md) — symptom first, for when something is broken rather than unconfigured. It points back into these pages.
 
 ## API, data views, and schema reference
 
