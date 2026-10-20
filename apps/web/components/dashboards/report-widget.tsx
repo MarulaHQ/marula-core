@@ -45,12 +45,15 @@ import {
 } from "../../lib/reports";
 import type { ReportPage } from "../../lib/reports";
 import { buildWidgetDeepLink, buildWidgetRowLink, attainmentRowSpec, rollupRowSpec, throughputRowSpec } from "../../lib/report-spec-codec";
+// Charts arrive through their own chunk (Recharts is ~100 kB gzip): the widget
+// card renders its skeleton first and the chart lands when it draws.
 import {
   AgingBarChart,
   AttainmentBarChart,
   RollupBarChart,
   ThroughputLineChart,
-} from "./widget-charts";
+  WideRollupBarChart,
+} from "./widget-charts-lazy";
 
 interface Props {
   def: WidgetDef;
@@ -220,13 +223,11 @@ function WidgetBody({
           </>
         );
       }
+      const wide = def.id.startsWith("time_by_user");
+      const Chart = wide ? WideRollupBarChart : RollupBarChart;
       return (
         <>
-          <RollupBarChart
-            rows={rows}
-            ariaLabel={`${def.title} bar chart, hours per group`}
-            width={def.id.startsWith("time_by_user") ? 1360 : 720}
-          />
+          <Chart rows={rows} ariaLabel={`${def.title} bar chart, hours per group`} width={wide ? 1360 : 720} />
           <Footer>
             {formatMinutes(s.total_minutes)} total · {formatMinutes(s.billable_minutes)} billable
           </Footer>

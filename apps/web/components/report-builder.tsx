@@ -54,7 +54,9 @@ import {
   type FilterDraft,
   type MeasureDraft,
 } from "../lib/report-builder";
-import { ReportChart } from "./report-preview";
+// Recharts rides next/dynamic at this boundary: the preview chunk loads with
+// the first chart, not with the builder form (p52-frontend-perf-budget).
+import { ReportChart } from "./report-chart-lazy";
 
 type ViewId = components["schemas"]["ViewId"];
 type VizHint = components["schemas"]["VizHint"];
