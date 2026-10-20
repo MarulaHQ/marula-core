@@ -33,6 +33,11 @@ e2e/.e2e-stack.env
 .kilo/dev-registry/
 .kilo/e2e-logs/
 .kilo/capture-totp.json
+# Worktree archival output: a lane's patch plus the untracked files it held
+# when it was retired. Per-run local state, like the registry and the logs.
+# A patch of an unmerged lane must never ride an unrelated `git add -A`, so
+# it stays out of the index.
+.kilo/archived-worktrees/
 # Agent/editor config carries credentials and machine-local paths. Tracked
 # copies leaked a provider bearer token (security audit finding
 # opencode.json.committed-bearer-token-thehive-ai) and a developer home path;
