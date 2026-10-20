@@ -41,7 +41,12 @@ import { join, resolve } from "node:path";
 const REPO = resolve(import.meta.dirname, "..");
 const TRACKER = join(REPO, "TASKLIST.md");
 
-const ROW_ID = /^(?:\*\*)?([A-Z]?\d+[a-z]?)(?:\*\*)?$/;
+// Row ids the tracker actually uses: `A18`, `S3b`, `P1c`, `12`, and hyphenated
+// `55-3`. The hyphen was missing, and `parseRows` DROPS rows whose id does not
+// match — so every Wave 55 row was invisible to `--row`, which answers "no such
+// row". A check that cannot see a row reads like a pass, which is worse than no
+// check. Tracked as lane 55-4; the self-test below now guards the shape.
+const ROW_ID = /^(?:\*\*)?([A-Z]?\d+[a-z]?(?:-\d+)?)(?:\*\*)?$/;
 const PATH_ROOTS = "apps|crates|packages|scripts|docs|design|e2e|deploy|native|desktop|fixtures|brand|plugins|\\.kilo";
 const CITATION = new RegExp(
   `((?:${PATH_ROOTS})/[\\w.@/-]+|(?:TASKLIST|TASKLIST_COMPLETED|AGENTS|README|package)\\.(?:md|json))` +
@@ -305,6 +310,27 @@ function selfTest() {
   const rows = parseRows(text);
   eq("live row count", rows.length, 2);
   eq("row ids", rows.map((r) => r.id), ["A15", "B2"]);
+
+  // Lane 55-4: a hyphenated id must parse, and no id the tracker uses may be
+  // invisible. Counting parseRows output cannot prove the second half — it drops
+  // unmatched rows — so this guard reads the raw table's first cells instead.
+  const hyphenated = parseRows(
+    [
+      "| # | Lane (branch) | Tackles | Migration | Depends on |",
+      "|---|---|---|---|---|",
+      "| 55-3 | `p55-domain-residue` | **Do the thing.** | none | none |",
+    ].join("\n"),
+  );
+  eq("hyphenated row id parses", hyphenated.map((r) => r.id), ["55-3"]);
+  if (existsSync(TRACKER)) {
+    const idShaped = readFileSync(TRACKER, "utf8")
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith("| "))
+      .map((l) => l.trim().replace(/^\|/, "").split("|")[0].trim())
+      .filter((c) => /^[A-Za-z]?\d/.test(c));
+    const invisible = idShaped.filter((c) => !ROW_ID.test(c));
+    eq("every id-shaped row cell in the tracker parses", invisible, []);
+  }
   eq("own slug", ownSlug("`p41-ios-simulator` **(added 2026-09-30)**"), "p41-ios-simulator");
   eq(
     "gate sentence, not the whole cell",
