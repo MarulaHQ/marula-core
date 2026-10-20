@@ -23,7 +23,7 @@
 # LIMIT: dropping the files does not drop the literal from every blob. The
 # security audit's own evidence quoted the token and is redacted in the tree
 # as of 2026-10-20, but the old blobs still hold it. A full content scrub needs
-#   git filter-repo --replace-text scripts/purge-secrets-expressions.txt
+#   git filter-repo --replace-text scripts/purge-secrets-expressions.local.txt
 # (filter-repo is not installed here; filter-branch cannot replace text).
 set -uo pipefail
 
@@ -106,9 +106,29 @@ fi
 
 echo
 echo "== rewriting =="
-FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --prune-empty \
-  --index-filter 'git rm --cached --ignore-unmatch opencode.json .kilo/kilo.json' \
-  -- --all || { echo "filter-branch failed; nothing to do but inspect"; exit 1; }
+# Prefer filter-repo: it rewrites all refs in one pass, keeps tags consistent,
+# and can replace text inside blobs, which filter-branch cannot.
+if git filter-repo --version >/dev/null 2>&1; then
+  EXPR=""
+  if [[ -f scripts/purge-secrets-expressions.local.txt ]]; then
+    EXPR=(--replace-text scripts/purge-secrets-expressions.local.txt)
+  else
+    say "WARNING: no local expressions file, so the literal survives inside blobs"
+    say "         that quote it (the audit evidence). Create"
+    say "         scripts/purge-secrets-expressions.local.txt to scrub the text too."
+  fi
+  git filter-repo --force --invert-paths \
+    --path opencode.json --path .kilo/kilo.json \
+    "${EXPR[@]}" \
+    || { echo "filter-repo failed; nothing changed"; exit 1; }
+  say "note: filter-repo removes the origin remote to prevent an accidental push"
+  say "      re-add it with: git remote add origin <url>"
+else
+  say "filter-repo not found; falling back to filter-branch (files only, no text scrub)"
+  FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --prune-empty \
+    --index-filter 'git rm --cached --ignore-unmatch opencode.json .kilo/kilo.json' \
+    -- --all || { echo "filter-branch failed; nothing to do but inspect"; exit 1; }
+fi
 
 echo
 echo "== done (local only) =="

@@ -39,6 +39,9 @@ e2e/.e2e-stack.env
 # the committed *.example files are the portable shape.
 opencode.json
 .kilo/kilo.json
+# The purge expressions file names the secret it removes; only the local copy
+# may hold the pattern.
+scripts/purge-secrets-expressions.local.txt
 # Localhost demo stack state + logs (Wave 47 lane B1 scripts/demo-up.sh)
 .demo-up/
 
