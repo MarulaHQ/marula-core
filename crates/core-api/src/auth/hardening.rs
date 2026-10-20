@@ -4,7 +4,12 @@
 //! auth surface: POST /api/auth/login, /api/auth/mfa/verify,
 //! /api/auth/mfa/webauthn/begin + /finish, and /api/auth/refresh.
 //! State lives in Postgres (migration 0088) — restarts never reset a
-//! lock, and the posture is deny-by-default: no key, no admission.
+//! lock, and the posture is deny-by-default: no key, no admission. What
+//! DOES reset a curve is a success on the same surface: every throttled
+//! leg that can succeed calls `record_success`, so the exponential ladder
+//! is a reaction to a run of failures, never a permanent penalty for one
+//! (the refresh leg was the exception until Wave 47 lane A26 — see
+//! `handlers::refresh`).
 //!
 //! Enumeration discipline: LOGIN keeps its uniform 401 "invalid
 //! credentials" answer for BOTH wrong-password and locked-out callers

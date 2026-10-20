@@ -655,6 +655,25 @@ pub async fn refresh(
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
 
+    // A successful rotation clears this caller's refresh counters — parity
+    // with the login path (:402) and the MFA legs. Without it the REFRESH
+    // gate is a one-way ratchet: the counter lives in `auth_lockouts`, the
+    // backoff doubles per failure and caps at an hour, and nothing the app
+    // can do pays it back down. One stale-cookie refresh after a logout
+    // (which lands in the reuse branch above and arms 30s) is enough to
+    // start the climb, and because the key is per-IP, every user behind one
+    // egress — an office NAT, a CI runner, a long E2E sweep — inherits the
+    // growing window, up to an hour of "the app cannot rotate and bounces to
+    // /login". Clearing here is what makes the ladder self-healing: the
+    // first rotation that gets through resets everybody's curve.
+    let _ = record_success(
+        &state,
+        crate::auth::hardening::kinds::REFRESH,
+        &client_ip,
+        GateSubject::IpOnly,
+    )
+    .await;
+
     let access = jwt::issue_access_token(
         &state.config,
         parent.user_id,

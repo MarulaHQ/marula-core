@@ -484,6 +484,9 @@ async fn consumer_names_split_the_pending_list_and_idle_entries_are_claimed() {
             GROUP,
             CONSUMER_B,
             0_u64,
+            // clippy 1.95 (cloned_ref_to_slice_refs): same one-element slice,
+            // no clone. Pre-existing lint on `main`, fixed on the group
+            // branch so the group gate can be green (see MERGE-NOTES.md).
             std::slice::from_ref(&delivered_id),
             StreamClaimOptions::default().idle(120_000).with_force(),
         )

@@ -14,7 +14,10 @@
 //!    present and non-httpOnly (A2).
 
 use axum::http::Method;
+use core_api::auth::hardening::{enforce_gate, record_failure, record_success, GateSubject};
+use core_api::error::ApiError;
 use core_api::{config::Config, state::AppState};
+use core_db::hardening::gate_kind;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::{sync::Arc, time::Duration};
@@ -201,6 +204,77 @@ async fn pathological_refresh_throttle_is_a_typed_429() {
     assert_eq!(second.status(), axum::http::StatusCode::TOO_MANY_REQUESTS);
     let envelope = body_json(second).await;
     assert_eq!(envelope["error"]["reason"], "auth_rate_limited");
+}
+
+// ---------------------------------------------------------------------------
+// (2b) a success pays the refresh curve back down
+// ---------------------------------------------------------------------------
+
+/// The refresh curve reacts to a RUN of failures; it is not a permanent
+/// penalty for one. A success on the surface clears it, and the ladder
+/// restarts at its first rung.
+///
+/// This is the invariant behind the red sweeps A16 left to this lane (Wave
+/// 47 lane A26). The refresh key is per-IP and `handlers::refresh` never
+/// cleared it, so one revoked-cookie refresh after a logout armed 30s and
+/// nothing could pay it back down: every later failure doubled it (60, 120,
+/// 240, 480 …) and everyone behind that egress — a whole E2E run included —
+/// inherited the growing window as "the app cannot rotate, so it bounces to
+/// /login".
+///
+/// Drives the hardening layer directly with a private caller IP. These
+/// helpers take the resolved client IP as a parameter, so a fresh string is
+/// a private bucket: no SQL cleanup, and no dependence on the fallback key
+/// that every `oneshot` request without a forwarded-for header shares (four
+/// other cases in this file refresh on that key, and a `count(*)` across it
+/// is a race, which is how the first version of this test failed). The
+/// handler-side wiring — `handlers::refresh` calling `record_success` after
+/// the rotation commits — is what the E2E acceptance criterion in
+/// `design/qa-p47-gate-truth/GATES.md` checks end to end.
+#[tokio::test]
+async fn a_successful_rotation_clears_the_refresh_gate() {
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
+    let state = test_state(&admin_url).await;
+    let ip = format!("a26-curve-{}", Uuid::now_v7());
+
+    // Rung 1: one failure engages a window on this caller.
+    record_failure(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly)
+        .await
+        .expect("record one refresh failure");
+    assert!(
+        matches!(
+            enforce_gate(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly, false).await,
+            Err(ApiError::AuthThrottled { .. })
+        ),
+        "one recorded failure must engage the gate"
+    );
+
+    // A success on the surface clears it. Without the clear the next failure
+    // doubles a counter that nothing can lower.
+    record_success(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly)
+        .await
+        .expect("clear the curve after a success");
+    assert!(
+        enforce_gate(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly, false)
+            .await
+            .is_ok(),
+        "a successful rotation must clear the refresh curve"
+    );
+
+    // And the ladder restarts at rung one, not two.
+    record_failure(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly)
+        .await
+        .expect("record a failure after the clear");
+    match enforce_gate(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly, false).await {
+        Err(ApiError::AuthThrottled { retry_after_secs }) => assert!(
+            retry_after_secs <= 30,
+            "the ladder restarts at its first rung after a success, got {retry_after_secs}s"
+        ),
+        Err(_) => panic!("expected the typed throttle after one failure"),
+        Ok(()) => panic!("expected the gate to be engaged after one failure"),
+    }
 }
 
 // ---------------------------------------------------------------------------

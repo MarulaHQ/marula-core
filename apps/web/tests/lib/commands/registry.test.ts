@@ -12,6 +12,7 @@ import {
   lintRegistry,
 } from "../../../lib/commands/consistency";
 import { parseChord, surfaceMatchesOne } from "../../../lib/commands/chords";
+import { RAN } from "../../../lib/commands/outcome";
 import {
   COMMAND_REGISTRY,
   commandForChord,
@@ -27,7 +28,8 @@ function fake(overrides: Partial<CommandDef> & { id: string; chord: string }): C
     label: overrides.id,
     description: "",
     surfaces: [],
-    run: () => undefined,
+    targets: [],
+    run: () => RAN,
     ...overrides,
   };
 }
@@ -125,7 +127,7 @@ describe("dispatch resolution", () => {
       },
       click: () => {
         navigated.push("click");
-        return true;
+        return { kind: "clicked" };
       },
       copy: () => true,
     };
@@ -145,6 +147,15 @@ describe("dispatch resolution", () => {
     // The create verb does NOT follow you to a surface without new rows:
     // no command does what a click cannot.
     expect(commandForChord("alt+n", "/reports")).toBeNull();
+  });
+
+  it("does not advertise a list-page command on a record subroute (Wave 47 lane A25)", () => {
+    // "/clients" is the list page. The detail page renders no create control,
+    // so prefix matching used to offer Alt+N where it could only fail.
+    expect(commandForChord("alt+n", "/clients/abc")).toBeNull();
+    expect(commandsForSurface("/clients/abc").some((c) => c.id === "new.clients")).toBe(false);
+    // A declared [id] surface still covers a real record path.
+    expect(commandForChord("alt+c", "/clients/abc")?.id).toBe("copy-link.record");
   });
 
   it("copy-link rides record detail surfaces only", () => {

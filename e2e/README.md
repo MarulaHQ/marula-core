@@ -64,6 +64,16 @@ a dirty demo org:
    (30s → doubling), which would 401 every later flow. Use `apiLogin` /
    `loginContext` from `e2e/helpers` (both retry with backoff through the
    gate). Anything that logs in through UI forms belongs in `01-auth` only.
+   **If a flow arms a gate on purpose, it clears it before it ends.** A
+   wrong password or a revoked-token refresh writes a counter keyed by the
+   run's single egress IP, so the window it opens is global to the run, not
+   local to the test. `01-auth`'s wrong-password case ends with a real
+   `apiLogin()`, which is the product's own reset (`gate_clear` drops the IP
+   and email keys); a leg that asserts reuse detection gets the same
+   treatment by rotating once successfully afterwards. Success on a
+   throttled surface always clears its own curve now — including refresh,
+   which used to ratchet to the 1h cap and never come down (Wave 47 lane
+   A26, `.kilo/worktrees` record in `design/qa-p47-auth-gate-run-reds`).
 2. **Stateful flows (onboarding, tours, merge queue) stage their own scratch
    state and restore what they armed.** Never assume pristine demo rows:
    - onboarding: re-arm via `/onboarding/reset/org` / `/reset/user` at test
