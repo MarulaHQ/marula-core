@@ -101,19 +101,37 @@ pub async fn track(request: Request, next: Next) -> Response {
     response
 }
 
-/// Post-auth middleware: stamps `org_id` onto the CURRENT request span.
+/// Post-auth middleware: stamps `org_id` onto the CURRENT request span, and
+/// counts the request against the org.
 ///
 /// Layered INSIDE `require_auth` / portal auth so the extension is present
 /// when it runs. Machine-to-machine routes keep their payload-borne org in
-/// handler spans instead — this middleware simply records nothing there.
+/// handler spans instead — this middleware simply records nothing there, and
+/// those requests are therefore counted by `marula.http.requests` but not
+/// attributed to an org. That is the honest split: an internal effect call
+/// belongs to no tenant's request budget.
+///
+/// The org counter (TASKLIST R7a) is per-org request volume for usage and
+/// quota surfaces that cannot read telemetry back out of OTLP. It carries
+/// `org_id` plus a five-value status class and NOT the route, so the series
+/// count stays bounded by orgs × 5; route detail is already on
+/// `marula.http.requests`.
 pub async fn record_org(request: Request, next: Next) -> Response {
     let span = tracing::Span::current();
-    if let Some(user) = request.extensions().get::<crate::auth::AuthedUser>() {
+    let org = if let Some(user) = request.extensions().get::<crate::auth::AuthedUser>() {
         span.record("org_id", tracing::field::display(user.user.org_id));
+        Some(user.user.org_id)
     } else if let Some(portal) = request.extensions().get::<crate::auth::PortalAuthed>() {
         span.record("org_id", tracing::field::display(portal.user.org_id));
+        Some(portal.user.org_id)
+    } else {
+        None
+    };
+    let response = next.run(request).await;
+    if let Some(org_id) = org {
+        core_otel::metrics::org_request(&org_id.to_string(), response.status().as_u16());
     }
-    next.run(request).await
+    response
 }
 
 #[cfg(test)]
@@ -138,6 +156,31 @@ mod tests {
         );
         assert!(core_otel::redact::ensure_low_cardinality("/api/tickets/42").is_err());
         assert!(core_otel::redact::ensure_low_cardinality("/api/tickets/{id}").is_ok());
+    }
+
+    /// The org counter must not invent a tenant for a request that has none:
+    /// with no auth extension in play, `record_org` passes the response
+    /// through and emits nothing (so no synthetic `anonymous` org appears in
+    /// `marula.org.requests`).
+    #[tokio::test]
+    async fn record_org_passes_anonymous_requests_through_untouched() {
+        async fn handler() -> &'static str {
+            "ok"
+        }
+        let app = Router::new()
+            .route("/api/health", get(handler))
+            .layer(axum::middleware::from_fn(record_org));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .body(axum::body::Body::empty())
+                    .expect("static request"),
+            )
+            .await
+            .expect("in-process call");
+        assert_eq!(response.status(), 200);
     }
 
     /// The middleware composes into a Router without changing responses

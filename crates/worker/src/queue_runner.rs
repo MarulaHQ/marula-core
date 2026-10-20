@@ -100,7 +100,32 @@ async fn tick<S: DeliverySink, E: EffectApi>(
             stats.running.max(0) as u64,
             stats.dead.max(0) as u64,
         );
+        // Dead-letter AGE beside the depth (TASKLIST R7a): depth alone says
+        // how many jobs nobody will retry, not whether they have been rotting
+        // there for an hour or a week. Guarded on `dead > 0` because that
+        // statement has no partial index to lean on — an install with an
+        // empty dead set pays nothing, and the series stays absent instead of
+        // reporting a zero age for a set that is empty.
+        if stats.dead > 0 {
+            if let Ok(age) = core_db::queue::oldest_dead_age_secs(pool).await {
+                core_otel::metrics::dead_letter_age(age.map(|secs| secs.max(0) as u64));
+            }
+        }
     }
+    // Parked workflow runs (TASKLIST R7a): a run waiting on an event that
+    // never arrives is invisible today — it is not in the jobs table and no
+    // consumer holds it. Count plus the oldest idle age makes the stall
+    // visible from the metric side. `status = 'waiting'` is index-served by
+    // `idx_workflow_runs_status`.
+    if let Ok(parked) = core_db::workflow_runs::parked_stats(pool).await {
+        core_otel::metrics::workflow_parked(
+            parked.parked.max(0) as u64,
+            parked.oldest_age_secs.map(|secs| secs.max(0) as u64),
+        );
+    }
+    // Backup age (TASKLIST R7a): reads the stamp the backup runner writes.
+    // Opt-in by path; unset means no series, never a zero.
+    crate::backup_health::sample();
     let jobs = core_db::queue::claim_batch(pool, batch, worker).await?;
     let count = jobs.len();
 

@@ -23,6 +23,7 @@
 //! writes through core-api's internal effect surface, §4.1).
 
 pub mod automations;
+pub mod backup_health;
 pub mod config;
 pub mod csat;
 pub mod decision;
@@ -41,6 +42,7 @@ pub mod rotation_sweep;
 pub mod run_retention_sweep;
 pub mod search_indexer;
 pub mod sla_sweep;
+pub mod stream_health;
 pub mod time;
 pub mod usage_refresh_sweep;
 pub mod webhook_out;

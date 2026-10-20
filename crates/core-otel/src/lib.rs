@@ -41,10 +41,18 @@
 //!
 //! Instrument naming: every metric is prefixed `marula.` and documented
 //! in `metrics` module docs together with what a dashboard should chart.
+//!
+//! The published contract for external consumers lives in `contract`: the
+//! versioned metric/log/health table an outside pack may depend on, with a
+//! test that fails when a name changes without a version bump.
 
+pub mod contract;
 pub mod filter;
 pub mod metrics;
 pub mod redact;
 pub mod telemetry;
 
 pub use telemetry::{init, TelemetryGuard, TelemetryMode};
+
+/// The contract revision an external consumer checks its assumptions against.
+pub use contract::CONTRACT_VERSION;

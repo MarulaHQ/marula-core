@@ -207,6 +207,19 @@ pub trait EventStream: Send {
     /// Removes one entry from the PEL. True when the ack was accepted, which
     /// is the only progress signal [`replay_pending`] trusts.
     fn ack(&mut self, id: &str) -> impl std::future::Future<Output = bool> + Send;
+
+    /// This group's backlog: PEL depth, undelivered lag and the age of the
+    /// oldest unacked entry. `None` means the seam cannot tell — a test double
+    /// or an unreachable server — and the caller emits NOTHING rather than a
+    /// zero that would read as "caught up".
+    ///
+    /// Defaulted so the replays and unit doubles stay untouched: only the
+    /// production stream answers.
+    fn health(
+        &mut self,
+    ) -> impl std::future::Future<Output = Option<crate::stream_health::GroupSample>> + Send {
+        async { None }
+    }
 }
 
 /// Production stream: one multiplexed connection against the durable group,
@@ -290,6 +303,10 @@ impl EventStream for RedisEventStream {
     async fn ack(&mut self, id: &str) -> bool {
         let result: Result<i64, _> = self.conn.xack(EVENT_STREAM, CONSUMER_GROUP, &[id]).await;
         result.is_ok()
+    }
+
+    async fn health(&mut self) -> Option<crate::stream_health::GroupSample> {
+        crate::stream_health::read_group(&mut self.conn, CONSUMER_GROUP).await
     }
 }
 
@@ -422,6 +439,13 @@ async fn follow_stream<S: EventStream>(
             Ok(batch) => {
                 for entry in &batch {
                     handle_entry(pool, stream, entry).await;
+                }
+                // Consumer backlog: PEL depth, lag and the age of the oldest
+                // unacked entry for THIS group, read after the batch
+                // (TASKLIST R7a). The trait default answers `None`, so a test
+                // double emits nothing instead of a fabricated zero.
+                if let Some(sample) = stream.health().await {
+                    crate::stream_health::emit(CONSUMER_GROUP, sample);
                 }
             }
             Err(error) => {
