@@ -106,7 +106,7 @@ standardizing on the Valkey fork.
 - **Tangerine theme** — generated from the tweakcn editor
   (https://tweakcn.com), vendored as `design/tangerine/tangerine.json` and
   documented in [`docs/theme.md`](docs/theme.md). tweakcn is MIT.
-- Visual references in `design/mockups/` and markup drafts are first-party
+- Visual references in the internal design corpus and markup drafts are first-party
   or internal research records (lazyweb citations live with each lane's
   `design/qa-*` evidence).
 

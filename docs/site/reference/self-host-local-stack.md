@@ -88,8 +88,7 @@ contents) on core-api to sign with Ed25519 instead of the shared secret.
 `MARULA_JWT_KID` names
 the key (default `m1`). The pair must be complete and parse, or core-api
 refuses to boot. HS256 keeps verifying during a rollout, so you can
-switch without logging anyone out. The [threat
-model](../../reference/auth-threat-model.md) §A4 covers when to retire the
+switch without logging anyone out. The authentication threat model (internal documentation) §A4 covers when to retire the
 shared secret.
 
 ## Container security posture

@@ -141,7 +141,7 @@ capability list is what you consent to at install time. A digest mismatch stops
 the install rather than warning
 ([Configure the plugin consent flow](how-to/admin-plugin-consent.md)). For a
 key you are rotating rather than installing:
-[Plugin signing key rotation](../reference/plugin-signing-rotation-runbook.md).
+the plugin signing key rotation runbook (internal documentation).
 
 ## "Uploads fail above a few megabytes"
 

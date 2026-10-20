@@ -163,3 +163,39 @@ apps/web/.harness/in.css
 # manufacture a tracked-but-ignored contradiction. The same applies to design/,
 # .claude/, .kilo/skills/ and the other internal paths excluded at publish time.
 # If you want one of them gone from this repo, remove it — do not add it here.
+
+# Internal material extracted to the private sibling repository (../internal).
+# These are ignored so a stray copy cannot re-enter the working tree: the public
+# repository must never contain the design corpus, the security audit, the
+# strategy and commercial documents, or per-agent configs. The tracker
+# (TASKLIST*.md) is deliberately NOT here — see the note above.
+/design/
+/website/
+/meridian-ci/
+/.claude/
+/.agents/
+/.cursor/
+/.kiro/
+/.grok/
+/.gemini/
+/.adal/
+/.windsurf/
+/.trail/learnings/
+/.kilo/w41lanes/
+/.kilo/worktests/
+/README-PROPOSAL.md
+/docs/STRATEGY.md
+/docs/prompts/
+/docs/11-web-presence.md
+/docs/reference/architecture-review-2026-10.md
+/docs/reference/parallel-lanes.md
+/docs/reference/marula-surface-brief.md
+/docs/reference/wave41-marula-plan.md
+/docs/reference/auth-threat-model.md
+/docs/reference/plugin-signing-rotation-runbook.md
+/docs/reference/marula-name-map.md
+/docs/reference/wave16-content-model-and-vault.md
+/docs/reference/core-vs-premium.md
+/docs/adr/0012-internal-org-asset-scope.md
+/docs/adr/0013-connector-tiers-and-marketplace.md
+/scripts/check-brand-assets.mjs

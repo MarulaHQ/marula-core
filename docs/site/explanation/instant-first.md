@@ -1,7 +1,7 @@
 # Instant-first interaction
 
 > The full technical specification lives in [`docs/instant-first.md`](../../instant-first.md)
-> (doctrines #7–#9 in [`docs/STRATEGY.md`](../../STRATEGY.md)). This page
+> (doctrines #7–#9 of the project's internal engineering strategy). This page
 > explains what it means for your daily work and why the product is built this way.
 
 ## What you feel in the app: no Save button, instant feedback, real undo

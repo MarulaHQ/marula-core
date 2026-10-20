@@ -55,8 +55,6 @@ from the symptom.
   negotiation.
 - [Plugin runtime](../../reference/plugin-runtime.md) — the host, the capability
   model, and the distribution contract.
-- [Plugin signing key rotation runbook](../../reference/plugin-signing-rotation-runbook.md) —
-  rotating a key without breaking installed plugins.
 - [The agent platform spec](../../10-agent-platform.md) — the normative reference
   the implementation is measured against.
 

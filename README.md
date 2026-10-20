@@ -148,9 +148,7 @@ packages/
 └── plugin-kit/     # TS plugin PDK + dev harness (Apache-2.0)
 plugins/            # first-party extensions (Apache-2.0): connectors/ (HTTP) + wasm/
   connectors/       # the standard connector set + the shared support crates
-design/mockups/     # approved UI mockups (light + dark per screen) — implementation targets
 deploy/             # docker-compose.yml, Helm chart, upgrade runbooks
-website/            # project marketing site — waitlist first, then live (mockup-first)
 docs/               # Diátaxis docs, ADRs, RFCs, theme spec, build brief
 .github/            # CI, templates, actions
 ```

@@ -107,13 +107,13 @@ designed for ultimate UX and looks, not invented from scratch (user directive
   compliance — project tokens always win.
 - **Aesthetic reference (2026-09-30, user directive — repointed from the retired
   Workbench mockup):**
-  `design/mockups/marula-app-mockup-images/` is the canonical look-and-feel
+  `internal/design/mockups/marula-app-mockup-images/` (the private sibling repo) is the canonical look-and-feel
   reference. Open `source/marula-app-mockups.html` for the interactive mockup and
   `DESIGN-NOTES.md` for the rules behind each state; `desktop/neutral/states/`
   and `mobile/light/states/` hold the per-state PNGs, `manifest.json` indexes all
   70. It sets the bar for layout, hierarchy, density and both modes — use it
   alongside lazyweb research, which supplies pattern breadth. The pre-rebrand
-  `meridian-ticket-workbench-html-mockup-v2.html` stays in `design/mockups/` as
+  `meridian-ticket-workbench-html-mockup-v2.html` stays in `internal/design/mockups/` as
   history and is checked for geometry only.
 - **Motion:** subtle, tasteful animation is encouraged — entrance/transition
   motion, staggered reveals, hover micro-feedback. Guardrails: transform/opacity

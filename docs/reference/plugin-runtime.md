@@ -26,5 +26,5 @@ The security model that the runtime must preserve is already written down in
 mapped onto the existing permission matrix, and every lifecycle step audited. The
 runtime wave adds execution around that contract, not a second contract.
 
-For the boundary between the core plugin host and the premium pack catalogue, see
-[`core-vs-premium.md`](core-vs-premium.md).
+The boundary between the core plugin host and the commercial pack catalogue is
+described in the private repository's `docs/strategy/core-vs-premium.md`.

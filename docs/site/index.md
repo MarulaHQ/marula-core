@@ -1,6 +1,6 @@
 # Marula documentation
 
-![Marula logo lockup](../../design/marula/logo/lockup-ink@2x.png)
+![Marula logo lockup](../../.github/assets/logo-lockup-ink@2x.png)
 
 Marula is an open-source PSA (professional services automation) platform for IT service teams and MSPs. It runs your tickets, timers, client records, dispatch schedule, project billing, and client portal in one place on a database you own and control.
 

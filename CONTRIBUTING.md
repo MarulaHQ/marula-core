@@ -41,11 +41,9 @@ from two of them, so an edit here is a public edit:
   `[Unreleased]` bullets into a dated heading, adds the tag's link reference,
   and pushes the tag. Nothing else rewrites history in the file.
 
-Mechanical check: `node website/scripts/sync-public.mjs --check` regenerates
-the website's changelog page data, roadmap data, and RSS feed from these
-files, and fails if the generated output is stale or if `CHANGELOG.md` does
-not parse as Keep a Changelog. Run it locally after editing either file; the
-website build runs the generator and the check on every build.
+`CHANGELOG.md` and `ROADMAP.md` are the only sources for the public changelog
+and roadmap. Any page that mirrors them is generated at build time and never
+edited by hand.
 
 ## Review policy
 
