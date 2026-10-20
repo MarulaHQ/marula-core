@@ -12,6 +12,7 @@ import {
   lintRegistry,
 } from "../../../lib/commands/consistency";
 import { parseChord, surfaceMatchesOne } from "../../../lib/commands/chords";
+import { RAN } from "../../../lib/commands/outcome";
 import {
   COMMAND_REGISTRY,
   commandForChord,
@@ -27,7 +28,8 @@ function fake(overrides: Partial<CommandDef> & { id: string; chord: string }): C
     label: overrides.id,
     description: "",
     surfaces: [],
-    run: () => undefined,
+    targets: [],
+    run: () => RAN,
     ...overrides,
   };
 }
@@ -125,7 +127,7 @@ describe("dispatch resolution", () => {
       },
       click: () => {
         navigated.push("click");
-        return true;
+        return { kind: "clicked" };
       },
       copy: () => true,
     };

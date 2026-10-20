@@ -23,6 +23,7 @@ import { RAIL_SECTIONS } from "@/components/shell/rail-model";
 import { openPopout } from "@/lib/popout/popout";
 import { paramsFor, popoutRouteFor } from "@/lib/popout/registry";
 import { openNativeWindow } from "@/lib/desktop/windows";
+import { surfaceMatchesOne } from "./chords";
 import { failed, inapplicable, RAN, reportCommandOutcome } from "./outcome";
 import { attr, clickTarget, testid } from "./targets";
 import type { CommandContext, CommandDef, CommandOutcome, CommandVerb } from "./types";
@@ -33,21 +34,17 @@ import type { CommandContext, CommandDef, CommandOutcome, CommandVerb } from "./
  * is a defect, not an empty state. This is the exact control a Wave 41 pack
  * port renamed out from under Alt+N.
  */
-const NEW_RECORD_CONTROL = testid(
-  "new-record",
-  "required",
-  "the New record button this surface's create dialog hangs off",
-);
+const NEW_RECORD_CONTROL = testid("new-record", {
+  description: "the New record button this surface's create dialog hangs off",
+});
 
 /** Shell overlays mark their close control with this attribute; pressing a
  * "close" command clicks the SAME control a user would click. Optional: most
  * of the time nothing is open, and that is not a broken shortcut. */
-const CLOSE_CONTROL = attr(
-  "data-shortcuts-close",
-  "1",
-  "optional",
-  "the topmost overlay's own close control",
-);
+const CLOSE_CONTROL = attr("data-shortcuts-close", "1", {
+  presence: "optional",
+  description: "the topmost overlay's own close control",
+});
 
 /** Open the current surface as a popout window, honestly. */
 function popoutOutcome(ctx: CommandContext): CommandOutcome {
@@ -313,8 +310,12 @@ export function metaRows(): ReadonlyArray<{ chord: string; label: string; displa
   return META_ROWS;
 }
 
-/** Segment-pattern coverage: "/tickets/[id]" covers "/tickets/abc"; empty lists match everywhere. */
+/** Segment-pattern coverage, the same definition the chord matcher uses
+ * (chords.ts): "/tickets/[id]" covers "/tickets/abc" exactly, and a plain
+ * route does NOT cover its subroutes. That is deliberate (Wave 47 lane A25):
+ * `new.clients` clicks a control only the /clients page renders, so
+ * advertising Alt+N on /clients/<id> promised a click that could not happen.
+ * Commands valid across a subtree declare `[id]` or the subroute itself. */
 export function surfaceCovers(surface: string, pathname: string): boolean {
-  const prefix = surface.replace(/\[id\]$/, "");
-  return pathname === surface || (prefix !== "/" && pathname.startsWith(prefix));
+  return surfaceMatchesOne(surface, pathname);
 }

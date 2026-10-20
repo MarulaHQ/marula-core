@@ -82,6 +82,9 @@ export interface CommandTarget {
   attribute: { name: string; value: string } | null;
   /** `required`: absence is a defect. `optional`: absence is declared. */
   presence: TargetPresence;
+  /** Where the static check resolves the control: the command's route
+   * directories, or anywhere in the source for a shared component. */
+  via: "surface" | "shared";
   /** What the control is, in words, for the failure message. */
   description: string;
 }

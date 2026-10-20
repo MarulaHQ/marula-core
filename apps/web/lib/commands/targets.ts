@@ -3,9 +3,9 @@
 //
 // Two constructors, `testid()` and `attr()`. Both keep the selector and the
 // markup fact it resolves to in one object: `run` clicks `target.selector`,
-// and `scripts/check-command-targets.mjs` greps the source tree for
-// `data-testid="<name>"` (or the attribute pair) from the same declaration.
-// One declaration, two consumers, no second list to drift.
+// and `scripts/check-command-targets.ts` imports the real registry and
+// resolves each declaration against the source tree. One declaration, two
+// consumers, no second list to drift.
 //
 // `presence` is the policy for "target legitimately absent":
 //   - "required" (the default) — the surfaces this command declares promise
@@ -13,38 +13,54 @@
 //   - "optional" — the author says the control can be absent by design
 //     (nothing is open to close). A miss reports `inapplicable`.
 // Both are non-silent; the difference is severity, which the dispatcher keeps.
+//
+// `via` is where the static check looks for the control:
+//   - "surface" (the default) — inside the route directory of every surface
+//     the command declares. A rename on ONE page is red even when another
+//     page kept the testid, which is exactly how `new-record` died on
+//     /clients while /boards still rendered it.
+//   - "shared" — the control lives in a shared component the route imports;
+//     existence anywhere in the source is the strongest a text scan can say.
+//     Declaring it here is a written decision, not a silent exception.
 
 import { failed, inapplicable, RAN } from "./outcome";
-import type { CommandContext, CommandOutcome, CommandTarget, TargetPresence } from "./types";
+import type {
+  CommandContext,
+  CommandOutcome,
+  CommandTarget,
+  TargetPresence,
+} from "./types";
+
+export interface TargetOptions {
+  /** Absence policy. Default `required`. */
+  presence?: TargetPresence;
+  /** What the control is, in words, for the failure message. */
+  description?: string;
+  /** Where the static check resolves the control. Default `surface`. */
+  via?: "surface" | "shared";
+}
 
 /** A `data-testid` control. */
-export function testid(
-  name: string,
-  presence: TargetPresence = "required",
-  description = `[data-testid="${name}"] control`,
-): CommandTarget {
+export function testid(name: string, options: TargetOptions = {}): CommandTarget {
   return {
     selector: `[data-testid="${name}"]`,
     testId: name,
     attribute: null,
-    presence,
-    description,
+    presence: options.presence ?? "required",
+    via: options.via ?? "surface",
+    description: options.description ?? `the [data-testid="${name}"] control`,
   };
 }
 
 /** A control marked by any other attribute (e.g. `data-shortcuts-close="1"`). */
-export function attr(
-  name: string,
-  value: string,
-  presence: TargetPresence = "required",
-  description = `[${name}="${value}"] control`,
-): CommandTarget {
+export function attr(name: string, value: string, options: TargetOptions = {}): CommandTarget {
   return {
     selector: `[${name}="${value}"]`,
     testId: null,
     attribute: { name, value },
-    presence,
-    description,
+    presence: options.presence ?? "required",
+    via: options.via ?? "surface",
+    description: options.description ?? `the [${name}="${value}"] control`,
   };
 }
 
