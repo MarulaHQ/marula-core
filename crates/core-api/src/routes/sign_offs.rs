@@ -8,6 +8,12 @@
 //! tech's queue holds exactly one op, so there is no partial capture where
 //! bytes exist without their fact.
 //!
+//! The drawn mark is bytes from outside, so it passes the scan gate (Wave 52
+//! lane P6b) like every other upload: an infected PNG is held under the
+//! quarantine key, the capture is refused with the typed 422, the uploader
+//! and the org's scan-detection recipients are notified, and no sign-off row
+//! exists. A typed agreement stores nothing and is therefore not scanned.
+//!
 //! Non-purpose: no multipart (JSON only), no image processing (the client
 //! rasterises; the server validates magic bytes and content-addresses what
 //! it was given), no stroke-point persistence (the PNG IS the payload — see
@@ -207,6 +213,10 @@ async fn resolve_consent(
         (status = 403, description = "not permitted on this board"),
         (status = 404, description = "ticket or sign-off not found"),
         (status = 409, description = "already captured, revoked, or a version collision"),
+        // A held mark also answers 422 with `upload_quarantined`. The
+        // description stays as it was on purpose: widening it would change
+        // the pinned OpenAPI pair and the generated SDK for one sentence,
+        // and the envelope's `reason` is the contract clients branch on.
         (status = 422, description = "validation failed")
     ))]
 pub async fn create(
@@ -290,7 +300,19 @@ pub async fn create(
     let storage_key = core_store::attachment_key(org_id, &sha256_hex);
     let store = std::sync::Arc::clone(&state.store);
 
-    let sign_off = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    // --- the scan gate (Wave 52 lane P6b) ------------------------------
+    // Only the drawn path stores bytes, so only the drawn path is scanned:
+    // a typed agreement is a name, not a payload. The scan runs BEFORE the
+    // transaction opens, so an infected mark never reads the consent tables
+    // and never writes one, and a scanner that cannot answer refuses the
+    // capture with nothing stored (the same fail-closed rule as the other
+    // two doors).
+    let verdict = match &store_bytes {
+        Some(bytes) => Some(crate::scan_gate::gate(&state, bytes).await?),
+        None => None,
+    };
+
+    let captured = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
         authorize_board_op(
             &mut ctx.tx,
@@ -299,6 +321,52 @@ pub async fn create(
             BoardOp::WorkTicket,
         )
         .await?;
+
+        // A held mark is refused here, before the consent version is even
+        // checked: the bytes exist, a signature was found, and the capture
+        // stops being a capture. The quarantine row names the ticket, so the
+        // operator's list says which job the mark was for.
+        if let Some(verdict) = verdict.as_ref() {
+            if verdict.is_rejected() {
+                let drawn = store_bytes
+                    .clone()
+                    .expect("the drawn path is the only one that reaches a verdict");
+                let held = crate::scan_gate::quarantine(
+                    &mut ctx,
+                    store.as_ref(),
+                    crate::scan_gate::Rejection {
+                        org_id,
+                        sha256: &sha256_hex,
+                        filename: &filename,
+                        content_type: &content_type,
+                        size_bytes: payload_size,
+                        bytes: drawn,
+                        ticket_id: Some(id),
+                        uploaded_by_user_id: Some(user_id),
+                        verdict,
+                    },
+                )
+                .await?;
+                ctx.emit(
+                    types::ATTACHMENT_QUARANTINED,
+                    "attachment",
+                    Some(sha256_hex.as_str()),
+                    &serde_json::to_value(core_domain::events::AttachmentQuarantined {
+                        sha256: sha256_hex.clone(),
+                        filename: filename.clone(),
+                        content_type: content_type.clone(),
+                        size_bytes: payload_size,
+                        scanner: verdict.scanner.to_string(),
+                        detail: verdict.detail.clone(),
+                        ticket_id: Some(id),
+                        uploaded_by_user_id: Some(user_id),
+                    })
+                    .unwrap_or_default(),
+                )
+                .await?;
+                return Ok((ctx, crate::scan_gate::Gated::Quarantined(held)));
+            }
+        }
 
         // Pin the exact consent wording. Snapshot, not a live join, so an org
         // revising its wording can never rewrite what this signer agreed to.
@@ -346,6 +414,32 @@ pub async fn create(
                         .put(&storage_key, &content_type, bytes.clone())
                         .await
                         .map_err(store_error)?;
+                }
+
+                // The verdict belongs to the object, and this door is the
+                // third one writing the shared key space: a mark admitted
+                // here must be on record exactly like a ticket or document
+                // object, or a later surface has to scan the same bytes again
+                // to answer "was this checked?".
+                if let Some(verdict) = verdict.as_ref() {
+                    core_db::attachment_scans::record_admitted(
+                        &mut ctx.tx,
+                        core_db::attachment_scans::NewScan {
+                            org_id,
+                            sha256: &sha256_hex,
+                            status: verdict.status,
+                            detail: verdict.detail.as_deref(),
+                            scanner: verdict.scanner,
+                            size_bytes: payload_size,
+                            content_type: &content_type,
+                            filename: &filename,
+                            storage_key: &storage_key,
+                            ticket_id: Some(id),
+                            uploaded_by_user_id: Some(user_id),
+                            uploaded_by_portal_user_id: None,
+                        },
+                    )
+                    .await?;
                 }
 
                 let attachment_id = Uuid::now_v7();
@@ -461,10 +555,13 @@ pub async fn create(
             },
         )
         .await?;
-        Ok((ctx, sign_off))
+        Ok((ctx, crate::scan_gate::Gated::Admitted(sign_off)))
     })
     .await?;
-    Ok(Json(sign_off))
+    match captured {
+        crate::scan_gate::Gated::Admitted(sign_off) => Ok(Json(sign_off)),
+        crate::scan_gate::Gated::Quarantined(held) => Err(held.refusal()),
+    }
 }
 
 /// GET /api/tickets/{id}/sign-offs — the ticket's sign-offs with payload

@@ -25,7 +25,7 @@
 //! `task_dependencies_unsatisfied`, `undo_reverts_only`,
 //! `time_entry_locked`,
 //! `run_retry_refused`,
-//! `service_unavailable`, `internal_error`.
+//! `service_unavailable`, `internal_error`, `upload_quarantined`.
 //!
 //! The vocabulary above IS the machine-readable reason-code registry
 //! (Wave 13 lane 1): every error this API emits carries one of these
@@ -143,14 +143,28 @@ pub enum ApiError {
     /// surfaces such as the internal effect surface without its token).
     #[error("service unavailable: {0}")]
     Unavailable(String),
-    /// Typed 422 for an upload the scan gate refused (Wave 52 lane P6a):
-    /// the bytes were scanned, a signature was found, and NOTHING was
+    /// Typed 422 for an upload the scan gate refused (Wave 52 lanes P6a and
+    /// P6b): the bytes were scanned, a signature was found, and NOTHING was
     /// admitted — the object is held under its quarantine key for an
     /// operator. Kept distinct from `Validation` because retrying the same
     /// bytes cannot succeed, and the client should say what was found
     /// rather than re-prompt for a different filename.
+    ///
+    /// The four facts an upload surface needs to say that in its own words
+    /// ride the envelope, so no client has to parse the message: which
+    /// object (`sha256`), what it was called (`filename`), what decided
+    /// (`scanner`), what it found (`detail`), and that the bytes are held
+    /// (`held_for_operator`) — that last one is what stops a UI from
+    /// offering "retry the same file" for a refusal that retrying cannot
+    /// change.
     #[error("upload rejected by the malware scan")]
     UploadQuarantined {
+        /// Lowercase hex sha256 of the held object — its identity.
+        sha256: String,
+        /// The filename the uploader gave (or the surface minted).
+        filename: String,
+        /// Adapter that made the call (`clamd`, a test double).
+        scanner: String,
         /// The scanner's detail string (usually the signature name).
         detail: Option<String>,
     },
@@ -765,13 +779,27 @@ impl IntoResponse for ApiError {
                 m.clone(),
                 None,
             ),
-            ApiError::UploadQuarantined { detail } => (
+            ApiError::UploadQuarantined {
+                sha256,
+                filename,
+                scanner,
+                detail,
+            } => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "upload_quarantined",
                 "the file was rejected by the malware scanner and is held for an operator; \
                  nothing was attached"
                     .to_string(),
-                Some(json!({ "detail": detail })),
+                Some(json!({
+                    "sha256": sha256,
+                    "filename": filename,
+                    "scanner": scanner,
+                    "detail": detail,
+                    // The bytes are held, not discarded: an operator has to
+                    // release or delete them. A UI that reads this knows a
+                    // retry of the same file is pointless.
+                    "held_for_operator": true,
+                })),
             ),
             ApiError::TimeEntryLocked { entry_id } => (
                 StatusCode::CONFLICT,
@@ -971,6 +999,9 @@ mod tests {
             (ApiError::Unavailable("x".into()), "service_unavailable"),
             (
                 ApiError::UploadQuarantined {
+                    sha256: "0".repeat(64),
+                    filename: "invoice.pdf".into(),
+                    scanner: "clamd".into(),
                     detail: Some("Eicar-Test-Signature".into()),
                 },
                 "upload_quarantined",
