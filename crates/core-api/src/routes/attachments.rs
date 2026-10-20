@@ -158,9 +158,10 @@ pub async fn upload(
 
         if status == ScanStatus::Infected {
             // The bytes are held, never admitted: a separate namespace, a
-            // verdict row that is the operator's record, and no attachment.
-            crate::scan_gate::quarantine(
-                &mut ctx.tx,
+            // verdict row that is the operator's record, a notification for
+            // the uploader, and no attachment.
+            let held = crate::scan_gate::quarantine(
+                &mut ctx,
                 store.as_ref(),
                 crate::scan_gate::Rejection {
                     org_id,
@@ -192,7 +193,7 @@ pub async fn upload(
                 .unwrap_or_default(),
             )
             .await?;
-            return Ok((ctx, crate::scan_gate::Gated::Quarantined { detail }));
+            return Ok((ctx, crate::scan_gate::Gated::Quarantined(held)));
         }
 
         // Admitted: content-addressed dedup skips the PUT when this org
@@ -256,9 +257,7 @@ pub async fn upload(
     // that follows is a report about a fact on disk, not an aborted write.
     match gated {
         crate::scan_gate::Gated::Admitted(attachment) => Ok(Json(attachment)),
-        crate::scan_gate::Gated::Quarantined { detail } => {
-            Err(ApiError::UploadQuarantined { detail })
-        }
+        crate::scan_gate::Gated::Quarantined(held) => Err(held.refusal()),
     }
 }
 

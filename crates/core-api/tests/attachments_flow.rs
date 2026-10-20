@@ -10,6 +10,13 @@
 //! reclamation, and portal visibility (internal-comment files are plain
 //! 404s to every portal tier).
 //!
+//! The scan gate's outcome is pinned here too (Wave 52 lanes P6a and P6b),
+//! across all three doors that store uploaded bytes: the ticket attachment,
+//! the document attachment, and the drawn sign-off mark. Each refusal must
+//! carry the typed 422 fields, leave its own row unwritten, hold the bytes
+//! under the quarantine key, and tell the uploader through the notification
+//! center.
+//!
 //! Non-purpose: SQL-layer RLS (core-db db_suite), adapter behavior
 //! (core-store), UI rendering.
 //!
@@ -37,6 +44,9 @@ const PDF_BYTES: &[u8] = b"%PDF-1.7 minimal";
 const INFECTED_PDF_BYTES: &[u8] = b"%PDF-1.7 [VIRUS] payload";
 /// Same shape, marker for "the scanner cannot be reached".
 const SCANNER_DOWN_PDF_BYTES: &[u8] = b"%PDF-1.7 [SCAN-DOWN] payload";
+/// A drawn mark that is a real PNG by its magic bytes and carries the
+/// signature marker — the sign-off door's version of the same trap.
+const INFECTED_PNG_BYTES: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR[VIRUS]";
 
 /// Scripted scanner for the gate tests: `[VIRUS]` ⇒ infected, `[SCAN-DOWN]`
 /// ⇒ unavailable (the fail-closed path), anything else clean. Deterministic
@@ -818,13 +828,32 @@ async fn scan_gate_quarantines_infections_and_fails_closed() {
     );
     let body = body_json(response).await;
     assert_eq!(body["error"]["reason"], "upload_quarantined");
-    assert_eq!(body["error"]["code"], 422);
+    assert_eq!(
+        body["error"]["code"], 422,
+        "the envelope shape is unchanged"
+    );
+    assert_eq!(
+        body["error"]["sha256"], infected_sha,
+        "the refusal names the object it held: {body}"
+    );
+    assert_eq!(
+        body["error"]["filename"], "invoice.pdf",
+        "the refusal names the file the uploader chose: {body}"
+    );
+    assert_eq!(
+        body["error"]["scanner"], "gate-scripted",
+        "the refusal names the adapter that decided: {body}"
+    );
     assert!(
         body["error"]["detail"]
             .as_str()
             .unwrap_or_default()
             .contains("Eicar"),
         "the scanner's detail rides the refusal: {body}"
+    );
+    assert_eq!(
+        body["error"]["held_for_operator"], true,
+        "a client must not offer `retry the same file` for held bytes: {body}"
     );
 
     // The record exists, is infected, and points at the quarantine namespace.
@@ -872,6 +901,35 @@ async fn scan_gate_quarantines_infections_and_fails_closed() {
         "the refusal attached nothing: only the clean file is on the ticket"
     );
 
+    // The uploader was told, durably. The uploader here is also the org's
+    // only owner, so the uploader leg and the owner/admin leg name the same
+    // person: one row, not two.
+    let notices = scan_notifications(&state, org_id).await;
+    assert_eq!(
+        notices.len(),
+        1,
+        "one person, one notification: {notices:?}"
+    );
+    let (title, notice_body, notice_ticket) = &notices[0];
+    assert!(
+        title.contains("held"),
+        "the title names the outcome, not just the machinery: {title}"
+    );
+    let notice_text = notice_body.as_deref().unwrap_or_default();
+    assert!(
+        notice_text.contains("invoice.pdf"),
+        "the body names the file that did not land: {notice_text}"
+    );
+    assert!(
+        notice_text.contains("Eicar"),
+        "the body names what the scanner found: {notice_text}"
+    );
+    assert_eq!(
+        *notice_ticket,
+        Some(Uuid::parse_str(&org.ticket_a).expect("ticket id")),
+        "the notice points at the ticket the upload was aimed at"
+    );
+
     // --- 3. SCANNER DOWN: 503, and NOTHING written at all -----------------
     let down_sha = sha(SCANNER_DOWN_PDF_BYTES);
     let ops_before = store.ops().len();
@@ -903,6 +961,11 @@ async fn scan_gate_quarantines_infections_and_fails_closed() {
     assert!(
         scan_row(&state, org_id, &down_sha).await.is_none(),
         "no verdict row exists for bytes that were never admitted"
+    );
+    assert_eq!(
+        scan_notifications(&state, org_id).await.len(),
+        1,
+        "a fail-closed refusal is not a quarantine: it holds nothing, so it notifies nobody new"
     );
     let listed = body_json(
         send_json(
@@ -959,4 +1022,376 @@ async fn none_mode_admits_and_records_a_skip() {
     };
     assert_eq!(status, "skipped");
     assert_eq!(scanner, "none");
+}
+
+/// The scan-detection notifications one org holds, oldest first, as
+/// (title, body, ticket anchor) — read under the org's RLS scope.
+async fn scan_notifications(
+    state: &AppState,
+    org_id: Uuid,
+) -> Vec<(String, Option<String>, Option<Uuid>)> {
+    let mut tx = state.pool.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("org scope");
+    sqlx::query_as(
+        "SELECT title, body, ticket_id FROM notifications \
+         WHERE org_id = $1 AND kind = 'scan_detection' ORDER BY created_at, id",
+    )
+    .bind(org_id)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("notification lookup")
+}
+
+fn b64(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn sha_of(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(bytes))
+}
+
+/// The org a ticket belongs to, read through the API: the test role may not
+/// own the tables, so a bare SELECT would come back empty under RLS.
+async fn org_of_ticket(app: &Router, token: &str, ticket_id: &str) -> Uuid {
+    let view = body_json(
+        send_json(
+            app,
+            axum::http::Method::GET,
+            &format!("/api/tickets/{ticket_id}"),
+            Some(token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    Uuid::parse_str(
+        view["org_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("ticket view carries its org: {view}")),
+    )
+    .expect("org uuid")
+}
+
+/// The drawn mark is the third door that stores uploaded bytes, and the one
+/// whose upload sits inside a consent flow (Wave 52 lane P6b): an infected
+/// mark is held against the TICKET, the capture is refused with the typed
+/// 422, nobody is told it was signed, and the consent path never runs. A
+/// clean mark still captures exactly as it did before.
+#[tokio::test]
+async fn sign_off_gate_holds_an_infected_mark_and_captures_nothing() {
+    let scanner: Arc<dyn core_mail::ScanProvider> = Arc::new(GateScan);
+    let (state, store) = test_state_with(Some(scanner)).await;
+    let app = core_api::routes::build_router(state.clone());
+    let org = seed_org(&app, "signoff-gate").await;
+    let sign_offs_uri = format!("/api/tickets/{}/sign-offs", org.ticket_a);
+    let ticket_id = Uuid::parse_str(&org.ticket_a).expect("ticket id");
+    let org_id = org_of_ticket(&app, &org.token, &org.ticket_a).await;
+
+    // --- 1. INFECTED: typed 422, held, no sign-off, one notice -----------
+    let infected_sha = sha_of(INFECTED_PNG_BYTES);
+    let response = send_json(
+        &app,
+        axum::http::Method::POST,
+        &sign_offs_uri,
+        Some(&org.token),
+        Some(json!({
+            "image_base64": b64(INFECTED_PNG_BYTES),
+            "signer_name": "Casey Client",
+            "captured_at": "2026-10-20T09:00:00Z",
+            "consent_version": 1,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        422,
+        "an infected mark is refused, not captured"
+    );
+    let body = body_json(response).await;
+    assert_eq!(body["error"]["reason"], "upload_quarantined");
+    assert_eq!(body["error"]["sha256"], infected_sha);
+    let minted = body["error"]["filename"]
+        .as_str()
+        .expect("the refusal names the payload file");
+    assert!(
+        minted.starts_with("signature-") && minted.ends_with(".png"),
+        "the server minted the payload filename, and the refusal repeats it: {minted}"
+    );
+    assert_eq!(body["error"]["scanner"], "gate-scripted");
+    assert!(body["error"]["detail"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("Eicar"));
+    assert_eq!(body["error"]["held_for_operator"], true);
+
+    // No evidence row, because there was no capture.
+    let listed = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &sign_offs_uri,
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        listed.as_array().map(Vec::len),
+        Some(0),
+        "a held mark is not a sign-off: {listed}"
+    );
+
+    // The verdict row names the ticket the mark was for, and the bytes live
+    // under the quarantine namespace only.
+    let (status, held_ticket) = {
+        let mut tx = state.pool.begin().await.expect("tx");
+        core_db::set_org(&mut tx, org_id).await.expect("org scope");
+        sqlx::query_as::<_, (String, Option<Uuid>)>(
+            "SELECT status, ticket_id FROM attachment_scans \
+             WHERE org_id = $1 AND sha256 = $2",
+        )
+        .bind(org_id)
+        .bind(&infected_sha)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("quarantine row")
+    };
+    assert_eq!(status, "infected");
+    assert_eq!(
+        held_ticket,
+        Some(ticket_id),
+        "the operator's list says which job the mark was for"
+    );
+    let puts: Vec<String> = store
+        .ops()
+        .iter()
+        .filter_map(|op| match op {
+            core_store::ObjectRecordedOp::Put { key } => Some(key.clone()),
+            core_store::ObjectRecordedOp::Delete { .. } => None,
+        })
+        .collect();
+    assert!(
+        puts.iter().any(|k| k.contains("/quarantine/")),
+        "the held mark kept its bytes: {puts:?}"
+    );
+    assert!(
+        !puts
+            .iter()
+            .any(|k| k.contains("/attachments/") && k.ends_with(&infected_sha)),
+        "the held mark must never reach the admitted key space: {puts:?}"
+    );
+
+    let notices = scan_notifications(&state, org_id).await;
+    assert_eq!(
+        notices.len(),
+        1,
+        "the tech who drew the mark was told once: {notices:?}"
+    );
+    let (_, notice_body, notice_ticket) = &notices[0];
+    assert_eq!(*notice_ticket, Some(ticket_id));
+    assert!(notice_body
+        .as_deref()
+        .unwrap_or_default()
+        .contains("signature-"));
+
+    // --- 2. CLEAN: the drawn path still captures, silently --------------
+    let clean_sha = sha_of(PNG_BYTES);
+    let response = send_json(
+        &app,
+        axum::http::Method::POST,
+        &sign_offs_uri,
+        Some(&org.token),
+        Some(json!({
+            "image_base64": b64(PNG_BYTES),
+            "signer_name": "Casey Client",
+            "captured_at": "2026-10-20T09:05:00Z",
+            "consent_version": 1,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    let status = response.status();
+    let payload = body_json(response).await;
+    assert_eq!(
+        status, 200,
+        "a clean mark captures exactly as before: {payload}"
+    );
+    let listed = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &sign_offs_uri,
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        listed.as_array().map(Vec::len),
+        Some(1),
+        "the clean capture landed: {listed}"
+    );
+    assert!(
+        listed[0]["attachment_id"].is_string(),
+        "a drawn mark still stores its payload row: {listed}"
+    );
+    assert_eq!(
+        scan_row(&state, org_id, &clean_sha)
+            .await
+            .map(|(status, _, _)| status)
+            .as_deref(),
+        Some("clean"),
+        "the admitted mark carries its verdict"
+    );
+    assert_eq!(
+        scan_notifications(&state, org_id).await.len(),
+        1,
+        "a clean capture notifies nobody"
+    );
+}
+
+/// The same held file, uploaded twice. The verdict row keeps its first
+/// record (P6a's first-wins rule), and the first-wins rule must not turn the
+/// second attempt into a different answer: it is the same typed refusal, and
+/// the operator sees that somebody tried again.
+#[tokio::test]
+async fn repeat_upload_of_a_held_file_keeps_the_typed_refusal() {
+    let scanner: Arc<dyn core_mail::ScanProvider> = Arc::new(GateScan);
+    let (state, store) = test_state_with(Some(scanner)).await;
+    let app = core_api::routes::build_router(state.clone());
+    let org = seed_org(&app, "repeat-gate").await;
+    let infected_sha = sha_of(INFECTED_PDF_BYTES);
+
+    let mut answers = Vec::new();
+    for _ in 0..2 {
+        let response = send_raw(
+            &app,
+            axum::http::Method::POST,
+            &upload_uri(&org.ticket_a),
+            Some(&org.token),
+            &[
+                ("x-filename", "invoice.pdf"),
+                ("content-type", "application/pdf"),
+            ],
+            Some(INFECTED_PDF_BYTES.to_vec()),
+        )
+        .await;
+        answers.push((response.status(), body_json(response).await));
+    }
+    for (status, body) in &answers {
+        assert_eq!(*status, 422, "both attempts are refused: {body}");
+        assert_eq!(body["error"]["reason"], "upload_quarantined");
+        assert_eq!(body["error"]["sha256"], infected_sha);
+        assert_eq!(body["error"]["held_for_operator"], true);
+    }
+
+    // One object, one quarantine copy, one notification per attempt.
+    let puts: Vec<String> = store
+        .ops()
+        .iter()
+        .filter_map(|op| match op {
+            core_store::ObjectRecordedOp::Put { key } => Some(key.clone()),
+            core_store::ObjectRecordedOp::Delete { .. } => None,
+        })
+        .collect();
+    assert_eq!(
+        puts.iter()
+            .filter(|k| k.contains("/quarantine/") && k.ends_with(&infected_sha))
+            .count(),
+        1,
+        "the bytes are held once, not once per attempt: {puts:?}"
+    );
+    let org_id = org_of_ticket(&app, &org.token, &org.ticket_a).await;
+    assert_eq!(
+        scan_notifications(&state, org_id).await.len(),
+        2,
+        "each attempt told the uploader"
+    );
+}
+
+/// The document door writes the same key space, so it gets the same outcome:
+/// typed 422, held bytes, and a notice with no ticket to anchor it.
+#[tokio::test]
+async fn document_attachment_gate_refuses_and_notifies_without_a_ticket() {
+    let scanner: Arc<dyn core_mail::ScanProvider> = Arc::new(GateScan);
+    let (state, _store) = test_state_with(Some(scanner)).await;
+    let app = core_api::routes::build_router(state.clone());
+    let org = seed_org(&app, "docgate").await;
+
+    let created = body_json(
+        send_json(
+            &app,
+            axum::http::Method::POST,
+            "/api/documents",
+            Some(&org.token),
+            Some(json!({
+                "title": "Onboarding runbook",
+                "body": "Step one.",
+                "idempotency_key": Uuid::now_v7().to_string(),
+            })),
+        )
+        .await,
+    )
+    .await;
+    let document_id = created["id"].as_str().expect("document id").to_string();
+
+    let response = send_raw(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/documents/{document_id}/attachments"),
+        Some(&org.token),
+        &[
+            ("x-filename", "runbook.pdf"),
+            ("content-type", "application/pdf"),
+        ],
+        Some(INFECTED_PDF_BYTES.to_vec()),
+    )
+    .await;
+    assert_eq!(response.status(), 422);
+    let body = body_json(response).await;
+    assert_eq!(body["error"]["reason"], "upload_quarantined");
+    assert_eq!(body["error"]["filename"], "runbook.pdf");
+    assert_eq!(body["error"]["held_for_operator"], true);
+    assert_eq!(body["error"]["sha256"], sha_of(INFECTED_PDF_BYTES));
+
+    let org_id = org_of_ticket(&app, &org.token, &org.ticket_a).await;
+    assert!(
+        scan_row(&state, org_id, &sha_of(INFECTED_PDF_BYTES))
+            .await
+            .is_some(),
+        "the document door records the verdict it refused on"
+    );
+    let notices = scan_notifications(&state, org_id).await;
+    assert_eq!(notices.len(), 1);
+    assert_eq!(
+        notices[0].2, None,
+        "a document upload has no ticket to anchor the notice to"
+    );
+    assert!(notices[0]
+        .1
+        .as_deref()
+        .unwrap_or_default()
+        .contains("runbook.pdf"));
+
+    let listed = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/documents/{document_id}/attachments"),
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        listed["attachments"].as_array().map(Vec::len),
+        Some(0),
+        "nothing was attached: {listed}"
+    );
 }
