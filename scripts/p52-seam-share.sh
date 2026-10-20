@@ -52,8 +52,11 @@ cargo test -p core-api --test import_async_flow import_wall_clock_over_a_bulk_ba
   exit 1
 }
 
-seam_json="$(grep -m1 '^SEAM_SHARE ' "$seam_log" | sed 's/^SEAM_SHARE //' || true)"
-import_json="$(grep -m1 '^IMPORT_WALL_CLOCK ' "$import_log" | sed 's/^IMPORT_WALL_CLOCK //' || true)"
+# libtest writes "test <name> ... " without a newline before the test's own
+# stdout, so the result line does not start at column 0. Match the marker
+# wherever it lands instead of anchoring it.
+seam_json="$(grep -m1 -o 'SEAM_SHARE {.*}' "$seam_log" | sed 's/^SEAM_SHARE //' || true)"
+import_json="$(grep -m1 -o 'IMPORT_WALL_CLOCK {.*}' "$import_log" | sed 's/^IMPORT_WALL_CLOCK //' || true)"
 if [[ -z "$seam_json" || -z "$import_json" ]]; then
   echo "p52-seam-share: a measurement printed no result line" >&2
   echo "--- worker log ---" >&2

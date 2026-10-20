@@ -158,17 +158,26 @@ pub async fn claim_batch<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    // The pick is a MATERIALIZED CTE on purpose, not `WHERE id IN (SELECT ... LIMIT n)`.
+    //
+    // Under the RLS role the planner turns that `IN` into a `Nested Loop Semi
+    // Join` with the `Limit` on the inner side, so the limit is re-executed per
+    // outer row and every candidate finds itself: a batch of 4 claimed 6 of 6
+    // in `job_queue_concurrent_claims_are_disjoint` once the plan chose a seq
+    // scan. A materialized CTE is an optimization fence, so the pick runs
+    // exactly once and `batch` stays a real bound.
     let rows = sqlx::query!(
-        r#"UPDATE jobs
-           SET status = 'running', claimed_at = now(), claimed_by = $1,
-               attempts = attempts + 1, updated_at = now()
-           WHERE id IN (
+        r#"WITH picked AS MATERIALIZED (
              SELECT id FROM jobs
              WHERE status = 'pending' AND run_after <= now()
              ORDER BY id
              FOR UPDATE SKIP LOCKED
              LIMIT $2
            )
+           UPDATE jobs
+           SET status = 'running', claimed_at = now(), claimed_by = $1,
+               attempts = attempts + 1, updated_at = now()
+           WHERE id IN (SELECT id FROM picked)
            RETURNING id, org_id, kind, payload, attempts, max_attempts, claimed_by"#,
         worker_name,
         batch,

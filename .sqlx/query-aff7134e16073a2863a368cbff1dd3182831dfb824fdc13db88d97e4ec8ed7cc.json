@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE jobs\n           SET status = 'running', claimed_at = now(), claimed_by = $1,\n               attempts = attempts + 1, updated_at = now()\n           WHERE id IN (\n             SELECT id FROM jobs\n             WHERE status = 'pending' AND run_after <= now()\n             ORDER BY id\n             FOR UPDATE SKIP LOCKED\n             LIMIT $2\n           )\n           RETURNING id, org_id, kind, payload, attempts, max_attempts, claimed_by",
+  "query": "WITH picked AS MATERIALIZED (\n             SELECT id FROM jobs\n             WHERE status = 'pending' AND run_after <= now()\n             ORDER BY id\n             FOR UPDATE SKIP LOCKED\n             LIMIT $2\n           )\n           UPDATE jobs\n           SET status = 'running', claimed_at = now(), claimed_by = $1,\n               attempts = attempts + 1, updated_at = now()\n           WHERE id IN (SELECT id FROM picked)\n           RETURNING id, org_id, kind, payload, attempts, max_attempts, claimed_by",
   "describe": {
     "columns": [
       {
@@ -55,5 +55,5 @@
       true
     ]
   },
-  "hash": "d826e0ddd997080ae5117427613d4cd7b8efff059e281c7557228b5b75408c99"
+  "hash": "aff7134e16073a2863a368cbff1dd3182831dfb824fdc13db88d97e4ec8ed7cc"
 }

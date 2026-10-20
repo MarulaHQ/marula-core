@@ -427,14 +427,24 @@ async fn consumer_names_split_the_pending_list_and_idle_entries_are_claimed() {
         .xread_options(&[EVENT_STREAM], &[">"], &options)
         .await
         .expect("deliver to CONSUMER_B");
+    // A PEL holds STREAM entry ids, not the envelope's uuid: the id the entry
+    // was given when it was appended. The two are different namespaces, and
+    // the assertions below compare against the right one.
+    let delivered_ids: Vec<String> = delivered
+        .keys
+        .into_iter()
+        .flat_map(|key| key.ids)
+        .map(|entry| entry.id)
+        .collect();
     assert_eq!(
-        delivered.keys.into_iter().flat_map(|key| key.ids).count(),
+        delivered_ids.len(),
         1,
         "the group must hand the new entry to CONSUMER_B"
     );
+    let delivered_id = delivered_ids[0].clone();
     assert_eq!(
         pending_ids(&mut seed, CONSUMER_B).await,
-        vec![in_flight_id.to_string()],
+        vec![delivered_id.clone()],
         "the entry is CONSUMER_B's, not the group's"
     );
 
@@ -458,7 +468,7 @@ async fn consumer_names_split_the_pending_list_and_idle_entries_are_claimed() {
     );
     assert_eq!(
         pending_ids(&mut seed, CONSUMER_B).await,
-        vec![in_flight_id.to_string()],
+        vec![delivered_id.clone()],
         "the entry must still belong to CONSUMER_B, unacked"
     );
 
@@ -474,7 +484,7 @@ async fn consumer_names_split_the_pending_list_and_idle_entries_are_claimed() {
             GROUP,
             CONSUMER_B,
             0_u64,
-            &[in_flight_id.as_str()],
+            &[delivered_id.clone()],
             StreamClaimOptions::default().idle(120_000).with_force(),
         )
         .await

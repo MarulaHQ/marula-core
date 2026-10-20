@@ -1553,7 +1553,10 @@ async fn a_store_that_cannot_presign_still_streams() {
     )
     .await;
     assert_eq!(response.status(), 200);
-    assert_eq!(content_type_of(&response).await, "application/octet-stream");
+    // The stored content type, as this door has always served it; the
+    // `application/octet-stream` in the utoipa annotation describes the body
+    // type for the spec, not the runtime header.
+    assert_eq!(content_type_of(&response).await, "image/png");
     assert_eq!(
         response
             .headers()
