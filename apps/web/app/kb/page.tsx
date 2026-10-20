@@ -18,7 +18,9 @@
 "use client";
 
 import { rejectionText } from "../../lib/error-copy";
-import { KbArticleEditor } from "../../lib/editor/kb-article-editor";
+// TipTap rides next/dynamic: the editor chunk loads when an article opens, not
+// with the ledger list (p52-frontend-perf-budget).
+import { KbArticleEditor } from "../../lib/editor/kb-article-editor-lazy";
 import {
   Badge,
   Button,
