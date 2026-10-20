@@ -154,3 +154,12 @@ apps/web/.harness/in.css
 # lane A18 untracked it; Wave 52 lanes P2/P3 re-added it by hand. Keep it
 # ignored — scripts/check-hook-paths.mjs is the guard.
 .cursor/hooks.json
+
+# The build tracker is deliberately NOT ignored.
+# TASKLIST.md and TASKLIST_COMPLETED.md are the live working documents every lane
+# edits, so they must stay tracked here. They are removed from the *published*
+# repository by the publish filter (~/.local/bin/publish-marula-core.sh), not by a
+# rule in this file: an ignore rule cannot untrack a tracked file, it can only
+# manufacture a tracked-but-ignored contradiction. The same applies to design/,
+# .claude/, .kilo/skills/ and the other internal paths excluded at publish time.
+# If you want one of them gone from this repo, remove it — do not add it here.
