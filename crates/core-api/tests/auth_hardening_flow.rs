@@ -334,6 +334,14 @@ async fn a_successful_rotation_clears_the_refresh_gate() {
         secs <= 30,
         "the ladder restarts at its first rung after a success, got {secs}s"
     );
+
+    // Leave the bucket as this test found it: it drove the gate through two
+    // full arms, and a later case that omits `x-forwarded-for` shares the
+    // same key.
+    sqlx::query("DELETE FROM auth_lockouts WHERE kind = 'refresh'")
+        .execute(&pool)
+        .await
+        .expect("clean up the refresh curve");
 }
 
 // ---------------------------------------------------------------------------
