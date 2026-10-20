@@ -21,12 +21,24 @@
 use axum::Router;
 use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn test_state() -> (AppState, Router) {
+    let (state, app, _store) = test_state_with_store(None).await;
+    (state, app)
+}
+
+/// Same state, with a chosen scan provider and the object store handed back.
+/// `None` keeps the config-built edge — none mode, which is what every
+/// pre-gate test in this file runs against. The Wave 52 P6d gate tests inject
+/// a scripted scanner so a verdict can be forced, and keep the store so they
+/// can assert on what was (not) written.
+async fn test_state_with_store(
+    scanner: Option<Arc<dyn core_mail::ScanProvider>>,
+) -> (AppState, Router, Arc<core_store::memory::MemoryStore>) {
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::WARN)
         .with_test_writer()
@@ -39,18 +51,28 @@ async fn test_state() -> (AppState, Router) {
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     let reporting_url = config.database_url.clone();
     config.database_url = admin_url;
+    let store = Arc::new(core_store::memory::MemoryStore::new());
+    let mail = match scanner {
+        Some(scanner) => Arc::new(core_api::email::MailStack {
+            transport: Arc::new(core_mail::NoopTransport),
+            scanner,
+            from_address: config.email_from_address.clone(),
+            from_name: config.email_from_name.clone(),
+        }),
+        None => Arc::new(core_api::email::MailStack::from_config(&config)),
+    };
     let state = AppState {
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
+        mail,
+        store: Arc::clone(&store) as Arc<dyn core_store::ObjectStore>,
         routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
         reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
             .expect("lazy reporting pool"),
     };
     let app = core_api::routes::build_router(state.clone());
-    (state, app)
+    (state, app, store)
 }
 
 async fn connect_admin(url: &str) -> Result<PgPool, sqlx::Error> {
@@ -501,4 +523,303 @@ async fn document_file_get_still_reads_legacy_envelope() {
         .await
         .unwrap();
     assert_eq!(downloaded, plaintext);
+}
+
+// ---------------------------------------------------------------------------
+// Wave 52 lane P6d — the vault file is scanned on its PLAINTEXT, and an
+// infected upload is refused with nothing stored (no object, no verdict row,
+// no quarantine copy, no notification). See
+// `design/qa-p52-vault-scan/REVIEW.md` for why holding is the wrong answer
+// on this door.
+// ---------------------------------------------------------------------------
+
+/// A document payload carrying the marker the scripted scanner calls a
+/// signature. The vault sniffs no magic bytes, so any bytes reach the gate —
+/// this one reads like the document it claims to be.
+const SCAN_INFECTED_BYTES: &[u8] = b"%PDF-1.7 inherited contract [VIRUS] payload";
+const SCAN_CLEAN_BYTES: &[u8] = b"%PDF-1.7 signed statement of work, no payload";
+
+/// Deterministic stand-in for clamd on the BYTES leg: `[VIRUS]` ⇒ infected,
+/// `[SCAN-DOWN]` ⇒ unavailable, anything else clean.
+struct ScriptedScan;
+
+#[async_trait::async_trait]
+impl core_mail::ScanProvider for ScriptedScan {
+    fn name(&self) -> &'static str {
+        "gate-scripted"
+    }
+
+    async fn scan(&self, body_text: &str) -> Result<core_mail::ScanVerdict, core_mail::ScanError> {
+        self.scan_bytes(body_text.as_bytes()).await
+    }
+
+    async fn scan_bytes(
+        &self,
+        bytes: &[u8],
+    ) -> Result<core_mail::ScanVerdict, core_mail::ScanError> {
+        if bytes.windows(7).any(|w| w == b"[VIRUS]") {
+            return Ok(core_mail::ScanVerdict {
+                infected: true,
+                skipped: false,
+                detail: Some("stream: Eicar-Test-Signature FOUND".into()),
+            });
+        }
+        if bytes.windows(11).any(|w| w == b"[SCAN-DOWN]") {
+            return Err(core_mail::ScanError::Unavailable(
+                "gate-scripted: refused to answer".into(),
+            ));
+        }
+        Ok(core_mail::ScanVerdict {
+            infected: false,
+            skipped: false,
+            detail: None,
+        })
+    }
+}
+
+fn plain_sha256(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    hex::encode(sha2::Sha256::digest(bytes))
+}
+
+/// PUT raw bytes at the vault file door (the route takes the body directly,
+/// not a JSON envelope).
+async fn put_bytes(
+    app: &Router,
+    bearer: &str,
+    record_id: Uuid,
+    bytes: &[u8],
+) -> axum::response::Response {
+    let request = axum::http::Request::builder()
+        .method(axum::http::Method::PUT)
+        .uri(format!("/api/secrets/records/{record_id}/file"))
+        .header("authorization", format!("Bearer {bearer}"))
+        .header("content-type", "application/octet-stream")
+        .body(axum::body::Body::from(bytes.to_vec()))
+        .unwrap();
+    app.clone().oneshot(request).await.unwrap()
+}
+
+async fn create_document(app: &Router, bearer: &str, folder_id: Uuid, title: &str) -> (Uuid, Uuid) {
+    let created = body_json(
+        send(
+            app,
+            axum::http::Method::POST,
+            "/api/secrets/records",
+            Some(bearer),
+            Some(json!({"folder_id": folder_id, "kind": "document", "title": title})),
+        )
+        .await,
+    )
+    .await;
+    (
+        created["id"].as_str().unwrap().parse().unwrap(),
+        created["org_id"].as_str().unwrap().parse().unwrap(),
+    )
+}
+
+/// The verdict row for one digest, as the table holds it.
+struct ScanRow {
+    status: String,
+    scanner: String,
+    filename: String,
+    storage_key: String,
+}
+
+async fn scan_row(state: &AppState, org_id: Uuid, sha256: &str) -> Option<ScanRow> {
+    let mut tx = state.pool.begin().await.unwrap();
+    core_db::set_org(&mut tx, org_id).await.unwrap();
+    let row = sqlx::query(
+        "SELECT status, scanner, filename, storage_key FROM attachment_scans \
+         WHERE org_id = $1 AND sha256 = $2",
+    )
+    .bind(org_id)
+    .bind(sha256)
+    .fetch_optional(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    row.map(|r| ScanRow {
+        status: r.get("status"),
+        scanner: r.get("scanner"),
+        filename: r.get("filename"),
+        storage_key: r.get("storage_key"),
+    })
+}
+
+async fn file_pointer(
+    state: &AppState,
+    org_id: Uuid,
+    record_id: Uuid,
+) -> (Option<String>, Option<String>) {
+    let mut tx = state.pool.begin().await.unwrap();
+    core_db::set_org(&mut tx, org_id).await.unwrap();
+    let row = sqlx::query(
+        "SELECT object_key, file_sha256 FROM secret_records WHERE id = $1 AND org_id = $2",
+    )
+    .bind(record_id)
+    .bind(org_id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    (row.get("object_key"), row.get("file_sha256"))
+}
+
+async fn scan_notice_count(state: &AppState, org_id: Uuid) -> i64 {
+    let mut tx = state.pool.begin().await.unwrap();
+    core_db::set_org(&mut tx, org_id).await.unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM notifications WHERE org_id = $1 AND kind = 'scan_detection'",
+    )
+    .bind(org_id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    count
+}
+
+/// The refusal is the whole point of this door: the scan ran on the
+/// plaintext, found a signature, and the request left NOTHING behind — the
+/// assertion on the store log is what makes that a fact rather than a status
+/// code.
+#[tokio::test]
+async fn document_file_infected_plaintext_is_refused_and_nothing_is_stored() {
+    let scanner: Arc<dyn core_mail::ScanProvider> = Arc::new(ScriptedScan);
+    let (state, app, store) = test_state_with_store(Some(scanner)).await;
+    let org = register_org(&app, format!("vaultscan-{}", Uuid::now_v7().simple())).await;
+    let bearer = org["access_token"].as_str().unwrap().to_string();
+    let (folder_id, _restricted) = org_folder(&app, &bearer).await;
+    let (record_id, org_id) = create_document(&app, &bearer, folder_id, "Signed MSA").await;
+
+    let put = put_bytes(&app, &bearer, record_id, SCAN_INFECTED_BYTES).await;
+    let status = put.status();
+    let body = body_json(put).await;
+    assert_eq!(status, 422, "an infected vault file is refused: {body}");
+    assert_eq!(body["error"]["reason"], json!("upload_refused"));
+    assert_eq!(body["error"]["scanner"], json!("gate-scripted"));
+    assert!(
+        body["error"]["detail"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Eicar-Test-Signature"),
+        "the finding rides the refusal: {body}"
+    );
+    // The distinguishing key: nothing is held, so nothing waits on an
+    // operator. The quarantine refusal answers `true` here.
+    assert_eq!(body["error"]["held_for_operator"], json!(false));
+    assert_eq!(body["error"]["filename"], json!("Signed MSA"));
+    assert_eq!(
+        body["error"]["sha256"],
+        json!(plain_sha256(SCAN_INFECTED_BYTES)),
+        "the refusal names the digest that was scanned"
+    );
+
+    // Nothing in the store — not the admitted key, not a quarantine copy.
+    assert_eq!(
+        store.put_count(),
+        0,
+        "a refused vault file must not put bytes anywhere: {:?}",
+        store.ops()
+    );
+
+    // No verdict row: this door does not record infections (a row would
+    // describe held bytes that do not exist).
+    let digest = plain_sha256(SCAN_INFECTED_BYTES);
+    assert!(
+        scan_row(&state, org_id, &digest).await.is_none(),
+        "a refused vault file leaves no verdict row"
+    );
+    // The record keeps no pointer, and nobody was notified.
+    let (object_key, file_sha256) = file_pointer(&state, org_id, record_id).await;
+    assert!(object_key.is_none(), "no pointer after a refusal");
+    assert!(file_sha256.is_none(), "no file hash after a refusal");
+    assert_eq!(scan_notice_count(&state, org_id).await, 0);
+}
+
+/// A clean upload is stored and its verdict is on record, keyed by the
+/// plaintext digest so a later reader can answer "was this checked?".
+#[tokio::test]
+async fn document_file_clean_plaintext_is_stored_and_records_its_verdict() {
+    let scanner: Arc<dyn core_mail::ScanProvider> = Arc::new(ScriptedScan);
+    let (state, app, store) = test_state_with_store(Some(scanner)).await;
+    let org = register_org(&app, format!("vaultscanok-{}", Uuid::now_v7().simple())).await;
+    let bearer = org["access_token"].as_str().unwrap().to_string();
+    let (folder_id, _restricted) = org_folder(&app, &bearer).await;
+    let (record_id, org_id) = create_document(&app, &bearer, folder_id, "Clean SOW").await;
+
+    let put = put_bytes(&app, &bearer, record_id, SCAN_CLEAN_BYTES).await;
+    let status = put.status();
+    let pinned = body_json(put).await;
+    assert_eq!(status, 200, "clean bytes are sealed and pinned: {pinned}");
+    let object_key = pinned["object_key"].as_str().unwrap().to_string();
+    assert!(
+        object_key.starts_with(&format!("org/{org_id}/secrets/")),
+        "the sealed copy lives under the vault namespace: {object_key}"
+    );
+    assert_eq!(store.put_count(), 1, "exactly one ciphertext PUT");
+    assert_eq!(
+        store.ops(),
+        vec![core_store::ObjectRecordedOp::Put {
+            key: object_key.clone()
+        }]
+    );
+
+    let digest = plain_sha256(SCAN_CLEAN_BYTES);
+    let row = scan_row(&state, org_id, &digest)
+        .await
+        .expect("a clean vault upload records its verdict");
+    assert_eq!(row.status, "clean");
+    assert_eq!(row.scanner, "gate-scripted");
+    assert_eq!(row.filename, "Clean SOW");
+    assert_eq!(
+        row.storage_key, object_key,
+        "the row points at the copy this upload wrote"
+    );
+
+    // The same plaintext on a second record is admitted again — the vault's
+    // AAD makes it a second sealed key — while the verdict keeps its first
+    // record. That is what first-wins means on a content-keyed table.
+    let (second_id, _) = create_document(&app, &bearer, folder_id, "Clean SOW copy").await;
+    let second = put_bytes(&app, &bearer, second_id, SCAN_CLEAN_BYTES).await;
+    assert_eq!(
+        second.status(),
+        200,
+        "identical clean bytes are admitted again"
+    );
+    assert_eq!(
+        store.put_count(),
+        2,
+        "a second record means a second sealed copy"
+    );
+    let again = scan_row(&state, org_id, &digest)
+        .await
+        .expect("the verdict row survives the second sighting");
+    assert_eq!(
+        again.storage_key, object_key,
+        "the verdict keeps the first admission's key"
+    );
+}
+
+/// None mode is `skipped`, not `clean`: a deployment with no scanner says
+/// nobody looked, so a vault upload can never read as the one path that was
+/// checked.
+#[tokio::test]
+async fn document_file_none_mode_records_skipped() {
+    let (state, app, store) = test_state_with_store(None).await;
+    let org = register_org(&app, format!("vaultscannone-{}", Uuid::now_v7().simple())).await;
+    let bearer = org["access_token"].as_str().unwrap().to_string();
+    let (folder_id, _restricted) = org_folder(&app, &bearer).await;
+    let (record_id, org_id) = create_document(&app, &bearer, folder_id, "Unscanned SOW").await;
+
+    let put = put_bytes(&app, &bearer, record_id, SCAN_CLEAN_BYTES).await;
+    assert_eq!(put.status(), 200, "none mode admits the file");
+    assert_eq!(store.put_count(), 1);
+
+    let row = scan_row(&state, org_id, &plain_sha256(SCAN_CLEAN_BYTES))
+        .await
+        .expect("none mode still records that nobody scanned");
+    assert_eq!(row.status, "skipped");
+    assert_eq!(row.scanner, "none");
 }

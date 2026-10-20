@@ -20,6 +20,13 @@
 //! It also returns the [`QuarantinedUpload`] the surface refuses with, so the
 //! 422, the notification, and the record all describe the same object.
 //!
+//! One surface scans and refuses instead (lane P6d, the secret vault): the
+//! vault seals user plaintext before storing, so a quarantine copy would hold
+//! that plaintext unsealed, in the one namespace that is not encrypted. Its
+//! door calls [`gate`] on the plaintext before sealing, records an admitted
+//! verdict like every other door, and on an infection answers
+//! [`GateVerdict::refusal`] with nothing written anywhere.
+//!
 //! Non-purpose: no store access beyond the quarantine copy, no admission
 //! policy, no transaction of its own. The caller owns its rows, its
 //! `attachment.quarantined` event, and the point at which it returns the
@@ -46,6 +53,21 @@ impl GateVerdict {
     #[must_use]
     pub fn is_rejected(&self) -> bool {
         self.status == ScanStatus::Infected
+    }
+
+    /// The typed refusal for a surface that keeps NOTHING on a rejection
+    /// (Wave 52 lane P6d, the secret vault): no object, no verdict row, no
+    /// quarantine copy, so no operator ever has to act on it. The refusal
+    /// names the same object and the same finding the scan just produced,
+    /// which is why it is built here rather than assembled by the route.
+    #[must_use]
+    pub fn refusal(&self, sha256: &str, filename: &str) -> ApiError {
+        ApiError::UploadRefused {
+            sha256: sha256.to_string(),
+            filename: filename.to_string(),
+            scanner: self.scanner.to_string(),
+            detail: self.detail.clone(),
+        }
     }
 }
 

@@ -37,6 +37,7 @@ use core_domain::entities::{
 use core_domain::events::types;
 use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
+use sha2::Digest as _;
 use sqlx::PgConnection;
 use std::collections::HashMap;
 use std::sync::{OnceLock, PoisonError};
@@ -1092,17 +1093,74 @@ pub async fn put_record_file(
     if body.is_empty() {
         return Err(ApiError::Validation("file body must not be empty".into()));
     }
-    // Seal BEFORE the tx: a crypto failure never consumes a write.
+
+    // --- the scan gate (Wave 52 lane P6d) ------------------------------
+    // This note is here rather than in the doc comment above because that
+    // comment is the pinned OpenAPI summary; editing it would move the pin.
+    // The vault is the one door that seals before storing, so the scanner
+    // runs on the PLAINTEXT here, before `seal_file_frame`. This door also
+    // refuses instead of holding: the quarantine namespace stores bytes
+    // UNSEALED, so "holding" a vault upload would put the plaintext of a
+    // record the user marked secret into the one bucket copy that is not
+    // encrypted. A refusal therefore writes nothing at all — no object, no
+    // verdict row, no notification — and the client gets a 422 that says so.
+    //
+    // The record is read first for its title and kind. The title is what
+    // names the file here (this door has no `x-filename` header and the
+    // download is named after the record), and a non-document record is
+    // refused before the org pays for a scan. The read is a preflight, not
+    // an authorization gate: the write transaction below still owns the
+    // authoritative kind and category checks.
+    let title = {
+        let mut preflight = org_tx::begin(&state, org_id, user_id).await?;
+        let record = core_db::secret_vault::get_record(&mut preflight.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        if record.kind != SecretRecordKind::Document {
+            return Err(ApiError::Validation(
+                "file bytes belong on document-kind records".into(),
+            ));
+        }
+        // Dropped, not committed: nothing was written, and the read is over.
+        record.title
+    };
+    let filename = if title.trim().is_empty() {
+        format!("vault-document-{id}")
+    } else {
+        title
+    };
+    let plain_sha256 = {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(&body);
+        hex::encode(hasher.finalize())
+    };
+    let verdict = crate::scan_gate::gate(&state, &body).await?;
+    if verdict.is_rejected() {
+        // Nothing above this line wrote anything, so the refusal reports a
+        // scan and an absence, not a held object.
+        tracing::warn!(
+            sha256 = %plain_sha256,
+            scanner = verdict.scanner,
+            "vault file refused by the scan gate; nothing stored"
+        );
+        return Err(verdict.refusal(&plain_sha256, &filename));
+    }
+
+    // Seal AFTER the gate: refused bytes are never sealed, and a crypto
+    // failure still never consumes a write.
     let ciphertext =
         crypto::seal_file_frame(&state.config.secret_key, &body, &file_aad(org_id, id))
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("file sealing failed: {e}")))?;
-    use sha2::Digest as _;
     let mut hasher = sha2::Sha256::new();
     hasher.update(&ciphertext);
     let ct_sha256 = hex::encode(hasher.finalize());
     let storage_key = sealed_file_key(org_id, &ct_sha256);
     let ct_len = i64::try_from(ciphertext.len()).unwrap_or(i64::MAX);
     let store = std::sync::Arc::clone(&state.store);
+    let scan_status = verdict.status;
+    let scanner_name = verdict.scanner;
+    let scan_detail = verdict.detail.clone();
+    let plain_len = i64::try_from(body.len()).unwrap_or(i64::MAX);
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let before = core_db::secret_vault::get_record(&mut ctx.tx, org_id, id)
@@ -1147,6 +1205,32 @@ pub async fn put_record_file(
         )
         .await
         .map_err(ApiError::from)?;
+        // The verdict belongs to the PLAINTEXT, keyed by (org_id, sha256) on
+        // the same table every other door writes, so "was this checked?" has
+        // one answer per object. `storage_key` is where this upload's sealed
+        // copy lives; the vault binds ciphertext to the record's AAD, so the
+        // same plaintext on two records is two keys and this column keeps the
+        // first admission's. First-wins: a second sighting does not rewrite
+        // what the first scan said.
+        core_db::attachment_scans::record_admitted(
+            &mut ctx.tx,
+            core_db::attachment_scans::NewScan {
+                org_id,
+                sha256: &plain_sha256,
+                status: scan_status,
+                detail: scan_detail.as_deref(),
+                scanner: scanner_name,
+                size_bytes: plain_len,
+                content_type: "application/octet-stream",
+                filename: &filename,
+                storage_key: &storage_key,
+                // A vault document belongs to no ticket.
+                ticket_id: None,
+                uploaded_by_user_id: Some(user_id),
+                uploaded_by_portal_user_id: None,
+            },
+        )
+        .await?;
         ctx.emit(
             types::SECRET_RECORD_UPDATED,
             "secret_record",
