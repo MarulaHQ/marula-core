@@ -13,9 +13,12 @@
 //!
 //! Non-purpose: no upload authorization, no quota accounting, no virus
 //! scanning, no multipart/resumable uploads, no bucket lifecycle — callers
-//! (core-api) own policy; this crate moves bytes. Downloads stream through
-//! the API in v1; presigned URLs are offered where the backend supports
-//! them but nothing in Marula hands them to browsers yet.
+//! (core-api) own policy; this crate moves bytes. Downloads ask for a
+//! presigned URL first ([`ObjectStore::presign_get`]) and stream through
+//! the API when the backend cannot mint one — local-fs always answers
+//! `None`, which is why the stream is the fallback rather than a mode a
+//! deployment has to enable. Whether an object MAY be handed out that way
+//! is policy, and core-api answers it before the URL is asked for.
 
 pub mod local;
 pub mod memory;
@@ -103,8 +106,10 @@ pub trait ObjectStore: Send + Sync {
     async fn delete(&self, key: &str) -> Result<(), StoreError>;
 
     /// Presigned GET URL when the backend supports it (`None` ⇒ caller
-    /// must stream through the API). Marula v1 never issues public
-    /// URLs; the hook exists so later stages can opt in per deployment.
+    /// must stream through the API). The URL carries its own signature for
+    /// `ttl` and no Marula credential: anyone holding it can fetch the
+    /// object until it expires, which is why the caller mints one only for
+    /// an object it has already admitted, and keeps the TTL short.
     async fn presign_get(&self, key: &str, ttl: Duration) -> Result<Option<String>, StoreError>;
 }
 

@@ -25,7 +25,8 @@
 //! `task_dependencies_unsatisfied`, `undo_reverts_only`,
 //! `time_entry_locked`,
 //! `run_retry_refused`,
-//! `service_unavailable`, `internal_error`, `upload_quarantined`.
+//! `service_unavailable`, `internal_error`, `upload_quarantined`,
+//! `upload_refused`.
 //!
 //! The vocabulary above IS the machine-readable reason-code registry
 //! (Wave 13 lane 1): every error this API emits carries one of these
@@ -162,6 +163,32 @@ pub enum ApiError {
         /// Lowercase hex sha256 of the held object — its identity.
         sha256: String,
         /// The filename the uploader gave (or the surface minted).
+        filename: String,
+        /// Adapter that made the call (`clamd`, a test double).
+        scanner: String,
+        /// The scanner's detail string (usually the signature name).
+        detail: Option<String>,
+    },
+    /// Typed 422 for an upload the scan gate refused on a surface that has
+    /// nowhere to hold bytes (Wave 52 lane P6d, the secret vault): the scan
+    /// ran, a signature was found, and NOTHING exists afterwards — no
+    /// object, no verdict row, no notification, no quarantine copy.
+    ///
+    /// Kept distinct from [`Self::UploadQuarantined`] because that variant
+    /// describes held bytes an operator can release, and this one describes
+    /// an upload that is simply gone. The vault is the surface that needs
+    /// the distinction: it seals user plaintext before storing, so a
+    /// quarantine copy would be the one place the plaintext of a record the
+    /// user marked secret sits unsealed. A client branches on `reason`;
+    /// neither variant carries a quarantine id, and `held_for_operator`
+    /// rides this one as `false` so a UI that read the quarantine answer
+    /// does not offer the same "an operator will deal with it" story.
+    #[error("upload rejected by the malware scan")]
+    UploadRefused {
+        /// Lowercase hex sha256 of the bytes that were refused.
+        sha256: String,
+        /// What the upload was called on this surface (the record's title on
+        /// the vault, which has no filename header).
         filename: String,
         /// Adapter that made the call (`clamd`, a test double).
         scanner: String,
@@ -801,6 +828,27 @@ impl IntoResponse for ApiError {
                     "held_for_operator": true,
                 })),
             ),
+            ApiError::UploadRefused {
+                sha256,
+                filename,
+                scanner,
+                detail,
+            } => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "upload_refused",
+                "the file was rejected by the malware scanner; nothing was stored"
+                    .to_string(),
+                Some(json!({
+                    "sha256": sha256,
+                    "filename": filename,
+                    "scanner": scanner,
+                    "detail": detail,
+                    // The answer to the same question the quarantine refusal
+                    // answers with `true`: nothing is being held, so there is
+                    // no operator action and no release to wait for.
+                    "held_for_operator": false,
+                })),
+            ),
             ApiError::TimeEntryLocked { entry_id } => (
                 StatusCode::CONFLICT,
                 "time_entry_locked",
@@ -1005,6 +1053,15 @@ mod tests {
                     detail: Some("Eicar-Test-Signature".into()),
                 },
                 "upload_quarantined",
+            ),
+            (
+                ApiError::UploadRefused {
+                    sha256: "0".repeat(64),
+                    filename: "Contract.pdf".into(),
+                    scanner: "clamd".into(),
+                    detail: Some("Eicar-Test-Signature".into()),
+                },
+                "upload_refused",
             ),
             (
                 ApiError::Internal(anyhow::anyhow!("boom")),

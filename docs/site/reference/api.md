@@ -3,7 +3,16 @@
 
 **Marula Core API 0.1.0** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**638 paths · 853 operations · 1346 schemas.**
+**642 paths · 858 operations · 1354 schemas.**
+
+## admin
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/admin/quarantine` <a id="quarantine_admin_list"></a> | GET /api/admin/quarantine — the org's quarantined objects, newest first. | — |
+| `DELETE` | `/api/v1/admin/quarantine/{sha256}` <a id="quarantine_admin_delete"></a> | DELETE /api/admin/quarantine/{sha256} — remove the held bytes. | — |
+| `GET` | `/api/v1/admin/quarantine/{sha256}` <a id="quarantine_admin_get"></a> | GET /api/admin/quarantine/{sha256} — one held or released object. | — |
+| `POST` | `/api/v1/admin/quarantine/{sha256}/release` <a id="quarantine_admin_release"></a> | POST /api/admin/quarantine/{sha256}/release — admit the object anyway. | [ReleaseQuarantineRequest](#schema-releasequarantinerequest) |
 
 ## agent-proposals
 
@@ -100,7 +109,7 @@
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `DELETE` | `/api/v1/attachments/{id}` <a id="attachments_delete"></a> | DELETE /api/attachments/{id} — author-gated (the uploader, or an org owner/admin). The stored object is reclaimed only when no sibling row still references the same content-addressed key. | — |
-| `GET` | `/api/v1/attachments/{id}/download` <a id="attachments_download"></a> | GET /api/attachments/{id}/download — streams the stored bytes through the API behind board-view authz (no public URLs in v1). Integrity is verifiable against the recorded sha256 (`x-marula-sha256` header). | — |
+| `GET` | `/api/v1/attachments/{id}/download` <a id="attachments_download"></a> | GET /api/attachments/{id}/download — streams the stored bytes through the API behind board-view authz, or answers with a presigned URL when the caller asks for one (`?presign=true`) and the store can sign it. | — |
 | `POST` | `/api/v1/attachments/{id}/transcribe` <a id="attachments_transcribe"></a> | POST /api/v1/attachments/{id}/transcribe — transcribe one stored audio attachment through the org's granted `transcription` surface. | — |
 
 ## audit-events
@@ -161,6 +170,7 @@
 | `DELETE` | `/api/v1/automation-rules/{id}` <a id="automation_rules_delete"></a> | DELETE /api/automation-rules/{id} | — |
 | `PATCH` | `/api/v1/automation-rules/{id}` <a id="automation_rules_update"></a> | PATCH /api/automation-rules/{id} | [UpdateRuleRequest](#schema-updaterulerequest) |
 | `POST` | `/api/v1/automation-rules/{id}/test-run` <a id="automation_rules_test_run"></a> | automation_rules_test_run | — |
+| `POST` | `/api/v1/automation-rules/draft-summary` <a id="automation_draft_summary"></a> | POST /api/v1/automation-rules/draft-summary — stream a one-sentence summary of the rule draft. | [AutomationDraftSummaryRequest](#schema-automationdraftsummaryrequest) |
 
 ## availability
 
@@ -446,7 +456,7 @@
 | `GET` | `/api/v1/documents/{id}/attachments` <a id="document_attachments_list"></a> | GET /api/documents/{id}/attachments — newest-first list for one doc. | — |
 | `POST` | `/api/v1/documents/{id}/attachments` <a id="document_attachments_upload"></a> | POST /api/documents/{id}/attachments — raw octet-stream upload (same header contract as the ticket surface: `x-filename` + declared content-type verified against sniffed magic bytes). | — |
 | `DELETE` | `/api/v1/documents/{id}/attachments/{attachment_id}` <a id="document_attachments_delete"></a> | DELETE /api/documents/{id}/attachments/{attachment_id} — author-gated (the uploader, or an org owner/admin). The stored object is reclaimed only when NO row in EITHER attachments table still references the same content-addressed key. | — |
-| `GET` | `/api/v1/documents/{id}/attachments/{attachment_id}/download` <a id="document_attachments_download"></a> | GET /api/documents/{id}/attachments/{attachment_id}/download — streams the stored object behind documents authz (no presigned URLs in v1). | — |
+| `GET` | `/api/v1/documents/{id}/attachments/{attachment_id}/download` <a id="document_attachments_download"></a> | GET /api/documents/{id}/attachments/{attachment_id}/download — streams the stored object behind documents authz, or answers with a presigned URL when the caller asks for one (`?presign=true`) and the store can sign it. | — |
 | `GET` | `/api/v1/documents/{id}/links` <a id="documents_list_links"></a> | documents_list_links | — |
 | `POST` | `/api/v1/documents/{id}/links` <a id="documents_add_link"></a> | POST /api/documents/{id}/links — target existence is enforced by the resolution join (the link row itself allows any uuid, so the route checks the target kind's table exists for the org before insert). | [CreateLinkRequest](#schema-createlinkrequest) |
 | `POST` | `/api/v1/documents/{id}/restore` <a id="documents_restore"></a> | POST /api/documents/{id}/restore — instant-first (IF1/IF2); §6 rule: the restore APPENDS a new version copying the target's content. The target's title comes along, renames after it are not silently undone. | [RestoreDocumentRequest](#schema-restoredocumentrequest) |
@@ -1224,7 +1234,7 @@
 |---|---|---|---|
 | `GET` | `/api/v1/tickets` <a id="tickets_list"></a> | GET /api/tickets — filtered, priority-ordered list; each row carries its custom-field values (TASKLIST 2.17) fetched in one batched query. Pagination is envelope-compatible: the body stays the plain ticket array; deep-page walks pass the opaque `cursor` query param (from the previous page's `x-next-cursor` response header) and the server resumes strictly after that row — keyset, not O(offset) scan (docs/perf.md F2). | — |
 | `POST` | `/api/v1/tickets` <a id="tickets_create"></a> | POST /api/tickets — allocates the human ticket number, initializes SLA clocks, validates + stores any initial custom-field values (REQUIRED definitions enforced), and emits `ticket.created` — all in one transaction. Instant-first (IF1/IF2): routed through the shared idempotency gate and returns the read-your-write `mutation` metadata. | [CreateTicketRequest](#schema-createticketrequest) |
-| `GET` | `/api/v1/tickets/{id}` <a id="tickets_get_one"></a> | GET /api/tickets/{id} | — |
+| `GET` | `/api/v1/tickets/{id}` <a id="tickets_get_one"></a> | GET /api/tickets/{id} — a conditional read. | — |
 | `PATCH` | `/api/v1/tickets/{id}` <a id="tickets_patch"></a> | PATCH /api/tickets/{id} — partial update; validates + upserts any provided custom-field values; emits `ticket.updated`, `ticket.field_set` (per changed field), and `ticket.assigned` when the assignee changes. Instant-first (IF1/IF2): idempotency-keyed, version- gated, and returns prior + new values for undo. | [PatchTicketRequest](#schema-patchticketrequest) |
 | `GET` | `/api/v1/tickets/{id}/attachments` <a id="attachments_list_for_ticket"></a> | GET /api/tickets/{id}/attachments — every attachment on one ticket. | — |
 | `POST` | `/api/v1/tickets/{id}/attachments` <a id="attachments_upload"></a> | POST /api/tickets/{id}/attachments — stores one file against a ticket (linked to a comment later by the composer submit). | — |
@@ -1485,6 +1495,7 @@
 | <a id="schema-assignrequest"></a>`AssignRequest` | object |  |
 | <a id="schema-attachment"></a>`Attachment` | object | One uploaded file's metadata row; the payload lives behind `storage_key`. |
 | <a id="schema-attachmentdeleted"></a>`AttachmentDeleted` | object | attachment.deleted — the metadata row went away; `object_removed` reports whether the backing bytes were reclaimed too (refcount hit 0). |
+| <a id="schema-attachmentdownloadticket"></a>`AttachmentDownloadTicket` | object | What a downloader gets instead of the bytes: where to fetch them, plus the metadata it would otherwise read off the streamed response's headers. |
 | <a id="schema-attachmentkind"></a>`AttachmentKind` | string | What an attachment belongs to. The enum value is persisted verbatim. |
 | <a id="schema-auditevent"></a>`AuditEvent` | object |  |
 | <a id="schema-auditpage"></a>`AuditPage` | object |  |
@@ -1497,6 +1508,7 @@
 | <a id="schema-authorworkflowresponse"></a>`AuthorWorkflowResponse` | object |  |
 | <a id="schema-automationaction"></a>`AutomationAction` | object | Effects a rule may request. Every variant maps onto an existing core-api write path — automations never gain private write routes. |
 | <a id="schema-automationcondition"></a>`AutomationCondition` | object | One predicate; a rule matches only when EVERY condition holds. Deterministic predicates evaluate against the ticket snapshot; the [`AutomationCondition::AiDecision`] kind is pulled out by [`split_cond |
+| <a id="schema-automationdraftsummaryrequest"></a>`AutomationDraftSummaryRequest` | object |  |
 | <a id="schema-automationtestrunmatch"></a>`AutomationTestRunMatch` | object | POST /api/automation-rules/{id}/test-run — dry-run one rule against the org's most recent tickets (board-scoped when the rule binds a board), PROPOSAL-shaped: what WOULD match and what the actions wou |
 | <a id="schema-automationtestrunresponse"></a>`AutomationTestRunResponse` | object |  |
 | <a id="schema-availabilitylistresponse"></a>`AvailabilityListResponse` | object |  |
@@ -1834,6 +1846,8 @@
 | <a id="schema-documentmutationresponse"></a>`DocumentMutationResponse` | composite | Instant-first mutation response (IF2): document fields at the top level plus the additive `mutation` metadata. |
 | <a id="schema-documentversion"></a>`DocumentVersion` | object | One immutable snapshot in a document's append-only history. Every version stores its complete title + body, so any pair is diffable without reconstructing intermediate state. |
 | <a id="schema-documentview"></a>`DocumentView` | composite | GET /api/documents/{id} response: the living handle plus the CURRENT version's content (read-your-write on the body the last write stored). |
+| <a id="schema-downloadmode"></a>`DownloadMode` | string | Which way this deployment can hand a download out. |
+| <a id="schema-downloadticketquery"></a>`DownloadTicketQuery` | object | The ticket request's query: `?presign=true` asks for a URL, absent streams. |
 | <a id="schema-dryrunrequest"></a>`DryRunRequest` | composite | POST /api/imports/dry-run request: validate a full payload and report what each row WOULD do before any data write. The probe is recorded as a finished dry-run batch for operator history. |
 | <a id="schema-dsnrow"></a>`DsnRow` | object |  |
 | <a id="schema-dunningstate"></a>`DunningState` | string | Collections posture of an issued invoice. Forward-only: states are data moved by explicit API writes (events + write trail), never a background side effect. |
@@ -2276,6 +2290,9 @@
 | <a id="schema-putpodvisibilityrequest"></a>`PutPodVisibilityRequest` | object |  |
 | <a id="schema-putratingrequest"></a>`PutRatingRequest` | object |  |
 | <a id="schema-puttransportcredentialsrequest"></a>`PutTransportCredentialsRequest` | object |  |
+| <a id="schema-quarantineitemview"></a>`QuarantineItemView` | object | One quarantined object as the operator surface reads it. The digest is the identity: `attachment_scans` is keyed by `(org_id, sha256)` because the verdict belongs to the BYTES, not to the upload that  |
+| <a id="schema-quarantinepage"></a>`QuarantinePage` | object | One page of the quarantine list, with the org-wide counts beside it. |
+| <a id="schema-quarantinestate"></a>`QuarantineState` | string | Where one object sits in the quarantine: still held, or released anyway. |
 | <a id="schema-queuedticket"></a>`QueuedTicket` | composite | One queued ticket: the day-view's queue row shape plus the explicit override when one exists. |
 | <a id="schema-queuemutationresponse"></a>`QueueMutationResponse` | object | Queue mutation envelope (set + clear share the shape; clears carry `cleared: true` and null note). |
 | <a id="schema-queuequery"></a>`QueueQuery` | object |  |
@@ -2328,6 +2345,7 @@
 | <a id="schema-regeneraterecoveryrequest"></a>`RegenerateRecoveryRequest` | object |  |
 | <a id="schema-registerrequest"></a>`RegisterRequest` | object |  |
 | <a id="schema-registryresponse"></a>`RegistryResponse` | object |  |
+| <a id="schema-releasequarantinerequest"></a>`ReleaseQuarantineRequest` | object | The reason is the whole point of the override, so it is a required field rather than an optional one with a default. |
 | <a id="schema-releasestatus"></a>`ReleaseStatus` | string | Release lifecycle: `pending` (released, not yet invoiced), `billed` (carried on an invoice line), `cancelled` (terminal — an admin correction; the same milestone may re-release afterwards). |
 | <a id="schema-renderedreplysnippet"></a>`RenderedReplySnippet` | object |  |
 | <a id="schema-renderedtemplate"></a>`RenderedTemplate` | object |  |
@@ -2759,4 +2777,4 @@
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 30 operation groups; schema count 1346 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 31 operation groups; schema count 1354 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

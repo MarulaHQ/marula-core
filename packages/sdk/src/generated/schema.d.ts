@@ -789,9 +789,15 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/attachments/{id}/download — streams the stored bytes through
-         *     the API behind board-view authz (no public URLs in v1). Integrity is
-         *     verifiable against the recorded sha256 (`x-marula-sha256` header).
+         * GET /api/attachments/{id}/download — streams the stored bytes through the
+         *     API behind board-view authz, or answers with a presigned URL when the
+         *     caller asks for one (`?presign=true`) and the store can sign it.
+         * @description The ticket is the optimisation and the stream is the contract: without the
+         *     flag the request gets the same bytes, headers and status it always did,
+         *     and on a deployment that cannot presign the ticket request answers
+         *     `mode: "stream"` rather than failing. [`AttachmentDownloadTicket`] carries
+         *     the filename the stream would have carried in `content-disposition`,
+         *     because a presigned GET names the object key — a digest — instead.
          */
         get: operations["attachments_download"];
         put?: never;
@@ -4396,7 +4402,11 @@ export interface paths {
         };
         /**
          * GET /api/documents/{id}/attachments/{attachment_id}/download — streams
-         *     the stored object behind documents authz (no presigned URLs in v1).
+         *     the stored object behind documents authz, or answers with a presigned URL
+         *     when the caller asks for one (`?presign=true`) and the store can sign it.
+         * @description Same rule as the ticket attachment door: the stream is the contract and
+         *     the ticket is the optimisation, and no URL is minted for an object whose
+         *     scan verdict has not been read and admitted.
          */
         get: operations["document_attachments_download"];
         put?: never;
@@ -14112,6 +14122,35 @@ export interface components {
             ticket_id?: string | null;
         };
         /**
+         * @description What a downloader gets instead of the bytes: where to fetch them, plus the
+         *     metadata it would otherwise read off the streamed response's headers.
+         */
+        AttachmentDownloadTicket: {
+            content_type: string;
+            /**
+             * @description When `url` stops working. The client need not act on it: the next
+             *     download asks for a fresh ticket.
+             */
+            expires_at?: string | null;
+            /**
+             * @description The name the streamed response would have put in
+             *     `content-disposition`. A presigned GET names the object key, which is
+             *     a digest, so a client that saves the file must use this instead.
+             */
+            filename: string;
+            /**
+             * @description `presigned` — GET `url` directly and send it NO bearer token.
+             *     `stream` — this deployment cannot sign one; call the endpoint again
+             *     without `presign`, or read the bytes out of that same request.
+             */
+            mode: components["schemas"]["DownloadMode"];
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /** @description Signed URL, present exactly when `mode` is `presigned`. */
+            url?: string | null;
+        };
+        /**
          * @description What an attachment belongs to. The enum value is persisted verbatim.
          * @enum {string}
          */
@@ -19183,6 +19222,19 @@ export interface components {
             content_updated_at: string;
             /** Format: int32 */
             restored_from_version?: number | null;
+        };
+        /**
+         * @description Which way this deployment can hand a download out.
+         * @enum {string}
+         */
+        DownloadMode: "presigned" | "stream";
+        /** @description The ticket request's query: `?presign=true` asks for a URL, absent streams. */
+        DownloadTicketQuery: {
+            /**
+             * @description `true` asks for a download ticket. Anything else (or no query at all)
+             *     keeps the byte contract untouched.
+             */
+            presign?: boolean;
         };
         /**
          * @description POST /api/imports/dry-run request: validate a full payload and report
@@ -32929,7 +32981,10 @@ export interface operations {
     };
     attachments_download: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `true` asks for a download ticket instead of the bytes; the answer says whether a URL was minted */
+                presign?: boolean;
+            };
             header?: never;
             path: {
                 id: string;
@@ -32943,8 +32998,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["AttachmentDownloadTicket"];
                     "application/octet-stream": number[];
                 };
+            };
+            /** @description the object is held by the scan gate: neither a URL nor the bytes are issued */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -39673,7 +39736,10 @@ export interface operations {
     };
     document_attachments_download: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `true` asks for a download ticket instead of the bytes; the answer says whether a URL was minted */
+                presign?: boolean;
+            };
             header?: never;
             path: {
                 id: string;
@@ -39688,8 +39754,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["AttachmentDownloadTicket"];
                     "application/octet-stream": number[];
                 };
+            };
+            /** @description the object is held by the scan gate: neither a URL nor the bytes are issued */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

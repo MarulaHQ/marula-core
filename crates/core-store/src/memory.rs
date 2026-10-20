@@ -1,8 +1,10 @@
 //! Test doubles backing unit and integration tests (§8): an in-memory
-//! store with a full operation log (`MemoryStore`) and a recording wrapper
+//! store with a full operation log (`MemoryStore`), a recording wrapper
 //! around any other implementation (`RecordingStore`) for asserting that
 //! callers issue exactly the puts/deletes/presigns they should — e.g. that
-//! dedup skips the second PUT.
+//! dedup skips the second PUT — and a presigning wrapper
+//! (`PresigningStore`) that answers the one call local-fs cannot make, so a
+//! caller's presign-then-stream decision is testable without a bucket.
 //!
 //! Non-purpose: no persistence across process restarts, no concurrency
 //! guarantees beyond a mutex, no production use.
@@ -164,6 +166,57 @@ impl<T: ObjectStore> ObjectStore for RecordingStore<T> {
 
     async fn presign_get(&self, key: &str, ttl: Duration) -> Result<Option<String>, StoreError> {
         self.0.presign_get(key, ttl).await
+    }
+}
+
+/// Wrapper that behaves like an S3-backed store for the one call local-fs
+/// cannot make: `presign_get` answers with a deterministic fake URL, so the
+/// presign-then-stream decision is exercised without a bucket. `MemoryStore`
+/// is `Clone` over a shared inner, so wrapping a clone forwards the SAME
+/// bytes the unwrapped store holds.
+pub struct PresigningStore<T>(pub T);
+
+impl<T> PresigningStore<T> {
+    /// The URL this wrapper would mint for `key` — tests assert against it
+    /// rather than re-implementing the format.
+    #[must_use]
+    pub fn url_for(key: &str, ttl: Duration) -> String {
+        format!(
+            "https://objects.test/{key}?X-Signature=test&X-Expires={}",
+            ttl.as_secs()
+        )
+    }
+}
+
+#[async_trait]
+impl<T: ObjectStore> ObjectStore for PresigningStore<T> {
+    fn name(&self) -> &'static str {
+        "presigning"
+    }
+
+    async fn put(
+        &self,
+        key: &str,
+        content_type: &str,
+        body: Bytes,
+    ) -> Result<ObjectMeta, StoreError> {
+        self.0.put(key, content_type, body).await
+    }
+
+    async fn get(&self, key: &str) -> Result<GetObject, StoreError> {
+        self.0.get(key).await
+    }
+
+    async fn delete(&self, key: &str) -> Result<(), StoreError> {
+        self.0.delete(key).await
+    }
+
+    async fn presign_get(&self, key: &str, ttl: Duration) -> Result<Option<String>, StoreError> {
+        // The object must exist: a URL for absent bytes is a 404 at the
+        // bucket, which is a different failure from "this backend cannot
+        // presign" and should not be faked.
+        self.0.get(key).await?;
+        Ok(Some(Self::url_for(key, ttl)))
     }
 }
 

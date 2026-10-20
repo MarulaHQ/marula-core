@@ -1395,3 +1395,267 @@ async fn document_attachment_gate_refuses_and_notifies_without_a_ticket() {
         "nothing was attached: {listed}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Presigned downloads (Wave 52 lane P7)
+// ---------------------------------------------------------------------------
+
+/// One uploaded attachment as the tests need it: the row id, the digest, and
+/// the object key the ticket must name.
+struct Uploaded {
+    id: String,
+    sha256: String,
+    storage_key: String,
+}
+
+/// Uploads one PNG through the real door.
+async fn upload_png(app: &Router, org: &Org) -> Uploaded {
+    let response = send_raw(
+        app,
+        axum::http::Method::POST,
+        &upload_uri(&org.ticket_a),
+        Some(&org.token),
+        &[
+            ("x-filename", "screenshot.png"),
+            ("content-type", "image/png"),
+        ],
+        Some(PNG_BYTES.to_vec()),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "png upload must succeed");
+    let body = body_json(response).await;
+    Uploaded {
+        id: body["id"].as_str().unwrap().to_string(),
+        sha256: body["sha256"].as_str().unwrap().to_string(),
+        storage_key: body["storage_key"].as_str().unwrap().to_string(),
+    }
+}
+
+/// Swaps the state's store for the presigning wrapper over the SAME bytes (a
+/// `MemoryStore` clone shares its inner), so `presign_get` answers the way an
+/// S3 bucket would while uploads and downloads still see one object space.
+fn presigning_app(state: &mut AppState, store: &Arc<core_store::memory::MemoryStore>) -> Router {
+    state.store = Arc::new(core_store::memory::PresigningStore((**store).clone()));
+    core_api::routes::build_router(state.clone())
+}
+
+/// Flips an admitted object's verdict to `infected`, the way a scanner update
+/// that finds a signature in bytes it once passed would.
+async fn hold_object(state: &AppState, org_id: Uuid, sha: &str) {
+    let mut tx = state.pool.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("org scope");
+    sqlx::query(
+        "UPDATE attachment_scans SET status = 'infected', \
+         detail = 'test-hold: Eicar-Test-Signature FOUND', scanner = 'test-hold', \
+         quarantined_at = now() WHERE org_id = $1 AND sha256 = $2",
+    )
+    .bind(org_id)
+    .bind(sha)
+    .execute(&mut *tx)
+    .await
+    .expect("verdict escalation");
+    tx.commit().await.expect("commit");
+}
+
+async fn content_type_of(response: &axum::response::Response) -> String {
+    response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// An S3-backed install hands the client a URL and keeps the bytes off the
+/// API. The ticket names the object, carries the metadata the streamed
+/// headers used to carry, and expires on the documented bound.
+#[tokio::test]
+async fn a_presigning_store_mints_a_short_lived_ticket() {
+    let (mut state, store) = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let org = seed_org(&app, "presign").await;
+    let uploaded = upload_png(&app, &org).await;
+
+    let app = presigning_app(&mut state, &store);
+    let response = send_raw(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/attachments/{}/download?presign=true", uploaded.id),
+        Some(&org.token),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "an admitted object may be presigned"
+    );
+    let content_type = content_type_of(&response).await;
+    assert!(
+        content_type.starts_with("application/json"),
+        "a ticket request must not receive bytes: {content_type}"
+    );
+
+    let body = body_json(response).await;
+    assert_eq!(body["mode"], "presigned", "the store signed a URL: {body}");
+    let expected = core_store::memory::PresigningStore::<core_store::memory::MemoryStore>::url_for(
+        &uploaded.storage_key,
+        core_api::routes::attachments::DOWNLOAD_URL_TTL,
+    );
+    assert_eq!(body["url"], expected.as_str(), "the store's URL, verbatim");
+    assert_eq!(body["filename"], "screenshot.png");
+    assert_eq!(body["content_type"], "image/png");
+    assert_eq!(body["sha256"], uploaded.sha256.as_str());
+    assert_eq!(body["size_bytes"], PNG_BYTES.len() as i64);
+    assert!(
+        body["expires_at"].as_str().is_some(),
+        "a ticket without an expiry is a URL with no life: {body}"
+    );
+}
+
+/// Local-fs is the documented fallback, chosen per request: the same
+/// `Accept: application/json` request that yields a ticket on S3 yields the
+/// bytes on a filesystem, with today's headers and status.
+#[tokio::test]
+async fn a_store_that_cannot_presign_still_streams() {
+    let (state, _store) = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let org = seed_org(&app, "presign-fallback").await;
+    let uploaded = upload_png(&app, &org).await;
+
+    // The ticket request says so in the body rather than failing: a local-fs
+    // install is the documented deployment, not an error.
+    let ticket = body_json(
+        send_raw(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/attachments/{}/download?presign=true", uploaded.id),
+            Some(&org.token),
+            &[],
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(ticket["mode"], "stream", "no URL on a filesystem: {ticket}");
+    assert!(ticket["url"].is_null(), "no URL means no URL: {ticket}");
+    assert_eq!(ticket["filename"], "screenshot.png");
+
+    // And the plain request still streams, byte for byte, as it always did.
+    let response = send_raw(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/attachments/{}/download", uploaded.id),
+        Some(&org.token),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    // The stored content type, as this door has always served it; the
+    // `application/octet-stream` in the utoipa annotation describes the body
+    // type for the spec, not the runtime header.
+    assert_eq!(content_type_of(&response).await, "image/png");
+    assert_eq!(
+        response
+            .headers()
+            .get("x-marula-sha256")
+            .and_then(|v| v.to_str().ok()),
+        Some(uploaded.sha256.as_str()),
+        "the streaming contract is unchanged"
+    );
+    assert_eq!(body_bytes(response).await, PNG_BYTES);
+}
+
+/// The hole P6 closed, tested at the door that hands out URLs: an object held
+/// by the scan gate gets neither a URL nor the bytes, on either `Accept`.
+#[tokio::test]
+async fn a_held_object_issues_neither_a_url_nor_bytes() {
+    let (mut state, store) = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let org = seed_org(&app, "presign-held").await;
+    let uploaded = upload_png(&app, &org).await;
+    let org_id = org_of_ticket(&app, &org.token, &org.ticket_a).await;
+    hold_object(&state, org_id, &uploaded.sha256).await;
+
+    let app = presigning_app(&mut state, &store);
+    for suffix in ["?presign=true", ""] {
+        let response = send_raw(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/attachments/{}/download{suffix}", uploaded.id),
+            Some(&org.token),
+            &[],
+            None,
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            409,
+            "({suffix}) a held object must be refused, not signed and not streamed"
+        );
+        let body = body_json(response).await;
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("held by the scan gate")),
+            "the refusal says why: {body}"
+        );
+    }
+}
+
+/// No verdict on record means no URL. The bytes keep the pre-P6 posture —
+/// streaming was already authorized per request — but the ticket is refused,
+/// because a URL would outlive the answer nobody has.
+#[tokio::test]
+async fn an_unscanned_object_never_presigns() {
+    let (mut state, store) = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let org = seed_org(&app, "presign-unscanned").await;
+    let uploaded = upload_png(&app, &org).await;
+    let org_id = org_of_ticket(&app, &org.token, &org.ticket_a).await;
+
+    let mut tx = state.pool.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("org scope");
+    sqlx::query("DELETE FROM attachment_scans WHERE org_id = $1 AND sha256 = $2")
+        .bind(org_id)
+        .bind(&uploaded.sha256)
+        .execute(&mut *tx)
+        .await
+        .expect("drop the verdict");
+    tx.commit().await.expect("commit");
+
+    let app = presigning_app(&mut state, &store);
+    let ticket = body_json(
+        send_raw(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/attachments/{}/download?presign=true", uploaded.id),
+            Some(&org.token),
+            &[],
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        ticket["mode"], "stream",
+        "an object with no verdict must not be handed out as a URL: {ticket}"
+    );
+    assert!(ticket["url"].is_null());
+
+    // The bytes themselves keep the posture they had before this lane:
+    // authorized per request, never signed.
+    let response = send_raw(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/attachments/{}/download", uploaded.id),
+        Some(&org.token),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(body_bytes(response).await, PNG_BYTES);
+}

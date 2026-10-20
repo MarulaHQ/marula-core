@@ -673,3 +673,94 @@ async fn board_ticket_time_entry_families_import_end_to_end() {
         "per-row report names the missing parent"
     );
 }
+
+// --- P12 import wall clock ---------------------------------------------------
+//
+// Ignored by default: this is the denominator for the P12 seam-share
+// measurement ("measure the import path first"). It stages a bulk batch and
+// times only the worker replay — the route that commits rows and emits one
+// outbox event per row. Staging is upload, not import, so it stays outside the
+// clock. Exact command lives in design/qa-p52-internal-seam-batching/GATES.md.
+
+#[ignore = "measurement (P12 import wall clock): needs MARULA_TEST_DATABASE_URL; see design/qa-p52-internal-seam-batching/GATES.md"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn import_wall_clock_over_a_bulk_batch() {
+    let rows: usize = std::env::var("SEAM_ROWS")
+        .ok()
+        .and_then(|raw| raw.parse().ok())
+        .unwrap_or(2_000);
+    // Well under MAX_ROWS_PER_CHUNK; a realistic connector page.
+    const CHUNK: usize = 500;
+
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state);
+    let slug = format!("import-clock-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let org_id: Uuid = {
+        let response = send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/me",
+            &[auth(&token)],
+            None,
+        )
+        .await;
+        body_json(response).await["org_id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+            .parse()
+            .unwrap()
+    };
+
+    let batch_id = open_batch(&app, &token, "client").await;
+    let mut staged = 0;
+    while staged < rows {
+        let take = CHUNK.min(rows - staged);
+        let chunk: Vec<Value> = (0..take)
+            .map(|offset| {
+                let n = staged + offset;
+                json!({ "external_key": format!("SEAM-{n}"), "name": format!("Seam Client {n}") })
+            })
+            .collect();
+        stage(&app, &token, batch_id, Value::Array(chunk)).await;
+        staged += take;
+    }
+
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/v1/imports/batches/{batch_id}/run"),
+        &[auth(&token)],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200, "enqueue applies");
+    let job_id: Uuid = body_json(response).await["job_id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+        .parse()
+        .unwrap();
+
+    let started = std::time::Instant::now();
+    let result = run_internal(&app, org_id, batch_id, job_id).await;
+    let import_ms = started.elapsed().as_secs_f64() * 1_000.0;
+
+    assert_eq!(result["applied"], true);
+    assert_eq!(result["rows_created"], rows as u64);
+
+    let per_row_ms = import_ms / rows as f64;
+    let rows_per_second = (rows as f64) * 1_000.0 / import_ms;
+    println!(
+        "IMPORT_WALL_CLOCK {}",
+        json!({
+            "rows": rows,
+            "chunk_rows": CHUNK,
+            "chunks": rows.div_ceil(CHUNK),
+            "import_ms": (import_ms * 1_000.0).round() / 1_000.0,
+            "import_ms_per_row": (per_row_ms * 1_000.0).round() / 1_000.0,
+            "rows_per_second": (rows_per_second * 1_000.0).round() / 1_000.0,
+        })
+    );
+}

@@ -45,6 +45,54 @@ where
     enqueue_after(executor, job, chrono::Utc::now()).await
 }
 
+/// Enqueues one job unless a job carrying the same `dedupe_key` exists.
+///
+/// Why this exists: some producers are at-least-once at the source. The
+/// webhooks-out consumer re-reads an event when a pending stream entry is
+/// replayed after a crash or claimed from a consumer that died mid-handling;
+/// without a guard the second read inserts a second `webhook.deliver` row and
+/// the receiver gets the same signed POST twice. `Ok(None)` therefore is not a
+/// failure — it means this delivery is already queued, in whatever state, and
+/// the caller's work for that key is done.
+///
+/// The key is text and caller-formatted (`<kind>:<subject>`, see
+/// `crates/worker/src/webhook_out.rs`); the partial unique index from
+/// migration 0142 makes the insert a no-op on a repeat and leaves every job
+/// kind that passes no key untouched. The row is never removed by the queue:
+/// a settled or dead-lettered job keeps its key, so a late replay of the same
+/// event cannot resurrect a delivery the retry policy already finished.
+///
+/// Runtime query rather than `sqlx::query!` on purpose: the new column has no
+/// entry in the committed `.sqlx` cache, and re-preparing it belongs to a lane
+/// that can run `cargo sqlx prepare`. The integration test in
+/// `crates/worker/tests/webhook_restart_replay.rs` executes this statement
+/// against a migrated database, which is what proves it parses and binds.
+pub async fn enqueue_deduped<'e, E>(
+    executor: E,
+    job: &NewJob,
+    dedupe_key: &str,
+) -> DbResult<Option<Uuid>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let id = Uuid::now_v7();
+    let inserted: Option<(Uuid,)> = sqlx::query_as(
+        r#"INSERT INTO jobs (id, org_id, kind, payload, max_attempts, run_after, dedupe_key)
+           VALUES ($1, $2, $3, $4, $5, now(), $6)
+           ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
+           RETURNING id"#,
+    )
+    .bind(id)
+    .bind(job.org_id)
+    .bind(&job.kind)
+    .bind(&job.payload)
+    .bind(job.max_attempts)
+    .bind(dedupe_key)
+    .fetch_optional(executor)
+    .await?;
+    Ok(inserted.map(|(id,)| id))
+}
+
 /// Enqueues one job due at a specific time (TASKLIST Wave 43 lane 14).
 ///
 /// The run ledger's parked-workflow wakes need this: a run parked until a
@@ -110,17 +158,26 @@ pub async fn claim_batch<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    // The pick is a MATERIALIZED CTE on purpose, not `WHERE id IN (SELECT ... LIMIT n)`.
+    //
+    // Under the RLS role the planner turns that `IN` into a `Nested Loop Semi
+    // Join` with the `Limit` on the inner side, so the limit is re-executed per
+    // outer row and every candidate finds itself: a batch of 4 claimed 6 of 6
+    // in `job_queue_concurrent_claims_are_disjoint` once the plan chose a seq
+    // scan. A materialized CTE is an optimization fence, so the pick runs
+    // exactly once and `batch` stays a real bound.
     let rows = sqlx::query!(
-        r#"UPDATE jobs
-           SET status = 'running', claimed_at = now(), claimed_by = $1,
-               attempts = attempts + 1, updated_at = now()
-           WHERE id IN (
+        r#"WITH picked AS MATERIALIZED (
              SELECT id FROM jobs
              WHERE status = 'pending' AND run_after <= now()
              ORDER BY id
              FOR UPDATE SKIP LOCKED
              LIMIT $2
            )
+           UPDATE jobs
+           SET status = 'running', claimed_at = now(), claimed_by = $1,
+               attempts = attempts + 1, updated_at = now()
+           WHERE id IN (SELECT id FROM picked)
            RETURNING id, org_id, kind, payload, attempts, max_attempts, claimed_by"#,
         worker_name,
         batch,
