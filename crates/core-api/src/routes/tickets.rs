@@ -64,7 +64,7 @@ pub struct CreateTicketRequest {
     pub assignee_id: Option<Uuid>,
     pub due_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Initial custom-field values; each is validated against its
-    /// definition. REQUIRED definitions must all be present (the private build tracker 2.17).
+    /// definition. REQUIRED definitions must all be present (TASKLIST 2.17).
     #[serde(default)]
     pub custom_fields: Vec<TicketFieldInput>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
@@ -373,7 +373,7 @@ where
 }
 
 /// GET /api/tickets — filtered, priority-ordered list; each row carries its
-/// custom-field values (the private build tracker 2.17) fetched in one batched query.
+/// custom-field values (TASKLIST 2.17) fetched in one batched query.
 /// Pagination is envelope-compatible: the body stays the plain ticket
 /// array; deep-page walks pass the opaque `cursor` query param (from the
 /// previous page's `x-next-cursor` response header) and the server resumes
@@ -455,7 +455,7 @@ pub async fn list(
 
 /// GET /api/tickets/my-work — everything assigned to me, not closed,
 /// across all boards, priority-then-SLA-due ordered (the unified
-/// cross-board view from §1; the private build tracker 2.11 adds client/board annotations).
+/// cross-board view from §1; TASKLIST 2.11 adds client/board annotations).
 #[utoipa::path(operation_id = "tickets_my_work", get, path = "/api/tickets/my-work", tag = "tickets", security(("bearer" = [])),
     responses((status = 200, body = [MyWorkItem])))]
 pub async fn my_work(
@@ -490,7 +490,7 @@ pub async fn my_work(
     Ok(Json(rows.into_iter().map(MyWorkItem::from_row).collect()))
 }
 
-/// One cross-board my-work queue row (the private build tracker 2.11): the ticket plus the
+/// One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the
 /// annotations the Today screen renders per the mockup.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MyWorkItem {

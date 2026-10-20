@@ -61,7 +61,7 @@ pub struct BoardFavorite {
     pub sort_order: i32,
 }
 
-/// A named, ordered nav grouping of boards within one org (the private build tracker 2.11).
+/// A named, ordered nav grouping of boards within one org (TASKLIST 2.11).
 /// Groups are organization-wide; `owner_id` records who controls the group.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

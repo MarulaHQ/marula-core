@@ -516,7 +516,7 @@ impl BuiltinRole {
 }
 
 /// Per-board role tier stored on `board_members` rows (migration 0019,
-/// the private build tracker 2.11). Board roles sit BESIDE the org matrix and can only
+/// TASKLIST 2.11). Board roles sit BESIDE the org matrix and can only
 /// narrow it — see `authorize_board_scoped`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

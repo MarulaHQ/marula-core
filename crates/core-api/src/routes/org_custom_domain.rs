@@ -181,7 +181,7 @@ impl From<ManualDnsInstructions> for CustomDomainInstructions {
     }
 }
 
-/// POST response: exactly the three fields the private build tracker A8 (B) names.
+/// POST response: exactly the three fields TASKLIST A8 (B) names.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SetCustomDomainResponse {
     pub domain: String,
@@ -373,7 +373,7 @@ pub async fn get_custom_domain(
 }
 
 /// `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS
-/// verification (the private build tracker A8 (C)). The TXT token is the authority; the
+/// verification (TASKLIST A8 (C)). The TXT token is the authority; the
 /// A/CNAME leg is plausibility only.
 #[utoipa::path(operation_id = "org_custom_domain_verify", post,
     path = "/api/orgs/{org_id}/custom-domain/verify", tag = "org",
