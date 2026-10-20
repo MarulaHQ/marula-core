@@ -1,0 +1,7 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "plugin": [
+    "file://./.kilo/plugins/graphify.js",
+    "file://./.kilo/plugins/graft.js"
+  ]
+}
