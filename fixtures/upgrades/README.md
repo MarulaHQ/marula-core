@@ -1,4 +1,4 @@
-# Upgrade-matrix fixtures (policy §8 / TASKLIST U7)
+# Upgrade-matrix fixtures (policy §8 / the private build tracker U7)
 
 Purpose: seeded production-like snapshot fixtures per tagged release — data
 exercising every customization surface (custom fields, board statuses +

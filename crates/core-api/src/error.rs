@@ -112,7 +112,7 @@ pub enum ApiError {
     TasksUnassigned {
         items: Vec<crate::routes::tickets::TaskGateItem>,
     },
-    /// Typed 409 for a rejected dispatch bulk-move (TASKLIST 2.19): names
+    /// Typed 409 for a rejected dispatch bulk-move (the private build tracker 2.19): names
     /// the offending move index and the blocking booking so the board can
     /// flag the exact drop target and surface the conflict inline.
     #[error("dispatch move conflicts with existing booking")]
@@ -195,7 +195,7 @@ pub enum ApiError {
         /// The scanner's detail string (usually the signature name).
         detail: Option<String>,
     },
-    /// A fail-policy import chunk was rejected transactionally (TASKLIST
+    /// A fail-policy import chunk was rejected transactionally (the private build tracker
     /// D2): nothing from that chunk was written; the full per-row report
     /// rides the 409 so clients can correct and retry without re-upload.
     #[error("import chunk rejected by conflict_policy=fail")]
@@ -203,7 +203,7 @@ pub enum ApiError {
         report: crate::routes::imports::RunReportResponse,
     },
     /// Typed 409 for a completion attempt whose finish-to-start
-    /// dependencies are not all completed yet (TASKLIST Phase 3 projects
+    /// dependencies are not all completed yet (the private build tracker Phase 3 projects
     /// line): names the task and the blocking dependency ids so the client
     /// can render exactly what is outstanding.
     #[error("task dependencies not satisfied")]
@@ -290,7 +290,7 @@ pub enum ApiError {
     #[error("demo org already seeded")]
     AlreadySeeded,
     /// Typed 409 for a migration connector chunk pushed out of position
-    /// (TASKLIST D3): the checkpoint cursor expects a different index. The
+    /// (the private build tracker D3): the checkpoint cursor expects a different index. The
     /// tool resumes from `expected` (GET the session view) — nothing was
     /// written.
     #[error("migration chunk cursor mismatch: expected chunk {expected}, got {provided}")]
@@ -301,7 +301,7 @@ pub enum ApiError {
         provided: i64,
     },
     /// Typed 409 when an already-committed migration chunk is re-sent with
-    /// a DIFFERENT payload (TASKLIST D3). Same index + same payload is a
+    /// a DIFFERENT payload (the private build tracker D3). Same index + same payload is a
     /// free replay of the stored report; drifting content under one index
     /// is a client bug we refuse to guess at.
     #[error("migration chunk already committed with different content")]

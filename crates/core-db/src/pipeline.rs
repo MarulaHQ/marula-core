@@ -1,4 +1,4 @@
-//! Sales-pipeline persistence (TASKLIST Phase 3, Wave 12 lane 2;
+//! Sales-pipeline persistence (the private build tracker Phase 3, Wave 12 lane 2;
 //! migration 0060): stages, deals, and the append-only transition
 //! ledger.
 //!

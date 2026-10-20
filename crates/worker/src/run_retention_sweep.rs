@@ -1,5 +1,5 @@
 //! worker/run_retention_sweep — the workflow run ledger's retention tick
-//! (TASKLIST Wave 43 lane 14).
+//! (the private build tracker Wave 43 lane 14).
 //!
 //! Purpose: runs are the highest-volume rows this engine will produce, so
 //! the run ledger's window is a SETTING (`workflow.run_retention_days`,

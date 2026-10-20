@@ -1,4 +1,4 @@
--- DocumentVersion entities (TASKLIST D4, docs/10-agent-platform.md §6).
+-- DocumentVersion entities (the private build tracker D4, docs/10-agent-platform.md §6).
 --
 -- Purpose: documents with immutable version history. Two org-scoped tables:
 --

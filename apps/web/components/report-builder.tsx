@@ -1,4 +1,4 @@
-// Report builder v1 (TASKLIST R6; ADR 0001): view → measures → group-by →
+// Report builder v1 (the private build tracker R6; ADR 0001): view → measures → group-by →
 // filters → viz, with a live compile-on-demand preview. All identifiers
 // come from the server-served field catalog (GET /api/v1/report-catalog)
 // and every run re-validates server-side against the same Rust constants —

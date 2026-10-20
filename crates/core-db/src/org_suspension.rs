@@ -1,4 +1,4 @@
-//! Tenant suspension notice storage (TASKLIST Wave 47 lane A7,
+//! Tenant suspension notice storage (the private build tracker Wave 47 lane A7,
 //! `p47-org-suspension-notice`, migration 0136).
 //!
 //! Three narrow seams over the three `orgs` columns:

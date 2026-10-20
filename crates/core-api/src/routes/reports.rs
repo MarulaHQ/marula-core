@@ -1,4 +1,4 @@
-//! Operational reports endpoints (TASKLIST R1; ADR 0001).
+//! Operational reports endpoints (the private build tracker R1; ADR 0001).
 //!
 //! Purpose: serve the eight prebuilt report kinds over HTTP — cursor-paged
 //! JSON rows plus a whole-window summary block, `?format=csv` output, and

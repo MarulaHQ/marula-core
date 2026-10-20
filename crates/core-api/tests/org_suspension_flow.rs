@@ -1,4 +1,4 @@
-//! HTTP flow tests for the tenant suspension notice flag (TASKLIST Wave 47
+//! HTTP flow tests for the tenant suspension notice flag (the private build tracker Wave 47
 //! lane A7, `p47-org-suspension-notice`, migration 0136) over the REAL
 //! core-api router.
 //!
@@ -8,7 +8,7 @@
 //!     cleared, and re-flagging an already-flagged org keeps the original
 //!     `suspended_at` (idempotent set: a retry cannot restart the countdown).
 //!   * a FLAGGED ORG KEEPS WORKING: its profile still reads and still writes.
-//!     This is the load-bearing rule (TASKLIST A7 (C)) and the assertion that
+//!     This is the load-bearing rule (the private build tracker A7 (C)) and the assertion that
 //!     fails loudly if a later lane adds enforcement to the flag.
 //!   * the write body is validated: an unknown or missing reason is a typed
 //!     422, not a raw constraint violation.

@@ -1,6 +1,6 @@
 # Default values for the marula chart.
 #
-# Image policy (release engineering, TASKLIST U10b): every image reference is
+# Image policy (release engineering, the private build tracker U10b): every image reference is
 # digest-pinned in production — set `tag` for readability AND `digest` for
 # the immutable reference. Digests are published per release with their SBOM
 # + provenance attestations (see .github/workflows/release.yml).

@@ -1,4 +1,4 @@
-//! Invoicing-lane integration tests (TASKLIST Phase 3, Wave 9): the
+//! Invoicing-lane integration tests (the private build tracker Phase 3, Wave 9): the
 //! contract → invoice run → document → payments → dunning chain through
 //! the REAL core-api router against a real Postgres
 //! (`MARULA_TEST_DATABASE_URL` or `DATABASE_URL`).

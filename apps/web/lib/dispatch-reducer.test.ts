@@ -1,4 +1,4 @@
-// Headless tests for the dispatch drag-state machine (TASKLIST 2.19):
+// Headless tests for the dispatch drag-state machine (the private build tracker 2.19):
 // ghost placement conflict classes, optimistic move/assign flows with
 // rollback on typed rejection, realtime reconciliation, and presence.
 // All instants use the Europe/London-free "UTC" zone so expectations are

@@ -1,4 +1,4 @@
-//! Provenance read-model queries (TASKLIST IF9, doctrine #9).
+//! Provenance read-model queries (the private build tracker IF9, doctrine #9).
 //!
 //! Reads the `provenance_events` projection (migration 0043) — one row per
 //! changed field per applied write — so provenance questions ("who changed

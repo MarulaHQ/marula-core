@@ -115,7 +115,7 @@ async fn tick<S: DeliverySink, E: EffectApi>(
     // Stale re-arm runs on its own statement: a data-modifying CTE's
     // writes would be invisible to the claim in the same statement.
     core_db::queue::reclaim_stale(pool, stale_after_secs).await?;
-    // Queue-depth gauges (TASKLIST 2.18): one aggregate COUNT per tick —
+    // Queue-depth gauges (the private build tracker 2.18): one aggregate COUNT per tick —
     // the `jobs` table is small compared to the domain tables.
     if let Ok(stats) = core_db::queue::stats(pool).await {
         core_otel::metrics::queue_depth(
@@ -123,7 +123,7 @@ async fn tick<S: DeliverySink, E: EffectApi>(
             stats.running.max(0) as u64,
             stats.dead.max(0) as u64,
         );
-        // Dead-letter AGE beside the depth (TASKLIST R7a): depth alone says
+        // Dead-letter AGE beside the depth (the private build tracker R7a): depth alone says
         // how many jobs nobody will retry, not whether they have been rotting
         // there for an hour or a week. Guarded on `dead > 0` because that
         // statement has no partial index to lean on — an install with an
@@ -135,7 +135,7 @@ async fn tick<S: DeliverySink, E: EffectApi>(
             }
         }
     }
-    // Parked workflow runs (TASKLIST R7a): a run waiting on an event that
+    // Parked workflow runs (the private build tracker R7a): a run waiting on an event that
     // never arrives is invisible today — it is not in the jobs table and no
     // consumer holds it. Count plus the oldest idle age makes the stall
     // visible from the metric side. `status = 'waiting'` is index-served by
@@ -146,14 +146,14 @@ async fn tick<S: DeliverySink, E: EffectApi>(
             parked.oldest_age_secs.map(|secs| secs.max(0) as u64),
         );
     }
-    // Backup age (TASKLIST R7a): reads the stamp the backup runner writes.
+    // Backup age (the private build tracker R7a): reads the stamp the backup runner writes.
     // Opt-in by path; unset means no series, never a zero.
     crate::backup_health::sample();
     let jobs = core_db::queue::claim_batch(pool, batch, worker).await?;
     let count = jobs.len();
 
     // Per-tick span with batch size; per-job spans (kind + attempts) carry
-    // the claim→apply latency histogram sample (TASKLIST 2.18).
+    // the claim→apply latency histogram sample (the private build tracker 2.18).
     let tick_span = tracing::info_span!("queue.tick", batch_size = count);
     let mut settled: u64 = 0;
     for job in jobs {
@@ -268,7 +268,7 @@ async fn settle_job<S: DeliverySink, E: EffectApi>(
         // surface owns the notification + `secret.rotation_due` event.
         "secrets.rotation" => "/api/internal/secrets/rotation",
         "automation.effects" => "/api/internal/effects",
-        // Staged import batches (TASKLIST D2 remainder): the runner replays
+        // Staged import batches (the private build tracker D2 remainder): the runner replays
         // the batch's ObjectStore chunks through core-api's commit path.
         "import.batch.run" => "/api/internal/imports/batch/run",
         other => {

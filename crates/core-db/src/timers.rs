@@ -168,7 +168,7 @@ where
     Ok(())
 }
 
-/// Content-only time-entry update (import framework, TASKLIST D2
+/// Content-only time-entry update (import framework, the private build tracker D2
 /// remainder). The owner (`user_id`) and ticket attachment are identity —
 /// immutable here, exactly like an imported row's parents.
 #[allow(clippy::too_many_arguments)]

@@ -1,4 +1,4 @@
-//! Portal appointment requests (TASKLIST Phase 3, Portal v2): the intent
+//! Portal appointment requests (the private build tracker Phase 3, Portal v2): the intent
 //! row between a client portal user and a staff calendar.
 //!
 //! A request is NOT a booking: several clients may hold overlapping

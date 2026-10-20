@@ -1,4 +1,4 @@
-//! Scheduling persistence (TASKLIST 2.12): appointments, availability
+//! Scheduling persistence (the private build tracker 2.12): appointments, availability
 //! windows, on-call blocks, calendar exclusions.
 //!
 //! Purpose: CRUD plus absolute-time range queries feeding the day/week

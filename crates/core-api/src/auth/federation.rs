@@ -1,4 +1,4 @@
-//! The identity-federation BUNDLE interface (planning REL-E4, TASKLIST
+//! The identity-federation BUNDLE interface (planning REL-E4, the private build tracker
 //! ID3/ID4): the versioned contract every federation bundle implements
 //! and the shared invariants every bundle's login path MUST route
 //! through.

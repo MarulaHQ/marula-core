@@ -1,4 +1,4 @@
-//! core-db/webhooks — persistence for plugin runtime v1 (TASKLIST 2.15).
+//! core-db/webhooks — persistence for plugin runtime v1 (the private build tracker 2.15).
 //!
 //! Purpose: typed queries for the four extension-surface tables from
 //! migration 0020 — webhook subscriptions (secrets sealed at rest), the

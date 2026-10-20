@@ -1,4 +1,4 @@
-//! core-documents — DocumentVersion semantics (TASKLIST D4,
+//! core-documents — DocumentVersion semantics (the private build tracker D4,
 //! docs/10-agent-platform.md §6).
 //!
 //! Purpose: the ONE home for the versioning policy that makes documents

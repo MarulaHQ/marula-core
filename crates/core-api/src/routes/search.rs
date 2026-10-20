@@ -1,4 +1,4 @@
-//! Unified search API (TASKLIST 2.16): ONE read endpoint over the shared
+//! Unified search API (the private build tracker 2.16): ONE read endpoint over the shared
 //! per-entity FTS index (tickets, comments, clients, sites, contacts).
 //!
 //! Purpose: ranked, RLS-scoped, permission-filtered results via

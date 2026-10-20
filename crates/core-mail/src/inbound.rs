@@ -43,7 +43,7 @@ pub struct InboundEmail {
     pub received_at: Option<DateTime<Utc>>,
     /// Provider-extracted attachments (base64 bodies). Optional and
     /// defaulted so existing webhook senders keep working unchanged
-    /// (TASKLIST 2.14).
+    /// (the private build tracker 2.14).
     #[serde(default)]
     pub attachments: Vec<InboundAttachment>,
 }

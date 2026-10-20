@@ -1,4 +1,4 @@
-//! Instant-first write-path primitives (TASKLIST IF1–IF3, binding contract
+//! Instant-first write-path primitives (the private build tracker IF1–IF3, binding contract
 //! in `docs/instant-first.md`).
 //!
 //! ONE shared layer that every autosave-style mutation routes through, so

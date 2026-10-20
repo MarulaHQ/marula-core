@@ -1,4 +1,4 @@
-//! Deprecation clock gate (policy §8, TASKLIST U4).
+//! Deprecation clock gate (policy §8, the private build tracker U4).
 //!
 //! The build-time enforcement of `deprecated_in` / `removal_target`: a
 //! change fails this gate when it removes a registered construct before its

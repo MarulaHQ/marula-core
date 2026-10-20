@@ -1,4 +1,4 @@
-// BoardNav — the left-nav board tree (TASKLIST 2.11).
+// BoardNav — the left-nav board tree (the private build tracker 2.11).
 //
 // Purpose: collapsible org board groups with favorite stars, rendered
 // exclusively from Workbench tokens so light/dark parity is automatic.

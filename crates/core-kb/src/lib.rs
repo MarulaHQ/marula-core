@@ -1,4 +1,4 @@
-//! core-kb — knowledge base domain rules (native KB v1, TASKLIST Phase 3).
+//! core-kb — knowledge base domain rules (native KB v1, the private build tracker Phase 3).
 //!
 //! Purpose: the ONE home for KB behavior that is pure product policy, so
 //! core-api routes and (later) portal v2 + the D5 Markdown/HTML importer

@@ -1,4 +1,4 @@
-//! Dev-tools surface gating (TASKLIST DX2).
+//! Dev-tools surface gating (the private build tracker DX2).
 //!
 //! Purpose: prove the hard rule — `/api/dev/*` routes DO NOT EXIST unless
 //! the process runs with MARULA_DEV_TOOLS=1. "Not exist" is the stronger

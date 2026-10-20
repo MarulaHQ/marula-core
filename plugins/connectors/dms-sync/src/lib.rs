@@ -1,4 +1,4 @@
-//! Marula DMS sync connector (`connectors/dms-sync` — TASKLIST Money +
+//! Marula DMS sync connector (`connectors/dms-sync` — the private build tracker Money +
 //! docs T3, external-DMS parity directive 2026-09-10).
 //!
 //! Purpose: move an org's documentation BETWEEN an external documentation

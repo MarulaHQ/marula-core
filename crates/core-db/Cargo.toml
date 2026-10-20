@@ -15,7 +15,7 @@ bytes = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
-# Dev-tool surface (`demo` module, TASKLIST DX1): demo org seeding seals
+# Dev-tool surface (`demo` module, the private build tracker DX1): demo org seeding seals
 # webhook/alert-source secrets at rest and argon2-hashes the demo login
 # password — the same schemes the production write paths use.
 aes-gcm = { workspace = true }

@@ -1,4 +1,4 @@
--- Scheduled report delivery (TASKLIST R4; ADR 0001 §Decision).
+-- Scheduled report delivery (the private build tracker R4; ADR 0001 §Decision).
 --
 -- Purpose: two worker-facing tables for the delivery lane.
 --

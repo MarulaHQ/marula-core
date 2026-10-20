@@ -1,4 +1,4 @@
-//! The workflow run ledger's vocabulary and its retry policy (TASKLIST
+//! The workflow run ledger's vocabulary and its retry policy (the private build tracker
 //! Wave 43 lane 14, `p43-workflow-run-ledger`).
 //!
 //! Purpose: the ONE place the run and step statuses, the trigger kinds and

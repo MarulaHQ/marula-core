@@ -2,7 +2,7 @@
 
 > Status: SPEC (ready for lane implementation) · Authored 2026-09-16
 >-line-product owner directive: Nilear-pattern note entry everywhere techs enter task notes.
-> Tracking: TASKLIST.md Wave 17 lane 11 `p17-workbar-notes-tasks` (S1–S8 below are the lane's deliverables).
+> Tracking: the private build tracker Wave 17 lane 11 `p17-workbar-notes-tasks` (S1–S8 below are the lane's deliverables).
 > Wave/branch renumbered twice 2026-09-16 (Wave 16/17 swap + Wave 15 straggler re-base, then ADR 0009 added
 > Wave 16 lane 7 with pair 0079): the lane rides the UX wave with migration pair 0080 / PG port 54380
 > (0077–0079 went to Wave 16's backend lanes).
@@ -461,7 +461,7 @@ path, classic workspace close flow, workbar Wrap up → Resolve, portal admin fl
 ## 5. Backend & data changes (additive-only)
 
 > Migration lane rule: one lane-exclusive migration number (next free pair per
-> TASKLIST at fire time), additively only, rollback-safe, RLS unchanged,
+> the private build tracker at fire time), additively only, rollback-safe, RLS unchanged,
 > U9-customization cross-check if any construct referenced by customization rows
 > is touched (none expected).
 

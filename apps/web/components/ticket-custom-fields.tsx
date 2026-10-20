@@ -3,7 +3,7 @@
 // Purpose: render every field definition governing the ticket's board with
 // a kind-appropriate input, write each change through the validated
 // set/clear endpoints, and surface server validation errors inline next to
-// the offending field (TASKLIST 2.17). User-reference fields render
+// the offending field (the private build tracker 2.17). User-reference fields render
 // read-only until an org user directory exists.
 // Non-purpose: defining fields (board settings own that) and no optimistic
 // writes — the API verdict always wins.

@@ -433,7 +433,7 @@ pub async fn csat_email(
     Ok(response.into_response())
 }
 
-// --- missing-time gap audit run (TASKLIST 2.10) -----------------------------
+// --- missing-time gap audit run (the private build tracker 2.10) -----------------------------
 
 /// POST /api/internal/time/gap-audit/run — computes and persists the
 /// activity-vs-entries comparison for each item and nudges gap days once
@@ -1472,7 +1472,7 @@ pub async fn search_backfill(
     Ok(Json(report))
 }
 
-// --- async import-batch runner (TASKLIST D2 remainder) -----------------------
+// --- async import-batch runner (the private build tracker D2 remainder) -----------------------
 
 /// Job kind the generalized 2.7 queue carries for staged import batches.
 /// The worker maps this to [`run_import_batch`] below; core-api stays the

@@ -215,7 +215,7 @@ control: this lane changed search only.
   budget pressure that would justify a new index + its write-path tax
   does not exist today. Revisit when page-1 p95 exceeds ~2/3 budget OR
   whenever the SQL sort plan regresses. The full measured recipe is in
-  the lane landing record (TASKLIST_COMPLETED).
+  the lane landing record (the private build tracker).
 
 ## 5. HTTP capacity decision (Wave 15 lane 3)
 

@@ -1,4 +1,4 @@
-//! Undo as a core capability (TASKLIST IF7, Wave 9 lane 5; binding
+//! Undo as a core capability (the private build tracker IF7, Wave 9 lane 5; binding
 //! contract in `docs/instant-first.md` "Undo is the escape hatch").
 //!
 //! Purpose: the read model + write path that make autosave feel safe.

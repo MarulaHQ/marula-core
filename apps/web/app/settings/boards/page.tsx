@@ -10,7 +10,7 @@
 // board-field PATCH; statuses/transitions/fields keep living on
 // /settings/workflow and the board page); adding a member needs the
 // caller to supply the user id — the org-user directory endpoint does not
-// exist yet (recorded in TASKLIST).
+// exist yet (recorded in the private build tracker).
 "use client";
 
 import {

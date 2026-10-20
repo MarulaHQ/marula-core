@@ -1,4 +1,4 @@
-//! Attachment endpoints (TASKLIST 2.14): upload, list, download,
+//! Attachment endpoints (the private build tracker 2.14): upload, list, download,
 //! author-gated delete.
 //!
 //! Purpose: the ONLY door for binary objects into Marula. Every upload

@@ -1,4 +1,4 @@
-# Event golden fixtures (policy §2 / TASKLIST U2)
+# Event golden fixtures (policy §2 / the private build tracker U2)
 
 Purpose: the pinned wire shape of every payload Marula publishes on the
 domain-event stream, one file per (event type, entity, variant) under

@@ -31,7 +31,7 @@ pub mod csat;
 pub mod custom_fields;
 pub mod day_pack;
 pub mod decision;
-// Dev-tool surface (TASKLIST DX1–DX2): only reachable behind
+// Dev-tool surface (the private build tracker DX1–DX2): only reachable behind
 // MARULA_DEV_TOOLS=1 — the CLI refuses and the API router is not mounted
 // without it.
 pub mod costs;

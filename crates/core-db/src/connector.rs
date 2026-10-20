@@ -1,4 +1,4 @@
-//! Migration connector persistence (TASKLIST D3): the checkpoint substrate
+//! Migration connector persistence (the private build tracker D3): the checkpoint substrate
 //! for third-party bulk pushes plus the keyset page queries the bulk pull
 //! exports walk.
 //!

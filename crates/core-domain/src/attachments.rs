@@ -1,4 +1,4 @@
-//! Attachment admission rules (TASKLIST 2.14): filename sanitization, the
+//! Attachment admission rules (the private build tracker 2.14): filename sanitization, the
 //! content-type/magic-byte allowlist, and size caps. Pure functions over
 //! the bytes' HEAD — the API layer owns IO, storage, and authorization.
 //!

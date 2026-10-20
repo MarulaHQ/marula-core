@@ -1,4 +1,4 @@
-// /settings/export — org data export admin (TASKLIST D1).
+// /settings/export — org data export admin (the private build tracker D1).
 //
 // Purpose: the dedicated admin surface over the existing backend seam
 // (POST /api/v1/org/exports + the signed no-JWT download link). Owner/admin

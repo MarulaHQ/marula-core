@@ -1,4 +1,4 @@
-//! D5 KB import (TASKLIST Phase 3, import/export/documents track): turn
+//! D5 KB import (the private build tracker Phase 3, import/export/documents track): turn
 //! Markdown/HTML knowledge exports into import-engine kb rows.
 //!
 //! Purpose: a PURE converter — [`ingest_bundle`] flattens a Markdown or

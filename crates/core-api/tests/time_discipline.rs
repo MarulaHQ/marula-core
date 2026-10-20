@@ -1,4 +1,4 @@
-//! End-to-end time-discipline flows (TASKLIST 2.9/2.10) driven through the
+//! End-to-end time-discipline flows (the private build tracker 2.9/2.10) driven through the
 //! REAL core-api router against a real Postgres.
 //!
 //! Purpose: prove the single-active-timer switch semantics over HTTP

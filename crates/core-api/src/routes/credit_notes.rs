@@ -1,4 +1,4 @@
-//! Credit notes (TASKLIST Money+docs backend gap, recorded 2026-09-10):
+//! Credit notes (the private build tracker Money+docs backend gap, recorded 2026-09-10):
 //! issue client credits, allocate them against invoices, refund them
 //! back out, and void untouched notes — PSA-standard semantics riding
 //! the instant-first write path (IF1–IF3).

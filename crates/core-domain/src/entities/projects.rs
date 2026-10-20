@@ -1,5 +1,5 @@
 //! Projects: project → phase → task hierarchy, task dependencies, saved
-//! task-list views, and reusable project templates (TASKLIST Phase 3
+//! task-list views, and reusable project templates (the private build tracker Phase 3
 //! projects line).
 //!
 //! Statuses are closed enums stored as snake_case text in migrations 0030

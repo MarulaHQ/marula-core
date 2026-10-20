@@ -1,4 +1,4 @@
-//! Generic DNS verification for per-org custom domains (TASKLIST Wave 47
+//! Generic DNS verification for per-org custom domains (the private build tracker Wave 47
 //! lane A8, `p47-org-custom-domains`).
 //!
 //! Core's custom-domain verification is vendor-AGNOSTIC by construction: it

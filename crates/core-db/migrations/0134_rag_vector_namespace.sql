@@ -1,4 +1,4 @@
--- RAG and media vector namespace + provable deletion receipts (TASKLIST Wave 45
+-- RAG and media vector namespace + provable deletion receipts (the private build tracker Wave 45
 -- lane 1, `p45-rag-vector-namespace`; decision of record: ADR 0020).
 --
 -- Head on main at claim time was `0131_org_usage.sql`; renumbered from 0132 to

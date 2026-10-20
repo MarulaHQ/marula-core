@@ -1,4 +1,4 @@
-# Release pipeline (TASKLIST U10b + Wave 38 p38-container-hardening).
+# Release pipeline (the private build tracker U10b + Wave 38 p38-container-hardening).
 #
 # On a vX.Y.Z tag:
 #   1. Build + push four images to GHCR, pinned by digest, with provenance

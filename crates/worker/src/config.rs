@@ -54,7 +54,7 @@ impl AtRestKey {
     }
 }
 
-/// Settings for the outbound email send loop (TASKLIST 2.4).
+/// Settings for the outbound email send loop (the private build tracker 2.4).
 #[derive(Debug, Clone)]
 pub struct EmailLoopConfig {
     /// core-api base URL the loop claims from / reports to.
@@ -75,7 +75,7 @@ pub struct EmailLoopConfig {
     pub poll_secs: u64,
 }
 
-/// Settings for the missing-time nudge scheduler (TASKLIST 2.10).
+/// Settings for the missing-time nudge scheduler (the private build tracker 2.10).
 #[derive(Debug, Clone)]
 pub struct TimeLoopConfig {
     /// core-api base URL the loop submits due audit batches to.
@@ -87,7 +87,7 @@ pub struct TimeLoopConfig {
     pub poll_secs: u64,
 }
 
-/// Settings for the scheduled report delivery loop (TASKLIST R4). Unlike
+/// Settings for the scheduled report delivery loop (the private build tracker R4). Unlike
 /// the other loops there is NO disable switch: a transport-unset deploy
 /// runs in the ledgered log-skip none mode, so schedules still advance
 /// and their runs stay visible.
@@ -123,7 +123,7 @@ pub struct WorkerConfig {
     pub email: EmailLoopConfig,
     /// Missing-time EOD nudge scheduler (Stage 2).
     pub time: TimeLoopConfig,
-    /// Scheduled report delivery loop (TASKLIST R4).
+    /// Scheduled report delivery loop (the private build tracker R4).
     pub delivery: DeliveryLoopConfig,
     /// Base URL of core-api for machine effect calls (`INTERNAL_API_URL`).
     pub internal_api_url: String,

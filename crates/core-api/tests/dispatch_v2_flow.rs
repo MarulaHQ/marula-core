@@ -1,4 +1,4 @@
-//! End-to-end dispatch v2 flows (TASKLIST Phase 3, Wave 9 lane 9) driven
+//! End-to-end dispatch v2 flows (the private build tracker Phase 3, Wave 9 lane 9) driven
 //! through the REAL core-api router against a real Postgres.
 //!
 //! Purpose: prove the lane's three surfaces over HTTP — the capacity

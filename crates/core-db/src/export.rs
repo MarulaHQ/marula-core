@@ -1,4 +1,4 @@
-//! Org-data export loader (TASKLIST D1, portability/DR).
+//! Org-data export loader (the private build tracker D1, portability/DR).
 //!
 //! Purpose: assemble the org's canonical [`ExportBundle`] — the U5
 //! customization manifest EMBEDDED VERBATIM plus the operational data plane

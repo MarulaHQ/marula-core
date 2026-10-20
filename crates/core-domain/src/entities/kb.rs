@@ -1,5 +1,5 @@
 //! Knowledge-base entities (native KB v1): categories and articles with
-//! client-facing visibility flags (TASKLIST Phase 3; feeds portal v2).
+//! client-facing visibility flags (the private build tracker Phase 3; feeds portal v2).
 
 use crate::ids::{KbArticleId, KbCategoryId, OrgId, UserId};
 use chrono::{DateTime, Utc};

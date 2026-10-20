@@ -1,4 +1,4 @@
--- Import framework core (TASKLIST D2).
+-- Import framework core (the private build tracker D2).
 --
 -- Purpose: durable bookkeeping for the import engine — one row per import
 -- run (`import_batches`) and the stable external-id → internal-uuid mapping

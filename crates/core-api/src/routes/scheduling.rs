@@ -1,4 +1,4 @@
-//! Appointment endpoints (TASKLIST 2.12): create/get/patch/cancel/move
+//! Appointment endpoints (the private build tracker 2.12): create/get/patch/cancel/move
 //! plus the conflict dry-run used by booking UIs.
 //!
 //! Purpose: every mutation validates through core_domain::scheduling,

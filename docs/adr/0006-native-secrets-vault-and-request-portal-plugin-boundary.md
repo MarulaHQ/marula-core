@@ -53,7 +53,7 @@ knowledgebase-class knowledge. Two directives now shape where the vault goes:
 ## Consequences
 
 - Vault v1 category trees + org scope + record links land with the knowledge surface
-  work (tracked in TASKLIST.md); migration head pairs with the KB lanes.
+  work (tracked in the private build tracker); migration head pairs with the KB lanes.
 - The `vault:ingress` interface lands with plugin runtime v2; Relay's REL-V1 portal
   (M18–M24) depends on it. Third-party ingress plugins inherit: audited, rate-limited,
   quota-governed ingress — noisy-neighbor protection is a platform property, not a

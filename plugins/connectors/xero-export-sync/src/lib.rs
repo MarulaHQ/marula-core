@@ -1,4 +1,4 @@
-//! Xero export-sync adapter (TASKLIST Phase 3 adapters line).
+//! Xero export-sync adapter (the private build tracker Phase 3 adapters line).
 //!
 //! Purpose: push Marula invoices and payments into a customer-provided
 //! Xero tenant over the PUBLIC Xero accounting API (`/api.xro/2.0/...`) —

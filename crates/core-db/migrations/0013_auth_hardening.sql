@@ -1,4 +1,4 @@
--- Stage 2 auth hardening (TASKLIST 2.3).
+-- Stage 2 auth hardening (the private build tracker 2.3).
 --
 -- Adds: TOTP secrets (encrypted at rest), WebAuthn credentials + ceremony
 -- state, single-use recovery codes (hashed), org-level generic OIDC

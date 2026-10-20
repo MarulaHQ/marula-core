@@ -1,5 +1,5 @@
 //! Invoices: the persisted billing documents an invoice run creates from
-//! billable contracts (TASKLIST Phase 3 — native invoicing v1, Wave 9).
+//! billable contracts (the private build tracker Phase 3 — native invoicing v1, Wave 9).
 //!
 //! Every invoice derives from exactly one contract and carries the
 //! contract's currency; money is integer minor units throughout. The two

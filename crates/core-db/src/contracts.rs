@@ -1,4 +1,4 @@
-//! Contracts + rate cards + fixed-fee schedules (TASKLIST Phase 3,
+//! Contracts + rate cards + fixed-fee schedules (the private build tracker Phase 3,
 //! Wave 8b billing lane).
 //!
 //! Typed queries over migration 0029's tables. Every read carries an

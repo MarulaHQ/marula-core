@@ -1,4 +1,4 @@
-// Dispatch board data + live leg (TASKLIST 2.19).
+// Dispatch board data + live leg (the private build tracker 2.19).
 //
 // Purpose: one hook owning the /dispatch page's server state: day-view
 // fetches, the org-wide SSE stream so appointment created/updated/cancelled

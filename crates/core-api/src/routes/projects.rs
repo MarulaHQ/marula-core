@@ -1,4 +1,4 @@
-//! Projects endpoints (TASKLIST Phase 3 projects line): projects → phases
+//! Projects endpoints (the private build tracker Phase 3 projects line): projects → phases
 //! → tasks, task dependencies, saved task-list views, and reusable
 //! templates — plus the milestone billing seam.
 //!

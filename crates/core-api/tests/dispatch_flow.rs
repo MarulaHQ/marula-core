@@ -1,4 +1,4 @@
-//! End-to-end dispatch board flows (TASKLIST 2.19) driven through the
+//! End-to-end dispatch board flows (the private build tracker 2.19) driven through the
 //! REAL core-api router against a real Postgres.
 //!
 //! Purpose: prove the dispatch surface over HTTP — day-view assembly

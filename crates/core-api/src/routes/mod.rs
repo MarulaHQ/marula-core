@@ -1,7 +1,7 @@
 //! HTTP routes: router assembly and the OpenAPI document (utoipa derives
 //! the spec from the handlers; Scalar serves interactive docs from it).
 //!
-//! ## API path versioning (TASKLIST U1, policy §2/§3)
+//! ## API path versioning (the private build tracker U1, policy §2/§3)
 //!
 //! Every `/api` handler surface is mounted TWICE by [`build_router`]:
 //!
@@ -23,7 +23,7 @@
 //!
 //! Non-purpose: no per-generation behavior forking, no response-shaping
 //! differences, and no runtime deprecation headers here (that is the
-//! deprecation-metadata work item, TASKLIST U4).
+//! deprecation-metadata work item, the private build tracker U4).
 //!
 //! Implementation note: both mounts are produced by running ONE builder
 //! ([`api_surface`]) twice over an [`ApiGeneration`] tag rather than via
@@ -234,7 +234,7 @@ pub fn build_router(state: AppState) -> Router {
 
     let docs = openapi::scalar_router();
 
-    // Dev-tools surface (TASKLIST DX2): mounted ONLY when the process runs
+    // Dev-tools surface (the private build tracker DX2): mounted ONLY when the process runs
     // with MARULA_DEV_TOOLS=1. Unset, the routes DO NOT EXIST — no
     // registration at all, not a 403 — and they stay outside the /api/v1
     // contract, the OpenAPI document, and the two-mount rule (a dev surface
@@ -245,7 +245,7 @@ pub fn build_router(state: AppState) -> Router {
         Router::new()
     };
 
-    // Request telemetry (TASKLIST 2.18): outermost so the span covers the
+    // Request telemetry (the private build tracker 2.18): outermost so the span covers the
     // entire pipeline; the route TEMPLATE + status + duration become span
     // attrs and `marula.http.*` metrics. Unmatched routes collapse to
     // the constant "unmatched" — never raw paths (redact module docs).
@@ -405,7 +405,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/internal/webhook/deliveries"),
             post(internal::webhook_deliveries),
         )
-        // Async import batches (TASKLIST D2 remainder): the worker replays
+        // Async import batches (the private build tracker D2 remainder): the worker replays
         // staged ObjectStore chunks through the same commit path as
         // synchronous pushes. Bearer-token gated inside the handler.
         .route(
@@ -421,7 +421,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/portal/tickets"), get(portal::list_tickets))
         .route(&rp("/portal/tickets/{id}"), get(portal::get_ticket))
         .route(&rp("/portal/tickets/{id}/reply"), post(portal::reply))
-        // Portal-visible attachments (TASKLIST 2.14): metadata + streamed
+        // Portal-visible attachments (the private build tracker 2.14): metadata + streamed
         // download only; hidden/internal files are indistinguishable 404s.
         .route(
             &rp("/portal/tickets/{id}/attachments"),
@@ -438,7 +438,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/portal/csat/{token}"),
             get(portal::csat_view).post(portal::csat_submit),
         )
-        // Portal v2 (TASKLIST Phase 3): invoice view + pay, KB
+        // Portal v2 (the private build tracker Phase 3): invoice view + pay, KB
         // self-service, appointment requests. Same middleware stack, same
         // client-scoping doctrine; mutations instant-first.
         .route(&rp("/portal/invoices"), get(portal_v2::list_invoices))
@@ -503,7 +503,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             post(portal::magic_link_confirm),
         )
         .merge(portal_protected)
-        // Org-data export (TASKLIST D1): the download endpoint authenticates
+        // Org-data export (the private build tracker D1): the download endpoint authenticates
         // purely by its short-lived HMAC signature — no JWT middleware — so
         // DR scripts can pull bundles without an interactive session.
         .route(
@@ -775,7 +775,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
                 .put(checklists::put_template)
                 .delete(checklists::delete_template),
         )
-        // custom fields / dynamic forms (TASKLIST 2.17)
+        // custom fields / dynamic forms (the private build tracker 2.17)
         .route(
             &rp("/boards/{id}/fields"),
             get(custom_fields::list_defs).post(custom_fields::create_def),
@@ -907,7 +907,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/tickets/{id}/comments"),
             get(tickets::list_comments).post(tickets::add_comment),
         )
-        // attachments (TASKLIST 2.14): raw-body upload needs a per-route
+        // attachments (the private build tracker 2.14): raw-body upload needs a per-route
         // limit override because axum's default caps bodies at 2 MB.
         .route(
             &rp("/tickets/{id}/attachments"),
@@ -1087,7 +1087,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/notification-org-defaults"),
             get(notifications::org_defaults_get).put(notifications::org_defaults_put),
         )
-        // unified search (TASKLIST 2.16)
+        // unified search (the private build tracker 2.16)
         .route(&rp("/search"), get(search::search))
         // search pins (Wave 17 lane 13, migration 0089): operator-curated
         // persistent results; the local recent chips are untouched.
@@ -1102,7 +1102,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // org-wide ticket-deadline read model for /calendar team mode
         // (Wave 17 lane 13, migration 0089).
         .route(&rp("/calendar/deadlines"), get(calendar::deadlines))
-        // knowledge base (TASKLIST Phase 3 native KB v1): categories +
+        // knowledge base (the private build tracker Phase 3 native KB v1): categories +
         // articles with client-facing flags; mutations instant-first.
         .route(
             &rp("/kb/categories"),
@@ -1157,7 +1157,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/kb/external-documents/{id}/link-check"),
             post(kb_rich::link_check_external_document),
         )
-        // documents with immutable versions (TASKLIST D4): edits and
+        // documents with immutable versions (the private build tracker D4): edits and
         // restores APPEND versions; instant-first mutations.
         .route(
             &rp("/documents"),
@@ -1347,7 +1347,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/contracts/{id}/sla-credits/{credit_id}/cancel"),
             post(billing::cancel_sla_credit),
         )
-        // native invoicing v1 (TASKLIST Phase 3, Wave 9 invoicing lane):
+        // native invoicing v1 (the private build tracker Phase 3, Wave 9 invoicing lane):
         // invoice runs, invoices + lines, print documents, payments via
         // the PaymentProvider seam, and forward-only dunning states.
         // Mutations instant-first.
@@ -1372,7 +1372,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/invoices/{id}/dunning/statement"),
             post(invoices::send_statement),
         )
-        // credit notes (TASKLIST Money+docs backend gap): issue, apply
+        // credit notes (the private build tracker Money+docs backend gap): issue, apply
         // against invoices, refund, void. Mutations instant-first.
         .route(
             &rp("/credit-notes"),
@@ -1382,7 +1382,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/credit-notes/{id}/apply"), post(credit_notes::apply))
         .route(&rp("/credit-notes/{id}/refund"), post(credit_notes::refund))
         .route(&rp("/credit-notes/{id}/void"), post(credit_notes::void))
-        // import framework (TASKLIST D2): org-admin gated CSV/JSON mapper.
+        // import framework (the private build tracker D2): org-admin gated CSV/JSON mapper.
         // The two payload-heavy posts raise axum's default body cap like
         // attachments do; chunk/batch ids flow through the path.
         .route(
@@ -1438,7 +1438,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/imports/batches/{batch_id}/run"),
             post(imports::run_batch),
         )
-        // org-data export (TASKLIST D1): signed-download bundle creation.
+        // org-data export (the private build tracker D1): signed-download bundle creation.
         // History ledger (Wave 17 lane 13, migration 0089): list/archive
         // read model + one fresh signed link per row.
         .route(&rp("/org/exports"), get(export::list).post(export::create))
@@ -1452,12 +1452,12 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         )
         // audit (admin)
         .route(&rp("/audit-events"), get(audit::list))
-        // provenance read model (TASKLIST IF9): the 2.3 audit query API
+        // provenance read model (the private build tracker IF9): the 2.3 audit query API
         // extended with per-field write-trail provenance (doctrine #9);
         // RBAC tiers resolve inside the handler (manager+ org-wide,
         // others own-actions only)
         .route(&rp("/provenance"), get(provenance::list))
-        // operational reports (TASKLIST R1): read-model views only
+        // operational reports (the private build tracker R1): read-model views only
         .route(&rp("/reports/{kind}"), get(reports::report))
         // coaching scorecards (Wave 14 lane 3, R5): aggregation over the
         // read-model views; private-by-default (self only unless owner/admin)
@@ -1523,7 +1523,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/org/pod-visibility"),
             get(org_config::pod_visibility_get).put(org_config::pod_visibility_put),
         )
-        // AI/BYOK settings (TASKLIST Phase 3: CompletionProvider seam)
+        // AI/BYOK settings (the private build tracker Phase 3: CompletionProvider seam)
         .route(&rp("/settings/ai/status"), get(byok::get_ai_status))
         .route(&rp("/settings/ai/byok"), put(byok::put_byok_secret))
         .route(
@@ -1626,7 +1626,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/ai/chat/sessions/{session_id}/turns"),
             post(chat_runner::post_turn),
         )
-        // customization manifest (TASKLIST U5): admin-gated canonical
+        // customization manifest (the private build tracker U5): admin-gated canonical
         // export; owner/admin checked inside the handler (policy §5).
         .route(&rp("/org/manifest"), get(manifest::get))
         // Org resource usage + quotas (Wave 47 lane A6, migration 0131):
@@ -1708,7 +1708,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/clients/{id}/board-exposures"),
             get(portal_admin::list_board_exposures).put(portal_admin::put_board_exposure),
         )
-        // scheduling/calendars/availability (TASKLIST 2.12)
+        // scheduling/calendars/availability (the private build tracker 2.12)
         // Portal v2 staff half: the client's appointment requests are
         // decided here (approve books the calendar, decline refuses).
         .route(
@@ -1980,7 +1980,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/scheduling-links/{id}/bookings"),
             get(scheduling_links::list_link_bookings),
         )
-        // projects line (TASKLIST Phase 3): projects → phases → tasks,
+        // projects line (the private build tracker Phase 3): projects → phases → tasks,
         // dependencies, saved views, templates, and the milestone
         // billing seam (completions). Instant-gated mutations + typed
         // errors live inside the module.
@@ -2052,24 +2052,24 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/project-templates/{id}/instantiate"),
             post(projects::instantiate),
         )
-        // report definitions (TASKLIST R3): stored specs as data, RBAC-
+        // report definitions (the private build tracker R3): stored specs as data, RBAC-
         // scoped, instant-first write path; module owns its own router.
         .merge(report_defs::routes(gen))
-        // alert ingestor (TASKLIST Phase 3): source admin + alert ledger;
+        // alert ingestor (the private build tracker Phase 3): source admin + alert ledger;
         // module owns its own router (ingest mounts via public_routes).
         .merge(alerts::admin_routes(gen))
-        // scheduled report delivery (TASKLIST R4): admin-gated schedule
+        // scheduled report delivery (the private build tracker R4): admin-gated schedule
         // CRUD + cursor-paged listing with next-run preview; module owns
         // its own router.
         .merge(report_schedules::routes(gen))
-        // agent platform (TASKLIST Phase 3, IF8): capability registry +
+        // agent platform (the private build tracker Phase 3, IF8): capability registry +
         // agent skills + proposal pipeline; module owns its own router.
         .merge(agent_platform::routes(gen))
-        // undo as a core capability (TASKLIST IF7): per-field/per-record
+        // undo as a core capability (the private build tracker IF7): per-field/per-record
         // applied-state history + revert-as-normal-IF1-write; module owns
         // its own router.
         .merge(undo::routes(gen))
-        // migration connector (TASKLIST D3): authenticated bulk push
+        // migration connector (the private build tracker D3): authenticated bulk push
         // (rides the D2 engine, checkpoint cursors) + cursor-paged pull
         // exports; module owns its own router.
         .merge(connector::routes(gen))
@@ -2125,18 +2125,18 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .merge(entity_dedupe::routes(gen))
         .merge(dedupe::routes(gen))
         .merge(workflow_overrides::routes(gen))
-        // dispatch connector (TASKLIST Phase 3, Wave 9 lane 9): scoped
+        // dispatch connector (the private build tracker Phase 3, Wave 9 lane 9): scoped
         // machine surface — schedule reads + field-service status pushes;
         // module owns its own router.
         .merge(dispatch_connector::routes(gen))
         // Stamps org_id onto the current request span (telemetry) once the
         // auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))
-        // dispatch board (TASKLIST 2.19)
+        // dispatch board (the private build tracker 2.19)
         .route(&rp("/dispatch/day"), get(dispatch::dispatch_day))
         .route(&rp("/dispatch/bulk-move"), post(dispatch::bulk_move))
         .route(&rp("/dispatch/assign"), post(dispatch::assign))
-        // dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9): resource
+        // dispatch v2 (the private build tracker Phase 3, Wave 9 lane 9): resource
         // planning (capacity horizon, queue prioritization, skills
         // matching) + travel/mileage entry drafts.
         .route(&rp("/dispatch/capacity"), get(dispatch::capacity))

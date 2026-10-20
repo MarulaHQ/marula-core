@@ -1,4 +1,4 @@
-//! The declarative workflow document and its pure engine (TASKLIST Wave 43
+//! The declarative workflow document and its pure engine (the private build tracker Wave 43
 //! lane 15, `p43-workflow-executor`).
 //!
 //! Purpose: the ONE place the workflow document's shape, its author-time

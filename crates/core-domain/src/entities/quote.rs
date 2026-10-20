@@ -1,4 +1,4 @@
-//! Quotes + line items (TASKLIST Phase 3, Wave 12 lane 2).
+//! Quotes + line items (the private build tracker Phase 3, Wave 12 lane 2).
 //!
 //! A quote is a client-scoped document with a numbered lifecycle:
 //! `draft` → `sent` → `accepted` | `declined` | `expired`. Money is

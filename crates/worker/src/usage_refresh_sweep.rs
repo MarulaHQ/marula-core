@@ -1,5 +1,5 @@
 //! worker/usage_refresh_sweep — the org usage table's refresh tick
-//! (TASKLIST Wave 47 lane A6, migration 0131).
+//! (the private build tracker Wave 47 lane A6, migration 0131).
 //!
 //! Purpose: `org_usage` is MATERIALIZED — it holds a copy of the
 //! aggregates, not the aggregates themselves — and something has to take

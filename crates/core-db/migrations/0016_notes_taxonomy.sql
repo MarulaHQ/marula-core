@@ -1,4 +1,4 @@
--- Structured notes taxonomy + enforced pre-close checklists (TASKLIST 2.8).
+-- Structured notes taxonomy + enforced pre-close checklists (the private build tracker 2.8).
 --
 -- Purpose: give per-board pre-close checklist templates a home, link each
 -- ticket checklist instance back to its template item, and carry the

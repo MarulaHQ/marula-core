@@ -1,4 +1,4 @@
--- Alert ingestor (TASKLIST Phase 3): HMAC webhook ingest →
+-- Alert ingestor (the private build tracker Phase 3): HMAC webhook ingest →
 -- dedup/correlation → incident tickets (a storm collapses to ONE ticket).
 --
 -- Three org-scoped tables:

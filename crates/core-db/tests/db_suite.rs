@@ -1883,7 +1883,7 @@ async fn migration_seed_logic_restores_missing_category_defaults() {
     assert_eq!(healthy, 4);
 }
 
-// --- notes taxonomy + enforced pre-close checklists (TASKLIST 2.8) --------------
+// --- notes taxonomy + enforced pre-close checklists (the private build tracker 2.8) --------------
 
 use core_db::checklists;
 use core_domain::entities::ChecklistProgress;
@@ -2236,7 +2236,7 @@ async fn template_instantiation_idempotent_lazy_sync_and_progress() {
     assert_eq!(p3.required_open, 0, "nothing required once links are gone");
 }
 
-// --- SLA v1 + automations v1 (TASKLIST 2.7; seed slots 40–49) ---------------
+// --- SLA v1 + automations v1 (the private build tracker 2.7; seed slots 40–49) ---------------
 
 /// Calendar body for tests: 9–5 Mon–Fri in `tz`, optional downtime.
 fn test_calendar(
@@ -3357,7 +3357,7 @@ async fn rls_hides_time_gap_audits_across_orgs_and_unscoped() {
     }
 }
 
-// --- TASKLIST 2.11: board groups/favorites, per-board RBAC, my-work -------
+// --- the private build tracker 2.11: board groups/favorites, per-board RBAC, my-work -------
 
 /// Board groups: CRUD, ordering, board assignment, ungroup-on-delete, and
 /// cross-org RLS isolation of both groups and the annotated nav list.
@@ -3852,7 +3852,7 @@ async fn my_work_annotated_orders_priority_then_sla_due() {
         .any(|r| r.ticket.category == TicketStatusCategory::Closed));
 }
 
-// --- client portal v1 (TASKLIST 2.13) ----------------------------------------
+// --- client portal v1 (the private build tracker 2.13) ----------------------------------------
 //
 // Slots 100–109 are this lane's exclusive seed range. The matrix below pins:
 // RLS on all three new tables, per-CLIENT scoping on top of org RLS (the
@@ -4439,7 +4439,7 @@ async fn portal_audit_provenance_roundtrips_per_tier() {
     );
 }
 
-// --- Plugin runtime v1 (TASKLIST 2.15; seed slots 90–99) --------------------
+// --- Plugin runtime v1 (the private build tracker 2.15; seed slots 90–99) --------------------
 
 use core_db::webhooks as wh;
 
@@ -5040,7 +5040,7 @@ async fn connector_installations_upsert_consent_and_isolation() {
     }
 }
 
-// --- Scheduling/calendars/availability (TASKLIST 2.12; seed slots 110–119) ---
+// --- Scheduling/calendars/availability (the private build tracker 2.12; seed slots 110–119) ---
 
 use chrono::TimeZone;
 use core_db::scheduling;
@@ -5411,7 +5411,7 @@ async fn rls_isolates_scheduling_tables() {
     }
 }
 
-// --- unified search v1 (TASKLIST 2.16) --------------------------------------
+// --- unified search v1 (the private build tracker 2.16) --------------------------------------
 
 /// Thin wrapper so search tests read like the domain operations they model.
 async fn idx_upsert(
@@ -5987,7 +5987,7 @@ async fn search_unscoped_app_role_cannot_read_or_write() {
     }
 }
 
-// --- attachments (TASKLIST 2.14) --------------------------------------------
+// --- attachments (the private build tracker 2.14) --------------------------------------------
 
 /// Inserts one attachment row through the public query API.
 #[allow(clippy::too_many_arguments)]
@@ -6216,7 +6216,7 @@ async fn rls_isolates_attachments_table() {
     assert_eq!(count, 0, "unscoped reads on attachments are default-deny");
 }
 
-// --- Custom fields v1 (TASKLIST 2.17; seed slots 140–149) --------------------
+// --- Custom fields v1 (the private build tracker 2.17; seed slots 140–149) --------------------
 
 use core_db::custom_fields;
 
@@ -6545,7 +6545,7 @@ async fn custom_fields_rls_blocks_cross_org_and_unscoped() {
 }
 
 // ===========================================================================
-// Read-model reporting views (TASKLIST R0 / migration 0026) — fixture math
+// Read-model reporting views (the private build tracker R0 / migration 0026) — fixture math
 // against hand-computed expectations, plus RLS-through-views isolation.
 //
 // Seed-slot discipline (lane contract): the ONLY fixed_uuid anchors used
@@ -7102,7 +7102,7 @@ async fn rls_through_views_isolates_cross_org_and_unscoped_sessions() {
 }
 
 // ===========================================================================
-// Instant-first write-path storage (TASKLIST IF1–IF3, migration 0028) —
+// Instant-first write-path storage (the private build tracker IF1–IF3, migration 0028) —
 // org-scoped RLS on the idempotency/write-trail tables plus the per-entity
 // seq counter contract.
 //
@@ -7272,7 +7272,7 @@ async fn idempotency_key_is_unique_per_org_and_seq_counter_is_isolated(db: &Test
 }
 
 // ===========================================================================
-// Undo read model (TASKLIST IF7; migration 0041) — the per-field /
+// Undo read model (the private build tracker IF7; migration 0041) — the per-field /
 // per-record views over the 0028 write trail: view math against
 // hand-computed expectations plus RLS-through-views isolation.
 //
@@ -8728,7 +8728,7 @@ async fn sign_off_conflict_reports_its_constraint_for_a_typed_conflict() {
     drop(check);
 }
 
-/// Org usage materialization (TASKLIST Wave 47 lane A6, migration 0131).
+/// Org usage materialization (the private build tracker Wave 47 lane A6, migration 0131).
 ///
 /// The lane's three load-bearing behaviours, in the order a caller meets
 /// them: an org with no row reads as ABSENT (not as zeros, which would read

@@ -1,4 +1,4 @@
-//! Custom-field definitions and values (TASKLIST 2.17, BUILD-PROMPT §5).
+//! Custom-field definitions and values (the private build tracker 2.17, BUILD-PROMPT §5).
 //!
 //! Purpose: the pure rules layer for dynamic forms — the typed field-kind
 //! enum, definition validation (names, select option sets), and kind-aware

@@ -289,7 +289,7 @@ where
         .collect::<Result<_, _>>()?)
 }
 
-/// One cross-board my-work row (TASKLIST 2.11): the ticket plus the
+/// One cross-board my-work row (the private build tracker 2.11): the ticket plus the
 /// annotations the Today queue renders — client name (squared tag), source
 /// board/status labels, and the effective due instant.
 #[derive(Debug, Clone)]
@@ -373,7 +373,7 @@ where
     rows.into_iter().map(my_work_row_from).collect()
 }
 
-/// CRUD unassigned tickets for the dispatch queue (TASKLIST 2.19): same
+/// CRUD unassigned tickets for the dispatch queue (the private build tracker 2.19): same
 /// annotated shape and ordering as [`my_work_annotated`] — priority rank
 /// first, then the earliest effective deadline — but the unassigned
 /// filter replaces the per-user one, so a dispatcher sees exactly what

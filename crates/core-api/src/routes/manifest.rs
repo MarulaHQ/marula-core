@@ -1,4 +1,4 @@
-//! Customization-manifest export (TASKLIST U5, upgrade-compatibility-policy
+//! Customization-manifest export (the private build tracker U5, upgrade-compatibility-policy
 //! .md §5).
 //!
 //! Purpose: one admin-gated GET returning the org's canonical, schema-

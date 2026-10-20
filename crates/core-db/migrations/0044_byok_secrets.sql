@@ -1,4 +1,4 @@
--- BYOK Secrets & AI Settings (TASKLIST Phase 3, lane `p9-adapters-export`; migration 0044).
+-- BYOK Secrets & AI Settings (the private build tracker Phase 3, lane `p9-adapters-export`; migration 0044).
 --
 -- Purpose: per-org sealed secret storage for Bring-Your-Own-Key (BYOK) AI provider
 -- configurations (`CompletionProvider` seam).

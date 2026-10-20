@@ -172,7 +172,7 @@ acceptance **18/18** incl. WS push chain and p95 ≤ 15.2 ms.
 1. WebAuthn state serialization review (`danger-allow-state-serialisation`) during security pass.
 2. OIDC discovery/JWKS on reqwest+jsonwebtoken — consider `openidconnect` crate.
 3. Portal MFA; scheduling reminders; report definitions UI (R3/R6 tracks added).
-4. Upgrade-policy retrofit backlog U1–U10 tracked in TASKLIST.
+4. Upgrade-policy retrofit backlog U1–U10 tracked in the private build tracker.
 5. Per-ticket SLA badge shipped for detail view; list-column integration pending views work.
 
 ## Release v0.1.0
@@ -216,7 +216,7 @@ remains the next coordinator task before Wave 8.
 ## Phase 3 progress — Waves 8–9 (interim, as of 2026-09-03)
 
 > Interim append: Phase 3 (commercial engine) runs as parallel lane waves;
-> per-wave acceptance detail lives in TASKLIST.md's roadmap + checkbox notes.
+> per-wave acceptance detail lives in the private build tracker's roadmap + checkbox notes.
 > This section records what shipped and the standing UI gaps between waves.
 
 ### Wave 8a (2026-08-30) — envelope-first
@@ -257,7 +257,7 @@ lane merge. Known integration lessons: lanes branched before each other's
 merges type-break on widened structs (`RecordSpec.provenance`, tri-state
 `TicketPatch.body`) — resolved at merge with the canonical patterns.
 
-### Known gaps carried forward (see TASKLIST "UI buildout backlog")
+### Known gaps carried forward (see the private build tracker "UI buildout backlog")
 
 1. Staff UI landed for projects, clients CRM, contracts, board admin (Wave 10);
    documents, import wizard, KB authoring, alerts, R3 definitions, R4 schedules
@@ -279,7 +279,7 @@ and previously-scoped connections fail casting the `''` placeholder. Session
 creation and a few auth resolvers are the only exceptions (SECURITY DEFINER
 bridges: `app_resolve_login`, `app_create_session`, `app_create_portal_session`,
 `app_resolve_session`). Pattern reference: `crates/core-api/src/routes/notifications.rs`
-CI grep gate for new pool-reads: tracked in TASKLIST (RLS-scope audit).
+CI grep gate for new pool-reads: tracked in the private build tracker (RLS-scope audit).
 
 ### Waves 10–11 (2026-09-04 → 09-09, interim)
 Wave 10 landed: nav pass (grouped nav + active states, global header) + workspace-core UIs (clients/projects/contracts/board admin). QA findings fixed: systemic RLS-scope 500s (~70 handlers moved to org-bound txs), search index seeding, SLA none-mode, register slug UX tracked. Wave 11 fired (8 lanes): vision-driven UI quality pass, org-users backend, ticket taxonomy, scheduling links, assets UX, money+docs UI, ops UI, workflow constructs (tags/merge/costs/PM tickets). Typography changed by owner decision: JetBrains Mono headings via shadcn preset b3J8o4J600 (theme.md + BUILD-PROMPT updated).
@@ -287,7 +287,7 @@ Wave 10 landed: nav pass (grouped nav + active states, global header) + workspac
 ## Wave 12 — alpha tranche 3 remainder (2026-09-11 → 09-12, LANDED)
 
 Eleven+ lanes closed Phase 3 (the alpha gate). All merged to main; landing
-records in `TASKLIST_COMPLETED.md`.
+records in the private build tracker.
 
 **Backends (tranches A+B):**
 - `p12-main-green` b8b944c — the four gate-blockers cleared: contract-registry

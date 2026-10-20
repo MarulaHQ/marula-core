@@ -49,7 +49,7 @@
 # decision and the reasoning.
 #   docker compose -f deploy/docker-compose.yml --profile ai up -d ollama
 #
-# Observability (TASKLIST 2.18): telemetry export is DISABLED BY DEFAULT —
+# Observability (the private build tracker 2.18): telemetry export is DISABLED BY DEFAULT —
 # `docker compose up` behaves exactly as before. To observe the stack, set
 # OTEL_EXPORTER_OTLP_ENDPOINT for the containers and start the profile:
 #   OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
@@ -211,7 +211,7 @@ services:
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
-      # Object storage (TASKLIST 2.14). Default stays the local-fs none
+      # Object storage (the private build tracker 2.14). Default stays the local-fs none
       # mode so `up` without the stage2 profile needs no garage; flipping
       # OBJECT_STORE=s3 (stage2 profile) points at the garage slot below.
       OBJECT_STORE: ${OBJECT_STORE:-local}
@@ -227,7 +227,7 @@ services:
       # math and the pooler decision before a second instance ships.
       MARULA_DB_POOL_MAX: ${MARULA_DB_POOL_MAX:-20}
       MARULA_REPORTING_POOL_MAX: ${MARULA_REPORTING_POOL_MAX:-25}
-      # OpenTelemetry (TASKLIST 2.18): empty ⇒ none mode (no OTel SDK, no
+      # OpenTelemetry (the private build tracker 2.18): empty ⇒ none mode (no OTel SDK, no
       # exporters). Set to http://otel-collector:4318 together with the
       # observability profile (see header comment).
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -290,7 +290,7 @@ services:
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
-      # OpenTelemetry (TASKLIST 2.18): empty ⇒ none mode; see header.
+      # OpenTelemetry (the private build tracker 2.18): empty ⇒ none mode; see header.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       # GlitchTip DSN presence for the self-host pane (Wave 36 lane 3);
       # the value itself is never printed by any surface.
@@ -395,7 +395,7 @@ services:
       - "1025:1025"   # SMTP sink
       - "8025:8025"   # Web UI
 
-  # ---- Observability slots (TASKLIST 2.18; --profile observability) ----
+  # ---- Observability slots (the private build tracker 2.18; --profile observability) ----
   #
   # Wiring: core-api and worker export OTLP/HTTP (protobuf) to the
   # collector when OTEL_EXPORTER_OTLP_ENDPOINT is set (see header); the

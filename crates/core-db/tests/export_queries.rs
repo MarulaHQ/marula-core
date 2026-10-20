@@ -1,4 +1,4 @@
-//! Org-data export loader coverage (TASKLIST D1, portability/DR).
+//! Org-data export loader coverage (the private build tracker D1, portability/DR).
 //!
 //! Purpose: prove the D1 export contract at the query layer —
 //! 1. WIDER SCOPE: the operational data plane (org profile, client/site/

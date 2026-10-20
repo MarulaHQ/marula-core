@@ -1,4 +1,4 @@
--- Event-type registry (TASKLIST Wave 43 lane 2, `p43-event-type-registry`).
+-- Event-type registry (the private build tracker Wave 43 lane 2, `p43-event-type-registry`).
 --
 -- Replaces the hardcoded `KNOWN_EVENT_TYPES` const in webhook_admin.rs with
 -- a DB-backed registry. Two tables:

@@ -1,4 +1,4 @@
--- The workflow node registry's persistence (TASKLIST Wave 43 lane 13,
+-- The workflow node registry's persistence (the private build tracker Wave 43 lane 13,
 -- `p43-node-registry`; head was 0126).
 --
 -- TWO changes, and the split between them is the lane's load-bearing

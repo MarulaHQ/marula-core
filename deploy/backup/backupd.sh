@@ -24,7 +24,7 @@ until_next_run() {
 
 log() { echo "[backup $(date -u +%FT%TZ)] $*"; }
 
-# Freshness stamp for the worker's backup-age gauge (TASKLIST R7a).
+# Freshness stamp for the worker's backup-age gauge (the private build tracker R7a).
 #
 # One line, UNIX epoch seconds — what `date +%s` prints — written ONLY after a
 # pass in which no layer reported an error. It is the only breadcrumb this

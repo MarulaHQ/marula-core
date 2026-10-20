@@ -1,4 +1,4 @@
-//! Agent-platform persistence (TASKLIST Phase 3, IF8; migration 0040).
+//! Agent-platform persistence (the private build tracker Phase 3, IF8; migration 0040).
 //!
 //! Purpose: CRUD over the capability registry, the versioned agent-skill
 //! store, and the proposal pipeline. Deliberately thin: the involvement

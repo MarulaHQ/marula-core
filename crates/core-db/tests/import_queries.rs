@@ -1,4 +1,4 @@
-//! Import framework persistence tests (TASKLIST D2) against a real Postgres:
+//! Import framework persistence tests (the private build tracker D2) against a real Postgres:
 //! external-id mapping idempotency, cross-org RLS isolation on BOTH import
 //! tables, batch counter bookkeeping with finish guards, and the whole-row
 //! update mutators the Update policy rides on.

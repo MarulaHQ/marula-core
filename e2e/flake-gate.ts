@@ -1,4 +1,4 @@
-// Flake-budget enforcement (TASKLIST lane 8): reads the JSON report produced
+// Flake-budget enforcement (the private build tracker lane 8): reads the JSON report produced
 // by the run and fails the job when more tests than the budget needed a
 // retry. A run may absorb a handful of flakes; beyond that the gate goes red
 // so flakiness gets fixed instead of silently retried forever.

@@ -1,4 +1,4 @@
-//! Undo as a core capability (TASKLIST IF7), driven through the REAL
+//! Undo as a core capability (the private build tracker IF7), driven through the REAL
 //! core-api router against a real Postgres.
 //!
 //! Purpose: pin the `docs/instant-first.md` undo contract end to end:

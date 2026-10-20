@@ -1,4 +1,4 @@
-//! Import framework endpoints (TASKLIST D2): dry-run validation reports,
+//! Import framework endpoints (the private build tracker D2): dry-run validation reports,
 //! batch lifecycle, and chunked commits for the client/site/contact family.
 //!
 //! Purpose: the HTTP face of `core_domain::import_core`. Planning is pure;

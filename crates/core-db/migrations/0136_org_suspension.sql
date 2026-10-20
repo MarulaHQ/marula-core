@@ -1,4 +1,4 @@
--- Tenant suspension notice flag (TASKLIST Wave 47 lane A7,
+-- Tenant suspension notice flag (the private build tracker Wave 47 lane A7,
 -- `p47-org-suspension-notice`).
 --
 -- NUMBERING: this is 0136, the next free slot at lane start (main's head was

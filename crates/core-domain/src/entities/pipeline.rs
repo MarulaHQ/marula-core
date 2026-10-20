@@ -1,5 +1,5 @@
 //! Sales pipeline: stages, deals (opportunities), and the audited
-//! stage-transition ledger (TASKLIST Phase 3, Wave 12 lane 2).
+//! stage-transition ledger (the private build tracker Phase 3, Wave 12 lane 2).
 //!
 //! A pipeline is an org-scoped ordered list of [`PipelineStage`]s, each
 //! with a kind — `open` (pipeline), `won` / `lost` (terminal). A

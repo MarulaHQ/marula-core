@@ -1,4 +1,4 @@
-//! MCP adapter end-to-end (TASKLIST Phase 3, lane `p9-mcp-v1`): the REAL
+//! MCP adapter end-to-end (the private build tracker Phase 3, lane `p9-mcp-v1`): the REAL
 //! committed OpenAPI snapshot drives the catalog; a stub core-api serves
 //! the capability registry and one read endpoint; the MCP protocol runs
 //! over the HTTP transport exactly as the server binary mounts it.

@@ -1,4 +1,4 @@
--- Template registry (Wave 13 lane 5 `p13-template-registry`; TASKLIST
+-- Template registry (Wave 13 lane 5 `p13-template-registry`; the private build tracker
 -- KB3 + KB4, ADR 0004 "template registry" — planning A13).
 --
 -- One `Template` entity, typed: ticket / note / email / kb / quote_invoice

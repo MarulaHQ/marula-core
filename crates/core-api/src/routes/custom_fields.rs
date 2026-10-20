@@ -1,4 +1,4 @@
-//! Custom-field endpoints (TASKLIST 2.17): definition CRUD per board and
+//! Custom-field endpoints (the private build tracker 2.17): definition CRUD per board and
 //! typed value set/clear on tickets.
 //!
 //! Purpose: the HTTP surface for dynamic forms. Definitions are board-admin

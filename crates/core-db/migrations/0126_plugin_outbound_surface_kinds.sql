@@ -1,5 +1,5 @@
 -- The plugin outbound posture, the two executor surface kinds, and the emit seam
--- (TASKLIST Wave 43 lane 4, `p43-plugin-webhook-surface`; head was 0125).
+-- (the private build tracker Wave 43 lane 4, `p43-plugin-webhook-surface`; head was 0125).
 --
 -- THREE changes, each additive in effect:
 --

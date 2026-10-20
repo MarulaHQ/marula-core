@@ -1,4 +1,4 @@
-//! Error-envelope conformance (Wave 13 lane 1, TASKLIST error-message pass).
+//! Error-envelope conformance (Wave 13 lane 1, the private build tracker error-message pass).
 //!
 //! Purpose: prove the API leg of the error-message pass end-to-end on the
 //! real router — every failure is the IF3 typed envelope with a

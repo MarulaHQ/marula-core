@@ -18,7 +18,7 @@ pub enum Module {
     Commercial,
     Invoicing,
     Kb,
-    /// Documents with immutable version history (TASKLIST D4,
+    /// Documents with immutable version history (the private build tracker D4,
     /// agent-platform §6). Owner/Admin hold the full matrix; Read-Only
     /// holds view. Staff roles gain it by explicit custom-role grant —
     /// additive to widen later without breaking stored roles.
@@ -516,7 +516,7 @@ impl BuiltinRole {
 }
 
 /// Per-board role tier stored on `board_members` rows (migration 0019,
-/// TASKLIST 2.11). Board roles sit BESIDE the org matrix and can only
+/// the private build tracker 2.11). Board roles sit BESIDE the org matrix and can only
 /// narrow it — see `authorize_board_scoped`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -1169,7 +1169,7 @@ mod tests {
         }
     }
 
-    // --- board-level RBAC matrix (TASKLIST 2.11) --------------------------
+    // --- board-level RBAC matrix (the private build tracker 2.11) --------------------------
 
     use BoardOp as Op;
     use BoardRole as Role;

@@ -1,4 +1,4 @@
--- Provenance read model (TASKLIST IF9, doctrine #9).
+-- Provenance read model (the private build tracker IF9, doctrine #9).
 --
 -- Purpose: "who did this" is a query, not a sift. The instant-first write
 -- trail (0028) already carries who (actor), what (entity + seq), and the

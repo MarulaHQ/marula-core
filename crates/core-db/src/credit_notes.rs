@@ -1,4 +1,4 @@
-//! Credit notes persistence (TASKLIST Money+docs backend gap; migration
+//! Credit notes persistence (the private build tracker Money+docs backend gap; migration
 //! 0058): the credit document, its application ledger, and the
 //! allocation counters.
 //!

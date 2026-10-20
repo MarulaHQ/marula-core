@@ -1,4 +1,4 @@
-//! Report-definitions CRUD flow (TASKLIST R3) through the REAL core-api
+//! Report-definitions CRUD flow (the private build tracker R3) through the REAL core-api
 //! router.
 //!
 //! Purpose: the stored-report-spec contract over HTTP —

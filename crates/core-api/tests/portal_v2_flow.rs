@@ -1,5 +1,5 @@
 //! Client-portal v2 end-to-end flow through the REAL core-api router
-//! (TASKLIST Phase 3 "Portal v2").
+//! (the private build tracker Phase 3 "Portal v2").
 //!
 //! Purpose: pin the three v2 self-service blocks over HTTP on the REAL
 //! router:

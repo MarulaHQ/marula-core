@@ -1,4 +1,4 @@
-//! Sales pipeline (TASKLIST Phase 3, Wave 12 lane 2; migration 0060):
+//! Sales pipeline (the private build tracker Phase 3, Wave 12 lane 2; migration 0060):
 //! stage CRUD, deal (opportunity) CRUD, and audited stage transitions on
 //! the IF1–IF3 instant-first envelope.
 //!

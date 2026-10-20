@@ -1,4 +1,4 @@
-//! Prebuilt report kinds (TASKLIST R1) — the closed enumeration of v1
+//! Prebuilt report kinds (the private build tracker R1) — the closed enumeration of v1
 //! operational reports, each bound to exactly one catalog view and one
 //! validated parameter shape.
 //!

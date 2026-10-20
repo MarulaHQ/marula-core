@@ -1,4 +1,4 @@
--- Credit notes (TASKLIST Money+docs backend gap, recorded 2026-09-10;
+-- Credit notes (the private build tracker Money+docs backend gap, recorded 2026-09-10;
 -- migration 0058 is this lane's exclusive window).
 --
 -- Purpose: PSA-standard credit-note flow the invoicing surface lacked

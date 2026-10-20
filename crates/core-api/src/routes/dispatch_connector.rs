@@ -1,4 +1,4 @@
-//! Dispatch connector API v1 (TASKLIST Phase 3, Wave 9 lane 9): the
+//! Dispatch connector API v1 (the private build tracker Phase 3, Wave 9 lane 9): the
 //! machine-scoped surface external field-service systems integrate with.
 //!
 //! Purpose: let a third-party dispatch/GPS/telematics system READ the

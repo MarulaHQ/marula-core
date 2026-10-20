@@ -24,9 +24,9 @@ pub type TimerSessionId = Uuid;
 pub type NotificationId = Uuid;
 pub type AuditEventId = Uuid;
 pub type OutboxEventId = Uuid;
-/// An import batch run identifier (import framework, TASKLIST D2).
+/// An import batch run identifier (import framework, the private build tracker D2).
 pub type ImportBatchId = Uuid;
-/// A migration connector push session identifier (TASKLIST D3).
+/// A migration connector push session identifier (the private build tracker D3).
 pub type MigrationSessionId = Uuid;
 pub type ApiKeyId = Uuid;
 pub type PortalUserId = Uuid;
@@ -70,7 +70,7 @@ pub type KbEmbedProviderId = Uuid;
 pub type KbEmbedId = Uuid;
 /// One linked external document (SharePoint/OneDrive/Drive class).
 pub type KbExternalDocumentId = Uuid;
-/// A document's living handle (DocumentVersion entities, TASKLIST D4).
+/// A document's living handle (DocumentVersion entities, the private build tracker D4).
 pub type DocumentId = Uuid;
 /// One immutable snapshot in a document's append-only history.
 pub type DocumentVersionId = Uuid;

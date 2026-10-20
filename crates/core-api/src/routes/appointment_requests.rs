@@ -1,4 +1,4 @@
-//! Staff-side appointment-request decisions (Portal v2, TASKLIST Phase
+//! Staff-side appointment-request decisions (Portal v2, the private build tracker Phase
 //! 3): list, approve, decline.
 //!
 //! Purpose: the OTHER half of `routes::portal_v2`'s request flow. Portal

@@ -1,4 +1,4 @@
-//! Golden OpenAPI conformance suites (TASKLIST U8, policy §8).
+//! Golden OpenAPI conformance suites (the private build tracker U8, policy §8).
 //!
 //! Purpose: the API contract is a PINNED spec snapshot, one golden per
 //! supported API version (`fixtures/openapi/v1/openapi.json` for `/api/v1`).

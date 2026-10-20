@@ -90,15 +90,15 @@ pub struct Config {
     /// Bearer token guarding /api/internal/* machine endpoints used by the
     /// worker (§4.1 single-writer). Unset ⇒ the surface is disabled.
     pub internal_token: Option<String>,
-    /// Object store selection for attachments (TASKLIST 2.14).
+    /// Object store selection for attachments (the private build tracker 2.14).
     pub object_store: core_store::StoreChoice,
     /// Per-file upload cap in bytes (default 25 MB; env can lower it).
     pub max_upload_bytes: i64,
-    /// Migration connector (TASKLIST D3): per-principal request budget per
+    /// Migration connector (the private build tracker D3): per-principal request budget per
     /// minute on the /api/migration surface. Env
     /// `MARULA_MIGRATION_RATE_LIMIT_PER_MIN` (default 600).
     pub migration_rate_limit_per_min: u32,
-    /// Dispatch connector (TASKLIST Phase 3, Wave 9 lane 9): per-principal
+    /// Dispatch connector (the private build tracker Phase 3, Wave 9 lane 9): per-principal
     /// request budget per minute on the /api/dispatch-connector surface.
     /// Env `MARULA_DISPATCH_RATE_LIMIT_PER_MIN` (default 600).
     pub dispatch_rate_limit_per_min: u32,
@@ -142,7 +142,7 @@ pub struct Config {
     /// `POST /api/secrets/records/bulk` worker path. Env
     /// `MARULA_VAULT_BULK_ROWS_PER_SEC` (default 50).
     pub vault_bulk_rows_per_sec: u32,
-    /// Dev-tools gate (TASKLIST DX2): when `MARULA_DEV_TOOLS=1` the
+    /// Dev-tools gate (the private build tracker DX2): when `MARULA_DEV_TOOLS=1` the
     /// `/api/dev/*` router mounts; otherwise those routes DO NOT EXIST (no
     /// registration at all, not a 403). Unset in production — never
     /// default-on.
@@ -519,7 +519,7 @@ impl Config {
     ///
     /// Production detection: absence of the explicit dev markers. The dev
     /// fallback REMAINS available behind `MARULA_DEV_TOOLS=1` (explicit
-    /// dev profile, TASKLIST DX2 posture) and `from_local` — where the
+    /// dev profile, the private build tracker DX2 posture) and `from_local` — where the
     /// same DEV_JWT_SECRET context applies (ADR 0005). Failures return
     /// Err with operator-copy that names the missing variable.
     pub fn from_env() -> Result<Self, String> {

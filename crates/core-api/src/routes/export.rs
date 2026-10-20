@@ -1,4 +1,4 @@
-//! Org-data export endpoints (TASKLIST D1, portability/DR).
+//! Org-data export endpoints (the private build tracker D1, portability/DR).
 //!
 //! Purpose: build the org's canonical [`ExportBundle`] — the U5
 //! customization manifest generalized to the full logical data plane —

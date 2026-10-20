@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# dev-clean.sh — disk-space housekeeping (TASKLIST DX5).
+# dev-clean.sh — disk-space housekeeping (the private build tracker DX5).
 #
 #   scripts/dev-clean.sh              dry-run: list what would be cleared
 #   scripts/dev-clean.sh --go         actually clear it

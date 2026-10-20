@@ -1,4 +1,4 @@
--- Email-in/out v1 (TASKLIST 2.4).
+-- Email-in/out v1 (the private build tracker 2.4).
 --
 -- email_messages is the message ledger for BOTH directions and the
 -- idempotency key for inbound processing: (org_id, rfc_message_id) is

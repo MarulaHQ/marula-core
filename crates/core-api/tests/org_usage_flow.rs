@@ -1,4 +1,4 @@
-//! HTTP flow tests for the org resource-usage + quota read API (TASKLIST
+//! HTTP flow tests for the org resource-usage + quota read API (the private build tracker
 //! Wave 47 lane A6, `p47-org-resource-quota-api`, migration 0131) — over
 //! the REAL core-api router.
 //!

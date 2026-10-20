@@ -16,7 +16,7 @@ pub enum NotificationKind {
     Escalation,
     MissingTime,
     TicketUpdate,
-    /// The email leg of scheduled report delivery (TASKLIST R4): a
+    /// The email leg of scheduled report delivery (the private build tracker R4): a
     /// recipient's preference chain — including quiet hours — governs
     /// whether their copy of a scheduled report CSV actually sends.
     ReportDelivery,

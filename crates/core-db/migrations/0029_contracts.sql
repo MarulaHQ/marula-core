@@ -1,4 +1,4 @@
--- Contracts + recurring billing rules (TASKLIST Phase 3, Wave 8b lane
+-- Contracts + recurring billing rules (the private build tracker Phase 3, Wave 8b lane
 -- BILLING; migration 0029 is this lane's exclusive window).
 --
 -- Purpose: the commercial-agreement substrate. Four contract types

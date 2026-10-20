@@ -12,7 +12,7 @@
 // (surfaces, status colors, typography, motion) stays the governing token
 // set in docs/theme.md. A per-org branding CONTRACT (org display name +
 // accent as API fields) does not exist in the pinned OpenAPI — deeper
-// white-label stays filed in TASKLIST for a backend lane.
+// white-label stays filed in the private build tracker for a backend lane.
 //
 // Hex note: source-level hexes never appear here — values arrive at runtime
 // from env config, and the empty string means "no override".

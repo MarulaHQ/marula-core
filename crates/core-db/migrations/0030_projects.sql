@@ -1,4 +1,4 @@
--- Projects line (TASKLIST Phase 3: "Projects: phases/tasks/views/deps/
+-- Projects line (the private build tracker Phase 3: "Projects: phases/tasks/views/deps/
 -- templates; milestone billing → invoicing"). Lane PROJECTS, Wave 8b.
 --
 -- Purpose: the project → phase → task substrate for PSA delivery work,

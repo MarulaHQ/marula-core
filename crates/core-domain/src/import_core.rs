@@ -1,4 +1,4 @@
-//! Import framework core (TASKLIST D2): the deterministic, storage-free
+//! Import framework core (the private build tracker D2): the deterministic, storage-free
 //! half of data migration.
 //!
 //! Purpose: turn raw CSV/JSON rows into validated per-entity specs, decide
@@ -61,9 +61,9 @@ pub enum EntityKind {
     Board,
     Ticket,
     TimeEntry,
-    /// TASKLIST D5: KB category import family (parent of kb articles).
+    /// the private build tracker D5: KB category import family (parent of kb articles).
     KbCategory,
-    /// TASKLIST D5: KB article import family; Markdown/HTML ingestion
+    /// the private build tracker D5: KB article import family; Markdown/HTML ingestion
     /// lands as these rows (crates/core-kb ingest helpers produce them).
     KbArticle,
 }
@@ -502,7 +502,7 @@ pub struct TimeEntrySpec {
     pub unbillable_reason: Option<String>,
 }
 
-/// A validated KB category row (TASKLIST D5) — the parent family for
+/// A validated KB category row (the private build tracker D5) — the parent family for
 /// kb articles. `slug` is the stable per-org handle parent articles
 /// reference via `category_slug`.
 #[derive(Debug, Clone, PartialEq)]
@@ -515,7 +515,7 @@ pub struct KbCategorySpec {
     pub client_visible: bool,
 }
 
-/// A validated KB article row (TASKLIST D5). `category_slug` names the
+/// A validated KB article row (the private build tracker D5). `category_slug` names the
 /// parent category by its EXTERNAL key (the converter emits the category
 /// slug as its external key, so the two agree); the category family must
 /// be imported earlier in the run order or shipped in the same run
@@ -742,7 +742,7 @@ pub fn time_entry_projection(e: &TimeEntry) -> BTreeMap<String, String> {
     m
 }
 
-/// Canonical projection of a STORED kb category (TASKLIST D5). Keys mirror
+/// Canonical projection of a STORED kb category (the private build tracker D5). Keys mirror
 /// [`ImportSpec::projection`] for the category family exactly — operator
 /// content only; slugs stay out so sibling re-pushes never churn over URL
 /// drift.
@@ -755,7 +755,7 @@ pub fn kb_category_projection(c: &KbCategory) -> BTreeMap<String, String> {
     m
 }
 
-/// Canonical projection of a STORED kb article (TASKLIST D5). Keys mirror
+/// Canonical projection of a STORED kb article (the private build tracker D5). Keys mirror
 /// [`ImportSpec::projection`] for the article family exactly; `slug` and
 /// parent `category_slug` are identity and stay out, matching the
 /// ticket/board family precedent (identity is immutable after creation).

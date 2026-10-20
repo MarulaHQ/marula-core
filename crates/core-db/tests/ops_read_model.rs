@@ -1,5 +1,5 @@
 //! Read-model smoke tests for the versioned `ops.v1_*` view surface
-//! (TASKLIST U3; upgrade-compatibility-policy §2; ADR 0001).
+//! (the private build tracker U3; upgrade-compatibility-policy §2; ADR 0001).
 //!
 //! Purpose: prove the direct-SQL/reporting contract — every view in the
 //! `ops` schema (a) exists, (b) is `security_invoker = true` so underlying

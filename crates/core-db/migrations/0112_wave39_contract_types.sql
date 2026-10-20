@@ -1,4 +1,4 @@
--- Wave 39 lane 3: contract-type breadth (TASKLIST Wave 39 lane
+-- Wave 39 lane 3: contract-type breadth (the private build tracker Wave 39 lane
 -- `p39-contract-types`; migration 0112 is this lane's exclusive window).
 --
 -- Purpose: carry every major and minor MSP-client relationship type the

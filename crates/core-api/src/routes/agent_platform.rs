@@ -1,4 +1,4 @@
-//! Agent platform v1 (TASKLIST Phase 3, IF8; docs/10-agent-platform.md
+//! Agent platform v1 (the private build tracker Phase 3, IF8; docs/10-agent-platform.md
 //! §4/§5, docs/instant-first.md "Agent-authored changes default to
 //! approval").
 //!

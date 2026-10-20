@@ -1,4 +1,4 @@
-//! Projects-line endpoint flow (TASKLIST Phase 3) through the REAL
+//! Projects-line endpoint flow (the private build tracker Phase 3) through the REAL
 //! core-api router.
 //!
 //! Purpose: the public contract over HTTP —

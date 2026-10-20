@@ -1,4 +1,4 @@
-//! Dispatch v2 persistence (TASKLIST Phase 3, Wave 9 lane 9).
+//! Dispatch v2 persistence (the private build tracker Phase 3, Wave 9 lane 9).
 //!
 //! Purpose: the queries behind the resource-planning, connector-status,
 //! and travel-draft surfaces (migration 0045). Deliberately thin: no

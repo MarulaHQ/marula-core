@@ -1,4 +1,4 @@
-//! DocumentVersion entities (TASKLIST D4, docs/10-agent-platform.md §6):
+//! DocumentVersion entities (the private build tracker D4, docs/10-agent-platform.md §6):
 //! documents whose content exists only as immutable, append-only,
 //! diffable snapshots. Restores create NEW versions; history is never
 //! rewritten.

@@ -1,5 +1,5 @@
 //! Contracts: the commercial agreements an MSP holds with its clients
-//! (TASKLIST Phase 3 — contracts + recurring billing rules).
+//! (the private build tracker Phase 3 — contracts + recurring billing rules).
 //!
 //! Four contract types, each carrying the billing configuration its
 //! recurring-billing rules need:

@@ -1,4 +1,4 @@
-//! The workflow run ledger's operator surface (TASKLIST Wave 43 lane 14,
+//! The workflow run ledger's operator surface (the private build tracker Wave 43 lane 14,
 //! `p43-workflow-run-ledger`).
 //!
 //! Purpose: view runs, and retry failures. The reads are the webhook

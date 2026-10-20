@@ -1,4 +1,4 @@
-//! Schedule cadence math (TASKLIST R4) — the single source of truth for
+//! Schedule cadence math (the private build tracker R4) — the single source of truth for
 //! "when does this schedule fire next".
 //!
 //! Purpose: pure, deterministic next-slot computation for typed report

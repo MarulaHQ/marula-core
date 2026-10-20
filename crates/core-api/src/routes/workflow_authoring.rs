@@ -1,4 +1,4 @@
-//! "Describe it" → a valid workflow (TASKLIST Wave 43 lane 17,
+//! "Describe it" → a valid workflow (the private build tracker Wave 43 lane 17,
 //! `p43-workflow-ai-authoring`).
 //!
 //! One natural-language entry point that emits the SAME workflow JSON the

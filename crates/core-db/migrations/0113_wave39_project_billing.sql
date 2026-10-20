@@ -1,4 +1,4 @@
--- Wave 39 lane 4: project billing closure (report P1–P5; TASKLIST Wave 39
+-- Wave 39 lane 4: project billing closure (report P1–P5; the private build tracker Wave 39
 -- lane `p39-project-billing`; migration 0113 is this lane's exclusive
 -- window, head is lane 3's 0112).
 --

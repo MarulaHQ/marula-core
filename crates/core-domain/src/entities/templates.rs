@@ -1,4 +1,4 @@
-//! Template entity (Wave 13 lane 5, TASKLIST KB3/KB4, ADR 0004).
+//! Template entity (Wave 13 lane 5, the private build tracker KB3/KB4, ADR 0004).
 //!
 //! One `Template` entity, typed across the product's template kinds —
 //! ticket / note / email / KB article / quote-invoice / project scaffold /

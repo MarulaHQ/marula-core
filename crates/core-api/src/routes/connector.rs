@@ -1,4 +1,4 @@
-//! Migration connector API (TASKLIST D3, Wave 9 lane 6): the authenticated
+//! Migration connector API (the private build tracker D3, Wave 9 lane 6): the authenticated
 //! bulk push/pull surface third-party migration tools integrate with.
 //!
 //! Purpose: a stable, machine-scoped HTTP contract over the D2 import

@@ -1,4 +1,4 @@
--- Provenance diff hardening (TASKLIST backend-gaps lane, 2026-09-10).
+-- Provenance diff hardening (the private build tracker backend-gaps lane, 2026-09-10).
 --
 -- Bug: a delete via the instant-first write path records `after: 'null'`
 -- (the jsonb NULL SCALAR, not SQL NULL) into entity_writes — e.g. BYOK

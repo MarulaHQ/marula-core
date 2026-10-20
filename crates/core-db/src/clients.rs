@@ -93,7 +93,7 @@ where
 }
 
 /// Creates a site. The optional geography fields existed on the entity since
-/// 0002; the import framework (TASKLIST D2) needed them first-class, so the
+/// 0002; the import framework (the private build tracker D2) needed them first-class, so the
 /// single canonical insert path now persists them for API callers too.
 #[allow(clippy::too_many_arguments)]
 pub async fn create_site<'e, E>(
@@ -217,7 +217,7 @@ where
 }
 
 /// Creates a contact. `site_id`, `title`, and `is_primary` round out the
-/// 0002 schema (import framework TASKLIST D2 is the first writer).
+/// 0002 schema (import framework the private build tracker D2 is the first writer).
 #[allow(clippy::too_many_arguments)]
 pub async fn create_contact<'e, E>(
     executor: E,
@@ -380,7 +380,7 @@ where
     Ok(rows.into_iter().map(crate::assets::row_to_asset).collect())
 }
 
-// --- updates (import framework ConflictPolicy::Update path, TASKLIST D2) ---
+// --- updates (import framework ConflictPolicy::Update path, the private build tracker D2) ---
 // Whole-row overwrites driven by canonical import specs; staff-facing edit
 // surfaces can adopt them without reshaping. NotFound = foreign org or id.
 
@@ -533,7 +533,7 @@ where
     Ok(row_to_contact(&row))
 }
 
-// --- batch loaders (import framework planning, TASKLIST D2) ------------------
+// --- batch loaders (import framework planning, the private build tracker D2) ------------------
 // One query per chunk instead of per-row getters; used to build the pure
 // engine's canonical projections and to prove parent rows still exist.
 

@@ -1,6 +1,6 @@
 # Engineering vocabulary
 
-Words used in this repository's working documents — `TASKLIST.md`, lane evidence
+Words used in this repository's working documents — the private build tracker, lane evidence
 directories, commit messages. They are internal shorthand, not product terms, and
 none of them belongs on the published docs site. Product vocabulary lives in
 [`site/reference/glossary.md`](../site/reference/glossary.md).
@@ -11,7 +11,7 @@ none of them belongs on the published docs site. Product vocabulary lives in
 |---|---|
 | **Wave** | A numbered batch of lanes planned together against one premise. Wave 52 is the reliability wave; the number appears in lane names and evidence directory names. |
 | **Lane** | One unit of work with one owner, one branch and one evidence directory. A lane is done when its branch is merged into local `main` and its tracker row moves. |
-| **Row** | One entry in `TASKLIST.md`: a lane id (`R8a`, `P3`), the owner worktree name, the premise, and what it needs. The premise is written as a defect, not a task. |
+| **Row** | One entry in the private build tracker: a lane id (`R8a`, `P3`), the owner worktree name, the premise, and what it needs. The premise is written as a defect, not a task. |
 | **Track** | The grouping letter in a lane id. `P` is platform work, `R` is remediation-found work. |
 | **Merge group** | Parallel lanes that share one integration branch and one gate run, so the workspace is built once instead of once per lane. |
 | **Integration owner** | The lane in a group that merges the others and runs the group gate. It is a lane, not a separate coordination role. |

@@ -14,7 +14,7 @@ pub enum ReportsError {
     InvalidLimit(i64),
     /// An opaque cursor failed to decode (client error, never a panic).
     InvalidCursor,
-    /// A stored report spec violated the typed registry (TASKLIST R3):
+    /// A stored report spec violated the typed registry (the private build tracker R3):
     /// unknown slug, a type mismatch between filter operand and catalog
     /// column, an aggregate applied to a non-numeric column, a shape bound
     /// (filter/measure/group-by caps), or a duplicate output name. The

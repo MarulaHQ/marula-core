@@ -1,4 +1,4 @@
-//! Upgrade preflight (TASKLIST U6, upgrade-compatibility-policy.md §5).
+//! Upgrade preflight (the private build tracker U6, upgrade-compatibility-policy.md §5).
 //!
 //! Purpose: `marula upgrade --check` runs OFFLINE, before an upgrade, and
 //! reports exactly which of this org's customizations touch constructs the

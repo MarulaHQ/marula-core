@@ -1,4 +1,4 @@
-//! Product/service catalog items (TASKLIST Phase 3, Wave 12 lane 2).
+//! Product/service catalog items (the private build tracker Phase 3, Wave 12 lane 2).
 //!
 //! An org-scoped sellable: name, optional SKU, unit of measure, unit
 //! price, cost, taxable flag, category/group, and an active flag. Money

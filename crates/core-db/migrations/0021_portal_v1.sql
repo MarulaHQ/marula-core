@@ -1,4 +1,4 @@
--- Client portal v1 (TASKLIST 2.13): scoped portal roles, per-board exposure,
+-- Client portal v1 (the private build tracker 2.13): scoped portal roles, per-board exposure,
 -- and a dedicated portal session family.
 --
 -- Purpose: give client personnel their own identity plane — `portal_users`

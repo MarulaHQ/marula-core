@@ -1,4 +1,4 @@
-// Report data access for dashboards (TASKLIST R2).
+// Report data access for dashboards (the private build tracker R2).
 //
 // Purpose: typed reads of the shipped R1 API (GET /api/v1/reports/{kind})
 // through the generated OpenAPI client, plus CSV export of the SAME report

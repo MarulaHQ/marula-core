@@ -22,7 +22,7 @@ whatever innocent crate happened to recompile:
     SDK/toolchain environment (recorded in the p41-ui-operations landing notes).
 
 Both were recorded as a recurring class in `design/REPORT-lane-env-instability.md`
-(2026-09-23, shape 2 and shape 4) and again in `TASKLIST.md` (A17).
+(2026-09-23, shape 2 and shape 4) and again in the private build tracker (A17).
 
 WHAT IT DOES
 ------------

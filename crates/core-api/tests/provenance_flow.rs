@@ -1,4 +1,4 @@
-//! Provenance read-model flow tests (TASKLIST IF9, doctrine #9), driven
+//! Provenance read-model flow tests (the private build tracker IF9, doctrine #9), driven
 //! through the REAL core-api router against a real Postgres.
 //!
 //! Purpose: pin the public surface of the provenance read model over HTTP:

@@ -1,4 +1,4 @@
--- Wave 8b KB-import lane (TASKLIST D5).
+-- Wave 8b KB-import lane (the private build tracker D5).
 --
 -- Purpose: the import framework's batch / external-id / saved-mapping
 -- CHECKs widen ADDITIVELY to the KB families 'kb_category' and

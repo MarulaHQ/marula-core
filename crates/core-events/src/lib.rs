@@ -237,7 +237,7 @@ impl Publisher {
 /// Relay loop: drains unpublished outbox rows and publishes them to the
 /// stream inside one transaction per batch (fetch → publish → mark).
 ///
-/// Telemetry (TASKLIST 2.18): one `relay.pass` span per batch carrying the
+/// Telemetry (the private build tracker 2.18): one `relay.pass` span per batch carrying the
 /// batch size, plus `marula.relay.batch_size` and the outbox-lag gauge
 /// (age of the oldest unpublished row, host-clock vs outbox timestamp —
 /// skew caveat documented in core-otel module docs).

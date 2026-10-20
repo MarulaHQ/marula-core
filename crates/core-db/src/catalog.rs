@@ -1,4 +1,4 @@
-//! Catalog persistence (TASKLIST Phase 3, Wave 12 lane 2; migration
+//! Catalog persistence (the private build tracker Phase 3, Wave 12 lane 2; migration
 //! 0060): org-scoped product/service items.
 //!
 //! Every read and write carries an explicit `org_id` predicate on top of

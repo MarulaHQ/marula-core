@@ -1,4 +1,4 @@
-//! Billing-lane integration tests (TASKLIST Phase 3, Wave 8b): contract
+//! Billing-lane integration tests (the private build tracker Phase 3, Wave 8b): contract
 //! CRUD through the instant-first envelope plus the read-only recurring-
 //! billing rule previews, driven through the REAL core-api router against
 //! a real Postgres (`MARULA_TEST_DATABASE_URL` or `DATABASE_URL`).

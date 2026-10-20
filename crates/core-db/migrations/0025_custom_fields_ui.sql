@@ -1,4 +1,4 @@
--- Custom fields UI v1 (TASKLIST 2.17). Migration 0009 already provides the
+-- Custom fields UI v1 (the private build tracker 2.17). Migration 0009 already provides the
 -- definition + JSONB value tables with org RLS; this adds what the ticket
 -- form surface needs on top of it:
 --   * board scoping for definitions (NULL = visible on every board),

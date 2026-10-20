@@ -1,4 +1,4 @@
-//! Product/service catalog (TASKLIST Phase 3, Wave 12 lane 2; migration
+//! Product/service catalog (the private build tracker Phase 3, Wave 12 lane 2; migration
 //! 0060): org-scoped catalog item CRUD on the IF1–IF3 instant-first
 //! envelope.
 //!

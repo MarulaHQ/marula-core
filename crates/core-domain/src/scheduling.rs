@@ -1,5 +1,5 @@
 //! Scheduling rules — the pure decision layer for calendars/availability
-//! (TASKLIST 2.12).
+//! (the private build tracker 2.12).
 //!
 //! Purpose: overlap detection for bookings, availability-window
 //! containment, and working-minutes computation over absolute spans. All

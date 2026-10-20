@@ -1,4 +1,4 @@
-//! Document endpoints (TASKLIST D4, agent-platform §6): documents whose
+//! Document endpoints (the private build tracker D4, agent-platform §6): documents whose
 //! content exists only as immutable, append-only, diffable versions.
 //!
 //! Purpose: create → edit (new version) → inspect history → restore (new

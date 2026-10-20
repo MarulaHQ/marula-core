@@ -1,4 +1,4 @@
-//! Attachment metadata queries (TASKLIST 2.14).
+//! Attachment metadata queries (the private build tracker 2.14).
 //!
 //! Purpose: persistence for `attachments` rows — insert, org-scoped
 //! reads, comment linking, deletion with content-address refcounting,
@@ -270,7 +270,7 @@ pub async fn email_targets(
     Ok(row)
 }
 
-// --- portal visibility (TASKLIST 2.13 exposure × TASKLIST 2.14 files) -------
+// --- portal visibility (the private build tracker 2.13 exposure × the private build tracker 2.14 files) -------
 
 /// Portal-visible attachments for one exposed ticket: kind=ticket rows
 /// always, comment rows when their note kind is in the visible set, and

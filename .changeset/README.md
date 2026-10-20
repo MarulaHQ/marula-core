@@ -1,4 +1,4 @@
-# Changesets — TS package versioning (TASKLIST U10b)
+# Changesets — TS package versioning (the private build tracker U10b)
 
 Version bumps for the publishable TS packages (`packages/sdk`,
 `packages/ui`, `packages/layout`, `packages/plugin-kit`) ride Changesets:

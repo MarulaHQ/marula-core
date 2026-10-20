@@ -1,4 +1,4 @@
--- Timer discipline (TASKLIST 2.9/2.10): single-active enforcement fix +
+-- Timer discipline (the private build tracker 2.9/2.10): single-active enforcement fix +
 -- missing-time gap audit.
 --
 -- BREAKING flag rationale (see scripts/check-migrations.sh): the 0005

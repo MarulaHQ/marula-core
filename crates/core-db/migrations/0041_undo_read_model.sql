@@ -1,4 +1,4 @@
--- Undo read model v1 (TASKLIST IF7, Wave 9 lane 5).
+-- Undo read model v1 (the private build tracker IF7, Wave 9 lane 5).
 --
 -- Purpose: the per-field / per-record applied-state history the undo
 -- contract names, exposed as TWO versioned `ops.v1_*` views over the 0028

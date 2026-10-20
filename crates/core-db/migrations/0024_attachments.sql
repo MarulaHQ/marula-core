@@ -1,4 +1,4 @@
--- Attachments (TASKLIST 2.14): ticket/comment/email files.
+-- Attachments (the private build tracker 2.14): ticket/comment/email files.
 --
 -- Purpose: metadata rows for binary objects persisted OUTSIDE Postgres
 -- via the ObjectStore trait (crates/core-store). One row binds exactly one

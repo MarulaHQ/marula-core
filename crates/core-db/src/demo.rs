@@ -1,4 +1,4 @@
-//! Demo-org seeding and dev QA loops (TASKLIST DX1–DX2).
+//! Demo-org seeding and dev QA loops (the private build tracker DX1–DX2).
 //!
 //! Purpose: ONE deterministic demo dataset callable from two entrypoints —
 //! `marula-core-cli seed-demo` (DX1) and the env-gated `/api/dev/*` surface
@@ -867,7 +867,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         .await?;
     }
 
-    // Bulk demo load (TASKLIST DX volume): generated tickets so list views,
+    // Bulk demo load (the private build tracker DX volume): generated tickets so list views,
     // filters, pagination, and the reporting views have real data to chew
     // on. Deterministic — same rows on every seed.
     let bulk_clients = [acme, northwind, globex];
@@ -2196,11 +2196,11 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     }
     let time_entry_count = entry_specs.len();
 
-    // Search index backfill (TASKLIST search QA): the worker indexer is
+    // Search index backfill (the private build tracker search QA): the worker indexer is
     // event-driven, and the seeder writes rows directly without events —
     // so populate the index here. Set-based and idempotent; later real
     // events re-upsert the same (org, kind, entity) keys.
-    // Search index backfill (TASKLIST search QA): the worker indexer is
+    // Search index backfill (the private build tracker search QA): the worker indexer is
     // event-driven, and the seeder writes rows directly without events —
     // so populate the index here. Set-based and idempotent; later real
     // events re-upsert the same (org, kind, entity) keys. One statement

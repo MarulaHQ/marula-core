@@ -1,4 +1,4 @@
-//! Tenant suspension notice flag (TASKLIST Wave 47 lane A7,
+//! Tenant suspension notice flag (the private build tracker Wave 47 lane A7,
 //! `p47-org-suspension-notice`, migration 0136).
 //!
 //! Two endpoints under `/api/v1/orgs/{org_id}/suspension-status`:
@@ -8,9 +8,9 @@
 //!     surface needs to act on it (where to export the org's data, and the
 //!     guide that explains the export).
 //!   * `PATCH .../suspension-status` — set or clear the flag. Admin-only
-//!     (`admin:edit`, the same permission org settings use — TASKLIST A7 (D)).
+//!     (`admin:edit`, the same permission org settings use — the private build tracker A7 (D)).
 //!
-//! THE POSTURE — NOTICE, NEVER A BLOCK (TASKLIST A7 (C), load-bearing).
+//! THE POSTURE — NOTICE, NEVER A BLOCK (the private build tracker A7 (C), load-bearing).
 //! This module is the whole product surface of the flag, and it does not
 //! reject anything: it writes three columns on `orgs` and reads them back. No
 //! middleware in this crate consults the flag, no route handler branches on
@@ -28,7 +28,7 @@
 //!     and the grant the hosted-tier banner plugin holds.
 //!   * MANAGE (PATCH): a human owner/admin through the Admin matrix
 //!     (`admin:edit`, exactly like org settings). There is deliberately NO
-//!     machine manage grant: TASKLIST A7 (D) makes setting the flag an admin
+//!     machine manage grant: the private build tracker A7 (D) makes setting the flag an admin
 //!     action, so a machine key is refused with the same typed 403 a
 //!     non-admin human gets.
 //!   * A path org that is not the caller's own org is a 404, identical to
@@ -74,7 +74,7 @@ const DATA_EXPORT_URL: &str = "/api/v1/org/exports";
 /// and the help drawer point at one page.
 const EXPORT_DOCS_URL: &str = "https://getmarula.com/docs/how-to/export-data.html";
 
-/// The human manage gate: the SAME permission org settings use — TASKLIST A7
+/// The human manage gate: the SAME permission org settings use — the private build tracker A7
 /// (D)'s `ManageOrg` gate. Declared once so the intent is readable at the
 /// call site; a machine key's permission set never carries the Admin matrix,
 /// so it is refused here without a second branch.

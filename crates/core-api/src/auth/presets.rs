@@ -1,4 +1,4 @@
-//! First-party OIDC provider PRESETS (TASKLIST ID1; Wave 34 lane 6 adds
+//! First-party OIDC provider PRESETS (the private build tracker ID1; Wave 34 lane 6 adds
 //! Keycloak): Google, Entra ID/M365, Okta, Keycloak as DECLARATIVE config.
 //! The catalog below is data — issuer/discovery templates, scopes, and a
 //! per-preset claim mapping — so an admin creates a provider by naming a

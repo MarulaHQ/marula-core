@@ -1,4 +1,4 @@
-//! Org-data export endpoint flow (TASKLIST D1) through the REAL core-api
+//! Org-data export endpoint flow (the private build tracker D1) through the REAL core-api
 //! router.
 //!
 //! Purpose: the admin-gated POST /org/exports + signed-download contract:

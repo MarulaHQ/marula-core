@@ -1,4 +1,4 @@
-//! Alert ingestor (TASKLIST Phase 3): HMAC-signed webhook ingest →
+//! Alert ingestor (the private build tracker Phase 3): HMAC-signed webhook ingest →
 //! dedup/correlation → incident tickets (a storm collapses to ONE ticket).
 //!
 //! Surface layout (one module, two mounts — kept in a single file to

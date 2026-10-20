@@ -59,31 +59,31 @@ pub mod types {
     /// org default again (this is NOT the same as an explicit disable).
     pub const CLIENT_WORKFLOW_OVERRIDE_CLEARED: &str = "client.workflow_override_cleared";
     pub const SITE_CREATED: &str = "site.created";
-    /// A site row was updated in place (import framework, TASKLIST D2).
+    /// A site row was updated in place (import framework, the private build tracker D2).
     pub const SITE_UPDATED: &str = "site.updated";
     pub const CONTACT_CREATED: &str = "contact.created";
-    /// A contact row was updated in place (import framework, TASKLIST D2).
+    /// A contact row was updated in place (import framework, the private build tracker D2).
     pub const CONTACT_UPDATED: &str = "contact.updated";
-    /// Import batch lifecycle (TASKLIST D2): a run opened / closed so
+    /// Import batch lifecycle (the private build tracker D2): a run opened / closed so
     /// webhook consumers can bracket bulk-change windows. Row-level
     /// mutations inside the batch keep emitting their ordinary events.
     pub const IMPORT_BATCH_STARTED: &str = "import.batch_started";
     pub const IMPORT_BATCH_FINISHED: &str = "import.batch_finished";
-    /// Migration connector lifecycle (TASKLIST D3): a third-party bulk-push
+    /// Migration connector lifecycle (the private build tracker D3): a third-party bulk-push
     /// session opened / closed. Parallel to the import batch events — the
     /// connector session pairs 1:1 with a D2 batch, but webhook consumers
     /// see the connector-level bracket without parsing engine internals.
     pub const MIGRATION_PUSH_SESSION_STARTED: &str = "migration.push_session_started";
     pub const MIGRATION_PUSH_SESSION_FINISHED: &str = "migration.push_session_finished";
     pub const BOARD_CREATED: &str = "board.created";
-    /// Board content update (import framework, TASKLIST D2 remainder).
+    /// Board content update (import framework, the private build tracker D2 remainder).
     pub const BOARD_UPDATED: &str = "board.updated";
     pub const BOARD_STATUS_ADDED: &str = "board.status_added";
     pub const BOARD_STATUS_UPDATED: &str = "board.status_updated";
     pub const BOARD_STATUS_REMOVED: &str = "board.status_removed";
     pub const BOARD_TRANSITIONS_UPDATED: &str = "board.transitions_updated";
     /// Emitted when a board's pre-close checklist template or enforcement
-    /// toggle changes (TASKLIST 2.8).
+    /// toggle changes (the private build tracker 2.8).
     pub const BOARD_CHECKLIST_TEMPLATE_UPDATED: &str = "board.checklist_template_updated";
     pub const TICKET_CREATED: &str = "ticket.created";
     pub const TICKET_UPDATED: &str = "ticket.updated";
@@ -141,18 +141,18 @@ pub mod types {
     pub const SLA_POLICY_UPDATED: &str = "sla.policy_updated";
     /// An automation rule definition was created/changed/disabled.
     pub const AUTOMATION_RULE_UPDATED: &str = "automation.rule_updated";
-    /// Report definitions as data (TASKLIST R3): a stored report spec was
+    /// Report definitions as data (the private build tracker R3): a stored report spec was
     /// created / changed / removed through the admin-gated CRUD surface.
     pub const REPORT_DEFINITION_CREATED: &str = "report_definition.created";
     pub const REPORT_DEFINITION_UPDATED: &str = "report_definition.updated";
     pub const REPORT_DEFINITION_DELETED: &str = "report_definition.deleted";
-    /// Scheduled report delivery (TASKLIST R4): a delivery schedule was
+    /// Scheduled report delivery (the private build tracker R4): a delivery schedule was
     /// created / changed / removed. The worker's run fan-out emits NO
     /// events — the `report_deliveries` ledger is the run record.
     pub const REPORT_SCHEDULE_CREATED: &str = "report_schedule.created";
     pub const REPORT_SCHEDULE_UPDATED: &str = "report_schedule.updated";
     pub const REPORT_SCHEDULE_DELETED: &str = "report_schedule.deleted";
-    /// Agent platform v1 (TASKLIST Phase 3, IF8; docs/10-agent-platform
+    /// Agent platform v1 (the private build tracker Phase 3, IF8; docs/10-agent-platform
     /// §4/§5): the proposal pipeline. `agent_proposal.created` fires when
     /// an agent-authored change is filed for approval; approved (applied
     /// through the IF1 write path in the same transaction), declined (no
@@ -271,7 +271,7 @@ pub mod types {
     /// lane 6): the admin per-RBAC matrix moved from device-local panel
     /// state to the org store (`org_pod_visibility`, migration 0064).
     pub const POD_VISIBILITY_UPDATED: &str = "org.pod_visibility_updated";
-    /// Board organization + board-level RBAC (TASKLIST 2.11).
+    /// Board organization + board-level RBAC (the private build tracker 2.11).
     pub const BOARD_GROUP_CREATED: &str = "board.group_created";
     pub const BOARD_GROUP_UPDATED: &str = "board.group_updated";
     pub const BOARD_GROUP_REMOVED: &str = "board.group_removed";
@@ -289,11 +289,11 @@ pub mod types {
     /// A subscription test-fire from the webhook manager; flows through
     /// the same stream + delivery pipeline as real domain events.
     pub const WEBHOOK_TEST: &str = "webhook.test";
-    /// Scheduling/calendars/availability foundation (TASKLIST 2.12).
+    /// Scheduling/calendars/availability foundation (the private build tracker 2.12).
     pub const APPOINTMENT_CREATED: &str = "appointment.created";
     pub const APPOINTMENT_UPDATED: &str = "appointment.updated";
     pub const APPOINTMENT_CANCELLED: &str = "appointment.cancelled";
-    /// Portal v2 appointment requests (TASKLIST Phase 3): a client asked
+    /// Portal v2 appointment requests (the private build tracker Phase 3): a client asked
     /// for a slot, staff decided, or the client withdrew the request.
     /// Approval additionally emits the standard `appointment.created` —
     /// the booking enters the world through the normal creation path.
@@ -301,7 +301,7 @@ pub mod types {
     pub const APPOINTMENT_REQUEST_APPROVED: &str = "appointment_request.approved";
     pub const APPOINTMENT_REQUEST_DECLINED: &str = "appointment_request.declined";
     pub const APPOINTMENT_REQUEST_CANCELLED: &str = "appointment_request.cancelled";
-    /// Alert ingestor (TASKLIST Phase 3): one normalized alert was
+    /// Alert ingestor (the private build tracker Phase 3): one normalized alert was
     /// accepted through the HMAC ingest surface and correlated. Emitted
     /// for `incident_created` and `collapsed` outcomes only — a replayed
     /// `duplicate` dedup_key writes nothing and emits nothing.
@@ -346,7 +346,7 @@ pub mod types {
     /// Scorecard METRICS are read-only aggregation — this is the only
     /// scorecard mutation that emits.
     pub const SCORECARD_SETTINGS_UPDATED: &str = "scorecard.settings_updated";
-    /// Attachments (TASKLIST 2.14): added on upload/extraction, linked
+    /// Attachments (the private build tracker 2.14): added on upload/extraction, linked
     /// when bound to a comment, deleted when a row (and possibly its
     /// content-addressed object) goes away.
     pub const ATTACHMENT_ADDED: &str = "attachment.added";
@@ -371,14 +371,14 @@ pub mod types {
     pub const SIGN_OFF_REVOKED: &str = "sign_off.revoked";
     pub const SIGN_OFF_SUPERSEDED: &str = "sign_off.superseded";
     pub const SIGN_OFF_CONSENT_CREATED: &str = "sign_off_consent.created";
-    /// Custom fields / dynamic forms v1 (TASKLIST 2.17): definition CRUD
+    /// Custom fields / dynamic forms v1 (the private build tracker 2.17): definition CRUD
     /// through the board settings surface and typed ticket-value writes.
     pub const CUSTOM_FIELD_DEF_CREATED: &str = "custom_field.def_created";
     pub const CUSTOM_FIELD_DEF_UPDATED: &str = "custom_field.def_updated";
     pub const CUSTOM_FIELD_DEF_REMOVED: &str = "custom_field.def_removed";
     pub const TICKET_FIELD_SET: &str = "ticket.field_set";
     pub const TICKET_FIELD_CLEARED: &str = "ticket.field_cleared";
-    /// Native KB v1 (TASKLIST Phase 3): article lifecycle. The indexer
+    /// Native KB v1 (the private build tracker Phase 3): article lifecycle. The indexer
     /// re-reads the CURRENT row on created/updated and drops the index
     /// entry on deleted (`kb_article.deleted`).
     pub const KB_ARTICLE_CREATED: &str = "kb_article.created";
@@ -399,7 +399,7 @@ pub mod types {
     pub const KB_EXTERNAL_DOCUMENT_UPDATED: &str = "kb_external_document.updated";
     pub const KB_EXTERNAL_DOCUMENT_DELETED: &str = "kb_external_document.deleted";
     pub const KB_EXTERNAL_DOCUMENT_LINK_CHECKED: &str = "kb_external_document.link_checked";
-    /// DocumentVersion entities (TASKLIST D4): content changes arrive as
+    /// DocumentVersion entities (the private build tracker D4): content changes arrive as
     /// NEW versions (update/restore), so every one of these re-indexes the
     /// document's current version. Documents are never deleted in v1, so
     /// the history stays intact.
@@ -454,13 +454,13 @@ pub mod types {
     pub const ASSET_CREATED: &str = "asset.created";
     pub const ASSET_UPDATED: &str = "asset.updated";
     pub const ASSET_DELETED: &str = "asset.deleted";
-    /// Contracts + recurring billing rules (TASKLIST Phase 3): contract
+    /// Contracts + recurring billing rules (the private build tracker Phase 3): contract
     /// CRUD lifecycle. Billing previews are read-only and emit nothing;
     /// invoice runs are Wave 9.
     pub const CONTRACT_CREATED: &str = "contract.created";
     pub const CONTRACT_UPDATED: &str = "contract.updated";
     pub const CONTRACT_REMOVED: &str = "contract.removed";
-    /// Native invoicing v1 (TASKLIST Phase 3, Wave 9): invoice runs,
+    /// Native invoicing v1 (the private build tracker Phase 3, Wave 9): invoice runs,
     /// invoice lifecycle, payments through the `PaymentProvider` seam,
     /// and dunning-state transitions (states as data, forward-only).
     pub const INVOICE_RUN_COMPLETED: &str = "invoice_run.completed";
@@ -468,7 +468,7 @@ pub mod types {
     pub const INVOICE_VOIDED: &str = "invoice.voided";
     pub const INVOICE_PAYMENT_RECORDED: &str = "invoice.payment_recorded";
     pub const INVOICE_DUNNING_CHANGED: &str = "invoice.dunning_changed";
-    /// Credit notes (TASKLIST Money+docs backend gap): the credit
+    /// Credit notes (the private build tracker Money+docs backend gap): the credit
     /// document lifecycle — issued, allocated onto an invoice (the
     /// allocation ALSO emits invoice.payment_recorded with provider
     /// `credit_note`), refunded back out.
@@ -483,7 +483,7 @@ pub mod types {
     /// re-hydrate (the core never revaluates in place).
     pub const FX_RATE_RECORDED: &str = "fx.rate_recorded";
     pub const FX_BASE_CURRENCY_CHANGED: &str = "fx.base_currency_changed";
-    /// Quote builder + catalog + sales pipeline (TASKLIST Phase 3, Wave 12
+    /// Quote builder + catalog + sales pipeline (the private build tracker Phase 3, Wave 12
     /// lane 2). Catalog lifecycle is create/update/archive (archival is a
     /// flag, never a delete). The quote lifecycle is data
     /// (`draft` → `sent` → `accepted` | `declined` | `expired`); only a
@@ -563,7 +563,7 @@ pub mod types {
     /// `label.template_updated` with `active = false` (archival is a flag).
     pub const LABEL_TEMPLATE_CREATED: &str = "label.template_created";
     pub const LABEL_TEMPLATE_UPDATED: &str = "label.template_updated";
-    /// Dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9): a field-service
+    /// Dispatch v2 (the private build tracker Phase 3, Wave 9 lane 9): a field-service
     /// status push landed against an appointment (connector or staff);
     /// the `dispatch_status_updates` ledger is the ground truth.
     pub const DISPATCH_STATUS_UPDATED: &str = "dispatch.status_updated";
@@ -578,7 +578,7 @@ pub mod types {
     /// cleared) a technician-day's journey start point — routing's
     /// scheduling input, audited like every other scheduling mutation.
     pub const JOURNEY_START_POINT_SET: &str = "journey_start_point.set";
-    /// Projects line (TASKLIST Phase 3, migration 0030): project/phase/task
+    /// Projects line (the private build tracker Phase 3, migration 0030): project/phase/task
     /// lifecycle, saved views, templates, and the milestone billing seam.
     pub const PROJECT_CREATED: &str = "project.created";
     pub const PROJECT_UPDATED: &str = "project.updated";
@@ -972,7 +972,7 @@ pub struct ImportBatchFinished {
 }
 
 /// A migration connector push session opened (payload for
-/// `migration.push_session_started`, TASKLIST D3). The session pairs 1:1
+/// `migration.push_session_started`, the private build tracker D3). The session pairs 1:1
 /// with the D2 import batch that does the writing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationPushSessionStarted {
@@ -1171,7 +1171,7 @@ pub struct EmailMessageRecorded {
     pub comment_id: Option<uuid::Uuid>,
 }
 
-/// A board group was created (TASKLIST 2.11).
+/// A board group was created (the private build tracker 2.11).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct BoardGroupCreated {
@@ -1241,7 +1241,7 @@ pub struct BoardFavoriteToggled {
     pub favorite: bool,
 }
 
-/// A booking was created on a user's calendar (TASKLIST 2.12).
+/// A booking was created on a user's calendar (the private build tracker 2.12).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AppointmentCreated {
@@ -1565,7 +1565,7 @@ pub struct PluginSettingsUpdated {
     pub occurred_at: DateTime<Utc>,
 }
 
-// --- projects line (TASKLIST Phase 3, migration 0030) ------------------------
+// --- projects line (the private build tracker Phase 3, migration 0030) ------------------------
 
 /// `project.created` — the full applied project snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]

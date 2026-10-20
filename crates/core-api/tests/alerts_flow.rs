@@ -1,4 +1,4 @@
-//! Alert-ingestor endpoint flows (TASKLIST Phase 3) through the REAL
+//! Alert-ingestor endpoint flows (the private build tracker Phase 3) through the REAL
 //! core-api router — the Phase-3 acceptance for this lane:
 //!
 //! **HMAC webhook ingest → dedup/correlation → incident tickets (a storm

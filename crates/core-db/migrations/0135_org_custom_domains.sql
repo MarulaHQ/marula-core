@@ -1,4 +1,4 @@
--- Per-org custom domain + generic DNS verification (TASKLIST Wave 47 lane A8,
+-- Per-org custom domain + generic DNS verification (the private build tracker Wave 47 lane A8,
 -- `p47-org-custom-domains`).
 --
 -- NUMBERING: this is 0135, the next free slot at lane start (main's head was

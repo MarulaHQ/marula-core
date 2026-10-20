@@ -1,4 +1,4 @@
--- Quote builder + product/service catalog + sales pipeline (TASKLIST
+-- Quote builder + product/service catalog + sales pipeline (the private build tracker
 -- Phase 3, Wave 12 lane 2; migration 0060 is this lane's exclusive
 -- window).
 --

@@ -1,4 +1,4 @@
-//! Email orchestration inside core-api (TASKLIST 2.4).
+//! Email orchestration inside core-api (the private build tracker 2.4).
 //!
 //! Purpose: build the transport/scanner stack from config, run the inbound
 //! webhook pipeline — HMAC-verified payload → malware scan → routing →
@@ -438,7 +438,7 @@ pub async fn process_inbound(
     msg.validate()
         .map_err(|e| ApiError::Validation(e.to_string()))?;
 
-    // --- attachment preparation (TASKLIST 2.14): decode + size-cap +
+    // --- attachment preparation (the private build tracker 2.14): decode + size-cap +
     // hash BEFORE the scan gate so nothing undecoded/oversized ever
     // reaches storage, and so the scanner sees attachment bytes too.
     // Email attachments skip the API's magic-byte allowlist ON PURPOSE:

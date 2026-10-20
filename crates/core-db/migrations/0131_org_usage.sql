@@ -1,4 +1,4 @@
--- Org-level resource usage for hosted-tier monitoring (TASKLIST Wave 47
+-- Org-level resource usage for hosted-tier monitoring (the private build tracker Wave 47
 -- lane A6, `p47-org-resource-quota-api`).
 --
 -- NUMBERING: this is 0131, not 0130. The lane claimed 0130 at start, when
@@ -367,5 +367,5 @@ GRANT SELECT ON org_usage TO marula_app;
 --     one JSON document: a document would be a different table.
 --
 -- The core READS these rows. It never writes them through an API surface
--- and never acts on them: read is a report (TASKLIST A6 (B)), and the
+-- and never acts on them: read is a report (the private build tracker A6 (B)), and the
 -- write belongs to whoever provisions the hosted tenant.

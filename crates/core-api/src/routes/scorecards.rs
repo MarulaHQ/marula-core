@@ -16,7 +16,7 @@
 //! tables (ADR 0001 seam).
 //!
 //! Non-purpose: no CSAT data (the surveys-on-resolution source is a
-//! later TASKLIST item — the payload reserves the slot as
+//! later the private build tracker item — the payload reserves the slot as
 //! `available: false`), no gamification math (opt-in presentation is
 //! computed client-side over these windows), no scheduled delivery.
 

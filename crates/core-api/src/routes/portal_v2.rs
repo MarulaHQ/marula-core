@@ -1,4 +1,4 @@
-//! Client-portal v2 HTTP surface (TASKLIST Phase 3 "Portal v2"):
+//! Client-portal v2 HTTP surface (the private build tracker Phase 3 "Portal v2"):
 //! invoice view + pay, KB self-service, and appointment requests.
 //!
 //! Purpose: extends the portal v1 surface (`routes::portal`) with the

@@ -1,4 +1,4 @@
--- The workflow run ledger (TASKLIST Wave 43 lane 14, `p43-workflow-run-ledger`;
+-- The workflow run ledger (the private build tracker Wave 43 lane 14, `p43-workflow-run-ledger`;
 -- head on main was 0128, the node registry).
 --
 -- TWO tables, and the split between them is the lane's load-bearing

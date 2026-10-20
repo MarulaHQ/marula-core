@@ -1,4 +1,4 @@
--- Portal v2 (TASKLIST Phase 3 "Portal v2: invoice view+pay, KB
+-- Portal v2 (the private build tracker Phase 3 "Portal v2: invoice view+pay, KB
 -- self-service, appointment requests"; Wave 9 lane 3 — migration 0039 is
 -- this lane's exclusive window).
 --

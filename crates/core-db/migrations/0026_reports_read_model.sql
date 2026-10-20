@@ -1,4 +1,4 @@
--- Read-model reporting views v1 (TASKLIST R0 = U3; ADR 0001).
+-- Read-model reporting views v1 (the private build tracker R0 = U3; ADR 0001).
 --
 -- Purpose: the FIRST consumer-facing slice of the versioned read-model
 -- layer: five views in the `ops` schema that expose operational data for

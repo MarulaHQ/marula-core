@@ -1,4 +1,4 @@
-//! Scheduling entities (TASKLIST 2.12): appointments, availability
+//! Scheduling entities (the private build tracker 2.12): appointments, availability
 //! windows, on-call blocks, and calendar exclusions — the serde shapes
 //! shared by DB mapping and the API.
 //!

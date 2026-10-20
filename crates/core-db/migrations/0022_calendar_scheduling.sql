@@ -1,4 +1,4 @@
--- Scheduling/calendars/availability foundation (TASKLIST 2.12).
+-- Scheduling/calendars/availability foundation (the private build tracker 2.12).
 --
 -- Purpose: the data-model substrate for the Stage-2 dispatch board:
 -- (1) `appointments` — a user's booked time, optionally bound to a ticket

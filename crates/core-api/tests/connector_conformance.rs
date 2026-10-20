@@ -1,4 +1,4 @@
-//! Migration connector conformance suite (TASKLIST D3, Wave 9 lane 6).
+//! Migration connector conformance suite (the private build tracker D3, Wave 9 lane 6).
 //!
 //! Purpose: exercise the FULL contract a third-party migration tool sees —
 //! not the implementation's internals. The suite plays the role of an

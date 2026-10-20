@@ -1,4 +1,4 @@
-//! Per-org custom domain management + generic DNS verification (TASKLIST
+//! Per-org custom domain management + generic DNS verification (the private build tracker
 //! Wave 47 lane A8, `p47-org-custom-domains`, migration 0135).
 //!
 //! Four endpoints under `/api/v1/orgs/{org_id}/custom-domain`:
@@ -24,7 +24,7 @@
 //! Core does NOT terminate TLS or route traffic: it stores the verified
 //! domain; the operator's own edge reads it back through the GET.
 //!
-//! AUTHORIZATION (TASKLIST A8 (G)):
+//! AUTHORIZATION (the private build tracker A8 (G)):
 //!   * READ (GET): any human member of the org reads its own state; a service
 //!     account (machine key) additionally needs `org_custom_domain:read`.
 //!   * MANAGE (POST/verify/DELETE): a human owner/admin holds the authority
@@ -181,7 +181,7 @@ impl From<ManualDnsInstructions> for CustomDomainInstructions {
     }
 }
 
-/// POST response: exactly the three fields TASKLIST A8 (B) names.
+/// POST response: exactly the three fields the private build tracker A8 (B) names.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SetCustomDomainResponse {
     pub domain: String,
@@ -373,7 +373,7 @@ pub async fn get_custom_domain(
 }
 
 /// `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS
-/// verification (TASKLIST A8 (C)). The TXT token is the authority; the
+/// verification (the private build tracker A8 (C)). The TXT token is the authority; the
 /// A/CNAME leg is plausibility only.
 #[utoipa::path(operation_id = "org_custom_domain_verify", post,
     path = "/api/orgs/{org_id}/custom-domain/verify", tag = "org",

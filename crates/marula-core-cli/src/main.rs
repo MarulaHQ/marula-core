@@ -64,7 +64,7 @@ enum Command {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
-    /// Seed the deterministic demo org (TASKLIST DX1). Dev-only: refuses
+    /// Seed the deterministic demo org (the private build tracker DX1). Dev-only: refuses
     /// unless MARULA_DEV_TOOLS=1.
     SeedDemo {
         /// Wipe the demo org (if present) and reseed from scratch.
@@ -671,7 +671,7 @@ fn shutdown_watch() -> watch::Receiver<bool> {
     shutdown_rx
 }
 
-/// Shared telemetry bootstrap (TASKLIST 2.18): none-mode unless
+/// Shared telemetry bootstrap (the private build tracker 2.18): none-mode unless
 /// OTEL_EXPORTER_OTLP_ENDPOINT is set; the guard lives for `main`.
 fn init_tracing() -> core_otel::TelemetryGuard {
     core_otel::init("marula-core-cli")

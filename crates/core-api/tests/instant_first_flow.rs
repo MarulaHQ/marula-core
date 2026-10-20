@@ -1,4 +1,4 @@
-//! Instant-first write-path contract tests (TASKLIST IF1–IF3), driven
+//! Instant-first write-path contract tests (the private build tracker IF1–IF3), driven
 //! through the REAL core-api router against a real Postgres.
 //!
 //! Purpose: pin the binding contract of `docs/instant-first.md` over HTTP:

@@ -1,5 +1,5 @@
 //! Availability-window, on-call-block, and time-off-exclusion endpoints
-//! (TASKLIST 2.12).
+//! (the private build tracker 2.12).
 //!
 //! Purpose: self-service CRUD for a user's recurring working templates,
 //! on-call rotations, and absolute time-off. Writes naming another user

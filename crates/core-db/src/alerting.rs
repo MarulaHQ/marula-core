@@ -1,4 +1,4 @@
-//! core-db/alerting — persistence for the alert ingestor (TASKLIST
+//! core-db/alerting — persistence for the alert ingestor (the private build tracker
 //! Phase 3, migration 0037).
 //!
 //! Purpose: typed queries for the three ingest tables — alert sources

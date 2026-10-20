@@ -1,4 +1,4 @@
-//! Board organization + board-level RBAC endpoints (TASKLIST 2.11):
+//! Board organization + board-level RBAC endpoints (the private build tracker 2.11):
 //! nav groups, group assignment, per-board membership roles, and the
 //! annotated nav list. Every mutation emits its outbox event in-tx (§4.2)
 //! and flows authorization through `core_domain::policy` — a board-role

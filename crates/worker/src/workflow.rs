@@ -1,4 +1,4 @@
-//! worker/workflow — the multi-step workflow executor (TASKLIST Wave 43
+//! worker/workflow — the multi-step workflow executor (the private build tracker Wave 43
 //! lane 15, `p43-workflow-executor`).
 //!
 //! Purpose: run a declarative workflow document step by step, and NEVER
@@ -228,7 +228,7 @@ async fn follow_stream(
             }
         }
         // Consumer backlog: PEL depth, lag and the age of the oldest unacked
-        // entry for THIS group, read after the batch (TASKLIST R7a).
+        // entry for THIS group, read after the batch (the private build tracker R7a).
         crate::stream_health::probe(conn, CONSUMER_GROUP).await;
     }
 }

@@ -24,7 +24,7 @@ pub enum OutboundKind {
         ticket_title: String,
         excerpt: String,
     },
-    /// Account statement on the dunning path (TASKLIST backend-gaps
+    /// Account statement on the dunning path (the private build tracker backend-gaps
     /// lane): the client's open invoices with outstanding balances.
     /// Body rides the outbound ledger; none-mode stays queued like
     /// every other leg.

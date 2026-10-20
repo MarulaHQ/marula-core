@@ -1,4 +1,4 @@
-//! The workflow node catalogue pin (TASKLIST Wave 43 lane 13, migration 0128).
+//! The workflow node catalogue pin (the private build tracker Wave 43 lane 13, migration 0128).
 //!
 //! Purpose: prove the pin survives a migrate, that a re-migrate rewrites
 //! NOTHING (the pin is history, and a record that must not be edited is

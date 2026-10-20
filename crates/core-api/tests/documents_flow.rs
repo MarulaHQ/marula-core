@@ -1,4 +1,4 @@
-//! Document endpoint flows (TASKLIST D4, agent-platform §6) through the
+//! Document endpoint flows (the private build tracker D4, agent-platform §6) through the
 //! REAL core-api router.
 //!
 //! Purpose: the /api/documents contract over HTTP —

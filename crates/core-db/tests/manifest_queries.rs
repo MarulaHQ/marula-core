@@ -1,4 +1,4 @@
-//! Customization-manifest loader coverage (TASKLIST U5, policy §5).
+//! Customization-manifest loader coverage (the private build tracker U5, policy §5).
 //!
 //! Purpose: prove the U5 export contract at the query layer —
 //! 1. FULL-coverage org: every section populated and round-tripped
@@ -406,7 +406,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     .await
     .expect("ladder");
 
-    // report definitions (TASKLIST R3): two rows inserted OUT of name
+    // report definitions (the private build tracker R3): two rows inserted OUT of name
     // order, one org-published and one private, so the section sort +
     // scope round-trip are exercised. Spec bodies are registry-valid.
     for (name, kind, body, viz, scope) in [

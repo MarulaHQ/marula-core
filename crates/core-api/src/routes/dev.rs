@@ -1,4 +1,4 @@
-//! Dev-tools surface (TASKLIST DX2, QA reset loops).
+//! Dev-tools surface (the private build tracker DX2, QA reset loops).
 //!
 //! Purpose: runtime-gated machine endpoints that make QA loops fast —
 //! seed/reseed the demo org (DX1), wipe+reseed, shift SLA clocks for breach

@@ -1,4 +1,4 @@
-//! Outbound email send loop (TASKLIST 2.4).
+//! Outbound email send loop (the private build tracker 2.4).
 //!
 //! Purpose: claim due sends from core-api, resolve the ORG's transport
 //! adapter (settings + sealed credential, Wave 34 lane 8 — env transport

@@ -1,4 +1,4 @@
-//! Demo seeder conformance (TASKLIST DX1).
+//! Demo seeder conformance (the private build tracker DX1).
 //!
 //! Purpose: the DX1 guarantees, end to end against a real schema —
 //! deterministic re-run idempotency (a second seed NEVER double-applies),

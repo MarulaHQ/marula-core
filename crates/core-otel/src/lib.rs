@@ -1,4 +1,4 @@
-//! core-otel — the shared OpenTelemetry baseline (TASKLIST 2.18).
+//! core-otel — the shared OpenTelemetry baseline (the private build tracker 2.18).
 //!
 //! Purpose: one place where every Marula process (core-api, realtime,
 //! worker, marula-core-cli) initializes tracing + metrics so that spans and

@@ -1,7 +1,7 @@
 name: Nightly perf
 
 # HTTP capacity budget + scale measurement (Wave 15 lane 3,
-# TASKLIST → Phase-4 perf program; docs/perf.md §6).
+# the private build tracker → Phase-4 perf program; docs/perf.md §6).
 #
 # Gates ONE thing: perf-harness load --budget-ms at the budget scale
 # (50k tickets/org, saturated closed-loop, keyset mix p95 ≤ 150ms — the

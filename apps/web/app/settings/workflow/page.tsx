@@ -1,4 +1,4 @@
-// /settings/workflow — per-board workflow editor (TASKLIST 2.6).
+// /settings/workflow — per-board workflow editor (the private build tracker 2.6).
 //
 // Purpose: three editors over EXISTING backends for one picked board:
 //   • statuses — custom statuses bound to semantic categories (behavior

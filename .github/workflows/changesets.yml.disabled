@@ -1,4 +1,4 @@
-# Changesets versioning for packages/* (TASKLIST U10b).
+# Changesets versioning for packages/* (the private build tracker U10b).
 #
 # On every push to main: consume pending changesets (`.changeset/*.md`) and
 # open/refresh a "version packages" PR. Maintainers merge it to bump the

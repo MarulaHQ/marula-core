@@ -1,4 +1,4 @@
-//! DocumentVersion queries (TASKLIST D4, agent-platform §6): documents
+//! DocumentVersion queries (the private build tracker D4, agent-platform §6): documents
 //! with immutable append-only versions.
 //!
 //! Purpose: typed persistence over `documents` / `document_versions`

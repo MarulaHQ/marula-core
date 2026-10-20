@@ -21,7 +21,7 @@
 //!     (`approval_status = 'approved'`): drafts and rejected entries are
 //!     never scorecard truth (Wave 14 lane-1 dependency).
 //!
-//! CSAT: the surveys-on-resolution source does not exist yet (TASKLIST
+//! CSAT: the surveys-on-resolution source does not exist yet (the private build tracker
 //! R6 follow-up); the scorecard payload reserves the slot and reports it
 //! as `null` until that source lands. This module deliberately has no
 //! CSAT query to invent data.

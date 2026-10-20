@@ -17,7 +17,7 @@ use tokio::sync::watch;
 
 /// One sweep over all due candidates; returns verdict jobs enqueued.
 ///
-/// Telemetry (TASKLIST 2.18): a `sla.sweep` span per pass (candidate +
+/// Telemetry (the private build tracker 2.18): a `sla.sweep` span per pass (candidate +
 /// enqueued counts), a `marula.sla.sweep.duration` histogram sample, and
 /// `marula.sla.verdicts` counters classified by trigger class
 /// (risk/breach/escalation).
@@ -163,7 +163,7 @@ async fn sweep_inner(pool: &PgPool, batch_limit: i64) -> anyhow::Result<(usize, 
             match core_db::queue::enqueue(pool, &job).await {
                 Ok(_) => {
                     enqueued += 1;
-                    // SLA breach counter (TASKLIST 2.18): classify by the
+                    // SLA breach counter (the private build tracker 2.18): classify by the
                     // ladder trigger's notification kind — "breach" is the
                     // SLA-breach counter, "risk" risk warnings, everything
                     // else is escalation.

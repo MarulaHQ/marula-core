@@ -1,4 +1,4 @@
-//! Projects-line query-layer coverage (TASKLIST Phase 3, migration 0030).
+//! Projects-line query-layer coverage (the private build tracker Phase 3, migration 0030).
 //!
 //! Purpose: prove the project/phase/task/dep/view/template substrate at
 //! the persistence boundary, under the real RLS role —

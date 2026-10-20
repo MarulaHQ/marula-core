@@ -1,4 +1,4 @@
-// Report builder v1 logic (TASKLIST R6; ADR 0001).
+// Report builder v1 logic (the private build tracker R6; ADR 0001).
 //
 // Purpose: the typed client-side half of the thin in-app builder. Draft
 // spec state, catalog-driven option lists, and the aggregate/operand

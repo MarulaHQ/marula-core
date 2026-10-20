@@ -1,4 +1,4 @@
-//! Scheduled report delivery persistence (TASKLIST R4).
+//! Scheduled report delivery persistence (the private build tracker R4).
 //!
 //! Purpose: CRUD for `report_schedules` rows (migration 0038) plus the
 //! worker-facing claim sweep and the append-only `report_deliveries` run

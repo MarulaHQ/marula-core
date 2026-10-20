@@ -1,4 +1,4 @@
--- MCP server v1 + IF8 agent platform (TASKLIST Phase 3, lane `p9-mcp-v1`).
+-- MCP server v1 + IF8 agent platform (the private build tracker Phase 3, lane `p9-mcp-v1`).
 --
 -- Purpose: three additive tables backing the agent-platform substrate —
 -- the capability registry, the versioned agent-skill store, and the IF8

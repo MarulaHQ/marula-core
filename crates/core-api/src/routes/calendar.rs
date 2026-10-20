@@ -1,4 +1,4 @@
-//! Calendar view endpoints (TASKLIST 2.12): personal day/week views and
+//! Calendar view endpoints (the private build tracker 2.12): personal day/week views and
 //! the team-wide range view, merging appointments and on-call blocks into
 //! one ordered item list.
 //!

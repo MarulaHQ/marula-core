@@ -26,7 +26,7 @@ pub enum Actor {
     PortalApprover(UserId),
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     PortalItManager(UserId),
-    /// Bulk-import runs (TASKLIST D2): the descriptor names the driving
+    /// Bulk-import runs (the private build tracker D2): the descriptor names the driving
     /// identity without pretending it row-walked — `"user:<uuid>"` for
     /// admin JWT runs, `"api-key:<key-id>""` for machine pushes. Row-level
     /// mutations still emit their ordinary domain events; the import actor

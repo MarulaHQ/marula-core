@@ -1,4 +1,4 @@
-//! LIVE REST pulls from the Hudu API (the TASKLIST DMS follow-up):
+//! LIVE REST pulls from the Hudu API (the the private build tracker DMS follow-up):
 //! the export-based parser in [`super::hudu`] stays zero-network; this
 //! driver pulls the SAME snapshot vocabulary from the vendor API with
 //! its native pagination/auth flow:

@@ -1,4 +1,4 @@
--- Ticket-less automation subjects (TASKLIST Wave 43 lane 3,
+-- Ticket-less automation subjects (the private build tracker Wave 43 lane 3,
 -- `p43-ticketless-automation-triggers`).
 --
 -- Before this lane every automation rule's subject was implicitly a TICKET:

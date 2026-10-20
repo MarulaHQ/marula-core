@@ -1,4 +1,4 @@
-# Auth Hardening (Stage 2 — TASKLIST 2.3)
+# Auth Hardening (Stage 2 — the private build tracker 2.3)
 
 Implementation notes and verification guide for: audit-log completion + query
 API, TOTP **and** WebAuthn MFA with single-use recovery codes, generic OIDC

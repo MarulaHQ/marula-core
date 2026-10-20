@@ -1,6 +1,6 @@
 //! Attachment entity: one stored file bound to exactly one owner target —
 //! a ticket, a ticket comment, an inbound email message, or the sign-off row
-//! whose drawn mark it carries (TASKLIST 2.14; Wave 43 track 2 lane 12).
+//! whose drawn mark it carries (the private build tracker 2.14; Wave 43 track 2 lane 12).
 //!
 //! Purpose: the serde/utoipa shape shared by DB mapping and the API plus
 //! the [`AttachmentKind`] taxonomy. Bytes never live here: rows point at

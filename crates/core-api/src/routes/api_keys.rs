@@ -1,4 +1,4 @@
-//! API-key management (TASKLIST 2.15 / §6): scoped, rotatable, last-used
+//! API-key management (the private build tracker 2.15 / §6): scoped, rotatable, last-used
 //! tracked — with show-once creation.
 //!
 //! Purpose: admin CRUD over org API keys. Raw key material (`mrl_<hex>`)

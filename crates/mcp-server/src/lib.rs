@@ -1,4 +1,4 @@
-//! mcp-server — MCP protocol adapter over the public API (TASKLIST
+//! mcp-server — MCP protocol adapter over the public API (the private build tracker
 //! Phase 3, Wave 9 lane 4; docs/10-agent-platform.md §1).
 //!
 //! Purpose: expose the org's capability-granted READ surface over the

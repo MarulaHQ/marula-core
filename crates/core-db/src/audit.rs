@@ -32,7 +32,7 @@ where
         Actor::PortalContact(u) => ("portal_contact".into(), Some(u.to_string())),
         Actor::PortalApprover(u) => ("portal_approver".into(), Some(u.to_string())),
         Actor::PortalItManager(u) => ("portal_it_manager".into(), Some(u.to_string())),
-        // Import runs (TASKLIST D2): descriptor names the driving identity,
+        // Import runs (the private build tracker D2): descriptor names the driving identity,
         // e.g. "user:<uuid>" or "api-key:<key-id>".
         Actor::Import(desc) => ("import".into(), Some(desc.clone())),
     };

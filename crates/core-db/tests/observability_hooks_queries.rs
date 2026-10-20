@@ -1,4 +1,4 @@
-//! Observability-hook queries against a real Postgres (TASKLIST R7a).
+//! Observability-hook queries against a real Postgres (the private build tracker R7a).
 //!
 //! Purpose: the three statements this lane added are RUNTIME queries
 //! (`sqlx::query`/`query_scalar`, not the `query!` macro — they have no

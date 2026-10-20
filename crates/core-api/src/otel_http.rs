@@ -1,4 +1,4 @@
-//! core-api/otel_http — HTTP request spans + request metrics (TASKLIST 2.18).
+//! core-api/otel_http — HTTP request spans + request metrics (the private build tracker 2.18).
 //!
 //! Purpose: one outermost middleware producing a span per request with
 //! LOW-CARDINALITY attributes only — method, route TEMPLATE
@@ -111,7 +111,7 @@ pub async fn track(request: Request, next: Next) -> Response {
 /// attributed to an org. That is the honest split: an internal effect call
 /// belongs to no tenant's request budget.
 ///
-/// The org counter (TASKLIST R7a) is per-org request volume for usage and
+/// The org counter (the private build tracker R7a) is per-org request volume for usage and
 /// quota surfaces that cannot read telemetry back out of OTLP. It carries
 /// `org_id` plus a five-value status class and NOT the route, so the series
 /// count stays bounded by orgs × 5; route detail is already on

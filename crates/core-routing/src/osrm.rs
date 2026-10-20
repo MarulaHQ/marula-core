@@ -1,5 +1,5 @@
 //! Self-hosted OSRM / OpenRouteService adapter — the first measured
-//! provider (TASKLIST lane-7 part A).
+//! provider (the private build tracker lane-7 part A).
 //!
 //! Two dialects share one adapter because they share one job (a
 //! self-hosted distance matrix + route server):

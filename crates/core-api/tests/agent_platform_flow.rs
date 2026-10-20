@@ -1,4 +1,4 @@
-//! Agent-platform v1 flow (TASKLIST Phase 3, IF8) through the REAL
+//! Agent-platform v1 flow (the private build tracker Phase 3, IF8) through the REAL
 //! core-api router.
 //!
 //! Purpose: pin the MCP-v1 + proposal-pipeline contract over HTTP:

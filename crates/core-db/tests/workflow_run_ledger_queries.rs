@@ -1,4 +1,4 @@
-//! The workflow run ledger's persistence tests (TASKLIST Wave 43 lane 14,
+//! The workflow run ledger's persistence tests (the private build tracker Wave 43 lane 14,
 //! `p43-workflow-run-ledger`, migration 0129).
 //!
 //! Purpose: prove the five claims the lane makes, and prove them as tests

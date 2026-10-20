@@ -74,7 +74,7 @@ Shipped and enforced today:
 - Migration safety lint: destructive statements rejected unless flagged `--breaking`. Filename-shape check (`scripts/check-migrations.sh` in CI).
 - RLS coverage gate. Fmt/clippy `-D warnings`. Full test matrix. Preview environment per PR.
 
-Planned gates (tracked in `TASKLIST.md`):
+Planned gates (tracked in the private build tracker):
 
 - **Deprecation clock**: `deprecated_in` / `removal_target` metadata checked at build time — a PR fails if it removes anything before its target or carries anything past it.
 - **N−2 upgrade matrix**: CI job that restores seeded fixture snapshots (production-like data including customizations and installed plugins) from each of the two prior releases, migrates to HEAD, and runs API/event/plugin conformance suites.
@@ -88,4 +88,4 @@ Planned gates (tracked in `TASKLIST.md`):
 
 ## 10. Adoption status
 
-This policy takes effect immediately for all new work. Nothing in it invalidates existing migrations (the `--breaking` convention is already in use). A retrofit backlog (customization manifest export, upgrade preflight command, read-model views, deprecation metadata, N−2 CI matrix) is tracked in `TASKLIST.md` and targeted no later than public beta, when the first external upgrade population exists. Changes to this policy go through `docs/rfc/`.
+This policy takes effect immediately for all new work. Nothing in it invalidates existing migrations (the `--breaking` convention is already in use). A retrofit backlog (customization manifest export, upgrade preflight command, read-model views, deprecation metadata, N−2 CI matrix) is tracked in the private build tracker and targeted no later than public beta, when the first external upgrade population exists. Changes to this policy go through `docs/rfc/`.

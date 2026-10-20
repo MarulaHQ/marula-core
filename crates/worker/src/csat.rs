@@ -130,7 +130,7 @@ async fn follow_stream(
             }
         }
         // Consumer backlog: PEL depth, lag and the age of the oldest unacked
-        // entry for THIS group, read after the batch (TASKLIST R7a).
+        // entry for THIS group, read after the batch (the private build tracker R7a).
         crate::stream_health::probe(conn, CONSUMER_GROUP).await;
         if let Err(error) = sweep_due(pool, config).await {
             tracing::error!(%error, "csat deferred sweep failed");

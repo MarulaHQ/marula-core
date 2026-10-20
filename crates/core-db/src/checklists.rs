@@ -1,7 +1,7 @@
 //! Checklist templates (per board), ticket-instance instantiation, and the
 //! derived progress view for pre-close enforcement.
 //!
-//! Purpose: persistence for TASKLIST 2.8's checklist half — template CRUD,
+//! Purpose: persistence for the private build tracker 2.8's checklist half — template CRUD,
 //! lazy idempotent instantiation of template items onto tickets, and the
 //! read-time progress counts that close-time gating consumes. Instance rows
 //! live in `checklist_items` (tickets.rs); this module only manages their

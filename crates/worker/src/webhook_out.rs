@@ -456,7 +456,7 @@ async fn follow_stream<S: EventStream>(
                 }
                 // Consumer backlog: PEL depth, lag and the age of the oldest
                 // unacked entry for THIS group, read after the batch
-                // (TASKLIST R7a). The trait default answers `None`, so a test
+                // (the private build tracker R7a). The trait default answers `None`, so a test
                 // double emits nothing instead of a fabricated zero.
                 if let Some(sample) = stream.health().await {
                     crate::stream_health::emit(CONSUMER_GROUP, sample);

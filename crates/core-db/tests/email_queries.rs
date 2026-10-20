@@ -1,4 +1,4 @@
-//! Query-layer tests for the email ledger and outbound queue (TASKLIST
+//! Query-layer tests for the email ledger and outbound queue (the private build tracker
 //! 2.4).
 //!
 //! Purpose: prove the SQL contracts — per-org Message-ID idempotency,

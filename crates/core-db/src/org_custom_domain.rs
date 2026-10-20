@@ -1,4 +1,4 @@
-//! Per-org custom domain storage (TASKLIST Wave 47 lane A8,
+//! Per-org custom domain storage (the private build tracker Wave 47 lane A8,
 //! `p47-org-custom-domains`, migration 0135).
 //!
 //! Four narrow seams over the three `orgs` columns, plus the one read that

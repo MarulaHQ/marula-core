@@ -240,7 +240,7 @@ export function useRequireAuth(): AuthState {
   return auth;
 }
 
-// --- attachments (TASKLIST 2.14) --------------------------------------------
+// --- attachments (the private build tracker 2.14) --------------------------------------------
 // Raw-byte surfaces (octet-stream upload, streamed download) bypass the
 // generated client on purpose: openapi-fetch models JSON bodies, while
 // attachments are binary with sidecar headers.

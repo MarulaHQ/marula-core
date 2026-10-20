@@ -1,4 +1,4 @@
-# Grafana Loki — local logs backend for Marula (TASKLIST 2.18).
+# Grafana Loki — local logs backend for Marula (the private build tracker 2.18).
 #
 # Purpose: single-binary filesystem store that accepts the collector's
 # OTLP log pipeline at /otlp/v1/logs. Retention: 7 days — the compactor

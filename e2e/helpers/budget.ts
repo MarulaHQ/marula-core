@@ -1,4 +1,4 @@
-// Flake budget (TASKLIST lane 8): a CI run is allowed at most MAX_RETRIES
+// Flake budget (the private build tracker lane 8): a CI run is allowed at most MAX_RETRIES
 // automatic retries per test and at most FLAKE_BUDGET total retried tests
 // before the run is marked unstable and fails the merge gate. Enforced by
 // the global-teardown script reading the Playwright JSON report.

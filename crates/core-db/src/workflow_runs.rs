@@ -1,4 +1,4 @@
-//! The workflow run ledger's persistence (TASKLIST Wave 43 lane 14,
+//! The workflow run ledger's persistence (the private build tracker Wave 43 lane 14,
 //! `p43-workflow-run-ledger`; migration 0129).
 //!
 //! Purpose: the only place SQL for `workflow_runs` and `workflow_run_steps`

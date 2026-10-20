@@ -1,4 +1,4 @@
-//! Time-discipline endpoints (TASKLIST 2.9/2.10): org time settings and
+//! Time-discipline endpoints (the private build tracker 2.9/2.10): org time settings and
 //! the missing-time gap reports.
 //!
 //! Purpose: admin read/write of the org's EOD-nudge knobs, the caller's

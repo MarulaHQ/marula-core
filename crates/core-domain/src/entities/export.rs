@@ -1,4 +1,4 @@
-//! Org-data export bundle (TASKLIST D1, portability/DR).
+//! Org-data export bundle (the private build tracker D1, portability/DR).
 //!
 //! Purpose: the canonical, schema-versioned JSON bundle over an org's
 //! LOGICAL entities — the generalization of the U5 customization manifest

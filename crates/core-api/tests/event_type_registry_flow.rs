@@ -1,4 +1,4 @@
-//! Event-type registry validation flow (TASKLIST Wave 43 lane 2).
+//! Event-type registry validation flow (the private build tracker Wave 43 lane 2).
 //!
 //! Verifies that webhook subscription create/update reject unknown or
 //! ungranted event types, accept platform types without a grant, and

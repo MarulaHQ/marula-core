@@ -1,5 +1,5 @@
 //! Org resource usage: the materialized row, its refresh, and the read
-//! that serves it (TASKLIST Wave 47 lane A6, migration 0131).
+//! that serves it (the private build tracker Wave 47 lane A6, migration 0131).
 //!
 //! Purpose: four narrow seams.
 //!   * [`get_usage`] reads the MATERIALIZED row the API serves — one

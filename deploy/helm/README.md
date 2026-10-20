@@ -8,7 +8,7 @@ runs as a headless stateful service with a layout-bootstrap job, which
 replaced the MinIO sample. An ingress ships with the chart and is disabled
 until you want it.
 
-Image policy (TASKLIST U10b): every image reference is digest-pinned —
+Image policy (the private build tracker U10b): every image reference is digest-pinned —
 `digestPinningEnforced: true` (default) refuses to render images without
 `images.*.digest` set. Digests are published per release with SBOM +
 provenance attestations (`.github/workflows/release.yml`).
@@ -22,7 +22,7 @@ Non-purpose: not an operator dashboard; no cross-env secret management
 beyond documented values (set `existingSecret` for production secret
 plumbing).
 
-## The public front door (TASKLIST V2)
+## The public front door (the private build tracker V2)
 
 The chart's `ingress` block is the public surface. It routes the four seams
 and applies the proxy tuning the app depends on, so a bare `ingress.enabled:

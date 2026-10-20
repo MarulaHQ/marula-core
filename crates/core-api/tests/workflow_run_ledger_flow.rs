@@ -1,5 +1,5 @@
 //! The workflow run ledger's HTTP flows through the REAL core-api router
-//! (TASKLIST Wave 43 lane 14, `p43-workflow-run-ledger`).
+//! (the private build tracker Wave 43 lane 14, `p43-workflow-run-ledger`).
 //!
 //! Purpose: prove the operator surface behaves like the rest of the product
 //! and unlike a queue flag:

@@ -1,4 +1,4 @@
-//! Search index queries (TASKLIST 2.16): the single per-entity FTS table
+//! Search index queries (the private build tracker 2.16): the single per-entity FTS table
 //! backing GET /api/search, plus the pgvector leg (migration 0062) that the
 //! two legs' reciprocal rank fusion folds together (§4.5).
 //!
@@ -30,9 +30,9 @@ pub enum SearchKind {
     Client,
     Site,
     Contact,
-    /// Native KB article (TASKLIST Phase 3 native KB v1).
+    /// Native KB article (the private build tracker Phase 3 native KB v1).
     KbArticle,
-    /// Document, indexed by its CURRENT version (TASKLIST D4).
+    /// Document, indexed by its CURRENT version (the private build tracker D4).
     Document,
 }
 

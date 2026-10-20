@@ -1,4 +1,4 @@
-# Grafana Tempo — local traces backend for Marula (TASKLIST 2.18).
+# Grafana Tempo — local traces backend for Marula (the private build tracker 2.18).
 #
 # Purpose: minimal single-binary config that accepts OTLP/HTTP on :4318
 # and requires no object storage (local WAL only). Trace-to-metrics and

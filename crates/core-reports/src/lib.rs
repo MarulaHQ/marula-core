@@ -1,7 +1,7 @@
 //! core-reports — reporting engine types, field catalog, and query compiler
 //! for the versioned `ops.v1_*` read-model layer.
 //!
-//! Purpose (TASKLIST R0/R1; ADR 0001): a THIN, typed compiler that turns
+//! Purpose (the private build tracker R0/R1; ADR 0001): a THIN, typed compiler that turns
 //! prebuilt report kinds into parameterized SQL over the read-model views,
 //! plus the fixed field catalog every identifier flows from. This crate is
 //! the security boundary of the reporting track:

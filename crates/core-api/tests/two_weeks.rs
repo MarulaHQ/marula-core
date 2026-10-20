@@ -1,4 +1,4 @@
-//! THE acceptance harness (TASKLIST 2.4 / Stage-2 anchor): "email-to-ticket
+//! THE acceptance harness (the private build tracker 2.4 / Stage-2 anchor): "email-to-ticket
 //! runs two simulated weeks with zero lost messages."
 //!
 //! Purpose: a deterministic, in-process, generator-driven simulation of 14

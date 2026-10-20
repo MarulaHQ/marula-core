@@ -1,4 +1,4 @@
-//! Quotes persistence (TASKLIST Phase 3, Wave 12 lane 2; migration
+//! Quotes persistence (the private build tracker Phase 3, Wave 12 lane 2; migration
 //! 0060): the quote document, its line items, and the per-org number
 //! sequence.
 //!

@@ -1,4 +1,4 @@
-//! Custom-field definitions and JSONB values (TASKLIST 2.17).
+//! Custom-field definitions and JSONB values (the private build tracker 2.17).
 //!
 //! Purpose: persistence for dynamic forms on the migration-0009 schema —
 //! definition CRUD (org- or board-scoped, ticket entity), value upsert/clear

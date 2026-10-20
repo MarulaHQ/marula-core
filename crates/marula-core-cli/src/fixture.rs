@@ -1,4 +1,4 @@
-//! Fixture-capture tooling (TASKLIST U7, upgrade-compatibility-policy §8).
+//! Fixture-capture tooling (the private build tracker U7, upgrade-compatibility-policy §8).
 //!
 //! Purpose: support the per-tag upgrade fixtures in `fixtures/upgrades/` —
 //! `marula fixture manifest` emits the U5 customization manifest for one

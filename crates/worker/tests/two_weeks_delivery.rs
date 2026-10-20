@@ -1,4 +1,4 @@
-//! THE delivery acceptance harness (TASKLIST R4): "scheduled delivery
+//! THE delivery acceptance harness (the private build tracker R4): "scheduled delivery
 //! runs two simulated weeks with zero lost slots."
 //!
 //! Purpose: a deterministic, in-process simulation of 14 simulated days

@@ -1,4 +1,4 @@
--- Instant-first write-path contract (TASKLIST IF1–IF3).
+-- Instant-first write-path contract (the private build tracker IF1–IF3).
 --
 -- Purpose: the durable substrate under idempotent autosave writes and the
 -- read-your-write response. Three org-scoped tables, all RLS-bound to the

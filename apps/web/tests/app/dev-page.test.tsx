@@ -1,4 +1,4 @@
-// Integration test: /dev ops page render-gating (TASKLIST DX3).
+// Integration test: /dev ops page render-gating (the private build tracker DX3).
 //
 // Purpose: the page must mirror the API's env gate — a 404/missing
 // /api/dev/status renders ONLY the disabled notice (no action buttons),

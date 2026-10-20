@@ -388,7 +388,7 @@ impl PluginCapability {
             // read-only permission rather than onto the Admin matrix — holding
             // it lets a plugin observe the flag and nothing else. There is no
             // `manage` half: setting the flag is an admin action
-            // (`admin:edit`, the gate org settings use), exactly as TASKLIST
+            // (`admin:edit`, the gate org settings use), exactly as the private build tracker
             // A7 (D) specifies.
             PluginCapability::OrgSuspensionRead => Permission::ViewOrgSuspension,
         }

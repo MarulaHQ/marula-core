@@ -1,4 +1,4 @@
-//! Webhook subscription management + delivery log (TASKLIST 2.15).
+//! Webhook subscription management + delivery log (the private build tracker 2.15).
 //!
 //! Purpose: admin CRUD for signed OUTBOUND webhooks, the cursor-paged
 //! per-webhook delivery ledger, and a test-fire endpoint. Secrets are

@@ -1,4 +1,4 @@
-//! Report schedule CRUD (TASKLIST R4) — the admin-gated HTTP surface for
+//! Report schedule CRUD (the private build tracker R4) — the admin-gated HTTP surface for
 //! scheduled report delivery.
 //!
 //! Purpose: create/read/update/delete delivery schedules over stored R3

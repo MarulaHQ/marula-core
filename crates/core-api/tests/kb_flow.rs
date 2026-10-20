@@ -1,4 +1,4 @@
-//! Knowledge-base endpoint flows (TASKLIST Phase 3 native KB v1) through
+//! Knowledge-base endpoint flows (the private build tracker Phase 3 native KB v1) through
 //! the REAL core-api router.
 //!
 //! Purpose: the /api/kb contract over HTTP —

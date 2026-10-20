@@ -2,7 +2,7 @@
 //! Workflow customization v1 lives here too: the explicit per-board
 //! transition adjacency read/written through core-api only, plus board
 //! groups/favorites annotations and per-board membership roles
-//! (TASKLIST 2.11).
+//! (the private build tracker 2.11).
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{Board, BoardFavorite, BoardGroup, BoardMember, BoardStatus};
@@ -77,7 +77,7 @@ where
     })
 }
 
-/// Content-only board update (import framework, TASKLIST D2 remainder).
+/// Content-only board update (import framework, the private build tracker D2 remainder).
 /// `is_default` is deliberately NOT writable here: switching the org's
 /// default intake board is an explicit operator action on the boards
 /// surface, never bulk content drift.
@@ -440,7 +440,7 @@ where
         .collect())
 }
 
-// --- board groups (TASKLIST 2.11) ----------------------------------------
+// --- board groups (the private build tracker 2.11) ----------------------------------------
 
 /// Creates an org-scoped nav group; names are unique per org.
 pub async fn create_group(
@@ -600,7 +600,7 @@ pub async fn set_board_group(
     Ok(())
 }
 
-// --- per-board membership roles (TASKLIST 2.11) ---------------------------
+// --- per-board membership roles (the private build tracker 2.11) ---------------------------
 
 fn member_from_row(row: sqlx::postgres::PgRow) -> DbResult<BoardMember> {
     use sqlx::Row;
@@ -722,7 +722,7 @@ where
     Ok(row.and_then(|(r,)| BoardRole::parse(&r)))
 }
 
-/// One nav-tree entry (TASKLIST 2.11): the board plus the CALLER's
+/// One nav-tree entry (the private build tracker 2.11): the board plus the CALLER's
 /// annotations — group assignment, favorite mark, and board role.
 #[derive(Debug, Clone)]
 pub struct BoardNavEntry {

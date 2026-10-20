@@ -1,4 +1,4 @@
--- Two-way calendar sync (Wave 14 lane 2, TASKLIST Phase 4 opening tranche).
+-- Two-way calendar sync (Wave 14 lane 2, the private build tracker Phase 4 opening tranche).
 --
 -- Purpose: the data model for the `CalendarSyncProvider` adapter seam and
 -- the first-party iCal provider:

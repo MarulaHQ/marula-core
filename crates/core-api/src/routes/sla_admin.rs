@@ -1,5 +1,5 @@
 //! SLA configuration surfaces: calendars, policies + escalation ladders,
-//! and automation rules (TASKLIST 2.7).
+//! and automation rules (the private build tracker 2.7).
 //!
 //! Purpose: admin-gated CRUD over the 0015 configuration tables. Writes
 //! validate through core-domain types where shapes matter (calendars,

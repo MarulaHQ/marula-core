@@ -1,4 +1,4 @@
-//! The rule builder's live draft summary (TASKLIST Wave 43 lane 17b,
+//! The rule builder's live draft summary (the private build tracker Wave 43 lane 17b,
 //! `p43-automation-builder`, C1).
 //!
 //! One SSE endpoint that streams a one-sentence summary of the automation

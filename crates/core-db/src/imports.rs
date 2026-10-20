@@ -1,4 +1,4 @@
-//! Import framework persistence (TASKLIST D2): import-batch bookkeeping and
+//! Import framework persistence (the private build tracker D2): import-batch bookkeeping and
 //! the external-id → internal-uuid mappings that make pushes idempotent.
 //!
 //! Purpose: durable state for the pure engine in `core_domain::import_core`.

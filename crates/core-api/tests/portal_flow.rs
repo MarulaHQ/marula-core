@@ -1,6 +1,6 @@
 //! Client-portal v1 end-to-end flow through the REAL core-api router.
 //!
-//! Purpose: pin the whole TASKLIST 2.13 contract over HTTP — portal login,
+//! Purpose: pin the whole the private build tracker 2.13 contract over HTTP — portal login,
 //! per-board exposure gating, the CROSS-CLIENT isolation matrix (contact A
 //! cannot read client B even in the same org), per-tier note-visibility
 //! rules (it_manager sees in-house updates, NOBODY sees internal), reply

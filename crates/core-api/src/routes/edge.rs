@@ -1,4 +1,4 @@
-//! Edge-assertion federation (TASKLIST ID2/ID3/ID4, Wave 13 lane 7):
+//! Edge-assertion federation (the private build tracker ID2/ID3/ID4, Wave 13 lane 7):
 //! ZTNA reverse-proxy authentication — the Cloudflare Access pattern.
 //! A proxy injects a SIGNED JWT (`Cf-Access-Jwt-Assertion`) into
 //! requests to the origin; the exchange endpoint validates that

@@ -1,4 +1,4 @@
-//! Customization manifest (TASKLIST U5, upgrade-compatibility-policy.md §5).
+//! Customization manifest (the private build tracker U5, upgrade-compatibility-policy.md §5).
 //!
 //! Purpose: the canonical, schema-versioned export describing everything an
 //! org has customized — custom field definitions, per-board workflow
@@ -76,7 +76,7 @@ pub struct ManifestSections {
     pub settings: Vec<ManifestSetting>,
     /// SLA configuration: calendars and policies with escalation ladders.
     pub sla: ManifestSla,
-    /// Stored report definitions (TASKLIST R3): registry-validated specs
+    /// Stored report definitions (the private build tracker R3): registry-validated specs
     /// over the versioned read-model views. Covered so the upgrade
     /// preflight (U6) can flag any definition whose `kind`/spec columns
     /// reference deprecated view or column constructs (policy §5).
@@ -376,7 +376,7 @@ pub struct ManifestEscalationStep {
     pub enabled: bool,
 }
 
-/// One stored report definition (TASKLIST R3). The spec body rides as its
+/// One stored report definition (the private build tracker R3). The spec body rides as its
 /// stored jsonb document (`{filters, group_by, measures}`) exactly like
 /// custom-field `config` — the registry-validated view/viz slugs travel as
 /// their own fields so a preflight can flag deprecated constructs without

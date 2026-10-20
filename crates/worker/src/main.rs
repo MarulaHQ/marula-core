@@ -9,7 +9,7 @@
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Shared telemetry (TASKLIST 2.18): none-mode unless
+    // Shared telemetry (the private build tracker 2.18): none-mode unless
     // OTEL_EXPORTER_OTLP_ENDPOINT is set; guard lives for `main`.
     let _telemetry = core_otel::init("worker");
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);

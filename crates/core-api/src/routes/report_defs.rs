@@ -1,4 +1,4 @@
-//! Report definitions CRUD (TASKLIST R3; ADR 0001 §Decision).
+//! Report definitions CRUD (the private build tracker R3; ADR 0001 §Decision).
 //!
 //! Purpose: the admin-gated HTTP surface for STORED report specs —
 //! registry-validated definitions over the `ops.v1_*` read-model views,

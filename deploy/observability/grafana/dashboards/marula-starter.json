@@ -1,7 +1,7 @@
 {
   "uid": "marula-starter",
   "title": "Marula Starter",
-  "description": "TASKLIST 2.18 baseline: charts every instrument from crates/core-otel/src/metrics.rs against the collector's Prometheus exposition. Metric selectors use __name__ regexes so OTLP→Prometheus unit-suffixing cannot break panels.",
+  "description": "the private build tracker 2.18 baseline: charts every instrument from crates/core-otel/src/metrics.rs against the collector's Prometheus exposition. Metric selectors use __name__ regexes so OTLP→Prometheus unit-suffixing cannot break panels.",
   "tags": ["marula", "starter"],
   "timezone": "browser",
   "schemaVersion": 39,

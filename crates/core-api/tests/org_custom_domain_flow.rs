@@ -1,4 +1,4 @@
-//! HTTP flow tests for the per-org custom domain API (TASKLIST Wave 47 lane
+//! HTTP flow tests for the per-org custom domain API (the private build tracker Wave 47 lane
 //! A8, `p47-org-custom-domains`, migration 0135) over the REAL core-api
 //! router.
 //!

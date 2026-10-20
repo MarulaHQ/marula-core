@@ -1,4 +1,4 @@
-//! Missing-time gap audit — the pure decision layer (TASKLIST 2.10).
+//! Missing-time gap audit — the pure decision layer (the private build tracker 2.10).
 //!
 //! Purpose: date/window math over IANA timezones (DST-safe) and the
 //! activity-vs-entries gap rule, shared verbatim by the EOD nudge run

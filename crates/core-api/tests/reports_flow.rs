@@ -1,4 +1,4 @@
-//! End-to-end operational reports flows (TASKLIST R1) through the REAL
+//! End-to-end operational reports flows (the private build tracker R1) through the REAL
 //! core-api router against a real Postgres.
 //!
 //! Purpose: prove the reports surface over HTTP — the eight kinds compile

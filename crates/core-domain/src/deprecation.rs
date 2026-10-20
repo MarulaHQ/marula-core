@@ -1,4 +1,4 @@
-//! Deprecation metadata and the removal clock (policy §3/§8, TASKLIST U4).
+//! Deprecation metadata and the removal clock (policy §3/§8, the private build tracker U4).
 //!
 //! Purpose: the typed model behind `deprecations.json` — every deprecated
 //! construct (API surface, domain event, migration construct, or anything

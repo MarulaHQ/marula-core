@@ -1,7 +1,7 @@
 # ADR 0001 — Reporting stack: thin in-app builder over read-model views
 
 **Status:** Accepted · 2026-08-27
-**Scope:** Reporting engine track (TASKLIST R0–R6)
+**Scope:** Reporting engine track (the private build tracker R0–R6)
 
 ## Context
 

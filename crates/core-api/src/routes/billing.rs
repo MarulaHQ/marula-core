@@ -1,4 +1,4 @@
-//! Contracts + recurring-billing rule evaluation (TASKLIST Phase 3,
+//! Contracts + recurring-billing rule evaluation (the private build tracker Phase 3,
 //! Wave 8b lane BILLING).
 //!
 //! Purpose: contract CRUD across the four commercial types (recurring /

@@ -1,4 +1,4 @@
--- Per-client workflow overrides (Wave 12 lane 5, TASKLIST; migration 0063 is
+-- Per-client workflow overrides (Wave 12 lane 5, the private build tracker; migration 0063 is
 -- this lane's exclusive window).
 --
 -- Purpose: let a CLIENT override org workflow defaults — intake board/status,

@@ -1,4 +1,4 @@
-//! End-to-end scheduling flows (TASKLIST 2.12) driven through the REAL
+//! End-to-end scheduling flows (the private build tracker 2.12) driven through the REAL
 //! core-api router against a real Postgres.
 //!
 //! Purpose: prove the booking lifecycle over HTTP — conflict dry-run

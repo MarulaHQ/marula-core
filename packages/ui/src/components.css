@@ -394,7 +394,7 @@
    destructive red. The error TEXT under it reads `--m-status-danger-fg`, the
    kit's breach red, which is deeper on purpose (8.96:1 on white where
    destructive is 6.57:1). Two values, one red family, and a follow-up in
-   TASKLIST.md about collapsing them. */
+   the private build tracker about collapsing them. */
 
 .m-input[aria-invalid="true"],
 .m-textarea[aria-invalid="true"] {

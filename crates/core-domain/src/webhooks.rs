@@ -1,4 +1,4 @@
-//! Webhook OUT delivery primitives (TASKLIST 2.15): the signed-payload
+//! Webhook OUT delivery primitives (the private build tracker 2.15): the signed-payload
 //! scheme receivers verify, the anti-replay window, and the retry backoff
 //! schedule.
 //!

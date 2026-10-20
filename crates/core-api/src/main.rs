@@ -2,7 +2,7 @@
 //! Startup migrations run only with RUN_MIGRATIONS=1 (checksummed history
 //! in `_sqlx_migrations`); compose's `migrate` one-shot as the schema
 //! owner is the normal path — the RLS role cannot CREATE TABLE on fresh
-//! installs (TASKLIST backend-gaps lane).
+//! installs (the private build tracker backend-gaps lane).
 //!
 //! With `MARULA_ALL_IN_ONE=1` this same process also hosts the worker
 //! loops (Wave 49 lane R4); see `core_api::all_in_one`.
@@ -11,7 +11,7 @@ use anyhow::Context;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Shared telemetry (TASKLIST 2.18): none-mode unless
+    // Shared telemetry (the private build tracker 2.18): none-mode unless
     // OTEL_EXPORTER_OTLP_ENDPOINT is set; guard lives for `main`.
     let _telemetry = core_otel::init("core-api");
 
@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
             "connecting to Postgres — check DATABASE_URL and that the database \
              is reachable (dev compose: `docker compose up -d postgres`)",
         )?;
-    // Startup migrations are OPT-IN (TASKLIST backend-gaps lane, 2026-09-10):
+    // Startup migrations are OPT-IN (the private build tracker backend-gaps lane, 2026-09-10):
     // running them as `marula_app` fails on fresh installs — Postgres 17
     // denies even `CREATE TABLE IF NOT EXISTS _sqlx_migrations` to the RLS
     // role (0001 grants USAGE on public only). Compose runs the `migrate`

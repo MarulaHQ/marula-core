@@ -1,4 +1,4 @@
-//! Email message ledger and outbound send-queue queries (TASKLIST 2.4).
+//! Email message ledger and outbound send-queue queries (the private build tracker 2.4).
 //!
 //! Purpose: persistence for `email_messages` (idempotent inbound ledger +
 //! outbound content), the `email_outbound` retry queue with atomic

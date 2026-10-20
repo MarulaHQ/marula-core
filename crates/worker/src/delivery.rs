@@ -1,4 +1,4 @@
-//! worker/delivery — scheduled report delivery (TASKLIST R4).
+//! worker/delivery — scheduled report delivery (the private build tracker R4).
 //!
 //! Purpose: claim due `report_schedules` rows, render the referenced R3
 //! definition as CSV over the `ops.v1_*` read-model views, and mail it to

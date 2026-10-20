@@ -1,4 +1,4 @@
--- Native knowledge base v1 (TASKLIST Phase 3 "Native KB v1: articles,
+-- Native knowledge base v1 (the private build tracker Phase 3 "Native KB v1: articles,
 -- categories, FTS, client-facing flags").
 --
 -- Purpose: two org-scoped tables backing crates/core-kb and the /api/kb
@@ -11,7 +11,7 @@
 --   * kb_articles — the article body of work. `status` is a closed
 --     vocabulary (draft | published | archived) so filtering and the
 --     client-facing rule stay deterministic; `client_visible` is the
---     per-article flag that portal v2 (TASKLIST Phase 3) will honor — the
+--     per-article flag that portal v2 (the private build tracker Phase 3) will honor — the
 --     effective client view is published AND article flag AND category
 --     flag (core-kb::client_viewable). Deletion of a category leaves its
 --     articles in place (ON DELETE SET NULL) so URLs never rot behind an

@@ -1,5 +1,5 @@
 //! Attachments end-to-end flow through the REAL core-api router
-//! (TASKLIST 2.14).
+//! (the private build tracker 2.14).
 //!
 //! Purpose: pin the whole attachment contract over HTTP — the upload
 //! validation matrix (size cap, missing filename, executable magic,

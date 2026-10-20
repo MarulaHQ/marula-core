@@ -1,4 +1,4 @@
--- Native invoicing v1 (TASKLIST Phase 3, Wave 9 lane INVOICING; migration
+-- Native invoicing v1 (the private build tracker Phase 3, Wave 9 lane INVOICING; migration
 -- 0036 is this lane's exclusive window).
 --
 -- Purpose: the invoice-run persistence the Wave 8b billing lane
@@ -46,7 +46,7 @@
 -- (dunning transitions are explicit API writes). Voiding releases
 -- nothing: consumption links and billed-period markers are permanent, so
 -- re-running a window can never double-bill (v1 gap, recorded in
--- TASKLIST).
+-- the private build tracker).
 --
 -- Additive-only (U9 gate): new tables plus one counter column on orgs;
 -- nothing existing is rewritten or dropped.

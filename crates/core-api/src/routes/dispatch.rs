@@ -1,4 +1,4 @@
-//! Dispatch board endpoints (TASKLIST 2.19): the day view a dispatcher
+//! Dispatch board endpoints (the private build tracker 2.19): the day view a dispatcher
 //! plans against, the atomic bulk-move that re-validates every target
 //! slot, and queue→technician assignment.
 //!
@@ -678,7 +678,7 @@ pub struct AssignRequest {
 }
 
 // ===========================================================================
-// Dispatch v2 — resource planning (TASKLIST Phase 3, Wave 9 lane 9)
+// Dispatch v2 — resource planning (the private build tracker Phase 3, Wave 9 lane 9)
 //
 // Three planning surfaces over the same Scheduling-module grant the day
 // view uses, plus the travel/mileage drafts that convert through the

@@ -1,4 +1,4 @@
-//! QuickBooks Online export-sync adapter (TASKLIST Phase 3 adapters line).
+//! QuickBooks Online export-sync adapter (the private build tracker Phase 3 adapters line).
 //!
 //! Purpose: push Marula invoices and payments into a customer-provided
 //! QBO company over the PUBLIC QBO REST API (`/v3/company/{realmId}/...`)

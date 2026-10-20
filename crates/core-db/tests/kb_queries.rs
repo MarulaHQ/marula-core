@@ -1,4 +1,4 @@
-//! Knowledge-base query-layer tests (native KB v1, TASKLIST Phase 3) —
+//! Knowledge-base query-layer tests (native KB v1, the private build tracker Phase 3) —
 //! seed slots 130–139 are this suite's private range.
 //!
 //! Purpose: prove the SQL layer — category/article CRUD, the client-visible

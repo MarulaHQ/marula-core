@@ -1,4 +1,4 @@
--- Workflow customization v1 (TASKLIST 2.1): explicit per-board status
+-- Workflow customization v1 (the private build tracker 2.1): explicit per-board status
 -- transitions + defensive seeding of the four semantic category defaults.
 --
 -- Purpose: give every board an explicit transition adjacency that gates the

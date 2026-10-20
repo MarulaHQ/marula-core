@@ -1,4 +1,4 @@
-// Dispatch board drag-state machine (TASKLIST 2.19).
+// Dispatch board drag-state machine (the private build tracker 2.19).
 //
 // Purpose: a PURE reducer owning everything interactive about the
 // dispatch board so the drag-and-drop logic is testable headlessly:

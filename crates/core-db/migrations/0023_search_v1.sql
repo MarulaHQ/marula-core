@@ -1,4 +1,4 @@
--- Unified search v1 (TASKLIST 2.16): one per-entity index table backing
+-- Unified search v1 (the private build tracker 2.16): one per-entity index table backing
 -- GET /api/search. Rows are written ONLY by core-api's internal effect
 -- surface (`/internal/search/upsert|delete`) on behalf of the worker's
 -- event-driven indexer; nothing else may write it.

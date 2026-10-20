@@ -1,4 +1,4 @@
--- Workflow constructs (Wave 11 lane 9, TASKLIST; migration 0056 is this
+-- Workflow constructs (Wave 11 lane 9, the private build tracker; migration 0056 is this
 -- lane's exclusive window — 0055 reserved if the lane splits).
 --
 -- Four ticket-workflow constructs, additive-only (U9 gate: new tables plus

@@ -1,4 +1,4 @@
-//! DocumentVersion query-layer tests (TASKLIST D4, agent-platform §6) —
+//! DocumentVersion query-layer tests (the private build tracker D4, agent-platform §6) —
 //! seed slots 140–149 are this suite's private range.
 //!
 //! Purpose: prove the SQL layer — document creation carries version 1,

@@ -1,4 +1,4 @@
--- KB rich content (Wave 13 lane 4 `p13-kb-rich`; TASKLIST KB1 + KB2,
+-- KB rich content (Wave 13 lane 4 `p13-kb-rich`; the private build tracker KB1 + KB2,
 -- ADR 0004). Three adds, all org-scoped and RLS-gated:
 --
 --   * kb_embed_providers — the oEmbed allowlist registry. An embed URL is

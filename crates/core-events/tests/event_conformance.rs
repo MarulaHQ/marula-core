@@ -1,4 +1,4 @@
-//! Event-evolution conformance suite (policy §2, TASKLIST U2).
+//! Event-evolution conformance suite (policy §2, the private build tracker U2).
 //!
 //! Proves the three promises of the domain-events contract against the
 //! published-payload registry (`core_events::contract`) and the committed

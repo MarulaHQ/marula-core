@@ -10,7 +10,7 @@ may contribute. Three reference plugins live in `plugins/wasm/`, and the
 `plugin.action` workflow path applies a small trusted effect set.
 
 What the core does **not** yet do is execute plugin code. That runtime is scoped
-as **Wave 53** in [`TASKLIST.md`](../../TASKLIST.md). It covers the sandboxed
+as **Wave 53** in the private build tracker. It covers the sandboxed
 WASM host, the host-function ABI, resource limits, connector egress and the
 lifecycle around them.
 

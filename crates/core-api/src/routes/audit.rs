@@ -6,7 +6,7 @@
 //!
 //! * default (newest first) — "what just happened". A page may shift when new
 //!   rows arrive; that is fine for a human reading a list.
-//! * `order=asc` + `after=<cursor>` — the EXPORT contract (TASKLIST R7a).
+//! * `order=asc` + `after=<cursor>` — the EXPORT contract (the private build tracker R7a).
 //!   An external consumer stores the cursor it got back and resumes from it:
 //!   rows arrive oldest-first, keyed on `(occurred_at, id)`, so a concurrently
 //!   written row always lands in a later page and never between two pages

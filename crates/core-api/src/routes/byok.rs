@@ -1,5 +1,5 @@
 //! BYOK (Bring-Your-Own-Key) AI completion settings and connectivity test
-//! (TASKLIST Phase 3 adapters lane).
+//! (the private build tracker Phase 3 adapters lane).
 //!
 //! Purpose:
 //! - `PUT /api/settings/ai/byok` — seals and stores an API key/OAuth token

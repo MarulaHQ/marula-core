@@ -1,5 +1,5 @@
 //! worker/search_indexer — event-driven auto-indexing for unified search
-//! (TASKLIST 2.16).
+//! (the private build tracker 2.16).
 //!
 //! Purpose: consume the domain event stream and keep the search index in
 //! step with tickets, comments, clients, sites and contacts. On every
@@ -49,10 +49,10 @@ pub enum Target {
     Client(Uuid),
     Site(Uuid),
     Contact(Uuid),
-    /// Native KB article (TASKLIST Phase 3 native KB v1).
+    /// Native KB article (the private build tracker Phase 3 native KB v1).
     Article(Uuid),
     /// Document whose CURRENT version is the searchable content
-    /// (TASKLIST D4).
+    /// (the private build tracker D4).
     Document(Uuid),
 }
 

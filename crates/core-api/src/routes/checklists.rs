@@ -1,4 +1,4 @@
-//! Board checklist-template configuration endpoints (TASKLIST 2.8):
+//! Board checklist-template configuration endpoints (the private build tracker 2.8):
 //! create/replace, read, and delete a board's pre-close checklist template,
 //! plus the per-board enforcement toggle. Board-admin gated
 //! (`Permission::ManageBoards`); every mutation emits an outbox event in-tx.

@@ -1,4 +1,4 @@
--- SLA engine v1 + automations v1 (TASKLIST 2.7).
+-- SLA engine v1 + automations v1 (the private build tracker 2.7).
 --
 -- Purpose: org-level business-hours calendars (tz, weekday windows,
 -- holidays, maintenance windows) that policies attach to; per-policy

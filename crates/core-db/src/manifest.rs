@@ -1,4 +1,4 @@
-//! Customization-manifest loader (TASKLIST U5, upgrade-compatibility-policy
+//! Customization-manifest loader (the private build tracker U5, upgrade-compatibility-policy
 //! .md §5).
 //!
 //! Purpose: assemble the org's canonical [`CustomizationManifest`] — every
@@ -429,7 +429,7 @@ async fn load_sla(conn: &mut PgConnection, org_id: Uuid) -> DbResult<ManifestSla
     })
 }
 
-// --- report definitions (TASKLIST R3) -------------------------------------------------
+// --- report definitions (the private build tracker R3) -------------------------------------------------
 
 /// Stored report specs are customizations-as-data: the U6 preflight must
 /// see every definition's view/viz/scope slugs and spec body so it can

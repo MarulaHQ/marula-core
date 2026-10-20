@@ -1,4 +1,4 @@
-// Dashboards domain model (TASKLIST R2) — the pure half: widget catalog,
+// Dashboards domain model (the private build tracker R2) — the pure half: widget catalog,
 // default presets, per-user widget-row persistence through the settings
 // registry, and the RBAC seam.
 //

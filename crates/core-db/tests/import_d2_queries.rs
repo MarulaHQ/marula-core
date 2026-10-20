@@ -1,4 +1,4 @@
-//! D2-remainder persistence coverage (TASKLIST D2): saved field-mapping
+//! D2-remainder persistence coverage (the private build tracker D2): saved field-mapping
 //! templates and the async giant-batch bookkeeping (staged chunks + the
 //! once-only worker-enqueue stamp) against a real Postgres.
 //!

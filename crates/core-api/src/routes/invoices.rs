@@ -1,4 +1,4 @@
-//! Native invoicing v1 (TASKLIST Phase 3, Wave 9 lane INVOICING).
+//! Native invoicing v1 (the private build tracker Phase 3, Wave 9 lane INVOICING).
 //!
 //! Purpose: contract → invoice run → document → payments → dunning
 //! states. `POST /api/billing/invoice-runs` evaluates every billable
@@ -28,7 +28,7 @@
 //!
 //! Documents: PDF output deliberately ships as print-ready HTML (a
 //! heavyweight PDF toolchain would violate the dependency budget; the
-//! gap is recorded in TASKLIST).
+//! gap is recorded in the private build tracker).
 //!
 //! Instant-first contract (docs/instant-first.md): the run, void,
 //! payment, and dunning writes are idempotency-keyed with read-your-
@@ -983,7 +983,7 @@ pub async fn get_invoice(
 
 /// GET /api/invoices/{id}/document — the print-ready HTML invoice
 /// document (print-to-PDF from any browser; v1 ships no PDF binary
-/// output — see TASKLIST).
+/// output — see the private build tracker).
 #[utoipa::path(operation_id = "invoices_document", get, path = "/api/invoices/{id}/document", tag = "billing", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, content_type = "text/html", body = String),

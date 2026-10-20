@@ -1,4 +1,4 @@
-// /settings/api-keys — machine credential management (TASKLIST 2.6).
+// /settings/api-keys — machine credential management (the private build tracker 2.6).
 //
 // Purpose: create scoped API keys over the existing /api/v1/api-keys
 // endpoints (name + capability-scope picker from the server's known

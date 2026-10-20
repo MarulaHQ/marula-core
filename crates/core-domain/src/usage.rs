@@ -1,6 +1,6 @@
 //! Org resource-usage vocabulary — the closed set of metrics the hosted
 //! tier monitors and the percentage arithmetic that reports them against
-//! configured limits (TASKLIST Wave 47 lane A6).
+//! configured limits (the private build tracker Wave 47 lane A6).
 //!
 //! Posture, stated once so every caller inherits it: usage is a REPORT.
 //! Nothing in this module, in the storage layer, or in the API throttles,

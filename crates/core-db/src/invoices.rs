@@ -1,4 +1,4 @@
-//! Native invoicing v1 (TASKLIST Phase 3, Wave 9): invoice runs,
+//! Native invoicing v1 (the private build tracker Phase 3, Wave 9): invoice runs,
 //! invoices + lines, time-entry consumption links, and payments over
 //! migration 0036's tables.
 //!

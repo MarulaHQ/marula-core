@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Wave 13 lane 3 (TASKLIST RLS-scope audit): every tenant read must
+      # Wave 13 lane 3 (the private build tracker RLS-scope audit): every tenant read must
       # ride an org-bound tx (set_org_and_user); allowlisted pre-auth
       # SECURITY DEFINER bridges + dev-tools surfaces are the only raw-pool
       # reads. New pool-reads fail review here.

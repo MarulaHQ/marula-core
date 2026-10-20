@@ -1,4 +1,4 @@
--- Report definitions as data (TASKLIST R3; ADR 0001 §Decision).
+-- Report definitions as data (the private build tracker R3; ADR 0001 §Decision).
 --
 -- Purpose: durable storage for STORED report specs — one row per saved
 -- report definition. Each row carries the registry-backed identification

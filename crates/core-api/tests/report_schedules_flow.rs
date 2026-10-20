@@ -1,4 +1,4 @@
-//! Report-schedule CRUD flow (TASKLIST R4) through the REAL core-api
+//! Report-schedule CRUD flow (the private build tracker R4) through the REAL core-api
 //! router.
 //!
 //! Purpose: the scheduled-delivery admin contract over HTTP —

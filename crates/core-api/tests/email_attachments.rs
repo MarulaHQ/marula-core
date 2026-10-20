@@ -1,4 +1,4 @@
-//! Inbound email attachment extraction (TASKLIST 2.14) through the REAL
+//! Inbound email attachment extraction (the private build tracker 2.14) through the REAL
 //! `process_inbound` pipeline on the two-weeks harness.
 //!
 //! Purpose: pin the scan-gate ordering and storage semantics for mail

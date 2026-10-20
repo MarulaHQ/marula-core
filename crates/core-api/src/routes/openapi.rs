@@ -2,7 +2,7 @@
 //! handlers — never hand-written (§2 tooling doctrine). The generated TS
 //! SDK (packages/sdk) is produced from this same document.
 //!
-//! ## Versioning stance (TASKLIST U1, policy §2/§3)
+//! ## Versioning stance (the private build tracker U1, policy §2/§3)
 //!
 //! `/api/v1` is the CONTRACT: [`canonicalize_paths`] rewrites every
 //! documented `/api/*` key onto its `/api/v1` twin at assembly time so the
@@ -191,7 +191,7 @@ use utoipa::OpenApi;
         crate::routes::email_admin::test_send,
         crate::routes::email_admin::put_board_identity,
         crate::routes::audit::list,
-        // provenance read model (TASKLIST IF9): audit query API extended
+        // provenance read model (the private build tracker IF9): audit query API extended
         // with per-field write-trail provenance over migration 0043
         crate::routes::provenance::list,
         crate::routes::reports::report,
@@ -211,14 +211,14 @@ use utoipa::OpenApi;
         crate::routes::report_defs::catalog,
         crate::routes::report_defs::run,
         crate::routes::report_defs::run_spec,
-        // scheduled report delivery (TASKLIST R4)
+        // scheduled report delivery (the private build tracker R4)
         crate::routes::report_schedules::list,
         crate::routes::report_schedules::create,
         crate::routes::report_schedules::get_one,
         crate::routes::report_schedules::update,
         crate::routes::report_schedules::remove,
         crate::routes::report_schedules::deliveries,
-        // agent platform (TASKLIST Phase 3, IF8)
+        // agent platform (the private build tracker Phase 3, IF8)
         crate::routes::agent_platform::capabilities_list,
         crate::routes::agent_platform::capabilities_put,
         crate::routes::agent_platform::capabilities_delete,
@@ -330,7 +330,7 @@ use utoipa::OpenApi;
         // self-host services visibility (Wave 36 lane 3): owner/admin read
         // of the ops stack — health sweep, detections, link-out cards.
         crate::routes::self_host::get,
-        // BYOK sealed credentials + completion seam (TASKLIST Phase 3
+        // BYOK sealed credentials + completion seam (the private build tracker Phase 3
         // adapters lane): owner/admin-gated, instant-first write path.
         crate::routes::byok::get_ai_status,
         crate::routes::byok::put_byok_secret,
@@ -621,7 +621,7 @@ use utoipa::OpenApi;
         crate::routes::invoices::list_payments,
         crate::routes::invoices::transition_dunning,
         crate::routes::invoices::send_statement,
-        // credit notes (TASKLIST Money+docs backend gap)
+        // credit notes (the private build tracker Money+docs backend gap)
         crate::routes::credit_notes::issue,
         crate::routes::credit_notes::list,
         crate::routes::credit_notes::get_one,
@@ -744,7 +744,7 @@ use utoipa::OpenApi;
         crate::routes::imports::delete_template,
         crate::routes::imports::stage_chunk,
         crate::routes::imports::run_batch,
-        // migration connector (TASKLIST D3)
+        // migration connector (the private build tracker D3)
         crate::routes::connector::create_session,
         crate::routes::connector::get_session,
         crate::routes::connector::post_chunk,
@@ -776,7 +776,7 @@ use utoipa::OpenApi;
         crate::routes::sign_offs::create_consent,
         crate::routes::portal::list_attachments,
         crate::routes::portal::download_attachment,
-        // portal v2 (TASKLIST Phase 3): invoices, KB, appointment requests
+        // portal v2 (the private build tracker Phase 3): invoices, KB, appointment requests
         crate::routes::portal_v2::list_invoices,
         crate::routes::portal_v2::get_invoice,
         crate::routes::portal_v2::invoice_document,
@@ -797,7 +797,7 @@ use utoipa::OpenApi;
         crate::routes::appointment_requests::list,
         crate::routes::appointment_requests::approve,
         crate::routes::appointment_requests::decline,
-        // knowledge base (TASKLIST Phase 3 native KB v1)
+        // knowledge base (the private build tracker Phase 3 native KB v1)
         crate::routes::kb::list_categories,
         crate::routes::kb::create_category,
         crate::routes::kb::update_category,
@@ -822,7 +822,7 @@ use utoipa::OpenApi;
         crate::routes::kb_rich::update_external_document,
         crate::routes::kb_rich::delete_external_document,
         crate::routes::kb_rich::link_check_external_document,
-        // documents with immutable versions (TASKLIST D4)
+        // documents with immutable versions (the private build tracker D4)
         crate::routes::documents::list,
         crate::routes::documents::create,
         crate::routes::documents::get_one,
@@ -924,7 +924,7 @@ use utoipa::OpenApi;
         crate::routes::dedupe::get_workflow,
         crate::routes::dedupe::put_workflow,
         crate::routes::dedupe::run_workflow,
-        // projects line (TASKLIST Phase 3)
+        // projects line (the private build tracker Phase 3)
         crate::routes::projects::list,
         crate::routes::projects::create,
         crate::routes::projects::get_one,
@@ -952,7 +952,7 @@ use utoipa::OpenApi;
         crate::routes::projects::patch_template,
         crate::routes::projects::delete_template,
         crate::routes::projects::instantiate,
-        // alert ingestor (TASKLIST Phase 3): HMAC webhook ingest →
+        // alert ingestor (the private build tracker Phase 3): HMAC webhook ingest →
         // dedup/correlation → incident tickets
         crate::routes::alerts::ingest,
         crate::routes::alerts::sources_list,
@@ -978,7 +978,7 @@ use utoipa::OpenApi;
         crate::routes::rag::get_deletion_receipt,
     ),
     components(schemas(
-        // import framework (TASKLIST D2)
+        // import framework (the private build tracker D2)
         // Wave 43 track 2 lane 12: sign-off request bodies.
         crate::routes::sign_offs::CreateSignOffRequest,
         crate::routes::sign_offs::RevokeSignOffRequest,
@@ -1004,7 +1004,7 @@ use utoipa::OpenApi;
         crate::routes::imports::StageChunkRequest,
         crate::routes::imports::StageChunkResponse,
         crate::routes::imports::RunBatchResponse,
-        // migration connector (TASKLIST D3)
+        // migration connector (the private build tracker D3)
         crate::routes::connector::PushCheckpoint,
         crate::routes::connector::CreatePushSessionRequest,
         crate::routes::connector::PushSessionCreated,
@@ -1018,7 +1018,7 @@ use utoipa::OpenApi;
         crate::routes::connector::PullQuery,
         crate::routes::connector::PullItem,
         crate::routes::connector::PullPage,
-        // org-data export (TASKLIST D1, generalizes the U5 manifest)
+        // org-data export (the private build tracker D1, generalizes the U5 manifest)
         crate::routes::export::ExportCreatedResponse,
         core_domain::entities::export::ExportBundle,
         core_domain::entities::export::ExportSections,
@@ -1208,7 +1208,7 @@ use utoipa::OpenApi;
         crate::routes::notifications::UpdatePreferenceRequest,
         core_domain::entities::AuditEvent,
         core_domain::entities::Actor,
-        // instant-first write-path contract (TASKLIST IF1–IF3)
+        // instant-first write-path contract (the private build tracker IF1–IF3)
         crate::instant::MutationParams,
         crate::instant::MutationMeta,
         // stock + consumables (Wave 32 lane 1)
@@ -1364,7 +1364,7 @@ use utoipa::OpenApi;
         crate::routes::tickets::TicketCommentMutationResponse,
         crate::routes::tickets::TicketChecklistMutationResponse,
         crate::routes::tickets::TicketChecklistBatchResponse,
-        // undo as a core capability (TASKLIST IF7)
+        // undo as a core capability (the private build tracker IF7)
         crate::routes::undo::UndoStackQuery,
         crate::routes::undo::UndoMode,
         crate::routes::undo::UndoStep,
@@ -1570,7 +1570,7 @@ use utoipa::OpenApi;
         crate::routes::taxonomy::TicketBoardMoveResponse,
         core_domain::settings::SettingKind,
         core_domain::settings::SettingValue,
-        // customization manifest (TASKLIST U5, policy §5)
+        // customization manifest (the private build tracker U5, policy §5)
         core_domain::entities::manifest::CustomizationManifest,
         core_domain::entities::manifest::ManifestSections,
         core_domain::entities::manifest::ManifestSla,
@@ -1598,7 +1598,7 @@ use utoipa::OpenApi;
         crate::routes::workflow_overrides::OverrideRegistryResponse,
         crate::routes::workflow_overrides::PutOverrideRequest,
         crate::routes::workflow_overrides::OverrideMutationResponse,
-        // report definitions as data (TASKLIST R3; ADR 0001)
+        // report definitions as data (the private build tracker R3; ADR 0001)
         core_reports::ReportSpec,
         core_reports::SpecFilter,
         core_reports::FilterValue,
@@ -1619,7 +1619,7 @@ use utoipa::OpenApi;
         crate::routes::report_defs::CreateReportDefinitionRequest,
         crate::routes::report_defs::UpdateReportDefinitionRequest,
         crate::routes::report_defs::ReportDefinitionMutationResponse,
-        // scheduled report delivery (TASKLIST R4)
+        // scheduled report delivery (the private build tracker R4)
         crate::routes::report_schedules::ScheduleCadence,
         crate::routes::report_schedules::ReportScheduleView,
         crate::routes::report_schedules::ReportSchedulePage,
@@ -1630,7 +1630,7 @@ use utoipa::OpenApi;
         crate::routes::report_schedules::ReportDeliveryView,
         crate::routes::report_schedules::ReportDeliveryPage,
         crate::routes::report_schedules::DeliveryListQuery,
-        // credit notes (TASKLIST Money+docs backend gap)
+        // credit notes (the private build tracker Money+docs backend gap)
         crate::routes::credit_notes::IssueCreditNoteRequest,
         crate::routes::credit_notes::CreditNoteDetail,
         crate::routes::credit_notes::CreditNoteListQuery,
@@ -1710,7 +1710,7 @@ use utoipa::OpenApi;
         crate::routes::service_accounts::ServiceAccountList,
         crate::routes::service_accounts::CreateServiceAccountRequest,
         crate::routes::service_accounts::UpdateServiceAccountRequest,
-        // scheduling (TASKLIST 2.12)
+        // scheduling (the private build tracker 2.12)
         core_domain::entities::Appointment,
         core_domain::entities::AppointmentKind,
         core_domain::entities::AppointmentStatus,
@@ -1835,7 +1835,7 @@ use utoipa::OpenApi;
         core_domain::events::PluginPublisherVerified,
         core_domain::events::PluginPublisherRevoked,
         core_domain::events::PluginRatingRecorded,
-        // dispatch board (TASKLIST 2.19)
+        // dispatch board (the private build tracker 2.19)
         crate::routes::dispatch::DispatchDayQuery,
         crate::routes::dispatch::DispatchDayView,
         crate::routes::dispatch::DispatchAppointment,
@@ -1978,7 +1978,7 @@ use utoipa::OpenApi;
         crate::routes::invoices::DunningTransitionRequest,
         crate::routes::invoices::InvoiceMutationResponse,
         crate::routes::invoices::PaymentMutationResponse,
-        // attachments (TASKLIST 2.14)
+        // attachments (the private build tracker 2.14)
         core_domain::entities::Attachment,
         core_domain::entities::AttachmentKind,
         // download ticket: the presigned alternative to the streamed bytes
@@ -1993,7 +1993,7 @@ use utoipa::OpenApi;
         core_domain::entities::SignOffSignerKind,
         core_domain::entities::SignOffView,
         crate::routes::portal::PortalAttachmentView,
-        // portal v2 (TASKLIST Phase 3): invoices, KB, appointment requests
+        // portal v2 (the private build tracker Phase 3): invoices, KB, appointment requests
         crate::routes::portal_v2::PortalInvoice,
         crate::routes::portal_v2::PortalInvoiceDetail,
         crate::routes::portal_v2::PortalQuote,
@@ -2019,7 +2019,7 @@ use utoipa::OpenApi;
         crate::routes::appointment_requests::AppointmentRequestListQuery,
         crate::routes::appointment_requests::DecideAppointmentRequest,
         crate::routes::appointment_requests::DecideResponse,
-        // knowledge base (TASKLIST Phase 3 native KB v1)
+        // knowledge base (the private build tracker Phase 3 native KB v1)
         core_domain::entities::kb::KbCategory,
         core_domain::entities::kb::KbArticle,
         core_domain::entities::kb::KbArticleStatus,
@@ -2052,7 +2052,7 @@ use utoipa::OpenApi;
         crate::routes::kb_rich::UpdateExternalDocumentRequest,
         crate::routes::kb_rich::ExternalDocumentMutationResponse,
         crate::routes::kb_rich::LinkCheckResponse,
-        // documents with immutable versions (TASKLIST D4)
+        // documents with immutable versions (the private build tracker D4)
         core_domain::entities::documents::Document,
         core_domain::entities::documents::DocumentVersion,
         crate::routes::documents::DocumentView,
@@ -2153,7 +2153,7 @@ use utoipa::OpenApi;
         crate::routes::secrets::SetSecretGrantRequest,
         crate::routes::passwords::UpdatePasswordRequest,
         crate::routes::passwords::PasswordListQuery,
-        // projects line (TASKLIST Phase 3)
+        // projects line (the private build tracker Phase 3)
         core_domain::entities::Project,
         core_domain::entities::ProjectPhase,
         core_domain::entities::ProjectTask,
@@ -2194,7 +2194,7 @@ use utoipa::OpenApi;
         crate::routes::projects::TemplateMutationResponse,
         crate::routes::projects::InstantiateTemplateRequest,
         crate::routes::projects::ProjectInstantiateResponse,
-        // alert ingestor (TASKLIST Phase 3)
+        // alert ingestor (the private build tracker Phase 3)
         crate::routes::alerts::AlertSeverity,
         crate::routes::alerts::AlertView,
         crate::routes::alerts::IncidentView,
@@ -2214,7 +2214,7 @@ use utoipa::OpenApi;
         crate::routes::similar_tickets::SimilarTicketsQuery,
         crate::routes::similar_tickets::SimilarTicketCandidate,
         crate::routes::similar_tickets::SimilarTicketsResponse,
-        // agent platform (TASKLIST Phase 3, IF8)
+        // agent platform (the private build tracker Phase 3, IF8)
         crate::routes::agent_platform::CapabilityMode,
         crate::routes::agent_platform::ProposalClassification,
         crate::routes::agent_platform::ProposalStatus,

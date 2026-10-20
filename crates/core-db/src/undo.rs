@@ -1,4 +1,4 @@
-//! Undo read-model queries (TASKLIST IF7, Wave 9 lane 5).
+//! Undo read-model queries (the private build tracker IF7, Wave 9 lane 5).
 //!
 //! Reads the per-field / per-record applied-state history from the
 //! versioned `ops.v1_record_undo_stack` / `ops.v1_field_undo_stack` views

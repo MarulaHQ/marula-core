@@ -266,7 +266,7 @@ pub async fn run(
         ));
     }
 
-    // Scheduled report delivery (TASKLIST R4): transport-unset deploys
+    // Scheduled report delivery (the private build tracker R4): transport-unset deploys
     // run the LEDGERED log-skip none mode — schedules still advance and
     // every run stays visible, so this loop has no disable switch.
     let delivery_alive = Arc::new(AtomicBool::new(true));

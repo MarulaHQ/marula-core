@@ -1,5 +1,5 @@
 //! core-projects — project phases/tasks/views/deps/templates + milestone
-//! billing seam (TASKLIST Phase 3 projects line, migration 0030).
+//! billing seam (the private build tracker Phase 3 projects line, migration 0030).
 //!
 //! Purpose: the project-domain logic that is neither pure entity shape
 //! (core-domain `entities::projects`) nor SQL (core-db `projects`):

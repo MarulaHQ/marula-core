@@ -1,4 +1,4 @@
--- Migration connector API (TASKLIST D3, Wave 9 lane 6).
+-- Migration connector API (the private build tracker D3, Wave 9 lane 6).
 --
 -- Purpose: the checkpoint substrate for third-party bulk pushes that ride
 -- the D2 import engine. The engine already owns idempotency of DATA (the

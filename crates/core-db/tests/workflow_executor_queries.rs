@@ -1,4 +1,4 @@
-//! The workflow executor's persistence tests (TASKLIST Wave 43 lane 15,
+//! The workflow executor's persistence tests (the private build tracker Wave 43 lane 15,
 //! `p43-workflow-executor`, migration 0132).
 //!
 //! Purpose: prove the claims the executor makes about the DATABASE, which

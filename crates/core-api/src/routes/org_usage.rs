@@ -1,4 +1,4 @@
-//! Org resource-usage + quota read API for hosted-tier monitoring (TASKLIST
+//! Org resource-usage + quota read API for hosted-tier monitoring (the private build tracker
 //! Wave 47 lane A6, migration 0131).
 //!
 //! Two read-only endpoints:
@@ -30,7 +30,7 @@
 //! monitoring surface can render it, and a future lane can fill the gap
 //! honestly.
 //!
-//! AUTHORIZATION (TASKLIST A6 (D)):
+//! AUTHORIZATION (the private build tracker A6 (D)):
 //!   * A human member reads their OWN org. The org id in the path must be
 //!     the caller's own org, or the answer is a 404 — the same
 //!     indistinguishable answer a nonexistent org gets, so the endpoint

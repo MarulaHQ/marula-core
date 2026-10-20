@@ -1,5 +1,5 @@
 -- Wave 32 lane 7: Dispatch v3 — routing provider seam + routing-aware
--- scheduling (TASKLIST Wave 32 lane 7; the RoutingProvider lane that
+-- scheduling (the private build tracker Wave 32 lane 7; the RoutingProvider lane that
 -- migration 0022 explicitly deferred travel math to).
 --
 -- Purpose:

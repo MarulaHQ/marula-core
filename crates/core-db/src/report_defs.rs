@@ -1,4 +1,4 @@
-//! Report-definition persistence (TASKLIST R3; ADR 0001).
+//! Report-definition persistence (the private build tracker R3; ADR 0001).
 //!
 //! Purpose: CRUD for stored report specs — the `report_definitions` rows
 //! (migration 0034). Rows carry the registry-backed `kind`/`viz`/`scope`

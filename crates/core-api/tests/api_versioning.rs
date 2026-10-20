@@ -1,4 +1,4 @@
-//! API versioning conformance (TASKLIST U1, upgrade-compatibility-policy.md
+//! API versioning conformance (the private build tracker U1, upgrade-compatibility-policy.md
 //! §2/§3): the `/api/v1` canonical surface and the unversioned legacy alias
 //! must behave IDENTICALLY route-for-route.
 //!

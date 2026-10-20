@@ -1,4 +1,4 @@
-//! End-to-end import framework flows (TASKLIST D2) through the REAL
+//! End-to-end import framework flows (the private build tracker D2) through the REAL
 //! core-api router against a real Postgres.
 //!
 //! Purpose: prove the D2 surface over HTTP — dry-run report accuracy with no

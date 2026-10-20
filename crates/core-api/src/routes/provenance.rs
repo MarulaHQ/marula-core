@@ -1,4 +1,4 @@
-//! Provenance query endpoint (TASKLIST IF9, doctrine #9): the audit-log
+//! Provenance query endpoint (the private build tracker IF9, doctrine #9): the audit-log
 //! query API (2.3) extended with provenance-grade filters over the
 //! materialized per-field projection of the instant-first write trail.
 //!

@@ -1,4 +1,4 @@
-//! Report definitions as data (TASKLIST R3; ADR 0001 §Decision).
+//! Report definitions as data (the private build tracker R3; ADR 0001 §Decision).
 //!
 //! A [`ReportSpec`] is a STORED report definition's query shape: which
 //! versioned view it reads, its filters, group-by dimensions, aggregate
@@ -208,7 +208,7 @@ pub struct RunWindow {
     pub end: DateTime<Utc>,
 }
 
-/// A stored report spec (TASKLIST R3). Every member is registry-validated;
+/// A stored report spec (the private build tracker R3). Every member is registry-validated;
 /// see [`ReportSpec::validate`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

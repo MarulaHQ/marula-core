@@ -1,4 +1,4 @@
-//! Knowledge-base queries (native KB v1, TASKLIST Phase 3): categories and
+//! Knowledge-base queries (native KB v1, the private build tracker Phase 3): categories and
 //! articles with client-facing flags.
 //!
 //! Purpose: typed CRUD + filtered lists over `kb_categories` /

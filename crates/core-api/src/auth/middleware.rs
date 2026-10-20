@@ -59,7 +59,7 @@ pub fn resolve_permissions(roles: &[core_domain::entities::Role]) -> Vec<Permiss
 }
 
 /// Axum middleware: `Authorization: Bearer <jwt>` for humans, a scoped
-/// machine path via `x-api-key` (TASKLIST 2.15), and client-certificate
+/// machine path via `x-api-key` (the private build tracker 2.15), and client-certificate
 /// authentication for service accounts (Wave 47 A9).
 ///
 /// The API-key branch is deliberately NARROW: only read-only public data
@@ -250,7 +250,7 @@ pub async fn require_auth(
 
 /// Read-only prefixes where `x-api-key` auth is accepted. Everything else
 /// (mutations, admin surfaces, self-scoped endpoints) is JWT-only.
-/// `/api/imports` is the deliberate mutation exception (TASKLIST D2/D3):
+/// `/api/imports` is the deliberate mutation exception (the private build tracker D2/D3):
 /// scoped migration pushes are a documented machine flow, gated in-handler
 /// by scope checks on top of this prefix allowance. `/api/agent-proposals`
 /// is the IF8 machine flow: agents file proposals (never direct writes)
@@ -355,12 +355,12 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
             ),
             "timers:read" => push(Module::Time, &[Action::View]),
             "timers:write" => push(Module::Time, &[Action::View, Action::Create, Action::Edit]),
-            // Migration connector (TASKLIST D3): deliberately broad data
+            // Migration connector (the private build tracker D3): deliberately broad data
             // grants — a migration tool writes whole entity families
             // through the D2 engine. The engine's gate checks the Clients
             // matrix (the import framework's machine contract), so the
             // scope resolves onto exactly that.
-            // Dispatch connector (TASKLIST Phase 3, Wave 9 lane 9):
+            // Dispatch connector (the private build tracker Phase 3, Wave 9 lane 9):
             // read = schedule visibility; write = status pushes ride the
             // Scheduling module's create+edit matrix like booking writes.
             "dispatch:read" => push(Module::Scheduling, &[Action::View]),

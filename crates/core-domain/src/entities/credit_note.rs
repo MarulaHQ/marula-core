@@ -1,5 +1,5 @@
 //! Credit notes: client credits issued, applied against invoices, and
-//! refunded (TASKLIST Money+docs backend gap, Wave 11 backend-gaps lane).
+//! refunded (the private build tracker Money+docs backend gap, Wave 11 backend-gaps lane).
 //!
 //! Money is integer minor units + ISO 4217 throughout — a credit note
 //! never converts currency (ADR 0002): it is issued in one currency and

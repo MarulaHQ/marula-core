@@ -1,4 +1,4 @@
--- Dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9): resource planning,
+-- Dispatch v2 (the private build tracker Phase 3, Wave 9 lane 9): resource planning,
 -- the dispatch connector's external-status ledger, and travel/mileage
 -- entry drafts. Five org-scoped tables, all RLS-bound like every other
 -- tenant table (0001 convention), all additive.

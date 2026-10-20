@@ -1,4 +1,4 @@
-//! worker/time — the EOD missing-time nudge scheduler (TASKLIST 2.10).
+//! worker/time — the EOD missing-time nudge scheduler (the private build tracker 2.10).
 //!
 //! Purpose: periodically compute which (org, user, local-day) triples are
 //! due for a missing-time audit — orgs with nudges enabled, members whose

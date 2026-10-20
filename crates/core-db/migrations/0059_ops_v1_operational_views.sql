@@ -1,4 +1,4 @@
--- Read-model operational views v1, tranche 2 (TASKLIST U3; policy §2; ADR 0001).
+-- Read-model operational views v1, tranche 2 (the private build tracker U3; policy §2; ADR 0001).
 --
 -- Purpose: extend the versioned `ops` read model (0026 reports slice, 0041
 -- undo slice) with the stable operational surfaces external reporting tools

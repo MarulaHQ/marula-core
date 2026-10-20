@@ -1,4 +1,4 @@
-//! The `PaymentProvider` seam (TASKLIST Phase 3, native invoicing v1):
+//! The `PaymentProvider` seam (the private build tracker Phase 3, native invoicing v1):
 //! how recorded payments reach the outside world.
 //!
 //! v1 ships exactly one implementation, [`NonePaymentProvider`]: the

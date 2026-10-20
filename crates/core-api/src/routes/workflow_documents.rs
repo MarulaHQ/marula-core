@@ -1,4 +1,4 @@
-//! Workflow document authoring (TASKLIST Wave 43 lane 16,
+//! Workflow document authoring (the private build tracker Wave 43 lane 16,
 //! `p43-workflow-canvas`).
 //!
 //! Purpose: admin-gated CRUD over the multi-step workflow DOCUMENTS a canvas

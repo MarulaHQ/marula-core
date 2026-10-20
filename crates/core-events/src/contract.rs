@@ -1,4 +1,4 @@
-//! The event-evolution contract (policy §2, TASKLIST U2/U4).
+//! The event-evolution contract (policy §2, the private build tracker U2/U4).
 //!
 //! Purpose: the machine-checked index of every published domain payload —
 //! event type → wire shape — plus the retired-type co-emit rail. The
@@ -1010,7 +1010,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
-    // -- migration connector (TASKLIST D3) ---------------------------------
+    // -- migration connector (the private build tracker D3) ---------------------------------
     PublishedEvent {
         event_type: types::MIGRATION_PUSH_SESSION_STARTED,
         entity: "migration_push_session",
@@ -1045,7 +1045,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
-    // -- dispatch v2 (TASKLIST Phase 3, Wave 9 lane 9) ----------------------
+    // -- dispatch v2 (the private build tracker Phase 3, Wave 9 lane 9) ----------------------
     PublishedEvent {
         event_type: types::DISPATCH_STATUS_UPDATED,
         entity: "appointment",

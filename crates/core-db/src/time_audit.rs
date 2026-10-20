@@ -1,4 +1,4 @@
-//! Missing-time gap audit persistence (TASKLIST 2.10): the (org, user, day)
+//! Missing-time gap audit persistence (the private build tracker 2.10): the (org, user, day)
 //! audit ledger, org time-discipline settings, and the activity/logged
 //! facts the audit compares.
 //!

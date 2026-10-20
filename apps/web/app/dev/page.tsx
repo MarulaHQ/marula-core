@@ -1,4 +1,4 @@
-// /dev — the dev ops page (TASKLIST DX3).
+// /dev — the dev ops page (the private build tracker DX3).
 //
 // Purpose: one ugly-but-clear QA surface for the env-gated dev endpoints:
 // seed / reset-org / time-travel buttons, an outbox event-stream viewer,

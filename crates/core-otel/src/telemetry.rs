@@ -224,7 +224,7 @@ mod tests {
     ///
     /// Asserts opt-in bootstrap succeeds end-to-end and flush returns Ok;
     /// received batches must be checked in the collector's logs (see
-    /// TASKLIST 2.18 stage notes). Serial vs the none-mode test above so
+    /// the private build tracker 2.18 stage notes). Serial vs the none-mode test above so
     /// they never race for the global subscriber.
     #[test]
     #[serial_test::serial]

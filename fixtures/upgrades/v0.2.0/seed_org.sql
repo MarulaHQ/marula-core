@@ -1,4 +1,4 @@
--- U7 upgrade fixture seed — v0.2.0 (TASKLIST U7, policy §8)
+-- U7 upgrade fixture seed — v0.2.0 (the private build tracker U7, policy §8)
 --
 -- Purpose: seed ONE production-like org exercising every customization
 -- surface the upgrade matrix must carry forward: custom fields (with an

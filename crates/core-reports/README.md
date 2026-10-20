@@ -1,7 +1,7 @@
 # core-reports
 
 Reporting engine types, field catalog, and query compiler for the versioned
-`ops.v1_*` read-model layer (TASKLIST R0/R1; ADR 0001).
+`ops.v1_*` read-model layer (the private build tracker R0/R1; ADR 0001).
 
 ## Binding rules
 

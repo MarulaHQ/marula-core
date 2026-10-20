@@ -1,4 +1,4 @@
--- Board organization + board-level RBAC (TASKLIST 2.11, workflow
+-- Board organization + board-level RBAC (the private build tracker 2.11, workflow
 -- customization v1 trio).
 --
 -- Purpose: (1) per-org board groups so the left nav can render a board

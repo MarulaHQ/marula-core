@@ -1,4 +1,4 @@
-//! Knowledge-base endpoints (native KB v1, TASKLIST Phase 3).
+//! Knowledge-base endpoints (native KB v1, the private build tracker Phase 3).
 //!
 //! Purpose: staff CRUD for categories and articles with client-facing
 //! visibility flags (portal v2 consumes the flags later). Mutations ride
