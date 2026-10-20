@@ -53,4 +53,4 @@ These docs follow [Diátaxis](https://diataxis.fr/). Each page belongs to one of
 - Engineering documentation (architecture, operations internals, specs): [`docs/README.md`](../README.md) — the entry point for people building and running Marula, kept out of this site on purpose
 - Operator runbooks: canonical scaffold lives at `deploy/runbooks/` (`deploy/runbooks/README.md`), while authored runbook content lives in the site under [reference/](reference/index.md) (see the [coverage audit](DOCS-COVERAGE.md))
 - Docs coverage audit and IA plan: [`DOCS-COVERAGE.md`](DOCS-COVERAGE.md)
-- Public waitlist and marketing site: the separate `website/` package. Product positioning is quoted there and here from `MANIFESTO.md` verbatim, never re-synthesized.
+- Public waitlist and marketing site: the separate site package, which lives outside this repository. Product positioning is quoted there and here from `MANIFESTO.md` verbatim, never re-synthesized.

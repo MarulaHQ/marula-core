@@ -64,9 +64,10 @@ The Expo modules the app leans on, by what they are for:
 
 Background for this app's foundations is in `docs/rn-groundwork.md`.
 
-## 4. Website — `website/`
+## 4. Website — the separate site package
 
-Next.js 15.4 App Router on port 3100, React 19. `nodemailer` 6.9 handles the opt-in
+The public site is a Next.js 15.4 App Router app on port 3100, React 19. It is
+maintained outside this repository. `nodemailer` 6.9 handles the opt-in
 email; `pg` 8.13 lets route handlers read Postgres directly. Two sync scripts
 (`sync-docs.mjs`, `sync-public.mjs`) generate the doc surface and the RSS feed at build
 time.

@@ -27,13 +27,14 @@ const LEDGER_EXACT = new Set([
 ]);
 
 const LEDGER_PREFIXES = [
-  "design/qa-", // L4 landing records / reviews / captures
-  "design/REPORT-", // historical design reports
-  "design/mockups/", // meridian-* mockup sources, historical
-  "design/website/", // website brief: historical design record (site is frozen per D10)
+  // The internal design corpus and the old brand bundle moved to the private
+  // sibling repository as `internal/design/` and `internal/meridian-ci`; the
+  // site package moved to the commercial repository. Nothing under these
+  // prefixes is tracked here any more — the entries stay so a stray local copy
+  // is still treated as history rather than a new violation.
+  "internal/design/", // mockups, the tweakcn preset, kit tokens, landing evidence
+  "internal/meridian-ci/", // old brand asset pack (historical source bundle)
   "docs/prompts/", // the original one-shot build brief: historical record
-  "meridian-ci/", // old brand asset pack (historical source bundle)
-  "website/", // FROZEN per D10 — moves to Marula-HQ; mechanical only
   ".kilo/", // agent-local tooling
   ".trail/", // agent-local tooling: the graft map's cards + learnings
   "graft/",

@@ -18,7 +18,7 @@ verified, not just planned. Two options were on the table — plus one quietly
 in front of us:
 
 1. **Starlight-class docs framework** (Astro + Starlight, or MkDocs-style).
-2. **Website-package integration** (`website/` Next.js MDX/components route).
+2. **Website-package integration** (a Next.js MDX/components route in the separate site package).
 3. **A deterministic in-repo publisher** — render `docs/site` markdown with
    a dependency-free script into a static bundle the website can consume.
 

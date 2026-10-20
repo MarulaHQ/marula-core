@@ -97,8 +97,9 @@ await new Promise((r) => sink.listen(SINK_PORT, '127.0.0.1', r));
 //
 // The claim under test is client-side network behaviour, identical in both
 // servers. To assert the production bundle too, re-run this against
-// `node website/.next/standalone/website/server.js` on a checkout with a
-// single lockfile (see deploy/preview/README.md for why worktrees trip this).
+// `node .next/standalone/<pkg>/server.js` in the separate site package's
+// checkout with a single lockfile (see deploy/preview/README.md for why
+// worktrees trip this).
 const env = {
   ...process.env,
   PORT: String(SITE_PORT),

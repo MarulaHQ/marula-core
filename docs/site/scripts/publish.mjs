@@ -3,10 +3,10 @@
 // Renders every Diátaxis markdown page in docs/site into a static,
 // dependency-free HTML publication. The markdown under docs/site remains
 // the ONLY source of truth; this script renders it without forking or
-// rewriting a single byte. The consumer is the Phase-2 website
-// (`website/`): at build time it copies `docs/site/dist/` next to its
-// public assets — until then the bundle is self-contained and openable
-// from the filesystem.
+// rewriting a single byte. The consumer is the separate site package, which
+// lives outside this repository: at build time it copies `docs/site/dist/`
+// next to its public assets — until then the bundle is self-contained and
+// openable from the filesystem.
 //
 // Usage:  node docs/site/scripts/publish.mjs [--out <dir>]
 //

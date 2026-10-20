@@ -16,8 +16,8 @@ cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 # The token set itself, and the mirrors generated FROM it, define colours by
 # definition — they are the source of truth, not a violation of it.
-TOKEN_ARTIFACTS='^packages/ui/tokens/tokens\.(css|ts):|^packages/ui/src/tokens\.css:|^packages/ui/src/tokens-kit\.css:|^packages/ui/src/tokens\.ts:|^packages/ui/src/theme-tokens\.ts:|^packages/ui-native/src/generated\.ts:|^native/src/ui/tokens\.ts:|^website/app/tokens\.css:'
-SCAN_DIRS=(apps packages website native)
+TOKEN_ARTIFACTS='^packages/ui/tokens/tokens\.(css|ts):|^packages/ui/src/tokens\.css:|^packages/ui/src/tokens-kit\.css:|^packages/ui/src/tokens\.ts:|^packages/ui/src/theme-tokens\.ts:|^packages/ui-native/src/generated\.ts:|^native/src/ui/tokens\.ts:'
+SCAN_DIRS=(apps packages native)
 GREP_INCLUDES=(--include='*.tsx' --include='*.ts' --include='*.css' --include='*.scss')
 GREP_EXCLUDES=(--exclude-dir=node_modules --exclude-dir=.next --exclude-dir=dist
                --exclude-dir=.turbo --exclude-dir=docs
@@ -37,12 +37,10 @@ ledger_hits() {
 8|apps/web/app/settings/tags/page.tsx|Tag-colour picker palette consumed inline; token set pending
 4|apps/web/components/project-gantt.tsx|Gantt lane colours inline pending token extraction
 2|apps/web/app/layout.tsx|theme-color meta tags; a value, not a var — tokenise at launch
-2|website/app/layout.tsx|theme-color meta tags; a value, not a var — tokenise at launch
 2|apps/web/app/ledger.css|Ledger accents pending token extraction
 2|apps/web/components/auth/entry.css|Auth entry accents pending token extraction
 2|packages/ui/src/kit/ui/brand.tsx|Kit mark glyphs: brand hex inline in the mark component; tokenise at launch
 2|packages/ui/src/kit/ui/data-row.tsx|Data-row status accents inline; tokenise at launch
-1|website/app/agents/page.tsx|Marketing surface accent pending token extraction
 1|apps/web/app/dev/page.tsx|Dev surface accent pending token extraction
 1|apps/web/app/inventory/workbench/page.tsx|Workbench accent pending token extraction
 1|apps/web/app/stock/locations/page.tsx|Stock accent pending token extraction
