@@ -5175,7 +5175,7 @@ export interface paths {
         /**
          * GET /api/invoices/{id}/document — the print-ready HTML invoice
          *     document (print-to-PDF from any browser; v1 ships no PDF binary
-         *     output — see TASKLIST).
+         *     output — see the private build tracker).
          */
         get: operations["invoices_document"];
         put?: never;
@@ -6509,7 +6509,7 @@ export interface paths {
         put?: never;
         /**
          * `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS
-         *     verification (TASKLIST A8 (C)). The TXT token is the authority; the
+         *     verification (the private build tracker A8 (C)). The TXT token is the authority; the
          *     A/CNAME leg is plausibility only.
          */
         post: operations["org_custom_domain_verify"];
@@ -11421,7 +11421,7 @@ export interface paths {
         };
         /**
          * GET /api/tickets — filtered, priority-ordered list; each row carries its
-         *     custom-field values (TASKLIST 2.17) fetched in one batched query.
+         *     custom-field values (the private build tracker 2.17) fetched in one batched query.
          *     Pagination is envelope-compatible: the body stays the plain ticket
          *     array; deep-page walks pass the opaque `cursor` query param (from the
          *     previous page's `x-next-cursor` response header) and the server resumes
@@ -11453,7 +11453,7 @@ export interface paths {
         /**
          * GET /api/tickets/my-work — everything assigned to me, not closed,
          *     across all boards, priority-then-SLA-due ordered (the unified
-         *     cross-board view from §1; TASKLIST 2.11 adds client/board annotations).
+         *     cross-board view from §1; the private build tracker 2.11 adds client/board annotations).
          */
         get: operations["tickets_my_work"];
         put?: never;
@@ -13316,7 +13316,7 @@ export interface components {
             kind: "portal_it_manager";
         } | {
             /**
-             * @description Bulk-import runs (TASKLIST D2): the descriptor names the driving
+             * @description Bulk-import runs (the private build tracker D2): the descriptor names the driving
              *     identity without pretending it row-walked — `"user:<uuid>"` for
              *     admin JWT runs, `"api-key:<key-id>""` for machine pushes. Row-level
              *     mutations still emit their ordinary domain events; the import actor
@@ -14747,7 +14747,7 @@ export interface components {
             visible_status_ids: string[];
         };
         /**
-         * @description A named, ordered nav grouping of boards within one org (TASKLIST 2.11).
+         * @description A named, ordered nav grouping of boards within one org (the private build tracker 2.11).
          *     Groups are organization-wide; `owner_id` records who controls the group.
          */
         BoardGroup: {
@@ -14812,7 +14812,7 @@ export interface components {
         };
         /**
          * @description Per-board role tier stored on `board_members` rows (migration 0019,
-         *     TASKLIST 2.11). Board roles sit BESIDE the org matrix and can only
+         *     the private build tracker 2.11). Board roles sit BESIDE the org matrix and can only
          *     narrow it — see `authorize_board_scoped`.
          * @enum {string}
          */
@@ -17788,7 +17788,7 @@ export interface components {
             contact_id?: string | null;
             /**
              * @description Initial custom-field values; each is validated against its
-             *     definition. REQUIRED definitions must all be present (TASKLIST 2.17).
+             *     definition. REQUIRED definitions must all be present (the private build tracker 2.17).
              */
             custom_fields?: components["schemas"]["TicketFieldInput"][];
             /** Format: date-time */
@@ -21542,7 +21542,7 @@ export interface components {
             trigger_kind: string;
         };
         /**
-         * @description One stored report definition (TASKLIST R3). The spec body rides as its
+         * @description One stored report definition (the private build tracker R3). The spec body rides as its
          *     stored jsonb document (`{filters, group_by, measures}`) exactly like
          *     custom-field `config` — the registry-validated view/viz slugs travel as
          *     their own fields so a preflight can flag deprecated constructs without
@@ -21620,7 +21620,7 @@ export interface components {
              */
             custom_fields: components["schemas"]["ManifestCustomField"][];
             /**
-             * @description Stored report definitions (TASKLIST R3): registry-validated specs
+             * @description Stored report definitions (the private build tracker R3): registry-validated specs
              *     over the versioned read-model views. Covered so the upgrade
              *     preflight (U6) can flag any definition whose `kind`/spec columns
              *     reference deprecated view or column constructs (policy §5).
@@ -22045,7 +22045,7 @@ export interface components {
             version?: number | null;
         };
         /**
-         * @description One cross-board my-work queue row (TASKLIST 2.11): the ticket plus the
+         * @description One cross-board my-work queue row (the private build tracker 2.11): the ticket plus the
          *     annotations the Today screen renders per the mockup.
          */
         MyWorkItem: {
@@ -26299,7 +26299,7 @@ export interface components {
             window_days: number;
         };
         /**
-         * @description A stored report spec (TASKLIST R3). Every member is registry-validated;
+         * @description A stored report spec (the private build tracker R3). Every member is registry-validated;
          *     see [`ReportSpec::validate`].
          */
         ReportSpec: {
@@ -27597,7 +27597,7 @@ export interface components {
              */
             domain: string;
         };
-        /** @description POST response: exactly the three fields TASKLIST A8 (B) names. */
+        /** @description POST response: exactly the three fields the private build tracker A8 (B) names. */
         SetCustomDomainResponse: {
             domain: string;
             instructions: components["schemas"]["CustomDomainInstructions"];
