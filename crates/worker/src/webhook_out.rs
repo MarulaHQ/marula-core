@@ -4,9 +4,12 @@
 //! stream via a durable consumer group, matches each envelope against the
 //! org's enabled webhook subscriptions, and enqueues one durable
 //! `webhook.deliver` job per (webhook, event) — ACKing only after the job
-//! is durably queued (at-least-once, retries belong to the queue). A restart
-//! recovers the entries that were delivered and never acked (the group's
-//! pending list), never the stream's history. The
+//! is durably queued (at-least-once, retries belong to the queue). Each
+//! process consumes under its own name, so the group keeps one pending list
+//! per process; a restart recovers what its predecessor left by claiming the
+//! entries that went idle past [`CLAIM_MIN_IDLE_MS`], never by re-reading the
+//! stream's history. The job insert is dedupe-keyed, so the at-least-once
+//! read cannot become a second signed POST. The
 //! DELIVERY half performs one signed HTTP POST per claimed job
 //! (`t=<ts>,v1=<hex>` HMAC-SHA256 over `"{ts}.{body}"`), records every
 //! attempt through core-api's internal surface (§4.1: only core-api
@@ -25,7 +28,9 @@ use crate::effects::{EffectApi, EffectOutcome};
 use core_db::webhooks::NewDeliveryAttempt;
 use core_domain::webhooks::{backoff_secs, signature_value, MAX_DELIVERY_ATTEMPTS};
 use core_events::{Envelope, EVENT_STREAM};
-use redis::streams::{StreamId, StreamReadOptions, StreamReadReply};
+use redis::streams::{
+    StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamReadOptions, StreamReadReply,
+};
 use redis::AsyncCommands;
 use serde_json::Value;
 use sqlx::PgPool;
@@ -34,15 +39,38 @@ use tokio::sync::watch;
 /// Durable group; `$` starts at the live tail on first creation so a new
 /// deployment never replays history from before it existed.
 const CONSUMER_GROUP: &str = "webhooks-out";
-/// Shared by every replica, so the group has one pending list (PEL) rather
-/// than one per process. [`replay_pending`] says what that means for a drain.
-const CONSUMER_NAME: &str = "worker";
+
+/// How long an entry may sit unacked under a consumer name before another
+/// process may take it over (`XAUTOCLAIM`).
+///
+/// Two intervals bound this from above and below.
+///
+/// Below: handling one entry is a subscription lookup plus one insert per
+/// match — milliseconds against the same database the rest of this process
+/// uses. A threshold of a minute is three orders of magnitude past that, so a
+/// live replica is never mistaken for a dead one merely because it was slow,
+/// and a stalled database is a database-wide failure rather than a reason to
+/// steal one replica's work.
+///
+/// Above: the queue's first retry lands 30 s after a failed delivery
+/// (`core_domain::webhooks::backoff_secs(1)`), doubling from there to an hour
+/// cap. Waiting twice the first retry means an entry still unacked after a
+/// whole retry cycle belongs to a dead consumer, not a busy one — if the
+/// replica that took it were alive, its own retry would already have moved.
+///
+/// The cost of being wrong is bounded by the dedupe key on the job insert, not
+/// by this number: an over-eager claim enqueues into a key that already exists
+/// and is refused, so a second replica can waste a read but cannot cause a
+/// second delivery. This constant decides how much redundant work a takeover
+/// costs, not whether it is correct.
+const CLAIM_MIN_IDLE_MS: u64 = 60_000;
 const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 50;
-/// Pages one pending drain will read before it hands control back to the
-/// reconnect loop. A crash leaves at most the batch that was in flight — far
-/// below this — so the cap only bites when a peer replica keeps adding to the
-/// shared PEL while this one drains it.
+/// Pages one recovery pass (own pending list, then claimed strangers) will
+/// read before it hands control back to the reconnect loop. A crash leaves at
+/// most the batch that was in flight — far below this — so the cap only bites
+/// on a large backlog: a replica that was down for a while, or a peer that
+/// died holding many entries.
 const MAX_DRAIN_PAGES: usize = 20;
 
 /// Job kind dispatched by the queue runner to [`process_delivery_job`].
@@ -142,13 +170,14 @@ impl DeliverySink for ReqwestSink {
 /// [`RedisEventStream`].
 ///
 /// The trait deliberately has no "read the stream from an id" operation. The
-/// only reads are [`pending`](EventStream::pending), the consumer's own PEL,
-/// and [`live`](EventStream::live), `">"`. A group-less read from `"0"` is the
-/// bug this seam exists to make unrepresentable.
+/// only reads are [`pending`](EventStream::pending), this consumer's own PEL,
+/// [`live`](EventStream::live), `">"`, and [`claim`](EventStream::claim),
+/// which only takes entries another consumer already owns. A group-less read
+/// from `"0"` is the bug this seam exists to make unrepresentable.
 pub trait EventStream: Send {
-    /// Entries already delivered to this consumer and not yet acked —
+    /// Entries already delivered to *this consumer* and not yet acked —
     /// `XREADGROUP` with id `"0"`. Never reads entries this group has not
-    /// delivered.
+    /// delivered, and never an entry another consumer owns.
     fn pending(
         &mut self,
         count: usize,
@@ -162,20 +191,36 @@ pub trait EventStream: Send {
         block_ms: usize,
     ) -> impl std::future::Future<Output = Result<Vec<StreamId>, String>> + Send;
 
+    /// Takes over entries pending under *another* consumer that have been idle
+    /// for at least `min_idle_ms` — `XAUTOCLAIM`. Ownership moves to this
+    /// consumer for every entry returned.
+    ///
+    /// One page per call, starting the scan at `0-0`; the caller loops. A
+    /// claimed entry becomes this consumer's pending entry, so it cannot be
+    /// claimed a second time by the same scan and the page cannot repeat.
+    fn claim(
+        &mut self,
+        count: usize,
+        min_idle_ms: u64,
+    ) -> impl std::future::Future<Output = Result<Vec<StreamId>, String>> + Send;
+
     /// Removes one entry from the PEL. True when the ack was accepted, which
     /// is the only progress signal [`replay_pending`] trusts.
     fn ack(&mut self, id: &str) -> impl std::future::Future<Output = bool> + Send;
 }
 
-/// Production stream: one multiplexed connection against the durable group.
+/// Production stream: one multiplexed connection against the durable group,
+/// under this process's consumer name.
 pub struct RedisEventStream {
     conn: redis::aio::MultiplexedConnection,
+    name: String,
 }
 
 impl RedisEventStream {
-    async fn from_client(client: &redis::Client) -> Result<Self, redis::RedisError> {
+    async fn from_client(client: &redis::Client, name: String) -> Result<Self, redis::RedisError> {
         Ok(Self {
             conn: client.get_multiplexed_async_connection().await?,
+            name,
         })
     }
 
@@ -192,7 +237,7 @@ impl EventStream for RedisEventStream {
     async fn pending(&mut self, count: usize) -> Result<Vec<StreamId>, String> {
         let options = StreamReadOptions::default()
             .count(count)
-            .group(CONSUMER_GROUP, CONSUMER_NAME);
+            .group(CONSUMER_GROUP, self.name.as_str());
         let reply: StreamReadReply = self
             .conn
             .xread_options(&[EVENT_STREAM], &["0"], &options)
@@ -205,13 +250,41 @@ impl EventStream for RedisEventStream {
         let options = StreamReadOptions::default()
             .block(block_ms)
             .count(count)
-            .group(CONSUMER_GROUP, CONSUMER_NAME);
+            .group(CONSUMER_GROUP, self.name.as_str());
         let reply: StreamReadReply = self
             .conn
             .xread_options(&[EVENT_STREAM], &[">"], &options)
             .await
             .map_err(|error| error.to_string())?;
         Ok(entries(reply))
+    }
+
+    async fn claim(&mut self, count: usize, min_idle_ms: u64) -> Result<Vec<StreamId>, String> {
+        let options = StreamAutoClaimOptions::default().count(count);
+        let name = self.name.clone();
+        let reply: StreamAutoClaimReply = self
+            .conn
+            .xautoclaim_options(
+                EVENT_STREAM,
+                CONSUMER_GROUP,
+                name.as_str(),
+                min_idle_ms,
+                "0-0",
+                options,
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        if !reply.deleted_ids.is_empty() {
+            // Trimmed out of the stream while still pending: there is no body
+            // left to deliver, and XAUTOCLAIM has already dropped them from the
+            // PEL. Logged because a live consumer losing entries to trimming is
+            // a retention setting worth seeing.
+            tracing::warn!(
+                deleted = reply.deleted_ids.len(),
+                "webhooks-out claim dropped entries already trimmed from the stream"
+            );
+        }
+        Ok(reply.claimed)
     }
 
     async fn ack(&mut self, id: &str) -> bool {
@@ -224,9 +297,61 @@ fn entries(reply: StreamReadReply) -> Vec<StreamId> {
     reply.keys.into_iter().flat_map(|key| key.ids).collect()
 }
 
-/// Runs the webhooks-out consumer until shutdown. Redis errors reconnect
-/// with backoff; malformed entries are logged, ACKed and skipped.
-pub async fn run_webhook_out(pool: PgPool, redis_url: String, mut shutdown: watch::Receiver<bool>) {
+/// This process's consumer name inside the group, fixed for the process
+/// lifetime.
+///
+/// Why a name per process and not a constant: a consumer name is what the
+/// group keys its pending list (PEL) by. With one shared name every replica
+/// read the same PEL, so a recovery drain could pick up an entry a live
+/// sibling had just taken and hand the same event to two consumers at once.
+/// Distinct names give each process its own list, and one entry can only be
+/// owned by one consumer at a time.
+///
+/// Hostname plus pid, because a pid alone collides across replicas: a
+/// container usually runs as pid 1, so `worker-1` would name every replica on
+/// every host. Hostname is read from the environment (set by Docker, systemd
+/// and Kubernetes), then `/etc/hostname`; when neither yields anything the
+/// name falls back to a UUID, which trades readability for the guarantee the
+/// name exists for — two live processes must never share one.
+///
+/// Crash recovery does not depend on the name surviving: a restarted process
+/// gets a new name, finds its own PEL empty, and takes its predecessor's
+/// entries over with [`claim_strangers`] once they go idle. A name that does
+/// survive (a recycled pid on the same host) is harmless — it simply finds
+/// its own entries in the own-PEL drain instead.
+pub fn consumer_name() -> &'static str {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| format!("worker-{}-{}", host_label(), std::process::id()))
+}
+
+fn host_label() -> String {
+    std::env::var("HOSTNAME")
+        .ok()
+        .into_iter()
+        .chain(std::fs::read_to_string("/etc/hostname").ok())
+        .map(|host| host.trim().to_string())
+        .find(|host| !host.is_empty())
+        .unwrap_or_else(|| format!("anon-{}", uuid::Uuid::now_v7().simple()))
+}
+
+/// Runs the webhooks-out consumer under a name derived from this host and
+/// process. See [`consumer_name`] for why the name is per process.
+pub async fn run_webhook_out(pool: PgPool, redis_url: String, shutdown: watch::Receiver<bool>) {
+    run_webhook_out_as(pool, redis_url, consumer_name().to_string(), shutdown).await
+}
+
+/// [`run_webhook_out`] with the consumer name supplied.
+///
+/// Public so a test can run two named consumers against one stream in one
+/// process — the arrangement the duplicate-delivery fix exists for, and one
+/// that a per-process name would otherwise make untestable without spawning
+/// binaries.
+pub async fn run_webhook_out_as(
+    pool: PgPool,
+    redis_url: String,
+    consumer: String,
+    mut shutdown: watch::Receiver<bool>,
+) {
     let client = match redis::Client::open(redis_url.as_str()) {
         Ok(client) => client,
         Err(error) => {
@@ -239,7 +364,7 @@ pub async fn run_webhook_out(pool: PgPool, redis_url: String, mut shutdown: watc
         if *shutdown.borrow() {
             return;
         }
-        match RedisEventStream::from_client(&client).await {
+        match RedisEventStream::from_client(&client, consumer.clone()).await {
             Ok(mut stream) => {
                 backoff_ms = 100;
                 if let Err(error) = stream.ensure_group().await {
@@ -252,7 +377,7 @@ pub async fn run_webhook_out(pool: PgPool, redis_url: String, mut shutdown: watc
                     }
                 }
                 follow_stream(&pool, &mut stream, &mut shutdown).await;
-                tracing::warn!("webhooks-out stream connection ended; reconnecting");
+                tracing::warn!(%consumer, "webhooks-out stream connection ended; reconnecting");
             }
             Err(error) => {
                 tracing::error!(%error, "webhooks-out redis connect failed");
@@ -263,14 +388,21 @@ pub async fn run_webhook_out(pool: PgPool, redis_url: String, mut shutdown: watc
     }
 }
 
-/// Recovers this consumer's pending entries first, then follows the live tail
-/// under the group.
+/// Recovers entries this consumer already owns, then takes over the ones a
+/// dead consumer left behind, then follows the live tail under the group.
+///
+/// The order matters: the own-PEL drain is the cheap, definitely-ours pass,
+/// and a database that cannot settle it is not a database to start claiming
+/// strangers' work against.
 async fn follow_stream<S: EventStream>(
     pool: &PgPool,
     stream: &mut S,
     shutdown: &mut watch::Receiver<bool>,
 ) {
     if !replay_pending(pool, stream).await {
+        return;
+    }
+    if !claim_strangers(pool, stream).await {
         return;
     }
     loop {
@@ -300,26 +432,26 @@ async fn follow_stream<S: EventStream>(
     }
 }
 
-/// Crash recovery: re-delivers entries this consumer took delivery of and
-/// never acked.
+/// Crash recovery, first pass: re-delivers entries this consumer took delivery
+/// of and never acked.
 ///
-/// `XREADGROUP ... "0"` answers with the consumer's pending entries (the PEL),
-/// which is exactly the set a crash, a dropped connection or a failed DB write
-/// can leave behind. It does not return entries the group has not delivered,
-/// and it cannot return the stream's history — the group-less read from `"0"`
-/// that this replaces meant "every entry the stream still holds", so every
+/// `XREADGROUP ... "0"` answers with this consumer's own pending entries (its
+/// PEL), which is exactly the set a crash, a dropped connection or a failed DB
+/// write can leave behind for a process whose name survived. It does not
+/// return entries the group has not delivered, and it cannot return another
+/// consumer's entries — with one name per process ([`consumer_name`]), a
+/// sibling's in-flight work is not visible here at all. That is the change
+/// from the shared name this consumer used to run under: a drain could take an
+/// entry a live sibling had just read, so the same event reached two
+/// consumers, and each enqueued its own `webhook.deliver` job.
+///
+/// It also cannot return the stream's history. The group-less read from `"0"`
+/// that this replaced meant "every entry the stream still holds", so every
 /// restart re-enqueued a delivery for every resident event.
 ///
-/// Every replica uses [`CONSUMER_NAME`], so they share one PEL rather than
-/// owning one each. A drain therefore sees entries a sibling is still working
-/// on, and can hand the same entry to two replicas at once; both enqueue a
-/// `webhook.deliver` job, and the jobs table has no uniqueness on
-/// `(webhook, event)`, so the receiver can see that event twice. What is
-/// idempotent is the ledger write after the POST: `webhook_deliveries` is
-/// unique on `(webhook_id, event_id, attempt)` and its insert is
-/// `ON CONFLICT DO NOTHING`. Giving each replica a unique consumer name and
-/// claiming with `XAUTOCLAIM` would remove the duplicate enqueue; that is a
-/// separate change and not this lane.
+/// Entries a *dead* consumer left are [`claim_strangers`]' job — a restarted
+/// process gets a new name, so its own PEL starts empty and the predecessor's
+/// entries would otherwise sit there forever.
 ///
 /// Returns false when no entry could leave the PEL, which tells
 /// [`follow_stream`] to return so [`run_webhook_out`] backs off instead of
@@ -352,11 +484,65 @@ async fn replay_pending<S: EventStream>(pool: &PgPool, stream: &mut S) -> bool {
             return false;
         }
     }
-    // The page cap only trips when a peer replica keeps feeding the shared
-    // PEL. Reconnect to continue from where this pass stopped.
+    // The page cap trips on a large backlog — a replica that was down for a
+    // while, or one that died holding many entries. Reconnect to continue from
+    // where this pass stopped.
     tracing::warn!(
         pages = MAX_DRAIN_PAGES,
         "webhooks-out pending drain hit its page cap; reconnecting to continue"
+    );
+    false
+}
+
+/// Crash recovery, second pass: takes over entries whose owner stopped
+/// existing.
+///
+/// A restarted process gets a new consumer name, so its own PEL is empty and
+/// whatever its predecessor had read but not acked would stay pending for
+/// ever. Those entries are visibly abandoned — idle past
+/// [`CLAIM_MIN_IDLE_MS`] — so `XAUTOCLAIM` hands them to this consumer, and
+/// handling them here is the same code path as the own-PEL drain.
+///
+/// No "make no progress" rule is needed, unlike [`replay_pending`]: a claim
+/// moves ownership, so the entry cannot come back in the next page, and the
+/// page loop terminates on the first page that claims nothing. A failed handle
+/// leaves the entry in *this* consumer's PEL, where the next reconnect's drain
+/// picks it up — the failure does not have to be retried inside this pass.
+///
+/// One bound worth knowing: Redis scans a window of the pending list per call
+/// (ten times `COUNT`), so a page can come back empty while an eligible entry
+/// sits further along. The pass then ends and the next reconnect scans from the
+/// start again. That is a delay rather than starvation, because an entry ahead
+/// of the abandoned one is either fresh — and gets acked by the live consumer
+/// that owns it — or it is abandoned too and ages into eligibility. Either way
+/// the window moves within [`CLAIM_MIN_IDLE_MS`].
+///
+/// Returns false when the claim call itself fails (Redis is the problem, so
+/// stop and reconnect) or when the page cap is reached.
+async fn claim_strangers<S: EventStream>(pool: &PgPool, stream: &mut S) -> bool {
+    for _ in 0..MAX_DRAIN_PAGES {
+        let batch = match stream.claim(COUNT, CLAIM_MIN_IDLE_MS).await {
+            Ok(batch) => batch,
+            Err(error) => {
+                tracing::error!(%error, "webhooks-out claim failed; reconnecting");
+                return false;
+            }
+        };
+        if batch.is_empty() {
+            return true;
+        }
+        tracing::info!(
+            entries = batch.len(),
+            min_idle_ms = CLAIM_MIN_IDLE_MS,
+            "webhooks-out claiming entries abandoned by another consumer"
+        );
+        for entry in &batch {
+            handle_entry(pool, stream, entry).await;
+        }
+    }
+    tracing::warn!(
+        pages = MAX_DRAIN_PAGES,
+        "webhooks-out claim hit its page cap; reconnecting to continue"
     );
     false
 }
@@ -402,9 +588,28 @@ async fn handle_entry<S: EventStream>(pool: &PgPool, stream: &mut S, entry: &Str
             }),
             max_attempts: MAX_DELIVERY_ATTEMPTS,
         };
-        match core_db::queue::enqueue(pool, &job).await {
-            Ok(id) => {
+        // One job per (subscription, event) for the life of the queue row.
+        // The stream side is at-least-once — a replay after a crash, or a
+        // claim from a consumer that died mid-handling, reads this same entry
+        // again — and a delivery is an HTTP POST to a third party, so a second
+        // job is a second signed body at the receiver. The key is what makes
+        // the repeat a no-op instead. A queued, settled or dead-lettered job
+        // all keep their key on purpose: from here on the queue owns the
+        // retry, and re-enqueuing would fork that history.
+        let dedupe_key = format!("{JOB_KIND}:{}:{}", sub.id, envelope.id);
+        match core_db::queue::enqueue_deduped(pool, &job, &dedupe_key).await {
+            Ok(Some(id)) => {
                 tracing::info!(job_id = %id, webhook_id = %sub.id, event_id = %envelope.id, "webhook delivery queued")
+            }
+            Ok(None) => {
+                // Already queued by an earlier read of this entry, here or on
+                // another replica. Settling the entry is correct: the delivery
+                // exists.
+                tracing::info!(
+                    webhook_id = %sub.id,
+                    event_id = %envelope.id,
+                    "webhook delivery already queued; not enqueuing again"
+                )
             }
             Err(error) => {
                 tracing::error!(%error, entry_id = %entry.id, "enqueue failed; leaving unacked");
@@ -618,11 +823,15 @@ mod tests {
     use std::collections::VecDeque;
 
     /// A stream stand-in that models a consumer group: `pending` returns the
-    /// scripted PEL pages in order, `live` returns its scripted pages and then
-    /// fails so the follow loop returns instead of blocking, and `ack` records
-    /// what it was asked to settle.
+    /// scripted PEL pages in order, `claim` returns its scripted takeover
+    /// pages (empty once exhausted, so a claim pass ends when the script
+    /// does), `live` returns its scripted pages and then fails so the follow
+    /// loop returns instead of blocking, and `ack` records what it was asked
+    /// to settle.
     struct FakeStream {
         pending_pages: VecDeque<Vec<StreamId>>,
+        claim_pages: VecDeque<Vec<StreamId>>,
+        claim_fails: bool,
         live_pages: VecDeque<Vec<StreamId>>,
         ack_succeeds: bool,
         calls: Vec<String>,
@@ -632,10 +841,18 @@ mod tests {
         fn new(pending_pages: Vec<Vec<StreamId>>, live_pages: Vec<Vec<StreamId>>) -> Self {
             Self {
                 pending_pages: pending_pages.into(),
+                claim_pages: VecDeque::new(),
+                claim_fails: false,
                 live_pages: live_pages.into(),
                 ack_succeeds: true,
                 calls: Vec::new(),
             }
+        }
+
+        /// Scripts the takeover pages `claim` answers with.
+        fn with_claims(mut self, claim_pages: Vec<Vec<StreamId>>) -> Self {
+            self.claim_pages = claim_pages.into();
+            self
         }
     }
 
@@ -643,6 +860,18 @@ mod tests {
         async fn pending(&mut self, _count: usize) -> Result<Vec<StreamId>, String> {
             self.calls.push("pending".to_string());
             Ok(self.pending_pages.pop_front().unwrap_or_default())
+        }
+
+        async fn claim(
+            &mut self,
+            _count: usize,
+            _min_idle_ms: u64,
+        ) -> Result<Vec<StreamId>, String> {
+            self.calls.push("claim".to_string());
+            if self.claim_fails {
+                return Err("fake: claim failed".to_string());
+            }
+            Ok(self.claim_pages.pop_front().unwrap_or_default())
         }
 
         async fn live(&mut self, _count: usize, _block_ms: usize) -> Result<Vec<StreamId>, String> {
@@ -699,7 +928,10 @@ mod tests {
                 "pending", "ack:1-0", "ack:2-0", "pending", "ack:3-0",
                 // A third read is what proves the drain stops on an empty
                 // page rather than on a page count.
-                "pending", "live",
+                "pending",
+                // One claim read after the own PEL is empty; it answers with
+                // nothing, so the tail starts.
+                "claim", "live",
             ]
         );
     }
@@ -713,8 +945,8 @@ mod tests {
 
         follow_stream(&pool, &mut stream, &mut shutdown).await;
 
-        // No second `pending` (that would be the spin) and no `live` read:
-        // the loop returned so the caller can back off.
+        // No second `pending` (that would be the spin), no claim and no `live`
+        // read: the loop returned so the caller can back off.
         assert_eq!(stream.calls, vec!["pending", "ack:1-0"]);
     }
 
@@ -731,7 +963,56 @@ mod tests {
 
         assert_eq!(
             stream.calls,
-            vec!["pending", "live", "ack:9-0", "live", "ack:10-0", "live",]
+            vec!["pending", "claim", "live", "ack:9-0", "live", "ack:10-0", "live",]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_entry_abandoned_by_a_dead_consumer_is_claimed_and_acked() {
+        let pool = lazy_pool();
+        // The own PEL is empty — a restarted process has a new name — so the
+        // only way this entry is handled is the takeover pass.
+        let mut stream = FakeStream::new(vec![Vec::new()], Vec::new())
+            .with_claims(vec![vec![unparseable("7-0")], Vec::new()]);
+        let (_shutdown_tx, mut shutdown) = watch::channel(false);
+
+        follow_stream(&pool, &mut stream, &mut shutdown).await;
+
+        // One claim read takes the entry, handling acks it, and the next claim
+        // page is empty — the same stop rule as the own-PEL drain — so the
+        // tail starts after exactly two claim reads.
+        assert_eq!(
+            stream.calls,
+            vec!["pending", "claim", "ack:7-0", "claim", "live"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_claim_returns_to_the_reconnect_loop() {
+        let pool = lazy_pool();
+        let mut stream = FakeStream::new(vec![Vec::new()], Vec::new());
+        stream.claim_fails = true;
+        let (_shutdown_tx, mut shutdown) = watch::channel(false);
+
+        follow_stream(&pool, &mut stream, &mut shutdown).await;
+
+        // Redis is the failing part; the loop stops instead of reading the
+        // tail on a connection that cannot claim.
+        assert_eq!(stream.calls, vec!["pending", "claim"]);
+    }
+
+    #[test]
+    fn the_consumer_name_is_fixed_for_the_process_and_names_it() {
+        let first = consumer_name();
+        let second = consumer_name();
+        assert_eq!(first, second, "the name must not change mid-process");
+        assert!(
+            first.ends_with(&format!("-{}", std::process::id())),
+            "the name must carry the pid, got {first}"
+        );
+        assert_ne!(
+            first, "worker",
+            "a constant name is the shared PEL this consumer must not have again"
         );
     }
 
