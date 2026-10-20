@@ -9,7 +9,8 @@
 //! org (content-addressed dedup — delete reclaims the object only when NO
 //! row in EITHER table still references the key), and persists its metadata
 //! row plus `document_attachment.added` in ONE org-bound transaction.
-//! Downloads stream behind documents authz — no public URLs in v1.
+//! Downloads stream behind documents authz, or hand out a short-lived store
+//! URL when the client asks for one (Wave 52 lane P7).
 //!
 //! Non-purpose: no multipart parsing, no versioning ties — attachments are
 //! independent of the document's version history (deleting an attachment
@@ -21,9 +22,9 @@ use crate::org_tx;
 use crate::state::AppState;
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{Extensions, HeaderMap},
-    response::Response,
+    response::{IntoResponse, Response},
     Json,
 };
 use core_domain::policy::{Action, Module, Permission};
@@ -326,16 +327,32 @@ pub async fn list(
 }
 
 /// GET /api/documents/{id}/attachments/{attachment_id}/download — streams
-/// the stored object behind documents authz (no presigned URLs in v1).
+/// the stored object behind documents authz, or answers with a presigned URL
+/// when the caller asks for one (`?presign=true`) and the store can sign it.
+///
+/// Same rule as the ticket attachment door: the stream is the contract and
+/// the ticket is the optimisation, and no URL is minted for an object whose
+/// scan verdict has not been read and admitted.
 #[utoipa::path(operation_id = "document_attachments_download", get,
     path = "/api/documents/{id}/attachments/{attachment_id}/download", tag = "documents",
     security(("bearer" = [])),
-    params(("id" = Uuid, Path), ("attachment_id" = Uuid, Path)),
-    responses((status = 200, body = Vec<u8>, content_type = "application/octet-stream")))]
+    params(
+        ("id" = Uuid, Path),
+        ("attachment_id" = Uuid, Path),
+        ("presign" = Option<bool>, Query, description = "`true` asks for a download ticket instead of the bytes; the answer says whether a URL was minted"),
+    ),
+    responses(
+        (status = 200, content(
+            (Vec<u8> = "application/octet-stream"),
+            (crate::routes::attachments::AttachmentDownloadTicket = "application/json"),
+        )),
+        (status = 409, description = "the object is held by the scan gate: neither a URL nor the bytes are issued"),
+    ))]
 pub async fn download(
     State(state): State<AppState>,
     extensions: Extensions,
     Path((document_id, attachment_id)): Path<(Uuid, Uuid)>,
+    Query(query): Query<crate::routes::attachments::DownloadTicketQuery>,
 ) -> ApiResult<Response> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, documents(Action::View))?;
@@ -346,7 +363,32 @@ pub async fn download(
         .map_err(ApiError::from)?;
     let attachment =
         core_db::document_attachments::get(&mut tx, org_id, document_id, attachment_id).await?;
+    // One snapshot for the row and its verdict: a scan that escalated in
+    // between cannot be missed by a download that already passed the gate.
+    let admission =
+        crate::routes::attachments::verdict_for(&mut tx, org_id, &attachment.sha256).await?;
     tx.commit().await.map_err(ApiError::from)?;
+
+    if admission == crate::routes::attachments::DownloadAdmission::Held {
+        return Err(crate::routes::attachments::held_refusal());
+    }
+
+    if query.presign {
+        let ticket = crate::routes::attachments::download_ticket(
+            &state,
+            admission,
+            crate::routes::attachments::DownloadSubject {
+                storage_key: &attachment.storage_key,
+                filename: &attachment.filename,
+                content_type: &attachment.content_type,
+                size_bytes: attachment.size_bytes,
+                sha256: &attachment.sha256,
+            },
+        )
+        .await?;
+        return Ok(Json(ticket).into_response());
+    }
+
     let obj = state
         .store
         .get(&attachment.storage_key)

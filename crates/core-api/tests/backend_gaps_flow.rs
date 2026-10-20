@@ -1047,7 +1047,7 @@ async fn documents_attachments_upload_list_download_delete() {
         1
     );
 
-    // Download streams through the API (no presigned URLs in v1) and
+    // Download without the `presign` flag streams through the API and
     // carries the integrity header.
     let response = send(
         &app,
