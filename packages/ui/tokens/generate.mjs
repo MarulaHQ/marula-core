@@ -11,7 +11,7 @@
  * Run: node tokens/generate.mjs        (writes the three outputs)
  *      node tokens/generate.mjs --check (fails if an output is stale)
  *
- * The kit at design/marula-handoff-kit/tokens/ is the reference these outputs
+ * The kit at internal/design/marula-handoff-kit/tokens/ is the reference these outputs
  * were reconciled against; this generator reproduces it.
  */
 import { readFileSync, writeFileSync } from "node:fs";

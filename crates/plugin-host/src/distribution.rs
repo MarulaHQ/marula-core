@@ -676,7 +676,7 @@ mod tests {
 
     #[test]
     fn raw_tweakcn_export_zip_should_coerce_to_a_native_pack() {
-        // The zero-translation posture: upload design/marula's export
+        // The zero-translation posture: upload internal/design/marula's export
         // shape as-is; the adapter coerces it (schema-stamped, oklch →
         // hex, unmapped variables dropped) before the row exists.
         let export = json!({

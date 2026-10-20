@@ -3,7 +3,7 @@
 // Signature pad — the drawing surface for a customer sign-off.
 //
 // Geometry follows the Marula pack, not a generic canvas widget:
-// `design/mockups/marula-app-mockup-images/mobile/{light,dark}/states/
+// `internal/design/mockups/marula-app-mockup-images/mobile/{light,dark}/states/
 // 08-wrap-up-resolved.png` and `11-wrap-up-signed.png` draw a section
 // labelled "Client sign-off", a DASHED rounded box, the placeholder
 // "Sign here" at the bottom-LEFT, and "Clear" at the bottom-RIGHT, with the

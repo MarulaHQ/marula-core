@@ -16,7 +16,7 @@
 //
 // Wave 43 track 2 lane 12: the same wrap-up moment gains a "Client
 // sign-off" section — the parity half of the mobile pack's own signature
-// pad (design/mockups/marula-app-mockup-images/mobile/*/states/
+// pad (internal/design/mockups/marula-app-mockup-images/mobile/*/states/
 // 11-wrap-up-signed.png). It sits where the pack puts it on mobile: after
 // the outcome choice, above the footer. Capture submits immediately (or
 // queues durably when offline) rather than blocking the status change,

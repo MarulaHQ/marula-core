@@ -14,7 +14,7 @@ shipped and merged. Remaining: Garage + Mailpit are declared compose slots
 
 | Area | State |
 |---|---|
-| Monorepo scaffold | `crates/{core-domain,core-db,core-events,core-api,realtime,worker,marula-core-cli}`, `packages/{ui,layout,sdk}`, `apps/`, `deploy/`, `design/mockups/` |
+| Monorepo scaffold | `crates/{core-domain,core-db,core-events,core-api,realtime,worker,marula-core-cli}`, `packages/{ui,layout,sdk}`, `apps/`, `deploy/`, `internal/design/mockups/` |
 | Postgres (+pgvector pg17) & Redis | dev ports 15432 / 16379; migrations self-provision the RLS-constrained `meridian_app` role |
 | core-api | Axum :8080 · argon2id + JWT/refresh rotation · org/user/role · clients hierarchy · boards/tickets/comments/checklists · timers/time entries · notifications · audit · utoipa→Scalar OpenAPI at `/openapi.json` |
 | realtime | WS hub :8081 · JWT-verified handshakes · per-user/per-board routing · presence |

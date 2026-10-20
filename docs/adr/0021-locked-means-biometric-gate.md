@@ -18,10 +18,10 @@ Two further facts shaped the ruling. The word `locked` is already overloaded in
 the domain for unrelated things: the timesheet-approval outcome `locked`
 (`crates/core-api/src/routes/approvals.rs:336`), the `time_entry_locked` reason
 (`crates/core-api/src/error.rs:705`), stock-ledger locks. None of them is this
-screen. And the mobile pack itself (`design/mockups/marula-app-mockup-images/manifest.json`)
+screen. And the mobile pack itself (`internal/design/mockups/marula-app-mockup-images/manifest.json`)
 has no `09-locked` state at all: that id comes from the original meridian mobile
 pack the handoff kit's redlines still index, so the pack reference for it is a
-redline (`design/marula-handoff-kit/redlines/mobile-scan/`), not a shipped
+redline (`internal/design/marula-handoff-kit/redlines/mobile-scan/`), not a shipped
 Marula capture.
 
 ## Decision

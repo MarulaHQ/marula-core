@@ -184,7 +184,8 @@ impl ThemePackManifest {
     }
 
     /// Coerces a RAW theme export — a tweakcn export
-    /// (`design/marula/marula.json` is the vendored exemplar:
+    /// (`internal/design/marula/marula.json` in the private design corpus is
+    /// the exemplar:
     /// `{ name, cssVars: { light, dark } }` over the shadcn variable
     /// vocabulary, frequently `oklch()`) or a shadcn registry-item theme
     /// (same `cssVars` shape) — into a validated [`ThemePackManifest`].

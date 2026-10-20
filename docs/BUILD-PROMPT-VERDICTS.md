@@ -23,11 +23,11 @@ citation. Where it is code, the citation names the module or endpoint.
 
 | Spec item | Verdict | Evidence / gap |
 | --- | --- | --- |
-| Monorepo scaffold per §3 (crates/*, packages/*, apps/, deploy/, design/mockups/) | shipped | `crates/` 23 crates (all §3 components incl. mcp-server, plugin-host, perf-harness), `packages/{sdk,ui,layout,plugin-kit}`, `apps/web`, `deploy/`, `plugins/wasm` + `plugins/connectors` |
+| Monorepo scaffold per §3 (crates/*, packages/*, apps/, deploy/, internal/design/mockups/) | shipped | `crates/` 23 crates (all §3 components incl. mcp-server, plugin-host, perf-harness), `packages/{sdk,ui,layout,plugin-kit}`, `apps/web`, `deploy/`, `plugins/wasm` + `plugins/connectors` |
 | docker-compose up: Postgres+pgvector, Redis→Valkey, Garage, Mailpit, core-api, realtime, worker, web | shipped | `deploy/docker-compose.yml` (pgvector:pg18, valkey:8, garage, mailpit, api, realtime, worker, web, observability profile). The PG18/Valkey/Garage transition was verified by Wave 36 lanes 1–2 (`design/qa-p36-backup-wal-g-restic`, `design/qa-p36-infra-transition`) |
 | OpenAPI utoipa → Scalar → generated TS SDK | shipped | Scalar at `/openapi.json`, `packages/sdk` generated client, 578 pinned paths (`packages/sdk/openapi.json`) |
 | meridian-theme tokens, light+dark from one set, no hardcoded hex | shipped | `packages/ui` Workbench tokens, CI brand-distinctness scan, per-theme gate `check-theme-packs.mjs` (Wave 24 theming) |
-| Mockups in `design/mockups/` light+dark | shipped | app mockups (workbench v2 is the canonical aesthetic reference) + website mockups `website-*.html` light+dark |
+| Mockups in `internal/design/mockups/` light+dark | shipped | app mockups (workbench v2 is the canonical aesthetic reference) + website mockups `website-*.html` light+dark |
 | CI brand-distinctness check | shipped | `ci.yml.disabled` "Brand distinctness — Workbench tokens only" job (definitions-only, triggers user-gated, see `ga-gates.yml.disabled`) |
 | hello-world ticket CRUD: API → DB → event → WS → web | shipped | Stage-0/1 acceptance harness (`scripts/acceptance.ts`, 18 live checks incl. the WS push chain) — `docs/STAGE-REPORT.md` Stage 0/1 sections |
 | Generated SDK compiles in a scratch TS project | shipped | SDK typechecks against the live spec on every gate run (openapi pin + regen ritual) |
@@ -136,11 +136,11 @@ citation. Where it is code, the citation names the module or endpoint.
 | Spec item | Verdict | Evidence / gap |
 | --- | --- | --- |
 | Waitlist site Phase 1 + live marketing Phase 2 | shipped | Wave 20 lane 1 → Wave 28 rebuild → Wave 34 lane 7 phase-2 (14-route sitemap complete, `/features` folded into `/compare`) |
-| Mockup-first, public-safe, no app-code imports | shipped | `design/mockups/website-*` + `website/` package boundary (packages/ui primitives only) |
+| Mockup-first, public-safe, no app-code imports | shipped | `internal/design/mockups/website-*` + the site package's own boundary (packages/ui primitives only) |
 | **Lighthouse ≥95** | shipped-with-honest-gap | Re-run 2026-10-02 on a fresh production build, 7 routes × mobile+desktop: mobile perf 95–96, desktop perf 100, a11y/BP/SEO 100 everywhere (`design/qa-p34-spec-verdict-sweep/lighthouse/`). The stale-evidence gap is closed; what remains is that CI does not run Lighthouse — re-run at publishing |
 | WCAG AA on the site | shipped | Lighthouse a11y 100 on all six routes, brief binding gates carried to every website lane |
-| **PostHog aggregate analytics only** | shipped-with-honest-gap | The aggregate-only leg shipped (`website/lib/analytics.ts` + `components/page-view.tsx`, p34-verdicts-closeout): off unless `NEXT_PUBLIC_POSTHOG_KEY` is set (the literal `off` counts as off), one cookie-free ping per pageview, no identity of any kind, DNT + GPC honored, no SDK dependency. Re-proven against a live browser on 2026-10-02 (`design/qa-p34-spec-verdict-sweep/captures/analytics-off/mode-off.json`, `analytics-on/mode-on.json`): off = zero third-party requests and empty cookies/storage, on = exactly one ping per page. Honest gap: it ships disabled by default — enabling is operator configuration, which is the documented posture |
-| The site never imports product app code | shipped | `website/` is a separate Next app with imports restricted to packages/ui primitives |
+| **PostHog aggregate analytics only** | shipped-with-honest-gap | The aggregate-only leg shipped (the site package's `lib/analytics.ts` + `components/page-view.tsx`, p34-verdicts-closeout): off unless `NEXT_PUBLIC_POSTHOG_KEY` is set (the literal `off` counts as off), one cookie-free ping per pageview, no identity of any kind, DNT + GPC honored, no SDK dependency. Re-proven against a live browser on 2026-10-02 (`design/qa-p34-spec-verdict-sweep/captures/analytics-off/mode-off.json`, `analytics-on/mode-on.json`): off = zero third-party requests and empty cookies/storage, on = exactly one ping per page. Honest gap: it ships disabled by default — enabling is operator configuration, which is the documented posture |
+| The site never imports product app code | shipped | the site package is a separate Next app with imports restricted to packages/ui primitives |
 
 ## §1 product-module bullets — the short list (each walked individually)
 
@@ -208,7 +208,7 @@ citation. Where it is code, the citation names the module or endpoint.
    cookie-free ping per pageview, no identity of any kind: no cookies, no
    localStorage/sessionStorage, a fresh random `distinct_id` per event,
    `$process_person_profile: false`, pathname only (no query string), no
-   referrer, and DNT + GPC honored. No SDK dependency, so `website/` stays
+   referrer, and DNT + GPC honored. No SDK dependency, so the site package stays
    frozen per D10 and the shared bundle is unchanged at 102 kB. Proven
    against a live browser in both modes
    (`scripts/p34-website-analytics-capture.mjs`): off = zero third-party

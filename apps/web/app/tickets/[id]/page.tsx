@@ -1,7 +1,7 @@
 // /tickets/[id] — Workbench v2 (Wave 15 lane 7).
 //
 // Purpose: the ticket detail surface rebuilt to the approved mockup
-// (design/mockups/marula-ticket-workbench-html-mockup-v2.html) inside
+// (internal/design/mockups/marula-ticket-workbench-html-mockup-v2.html) inside
 // the lane-6 shell (nav rail + top bar + work bar). Three columns over
 // the shell: the Ticket Context panel (left, collapses as the view
 // narrows — never persistently visible in narrow layouts), the center

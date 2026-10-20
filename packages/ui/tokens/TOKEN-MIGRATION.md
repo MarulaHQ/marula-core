@@ -11,7 +11,7 @@ writes `tokens.css`, `tokens.ts` and `CONTRAST.md` from it. `theme.css` is a
 static Tailwind 4 mapping and ships unchanged.
 
 The generator is proven: its three outputs are byte-identical to the kit's
-reference files in `design/marula-handoff-kit/tokens/`, and `node tokens/generate.mjs
+reference files in `internal/design/marula-handoff-kit/tokens/`, and `node tokens/generate.mjs
 --check` fails if someone edits an output by hand. `CONTRAST.md` holds at 60 of 60 AA.
 
 ## Theme names: the D2 mapping

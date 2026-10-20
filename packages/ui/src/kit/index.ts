@@ -1,5 +1,5 @@
 // The Marula handoff kit's canonical components, vendored from
-// design/marula-handoff-kit/kit/src. One definition for the whole app:
+// internal/design/marula-handoff-kit/kit/src. One definition for the whole app:
 // screens compose these instead of restyling a primitive.
 export * from "./ui/button"
 export * from "./ui/app-rail"

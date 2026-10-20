@@ -1,5 +1,5 @@
 // Today — the technician's home, drawn to the mobile pack
-// (design/mockups/marula-app-mockup-images/mobile): a date-and-greeting
+// (internal/design/mockups/marula-app-mockup-images/mobile): a date-and-greeting
 // header in the serif face, the next-visit card with its Due-today pill and
 // the Start-travel → I've-arrived travel timer, the quick tiles, and the
 // Later list of work grouped by due day. The schedule rail, on-call,

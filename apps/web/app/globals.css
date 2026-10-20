@@ -1,8 +1,9 @@
 /*
  * Global styles for the Marula web app — the shadcn preset layer.
  *
- * Source of truth: `design/marula/marula.json` (canonical tweakcn preset,
- * vendored) — the shadcn variables below are generated from it and reference
+ * Source of truth: `internal/design/marula/marula.json` in the private design
+ * corpus (canonical tweakcn preset) — the shadcn variables below are generated
+ * from it and reference
  * the --m-* token layer for every value both layers share, so the two cannot
  * drift (docs/theme.md §3.0).
  *

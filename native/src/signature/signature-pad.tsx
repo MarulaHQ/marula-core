@@ -1,7 +1,7 @@
 // Native signature pad — the drawing surface at the door.
 //
 // Geometry is the pack's own, not invented. The Marula pack draws this exact
-// surface twice: `design/mockups/marula-app-mockup-images/mobile/{light,dark}/
+// surface twice: `internal/design/mockups/marula-app-mockup-images/mobile/{light,dark}/
 // states/08-wrap-up-resolved.png` (empty: a dashed box, "Sign here" bottom
 // left, "Clear" bottom right) and `11-wrap-up-signed.png` (marked: the stroke
 // in the theme's TEXT colour). This component reproduces that, using

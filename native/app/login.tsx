@@ -19,7 +19,7 @@ import { type, useTheme } from "@/ui/tokens";
 import { requestMagicLink } from "@/auth/magic-link";
 
 // The canonical brand lockup — the brand's real identity, gold fruit with
-// the lowercase ink wordmark (design/marula/logo + apps/web/public, byte
+// the lowercase ink wordmark (internal/design/marula/logo + apps/web/public, byte
 // copies of the kit's lockups; web's BrandLockup defaults to the same
 // colour variant). Colour on light surfaces, the on-dark lockup on dark.
 // Rasterized from the SVG for native (no SVG runtime here) via

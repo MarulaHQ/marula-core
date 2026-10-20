@@ -9,7 +9,7 @@
  * stay literal here.
  * Purpose: define every color, radius, spacing, and motion token for light and
  * dark modes, authored from the canonical Marula preset
- * (design/marula/marula.json — tweakcn) plus the rendered pack
+ * (internal/design/marula/marula.json — tweakcn) plus the rendered pack
  * (brand/marula-mockups/marula-app-mockup-images/DESIGN-NOTES.md §7, 40
  * tokens x 3 columns) and docs/theme.md §3/§5.
  * Non-purpose: contains no component selectors (see components.css); feature

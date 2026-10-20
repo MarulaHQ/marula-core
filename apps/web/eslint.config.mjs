@@ -79,7 +79,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import { defineConfig, globalIgnores } from "eslint/config";
 
 const THEME_NOTE =
-  "Marula design doctrine lives in docs/theme.md (the Marula ink-and-gold token layer, Figtree/Fraunces/JetBrains Mono typography, the primary that flips ink-to-gold on mode, the non-flipping ink timer bar, the motion law at or under 120ms) and the vendored reference pack at design/mockups/marula-app-mockup-images/DESIGN-NOTES.md. Fix by using theme tokens and components. Never retype a hex and never restyle a primitive. Gold is never text on a light background: use --m-gold-text.";
+  "Marula design doctrine lives in docs/theme.md (the Marula ink-and-gold token layer, Figtree/Fraunces/JetBrains Mono typography, the primary that flips ink-to-gold on mode, the non-flipping ink timer bar, the motion law at or under 120ms) and the reference pack in the private design corpus at internal/design/mockups/marula-app-mockup-images/DESIGN-NOTES.md. Fix by using theme tokens and components. Never retype a hex and never restyle a primitive. Gold is never text on a light background: use --m-gold-text.";
 
 export default defineConfig([
   globalIgnores(["node_modules/**", ".next/**", "public/**"]),
@@ -210,7 +210,7 @@ export default defineConfig([
 
   {
     // Wave 41 lane 20 — the kit is the one door for primitives and icons
-    // (design/marula-handoff-kit/ui-package/eslint.snippet.mjs). The app
+    // (internal/design/marula-handoff-kit/ui-package/eslint.snippet.mjs). The app
     // imports components from @marula-core/ui or @marula-core/ui/kit, never
     // Phosphor directly and never the design folder itself.
     files: ["**/*.{ts,tsx}"],
@@ -226,7 +226,7 @@ export default defineConfig([
           ],
           patterns: [
             {
-              group: ["**/design/marula-handoff-kit/**", "@marula-core/ui/src/kit/**"],
+              group: ["**/internal/design/marula-handoff-kit/**", "@marula-core/ui/src/kit/**"],
               message: "Import the vendored kit from '@marula-core/ui/kit', not the design folder or a deep path.",
             },
           ],

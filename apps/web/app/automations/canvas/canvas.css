@@ -4,7 +4,7 @@
  * lives beside its owner, not in a shared sheet (the chrome boundary).
  *
  * Composed from the design reference of record for this surface:
- * `design/mockups/marula-app-mockup-images/` carries no canvas state, so the
+ * `internal/design/mockups/marula-app-mockup-images/` carries no canvas state, so the
  * shape comes from the committed pack's `workflow-builder.html` (states W01–
  * W09) — but every colour here is a `--m-*` token, never a hex from that file.
  * The mockup's own short vars (`--bg`, `--surf`, `--pr` …) map to Marula tokens:

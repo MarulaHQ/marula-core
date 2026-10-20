@@ -13,7 +13,7 @@
 //
 //   1. CANONICAL SHOTS — every surface the row names, both themes and every
 //      portal login, shot at the pack's recorded desktop size (1600x994, from
-//      `design/mockups/marula-app-mockup-images/manifest.json` and mirrored by
+//      `internal/design/mockups/marula-app-mockup-images/manifest.json` and mirrored by
 //      `e2e/p41-audit-captures.mjs:254`). These are the images the vision
 //      review reads against the pack.
 //   2. THE RESPONSIVE MATRIX — every surface measured at five desktop sizes in

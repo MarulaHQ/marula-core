@@ -11,7 +11,7 @@
 ## 0. Why — the Nilear pattern
 
 Nilear MTX treats working a ticket as a continuous state rather than a sequence of forms
-(`design/marula_psa_ticket_workbench_chatgpt_design_doc.md` line 13: "One Working Ticket
+(`internal/design/marula_psa_ticket_workbench_chatgpt_design_doc.md` line 13: "One Working Ticket
 Method keeps one ticket actively in progress … time, notes, communication, knowledge and
 agent actions all emerge naturally from the same work session"). The dark bottom WorkBar
 (`apps/web/components/timer-dock.tsx`) already carries the live timer, quick-note input,
