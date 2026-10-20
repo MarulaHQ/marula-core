@@ -56,6 +56,15 @@ opencode.json
 # Lane-drifted private target caches (DX6 violation artifacts, reclaimed at merge)
 .kilo/target-shared*/
 
+# P13 build-throughput overlay: written per machine by scripts/p13-build-env.sh
+# from what that host actually has (linker, sccache). Tracked config includes it
+# with `optional = true`, so an absent copy is stock cargo — which is why it must
+# never be committed: a committed copy would pin one machine's linker on every
+# other machine. scripts/p13-build-env.sh selftest proves the include/absent pair.
+.cargo/p13-fast.local.toml
+# sccache's local cache, placed beside the shared target dir (one per machine).
+.kilo/sccache/
+
 # Graphify knowledge graph (machine-generated; hooks rebuild it locally)
 graphify-out/
 

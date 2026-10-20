@@ -1,0 +1,33 @@
+# nextest configuration (Wave 52 lane P13).
+#
+# scripts/p13-test.sh runs `cargo nextest run` when cargo-nextest is installed
+# and `cargo test` when it is not, so nothing here is load-bearing for a machine
+# without nextest. The values below are the workspace defaults; a suite that
+# needs different ones sets them on the command line.
+#
+# `cargo test --workspace --no-fail-fast` is the shape this reproduces: one
+# process per test binary each, keep going after a failure, then a summary.
+[profile.default]
+# Same as --no-fail-fast on cargo test: a red suite should not hide the others.
+fail-fast = false
+
+# No retries by default. A retry that turns a flaky test green also hides the
+# flake, and this tree's DB suites are the place flakes actually appear, so a
+# retry policy belongs in a lane that can measure the flake rate first.
+retries = 0
+
+# A hung test is worse than a failed one for a lane gate: it parks the run
+# until a human notices. 90s is generous for a unit test; slow-timeout reports
+# it, terminate-after 2 kills the process instead of waiting forever.
+slow-timeout = { period = "90s", terminate-after = 2 }
+
+# Print a failure the moment it happens and again in the final summary, and
+# print nothing for the tests that passed (the default prints a line each).
+failure-output = "immediate-final"
+success-output = "never"
+status-level = "pass"
+final-status-level = "fail"
+
+# Default is already all cores; stated so the benchmark's numbers are
+# reproducible from the file alone.
+test-threads = "num-cpus"
