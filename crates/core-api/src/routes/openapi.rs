@@ -760,6 +760,12 @@ use utoipa::OpenApi;
         crate::routes::attachments::list_for_comment,
         crate::routes::attachments::download,
         crate::routes::attachments::remove,
+        // Wave 52 lane P6c: the quarantine admin surface over the scan gate's
+        // held objects (list, inspect, release override, delete).
+        crate::routes::quarantine_admin::list,
+        crate::routes::quarantine_admin::get_one,
+        crate::routes::quarantine_admin::release,
+        crate::routes::quarantine_admin::remove,
         // Wave 43 track 2 lane 12 (migration 0127): sign-off capture, its
         // revocation trail, payload download, and consent-version control.
         crate::routes::sign_offs::create,
@@ -2257,6 +2263,7 @@ use utoipa::OpenApi;
         (name = "scheduling", description = "Appointments, availability, on-call, calendar views"),
         (name = "projects", description = "Projects: phases/tasks/dependencies/views/templates + milestone billing events"),
         (name = "attachments", description = "File attachments on tickets/comments (ObjectStore-backed)"),
+        (name = "quarantine", description = "Quarantine admin: objects the malware scanner rejected, with the release override, its reason, and the delete path (org admin only)"),
         // Wave 43 track 2 lane 12 (migration 0127)
         (name = "sign_offs", description = "Customer sign-off capture: witnessed signatures, their revocation trail, and consent wording"),
         (name = "kb", description = "Native knowledge base: categories, articles, client-facing flags"),

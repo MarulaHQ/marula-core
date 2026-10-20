@@ -198,6 +198,11 @@ export const SETTINGS_RAIL: Record<string, SettingsPage[]> = {
   security: [
     { label: "Sign-in and MFA", description: "How people get in", href: "/settings/security" },
     { label: "API keys", description: "Machine credentials", href: "/settings/api-keys" },
+    {
+      label: "Quarantined files",
+      description: "Held uploads and their release trail",
+      href: "/settings/quarantine",
+    },
   ],
   ai: [
     { label: "Overview", description: "Turn AI on, and grant surfaces", href: "/settings/ai" },

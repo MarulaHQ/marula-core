@@ -110,6 +110,7 @@ pub mod presence;
 pub mod projects;
 pub mod provenance;
 pub mod purchasing;
+pub mod quarantine_admin;
 pub mod quotes;
 pub mod rag;
 pub mod recurring;
@@ -927,6 +928,19 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/attachments/{id}"),
             axum::routing::delete(attachments::remove),
+        )
+        // Quarantine admin (Wave 52 lane P6c): the set the scan gate held,
+        // plus the two operator decisions over it. Reads are Admin:View,
+        // release is Admin:Edit (a reason is required and audited), delete is
+        // Admin:Delete. The upload path is not touched by this block.
+        .route(&rp("/admin/quarantine"), get(quarantine_admin::list))
+        .route(
+            &rp("/admin/quarantine/{sha256}"),
+            get(quarantine_admin::get_one).delete(quarantine_admin::remove),
+        )
+        .route(
+            &rp("/admin/quarantine/{sha256}/release"),
+            post(quarantine_admin::release),
         )
         // Customer sign-offs (Wave 43 track 2 lane 12, migration 0127):
         // one JSON route carries the whole capture (base64 PNG + signer
