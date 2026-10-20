@@ -288,12 +288,15 @@ export default function TodayPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 flex-1">
-        <div className="hidden lg:block">
+        <div
+          data-testid="today-boards-rail"
+          className="hidden shrink-0 lg:block lg:border-r"
+          style={{ borderColor: "var(--m-border)" }}
+        >
           <BoardNav />
         </div>
         <main
-          className="mx-auto flex w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-auto p-4 lg:border-l"
-          style={{ borderColor: "var(--m-border)" }}
+          className="mx-auto flex w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-auto p-4"
         >
           {/* Pack header: the date over the greeting, New ticket / Quick log
               to the right with their kbd chips. Routed through SurfaceHeader
