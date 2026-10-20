@@ -8,9 +8,8 @@ A Marula contract is the commercial answer to one question: *how does
 this client pay for this work?* The type you pick decides what the
 billing engine evaluates, what the admin verifies, and what lands on the
 invoice. Every type here is real practice at working MSP shops: it
-tracks the agreement types ConnectWise and Autotask model. Wave 39 grew
-the list from four to six shapes plus the attached configuration the
-labor types share.
+tracks the agreement types ConnectWise and Autotask model. Six shapes
+exist, plus the attached configuration the labor types share.
 
 ## The six contract types
 

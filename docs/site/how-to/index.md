@@ -4,6 +4,8 @@ Each how-to guide gives you a direct checklist for one specific job in Marula. I
 
 Every guide lists its target **Audience** (`admin`, `staff`, or `both`) right under the title so you know whether it requires administrator settings access or is part of everyday service desk work.
 
+Not sure which guide you need? [Start here](../start/index.md) routes by role, and [Troubleshooting](../troubleshooting.md) starts from a symptom when something is broken rather than unconfigured.
+
 ## Daily guides for technicians and service desk staff
 
 - [Work a ticket](staff-work-a-ticket.md) — Open a ticket from your morning queue, run the timer, post internal or customer-visible notes, and send your hours to approvals.
@@ -59,6 +61,7 @@ Every guide lists its target **Audience** (`admin`, `staff`, or `both`) right un
 ## AI, plugins, API, and self-hosting guides (admins and developers)
 
 - [Manage AI access](admin-ai-access.md) — Control the master AI switch, grant specific AI helpers to individual roles, and set usage caps.
+- [Bring up AI with your own API keys](admin-ai-bringup.md) — Make the six AI settings decisions in the order that makes the first live call work, with the refusal naming the step you skipped when you get the order wrong.
 - [Run transcription and embeddings on your own hardware](admin-local-ai-models.md) — Run Whisper voice transcription and 768-dimension vector search locally with Ollama so no data leaves your network.
 - [Configure the plugin consent flow](admin-plugin-consent.md) — Install digest-verified plugins and review capability permissions before enabling them.
 - [Extend Marula with plugin surfaces](admin-plugin-surfaces.md) — Register declarative dashboard widgets, automation triggers, read nodes, action steps, and custom field validators.

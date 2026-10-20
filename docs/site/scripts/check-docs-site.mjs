@@ -316,6 +316,21 @@ if (failed) {
   console.error(`\n${failed} problem(s)`);
   process.exit(1);
 }
+
+// Information architecture (Wave 54 lane R8a): every published page is
+// reachable from the site index and indexed by its quadrant, the audience
+// vocabulary holds, and the task entry points, glossary and troubleshooting
+// pages are wired in. Run last, so a link failure above is reported first.
+try {
+  execFileSync(process.execPath, [join(site, "scripts/check-docs-ia.mjs")], {
+    cwd: root,
+    stdio: "inherit",
+  });
+} catch {
+  failed++;
+}
+
+if (failed) process.exit(1);
 console.log(
-  `docs-site check OK: ${files.length} pages, links resolve, generated pages in sync, publishing path verified`,
+  `docs-site check OK: ${files.length} pages, links resolve, generated pages in sync, publishing path verified, IA indexed`,
 );

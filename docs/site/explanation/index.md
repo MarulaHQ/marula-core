@@ -2,7 +2,7 @@
 
 These pages explain **why** Marula works the way it does: why renaming a board column never breaks an SLA timer, why billing corrections create credit notes instead of editing sent invoices, and why AI features ship turned off by default.
 
-If you want a step-by-step lesson, start in [Tutorials](../tutorials/index.md). If you want a quick checklist for a daily job, go to [How-to guides](../how-to/index.md). For schemas and endpoints, see [Reference](../reference/index.md).
+If you want a step-by-step lesson, start in [Tutorials](../tutorials/index.md). If you want a quick checklist for a daily job, go to [How-to guides](../how-to/index.md). For schemas and endpoints, see [Reference](../reference/index.md). When something is broken rather than unexplained, [Troubleshooting](../troubleshooting.md) starts from the symptom.
 
 - [Why we're building Marula](why-marula.md) — Our product manifesto, quoted word for word from `MANIFESTO.md`. Audience: both.
 - [Instant-first interaction](instant-first.md) — Why there is no Save button to chase, how optimistic updates and `Ctrl/Cmd+Z` undo work, and why assistant suggestions wait for human approval. Audience: both.

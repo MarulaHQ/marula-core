@@ -1,6 +1,7 @@
-# Billing schema reference (Wave 39)
+# Billing schema reference
 
-The tables Wave 39 added, and the rules an integrator has to know before
+The tables behind work-type categories, billing verification, contract pricing
+and project milestone billing, and the rules an integrator has to know before
 writing to them. Every table is organization-scoped with the same RLS
 convention as the rest of the schema: an org's rows are its own, and the
 API is the supported write path.

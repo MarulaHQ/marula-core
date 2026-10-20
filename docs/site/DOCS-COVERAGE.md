@@ -161,3 +161,24 @@ self-host environment variables. The Stage-2 report's two mail honest gaps
 (no transport configuration UI, mail undocumented) are resolved here. The
 one remaining operator dependency is a real provider credential, which the
 test-send probe and delivery log surface rather than hide.
+
+## 8. Information-architecture pass (2026-10-20)
+
+The matrix above is an audit record from 2026-09-22 and is left as written.
+Since then the site was re-organised around the reader rather than the product
+menu:
+
+- [`start/`](start/index.md) holds one entry page per reader (owner, admin,
+  technician, operator, agent author). Each lists tasks in the words people use
+  and links the page that answers them. Tasks with no page are listed as gaps
+  rather than filled with invented behaviour.
+- [`troubleshooting.md`](troubleshooting.md) is entered by symptom, and sits
+  outside the four quadrants for that reason.
+- [`reference/glossary.md`](reference/glossary.md) defines the recurring PSA and
+  Marula vocabulary.
+- `node docs/site/scripts/check-docs-ia.mjs` fails on an orphan page, a page
+  missing from its quadrant index, a dead `#anchor`, or an unknown audience tag.
+  It runs inside `check-docs-site.mjs`, so the existing gate covers it.
+
+The measured audit, the gaps it found and what was left open are recorded in
+`design/qa-p52-docs-ia/REVIEW.md` in the repository.
