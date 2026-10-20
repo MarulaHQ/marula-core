@@ -14,6 +14,7 @@
 // here — it is recorded in design/qa-p47-prepaint-theme-flash/LANDING.md as
 // open work for the web lane.
 import { expect, test } from "../helpers/harness";
+import { apiLogin } from "../helpers/api";
 
 test("login page bootstraps the theme pre-paint and signs the demo owner in", async ({ page }, testInfo) => {
   // The login route is the first screen a prospect ever sees, so the test
@@ -52,6 +53,16 @@ test("wrong password renders friendly error copy, not raw JSON", async ({ page }
   const alert = await page.locator('[role="alert"]').first().innerText();
   expect(alert.toLowerCase()).not.toContain("{");
   expect(alert.toLowerCase()).not.toContain('"error"');
+
+  // Put the lockout back that this test deliberately armed (Wave 47 lane
+  // A26). A wrong password writes a durable `password_login` counter for
+  // THIS egress IP, and the gate denies every password login inside that
+  // window — so for 30s every later flow's fixture gets no session and
+  // dies on a sign-in page it never navigated to. A successful login is
+  // the product's own reset (gate_clear drops both the IP and the email
+  // key), and it proves the credential path recovered, so no test-only
+  // backdoor and no fixed sleep is needed here.
+  await apiLogin();
 });
 
 test("seeded theme preference persists for the authed session", async ({ authedPage }) => {
