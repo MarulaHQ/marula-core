@@ -223,18 +223,19 @@ boot, openapi pin regen, scratch verification — routes through
 
 ## Lane gate pause — wait for user go-ahead (BINDING, all new lanes)
 
-Every NEW lane/agent session stops once and waits for the user before running
-heavy verification (user directive 2026-09-25 — now the standing standard for
-all lanes):
+Every NEW lane/agent session — or every merge group of parallel lanes — stops
+once and waits for the user before running heavy verification (user directive
+2026-09-25 — now the standing standard for all lanes):
 
-- Research, implementation, and light frontend checks (typecheck/lint/unit
-  tests) proceed freely.
+- Research, implementation, and light checks (typecheck/lint/unit tests on the
+  touched packages) proceed freely.
 - Before the FIRST heavy gate run — any workspace `cargo` command (build/
   check/test/clippy/sqlx prepare) or any full suite / E2E / Playwright /
-  Maestro run / `scripts/e2e-stack.sh` boot — the lane ENDS ITS TURN with a
-  `READY FOR GATES — awaiting user go-ahead` report listing the exact commands
-  it will run, in order, and the evidence it will capture. It must not start
-  them, background them, or continue until the user replies.
+  Maestro run / `scripts/e2e-stack.sh` boot — the lane, or the group's
+  integration owner, ENDS ITS TURN with a `READY FOR GATES — awaiting user
+  go-ahead` report listing the exact commands it will run, in order, and the
+  evidence it will capture. It must not start them, background them, or
+  continue until the user replies.
 - The lane's native to-do list marks the gate step pending with the pause
   noted, so an idle lane reads as "waiting for go-ahead", not stalled.
 - Merge only after the user-approved gate run is green. Close-out is the landing
@@ -248,6 +249,38 @@ all lanes):
   branch is merged and the tree clean, then remove it. Never remove a worktree
   whose branch is unmerged, whose tree is dirty, or that hosts a stack registered
   in `scripts/dev-status.sh`.
+
+## Parallel lanes: merge groups (BINDING, default for parallel work)
+
+Parallel lanes are planned in **merge groups**, not as independent lanes that
+each drag the full gate set through their own tree. The waste the rule removes
+is the repeated workspace build/test/clippy run; the guarantee it keeps is that
+the merged tree, not each lane, is what gets verified (user directive
+2026-10-20):
+
+- The wave plan assigns every parallel lane to a group and names a **file
+  owner** for shared files. Two lanes never edit the same file in the same
+  group; if they must, they are sequenced.
+- One **integration worktree** and one integration branch per group, created
+  from `main`. Lanes branch from it. This is the standing exception to "do not
+  create branches unless instructed" — the group branch is instructed by the
+  plan. Pushes remain off.
+- Lanes run **light checks only** (`fmt`, `cargo check` on touched crates,
+  package-level unit tests, typecheck/lint on touched apps). They do not run
+  workspace `cargo test`, clippy `-D warnings`, E2E, Playwright, or the stack.
+- The plan names an **integration owner** (a lane in the group, not a separate
+  coordination lane). When every lane reports ready, the owner merges them into
+  the integration branch, resolves conflicts, and runs the **group gate once**.
+- Fixes happen on the integration branch. Each lane keeps its evidence
+  directory, but its `GATES.md` points at the group's merged run instead of
+  claiming a private one.
+- One `READY FOR GATES` pause per group. After the user-approved run is green,
+  the group merges to local `main` and its worktrees are removed.
+- P16-style final acts and any lane the plan marks solo keep the old
+  per-lane gate rule.
+
+The mechanics, the group gate matrix, and a worked example live in
+[`docs/reference/parallel-lanes.md`](docs/reference/parallel-lanes.md).
 
 ## Lane to-do lists (all agent worktrees)
 
