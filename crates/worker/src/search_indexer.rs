@@ -25,6 +25,7 @@
 //! with its own published + client-visible gate (never this index).
 
 use crate::config::WorkerConfig;
+use crate::reconnect::Reconnect;
 use core_db::search::SearchKind;
 use core_domain::entities::KbArticleStatus;
 use core_events::{Envelope, EVENT_STREAM};
@@ -39,7 +40,6 @@ use uuid::Uuid;
 /// Blocking-XREAD wait per poll; bounds shutdown latency.
 const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 200;
-const MAX_BACKOFF_MS: u64 = 5_000;
 
 /// One entity whose indexed content may need refreshing.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -378,14 +378,14 @@ pub async fn run_search_indexer<S: IndexSink>(
             return;
         }
     };
-    let mut backoff_ms = 100_u64;
+    let mut backoff = Reconnect::consumer();
     loop {
         if *shutdown.borrow() {
             return;
         }
         match client.get_multiplexed_async_connection().await {
             Ok(mut conn) => {
-                backoff_ms = 100;
+                backoff.reset();
                 let broke = follow_stream(&pool, &mut conn, &sink, &mut shutdown).await;
                 if broke.is_none() {
                     return;
@@ -396,8 +396,7 @@ pub async fn run_search_indexer<S: IndexSink>(
                 tracing::error!(%error, "search indexer redis connect failed");
             }
         }
-        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-        backoff_ms = (backoff_ms * 2).min(MAX_BACKOFF_MS);
+        backoff.sleep().await;
     }
 }
 

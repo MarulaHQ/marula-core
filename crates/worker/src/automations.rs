@@ -20,6 +20,7 @@
 //! Non-purpose: no writes outside queue tables, no condition logic here
 //! (core-domain), no effect application (queue runner → core-api).
 
+use crate::reconnect::Reconnect;
 use core_domain::automations::{
     is_automation_echo, AutomationRule, AutomationRuleRow, AutomationSubject,
     AutomationSubjectKind, TicketSnapshot,
@@ -437,14 +438,14 @@ pub async fn run_automations(pool: PgPool, redis_url: String, mut shutdown: watc
             return;
         }
     };
-    let mut backoff_ms = 100_u64;
+    let mut backoff = Reconnect::consumer();
     loop {
         if *shutdown.borrow() {
             return;
         }
         match client.get_multiplexed_async_connection().await {
             Ok(mut conn) => {
-                backoff_ms = 100;
+                backoff.reset();
                 // Durable group; '$' starts at live tail on FIRST creation
                 // so we don't replay history from before this deploy.
                 if let Err(error) = conn
@@ -458,8 +459,7 @@ pub async fn run_automations(pool: PgPool, redis_url: String, mut shutdown: watc
                     let msg = error.to_string();
                     if !msg.contains("BUSYGROUP") {
                         tracing::error!(%error, "xgroup create failed");
-                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                        backoff_ms = (backoff_ms * 2).min(5_000);
+                        backoff.sleep().await;
                         continue;
                     }
                 }
@@ -470,8 +470,7 @@ pub async fn run_automations(pool: PgPool, redis_url: String, mut shutdown: watc
                 tracing::error!(%error, "automations redis connect failed");
             }
         }
-        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-        backoff_ms = (backoff_ms * 2).min(5_000);
+        backoff.sleep().await;
     }
 }
 
@@ -543,7 +542,7 @@ async fn handle_entry(
                 org_id: m.org_id,
                 kind: "automation.effects".to_string(),
                 payload: effect_payload(&m),
-                max_attempts: 5,
+                max_attempts: crate::queue_runner::queue_max_attempts(),
             };
             match core_db::queue::enqueue(pool, &job).await {
                 Ok(id) => {

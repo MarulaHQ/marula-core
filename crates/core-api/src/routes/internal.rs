@@ -588,8 +588,15 @@ mod tests {
 
     #[test]
     fn backoff_from_reported_attempts_is_positive() {
+        // The jittered value always waits at least a second…
         assert!(backoff_delay(i64::from(1)).num_seconds() >= 1);
-        assert!(backoff_delay(i64::from(9)).num_seconds() >= 3_600);
+        // …and the unjittered curve reaches the policy's cap rather than a
+        // constant in this file.
+        let cap = core_domain::retry::policy(core_domain::retry::Subsystem::Email).cap;
+        assert_eq!(
+            core_mail::outbound::backoff_delay_with(i64::from(9), 1.0).num_seconds(),
+            i64::try_from(cap.as_secs()).expect("cap fits in i64")
+        );
     }
 }
 

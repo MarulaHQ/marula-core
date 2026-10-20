@@ -338,20 +338,21 @@ pub async fn run_relay(
     batch: i64,
     pacing: RelayPacing,
 ) -> Result<(), EventError> {
-    let mut backoff_ms = 100_u64;
+    let policy = core_domain::retry::policy(core_domain::retry::Subsystem::Relay);
+    let mut failed_passes = 0_u32;
     loop {
         match relay_once(&pool, &mut publisher, batch).await {
             Ok(0) => {
-                backoff_ms = 100;
+                failed_passes = 0;
                 pacing.wait().await;
             }
             Ok(_) => {
-                backoff_ms = 100;
+                failed_passes = 0;
             }
             Err(e) => {
                 tracing::error!(error = %e, "event relay failed");
-                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
-                backoff_ms = (backoff_ms * 2).min(10_000);
+                failed_passes = failed_passes.saturating_add(1);
+                tokio::time::sleep(policy.delay(failed_passes, core_domain::retry::sample())).await;
             }
         }
     }
@@ -364,17 +365,18 @@ pub async fn run_relay(
 /// during a reconnect costs at most one safety poll, which is why this task
 /// needs no resumable offset and no cursor.
 pub async fn run_wakeup_listener(database_url: String, wakeup: Arc<Notify>) {
-    let mut backoff = Duration::from_millis(250);
+    let policy = core_domain::retry::policy(core_domain::retry::Subsystem::Relay);
+    let mut failed_passes = 0_u32;
     loop {
         match wakeup_session(&database_url, &wakeup).await {
             Ok(()) => {
                 // Unreachable: wakeup_session only returns on error.
-                backoff = Duration::from_millis(250);
+                failed_passes = 0;
             }
             Err(e) => {
                 tracing::warn!(error = %e, "relay wakeup listener disconnected; reconnecting");
-                tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(Duration::from_secs(10));
+                failed_passes = failed_passes.saturating_add(1);
+                tokio::time::sleep(policy.delay(failed_passes, core_domain::retry::sample())).await;
             }
         }
     }

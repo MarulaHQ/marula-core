@@ -7,8 +7,11 @@
 //!
 //! Non-purpose: no retries here — durability is the job queue's business;
 //! this module performs exactly one attempt per invocation and reports the
-//! outcome classification back.
+//! outcome classification back. The classification is not invented here: it is
+//! [`core_domain::retry`]'s `effects` policy, so a 408 or 429 asks for a retry
+//! while a 400 refuses one.
 
+use core_domain::retry::{self, ErrorClass, Subsystem};
 use serde_json::Value;
 
 /// Outcome classes the queue runner maps to done/retry/dead decisions.
@@ -16,9 +19,13 @@ use serde_json::Value;
 pub enum EffectOutcome {
     /// 2xx — effect applied (or idempotently skipped).
     Applied,
-    /// 4xx — permanent rejection; retrying cannot succeed.
+    /// Permanent rejection: a retry cannot succeed and would only burn the
+    /// job's attempt budget. Produced only for an error class the `effects`
+    /// policy refuses — see the module note above.
     Rejected,
-    /// Network/5xx — transient; the job should retry with backoff.
+    /// Network/5xx — or a status the policy classifies as retryable (408, 429,
+    /// and a 409 where the operation is replay-inert). The job retries under
+    /// the queue's own backoff.
     Transient,
 }
 
@@ -43,6 +50,19 @@ pub trait EffectApi: Send + Sync {
         body: Value,
     ) -> impl std::future::Future<Output = (EffectOutcome, Value)> + Send {
         async move { (self.post(path, body).await, Value::Null) }
+    }
+}
+
+/// The seam's classification for a non-success status. Extracted so a test can
+/// prove the 4xx policy without a socket.
+#[must_use]
+pub fn classify_status(status: u16) -> EffectOutcome {
+    let policy = retry::policy(Subsystem::Effects);
+    let class = retry::classify_http(status);
+    if policy.retryable(class) {
+        EffectOutcome::Transient
+    } else {
+        EffectOutcome::Rejected
     }
 }
 
@@ -90,8 +110,30 @@ impl ReqwestEffectApi {
                 (EffectOutcome::Applied, value)
             }
             Ok(resp) if resp.status().is_client_error() => {
-                tracing::warn!(status = %resp.status(), path, "core-api rejected effect");
-                (EffectOutcome::Rejected, Value::Null)
+                // The defect this branch fixes: every 4xx dead-lettered, so a
+                // rate-limited or timing-out core-api killed the job it
+                // refused. 408/429 (and a 409, because every endpoint on this
+                // seam is replay-inert) are the policy's to retry; the rest
+                // stay permanent.
+                let status = resp.status();
+                let outcome = classify_status(status.as_u16());
+                let class = retry::classify_http(status.as_u16());
+                if outcome == EffectOutcome::Transient {
+                    tracing::warn!(
+                        status = %status,
+                        class = class.as_str(),
+                        path,
+                        "core-api asked the effect to be retried"
+                    );
+                } else {
+                    tracing::warn!(
+                        status = %status,
+                        class = class.as_str(),
+                        path,
+                        "core-api rejected effect permanently"
+                    );
+                }
+                (outcome, Value::Null)
             }
             Ok(resp) => {
                 tracing::error!(status = %resp.status(), path, "core-api error on effect");
@@ -172,5 +214,50 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].0, "/api/internal/sla/verdict");
         assert_eq!(calls[0].1["x"], 1);
+    }
+
+    /// The defect: `effects.rs` dead-lettered every core-api 4xx, so a
+    /// core-api that timed out or rate-limited the seam killed the job it
+    /// refused. These three are the ones that must now retry.
+    #[test]
+    fn timeout_rate_limit_and_conflict_retry() {
+        assert_eq!(classify_status(408), EffectOutcome::Transient);
+        assert_eq!(classify_status(429), EffectOutcome::Transient);
+        // A 409 on this seam means "someone else wrote first"; every endpoint
+        // the seam posts to is replay-inert, so the policy opts into a retry.
+        assert_eq!(classify_status(409), EffectOutcome::Transient);
+    }
+
+    /// The other direction matters as much: a retried 400 is a job that burns
+    /// its whole budget proving the same thing five times.
+    #[test]
+    fn a_permanent_4xx_is_refused_not_retried() {
+        for status in [400, 401, 403, 404, 405, 410, 413, 415, 422, 425] {
+            assert_eq!(
+                classify_status(status),
+                EffectOutcome::Rejected,
+                "{status} must dead-letter rather than retry"
+            );
+        }
+    }
+
+    #[test]
+    fn a_server_error_is_transient() {
+        for status in [500, 502, 503, 504] {
+            assert_eq!(classify_status(status), EffectOutcome::Transient);
+        }
+    }
+
+    /// The posture is not a global truth: flipping it on the policy flips the
+    /// classification, which is how a future non-idempotent seam opts out.
+    #[test]
+    fn the_conflict_decision_is_the_policys_not_the_statuss() {
+        // Pure classification says "client", i.e. "the operation decides".
+        assert_eq!(retry::classify_http(409), ErrorClass::Client);
+        let conservative =
+            retry::policy(Subsystem::Effects).on_conflict(retry::ConflictPosture::Permanent);
+        assert!(!conservative.retryable(retry::classify_http(409)));
+        // 429 is unaffected by that opt-out.
+        assert!(conservative.retryable(retry::classify_http(429)));
     }
 }

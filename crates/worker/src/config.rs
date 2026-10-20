@@ -15,6 +15,7 @@
 //! fails SILENTLY (zero rows, zero errors) — for the relay this means
 //! nothing is ever published.
 
+use core_domain::retry::RetryResolution;
 use core_mail::{TransportCredentials, TransportKind};
 
 /// The at-rest secret-encryption key (AES-256, same `MARULA_SECRET_KEY`
@@ -201,6 +202,13 @@ pub struct WorkerConfig {
     /// replica, the sweeps are not — so a scaled deployment runs `realtime`
     /// everywhere and `housekeeping` on one process.
     pub roles: WorkerRoles,
+    /// The retry preset every loop reads (`MARULA_ROBUSTNESS`, default
+    /// `balanced`) and its per-subsystem overrides
+    /// (`MARULA_RETRY_<SUBSYSTEM>_*`). Resolved once at boot; the resolved
+    /// matrix is installed into `core_domain::retry` so the queue, the
+    /// consumers, the webhook sender and the mail backoff all read the same
+    /// numbers.
+    pub retry: RetryResolution,
 }
 
 /// Which loop groups a worker process runs.
@@ -451,6 +459,20 @@ impl WorkerConfig {
                     tracing::warn!(%error, value = %v, "WORKER_ROLES invalid; running all loops");
                     WorkerRoles::all()
                 }),
+            },
+            // One preset sets every budget; the per-subsystem env group is the
+            // operator's escape hatch. A refused override is logged rather
+            // than silently replaced by a guess.
+            retry: {
+                let resolved = core_domain::retry::RetryMatrix::from_lookup(|key| lookup(key));
+                for warning in &resolved.warnings {
+                    tracing::warn!(%warning, "retry override refused; keeping the preset value");
+                }
+                tracing::info!(
+                    preset = resolved.matrix.preset().as_str(),
+                    "retry policy resolved"
+                );
+                resolved
             },
         }
     }

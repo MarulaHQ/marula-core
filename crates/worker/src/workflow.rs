@@ -39,6 +39,7 @@
 //! SQL (lane 14), no domain writes here (effects flow through core-api).
 
 use crate::effects::{EffectApi, EffectOutcome};
+use crate::reconnect::Reconnect;
 use core_db::queue::{ClaimedJob, NewJob};
 use core_db::workflow_runs as runs_db;
 use core_db::workflow_runs::NewStep;
@@ -67,9 +68,10 @@ const COUNT: usize = 50;
 /// org-scoped, as the run's author.
 pub const NODE_ENDPOINT: &str = "/api/internal/workflow/node";
 
-/// The queue attempts a resume job gets before it dead-letters. A run that
-/// cannot move is visible, not silently stuck.
-const RESUME_MAX_ATTEMPTS: i32 = 5;
+/// A resume job's attempts come from the queue's retry policy
+/// (`crate::queue_runner::queue_max_attempts`): a run that cannot move is
+/// visible, not silently stuck, and the number is the same one every other
+/// queued job gets.
 
 /// How a `workflow.resume` job settled. The queue runner maps these 1:1
 /// onto done / retry / dead so the executor owns its own classification.
@@ -153,14 +155,14 @@ pub async fn run_workflow_stream(
             return;
         }
     };
-    let mut backoff_ms = 100_u64;
+    let mut backoff = Reconnect::consumer();
     loop {
         if *shutdown.borrow() {
             return;
         }
         match client.get_multiplexed_async_connection().await {
             Ok(mut conn) => {
-                backoff_ms = 100;
+                backoff.reset();
                 if let Err(error) = conn
                     .xgroup_create_mkstream::<&str, &str, &str, ()>(
                         EVENT_STREAM,
@@ -172,8 +174,7 @@ pub async fn run_workflow_stream(
                     let msg = error.to_string();
                     if !msg.contains("BUSYGROUP") {
                         tracing::error!(%error, "workflows xgroup create failed");
-                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                        backoff_ms = (backoff_ms * 2).min(5_000);
+                        backoff.sleep().await;
                         continue;
                     }
                 }
@@ -184,8 +185,7 @@ pub async fn run_workflow_stream(
                 tracing::error!(%error, "workflows redis connect failed");
             }
         }
-        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-        backoff_ms = (backoff_ms * 2).min(5_000);
+        backoff.sleep().await;
     }
 }
 
@@ -322,7 +322,7 @@ where
             org_id,
             kind: WORKFLOW_RESUME_JOB.to_string(),
             payload,
-            max_attempts: RESUME_MAX_ATTEMPTS,
+            max_attempts: crate::queue_runner::queue_max_attempts(),
         },
     )
     .await
@@ -935,7 +935,7 @@ async fn park_run(
             org_id: ctx.org_id,
             kind: WORKFLOW_RESUME_JOB.to_string(),
             payload: json!({ "op": "resume", "run_id": ctx.run_id }),
-            max_attempts: RESUME_MAX_ATTEMPTS,
+            max_attempts: crate::queue_runner::queue_max_attempts(),
         };
         if let Err(error) = core_db::queue::enqueue_after(conn, &job, wake_at).await {
             tracing::error!(%error, run_id = %ctx.run_id, "workflow wake enqueue failed");

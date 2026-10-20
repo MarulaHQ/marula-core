@@ -88,6 +88,75 @@ pub struct DeployDescriptor {
     pub image: ImageSpec,
     pub profiles: Vec<Profile>,
     pub params: Vec<Param>,
+    /// The retry matrix, published in the same vocabulary as the env group a
+    /// consumer renders from it. The numbers are `core_domain::retry`'s — this
+    /// is a projection, not a second copy.
+    pub retries: RetrySpec,
+}
+
+/// Every retry preset and the budgets it sets, one entry per subsystem.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RetrySpec {
+    /// The env that selects the preset (`MARULA_ROBUSTNESS`).
+    pub preset_env: &'static str,
+    /// The subsystem→lever env group, so a consumer can render an override
+    /// beside each budget without hard-coding the pattern.
+    pub lever_env_template: &'static str,
+    pub presets: Vec<RetryPreset>,
+}
+
+/// One preset and what it does.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RetryPreset {
+    pub name: &'static str,
+    pub policies: Vec<RetryPolicySpec>,
+}
+
+/// One subsystem's resolved budget.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RetryPolicySpec {
+    pub subsystem: &'static str,
+    pub base_ms: u64,
+    pub factor: u32,
+    pub cap_ms: u64,
+    /// Total tries including the first. `0` means the budget is unlimited.
+    pub attempts: u32,
+    pub jitter: &'static str,
+    /// What a `409` means here.
+    pub on_conflict: &'static str,
+}
+
+/// The retry section of the descriptor, built from `core_domain::retry`.
+#[must_use]
+pub fn retry_spec() -> RetrySpec {
+    use core_domain::retry::{RobustnessPreset, Subsystem};
+
+    let presets = RobustnessPreset::ALL
+        .into_iter()
+        .map(|preset| RetryPreset {
+            name: preset.as_str(),
+            policies: Subsystem::ALL
+                .into_iter()
+                .map(|subsystem| {
+                    let policy = preset.policy(subsystem);
+                    RetryPolicySpec {
+                        subsystem: subsystem.as_str(),
+                        base_ms: u64::try_from(policy.base.as_millis()).unwrap_or(u64::MAX),
+                        factor: policy.factor,
+                        cap_ms: u64::try_from(policy.cap.as_millis()).unwrap_or(u64::MAX),
+                        attempts: policy.budget.limit().unwrap_or(0),
+                        jitter: policy.jitter.as_str(),
+                        on_conflict: policy.on_conflict.as_str(),
+                    }
+                })
+                .collect(),
+        })
+        .collect();
+    RetrySpec {
+        preset_env: core_domain::retry::ROBUSTNESS_ENV,
+        lever_env_template: "MARULA_RETRY_<SUBSYSTEM>_<LEVER>",
+        presets,
+    }
 }
 
 fn param(
@@ -142,6 +211,7 @@ pub fn descriptor() -> DeployDescriptor {
         },
         profiles: profiles(),
         params: params(),
+        retries: retry_spec(),
     }
 }
 
@@ -181,6 +251,10 @@ fn profiles() -> Vec<Profile> {
         }],
         sets: BTreeMap::from([
             ("MARULA_ALL_IN_ONE", "1"),
+            // One container, so the queue's retry window is short: there is no
+            // second replica to absorb a long one, and the operator is the
+            // only one watching.
+            ("MARULA_ROBUSTNESS", "single_box"),
             (
                 "MARULA_WORKER_DATABASE_URL",
                 "postgres://marula:marula@postgres:5432/marula",
@@ -605,6 +679,856 @@ fn params() -> Vec<Param> {
             false,
             "GlitchTip DSN presence for the self-host pane.",
         ),
+        // --- topology (added by Wave 52 lane R1: the descriptor omitted them) ---
+        param(
+            "RUN_MIGRATIONS",
+            "topology",
+            Boolean,
+            Some("false"),
+            false,
+            "Run startup migrations as this process. Dev only: the compose migrate one-shot owns them.",
+        ),
+        param(
+            "MARULA_DEV_TOOLS",
+            "topology",
+            Boolean,
+            Some("false"),
+            false,
+            "Enable the dev-only fallbacks for JWT_SECRET and MARULA_SECRET_KEY. Never set in production.",
+        ),
+        param(
+            "TRUSTED_PROXIES",
+            "topology",
+            String,
+            None,
+            false,
+            "Comma-separated proxy CIDRs. Replaces the loopback plus RFC1918 default set.",
+        ),
+        param(
+            "CF_CONNECTING_IP",
+            "topology",
+            String,
+            Some("auto"),
+            false,
+            "Which CF-Connecting-IP port the client-IP resolver believes: auto, true or false.",
+        ),
+        param(
+            "CF_IP_RANGES",
+            "topology",
+            String,
+            None,
+            false,
+            "Extra Cloudflare CIDRs. Extends the versioned baseline, never replaces it.",
+        ),
+        param(
+            "WORKER_ROLES",
+            "topology",
+            String,
+            Some("all"),
+            false,
+            "Loop groups this worker runs: all, realtime, housekeeping, or both comma-separated.",
+        ),
+        param(
+            "CORE_API_URL",
+            "topology",
+            Url,
+            Some("http://localhost:8080"),
+            false,
+            "core-api base URL for the email and missing-time loops.",
+        ),
+        param(
+            "INTERNAL_API_URL",
+            "topology",
+            Url,
+            Some("http://127.0.0.1:8080"),
+            false,
+            "core-api base URL for the machine effect calls.",
+        ),
+        param(
+            "WORKER_INTERNAL_URL",
+            "topology",
+            Url,
+            None,
+            false,
+            "Worker health URL the self-host pane probes. Unset shows the pane as not configured.",
+        ),
+
+        // --- database and cache ---
+        param(
+            "MARULA_REF_CACHE_TTL_SECS",
+            "database",
+            Integer,
+            Some("30"),
+            false,
+            "Backstop TTL for the reference cache; an invalidation event normally drops the entry first.",
+        ),
+        param(
+            "MARULA_REF_CACHE_MAX_ENTRIES",
+            "database",
+            Integer,
+            Some("4096"),
+            false,
+            "Entry ceiling per cache namespace, least-recently-used eviction.",
+        ),
+        param(
+            "MARULA_MAX_UPLOAD_MB",
+            "database",
+            Integer,
+            Some("25"),
+            false,
+            "Largest accepted attachment, in mebibytes.",
+        ),
+        param(
+            "MARULA_EVENT_STREAM_MAXLEN",
+            "cache",
+            Integer,
+            Some("50000"),
+            false,
+            "Entries kept in the event stream before the oldest are trimmed.",
+        ),
+        param(
+            "MARULA_SSE_MAX_CONNECTIONS",
+            "cache",
+            Integer,
+            Some("8"),
+            false,
+            "Live-push connections allowed per user.",
+        ),
+        param(
+            "MARULA_SSE_REPLAY_BUFFER",
+            "cache",
+            Integer,
+            Some("256"),
+            false,
+            "Live-push events buffered for replay to a reconnecting client.",
+        ),
+        param(
+            "MARULA_PRESENCE_TTL_SECS",
+            "cache",
+            Integer,
+            None,
+            false,
+            "Presence lease length. Unset keeps the built-in default.",
+        ),
+        param(
+            "OUTBOX_RETENTION_DAYS",
+            "cache",
+            Integer,
+            Some("7"),
+            false,
+            "Days a published outbox row is kept before the sweep removes it.",
+        ),
+        param(
+            "OUTBOX_SWEEP_SECS",
+            "cache",
+            Integer,
+            Some("21600"),
+            false,
+            "How often the outbox retention window is enforced.",
+        ),
+
+        // --- secrets and keys ---
+        param(
+            "MARULA_PLUGIN_SIGNING_KEY",
+            "secrets",
+            Secret,
+            None,
+            true,
+            "Single trusted plugin-signing key (key_id=hex). Superseded by MARULA_PLUGIN_SIGNING_KEYS.",
+        ),
+        param(
+            "MARULA_JWT_EDDSA_PRIVATE_KEY",
+            "secrets",
+            Secret,
+            None,
+            true,
+            "Inline Ed25519 private key PEM for token signing. Set this or the _FILE form, not both.",
+        ),
+        param(
+            "MARULA_JWT_EDDSA_PRIVATE_KEY_FILE",
+            "secrets",
+            String,
+            None,
+            false,
+            "Path to the Ed25519 private key PEM. Set this or the inline form, not both.",
+        ),
+        param(
+            "MARULA_JWT_EDDSA_PUBLIC_KEY",
+            "secrets",
+            String,
+            None,
+            false,
+            "Inline Ed25519 public key PEM. Required whenever a private key is configured.",
+        ),
+        param(
+            "MARULA_JWT_EDDSA_PUBLIC_KEY_FILE",
+            "secrets",
+            String,
+            None,
+            false,
+            "Path to the Ed25519 public key PEM.",
+        ),
+        param(
+            "MARULA_JWT_KID",
+            "secrets",
+            String,
+            None,
+            false,
+            "Key id published in the token header so verifiers pick the right key.",
+        ),
+        param(
+            "MARULA_STRIPE_SECRET_KEY",
+            "secrets",
+            Secret,
+            None,
+            true,
+            "Stripe API key for the billing provider adapter.",
+        ),
+        param(
+            "MARULA_STRIPE_WEBHOOK_SECRET",
+            "secrets",
+            Secret,
+            None,
+            true,
+            "Stripe webhook signing secret.",
+        ),
+        param(
+            "GOOGLE_CALENDAR_CLIENT_ID",
+            "secrets",
+            String,
+            None,
+            false,
+            "Delegated Google Calendar OAuth client id.",
+        ),
+        param(
+            "GOOGLE_CALENDAR_CLIENT_SECRET",
+            "secrets",
+            Secret,
+            None,
+            true,
+            "Delegated Google Calendar OAuth client secret.",
+        ),
+        param(
+            "MICROSOFT_GRAPH_CLIENT_ID",
+            "secrets",
+            String,
+            None,
+            false,
+            "Delegated Microsoft Graph OAuth client id.",
+        ),
+        param(
+            "MICROSOFT_GRAPH_CLIENT_SECRET",
+            "secrets",
+            Secret,
+            None,
+            true,
+            "Delegated Microsoft Graph OAuth client secret.",
+        ),
+
+        // --- email (remaining levers) ---
+        param(
+            "AWS_SES_ENDPOINT",
+            "email",
+            Url,
+            None,
+            false,
+            "SES endpoint override. Unset derives it from the region.",
+        ),
+        param(
+            "POSTMARK_BASE_URL",
+            "email",
+            Url,
+            Some("https://api.postmarkapp.com"),
+            false,
+            "Postmark API base URL.",
+        ),
+        param(
+            "EMAIL_SCAN",
+            "email",
+            String,
+            Some("none"),
+            false,
+            "Inbound attachment scanning: none or clamd.",
+        ),
+        param(
+            "CLAMD_ADDR",
+            "email",
+            String,
+            Some("127.0.0.1:3310"),
+            false,
+            "clamd address when EMAIL_SCAN=clamd.",
+        ),
+        param(
+            "EMAIL_CLAIM_BATCH",
+            "email",
+            Integer,
+            Some("25"),
+            false,
+            "Outbound email rows claimed per cycle.",
+        ),
+        param(
+            "EMAIL_LEASE_SECS",
+            "email",
+            Integer,
+            Some("300"),
+            false,
+            "Lease seconds asked of the claim endpoint.",
+        ),
+        param(
+            "DELIVERY_CLAIM_BATCH",
+            "email",
+            Integer,
+            Some("20"),
+            false,
+            "Scheduled-delivery rows claimed per sweep.",
+        ),
+
+        // --- auth (remaining levers) ---
+        param(
+            "MFA_PENDING_TTL_SECS",
+            "auth",
+            Integer,
+            Some("300"),
+            false,
+            "How long an MFA challenge stays valid.",
+        ),
+        param(
+            "MARULA_DECISION_BOT_USER_ID",
+            "auth",
+            String,
+            None,
+            false,
+            "Real member id decision runs are attributed to. Unset disables the decision subsystem.",
+        ),
+
+        // --- cadence (remaining levers) ---
+        param(
+            "QUEUE_BATCH",
+            "cadence",
+            Integer,
+            Some("10"),
+            false,
+            "Jobs claimed per queue tick.",
+        ),
+        param(
+            "QUEUE_STALE_SECS",
+            "cadence",
+            Integer,
+            Some("300"),
+            false,
+            "Lease age after which a crashed claimant's job is re-armed.",
+        ),
+        param(
+            "RELAY_BATCH",
+            "cadence",
+            Integer,
+            Some("100"),
+            false,
+            "Outbox rows relayed per batch.",
+        ),
+        param(
+            "RELAY_POLL_MS",
+            "cadence",
+            Integer,
+            Some("5000"),
+            false,
+            "Backstop poll interval for the outbox relay.",
+        ),
+        param(
+            "MARULA_RELAY_WAKEUP",
+            "cadence",
+            Boolean,
+            Some("true"),
+            false,
+            "Listen on the outbox notification channel. Off restores pure polling.",
+        ),
+
+        // --- observability (remaining levers) ---
+        param(
+            "GLITCHTIP_DSN_WORKER",
+            "observability",
+            Secret,
+            None,
+            true,
+            "GlitchTip DSN for the worker. Presence is shown in the self-host pane.",
+        ),
+        param(
+            "MARULA_GLITCHTIP_URL",
+            "observability",
+            Url,
+            None,
+            false,
+            "GlitchTip console URL for the operator links.",
+        ),
+        param(
+            "MARULA_GRAFANA_URL",
+            "observability",
+            Url,
+            None,
+            false,
+            "Grafana URL for the operator links.",
+        ),
+        param(
+            "MARULA_LOKI_URL",
+            "observability",
+            Url,
+            None,
+            false,
+            "Loki URL for the operator links.",
+        ),
+        param(
+            "MARULA_OTEL_METRICS_URL",
+            "observability",
+            Url,
+            None,
+            false,
+            "Metrics backend URL for the operator links.",
+        ),
+        param(
+            "MARULA_TEMPO_URL",
+            "observability",
+            Url,
+            None,
+            false,
+            "Tempo URL for the operator links.",
+        ),
+        param(
+            "MARULA_UPTIME_KUMA_URL",
+            "observability",
+            Url,
+            None,
+            false,
+            "Uptime Kuma URL for the operator links.",
+        ),
+
+        // --- routing ---
+        param(
+            "ROUTING_PROVIDER",
+            "routing",
+            String,
+            Some("none"),
+            false,
+            "Distance provider: none, osrm, ors, contract or mapbox.",
+        ),
+        param(
+            "ROUTING_OSRM_URL",
+            "routing",
+            Url,
+            None,
+            false,
+            "OSRM base URL.",
+        ),
+        param(
+            "ROUTING_ORS_URL",
+            "routing",
+            Url,
+            None,
+            false,
+            "OpenRouteService base URL.",
+        ),
+        param(
+            "ROUTING_ORS_API_KEY",
+            "routing",
+            Secret,
+            None,
+            true,
+            "OpenRouteService API key.",
+        ),
+        param(
+            "ROUTING_CONTRACT_URL",
+            "routing",
+            Url,
+            None,
+            false,
+            "Contract routing service base URL.",
+        ),
+        param(
+            "ROUTING_CONTRACT_ID",
+            "routing",
+            String,
+            None,
+            false,
+            "Contract routing service account id.",
+        ),
+        param(
+            "ROUTING_CONTRACT_TOKEN",
+            "routing",
+            Secret,
+            None,
+            true,
+            "Contract routing service token.",
+        ),
+        param(
+            "MAPBOX_ACCESS_TOKEN",
+            "routing",
+            Secret,
+            None,
+            true,
+            "Mapbox access token.",
+        ),
+        param(
+            "MAPBOX_PROFILE",
+            "routing",
+            String,
+            None,
+            false,
+            "Mapbox routing profile (driving, driving-traffic, walking).",
+        ),
+
+        // --- rate limits and budgets ---
+        param(
+            "MARULA_MIGRATION_RATE_LIMIT_PER_MIN",
+            "limits",
+            Integer,
+            Some("600"),
+            false,
+            "Migration requests allowed per principal per minute.",
+        ),
+        param(
+            "MARULA_DISPATCH_RATE_LIMIT_PER_MIN",
+            "limits",
+            Integer,
+            Some("600"),
+            false,
+            "Dispatch requests allowed per principal per minute.",
+        ),
+        param(
+            "MARULA_SCHEDULING_LINKS_RATE_LIMIT_PER_MIN",
+            "limits",
+            Integer,
+            Some("60"),
+            false,
+            "Scheduling-link requests allowed per principal per minute.",
+        ),
+        param(
+            "MARULA_VAULT_WRITE_BUDGET_PER_MIN",
+            "limits",
+            Integer,
+            Some("600"),
+            false,
+            "Vault writes allowed per org per minute.",
+        ),
+        param(
+            "MARULA_VAULT_BULK_ROWS_PER_SEC",
+            "limits",
+            Integer,
+            Some("50"),
+            false,
+            "Vault bulk-import rows per second.",
+        ),
+
+        // --- ai (model endpoints) ---
+        param(
+            "OPENAI_BASE_URL",
+            "ai",
+            Url,
+            None,
+            false,
+            "OpenAI-compatible base URL. Unset keeps the built-in default.",
+        ),
+        param(
+            "OLLAMA_BASE_URL",
+            "ai",
+            Url,
+            None,
+            false,
+            "Ollama base URL for the local model option.",
+        ),
+
+        // --- retries (Wave 52 lane R1) ---
+        //
+        // One preset sets every budget; the per-subsystem group is the
+        // operator's escape hatch and always wins over the preset. Every
+        // default below is the `balanced` preset's value, so a descriptor
+        // reader can see the shipped numbers without reading the code.
+        param(
+            "MARULA_ROBUSTNESS",
+            "retries",
+            String,
+            Some("balanced"),
+            false,
+            "Retry preset for every subsystem: balanced, durable, best_effort or single_box.",
+        ),
+        param(
+            "MARULA_RETRY_QUEUE_BASE_MS",
+            "retries",
+            Integer,
+            Some("5000"),
+            false,
+            "Delay before the second try for the job queue, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_QUEUE_CAP_MS",
+            "retries",
+            Integer,
+            Some("3600000"),
+            false,
+            "Ceiling on the computed delay for the job queue, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_QUEUE_ATTEMPTS",
+            "retries",
+            Integer,
+            Some("10"),
+            false,
+            "Total tries for the job queue, including the first. 0 never gives up.",
+        ),
+        param(
+            "MARULA_RETRY_QUEUE_JITTER",
+            "retries",
+            String,
+            Some("full"),
+            false,
+            "Delay spread for the job queue: none, full (0 to delay) or equal (half to delay).",
+        ),
+        param(
+            "MARULA_RETRY_QUEUE_CONFLICT",
+            "retries",
+            String,
+            Some("permanent"),
+            false,
+            "Whether a 409 is retried for the job queue. Retry only where a replay cannot double-apply.",
+        ),
+        param(
+            "MARULA_RETRY_EMAIL_BASE_MS",
+            "retries",
+            Integer,
+            Some("30000"),
+            false,
+            "Delay before the second try for outbound email, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_EMAIL_CAP_MS",
+            "retries",
+            Integer,
+            Some("3600000"),
+            false,
+            "Ceiling on the computed delay for outbound email, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_EMAIL_ATTEMPTS",
+            "retries",
+            Integer,
+            Some("6"),
+            false,
+            "Total tries for outbound email, including the first. 0 never gives up.",
+        ),
+        param(
+            "MARULA_RETRY_EMAIL_JITTER",
+            "retries",
+            String,
+            Some("equal"),
+            false,
+            "Delay spread for outbound email: none, full (0 to delay) or equal (half to delay).",
+        ),
+        param(
+            "MARULA_RETRY_EMAIL_CONFLICT",
+            "retries",
+            String,
+            Some("permanent"),
+            false,
+            "Whether a 409 is retried for outbound email. Retry only where a replay cannot double-apply.",
+        ),
+        param(
+            "MARULA_RETRY_WEBHOOK_BASE_MS",
+            "retries",
+            Integer,
+            Some("30000"),
+            false,
+            "Delay before the second try for signed webhook delivery, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_WEBHOOK_CAP_MS",
+            "retries",
+            Integer,
+            Some("3600000"),
+            false,
+            "Ceiling on the computed delay for signed webhook delivery, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_WEBHOOK_ATTEMPTS",
+            "retries",
+            Integer,
+            Some("6"),
+            false,
+            "Total tries for signed webhook delivery, including the first. 0 never gives up.",
+        ),
+        param(
+            "MARULA_RETRY_WEBHOOK_JITTER",
+            "retries",
+            String,
+            Some("full"),
+            false,
+            "Delay spread for signed webhook delivery: none, full (0 to delay) or equal (half to delay).",
+        ),
+        param(
+            "MARULA_RETRY_WEBHOOK_CONFLICT",
+            "retries",
+            String,
+            Some("permanent"),
+            false,
+            "Whether a 409 is retried for signed webhook delivery. Retry only where a replay cannot double-apply.",
+        ),
+        param(
+            "MARULA_RETRY_EFFECTS_BASE_MS",
+            "retries",
+            Integer,
+            Some("100"),
+            false,
+            "Delay before the second try for the worker to core-api effect seam, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_EFFECTS_CAP_MS",
+            "retries",
+            Integer,
+            Some("100"),
+            false,
+            "Ceiling on the computed delay for the worker to core-api effect seam, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_EFFECTS_ATTEMPTS",
+            "retries",
+            Integer,
+            Some("1"),
+            false,
+            "Total tries for the worker to core-api effect seam, including the first. 0 never gives up.",
+        ),
+        param(
+            "MARULA_RETRY_EFFECTS_JITTER",
+            "retries",
+            String,
+            Some("none"),
+            false,
+            "Delay spread for the worker to core-api effect seam: none, full (0 to delay) or equal (half to delay).",
+        ),
+        param(
+            "MARULA_RETRY_EFFECTS_CONFLICT",
+            "retries",
+            String,
+            Some("retry"),
+            false,
+            "Whether a 409 is retried for the worker to core-api effect seam. Retry only where a replay cannot double-apply.",
+        ),
+        param(
+            "MARULA_RETRY_CONSUMER_BASE_MS",
+            "retries",
+            Integer,
+            Some("250"),
+            false,
+            "Delay before the second try for stream consumer reconnect, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_CONSUMER_CAP_MS",
+            "retries",
+            Integer,
+            Some("10000"),
+            false,
+            "Ceiling on the computed delay for stream consumer reconnect, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_CONSUMER_ATTEMPTS",
+            "retries",
+            Integer,
+            Some("0"),
+            false,
+            "Total tries for stream consumer reconnect, including the first. 0 never gives up.",
+        ),
+        param(
+            "MARULA_RETRY_CONSUMER_JITTER",
+            "retries",
+            String,
+            Some("full"),
+            false,
+            "Delay spread for stream consumer reconnect: none, full (0 to delay) or equal (half to delay).",
+        ),
+        param(
+            "MARULA_RETRY_CONSUMER_CONFLICT",
+            "retries",
+            String,
+            Some("permanent"),
+            false,
+            "Whether a 409 is retried for stream consumer reconnect. Retry only where a replay cannot double-apply.",
+        ),
+        param(
+            "MARULA_RETRY_RELAY_BASE_MS",
+            "retries",
+            Integer,
+            Some("250"),
+            false,
+            "Delay before the second try for outbox relay and realtime listener reconnect, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_RELAY_CAP_MS",
+            "retries",
+            Integer,
+            Some("10000"),
+            false,
+            "Ceiling on the computed delay for outbox relay and realtime listener reconnect, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_RELAY_ATTEMPTS",
+            "retries",
+            Integer,
+            Some("0"),
+            false,
+            "Total tries for outbox relay and realtime listener reconnect, including the first. 0 never gives up.",
+        ),
+        param(
+            "MARULA_RETRY_RELAY_JITTER",
+            "retries",
+            String,
+            Some("full"),
+            false,
+            "Delay spread for outbox relay and realtime listener reconnect: none, full (0 to delay) or equal (half to delay).",
+        ),
+        param(
+            "MARULA_RETRY_RELAY_CONFLICT",
+            "retries",
+            String,
+            Some("permanent"),
+            false,
+            "Whether a 409 is retried for outbox relay and realtime listener reconnect. Retry only where a replay cannot double-apply.",
+        ),
+        param(
+            "MARULA_RETRY_DECISION_BASE_MS",
+            "retries",
+            Integer,
+            Some("200"),
+            false,
+            "Delay before the second try for the decision provider's upstream calls, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_DECISION_CAP_MS",
+            "retries",
+            Integer,
+            Some("2000"),
+            false,
+            "Ceiling on the computed delay for the decision provider's upstream calls, in milliseconds.",
+        ),
+        param(
+            "MARULA_RETRY_DECISION_ATTEMPTS",
+            "retries",
+            Integer,
+            Some("3"),
+            false,
+            "Total tries for the decision provider's upstream calls, including the first. 0 never gives up.",
+        ),
+        param(
+            "MARULA_RETRY_DECISION_JITTER",
+            "retries",
+            String,
+            Some("full"),
+            false,
+            "Delay spread for the decision provider's upstream calls: none, full (0 to delay) or equal (half to delay).",
+        ),
+        param(
+            "MARULA_RETRY_DECISION_CONFLICT",
+            "retries",
+            String,
+            Some("permanent"),
+            false,
+            "Whether a 409 is retried for the decision provider's upstream calls. Retry only where a replay cannot double-apply.",
+        ),
     ]
 }
 
@@ -661,6 +1585,13 @@ pub fn describe_summary() -> String {
         }
     }
     out.push_str(&format!(
+        "\nretries: preset via {} ({} presets, {} subsystems, {} levers each)\n",
+        d.retries.preset_env,
+        d.retries.presets.len(),
+        d.retries.presets.first().map_or(0, |p| p.policies.len()),
+        core_domain::retry::Lever::ALL.len(),
+    ));
+    out.push_str(&format!(
         "\n{} runtime parameters; emit JSON with `marula deploy describe --json`\n",
         d.params.len()
     ));
@@ -672,6 +1603,122 @@ pub fn describe_summary() -> String {
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
+
+/// Env names read by a source tree, discovered by scanning the code.
+///
+/// The scan is deliberately dumb: find a call that looks like an env read, then
+/// take the first all-caps string literal in the same statement (up to the next
+/// `;` or `{`, so a literal on a later line cannot be misread as this call's
+/// argument). Test modules are skipped — a fixture's `"AKIAEXAMPLE"` is not a
+/// lever.
+///
+/// Its failure mode is a false positive, which surfaces as "add a descriptor row
+/// or explain in `NON_LEVER_ENV`". That is the right side to err on: a missing
+/// row is the bug this test exists for.
+#[cfg(test)]
+fn env_names_in(root: &Path) -> std::collections::BTreeSet<String> {
+    const SIGNALS: [&str; 9] = [
+        "std::env::var(",
+        "env::var(",
+        "env_text(",
+        "env_configured(",
+        "lookup(",
+        "parse_pool_max(",
+        "parse_bounded_u64(",
+        "dsn_state(",
+        "env(",
+    ];
+    let mut names = std::collections::BTreeSet::new();
+    for path in rust_files(root) {
+        let source = std::fs::read_to_string(&path).unwrap_or_default();
+        // A test's own values are not levers.
+        let source = match source.find("#[cfg(test)]") {
+            Some(cut) => &source[..cut],
+            None => source.as_str(),
+        };
+        for signal in SIGNALS {
+            let mut from = 0;
+            while let Some(offset) = source[from..].find(signal) {
+                let after = from + offset + signal.len();
+                let end = source.len().min(after + 160);
+                let window = &source[after..end];
+                let stop = window.find([';', '{']).unwrap_or(window.len());
+                if let Some(name) = first_caps_literal(&window[..stop]) {
+                    if !NON_LEVER_ENV.contains(&name.as_str()) {
+                        names.insert(name);
+                    }
+                }
+                from = after;
+            }
+        }
+    }
+    names
+}
+
+#[cfg(test)]
+fn rust_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(rust_files(&path));
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// The first `"SCREAMING_SNAKE"` literal in a fragment, if any.
+#[cfg(test)]
+fn first_caps_literal(fragment: &str) -> Option<String> {
+    let mut rest = fragment;
+    while let Some(open) = rest.find('"') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('"') else {
+            return None;
+        };
+        let candidate = &after[..close];
+        let looks_like_env = candidate.len() >= 3
+            && candidate.starts_with(|c: char| c.is_ascii_uppercase())
+            && candidate
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+        if looks_like_env {
+            return Some(candidate.to_string());
+        }
+        rest = &after[close + 1..];
+    }
+    None
+}
+
+/// Values read through a computed variable, so the scan cannot see them. Every
+/// entry still has to be a descriptor parameter — that is the assertion.
+#[cfg(test)]
+const DYNAMIC_ENV_READS: [&str; 8] = [
+    // `read_key(inline_var, file_var)` in core-api's EdDSA resolution.
+    "MARULA_JWT_EDDSA_PRIVATE_KEY",
+    "MARULA_JWT_EDDSA_PRIVATE_KEY_FILE",
+    "MARULA_JWT_EDDSA_PUBLIC_KEY",
+    "MARULA_JWT_EDDSA_PUBLIC_KEY_FILE",
+    // `oauth_client_config(provider)` picks the pair by provider name.
+    "GOOGLE_CALENDAR_CLIENT_ID",
+    "GOOGLE_CALENDAR_CLIENT_SECRET",
+    "MICROSOFT_GRAPH_CLIENT_ID",
+    "MICROSOFT_GRAPH_CLIENT_SECRET",
+];
+
+/// Values the processes read that are not operator levers, each for a reason.
+/// Keep this list short: it is the only place a lever can hide.
+#[cfg(test)]
+const NON_LEVER_ENV: [&str; 1] = [
+    // Provided by the container runtime for consumer naming; telling an
+    // operator to set it would be noise.
+    "HOSTNAME",
+];
 
 /// Regenerates `deploy/profiles/*.yaml` from this module. Returns the paths
 /// written.
@@ -729,6 +1776,7 @@ pub fn profile_yaml(p: &Profile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     #[test]
     fn param_names_are_unique_and_groups_are_known() {
@@ -749,9 +1797,117 @@ mod tests {
             "auth",
             "cadence",
             "observability",
+            "routing",
+            "limits",
+            "ai",
+            "retries",
         ] {
             assert!(groups.contains(known), "group {known} missing");
         }
+    }
+
+    /// Every env value core-api or worker reads must appear in the descriptor.
+    ///
+    /// The gap this closes: `marula deploy describe` listed 49 parameters
+    /// while the two processes read roughly a hundred, so an operator
+    /// deploying from the descriptor could not discover the knobs that decide
+    /// whether the queue retries, whether the relay listens, or whether the
+    /// process boots at all.
+    ///
+    /// A name reaches the descriptor one of two ways: the scan finds it in
+    /// source, or it is listed in [`DYNAMIC_ENV_READS`] because it is read
+    /// through a computed variable. Both sets are checked, so "make the test
+    /// pass" is not a way to hide a lever.
+    #[test]
+    fn every_env_value_the_processes_read_has_a_descriptor_entry() {
+        let mut discovered = BTreeSet::new();
+        for root in ["crates/core-api/src", "crates/worker/src"] {
+            discovered.extend(env_names_in(&repo_root().join(root)));
+        }
+        assert!(
+            discovered.len() > 80,
+            "the scan found only {} env names — it is broken, not the descriptor",
+            discovered.len()
+        );
+
+        for name in DYNAMIC_ENV_READS {
+            assert!(
+                params().iter().any(|p| p.name == name),
+                "dynamic read {name} is not in the descriptor"
+            );
+        }
+
+        let mut missing: Vec<&str> = discovered
+            .iter()
+            .map(String::as_str)
+            .filter(|name| !NON_LEVER_ENV.contains(name))
+            .filter(|name| !params().iter().any(|p| p.name == *name))
+            .collect();
+        missing.sort_unstable();
+        assert!(
+            missing.is_empty(),
+            "{} env values are read by core-api or worker but absent from \
+             `marula deploy describe`: {missing:?}\n\
+             Add a descriptor entry (group it with its siblings) or, if it is \
+             not an operator lever, say why in NON_LEVER_ENV.",
+            missing.len()
+        );
+    }
+
+    /// The retry matrix is the product decision; the descriptor has to publish
+    /// it. Every lever the resolver accepts is a descriptor parameter and
+    /// every descriptor parameter in the `retries` group is a lever the
+    /// resolver reads — otherwise the escape hatch and its documentation can
+    /// drift.
+    #[test]
+    fn every_retry_lever_is_in_the_descriptor_and_vice_versa() {
+        let levers: BTreeSet<&str> = core_domain::retry::env_names().into_iter().collect();
+        let described: BTreeSet<&str> = params()
+            .iter()
+            .filter(|p| p.group == "retries")
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(
+            levers, described,
+            "the retry levers and the descriptor's `retries` group disagree"
+        );
+        assert!(levers.contains(core_domain::retry::ROBUSTNESS_ENV));
+    }
+
+    /// The retry section of the JSON speaks in the same vocabulary as the env:
+    /// a consumer renders the preset name and the lever names, not Rust type
+    /// names.
+    #[test]
+    fn the_json_publishes_the_retry_presets_and_the_resolved_defaults() {
+        let json = describe_json(None).expect("json");
+        let v: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        let retries = &v["retries"];
+        assert_eq!(retries["preset_env"], core_domain::retry::ROBUSTNESS_ENV);
+        let presets = retries["presets"].as_array().expect("presets array");
+        assert_eq!(presets.len(), 4);
+        let names: Vec<&str> = presets
+            .iter()
+            .map(|p| p["name"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["balanced", "durable", "best_effort", "single_box"]
+        );
+
+        let balanced = presets
+            .iter()
+            .find(|p| p["name"] == "balanced")
+            .expect("balanced preset");
+        let policies = balanced["policies"].as_array().expect("policies");
+        assert_eq!(policies.len(), 7);
+        let queue = policies
+            .iter()
+            .find(|p| p["subsystem"] == "queue")
+            .expect("queue policy");
+        // The shipped queue budget, readable without the source.
+        assert_eq!(queue["attempts"], 10);
+        assert_eq!(queue["cap_ms"], 3_600_000);
+        assert_eq!(queue["jitter"], "full");
     }
 
     #[test]

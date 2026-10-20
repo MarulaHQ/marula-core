@@ -158,7 +158,7 @@ async fn sweep_inner(pool: &PgPool, batch_limit: i64) -> anyhow::Result<(usize, 
                 org_id: candidate.org_id,
                 kind: "sla.verdict".to_string(),
                 payload,
-                max_attempts: 5,
+                max_attempts: crate::queue_runner::queue_max_attempts(),
             };
             match core_db::queue::enqueue(pool, &job).await {
                 Ok(_) => {

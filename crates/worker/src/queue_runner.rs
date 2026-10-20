@@ -2,9 +2,10 @@
 //!
 //! Purpose: claim jobs from the `jobs` table (SKIP LOCKED, DB-clock due
 //! checks), dispatch by kind to core-api's internal surface, and settle
-//! each job as done / retry-with-backoff / dead-letter. Backoff is
-//! exponential and computed in Postgres time, so a skewed host clock can
-//! neither delay nor fast-forward anyone else's retries.
+//! each job as done / retry-with-backoff / dead-letter. Backoff comes from
+//! the queue's [`RetryPolicy`](core_domain::retry::RetryPolicy) and is
+//! computed in Postgres time, so a skewed host clock can neither delay nor
+//! fast-forward anyone else's retries.
 //!
 //! Non-purpose: no job semantics here (payloads are opaque to this loop),
 //! no scheduling of future jobs (producers do that), no direct writes to
@@ -13,17 +14,39 @@
 use crate::effects::{EffectApi, EffectOutcome};
 use crate::webhook_out::{self, DeliverySink};
 use core_db::queue::ClaimedJob;
+use core_domain::retry::{self, Subsystem};
 use sqlx::PgPool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use tokio::sync::watch;
 use tracing::Instrument as _;
 
-/// Exponential backoff: 10s, 20s, 40s … capped at one hour. `attempt` is
-/// the count INCLUDING the failed one (first failure ⇒ 1).
-pub fn backoff_secs(attempt: i32) -> i64 {
-    let shift = attempt.clamp(0, 8) as u32;
-    (5_i64.saturating_mul(1 << shift)).min(3600)
+/// Delay before the attempt that follows `attempts_made` failures, in
+/// seconds, from the queue's retry policy with a fresh jitter sample.
+/// `attempts_made` is 1-based: the first failure waits the policy's base.
+///
+/// The numbers live in `core_domain::retry`, not here: the constant pair this
+/// function used to carry clamped its exponent, so the cap its own docstring
+/// promised was unreachable.
+#[must_use]
+pub fn backoff_secs(attempts_made: i32) -> i64 {
+    backoff_secs_with(attempts_made, retry::sample())
+}
+
+/// [`backoff_secs`] with the jitter sample supplied, so a test can pin the
+/// value a real worker would sleep between two known bounds.
+#[must_use]
+pub fn backoff_secs_with(attempts_made: i32, sample: f64) -> i64 {
+    let attempts = u32::try_from(attempts_made.max(1)).unwrap_or(1);
+    retry::policy(Subsystem::Queue).delay_secs(attempts, sample)
+}
+
+/// The queue's attempt budget as a job row stores it. Producers take their
+/// `max_attempts` from here so a sweep and the queue cannot disagree about how
+/// many tries a job has.
+#[must_use]
+pub fn queue_max_attempts() -> i32 {
+    retry::attempt_limit_i32(Subsystem::Queue)
 }
 
 /// Outcome counters for health reporting.
@@ -271,19 +294,54 @@ enum SettleOutcome {
 mod tests {
     use super::*;
 
+    /// The old constant was `5·2^n` with the shift clamped at 8, which capped
+    /// at 1280 s while the docstring promised an hour. These assertions are
+    /// bounds, not values: the exact number is the policy's business, and the
+    /// loop jitters it.
     #[test]
-    fn backoff_is_exponential_and_capped() {
-        assert_eq!(backoff_secs(1), 10);
-        assert_eq!(backoff_secs(2), 20);
-        assert_eq!(backoff_secs(3), 40);
-        assert_eq!(backoff_secs(7), 640);
-        assert_eq!(backoff_secs(8), 1280);
-        assert_eq!(backoff_secs(30), 1280);
+    fn backoff_grows_exponentially_within_the_policys_bounds() {
+        let policy = retry::policy(Subsystem::Queue);
+        // No jitter at all (sample 1.0 for full jitter, 0.5 for equal) gives
+        // the computed delay back minus the spread; compare the ceilings.
+        for attempts in 1..12 {
+            let upper = backoff_secs_with(attempts, 1.0);
+            let computed = policy
+                .base_delay(u32::try_from(attempts).expect("positive"))
+                .as_secs() as i64;
+            assert!(
+                upper <= computed,
+                "attempt {attempts}: jitter produced {upper}s above the computed {computed}s"
+            );
+            assert!(upper >= 1, "a retry must wait at least a second");
+            assert!(
+                i64::try_from(policy.cap.as_secs()).unwrap() >= upper,
+                "a delay above the cap escaped"
+            );
+        }
+        // The curve reaches the cap rather than flattening short of it.
         assert_eq!(
-            backoff_secs(-3),
-            5,
-            "nonsensical attempts clamp to the floor"
+            backoff_secs_with(12, 1.0),
+            i64::try_from(policy.cap.as_secs()).unwrap()
         );
+        // A nonsensical attempt count clamps to the first delay, not an
+        // enormous one.
+        assert!(backoff_secs_with(-3, 1.0) <= 5);
+        assert!(backoff_secs_with(0, 1.0) <= 5);
+    }
+
+    #[test]
+    fn jitter_shortens_the_wait_but_never_removes_both_bounds() {
+        let policy = retry::policy(Subsystem::Queue);
+        let computed = policy.base_delay(4).as_secs() as i64;
+        // Full jitter spans [0, computed]; the seconds conversion floors at 1.
+        assert_eq!(backoff_secs_with(4, 0.0), 1);
+        assert_eq!(backoff_secs_with(4, 1.0), computed);
+        let samples: Vec<i64> = (0..16).map(|_| backoff_secs(4)).collect();
+        assert!(
+            samples.iter().any(|s| *s < computed),
+            "the queue's waits are not being spread: {samples:?}"
+        );
+        assert!(samples.iter().all(|s| *s >= 1 && *s <= computed));
     }
 
     /// The settle logic is exercised end-to-end by db_suite's queue tests;

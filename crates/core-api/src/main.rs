@@ -25,6 +25,18 @@ async fn main() -> anyhow::Result<()> {
     // an edge deployment learns that public peers' proxy headers are
     // ignored before it misreads its own throttle keys.
     config.warn_trusted_proxy_posture();
+    // The retry matrix is process-global: install it before any loop or
+    // outbound mail send reads a backoff, and seed the jitter stream so two
+    // replicas never retry in lockstep. In all-in-one mode the worker loops
+    // this process hosts read the same matrix.
+    core_domain::retry::install(config.retry.matrix);
+    core_domain::retry::seed_jitter(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0)
+            ^ u64::from(std::process::id()),
+    );
     // Plugin distribution trust posture at boot (Wave 19 lane 2, ADR 0009
     // rotation semantics): an empty static trust set = structural
     // signature verification only — ACCEPTABLE DEV POSTURE, never

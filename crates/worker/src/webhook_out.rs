@@ -25,6 +25,7 @@
 //! writes to domain tables.
 
 use crate::effects::{EffectApi, EffectOutcome};
+use crate::reconnect::Reconnect;
 use core_db::webhooks::NewDeliveryAttempt;
 use core_domain::webhooks::{backoff_secs, signature_value, MAX_DELIVERY_ATTEMPTS};
 use core_events::{Envelope, EVENT_STREAM};
@@ -52,11 +53,12 @@ const CONSUMER_GROUP: &str = "webhooks-out";
 /// and a stalled database is a database-wide failure rather than a reason to
 /// steal one replica's work.
 ///
-/// Above: the queue's first retry lands 30 s after a failed delivery
-/// (`core_domain::webhooks::backoff_secs(1)`), doubling from there to an hour
-/// cap. Waiting twice the first retry means an entry still unacked after a
-/// whole retry cycle belongs to a dead consumer, not a busy one — if the
-/// replica that took it were alive, its own retry would already have moved.
+/// Above: the queue's first retry lands one webhook base delay after a failed
+/// delivery (`core_domain::webhooks::backoff_secs(1)`), widening to the
+/// policy's cap. Waiting twice the first retry means an entry still unacked
+/// after a whole retry cycle belongs to a dead consumer, not a busy one — if
+/// the replica that took it were alive, its own retry would already have
+/// moved. The seconds live in `core_domain::retry`, not in this comment.
 ///
 /// The cost of being wrong is bounded by the dedupe key on the job insert, not
 /// by this number: an over-eager claim enqueues into a key that already exists
@@ -88,10 +90,24 @@ pub enum SinkResult {
 }
 
 impl SinkResult {
-    /// 410 Gone is a permanent unsubscribe signal; everything else that
-    /// failed may succeed on a later attempt.
+    /// Whether this failure is permanent *for the webhook policy*.
+    ///
+    /// 410 is the receiver saying "stop sending me this" — a permanent
+    /// unsubscribe, never retried. Every other status goes through the
+    /// webhook [`RetryPolicy`](core_domain::retry::RetryPolicy): a 429 (the
+    /// receiver is throttling us) or a 5xx retries, a 404 means the endpoint
+    /// the operator configured does not exist, and a 409 means the receiver
+    /// already has this event — a replay adds nothing.
+    #[must_use]
     pub fn is_permanent(&self) -> bool {
-        matches!(self, SinkResult::Rejected(410))
+        match self {
+            Self::Rejected(410) => true,
+            Self::Rejected(status) => {
+                !core_domain::retry::policy(core_domain::retry::Subsystem::Webhook)
+                    .retries_status(*status)
+            }
+            Self::Delivered(_) | Self::Transport(_) => false,
+        }
     }
 
     pub fn status(&self) -> Option<i32> {
@@ -359,20 +375,19 @@ pub async fn run_webhook_out_as(
             return;
         }
     };
-    let mut backoff_ms = 100_u64;
+    let mut backoff = Reconnect::consumer();
     loop {
         if *shutdown.borrow() {
             return;
         }
         match RedisEventStream::from_client(&client, consumer.clone()).await {
             Ok(mut stream) => {
-                backoff_ms = 100;
+                backoff.reset();
                 if let Err(error) = stream.ensure_group().await {
                     let msg = error.to_string();
                     if !msg.contains("BUSYGROUP") {
                         tracing::error!(%error, "xgroup create failed");
-                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                        backoff_ms = (backoff_ms * 2).min(5_000);
+                        backoff.sleep().await;
                         continue;
                     }
                 }
@@ -383,8 +398,7 @@ pub async fn run_webhook_out_as(
                 tracing::error!(%error, "webhooks-out redis connect failed");
             }
         }
-        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-        backoff_ms = (backoff_ms * 2).min(5_000);
+        backoff.sleep().await;
     }
 }
 
@@ -586,7 +600,8 @@ async fn handle_entry<S: EventStream>(pool: &PgPool, stream: &mut S, entry: &Str
                 // delivered body — receivers get the full contract.
                 "envelope": envelope.to_json(),
             }),
-            max_attempts: MAX_DELIVERY_ATTEMPTS,
+            max_attempts: core_domain::retry::policy(core_domain::retry::Subsystem::Webhook)
+                .max_attempts_i32(MAX_DELIVERY_ATTEMPTS),
         };
         // One job per (subscription, event) for the life of the queue row.
         // The stream side is at-least-once — a replay after a crash, or a
@@ -632,8 +647,9 @@ pub enum Decision {
 }
 
 /// Pure settle rule, unit-tested without any I/O: success settles done,
-/// 410 Gone or an exhausted budget dead-letters, everything else retries
-/// on the capped exponential schedule.
+/// 410 Gone or an exhausted budget dead-letters, everything else retries on
+/// the policy's schedule. Which 4xx are permanent is the webhook policy's
+/// call (`SinkResult::is_permanent`), not a status the sender hard-codes.
 #[must_use]
 pub fn decide(result: &SinkResult, attempts: i32, max_attempts: i32) -> Decision {
     match result {
@@ -1023,6 +1039,13 @@ mod tests {
         // 410 Gone: permanent unsubscribe, even on attempt 1.
         assert_eq!(decide(&SinkResult::Rejected(410), 1, 6), Decision::Dead);
         assert_eq!(decide(&SinkResult::Rejected(500), 1, 6), Decision::Retry);
+        // A missing endpoint and an already-delivered event are both
+        // permanent; a throttled receiver is not.
+        assert_eq!(decide(&SinkResult::Rejected(404), 1, 6), Decision::Dead);
+        assert_eq!(decide(&SinkResult::Rejected(409), 1, 6), Decision::Dead);
+        assert_eq!(decide(&SinkResult::Rejected(429), 1, 6), Decision::Retry);
+        assert_eq!(decide(&SinkResult::Rejected(408), 1, 6), Decision::Retry);
+        assert_eq!(decide(&SinkResult::Rejected(400), 1, 6), Decision::Dead);
         assert_eq!(
             decide(
                 &SinkResult::Rejected(500),

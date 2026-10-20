@@ -37,6 +37,7 @@ pub mod outbox_retention_sweep;
 pub mod pm_sweep;
 pub mod project_billing;
 pub mod queue_runner;
+pub mod reconnect;
 pub mod rotation_sweep;
 pub mod run_retention_sweep;
 pub mod search_indexer;
@@ -69,10 +70,27 @@ const STREAM_TRIM_PASSES: usize = 200;
 
 /// Runs the worker until `shutdown` fires: connects to Postgres and Redis,
 /// spawns all background loops, and serves `/healthz` until then.
+/// Installs the resolved retry matrix and seeds the jitter stream.
+///
+/// Idempotent by construction (`OnceLock`): in all-in-one mode core-api may
+/// install first, and both resolve from the same environment. The seed matters
+/// even though the matrix does not — two replicas started from the same image
+/// must not sample the same jitter sequence, or they reconnect in lockstep.
+pub fn install_retry(config: &config::WorkerConfig) {
+    core_domain::retry::install(config.retry.matrix);
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+        ^ u64::from(std::process::id());
+    core_domain::retry::seed_jitter(seed);
+}
+
 pub async fn run(
     config: config::WorkerConfig,
     shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
+    install_retry(&config);
     let pool = core_db::connect_with(
         &config.database_url,
         core_db::PoolConfig {

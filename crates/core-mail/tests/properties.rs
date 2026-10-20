@@ -7,7 +7,7 @@
 use core_mail::inbound::{
     extract_subject_tokens, normalize_message_key, plan_inbound, InboundEmail, InboundOutcome,
 };
-use core_mail::outbound::{backoff_delay, excerpt};
+use core_mail::outbound::{backoff_delay_with, excerpt};
 use proptest::prelude::*;
 
 proptest! {
@@ -104,16 +104,31 @@ proptest! {
         }
     }
 
-    /// Backoff never decreases with more attempts and never exceeds 1h.
+    /// Backoff never decreases with more attempts and never exceeds the
+    /// policy's cap. The unjittered curve is monotone; the jittered value is
+    /// bounded by it.
     #[test]
     fn backoff_is_monotone_and_capped(
         a in 0_i64..64,
         step in 1_i64..8,
     ) {
-        let lo = backoff_delay(a);
-        let hi = backoff_delay(a + step);
+        let lo = backoff_delay_with(a, 1.0);
+        let hi = backoff_delay_with(a + step, 1.0);
         prop_assert!(lo <= hi, "backoff decreased: {lo:?} > {hi:?}");
-        prop_assert!(backoff_delay(i64::from(1000)) <= chrono::Duration::seconds(3600));
+        prop_assert!(backoff_delay_with(i64::from(1000), 1.0) <= chrono::Duration::seconds(3600));
+    }
+
+    /// A sampled delay stays inside the computed window — jitter may only
+    /// shorten a wait, and it always waits at least a second.
+    #[test]
+    fn jittered_backoff_stays_inside_the_window(
+        attempts in 1_i64..40,
+        sample in 0.0_f64..1.0,
+    ) {
+        let upper = backoff_delay_with(attempts, 1.0);
+        let actual = backoff_delay_with(attempts, sample);
+        prop_assert!(actual >= chrono::Duration::seconds(1), "{actual:?} waits nothing");
+        prop_assert!(actual <= upper, "{actual:?} above the computed {upper:?}");
     }
 
     /// Excerpting never panics, respects the char budget (+ellipsis), and

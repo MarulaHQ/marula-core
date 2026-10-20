@@ -19,6 +19,7 @@
 //! project→contract link resolves at evaluation), no invoice-row writes
 //! (the run owns every invoice document).
 
+use crate::reconnect::Reconnect;
 use core_domain::events::types;
 use core_events::{Envelope, EVENT_STREAM};
 use redis::streams::{StreamReadOptions, StreamReadReply};
@@ -95,14 +96,14 @@ pub async fn run_project_billing(
             return;
         }
     };
-    let mut backoff_ms = 100_u64;
+    let mut backoff = Reconnect::consumer();
     loop {
         if *shutdown.borrow() {
             return;
         }
         match client.get_multiplexed_async_connection().await {
             Ok(mut conn) => {
-                backoff_ms = 100;
+                backoff.reset();
                 // Durable group; '$' starts at the live tail on FIRST
                 // creation so we don't replay history from before this
                 // deploy.
@@ -117,8 +118,7 @@ pub async fn run_project_billing(
                     let msg = error.to_string();
                     if !msg.contains("BUSYGROUP") {
                         tracing::error!(%error, "project_billing xgroup create failed");
-                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                        backoff_ms = (backoff_ms * 2).min(5_000);
+                        backoff.sleep().await;
                         continue;
                     }
                 }
@@ -129,8 +129,7 @@ pub async fn run_project_billing(
                 tracing::error!(%error, "project_billing redis connect failed");
             }
         }
-        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-        backoff_ms = (backoff_ms * 2).min(5_000);
+        backoff.sleep().await;
     }
 }
 

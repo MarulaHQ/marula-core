@@ -14,6 +14,7 @@
 //! in-app delivery (the hub already routes those events per-user), and no
 //! rendering (core-api owns the branded wrapper).
 
+use crate::reconnect::Reconnect;
 use core_domain::entities::{NotificationKind, User};
 use core_domain::notifications::{decide_channel, Decision, DeliveryChannel, QuietHours};
 use core_events::{Envelope, EVENT_STREAM};
@@ -27,7 +28,6 @@ use tokio::sync::watch;
 /// Blocking-XREAD wait per poll; bounds shutdown latency.
 const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 100;
-const MAX_BACKOFF_MS: u64 = 5_000;
 
 /// Hands one allowed notification to core-api for ledgered delivery.
 #[async_trait::async_trait]
@@ -149,14 +149,14 @@ pub async fn run_notifier(
             return;
         }
     };
-    let mut backoff_ms = 100_u64;
+    let mut backoff = Reconnect::consumer();
     loop {
         if *shutdown.borrow() {
             return;
         }
         match client.get_multiplexed_async_connection().await {
             Ok(mut conn) => {
-                backoff_ms = 100;
+                backoff.reset();
                 let broke = follow_stream(&pool, &mut conn, sink.as_ref(), &mut shutdown).await;
                 if broke.is_none() {
                     return;
@@ -167,8 +167,7 @@ pub async fn run_notifier(
                 tracing::error!(%error, "notifier redis connect failed");
             }
         }
-        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-        backoff_ms = (backoff_ms * 2).min(MAX_BACKOFF_MS);
+        backoff.sleep().await;
     }
 }
 

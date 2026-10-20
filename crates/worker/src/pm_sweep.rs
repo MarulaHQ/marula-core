@@ -75,7 +75,7 @@ async fn sweep_inner(pool: &PgPool, batch_limit: i64) -> anyhow::Result<usize> {
                 "schedule_id": schedule.id,
                 "slot_at": schedule.slot_at.to_rfc3339(),
             }),
-            max_attempts: 5,
+            max_attempts: crate::queue_runner::queue_max_attempts(),
         };
         match core_db::queue::enqueue(pool, &job).await {
             Ok(_) => enqueued += 1,
