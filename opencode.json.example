@@ -1,0 +1,33 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "the-hive-ai": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "The Hive AI",
+      "options": {
+        "baseURL": "https://api.thehive.ai/api/v3/",
+        "headers": {
+          "Authorization": "Bearer {env:THE_HIVE_AI_API_KEY}",
+          "Content-Type": "application/json",
+          "accept": "application/json"
+        },
+        "stream": true
+      },
+      "models": {
+        "zai-org/glm-5.3-flash": {
+          "name": "GLM-5.3-Flash"
+        }
+      }
+    }
+  },
+  "mcp": {
+    "trail": {
+      "type": "local",
+      "command": [
+        "trail",
+        "mcp"
+      ],
+      "enabled": true
+    }
+  }
+}
