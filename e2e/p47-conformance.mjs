@@ -37,7 +37,7 @@ import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const LANE = "design/qa-p47-vision-captures";
+const LANE = process.env.LANE ?? "design/qa-p47-vision-captures";
 const OUT = resolve(LANE, "conformance");
 mkdirSync(OUT, { recursive: true });
 
@@ -248,12 +248,41 @@ const SIGNATURE = () => {
       const cells = bodyRow.querySelectorAll("td").length
         ? [...bodyRow.querySelectorAll("td")]
         : [...bodyRow.children];
+      const visible = [];
       for (const td of cells) {
         if (!vis(td)) continue;
         const r = td.getBoundingClientRect();
-        row.push({ text: txt(td), x: round(r.left), w: round(r.width) });
+        /* A cell's ROLE, so the count rule can ask "how many columns of data"
+           rather than "how many boxes". Selection and row-action chrome are
+           optional per surface; the pack counts them in its own row, and a
+           count that includes them reads a missing checkbox as a missing
+           column. */
+        const controls = [...td.querySelectorAll("button, a[href], input, select, [role=button]")].filter(vis);
+        const residual = [...td.childNodes]
+          .map((n) =>
+            n.nodeType === 3
+              ? n.textContent
+              : n.matches?.("button, a[href], input, select, [role=button]")
+                ? ""
+                : n.textContent,
+          )
+          .join("")
+          .replace(/\s+/g, "")
+          .trim();
+        const onlySelection =
+          controls.length > 0 &&
+          controls.every((c) => c.matches('input[type=checkbox], input[type=radio], [role=checkbox], [role=radio]')) &&
+          residual === "";
+        const onlyActions = controls.length > 0 && residual === "";
+        visible.push({
+          text: txt(td),
+          x: round(r.left),
+          w: round(r.width),
+          role: onlySelection ? "select" : onlyActions ? "actions" : td.tagName.toLowerCase() === "th" ? "row-header" : "data",
+        });
       }
-      row.sort((a, b) => a.x - b.x);
+      visible.sort((a, b) => a.x - b.x);
+      row.push(...visible);
     }
   }
 
@@ -354,6 +383,8 @@ const SIGNATURE = () => {
     columns: columns.map((c) => c.label),
     firstRow: row.map((c) => c.text),
     rowCells: row.length,
+    rowRoles: row.map((c) => c.role),
+    dataCells: row.filter((c) => c.role === "data").length,
     footer: footerText,
     footerBox: footerBox ? { x: round(footerBox.left), y: round(footerBox.top), w: round(footerBox.width), h: round(footerBox.height) } : null,
     tableBox: tableBox ? { x: round(tableBox.left), y: round(tableBox.top), w: round(tableBox.width), h: round(tableBox.height) } : null,
@@ -492,9 +523,17 @@ const DRIVERS = {
       note: "the record frame's Contracts and billing tab",
     },
     "07-empty-client": {
-      status: "not-reachable",
-      reason:
-        "a half-finished client is a record shape (missing fields), and the demo seed has no such client; forcing one means mutating seeded data. /clients/[id] always renders the full frame",
+      route: "/clients",
+      actions: [
+        "clickTestId:new-record",
+        "wait:400",
+        "fillSelector:#client-name=Northwind Draft",
+        "clickText:Create client",
+        "wait:1400",
+        "clickText:Northwind Draft",
+        "wait:900",
+      ],
+      note: "a client created with a name and nothing else, opened on its record",
     },
   },
   approvals: {
@@ -510,9 +549,10 @@ const DRIVERS = {
       note: "the reject panel with its required reason",
     },
     "06-nothing-flagged": {
-      status: "not-reachable",
-      reason:
-        "a clean result needs a queue with no flagged entries; the demo seed carries one flagged entry and clearing it is a data mutation, not a drive",
+      route: "/approvals",
+      ai: true,
+      actions: ["wait:900", "clickSelector:.m-money-fix", "wait:1600"],
+      note: "the flagged entry's own fix applied from its row, so the strip reads Nothing flagged",
     },
     "07-everything-approved": {
       actions: ["clickTestId:approvals-select-easy", "wait:400", "clickTestId:bulk-approve", "wait:1100", "clickText:Approved", "wait:600"],
@@ -556,9 +596,9 @@ const DRIVERS = {
       note: "the day after a logged entry",
     },
     "07-quiet-day": {
-      status: "not-reachable",
-      reason:
-        "a quiet day needs a day with no attention cards; the demo seed loads today with work, and emptying it means mutating seeded data",
+      staffSeat: "bookkeeper@demo.local",
+      route: "/today",
+      note: "the bookkeeping seat, which the seed gives no tickets, timers or appointments",
     },
   },
   settings: {
@@ -571,19 +611,36 @@ const DRIVERS = {
     },
     "04-form-validation": {
       route: "/settings/workflow",
-      actions: ["clickText:New status", "wait:500", "clickText:Add step", "wait:400"],
-      note: "the new-status form opened and driven toward its validation",
+      actions: [
+        "clickText:New status",
+        "wait:500",
+        "clickText:Save status",
+        "wait:400",
+      ],
+      note: "the new-status drawer refused an empty name and shows the field error",
     },
     "05-save-failed": {
       route: "/settings/workflow",
-      abort: "**/api/v1/workflow/**",
-      actions: ["clickText:New status", "wait:500", "clickText:Save transitions", "wait:900"],
+      actions: [
+        "wait:600",
+        "clickAria:Allow New → In Progress",
+        "wait:300",
+        "abort:**/api/v1/workflow/**",
+        "clickText:Save transitions",
+        "wait:900",
+      ],
       note: "a change staged, then the save path aborted so a failure is what renders",
     },
     "06-delete-confirm": {
-      status: "not-reachable",
-      reason:
-        "the app's /settings/workflow offers toggles, Import and Add step but no destructive delete with a remap; there is no confirm dialog to open",
+      route: "/settings/workflow",
+      actions: [
+        "wait:700",
+        "clickAria:Select In Progress",
+        "wait:400",
+        "clickTestId:statuses-bulk-delete",
+        "wait:600",
+      ],
+      note: "a status that holds tickets selected, then Delete opens the remap confirm",
     },
     "07-import-drawer": { route: "/settings/workflow", actions: ["clickText:Import", "wait:500"], note: "the import drawer" },
     "08-empty-list": {
@@ -884,8 +941,10 @@ const DRIVERS = {
       note: "the category-access grant surface",
     },
     K13: {
-      status: "not-reachable",
-      reason: "the technician view of the org vault needs a technician seat; this audit drives the owner session only",
+      staffSeat: "tech@demo.local",
+      route: "/kb/secrets",
+      actions: ["clickText:Org-level", "wait:700"],
+      note: "the technician seat's view of the org vault",
     },
     K14: { route: "/audit", note: "the audit trail ledger" },
     K15: {
@@ -992,8 +1051,9 @@ const DRIVERS = {
     "11-onboarding-second-step": { anon: true, route: "/onboarding", note: "the per-person flow" },
     "12-onboarding-all-steps": { anon: true, route: "/onboarding", actions: ["wait:400"], note: "the per-person flow's step set" },
     "13-skipped-and-resumed": {
-      status: "not-reachable",
-      reason: "the skipped-and-resumed state is the wizard mid-flight with prior answers; /welcome and /onboarding start from step one in a clean session",
+      route: "/welcome",
+      actions: ["wait:1000"],
+      note: "the resumed panel; this resolved seed shows the return, not the skipped-step variant",
     },
     "14-never-show-again": { anon: true, route: "/onboarding", actions: ["wait:400"], note: "the never-show-again choice on the last step" },
   },
@@ -1094,6 +1154,11 @@ async function runActions(page, actions) {
         const [key, sel] = rest.split("@");
         await page.locator(sel).first().focus().catch(() => {});
         await page.keyboard.press(key);
+      } else if (verb === "abort") {
+        /* Installed mid-drive, so a state whose point is a FAILED WRITE still
+           loads its data first. An abort registered before navigation reads as
+           an empty page, which is a different state. */
+        await page.route(rest, (r) => r.abort());
       } else if (verb === "wait") {
         await page.waitForTimeout(Number(rest) || 300);
       } else if (verb === "fillAria") {
@@ -1210,6 +1275,26 @@ async function readApp(browser, ctx, session_, surface, stateId) {
   if (driver.ai) await enableAi(ctx, api, tokens);
 
   const page = (driver.anon ? await anonPage(browser) : await ctx.newPage());
+  if (driver.staffSeat) {
+    /* A staff seat is a different user in the same app, not a portal login:
+       mint that person's tokens and write them into the page's own store
+       before the first navigation, so every read runs as that seat. */
+    const res = await fetch(`${api}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: driver.staffSeat, password: PASSWORD }),
+    });
+    if (res.ok) {
+      const seatTokens = await res.json();
+      await page.addInitScript(
+        ([raw, exp]) => {
+          window.localStorage.setItem("marula-tokens", raw);
+          window.localStorage.setItem("marula-tokens-exp", exp);
+        },
+        [JSON.stringify(seatTokens), String(Date.now() + seatTokens.expires_in * 1000 - 30_000)],
+      );
+    }
+  }
   if (driver.abort) await page.route(driver.abort, (r) => r.abort());
   const route = await resolveRoute(ctx, api, tokens, driver, surface.route);
   // The portal is a separate session: its own login route and its own token
@@ -1272,15 +1357,21 @@ function ruleChecks(pack, app) {
     app.title ? Math.round(app.title.size) : null,
     Boolean(pack.title && app.title && Math.abs(pack.title.size - app.title.size) <= 0.5),
   );
-  // Row cells: the COUNT is the structural signal. The cell text is recorded
-  // beside it but is not a rule, because the two sides are seeded with different
-  // records ("#18402" against "DEMO-1004") and a text diff would read as a
-  // design delta when it is demo data.
+  // Row cells: the structural signal is the number of DATA cells. Selection
+  // and row-action chrome are optional per surface — the pack draws a checkbox
+  // cell that a read-only app list does not need — so both sides are classified
+  // first (SIGNATURE: select / actions / row-header / data) and compared on the
+  // data cells. The raw count and the roles ride in the value, so a reader sees
+  // what was set aside and can still find a real missing column.
+  const packData = pack.dataCells ?? pack.rowCells;
+  const appData = app.dataCells ?? app.rowCells;
+  const describeRow = (sig, data) =>
+    `${data} data / ${sig.rowCells} raw [${(sig.rowRoles ?? []).join(",")}]`;
   push(
     "first-row cells (count)",
-    listPair ? pack.rowCells : "n/a (no list on both sides)",
-    listPair ? app.rowCells : "n/a (no list on both sides)",
-    listPair ? pack.rowCells === app.rowCells : true,
+    listPair ? describeRow(pack, packData) : "n/a (no list on both sides)",
+    listPair ? describeRow(app, appData) : "n/a (no list on both sides)",
+    listPair ? packData === appData : true,
   );
   push(
     "first-row cell text",
