@@ -10,9 +10,14 @@
 // same event/presence split.
 //
 // SSE is one-directional: there is no client→server subscribe frame. The
-// stream is org-scoped by construction (every frame the org commits is
-// delivered on the one connection), so `subscribe`/`unsubscribe` are kept for
-// the sync engine's channel bookkeeping and tracked locally — see `subscribe`.
+// stream is org-scoped by construction, with one narrowing the server applies:
+// a frame from a per-user family (`notification.*`, `notification_prefs.*`,
+// `timer.*`) carries `recipient_user_id` and reaches only that user's
+// connections. `subscribe`
+// states which channels this client is interested in — an addressed frame is
+// delivered on `user:<id>` only to a client that subscribed that channel,
+// while org and ticket families reach every listener as before. Nothing is
+// sent on the wire either way.
 //
 // Non-purpose: no cache or UI decisions — consumers subscribe to events and
 // decide what to invalidate (see sync.ts).
@@ -30,6 +35,11 @@ export interface EventEnvelope {
   /** Per-entity ledger seq; absent for events emitted outside the instant
    * path, which clients treat as always-apply. */
   seq?: number | null;
+  /** The one user a per-user frame was addressed to. The server already
+   * delivered it to that user; a consumer comparing it to its own id is
+   * asserting the contract held, not doing the routing. Absent on org-scoped
+   * frames. */
+  recipient_user_id?: string | null;
   /** Reserved: the stream carries no payload today. A frame type that adds
    * one lands here with no signature change. */
   payload?: Record<string, unknown>;
@@ -66,6 +76,7 @@ interface StreamFrameJson {
   entity_id?: string | null;
   seq?: number | null;
   at?: string;
+  recipient_user_id?: string | null;
 }
 
 type ParsedFrame =
@@ -129,11 +140,12 @@ export class RealtimeClient {
     this.setStatus("closed");
   }
 
-  /** The stream is org-scoped, so every channel is already covered by the one
-   * connection. The set is kept for API compatibility and for callers that
-   * diff it; nothing is sent on the wire. A future per-ticket scope would map
-   * a `ticket:<id>` channel onto `?ticket=<id>`, but no caller subscribes one
-   * today, so no second connection is opened. */
+  /** Declares one channel this client cares about. Org and ticket channels do
+   * not gate anything (the stream already delivers those families to every
+   * listener); `user:<id>` does: a frame addressed to a user is delivered only
+   * when that user's channel was subscribed, which is how the per-user
+   * families stay with their reader. Nothing is sent on the wire, and no
+   * second connection is opened. */
   subscribe(channel: string): void {
     this.channels.add(channel);
   }
@@ -195,7 +207,18 @@ export class RealtimeClient {
     // Presence frames are EPHEMERAL — they never reach the event path. Native
     // has no roster surface yet, so they are parsed and dropped.
     if (frame.kind === "presence") return;
+    // A frame addressed to a user is delivered on `user:<id>`, which this
+    // client must have subscribed; everything else is org news and reaches
+    // every listener.
+    if (!this.delivers(frame.channel)) return;
     for (const listener of this.eventListeners) listener(frame.envelope, frame.channel);
+  }
+
+  /** Delivery rule for one frame's channel: `user:<id>` gates on a matching
+   * subscription, every other family does not. */
+  private delivers(channel: string): boolean {
+    if (!channel.startsWith("user:")) return true;
+    return this.channels.has(channel);
   }
 
   private handleError(source: WireEventSource): void {
@@ -249,6 +272,7 @@ function parseFrame(raw: string, lastEventId: string): ParsedFrame | null {
   const orgId = typeof frame.org_id === "string" ? frame.org_id : "";
   if (frame.type === "presence") return { kind: "presence", orgId };
   if (typeof frame.entity !== "string") return null;
+  const recipient = typeof frame.recipient_user_id === "string" ? frame.recipient_user_id : null;
   const envelope: EventEnvelope = {
     id: lastEventId,
     type: frame.type,
@@ -257,11 +281,14 @@ function parseFrame(raw: string, lastEventId: string): ParsedFrame | null {
     entity_id: typeof frame.entity_id === "string" ? frame.entity_id : null,
     occurred_at: typeof frame.at === "string" ? frame.at : new Date().toISOString(),
     seq: typeof frame.seq === "number" ? frame.seq : null,
+    recipient_user_id: recipient,
   };
   return {
     kind: "event",
     envelope,
-    channel: orgId !== "" ? `org:${orgId}` : "",
+    // An addressed frame belongs to `user:<id>`; the org channel keeps every
+    // other frame.
+    channel: recipient !== null ? `user:${recipient}` : orgId !== "" ? `org:${orgId}` : "",
     orgId,
   };
 }

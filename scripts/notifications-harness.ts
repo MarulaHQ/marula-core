@@ -18,7 +18,8 @@
  *
  * Usage:
  *   pnpm tsx scripts/notifications-harness.ts
- *   (env: NOTIF_API_URL, NOTIF_SSE_URL, NOTIF_JWT_SECRET, NOTIF_PG_CONTAINER)
+ *   (env: NOTIF_API_URL, NOTIF_SSE_URL, NOTIF_JWT_SECRET, NOTIF_PG_CONTAINER,
+ *    NOTIF_PG_USER, NOTIF_PG_DB — the last two default to the lane's marula/marula)
  *
  * The live leg is core-api's SSE stream at `/api/events/stream?token=`. Node
  * ships no global EventSource, so the harness reads the stream straight off
@@ -40,6 +41,8 @@ const SSE_URL = (() => {
 })();
 const JWT_SECRET = process.env.NOTIF_JWT_SECRET ?? "notif-harness-secret";
 const PG_CONTAINER = process.env.NOTIF_PG_CONTAINER ?? "marula-notif";
+const PG_USER = process.env.NOTIF_PG_USER ?? "marula";
+const PG_DB = process.env.NOTIF_PG_DB ?? "marula";
 
 let passed = 0;
 const failures: string[] = [];
@@ -99,6 +102,8 @@ type StreamFrame = {
   entity_id?: string | null;
   seq?: number | null;
   at?: string;
+  /** The user a per-user frame was addressed to (absent on org-scoped ones). */
+  recipient_user_id?: string | null;
 };
 
 type SseEvent = { data?: string };
@@ -251,7 +256,7 @@ check("owner identity resolves", Boolean(orgId));
 const teammateId = crypto.randomUUID();
 const teammateEmail = `terry.mate@${slug}.test`;
 execSync(
-  `docker exec ${PG_CONTAINER} psql -U marula -d marula -c ` +
+  `docker exec ${PG_CONTAINER} psql -U ${PG_USER} -d ${PG_DB} -c ` +
     `"INSERT INTO users (id, org_id, email, display_name, password_hash, timezone)
       VALUES ('${teammateId}', '${orgId}', '${teammateEmail}', 'Terry Mate', 'harness-no-login', 'UTC')
       ON CONFLICT DO NOTHING"`.replace(/\s+/g, " "),
@@ -267,6 +272,11 @@ console.log("\n[3] teammate's SSE stream opens (org-scoped; per-user fan-out)");
 const teammateStream = await openStream(teammateToken);
 check("teammate's stream connected", teammateStream.source.readyState === 1, String(teammateStream.source.readyState));
 const pump = teammateStream.pump;
+
+// A second member's stream on the same org, so the per-user narrowing is
+// proven against the leg that should NOT receive the mention.
+const ownerStream = await openStream(ownerToken);
+const ownerPump = ownerStream.pump;
 
 console.log("\n[4] mention flow over the live push chain");
 const boards = await jsonFetch("GET", "/api/boards", undefined, ownerToken);
@@ -299,10 +309,31 @@ check(
   JSON.stringify(notifFrame),
 );
 check(
+  "the frame names the mentioned user as its recipient",
+  notifFrame.recipient_user_id === teammateId,
+  JSON.stringify(notifFrame),
+);
+check(
   "ticket.comment_added delivered on the same leg",
   commentFrame.type === "ticket.comment_added" && commentFrame.entity === "ticket_comment",
   JSON.stringify(commentFrame),
 );
+// Isolation, on the live leg: the owner is in the same org and is the one
+// who wrote the comment, so the comment frame must reach it and the
+// notification addressed to the teammate must not. A short settle window is
+// enough — the compared frame would arrive on the same fan-out pass.
+await new Promise((resolve) => setTimeout(resolve, 1500));
+check(
+  "the other member's org stream saw the comment",
+  ownerPump.seen.some((f) => f.type === "ticket.comment_added"),
+  JSON.stringify(ownerPump.seen.map((f) => f.type)),
+);
+check(
+  "a notification addressed to one member never reaches another member's stream",
+  ownerPump.seen.every((f) => f.type !== "notification.created"),
+  JSON.stringify(ownerPump.seen),
+);
+
 // The stream frame carries the event identity, not the payload, so the
 // mention's recipient and kind are cross-checked on the durable row.
 const mentionInbox = await jsonFetch("GET", "/api/notifications?limit=1", undefined, teammateToken);

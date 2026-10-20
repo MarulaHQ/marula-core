@@ -21,14 +21,23 @@ export interface InstantEvent {
    * scopes/replays dedupe by this identity in the store.
    */
   seq?: number | null;
+  /**
+   * The one user a per-user frame (`notification.*`, `notification_prefs.*`,
+   * `timer.*`) was
+   * addressed to. The server already delivered it to that user only; a
+   * subscriber comparing it to its own id is asserting the contract held,
+   * not doing the routing. Absent on org-scoped frames.
+   */
+  recipient_user_id?: string | null;
 }
 
 // --- SSE stream frames (GET /api/events/stream, crates/core-api) -------------
 
 /** The `data:` JSON of one stream frame — routes/events.rs wire contract:
- * contract events carry exactly `{type, org_id, entity, entity_id, seq, at}`;
- * presence frames add a `viewers` roster and are EPHEMERAL (never trail,
- * never contract events). */
+ * contract events carry exactly `{type, org_id, entity, entity_id, seq, at}`,
+ * plus `recipient_user_id` when the event belongs to one user; presence
+ * frames add a `viewers` roster and are EPHEMERAL (never trail, never
+ * contract events). */
 export interface StreamFrameJson {
   type: string;
   org_id: string;
@@ -36,6 +45,7 @@ export interface StreamFrameJson {
   entity_id?: string | null;
   seq?: number | null;
   at: string;
+  recipient_user_id?: string | null;
   viewers?: PresenceViewerJson[];
 }
 
@@ -96,6 +106,8 @@ export function parseStreamFrame(
       payload: null,
       channel,
       seq: frame.seq ?? null,
+      recipient_user_id:
+        typeof frame.recipient_user_id === "string" ? frame.recipient_user_id : null,
     },
   };
 }

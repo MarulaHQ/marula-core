@@ -18,7 +18,13 @@
 //!
 //! Frames are org-filtered at fan-out (a subscriber NEVER sees events from
 //! another org — the hub drops or routes by the frame's `org_id`, never at
-//! subscribe time). Per-connection buffers are bounded; a slow consumer
+//! subscribe time). The per-user families (`notification.*`,
+//! `notification_prefs.*`, `timer.*`) are narrower than the org: their payload
+//! names one user, [`recipient_from`]
+//! reads that id onto the frame, and the hub delivers such a frame only to
+//! that user's subscribers. Replay applies the same predicate, so a
+//! reconnecting member cannot read a gap the live stream withheld.
+//! Per-connection buffers are bounded; a slow consumer
 //! whose buffer fills is DROPPED (stream ends, client reconnects and
 //! resyncs from snapshots) rather than buffering unbounded or blocking the
 //! listener. Connections per user are capped.
@@ -74,6 +80,12 @@ pub const PRESENCE_CHANNEL: &str = "marula_presence";
 /// it rehydrates from snapshots instead (documented cutoff).
 pub const REPLAY_BUFFER: usize = 256;
 
+/// How many raw outbox rows a resume scan may read for each frame the replay
+/// buffer will serve. A per-user frame can sit behind other members' rows, so
+/// the scan gets headroom over the buffer; four pages is the ceiling, and past
+/// it the honest answer is "cannot prove completeness" (see [`replay_after`]).
+const REPLAY_SCAN_FACTOR: usize = 4;
+
 /// Connection cap per user — bounds fan-out memory per identity.
 pub const MAX_CONNECTIONS_PER_USER: usize = 8;
 
@@ -118,9 +130,10 @@ fn presence_ttl() -> Duration {
 
 /// One stream frame — the SSE `data:` JSON. Contract-event frames carry
 /// exactly `{type, org_id, entity, entity_id, seq, at}` (the wire contract
-/// of the notify payload, `type` = the contract event type); presence
-/// frames carry `type: "presence"` plus the current `viewers` roster and
-/// are EPHEMERAL — never contract events, never in the trail.
+/// of the notify payload, `type` = the contract event type), plus
+/// `recipient_user_id` on the per-user families; presence frames carry
+/// `type: "presence"` plus the current `viewers` roster and are EPHEMERAL
+/// — never contract events, never in the trail.
 #[derive(Debug, Clone, Serialize)]
 pub struct StreamFrame {
     /// Contract event type (e.g. `ticket.updated`) or `"presence"`.
@@ -135,6 +148,17 @@ pub struct StreamFrame {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seq: Option<i64>,
     pub at: DateTime<Utc>,
+    /// The one user this frame is addressed to, for the per-user event
+    /// families ([`PER_USER_EVENT_FAMILIES`]) whose payload names a
+    /// `user_id`. The hub delivers such a frame ONLY to that user's
+    /// subscribers — the recipient is what the deleted socket leg's
+    /// `user:<id>` channels carried. `None` keeps the org-wide behaviour:
+    /// every subscriber in the org sees it.
+    ///
+    /// Skipped when absent, so org-scoped frames keep the exact wire shape
+    /// they had before this field existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipient_user_id: Option<Uuid>,
     /// Presence roster — present ONLY on `type: "presence"` frames.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub viewers: Option<Vec<PresenceViewer>>,
@@ -157,7 +181,12 @@ pub struct PresenceViewer {
     pub editing: bool,
 }
 
-/// The parsed notify payload shape (migration 0068).
+/// The parsed notify payload shape (migration 0068, plus the recipient added
+/// by migration 0141). `user_id` is the payload's own `user_id` field when it
+/// had one — present for the per-user families, `null` otherwise — and it is
+/// the ONLY part of the envelope body the NOTIFY carries. The body stays in
+/// the outbox: a whole payload on the channel would hand every subscriber's
+/// frame to every replica and can exceed the 8000-byte NOTIFY limit.
 #[derive(Debug, Clone, serde::Deserialize)]
 struct NotifyFrame {
     id: Uuid,
@@ -168,6 +197,75 @@ struct NotifyFrame {
     entity_id: Option<String>,
     seq: Option<i64>,
     at: DateTime<Utc>,
+    /// The payload's `user_id`, verbatim. Deliberately not `Option<Uuid>`:
+    /// a payload whose `user_id` is not a uuid must not fail deserialization
+    /// and drop the whole frame, so the id stays untyped here and
+    /// [`recipient_from`] decides whether it is one.
+    #[serde(default)]
+    user_id: Option<serde_json::Value>,
+}
+
+/// The event families whose events belong to one named user rather than to
+/// the whole org.
+///
+/// This is an allow-list of type prefixes, not "any payload that happens to
+/// carry a `user_id`", because other families name a user too: ticket and
+/// appointment payloads carry assignees and technicians, and those events are
+/// still org news. `notification_prefs.updated` is separate from the
+/// `notification.` prefix but belongs here: it carries one user's quiet hours
+/// and channel flags. A new per-user family is a one-line addition here, in
+/// the single place the decision is written down.
+const PER_USER_EVENT_FAMILIES: [&str; 3] = ["notification.", "notification_prefs.", "timer."];
+
+/// The recipient of one event, read from its envelope payload — or `None` for
+/// the org-wide families.
+///
+/// Both paths that build a [`StreamFrame`] call this: the live listener (which
+/// passes the `user_id` subset its NOTIFY carries) and [`replay_after`] (which
+/// passes the stored payload), so a live frame and its replayed twin can never
+/// disagree about who the event was for.
+pub fn recipient_from(event_type: &str, payload: &serde_json::Value) -> Option<Uuid> {
+    if !PER_USER_EVENT_FAMILIES
+        .iter()
+        .any(|family| event_type.starts_with(family))
+    {
+        return None;
+    }
+    payload
+        .get("user_id")
+        .and_then(|value| value.as_str())
+        .and_then(|value| Uuid::parse_str(value).ok())
+}
+
+/// Both predicates a frame must pass to reach a subscriber: the entity scope
+/// (when the subscriber asked for one entity instance) and the recipient (when
+/// the frame is addressed to one user). A frame addressed to another user does
+/// not reach this subscriber even if its entity scope matches, because the
+/// recipient is the narrower of the two guarantees.
+fn frame_visible(
+    user_id: Uuid,
+    scope: Option<&(String, String)>,
+    entity: &str,
+    entity_id: Option<&str>,
+    recipient: Option<Uuid>,
+) -> bool {
+    let recipient_matches = recipient.is_none_or(|recipient| recipient == user_id);
+    recipient_matches && scope_matches(scope, entity, entity_id)
+}
+
+fn scope_matches(scope: Option<&(String, String)>, entity: &str, entity_id: Option<&str>) -> bool {
+    match scope {
+        None => true,
+        Some((scoped_entity, scoped_id)) => {
+            entity == scoped_entity && entity_id.is_some_and(|id| id == scoped_id)
+        }
+    }
+}
+
+/// The process-global fan-out hub. `Mutex` (not async) keeps publish a
+/// non-blocking, allocation-light operation off the listener hot path.
+pub struct Hub {
+    inner: Mutex<HubInner>,
 }
 
 #[derive(Debug)]
@@ -179,25 +277,22 @@ struct Subscriber {
     tx: mpsc::Sender<Arc<StreamFrame>>,
 }
 
-/// The process-global fan-out hub. `Mutex` (not async) keeps publish a
-/// non-blocking, allocation-light operation off the listener hot path.
-pub struct Hub {
-    inner: Mutex<HubInner>,
-}
-
 #[derive(Default)]
 struct HubInner {
     orgs: HashMap<Uuid, Vec<Subscriber>>,
     per_user: HashMap<(Uuid, Uuid), usize>,
 }
 
-fn scope_matches(sub: &Subscriber, frame: &StreamFrame) -> bool {
-    match &sub.scope {
-        None => true,
-        Some((entity, entity_id)) => {
-            frame.entity == *entity && frame.entity_id.as_deref().is_some_and(|id| id == entity_id)
-        }
-    }
+/// The hub's delivery predicate for one subscriber: the recipient filter and
+/// the entity scope, both of which must hold.
+fn subscriber_visible(sub: &Subscriber, frame: &StreamFrame) -> bool {
+    frame_visible(
+        sub.user_id,
+        sub.scope.as_ref(),
+        &frame.entity,
+        frame.entity_id.as_deref(),
+        frame.recipient_user_id,
+    )
 }
 
 impl Hub {
@@ -253,8 +348,16 @@ impl Hub {
     }
 
     /// Fan-out to one org's subscribers. Org filtering happens HERE — the
-    /// frame only ever reaches subscribers of its own org. Slow/closed
-    /// consumers are dropped (never block the listener).
+    /// frame only ever reaches subscribers of its own org. A frame addressed
+    /// to one user ([`StreamFrame::recipient_user_id`]) reaches only that
+    /// user's subscribers, then the entity scope still applies on top; an
+    /// unaddressed frame keeps the org-wide behaviour.
+    ///
+    /// The recipient filter belongs on the server, not in the client: a
+    /// subscriber that receives another member's notification can read its
+    /// type and entity id, and a client is in no position to promise it will
+    /// ignore them. Slow/closed consumers are dropped (never block the
+    /// listener).
     pub fn publish(&self, frame: StreamFrame) {
         let arc = Arc::new(frame);
         let org = arc.org_id;
@@ -262,7 +365,7 @@ impl Hub {
         let mut inner = self.inner.lock().unwrap();
         if let Some(subs) = inner.orgs.get_mut(&org) {
             subs.retain(|s| {
-                if !scope_matches(s, &arc) {
+                if !subscriber_visible(s, &arc) {
                     return true;
                 }
                 match s.tx.try_send(Arc::clone(&arc)) {
@@ -439,6 +542,7 @@ impl PresenceStore {
             entity_id: Some(entity_id),
             seq: None,
             at,
+            recipient_user_id: None,
             viewers: Some(viewers),
             id: Some(Uuid::now_v7()),
         });
@@ -576,6 +680,12 @@ async fn listener_session(database_url: &str) -> Result<(), sqlx::Error> {
         match notification.channel() {
             NOTIFY_CHANNEL => match serde_json::from_str::<NotifyFrame>(notification.payload()) {
                 Ok(n) => {
+                    // The recipient comes from the same derivation the replay
+                    // path uses. The NOTIFY ships only the payload's `user_id`
+                    // (migration 0141), never the body, so the subset handed
+                    // over here is all `recipient_from` reads.
+                    let notified_user = serde_json::json!({ "user_id": n.user_id });
+                    let recipient_user_id = recipient_from(&n.event_type, &notified_user);
                     let frame = StreamFrame {
                         id: Some(n.id),
                         event_type: n.event_type,
@@ -584,6 +694,7 @@ async fn listener_session(database_url: &str) -> Result<(), sqlx::Error> {
                         entity_id: n.entity_id,
                         seq: n.seq,
                         at: n.at,
+                        recipient_user_id,
                         viewers: None,
                     };
                     // Reference cache (Wave 52 lane P3): the same event that
@@ -613,7 +724,10 @@ async fn listener_session(database_url: &str) -> Result<(), sqlx::Error> {
 // --- Last-Event-ID resume replay ---------------------------------------------
 
 /// A replayable outbox row — exactly the identity a live frame carries,
-/// read back from the authoritative trail (the outbox IS the buffer).
+/// read back from the authoritative trail (the outbox IS the buffer). The
+/// payload rides along because it is where a per-user event's recipient
+/// lives; the scan reads at most `replay_buffer() * REPLAY_SCAN_FACTOR` rows
+/// before it declares the gap unprovable.
 #[derive(sqlx::FromRow)]
 struct ReplayRow {
     id: Uuid,
@@ -622,16 +736,94 @@ struct ReplayRow {
     entity_id: Option<String>,
     occurred_at: DateTime<Utc>,
     seq: Option<i64>,
+    payload: serde_json::Value,
+}
+
+/// One page of replay rows after `after` (a `(occurred_at, id)` cursor), in
+/// commit order. The keyset comparison is what lets a page boundary fall
+/// anywhere in the gap without skipping or repeating a row: an outbox row's
+/// id is unique, and `(occurred_at, id)` is a total order even when several
+/// events share a timestamp.
+async fn fetch_replay_page(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    after: (DateTime<Utc>, Uuid),
+    scope: Option<&(String, String)>,
+    limit: i64,
+) -> Result<Vec<ReplayRow>, sqlx::Error> {
+    // seq is joined exactly the way migration 0068's trigger does, minus
+    // the text->uuid cast hazard: entity_write_seqs.entity_id is uuid, so
+    // compare uuid::text — a non-uuid outbox entity_id simply finds no
+    // counter and degrades to seq: null (same as the trigger).
+    match scope {
+        Some((entity, entity_id)) => {
+            sqlx::query_as::<_, ReplayRow>(
+                r#"SELECT o.id, o.event_type, o.entity, o.entity_id, o.occurred_at, o.payload,
+                      (SELECT w.seq FROM entity_write_seqs w
+                       WHERE w.org_id = o.org_id AND w.entity = o.entity
+                         AND w.entity_id::text = o.entity_id) AS seq
+               FROM outbox_events o
+               WHERE o.org_id = $1 AND (o.occurred_at, o.id) > ($2, $3)
+                 AND o.entity = $4 AND o.entity_id = $5
+               ORDER BY o.occurred_at, o.id
+               LIMIT $6"#,
+            )
+            .bind(org_id)
+            .bind(after.0)
+            .bind(after.1)
+            .bind(entity)
+            .bind(entity_id)
+            .bind(limit)
+            .fetch_all(&mut *tx)
+            .await
+        }
+        None => {
+            sqlx::query_as::<_, ReplayRow>(
+                r#"SELECT o.id, o.event_type, o.entity, o.entity_id, o.occurred_at, o.payload,
+                      (SELECT w.seq FROM entity_write_seqs w
+                       WHERE w.org_id = o.org_id AND w.entity = o.entity
+                         AND w.entity_id::text = o.entity_id) AS seq
+               FROM outbox_events o
+               WHERE o.org_id = $1 AND (o.occurred_at, o.id) > ($2, $3)
+               ORDER BY o.occurred_at, o.id
+               LIMIT $4"#,
+            )
+            .bind(org_id)
+            .bind(after.0)
+            .bind(after.1)
+            .bind(limit)
+            .fetch_all(&mut *tx)
+            .await
+        }
+    }
 }
 
 /// Replays the events committed AFTER `last_event_id` for `org_id`
 /// (optionally narrowed to one entity instance), from the outbox — the
 /// authoritative trail, so replay is exact and the ledger's seq dedupe
-/// makes it idempotent against live frames. Bounds:
+/// makes it idempotent against live frames. Bounds, all measured over the
+/// frames this caller would actually receive:
 ///
 /// * Unknown cursor (never seen, or a presence-frame uuid): no replay.
-/// * More than [`replay_buffer()`] events after the cursor: no replay —
-///   the client fell past the buffer and rehydrates from snapshots.
+/// * More than [`replay_buffer()`] visible frames after the cursor: no replay
+///   — the client fell past the buffer and rehydrates from snapshots.
+/// * The scan cannot prove it reached the end of the gap within
+///   `replay_buffer() * REPLAY_SCAN_FACTOR` raw rows: no replay, same
+///   rehydration path. A partial replay that silently skips history is worse
+///   than none.
+///
+/// The scan pages by `(occurred_at, id)` and filters each row through
+/// [`frame_visible`] BEFORE counting it. That order is the point: a member
+/// with a handful of own events behind a page of other members' traffic gets
+/// those events replayed, and busy org traffic alone never trips the cutoff
+/// for everyone. The family allow-list stays in Rust; SQL only copies the
+/// raw rows.
+///
+/// Each frame carries its recipient derived by [`recipient_from`], the same
+/// function the live listener uses; rows addressed to a user other than
+/// `user_id` are skipped, because replay bypasses the hub and would
+/// otherwise hand a reconnecting member the frames the hub just filtered
+/// out of the live stream.
 ///
 /// Returns the frames in commit order with their ids attached, ready to
 /// be streamed as SSE events with the `id:` field set, plus whether the
@@ -646,6 +838,7 @@ struct ReplayRow {
 pub async fn replay_after(
     tx: &mut sqlx::PgConnection,
     org_id: Uuid,
+    user_id: Uuid,
     scope: Option<(String, String)>,
     last_event_id: &str,
 ) -> (Vec<StreamFrame>, bool) {
@@ -667,74 +860,229 @@ pub async fn replay_after(
         return (Vec::new(), false);
     };
 
-    let limit = replay_buffer() as i64 + 1;
-    // seq is joined exactly the way migration 0068's trigger does, minus
-    // the text->uuid cast hazard: entity_write_seqs.entity_id is uuid, so
-    // compare uuid::text — a non-uuid outbox entity_id simply finds no
-    // counter and degrades to seq: null (same as the trigger).
-    let rows = match &scope {
-        Some((entity, entity_id)) => {
-            sqlx::query_as::<_, ReplayRow>(
-                r#"SELECT o.id, o.event_type, o.entity, o.entity_id, o.occurred_at,
-                      (SELECT w.seq FROM entity_write_seqs w
-                       WHERE w.org_id = o.org_id AND w.entity = o.entity
-                         AND w.entity_id::text = o.entity_id) AS seq
-               FROM outbox_events o
-               WHERE o.org_id = $1 AND o.occurred_at > $2
-                 AND o.entity = $3 AND o.entity_id = $4
-               ORDER BY o.occurred_at, o.id
-               LIMIT $5"#,
-            )
-            .bind(org_id)
-            .bind(cursor_at)
-            .bind(entity)
-            .bind(entity_id)
-            .bind(limit)
-            .fetch_all(&mut *tx)
-            .await
+    let buffer = replay_buffer();
+    let page_size = buffer as i64;
+    let raw_budget = buffer.saturating_mul(REPLAY_SCAN_FACTOR) as i64;
+    let mut frames: Vec<StreamFrame> = Vec::new();
+    let mut raw_read: i64 = 0;
+    let mut after = (cursor_at, cursor);
+    loop {
+        let rows = match fetch_replay_page(&mut *tx, org_id, after, scope.as_ref(), page_size).await
+        {
+            Ok(rows) => rows,
+            Err(_) => {
+                // A failed page cannot prove the gap was scanned to its end.
+                // Report the cutoff instead of an empty "nothing missed".
+                tracing::warn!("resume replay query failed; client falls back to rehydration");
+                return (Vec::new(), true);
+            }
+        };
+        let fetched = rows.len() as i64;
+        if fetched == 0 {
+            // The scan reached the end of the gap with every page proven.
+            return (frames, false);
         }
-        None => {
-            sqlx::query_as::<_, ReplayRow>(
-                r#"SELECT o.id, o.event_type, o.entity, o.entity_id, o.occurred_at,
-                      (SELECT w.seq FROM entity_write_seqs w
-                       WHERE w.org_id = o.org_id AND w.entity = o.entity
-                         AND w.entity_id::text = o.entity_id) AS seq
-               FROM outbox_events o
-               WHERE o.org_id = $1 AND o.occurred_at > $2
-               ORDER BY o.occurred_at, o.id
-               LIMIT $3"#,
-            )
-            .bind(org_id)
-            .bind(cursor_at)
-            .bind(limit)
-            .fetch_all(&mut *tx)
-            .await
-        }
-    };
-    let Ok(rows) = rows else {
-        tracing::warn!("resume replay query failed; client falls back to rehydration");
-        return (Vec::new(), false);
-    };
-    if rows.len() as i64 > replay_buffer() as i64 {
-        // Cutoff: too much history between cursor and now. Serve nothing
-        // (a partial replay that skips events would be worse than none) —
-        // the client's full snapshot rehydration is the recovery path.
-        tracing::info!(org_id = %org_id, "resume cursor past replay buffer; skipping replay");
-        return (Vec::new(), true);
-    }
-    (
-        rows.into_iter()
-            .map(|r| StreamFrame {
-                id: Some(r.id),
-                event_type: r.event_type,
+        raw_read += fetched;
+        for row in rows {
+            after = (row.occurred_at, row.id);
+            let recipient_user_id = recipient_from(&row.event_type, &row.payload);
+            // Replay bypasses the hub, so it applies the hub's own
+            // predicate rather than trusting the caller to filter.
+            if !frame_visible(
+                user_id,
+                scope.as_ref(),
+                &row.entity,
+                row.entity_id.as_deref(),
+                recipient_user_id,
+            ) {
+                continue;
+            }
+            frames.push(StreamFrame {
+                id: Some(row.id),
+                event_type: row.event_type,
                 org_id,
-                entity: r.entity,
-                entity_id: r.entity_id,
-                seq: r.seq,
-                at: r.occurred_at,
+                entity: row.entity,
+                entity_id: row.entity_id,
+                seq: row.seq,
+                at: row.occurred_at,
+                recipient_user_id,
                 viewers: None,
-            })
-            .collect(),
-        false,
-    )
+            });
+            if frames.len() > buffer {
+                // Too much for this caller to take as a delta. Serve nothing
+                // (a partial replay that skips events would be worse than
+                // none) — the client's full snapshot rehydration is the
+                // recovery path.
+                tracing::info!(org_id = %org_id, "resume cursor past replay buffer; skipping replay");
+                return (Vec::new(), true);
+            }
+        }
+        if fetched < page_size {
+            return (frames, false);
+        }
+        if raw_read >= raw_budget {
+            tracing::info!(
+                org_id = %org_id,
+                raw_read,
+                "resume scan hit its raw budget before the end of the gap; skipping replay"
+            );
+            return (Vec::new(), true);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn frame(org: Uuid, entity: &str, entity_id: &str, recipient: Option<Uuid>) -> StreamFrame {
+        StreamFrame {
+            event_type: "notification.created".into(),
+            org_id: org,
+            entity: entity.into(),
+            entity_id: Some(entity_id.into()),
+            seq: Some(1),
+            at: Utc::now(),
+            recipient_user_id: recipient,
+            viewers: None,
+            id: Some(Uuid::new_v4()),
+        }
+    }
+
+    /// Drains one subscriber without blocking: `Some` when the frame arrived.
+    fn took(rx: &mut mpsc::Receiver<Arc<StreamFrame>>) -> Option<Arc<StreamFrame>> {
+        match rx.try_recv() {
+            Ok(frame) => Some(frame),
+            Err(mpsc::error::TryRecvError::Empty) => None,
+            Err(mpsc::error::TryRecvError::Disconnected) => None,
+        }
+    }
+
+    #[test]
+    fn a_user_addressed_frame_reaches_that_user_and_not_the_other_subscriber() {
+        let hub = Hub::new();
+        let org = Uuid::new_v4();
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        let mut rx_a = hub.subscribe(org, a, None).expect("a subscribes");
+        let mut rx_b = hub.subscribe(org, b, None).expect("b subscribes");
+        assert_eq!(hub.subscriber_count(org), 2, "two members, two streams");
+
+        hub.publish(frame(org, "notification", "n1", Some(a)));
+
+        assert_eq!(took(&mut rx_a).map(|f| f.recipient_user_id), Some(Some(a)));
+        assert!(took(&mut rx_b).is_none(), "the other member saw nothing");
+    }
+
+    #[test]
+    fn the_same_frame_without_a_recipient_reaches_every_subscriber() {
+        let hub = Hub::new();
+        let org = Uuid::new_v4();
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        let mut rx_a = hub.subscribe(org, a, None).expect("a subscribes");
+        let mut rx_b = hub.subscribe(org, b, None).expect("b subscribes");
+
+        hub.publish(frame(org, "ticket", "t1", None));
+
+        assert!(took(&mut rx_a).is_some(), "org news reaches a");
+        assert!(took(&mut rx_b).is_some(), "org news reaches b");
+    }
+
+    #[test]
+    fn the_recipient_and_the_entity_scope_both_have_to_hold() {
+        let hub = Hub::new();
+        let org = Uuid::new_v4();
+        let (a, scoped) = (Uuid::new_v4(), Uuid::new_v4());
+        let mut rx_a = hub.subscribe(org, a, None).expect("a subscribes");
+        let mut rx_scoped = hub
+            .subscribe(org, scoped, Some(("ticket".into(), "t1".into())))
+            .expect("scoped subscribes");
+
+        // Addressed to `a`, but for a different entity instance: the scoped
+        // subscriber's entity predicate fails even though it is not the
+        // addressed user's concern either way.
+        hub.publish(frame(org, "ticket", "t2", Some(a)));
+
+        assert!(took(&mut rx_a).is_some(), "a receives its own frame");
+        assert!(
+            took(&mut rx_scoped).is_none(),
+            "a scope on t1 never sees t2, recipient or not"
+        );
+
+        // Addressed to `a` but inside the scoped subscriber's entity: the
+        // scope holds and the recipient does not, so it stays out.
+        hub.publish(frame(org, "ticket", "t1", Some(a)));
+        assert!(
+            took(&mut rx_scoped).is_none(),
+            "another user's frame stays out even inside the scope"
+        );
+        assert!(took(&mut rx_a).is_some());
+
+        // Addressed to the scoped subscriber AND inside its scope: both
+        // predicates hold, so it arrives.
+        hub.publish(frame(org, "ticket", "t1", Some(scoped)));
+        let delivered = took(&mut rx_scoped).expect("in-scope frame arrives");
+        assert_eq!(delivered.entity_id.as_deref(), Some("t1"));
+    }
+
+    #[test]
+    fn recipient_from_reads_the_user_id_of_the_per_user_families_only() {
+        let user = Uuid::new_v4();
+        let payload = json!({ "user_id": user, "kind": "mention" });
+
+        assert_eq!(
+            recipient_from("notification.created", &payload),
+            Some(user),
+            "notification.created names its recipient"
+        );
+        assert_eq!(
+            recipient_from("notification.read", &payload),
+            Some(user),
+            "a read action belongs to the reader too"
+        );
+        assert_eq!(
+            recipient_from("timer.started", &payload),
+            Some(user),
+            "every timer.* family names its user"
+        );
+        assert_eq!(recipient_from("timer.resumed", &payload), Some(user));
+        assert_eq!(recipient_from("timer.switched", &payload), Some(user));
+        assert_eq!(
+            recipient_from("ticket.updated", &payload),
+            None,
+            "another family carrying user_id stays org news"
+        );
+        assert_eq!(recipient_from("appointment.updated", &payload), None);
+        assert_eq!(
+            recipient_from("notification_prefs.updated", &payload),
+            Some(user),
+            "preference changes carry one user's quiet hours and flags"
+        );
+        assert_eq!(
+            recipient_from("notification.created", &json!({ "kind": "mention" })),
+            None,
+            "a per-user family without a user_id has no recipient"
+        );
+        assert_eq!(
+            recipient_from("notification.created", &json!({ "user_id": "not-a-uuid" })),
+            None
+        );
+    }
+
+    #[test]
+    fn an_org_scoped_frame_serializes_without_the_recipient_key() {
+        let org = Uuid::new_v4();
+        let wire = serde_json::to_value(frame(org, "ticket", "t1", None)).expect("serialize");
+        assert!(
+            wire.get("recipient_user_id").is_none(),
+            "the unaddressed wire shape is unchanged: {wire}"
+        );
+
+        let wire =
+            serde_json::to_value(frame(org, "notification", "n1", Some(org))).expect("serialize");
+        assert_eq!(
+            wire.get("recipient_user_id").and_then(|v| v.as_str()),
+            Some(org.to_string().as_str())
+        );
+    }
 }

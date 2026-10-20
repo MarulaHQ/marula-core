@@ -11,7 +11,10 @@
 //!   `{type, org_id, entity, entity_id, seq, at}`. seq is the per-entity
 //!   monotonic ledger value: reconciliation is idempotent by seq
 //!   (at-least-once delivery dedupes in the ledger). These frames mirror
-//!   outbox rows — the trail stays authoritative.
+//!   outbox rows — the trail stays authoritative. A frame from a per-user
+//!   family (`notification.*`, `notification_prefs.*`, `timer.*`) also carries
+//!   `recipient_user_id`, and the server delivers it only to that user;
+//!   org families keep the shape above with no extra key.
 //! * **Presence frames** — `type: "presence"` plus a `viewers` roster.
 //!   EPHEMERAL by design: presence is never written to the database, never
 //!   enters the event trail, and is NOT registered in the contract
@@ -117,8 +120,14 @@ pub async fn stream(
         if let Err(e) = core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id).await {
             return Err(ApiError::from(e));
         }
-        let (frames, past_buffer) =
-            realtime::replay_after(&mut tx, org_id, scope.clone(), last_event_id).await;
+        let (frames, past_buffer) = realtime::replay_after(
+            &mut tx,
+            org_id,
+            authed.principal.user.id,
+            scope.clone(),
+            last_event_id,
+        )
+        .await;
         replay = frames;
         cutoff = past_buffer;
         // Frames are already materialized; the tx only scopes the reads.

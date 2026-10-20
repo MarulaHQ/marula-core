@@ -135,6 +135,48 @@ describe("RealtimeClient", () => {
     expect(rt.subscribedChannels()).toEqual(["org:o1"]);
   });
 
+  it("delivers a user-addressed frame only on that user's channel", () => {
+    const factory = new FakeEventSourceFactory();
+    const rt = client(factory);
+    const seen: string[] = [];
+    rt.onEvent((envelope, channel) =>
+      seen.push(`${channel}:${envelope.type}:${envelope.recipient_user_id ?? "-"}`),
+    );
+    rt.subscribe("org:o1");
+    rt.subscribe("user:u1");
+    rt.connect();
+    factory.latest().open();
+    factory.latest().receive(
+      { ...envelopeFrame, type: "notification.created", entity: "notification", recipient_user_id: "u1" },
+      "e1",
+    );
+    // Addressed to another user: dropped, even though this client holds the
+    // org channel.
+    factory.latest().receive(
+      { ...envelopeFrame, type: "notification.created", entity: "notification", recipient_user_id: "u2" },
+      "e2",
+    );
+    // An org-scoped family still reaches every listener.
+    factory.latest().receive(envelopeFrame, "e3");
+    expect(seen).toEqual(["user:u1:notification.created:u1", "org:o1:ticket.updated:-"]);
+  });
+
+  it("drops a user-addressed frame when the user channel was never subscribed", () => {
+    const factory = new FakeEventSourceFactory();
+    const rt = client(factory);
+    const seen: string[] = [];
+    rt.onEvent((envelope, channel) => seen.push(`${channel}:${envelope.type}`));
+    rt.subscribe("org:o1");
+    rt.connect();
+    factory.latest().open();
+    factory.latest().receive(
+      { ...envelopeFrame, type: "timer.started", entity: "timer", recipient_user_id: "u1" },
+      "e1",
+    );
+    factory.latest().receive(envelopeFrame, "e2");
+    expect(seen).toEqual(["org:o1:ticket.updated"]);
+  });
+
   it("does not reconnect after an intentional close", () => {
     const factory = new FakeEventSourceFactory();
     const rt = client(factory);

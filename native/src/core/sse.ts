@@ -10,11 +10,13 @@
 //
 // Scope: the framing the stream sends — `data:` and `id:` fields with
 // blank-line dispatch, multi-line data joined by newlines, `:` comment lines
-// ignored. It is not a general-purpose EventSource: the only dispatched event
-// is the default `message`, and reconnect policy lives in the caller
-// (realtime.ts). The one exception is the difference between a transient drop
-// and a refusal, which the wire layer is the only place that can tell apart:
-// a stream that ends reopens here, while a non-2xx response closes with
+// ignored. The `data:` JSON is opaque here: it carries the frame's identity
+// and, for a per-user family, its `recipient_user_id`, and the client parses
+// both (realtime.ts). It is not a general-purpose EventSource: the only
+// dispatched event is the default `message`, and reconnect policy lives in the
+// caller (realtime.ts). The one exception is the difference between a transient
+// drop and a refusal, which the wire layer is the only place that can tell
+// apart: a stream that ends reopens here, while a non-2xx response closes with
 // `readyState` 2 so the client reconnects with a fresh token.
 
 import type { WireEventSource } from "./realtime";

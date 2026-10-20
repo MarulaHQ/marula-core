@@ -721,6 +721,7 @@ mod tests {
             entity_id: None,
             seq: Some(1),
             at: chrono::Utc::now(),
+            recipient_user_id: None,
             viewers: None,
             id: Some(Uuid::new_v4()),
         }

@@ -72,6 +72,16 @@ const PRESENCE_FRAME = JSON.stringify({
   viewers: [{ user_id: "u1", name: "Ada", at: "2026-09-13T09:59:31Z", editing: true }],
 });
 
+const NOTIFICATION_FRAME = JSON.stringify({
+  type: "notification.created",
+  org_id: "00000000-0000-4000-8000-000000000002",
+  entity: "notification",
+  entity_id: "n1",
+  seq: 3,
+  at: "2026-09-13T10:00:01Z",
+  recipient_user_id: "00000000-0000-4000-8000-000000000001",
+});
+
 function makeStream(created: FakeSource[], onResync?: () => Promise<void>) {
   const bus = new EventBus();
   const stream = new InstantStream({
@@ -111,6 +121,21 @@ describe("InstantStream", () => {
     expect(event.channel).toBe("org:00000000-0000-4000-8000-000000000002");
     expect(presence).toHaveLength(1);
     expect(created[0]!.url).toContain("/api/events/stream?token=t");
+  });
+
+  it("carries the recipient on an addressed frame and none on an org-scoped one", () => {
+    const created: FakeSource[] = [];
+    const { bus, stream } = makeStream(created);
+    const events: { type: string; recipient_user_id?: string | null }[] = [];
+    bus.subscribe((e) => events.push(e));
+    stream.subscribeOrg();
+
+    created[0]!.message(TICKET_FRAME);
+    created[0]!.message(NOTIFICATION_FRAME);
+
+    // The org frame keeps its shape: no recipient key, normalized to null.
+    expect(events[0]?.recipient_user_id).toBeNull();
+    expect(events[1]?.recipient_user_id).toBe("00000000-0000-4000-8000-000000000001");
   });
 
   it("labels ticket-scoped frames with the ticket channel and refcounts scopes", () => {
