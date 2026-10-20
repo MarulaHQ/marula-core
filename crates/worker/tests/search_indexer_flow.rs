@@ -645,3 +645,207 @@ async fn document_events_index_the_current_version() {
         Some(Target::Document(_))
     ));
 }
+
+// --- P12 seam-share measurement ---------------------------------------------
+//
+// Ignored by default: this is the measured evidence for the P12 row ("every
+// indexed row crosses the internal seam as its own HTTP call"). It seeds a
+// bulk fixture, then prices three shapes against a counting stub that stands
+// in for core-api's `/internal/search/*`:
+//
+//   * the production shape — `follow_stream` hands `flush` one XREAD reply of
+//     up to COUNT entries, so N rows leave as ceil(N / COUNT) upsert POSTs;
+//   * one batch of all N ops in a single call — the floor the seam can reach;
+//   * one `flush` per target — the per-row shape the row fears.
+//
+// Run it with the exact command in design/qa-p52-internal-seam-batching/GATES.md.
+
+/// A stub for core-api's internal search surface that counts the POSTs
+/// `HttpIndexSink` makes. The real route answers a JSON body the sink
+/// discards, so the stub only needs a 200 and a counter.
+#[derive(Default)]
+struct SeamTally {
+    upsert_calls: std::sync::atomic::AtomicUsize,
+    delete_calls: std::sync::atomic::AtomicUsize,
+}
+
+impl SeamTally {
+    fn upserts(&self) -> usize {
+        self.upsert_calls.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn deletes(&self) -> usize {
+        self.delete_calls.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+type TallyState = std::sync::Arc<SeamTally>;
+
+async fn tally_upsert(
+    axum::extract::State(tally): axum::extract::State<TallyState>,
+) -> axum::Json<serde_json::Value> {
+    tally
+        .upsert_calls
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    axum::Json(serde_json::json!({ "upserted": 1 }))
+}
+
+async fn tally_delete(
+    axum::extract::State(tally): axum::extract::State<TallyState>,
+) -> axum::Json<serde_json::Value> {
+    tally
+        .delete_calls
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    axum::Json(serde_json::json!({ "deleted": 1 }))
+}
+
+/// Serves the two internal routes on an ephemeral loopback port.
+async fn seam_probe() -> (
+    String,
+    std::sync::Arc<SeamTally>,
+    tokio::task::JoinHandle<()>,
+) {
+    let tally = std::sync::Arc::new(SeamTally::default());
+    let router = axum::Router::new()
+        .route("/internal/search/upsert", axum::routing::post(tally_upsert))
+        .route("/internal/search/delete", axum::routing::post(tally_delete))
+        .with_state(std::sync::Arc::clone(&tally));
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind seam probe");
+    let addr = listener.local_addr().expect("probe addr");
+    let server = tokio::spawn(async move {
+        let _ = axum::serve(listener, router).await;
+    });
+    (format!("http://{addr}"), tally, server)
+}
+
+fn round_ms(value: f64) -> f64 {
+    (value * 1_000.0).round() / 1_000.0
+}
+
+fn elapsed_ms(start: std::time::Instant) -> f64 {
+    start.elapsed().as_secs_f64() * 1_000.0
+}
+
+#[ignore = "measurement (P12 seam share): needs MARULA_TEST_DATABASE_URL; see design/qa-p52-internal-seam-batching/GATES.md"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn seam_share_over_a_bulk_seed() {
+    use worker::search_indexer::{flush as flush_batch, HttpIndexSink, IndexSink};
+
+    // Mirrors COUNT in crates/worker/src/search_indexer.rs:41 — the number of
+    // stream entries one XREAD reply carries into a single flush.
+    const STREAM_BATCH: usize = 200;
+
+    let rows: usize = std::env::var("SEAM_ROWS")
+        .ok()
+        .and_then(|raw| raw.parse().ok())
+        .unwrap_or(2_000);
+    let pool = test_pool().await;
+    // Slot 122 is free in this file's 120–129 range; a shared org id would
+    // collide when the whole suite runs with --include-ignored.
+    let s = seed_org(&pool, 122).await;
+
+    let mut targets: Vec<(Uuid, Target)> = Vec::with_capacity(rows);
+    for index in 0..rows {
+        let id = Uuid::now_v7();
+        insert_ticket(
+            &pool,
+            &s,
+            id,
+            &format!("Seam ticket {index}"),
+            "network outage on the west bridge",
+        )
+        .await;
+        targets.push((s.org, Target::Ticket(id)));
+    }
+
+    // What the current rows resolve to, recorded without any HTTP.
+    let recorder = RecordingSink::default();
+    let start = std::time::Instant::now();
+    flush_batch(&pool, &recorder, targets.clone())
+        .await
+        .expect("resolve into ops");
+    let resolve_ms = elapsed_ms(start);
+    let ops: Vec<IndexOp> = recorder
+        .recorded()
+        .into_iter()
+        .flat_map(|(_, batch)| batch)
+        .collect();
+    assert_eq!(ops.len(), rows, "every seeded row resolves to one op");
+
+    let (base_url, tally, server) = seam_probe().await;
+    let sink = HttpIndexSink::new(&base_url, "seam-probe-token");
+
+    // Floor: all N ops in one POST.
+    let before = tally.upserts();
+    let start = std::time::Instant::now();
+    sink.apply(s.org, ops.clone()).await.expect("one big apply");
+    let batched_apply_ms = elapsed_ms(start);
+    let batched_apply_calls = tally.upserts() - before;
+    assert_eq!(batched_apply_calls, 1, "one batch is one POST");
+
+    // Production shape: one flush per XREAD-sized window, as follow_stream
+    // runs it.
+    let before = tally.upserts();
+    let start = std::time::Instant::now();
+    for window in targets.chunks(STREAM_BATCH) {
+        flush_batch(&pool, &sink, window.to_vec())
+            .await
+            .expect("window flush");
+    }
+    let production_window_ms = elapsed_ms(start);
+    let production_calls = tally.upserts() - before;
+    let expected_windows = rows.div_ceil(STREAM_BATCH);
+    assert_eq!(
+        production_calls, expected_windows,
+        "the production shape spends one POST per stream window, not one per row"
+    );
+
+    // The per-row shape the row describes: one resolve + one POST per entity.
+    let before = tally.upserts();
+    let start = std::time::Instant::now();
+    for target in &targets {
+        flush_batch(&pool, &sink, vec![target.clone()])
+            .await
+            .expect("per-row flush");
+    }
+    let per_row_flush_ms = elapsed_ms(start);
+    let per_row_flush_calls = tally.upserts() - before;
+    assert_eq!(per_row_flush_calls, rows, "the per-row shape is N POSTs");
+
+    // Transport alone, with no database work: N single-op POSTs.
+    let one_op = ops.first().expect("at least one op").clone();
+    let start = std::time::Instant::now();
+    for _ in 0..rows {
+        sink.apply(s.org, vec![one_op.clone()])
+            .await
+            .expect("single apply");
+    }
+    let per_row_apply_ms = elapsed_ms(start);
+
+    server.abort();
+
+    let requests_per_row = production_calls as f64 / rows as f64;
+    println!(
+        "SEAM_SHARE {}",
+        serde_json::json!({
+            "rows": rows,
+            "stream_batch": STREAM_BATCH,
+            "resolve_ms": round_ms(resolve_ms),
+            "resolve_ms_per_row": round_ms(resolve_ms / rows as f64),
+            "batched_apply_ms": round_ms(batched_apply_ms),
+            "batched_apply_calls": batched_apply_calls,
+            "production_window_ms": round_ms(production_window_ms),
+            "production_calls": production_calls,
+            "production_calls_per_row": round_ms(requests_per_row),
+            "production_ms_per_row": round_ms(production_window_ms / rows as f64),
+            "per_row_flush_ms": round_ms(per_row_flush_ms),
+            "per_row_flush_calls": per_row_flush_calls,
+            "per_row_flush_ms_per_row": round_ms(per_row_flush_ms / rows as f64),
+            "per_row_apply_ms": round_ms(per_row_apply_ms),
+            "per_row_apply_ms_per_call": round_ms(per_row_apply_ms / rows as f64),
+            "deletes": tally.deletes(),
+        })
+    );
+}
