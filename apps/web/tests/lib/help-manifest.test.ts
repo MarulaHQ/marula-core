@@ -42,7 +42,7 @@ describe("help manifest", () => {
     for (const docs of Object.values(helpManifest().routes)) {
       for (const d of docs.docs ?? []) {
         expect(d.path).toMatch(/^(tutorials|how-to|explanation|reference)\//);
-        expect(docsUrl(d)).toMatch(/^https:\/\/marula.app\/docs\/.+\.(html|md)$/);
+        expect(docsUrl(d)).toMatch(/^https:\/\/getmarula\.com\/docs\/.+\.(html|md)$/);
       }
     }
   });

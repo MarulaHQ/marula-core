@@ -161,7 +161,7 @@ async fn suspension_notice_lifecycle_and_no_enforcement() {
     assert_eq!(view["data_export_url"], json!("/api/v1/org/exports"));
     assert_eq!(
         view["docs_url"],
-        json!("https://marula.app/docs/how-to/export-data.html")
+        json!("https://getmarula.com/docs/how-to/export-data.html")
     );
 
     // --- a human MEMBER reads their own state but cannot write it -----------

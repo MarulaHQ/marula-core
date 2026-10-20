@@ -59,7 +59,7 @@ Notes:
 The updater endpoint in `tauri.conf.json` is:
 
 ```
-https://updates.marula.app/desktop/{{target}}/{{arch}}/{{current_version}}
+https://updates.getmarula.com/desktop/{{target}}/{{arch}}/{{current_version}}
 ```
 
 Serve a static JSON manifest there (any static host / object store works;
@@ -79,7 +79,7 @@ next to the bundle (`latest.json` shape). Minimum fields:
   refuses downgrades and compares semver.
 - Rotate keys by adding a second pubkey context in the release notes and
   re-issuing the manifest (minisign trust is config-side).
-- The `updates.marula.app` host is the deployment-layer fact — point the
+- The `updates.getmarula.com` host is the deployment-layer fact — point the
   endpoints array at whatever host actually serves the channel and commit
   that change with the release.
 

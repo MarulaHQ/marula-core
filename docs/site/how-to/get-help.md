@@ -19,7 +19,7 @@
    `/settings/fx` shows the FX rate-book guide.
 
 Every entry is a page from the public docs site — the same markdown that
-lives at [marula.app/docs](https://marula.app/docs). Nothing is
+lives at [getmarula.com/docs](https://getmarula.com/docs). Nothing is
 written twice: when a docs page moves, the app's index is re-checked in
 CI, so a stale entry fails the build instead of sending you to a 404.
 

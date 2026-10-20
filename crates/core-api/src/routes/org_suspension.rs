@@ -72,7 +72,7 @@ const DATA_EXPORT_URL: &str = "/api/v1/org/exports";
 /// `docsBase` + path (`docs/site/help-manifest.json`), which publishes
 /// `docs/site/how-to/export-data.md` to this exact href, so the banner link
 /// and the help drawer point at one page.
-const EXPORT_DOCS_URL: &str = "https://marula.app/docs/how-to/export-data.html";
+const EXPORT_DOCS_URL: &str = "https://getmarula.com/docs/how-to/export-data.html";
 
 /// The human manage gate: the SAME permission org settings use — TASKLIST A7
 /// (D)'s `ManageOrg` gate. Declared once so the intent is readable at the
