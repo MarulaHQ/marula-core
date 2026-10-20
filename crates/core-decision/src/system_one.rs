@@ -8,12 +8,16 @@ use crate::provider::{
     normalize_distribution, Answer, DecisionError, DecisionProvider, DecisionRequest,
     DecisionResponse, Question,
 };
+use core_domain::retry::{self, Subsystem};
 use serde_json::{json, Value};
 
-/// Backoff policy: 429/529 retry with exponential spacing + honest
-/// refusal after the budget (never a busy-loop — ADR 0010 §6).
-const MAX_ATTEMPTS: u32 = 3;
-const BASE_BACKOFF_MS: u64 = 200;
+/// The provider's retry budget and spacing come from the `decision` retry
+/// policy (429/529 with exponential spacing, an honest refusal after the
+/// budget, never a busy-loop — ADR 0010 §6). The numbers used to live here as
+/// `MAX_ATTEMPTS` and `BASE_BACKOFF_MS`.
+fn decision_policy() -> core_domain::retry::RetryPolicy {
+    retry::policy(Subsystem::Decision)
+}
 
 pub struct SystemOneProvider {
     http: reqwest::Client,
@@ -186,7 +190,9 @@ impl DecisionProvider for SystemOneProvider {
 
         let url = format!("{}/systemone", self.base_url);
         let body = Self::request_body(&req);
-        for attempt in 0..MAX_ATTEMPTS {
+        let policy = decision_policy();
+        let max_attempts = policy.budget.limit().unwrap_or(3);
+        for attempt in 1..=max_attempts {
             let response = self
                 .http
                 .post(&url)
@@ -197,20 +203,18 @@ impl DecisionProvider for SystemOneProvider {
                 .map_err(|e| DecisionError::Transport(e.to_string()))?;
             let status = response.status();
             // 429 (rate limit) and 529 (vendor "site overloaded") are
-            // the retryable pair; exponential spacing, Retry-After
-            // honored when present.
+            // the retryable pair; exponential spacing with jitter,
+            // Retry-After honored when present.
             if status.as_u16() == 429 || status.as_u16() == 529 {
                 let retry_after_secs = response
                     .headers()
                     .get(reqwest::header::RETRY_AFTER)
                     .and_then(|v| v.to_str().ok())
                     .and_then(|v| v.parse::<u64>().ok());
-                if attempt + 1 < MAX_ATTEMPTS {
+                if attempt < max_attempts {
                     let backoff = retry_after_secs
                         .map(std::time::Duration::from_secs)
-                        .unwrap_or_else(|| {
-                            std::time::Duration::from_millis(BASE_BACKOFF_MS * (1 << attempt))
-                        });
+                        .unwrap_or_else(|| policy.delay(attempt, retry::sample()));
                     tokio::time::sleep(backoff).await;
                     continue;
                 }

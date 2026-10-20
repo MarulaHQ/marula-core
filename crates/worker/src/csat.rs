@@ -18,6 +18,7 @@
 //! Low-score automations: a submitted response emits `csat.response_recorded`
 //! (core-api, portal route); rules key their `trigger_event` on it.
 
+use crate::reconnect::Reconnect;
 use core_domain::notifications::QuietHours;
 use core_domain::settings as registry;
 use core_events::{Envelope, EVENT_STREAM};
@@ -51,14 +52,14 @@ pub async fn run_csat(
             return;
         }
     };
-    let mut backoff_ms = 100_u64;
+    let mut backoff = Reconnect::consumer();
     loop {
         if *shutdown.borrow() {
             return;
         }
         match client.get_multiplexed_async_connection().await {
             Ok(mut conn) => {
-                backoff_ms = 100;
+                backoff.reset();
                 if let Err(error) = conn
                     .xgroup_create_mkstream::<&str, &str, &str, ()>(
                         EVENT_STREAM,
@@ -70,8 +71,7 @@ pub async fn run_csat(
                     let msg = error.to_string();
                     if !msg.contains("BUSYGROUP") {
                         tracing::error!(%error, "csat xgroup create failed");
-                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                        backoff_ms = (backoff_ms * 2).min(5_000);
+                        backoff.sleep().await;
                         continue;
                     }
                 }
@@ -82,8 +82,7 @@ pub async fn run_csat(
                 tracing::error!(%error, "csat redis connect failed");
             }
         }
-        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-        backoff_ms = (backoff_ms * 2).min(5_000);
+        backoff.sleep().await;
     }
 }
 

@@ -438,7 +438,9 @@ pub async fn retry(
                     org_id,
                     kind: core_db::workflow_runs::WORKFLOW_RESUME_JOB.to_string(),
                     payload: job_payload,
-                    max_attempts: 5,
+                    max_attempts: core_domain::retry::attempt_limit_i32(
+                        core_domain::retry::Subsystem::Queue,
+                    ),
                 },
             )
             .await?;

@@ -30,6 +30,7 @@ pub mod notifications;
 pub mod policy;
 pub mod rag;
 pub mod reply_snippets;
+pub mod retry;
 pub mod routing;
 pub mod scheduling;
 pub mod search;
@@ -56,6 +57,9 @@ pub use error::DomainError;
 pub use ids::*;
 pub use money::Money;
 pub use policy::{Permission, PolicyDecision};
+pub use retry::{
+    AttemptBudget, ConflictPosture, ErrorClass, Jitter, RetryPolicy, RobustnessPreset, Subsystem,
+};
 pub use status::{Priority, TicketStatusCategory};
 pub use webhooks::VerifyError as WebhookVerifyError;
 pub use workflow::{TransitionEdge, TransitionRejection};

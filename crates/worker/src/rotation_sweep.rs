@@ -57,7 +57,7 @@ async fn sweep_inner(pool: &PgPool, batch_limit: i64) -> anyhow::Result<usize> {
                 "title": claim.title,
                 "rotate_at": claim.rotate_at.to_rfc3339(),
             }),
-            max_attempts: 5,
+            max_attempts: crate::queue_runner::queue_max_attempts(),
         };
         match core_db::queue::enqueue(pool, &job).await {
             Ok(_) => enqueued += 1,

@@ -17,5 +17,6 @@ async fn main() -> anyhow::Result<()> {
         let _ = tokio::signal::ctrl_c().await;
         let _ = shutdown_tx.send(true);
     });
-    worker::run(worker::config::WorkerConfig::from_env(), shutdown_rx).await
+    let config = worker::config::WorkerConfig::from_env();
+    worker::run(config, shutdown_rx).await
 }

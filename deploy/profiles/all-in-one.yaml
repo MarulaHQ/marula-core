@@ -15,6 +15,7 @@ sets:
   EMAIL_POLL_SECS: "60"
   EVAL_INTERVAL_SECS: "300"
   MARULA_ALL_IN_ONE: "1"
+  MARULA_ROBUSTNESS: "single_box"
   MARULA_WORKER_DATABASE_URL: "postgres://marula:marula@postgres:5432/marula"
   QUEUE_IDLE_MS: "60000"
   RETENTION_SWEEP_SECS: "86400"

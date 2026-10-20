@@ -651,17 +651,18 @@ pub async fn publish_heartbeat_notify(
 /// a disconnect are covered by the client's snapshot hydration on
 /// reconnect (at-least-once over the ledger) and by the next heartbeat.
 pub async fn run_listener(database_url: String) {
-    let mut backoff = Duration::from_millis(250);
+    let policy = core_domain::retry::policy(core_domain::retry::Subsystem::Relay);
+    let mut failed_passes = 0_u32;
     loop {
         match listener_session(&database_url).await {
             Ok(()) => {
                 // Unreachable: listener_session only returns on error.
-                backoff = Duration::from_millis(250);
+                failed_passes = 0;
             }
             Err(e) => {
                 tracing::warn!(error = %e, "event listener disconnected; reconnecting");
-                tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(Duration::from_secs(10));
+                failed_passes = failed_passes.saturating_add(1);
+                tokio::time::sleep(policy.delay(failed_passes, core_domain::retry::sample())).await;
             }
         }
     }

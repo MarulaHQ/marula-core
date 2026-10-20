@@ -35,6 +35,7 @@
 //! wait on a decision model.
 
 use crate::config::WorkerConfig;
+use crate::reconnect::Reconnect;
 use core_events::{Envelope, EVENT_STREAM};
 use redis::AsyncCommands;
 use serde_json::{json, Value};
@@ -385,14 +386,14 @@ pub async fn run_decision_triage(
             return;
         }
     };
-    let mut backoff_ms = 100_u64;
+    let mut backoff = Reconnect::consumer();
     loop {
         if *shutdown.borrow() {
             return;
         }
         match client.get_multiplexed_async_connection().await {
             Ok(mut conn) => {
-                backoff_ms = 100;
+                backoff.reset();
                 // Durable group; '$' starts at live tail on FIRST creation
                 // (same posture as the automations consumer).
                 if let Err(error) = conn
@@ -406,8 +407,7 @@ pub async fn run_decision_triage(
                     let msg = error.to_string();
                     if !msg.contains("BUSYGROUP") {
                         tracing::error!(%error, "xgroup create failed");
-                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                        backoff_ms = (backoff_ms * 2).min(5_000);
+                        backoff.sleep().await;
                         continue;
                     }
                 }
@@ -418,8 +418,7 @@ pub async fn run_decision_triage(
                 tracing::error!(%error, "decision triage redis connect failed");
             }
         }
-        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-        backoff_ms = (backoff_ms * 2).min(5_000);
+        backoff.sleep().await;
     }
 }
 

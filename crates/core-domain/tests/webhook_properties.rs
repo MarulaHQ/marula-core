@@ -4,7 +4,7 @@
 //! triples — fuzzed across arbitrary inputs.
 
 use core_domain::webhooks::{
-    backoff_secs, signature_value, verify, VerifyError, MAX_DELIVERY_ATTEMPTS,
+    backoff_secs, backoff_secs_with, signature_value, verify, VerifyError, MAX_DELIVERY_ATTEMPTS,
     REPLAY_TOLERANCE_SECS,
 };
 use proptest::prelude::*;
@@ -13,15 +13,22 @@ proptest! {
     #[test]
     fn backoff_is_positive_monotonic_and_capped(a in -50_i32..500, b in -50_i32..500) {
         let (a, b) = (a.max(1), b.max(1));
-        let fa = backoff_secs(a);
-        let fb = backoff_secs(b);
+        // `sample = 1.0` is the unjittered curve: monotonic by construction.
+        // Jitter may dip a value below its neighbour by design, so the
+        // monotonicity claim belongs to the curve, not to a sampled draw.
+        let fa = backoff_secs_with(a, 1.0);
+        let fb = backoff_secs_with(b, 1.0);
         prop_assert!(fa > 0 && fb > 0, "backoff must be positive");
         prop_assert!(fa <= 3600 && fb <= 3600, "backoff must stay under the cap");
         if a <= b {
             prop_assert!(fa <= fb, "schedule must be non-decreasing");
         }
-        // The last allowed attempt still schedules a bounded retry.
-        prop_assert!(backoff_secs(MAX_DELIVERY_ATTEMPTS) <= 3600);
+        // The last allowed attempt still schedules a bounded retry, and every
+        // sampled draw stays inside the curve's window.
+        let last = backoff_secs_with(MAX_DELIVERY_ATTEMPTS, 1.0);
+        prop_assert!(last <= 3600);
+        let sampled = backoff_secs(a);
+        prop_assert!(sampled >= 1 && sampled <= fa, "{sampled} outside 1..={fa}");
     }
 
     #[test]

@@ -24,8 +24,17 @@ pub const SIGNATURE_HEADER: &str = "X-Marula-Signature";
 /// Redundant plain timestamp header (mirrors the `t=` component).
 pub const TIMESTAMP_HEADER: &str = "X-Marula-Timestamp";
 
-/// Delivery attempts before a job dead-letters (first try + 5 retries).
-pub const MAX_DELIVERY_ATTEMPTS: i32 = 6;
+/// Delivery attempts before a job dead-letters under the shipped `balanced`
+/// preset. Derived from the webhook
+/// [`RetryPolicy`](crate::retry::RetryPolicy) rather than written twice: the
+/// live budget comes from the resolved matrix
+/// (`retry::policy(Subsystem::Webhook)`), which an operator moves with
+/// `MARULA_ROBUSTNESS` or `MARULA_RETRY_WEBHOOK_ATTEMPTS`. This constant is
+/// the fallback those resolutions use.
+pub const MAX_DELIVERY_ATTEMPTS: i32 = crate::retry::RobustnessPreset::Balanced
+    .policy(crate::retry::Subsystem::Webhook)
+    .budget
+    .limit_i32(6);
 
 /// Default receiver-side tolerance for the signed timestamp. Generous
 /// enough for queue delay plus clock skew; tight enough to make captured
@@ -103,13 +112,27 @@ fn parse_signature(header: &str) -> Option<(i64, &str)> {
     Some((ts, mac))
 }
 
-/// Retry backoff for delivery attempt n (the attempt that FAILED):
-/// 30s, 60s, 120s … capped at one hour. Pure so property tests can pin
-/// monotonicity and the cap regardless of host clocks.
+/// Retry backoff for delivery attempt n (the attempt that FAILED), in seconds
+/// and already jittered: the schedule is the webhook
+/// [`RetryPolicy`](crate::retry::RetryPolicy)'s, not a constant here.
+///
+/// The numbers used to live in this function (30s doubling with the shift
+/// clamped at 8) and in `MAX_DELIVERY_ATTEMPTS` beside it; both moved to
+/// `crate::retry` so the webhook budget, the queue's and email's cannot drift
+/// apart again.
 #[must_use]
 pub fn backoff_secs(failed_attempt: i32) -> i64 {
-    let shift = failed_attempt.clamp(1, 8) as u32 - 1;
-    30_i64.saturating_mul(1 << shift).min(3_600)
+    let attempts = u32::try_from(failed_attempt.max(1)).unwrap_or(1);
+    crate::retry::policy(crate::retry::Subsystem::Webhook)
+        .delay_secs(attempts, crate::retry::sample())
+}
+
+/// [`backoff_secs`] with the jitter sample supplied, so a test can pin the
+/// bounds without depending on the sample stream.
+#[must_use]
+pub fn backoff_secs_with(failed_attempt: i32, sample: f64) -> i64 {
+    let attempts = u32::try_from(failed_attempt.max(1)).unwrap_or(1);
+    crate::retry::policy(crate::retry::Subsystem::Webhook).delay_secs(attempts, sample)
 }
 
 #[cfg(test)]
@@ -179,12 +202,35 @@ mod tests {
         assert_eq!(verify(SECRET, BODY, &upper_mac, 1_700_000_000, 600), Ok(()));
     }
 
+    /// The schedule is the policy's now, so this pins the shape (doubling,
+    /// capped, jittered within bounds) rather than five exact seconds values
+    /// that would go stale the moment the preset changes.
     #[test]
-    fn backoff_schedule_is_pinned() {
-        assert_eq!(backoff_secs(1), 30);
-        assert_eq!(backoff_secs(2), 60);
-        assert_eq!(backoff_secs(3), 120);
-        assert_eq!(backoff_secs(8), 3600);
-        assert_eq!(backoff_secs(99), 3600);
+    fn backoff_schedule_is_pinned_to_the_policy() {
+        use crate::retry::{policy, Subsystem};
+        let webhook = policy(Subsystem::Webhook);
+        // No jitter: the computed curve.
+        assert_eq!(backoff_secs_with(1, 1.0), 30);
+        assert_eq!(backoff_secs_with(2, 1.0), 60);
+        assert_eq!(backoff_secs_with(3, 1.0), 120);
+        assert_eq!(
+            backoff_secs_with(99, 1.0),
+            i64::try_from(webhook.cap.as_secs()).unwrap()
+        );
+        // Full jitter spans [0, computed] and floors at one second.
+        assert_eq!(backoff_secs_with(1, 0.0), 1);
+        for failed in 1..10 {
+            let upper = backoff_secs_with(failed, 1.0);
+            let lower = backoff_secs_with(failed, 0.0);
+            assert!(lower >= 1 && lower <= upper, "attempt {failed}");
+            let sampled = backoff_secs(failed);
+            assert!(
+                sampled >= 1 && sampled <= upper,
+                "attempt {failed}: {sampled}s outside 1..={upper}s"
+            );
+        }
+        // A nonsensical attempt count waits the first delay, not the last.
+        assert!(backoff_secs_with(-4, 1.0) <= 30);
+        assert!(backoff_secs_with(0, 1.0) <= 30);
     }
 }

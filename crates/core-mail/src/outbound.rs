@@ -120,13 +120,22 @@ fn format_minor(minor: i64) -> String {
 }
 
 /// Backoff before attempt number `attempts` (1-based count of attempts
-/// already made): 30s doubling per failure, capped at 1 hour. Pure so the
-/// harness can simulate weeks of retries without sleeping.
+/// already made), jittered, from the email
+/// [`RetryPolicy`](core_domain::retry::RetryPolicy). Pure apart from the
+/// sample, so the harness can simulate weeks of retries without sleeping.
 #[must_use]
 pub fn backoff_delay(attempts: i64) -> Duration {
-    let step = attempts.clamp(1, 32);
-    let secs = 30_i64.saturating_mul(1_i64 << (step - 1).min(7));
-    Duration::seconds(secs.min(3_600))
+    backoff_delay_with(attempts, core_domain::retry::sample())
+}
+
+/// [`backoff_delay`] with the jitter sample supplied. `sample = 1.0` is the
+/// unjittered curve, which is what a monotonicity property can pin.
+#[must_use]
+pub fn backoff_delay_with(attempts: i64, sample: f64) -> Duration {
+    let made = u32::try_from(attempts.max(1)).unwrap_or(1);
+    let secs =
+        core_domain::retry::policy(core_domain::retry::Subsystem::Email).delay_secs(made, sample);
+    Duration::seconds(secs)
 }
 
 /// Truncates a comment body for the notification excerpt on word-ish
@@ -170,13 +179,28 @@ mod tests {
     }
 
     #[test]
-    fn backoff_doubles_then_caps_at_one_hour() {
-        assert_eq!(backoff_delay(0), Duration::seconds(30));
-        assert_eq!(backoff_delay(1), Duration::seconds(30));
-        assert_eq!(backoff_delay(2), Duration::seconds(60));
-        assert_eq!(backoff_delay(4), Duration::seconds(240));
-        assert_eq!(backoff_delay(8), Duration::seconds(3_600));
-        assert_eq!(backoff_delay(50), Duration::seconds(3_600));
+    fn backoff_doubles_then_caps() {
+        // `sample = 1.0` is the unjittered curve; the live value is jittered
+        // inside [0, curve]. The numbers belong to the email RetryPolicy.
+        let cap = core_domain::retry::policy(core_domain::retry::Subsystem::Email).cap;
+        assert_eq!(backoff_delay_with(0, 1.0), Duration::seconds(30));
+        assert_eq!(backoff_delay_with(1, 1.0), Duration::seconds(30));
+        assert_eq!(backoff_delay_with(2, 1.0), Duration::seconds(60));
+        assert_eq!(backoff_delay_with(4, 1.0), Duration::seconds(240));
+        assert_eq!(
+            backoff_delay_with(8, 1.0),
+            Duration::seconds(i64::try_from(cap.as_secs()).expect("cap fits"))
+        );
+        assert_eq!(
+            backoff_delay_with(50, 1.0),
+            Duration::seconds(i64::try_from(cap.as_secs()).expect("cap fits"))
+        );
+        // A sampled delay never waits more than the curve, and never zero.
+        for attempts in 1..40 {
+            let sampled = backoff_delay(attempts);
+            assert!(sampled >= Duration::seconds(1));
+            assert!(sampled <= backoff_delay_with(attempts, 1.0));
+        }
     }
 
     #[test]

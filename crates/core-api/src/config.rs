@@ -205,6 +205,11 @@ pub struct Config {
     /// default 4096). Eviction is least-recently-used, so a busy replica with
     /// more live principals than this thrashes rather than growing.
     pub ref_cache_max_entries: u32,
+    /// The retry preset (`MARULA_ROBUSTNESS`) and its per-subsystem
+    /// overrides (`MARULA_RETRY_<SUBSYSTEM>_*`). core-api resolves it for two
+    /// reasons: it sends outbound mail (whose backoff is an email policy
+    /// decision) and, in all-in-one mode, it hosts every worker loop.
+    pub retry: core_domain::retry::RetryResolution,
 }
 
 /// Which distance/duration provider the process registers (Wave 32 lane 7).
@@ -401,6 +406,9 @@ impl Config {
             // Loopback-only bind: the default trust set (loopback +
             // RFC1918) is already correct for a same-host proxy.
             trusted_proxies: crate::client_ip::TrustedProxies::default(),
+            // Desktop/test profile: no environment consulted, so the shipped
+            // preset. The mail backoff it drives is the balanced one.
+            retry: core_domain::retry::RetryMatrix::from_lookup(|_| None),
         }
     }
 
@@ -692,6 +700,17 @@ impl Config {
                 .filter(|v| !v.trim().is_empty()),
             worker_bind_addr: std::env::var("MARULA_WORKER_BIND_ADDR")
                 .unwrap_or_else(|_| "0.0.0.0:8082".into()),
+            // Resolved last: the retry matrix is a pure function of the
+            // environment, and a refused override is reported rather than
+            // silently replaced by a guess.
+            retry: {
+                let resolved =
+                    core_domain::retry::RetryMatrix::from_lookup(|key| std::env::var(key).ok());
+                for warning in &resolved.warnings {
+                    tracing::warn!(%warning, "retry override refused; keeping the preset value");
+                }
+                resolved
+            },
         };
         // Fail-closed at the parse step, so the binary and any test that
         // goes through `from_env` inherit the all-in-one preconditions.
@@ -972,6 +991,9 @@ impl Config {
             dev_tools: false,
             routing: RoutingChoice::None,
             trusted_proxies: crate::client_ip::TrustedProxies::from_env(),
+            // Resolved from env like the rest of this test fixture, so a test
+            // that exercises an override sees it.
+            retry: core_domain::retry::RetryMatrix::from_lookup(|key| std::env::var(key).ok()),
         }
     }
 }

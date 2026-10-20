@@ -1652,7 +1652,9 @@ pub async fn run_batch(
                         "org_id": org_id,
                         "batch_id": batch_id,
                     }),
-                    max_attempts: 3,
+                    max_attempts: core_domain::retry::attempt_limit_i32(
+                        core_domain::retry::Subsystem::Queue,
+                    ),
                 },
             )
             .await?;
