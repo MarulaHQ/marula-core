@@ -1,11 +1,11 @@
 # Changelog
 
-All notable changes to Meridian are recorded here, most recent first.
+All notable changes to Marula are recorded here, most recent first.
 Each bullet says what changed for the person using the product, not how the
 work was organized. This file follows the
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, and versions
 follow [semantic versioning](https://semver.org/spec/v2.0.0.html). It is the
-single source for the changelog on [meridian.dev/changelog](https://meridian.dev/changelog):
+single source for the changelog on [getmarula.com/changelog](https://getmarula.com/changelog):
 the website builds its page and feed from this file, so the two never drift.
 
 Every change lands as a reviewed pull request. Contributions follow

@@ -1,0 +1,12 @@
+# Default owner for everything. As reviewers join, add narrower rules above this line;
+# the last matching pattern wins.
+*   @tlengoasa
+
+# Areas where a mistake is expensive enough to be worth naming explicitly.
+/crates/core-api/src/auth/   @tlengoasa
+/crates/core-db/migrations/  @tlengoasa
+/deploy/                     @tlengoasa
+/docs/adr/                   @tlengoasa
+/packages/ui/                @tlengoasa
+/SECURITY.md                 @tlengoasa
+/.github/                    @tlengoasa

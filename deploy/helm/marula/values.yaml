@@ -41,7 +41,7 @@ secrets:
 imagePullSecrets: []
 
 images:
-  registry: ghcr.io/marula-open
+  registry: ghcr.io/marulahq
   pullPolicy: IfNotPresent
   coreApi:
     repository: marula-core-api

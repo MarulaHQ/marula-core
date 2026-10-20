@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/MarulaHQ/marula-core/security/policy
+    about: Report vulnerabilities privately. Never open a public issue for a security problem.
+  - name: Contributing guide
+    url: https://github.com/MarulaHQ/marula-core/blob/main/CONTRIBUTING.md
+    about: How to build, test, and get a pull request merged — including the required DCO sign-off.

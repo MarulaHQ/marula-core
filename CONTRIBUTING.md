@@ -5,7 +5,7 @@ Thanks for helping build the open-core PSA. The short version: **PRs from everyo
 ## Quick start
 
 ```bash
-git clone https://github.com/marula-open/marula-core && cd marula-core
+git clone https://github.com/MarulaHQ/marula-core && cd marula-core
 pnpm install
 docker compose -f deploy/docker-compose.yml up -d   # postgres+pgvector, redis, minio, mailpit
 cargo run -p marula-core-cli -- dev                    # core-api + worker + web with hot reload

@@ -1,0 +1,62 @@
+name: Feature request
+description: Suggest something Marula Core should do
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The open core is meant to be a complete product, so "this belongs in a paid
+        tier" is not an answer here. If it makes an MSP's day work better, it is a
+        candidate for core.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to get done, and what stops you today? Describe the situation, not the solution.
+      placeholder: When a client changes their SLA mid-month I have to ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today
+      description: Workarounds, other tools, or why they are not good enough.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Tickets / time
+        - Clients / sites / contacts
+        - Billing / invoices / quotes
+        - Dispatch / projects
+        - Automation / workflow
+        - Knowledge / documents
+        - Reporting
+        - Client portal
+        - Plugins / API
+        - Deployment / operations
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and discussions for this
+          required: true

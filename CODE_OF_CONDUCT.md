@@ -4,4 +4,4 @@ Marula adopts the [Contributor Covenant](https://www.contributor-covenant.org/ve
 
 In short: be precise and kind. Critique code, not people. We expect professional behavior in issues, PRs, RFC discussions, and community channels.
 
-Enforcement: report violations to `conduct@marula.app`. Maintainers will acknowledge within 72 hours and act per the Covenant's enforcement guidelines. Repeated bad-faith participation results in a ban — we'd rather be small and functional.
+Enforcement: report violations to `conduct@getmarula.com`. Maintainers will acknowledge within 72 hours and act per the Covenant's enforcement guidelines. Repeated bad-faith participation results in a ban — we'd rather be small and functional.

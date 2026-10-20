@@ -1,7 +1,7 @@
 # Marula
 
 <p>
-  <img src="design/marula/logo/lockup-ink@2x.png" height="34" alt="Marula logo lockup" title="Marula logo lockup">
+  <img src=".github/assets/logo-lockup-ink@2x.png" height="34" alt="Marula logo lockup" title="Marula logo lockup">
 </p>
 
 <p>
@@ -16,7 +16,7 @@
 <!-- TODO(ci): CI badges once the pipelines are public. Rendered now, a
      workflow badge on a repository with no runs reads as "no status", which
      is worse than no badge.
-![CI](https://github.com/marula-open/marula-core/actions/workflows/ci.yml/badge.svg) -->
+![CI](https://github.com/MarulaHQ/marula-core/actions/workflows/ci.yml/badge.svg) -->
 
 ---
 
@@ -48,7 +48,7 @@ Some things we care about enough to enforce in CI:
 ## Quick start
 
 ```bash
-git clone https://github.com/marula-open/marula-core && cd marula-core
+git clone https://github.com/MarulaHQ/marula-core && cd marula-core
 docker compose -f deploy/docker-compose.yml up -d     # Postgres+pgvector, Redis, MinIO, services, web
 open http://localhost:3000                            # workspace UI
 ```
