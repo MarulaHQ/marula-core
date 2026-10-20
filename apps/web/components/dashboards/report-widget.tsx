@@ -393,7 +393,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 // Recharts tooltips are hover-only; every chart widget exposes the SAME rows
 // as a plain Table the keyboard can traverse. Columns mirror the chart axes
 // so chart and table read identically (Amplitude/Canva grammar — see
-// design/qa-stragglers/DESIGN-RESEARCH.md).
+// internal/design/qa-stragglers/DESIGN-RESEARCH.md).
 
 function RollupDataTable({
   rows,

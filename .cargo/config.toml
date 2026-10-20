@@ -8,10 +8,10 @@
 # provenance guard closes that — `python3 scripts/lane-target-guard.py check
 # --profile release --fix` before a release build (scripts/e2e-stack.sh already
 # does), `mark` after. Evidence and the release-profile trap:
-# design/qa-p47-lane-env-hygiene/REVIEW.md.
+# internal/design/qa-p47-lane-env-hygiene/REVIEW.md.
 
 # ---------------------------------------------------------------------------
-# Build throughput (Wave 52 lane P13). Evidence: design/qa-p52-build-throughput/.
+# Build throughput (Wave 52 lane P13). Evidence: internal/design/qa-p52-build-throughput/.
 #
 # This file keeps only settings that cannot be missing, and adds one key. A TOML
 # config has no `if`, so an unconditional `linker` or `rustc-wrapper` would turn

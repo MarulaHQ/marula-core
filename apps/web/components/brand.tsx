@@ -8,7 +8,7 @@
 //
 // Non-purpose: no invented variants and no recolouring. Every file referenced
 // here is a byte copy of a kit asset in apps/web/public/ — the per-file source
-// path is recorded in design/qa-p41-brand-assets/LANDING.md. The wordmark is
+// path is recorded in internal/design/qa-p41-brand-assets/LANDING.md. The wordmark is
 // outlined in the SVGs, so no font has to be installed to render it.
 "use client";
 

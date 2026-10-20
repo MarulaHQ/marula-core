@@ -73,7 +73,7 @@ a dirty demo org:
    treatment by rotating once successfully afterwards. Success on a
    throttled surface always clears its own curve now — including refresh,
    which used to ratchet to the 1h cap and never come down (Wave 47 lane
-   A26, `.kilo/worktrees` record in `design/qa-p47-auth-gate-run-reds`).
+   A26, `.kilo/worktrees` record in `internal/design/qa-p47-auth-gate-run-reds`).
 2. **Stateful flows (onboarding, tours, merge queue) stage their own scratch
    state and restore what they armed.** Never assume pristine demo rows:
    - onboarding: re-arm via `/onboarding/reset/org` / `/reset/user` at test
@@ -93,7 +93,10 @@ lane's committed record. `e2e/helpers/evidence.ts` resolves it: `E2E_EVIDENCE_DI
 if set, else `design/qa-<branch>`, else `design/qa-<run id>`, else
 `design/qa-<short sha>`. The branch name is the directory name, so the lane that
 owns `design/qa-p34-plugin-surface-closeout` still lands there. Every other lane gets
-its own directory. Specs and helpers must use `evidenceDir()`/`evidencePath()`
+its own directory. `design/` is a local, git-ignored scratch tree — `.gitignore`
+ignores `/design/`, because that path used to hold the private design corpus and
+still must never be committed. Capture output is scratch that a run rewrites, not
+a record this repository ships. Specs and helpers must use `evidenceDir()`/`evidencePath()`
 instead of a literal `design/qa-*` path — one sweep on 2026-10-16 rewrote seven
 tracked files belonging to three other lanes, and a lane gating with `git add -A`
 would have committed that over their records. `node scripts/check-evidence-writes.mjs`

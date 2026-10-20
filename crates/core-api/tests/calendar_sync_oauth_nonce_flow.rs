@@ -18,7 +18,7 @@
 //! test on the callback leg: it consumes the nonce with no session, through the
 //! `app_consume_calendar_oauth_state` bridge (migration 0132) the callback now
 //! uses, and guards against the consume ever returning to a bare-pool read.
-//! See `design/qa-p43-calendar-sync-oauth-scope/`.
+//! See `internal/design/qa-p43-calendar-sync-oauth-scope/`.
 
 use axum::Router;
 use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};

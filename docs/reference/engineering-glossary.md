@@ -24,11 +24,11 @@ none of them belongs on the published docs site. Product vocabulary lives in
 
 | Term | What it means here |
 |---|---|
-| **PLAN** | The lane's `design/qa-<lane>/PLAN.md`: its scope and deliverables, plus the work it explicitly leaves out. |
+| **PLAN** | The lane's `internal/design/qa-<lane>/PLAN.md`: its scope and deliverables, plus the work it explicitly leaves out. |
 | **REVIEW** | The lane's verdict document: what was found, what was changed, what is still open, with counts and file:line citations rather than impressions. |
 | **GATES** | The lane's gate record: the exact commands run, their result, and a pointer to the group run when the lane did not run its own. |
 | **LANDING** | The landing record written when the lane merges: what landed, the merge sha, and the trail token saving. |
-| **Evidence directory** | `design/qa-<lane>/` — captures, probe scripts, verdicts. The checker `scripts/check-evidence-writes.mjs` keeps writes inside these paths. |
+| **Evidence directory** | `internal/design/qa-<lane>/` — captures, probe scripts, verdicts. The checker `scripts/check-evidence-writes.mjs` keeps writes inside these paths. |
 | **Landing** | Merging into **local** `main`. Not a push, not a PR. |
 | **Desk check** | Verifying a claim against running code or a captured screen instead of against a comment. |
 

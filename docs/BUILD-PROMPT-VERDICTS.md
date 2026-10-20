@@ -2,7 +2,7 @@
 
 Every Stage 0–5 acceptance bullet, every §1 module bullet, and every §2
 stack row of `docs/prompts/BUILD-PROMPT.md`, walked against the SHIPPED
-repository (code, OpenAPI pin, landing records under `design/qa-*/`,
+repository (code, OpenAPI pin, landing records under `internal/design/qa-*/`,
 TASKLIST records). Verdict vocabulary:
 
 - **shipped** — the spec item exists end to end with evidence.
@@ -16,7 +16,7 @@ Nothing here fails silently. This file is wired into
 claimed follow-up pointer fails the docs gate.
 
 Basis: main `3629977` with Waves 14–38 landed. Audit dates 2026-09-28.
-Where the evidence is a landing record, the `design/qa-*/` path is the
+Where the evidence is a landing record, the `internal/design/qa-*/` path is the
 citation. Where it is code, the citation names the module or endpoint.
 
 ## Stage 0 — Scaffold
@@ -24,7 +24,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | Spec item | Verdict | Evidence / gap |
 | --- | --- | --- |
 | Monorepo scaffold per §3 (crates/*, packages/*, apps/, deploy/, internal/design/mockups/) | shipped | `crates/` 23 crates (all §3 components incl. mcp-server, plugin-host, perf-harness), `packages/{sdk,ui,layout,plugin-kit}`, `apps/web`, `deploy/`, `plugins/wasm` + `plugins/connectors` |
-| docker-compose up: Postgres+pgvector, Redis→Valkey, Garage, Mailpit, core-api, realtime, worker, web | shipped | `deploy/docker-compose.yml` (pgvector:pg18, valkey:8, garage, mailpit, api, realtime, worker, web, observability profile). The PG18/Valkey/Garage transition was verified by Wave 36 lanes 1–2 (`design/qa-p36-backup-wal-g-restic`, `design/qa-p36-infra-transition`) |
+| docker-compose up: Postgres+pgvector, Redis→Valkey, Garage, Mailpit, core-api, realtime, worker, web | shipped | `deploy/docker-compose.yml` (pgvector:pg18, valkey:8, garage, mailpit, api, realtime, worker, web, observability profile). The PG18/Valkey/Garage transition was verified by Wave 36 lanes 1–2 (`internal/design/qa-p36-backup-wal-g-restic`, `internal/design/qa-p36-infra-transition`) |
 | OpenAPI utoipa → Scalar → generated TS SDK | shipped | Scalar at `/openapi.json`, `packages/sdk` generated client, 578 pinned paths (`packages/sdk/openapi.json`) |
 | meridian-theme tokens, light+dark from one set, no hardcoded hex | shipped | `packages/ui` Workbench tokens, CI brand-distinctness scan, per-theme gate `check-theme-packs.mjs` (Wave 24 theming) |
 | Mockups in `internal/design/mockups/` light+dark | shipped | app mockups (workbench v2 is the canonical aesthetic reference) + website mockups `website-*.html` light+dark |
@@ -65,7 +65,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | OTel instrumentation | shipped | `crates/core-otel` (OTLP exporter, redaction, opt-in), compose collector + Grafana/Tempo/Loki |
 | NinjaOne + Hudu reference connectors | shipped | `plugins/connectors/{ninjaone,hudu}`, none-mode documented |
 | Accept: two simulated weeks, zero lost messages | shipped | CI mail harness (two-week zero-loss claim in the Stage-2 close-out record) |
-| Accept: third-party connector on public API + SDK only | shipped | connectors doctrine (`plugins/connectors/README.md`) — public API + SDK, none-mode, verified by Wave 22 lane 3 (`design/qa-p22-ecosystem-connectors-gap`) |
+| Accept: third-party connector on public API + SDK only | shipped | connectors doctrine (`plugins/connectors/README.md`) — public API + SDK, none-mode, verified by Wave 22 lane 3 (`internal/design/qa-p22-ecosystem-connectors-gap`) |
 | Accept: SLA timers correct under clock skew | shipped | Stage-2 clock-skew tests on the SLA engine (Stage-2 close-out record) |
 
 ## Stage 3 — Commercial engine (MER-P2)
@@ -79,7 +79,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | Projects (phases/tasks/views/dependencies/templates) | shipped | `/api/v1/projects*` incl. phases, tasks, dependencies, templates, `/projects/[id]` work surface. **Views**: List, phase/task groups, a gantt-lite rail, and (since p34-verdicts-closeout) the dated Gantt + phase budget/burn view over the `phase_gantt`/`phase_burn` read models with nullable phase dates. The 2026-10-02 walk did not capture `/projects/[id]` (absent from the capture manifest), so this row cites the closeout lane's record rather than fresh screenshots |
 | Milestone billing feeding invoicing | shipped-with-honest-gap | `project.milestone_completed` event (0062 seam), `is_milestone` phases carry amount/currency, invoice-candidate feed `/api/v1/invoice-candidates` picks up billable lines. The dedicated milestone→invoice consumer with per-phase budget read models was not landed (Wave 39 lane 4 claims exactly this: project↔contract link, phase budgets + burn, fixed-fee phase emission) |
 | Unified calendar | shipped | `/api/v1/calendar/{day,week,team,deadlines}` + `/calendar` surface |
-| **Dispatch v2 `project` resource planning (tech allocation across project phases; capacity forecasting / utilization spanning service + project)** | shipped | `/dispatch/planning` ships the 7-day capacity horizon per technician (available/booked/free/utilization over availability windows + exclusions + appointments) with demand depth + skill catalog (`/api/v1/dispatch/capacity`), plus dispatch-connector schedule. The claimed gap closed: `project_phase_allocations` (0116) plus the percent-days forecast engine and the planning UI (p34-verdicts-closeout). Walk-verified live on the seeded demo org (2026-10-02, `design/qa-p34-spec-verdict-sweep/captures/planning-*.png`): live percent-days committed load (560 pd, 1 phase), the dated Acme Network Refresh allocation, and the `curated` work-next queue with entries |
+| **Dispatch v2 `project` resource planning (tech allocation across project phases; capacity forecasting / utilization spanning service + project)** | shipped | `/dispatch/planning` ships the 7-day capacity horizon per technician (available/booked/free/utilization over availability windows + exclusions + appointments) with demand depth + skill catalog (`/api/v1/dispatch/capacity`), plus dispatch-connector schedule. The claimed gap closed: `project_phase_allocations` (0116) plus the percent-days forecast engine and the planning UI (p34-verdicts-closeout). Walk-verified live on the seeded demo org (2026-10-02, `internal/design/qa-p34-spec-verdict-sweep/captures/planning-*.png`): live percent-days committed load (560 pd, 1 phase), the dated Acme Network Refresh allocation, and the `curated` work-next queue with entries |
 | Dispatch connector API v1 (appointment/resource events, availability write API) | shipped | `crates/core-api/src/routes/dispatch_connector.rs`: `/api/v1/dispatch-connector/{technicians,schedule,appointments/{id}/status}` |
 | Recurring/scheduled tickets (PM schedules) | shipped | `/api/v1/pm-schedules*` + `worker/pm_sweep.rs` |
 | Per-client workflow overrides | shipped | `/api/v1/clients/{id}/workflow-overrides*` (migration 0063, Wave 12) |
@@ -100,7 +100,7 @@ citation. Where it is code, the citation names the module or endpoint.
 
 | Spec item | Verdict | Evidence / gap |
 | --- | --- | --- |
-| Performance program (query budgets, load tests at 100k) | shipped-with-honest-gap | ticket-list p95 29.9 ms @50k (met, `design/qa-p19-ga-readiness`). `perf-harness` seed/load + the nightly perf job were REPAIRED by Wave 34 lane 6, but the actual 100k-ticket HTTP load measurement has not run (nightly triggers user-gated) |
+| Performance program (query budgets, load tests at 100k) | shipped-with-honest-gap | ticket-list p95 29.9 ms @50k (met, `internal/design/qa-p19-ga-readiness`). `perf-harness` seed/load + the nightly perf job were REPAIRED by Wave 34 lane 6, but the actual 100k-ticket HTTP load measurement has not run (nightly triggers user-gated) |
 | Security hardening to external-audit readiness | shipped | Wave 19 hardening + audits clean, secrets/leak audit zero open findings |
 | Plugin runtime v2 (WASM/Extism + capability-consent UI) | shipped | `crates/plugin-host` (Extism), consent surface, deny-by-default grants |
 | Marketplace registry v1 (static manifest + git tag, code-signed WASM) | shipped-with-honest-gap | `/api/v1/plugins/catalog` + staged distribution (zip/github/registry) + signing (`plugin_signing_keys` trust store). The static-registry-as-git-tag publishing flow and code-signed-artifact enforcement remain release-pipeline work claimed by Wave 38 |
@@ -109,7 +109,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | Time-entry approval workflows (manager queues, billing-period locking) | shipped | `/api/v1/time-entries/approvals/{queue,decide}`, submit/reopen, approve→locked-on-invoice |
 | **Optional client approvals on time entries** | shipped-with-honest-gap | **Not built as a product leg — documented decision.** The Stage-4 "optional" leg: portal-user approver tier exists and is behavior-ready (`PortalRole.Approver`, migration 0058-era modeling), but no portal approval flow over time entries ships and the TASKLIST ownership cleanup (2026-09-23) resolved to keep the shipped decision: manager-side approval only, with the gate decision documented here. The approver tier is the seam if this is ever built. No follow-up lane is claimed unless the user asks for it |
 | Tech coaching scorecards (private-by-default, opt-in gamification) | shipped | `/api/v1/scorecards*` (`me` private view + `me/settings` opt-in), CSAT rollups added by Wave 34 lane 2 |
-| WCAG 2.2 AA accessibility | shipped | Wave 17 lane 10 pass + Wave 29 lane 2 deep re-audit (axe gate, zero NEW criticals, AA bar, `design/qa-p29-accessibility-deep`) |
+| WCAG 2.2 AA accessibility | shipped | Wave 17 lane 10 pass + Wave 29 lane 2 deep re-audit (axe gate, zero NEW criticals, AA bar, `internal/design/qa-p29-accessibility-deep`) |
 | iCal feed | shipped | token-scoped outbound iCal feed `/api/v1/calendar-sync/feed/{token}` |
 | White-label-lite (portal logo/colors) | shipped | `apps/web/lib/portal-branding.ts` (Wave 17 lane 10): org name + accent substitution, honest env-config defaults |
 | Dispatch v3 (`RoutingProvider` route optimization + dispatch widget registry) | shipped | `crates/core-routing` provider seam (heuristic/OSRM/ORS/Mapbox + TravelTime/Geoapify relays), `journey` start points, dispatcher warnings + suggestions. Widget registry = the §4.6 plugin widget registry (Wave 34 lane 4) |
@@ -137,9 +137,9 @@ citation. Where it is code, the citation names the module or endpoint.
 | --- | --- | --- |
 | Waitlist site Phase 1 + live marketing Phase 2 | shipped | Wave 20 lane 1 → Wave 28 rebuild → Wave 34 lane 7 phase-2 (14-route sitemap complete, `/features` folded into `/compare`) |
 | Mockup-first, public-safe, no app-code imports | shipped | `internal/design/mockups/website-*` + the site package's own boundary (packages/ui primitives only) |
-| **Lighthouse ≥95** | shipped-with-honest-gap | Re-run 2026-10-02 on a fresh production build, 7 routes × mobile+desktop: mobile perf 95–96, desktop perf 100, a11y/BP/SEO 100 everywhere (`design/qa-p34-spec-verdict-sweep/lighthouse/`). The stale-evidence gap is closed; what remains is that CI does not run Lighthouse — re-run at publishing |
+| **Lighthouse ≥95** | shipped-with-honest-gap | Re-run 2026-10-02 on a fresh production build, 7 routes × mobile+desktop: mobile perf 95–96, desktop perf 100, a11y/BP/SEO 100 everywhere (`internal/design/qa-p34-spec-verdict-sweep/lighthouse/`). The stale-evidence gap is closed; what remains is that CI does not run Lighthouse — re-run at publishing |
 | WCAG AA on the site | shipped | Lighthouse a11y 100 on all six routes, brief binding gates carried to every website lane |
-| **PostHog aggregate analytics only** | shipped-with-honest-gap | The aggregate-only leg shipped (the site package's `lib/analytics.ts` + `components/page-view.tsx`, p34-verdicts-closeout): off unless `NEXT_PUBLIC_POSTHOG_KEY` is set (the literal `off` counts as off), one cookie-free ping per pageview, no identity of any kind, DNT + GPC honored, no SDK dependency. Re-proven against a live browser on 2026-10-02 (`design/qa-p34-spec-verdict-sweep/captures/analytics-off/mode-off.json`, `analytics-on/mode-on.json`): off = zero third-party requests and empty cookies/storage, on = exactly one ping per page. Honest gap: it ships disabled by default — enabling is operator configuration, which is the documented posture |
+| **PostHog aggregate analytics only** | shipped-with-honest-gap | The aggregate-only leg shipped (the site package's `lib/analytics.ts` + `components/page-view.tsx`, p34-verdicts-closeout): off unless `NEXT_PUBLIC_POSTHOG_KEY` is set (the literal `off` counts as off), one cookie-free ping per pageview, no identity of any kind, DNT + GPC honored, no SDK dependency. Re-proven against a live browser on 2026-10-02 (`internal/design/qa-p34-spec-verdict-sweep/captures/analytics-off/mode-off.json`, `analytics-on/mode-on.json`): off = zero third-party requests and empty cookies/storage, on = exactly one ping per page. Honest gap: it ships disabled by default — enabling is operator configuration, which is the documented posture |
 | The site never imports product app code | shipped | the site package is a separate Next app with imports restricted to packages/ui primitives |
 
 ## §1 product-module bullets — the short list (each walked individually)
@@ -213,7 +213,7 @@ citation. Where it is code, the citation names the module or endpoint.
    against a live browser in both modes
    (`scripts/p34-website-analytics-capture.mjs`): off = zero third-party
    requests, on = exactly one ping per page with a 274-byte JSON body.
-   Re-proven 2026-10-02 (`design/qa-p34-spec-verdict-sweep/captures/`
+   Re-proven 2026-10-02 (`internal/design/qa-p34-spec-verdict-sweep/captures/`
    `analytics-off/`, `analytics-on/`).
 4. **Preview-environment CI leg** — cannot be enabled from a lane (triggers
    are user-gated); the scaffold/compose work needed to make a preview env
@@ -276,9 +276,9 @@ citation. Where it is code, the citation names the module or endpoint.
     to the double-submit design comment (`crates/core-api/src/auth/cookies.rs`),
     so the cookie-driven `POST /api/v1/portal/refresh` can never pass
     `double_submit_ok` and a full page load cannot re-auth. Owner: a web +
-    core-api lane. Evidence: `design/qa-p34-spec-verdict-sweep/REVIEW.md` batch
+    core-api lane. Evidence: `internal/design/qa-p34-spec-verdict-sweep/REVIEW.md` batch
     5 (captures show the sign-in gate; probes + code spans named).
-    Landing record and review: `design/qa-p47-portal-session-hardening/`
+    Landing record and review: `internal/design/qa-p47-portal-session-hardening/`
     (36 captures in both themes, through the real in-page login plus a
     mid-session reload). Decision of record for the cookie:
     `docs/adr/0022-portal-cookie-double-submit.md`. The walk's two findings
@@ -324,7 +324,7 @@ byte-current by the gates that run them in CI-parity locally.
 
 ## Lane record
 
-Landing record: `design/qa-p34-spec-verdict-sweep/` (LANDING.md +
+Landing record: `internal/design/qa-p34-spec-verdict-sweep/` (LANDING.md +
 REVIEW.md with walk evidence). Wave 34 closes with this lane; **Wave 35
 (`p35-ui-improvement`, the truly-final UI audit) becomes fireable
 afterward.**

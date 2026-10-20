@@ -529,7 +529,7 @@ async fn document_file_get_still_reads_legacy_envelope() {
 // Wave 52 lane P6d — the vault file is scanned on its PLAINTEXT, and an
 // infected upload is refused with nothing stored (no object, no verdict row,
 // no quarantine copy, no notification). See
-// `design/qa-p52-vault-scan/REVIEW.md` for why holding is the wrong answer
+// `internal/design/qa-p52-vault-scan/REVIEW.md` for why holding is the wrong answer
 // on this door.
 // ---------------------------------------------------------------------------
 

@@ -11,7 +11,7 @@
 --
 -- Non-purpose / documented follow-ups: no CA-bundle validation and no
 -- SAN/custom-extension org-binding extraction in v1 (full CA-chain
--- validation is the next step, see design/qa-p47-client-cert-auth/LANDING.md);
+-- validation is the next step, see internal/design/qa-p47-client-cert-auth/LANDING.md);
 -- no direct TLS termination at core-api (the edge proxy is the only
 -- presentation path in v1). Grant strings are validated against the
 -- EXISTING policy matrix at write time in the API layer, never here.

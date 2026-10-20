@@ -77,7 +77,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   // PWA store-readiness (Wave 20 lane 1): iOS standalone-install posture.
   // No service worker on purpose — the app is authed + dynamic; posture
-  // recorded in design/qa-p20-ga-packaging/LANDING.md.
+  // recorded in internal/design/qa-p20-ga-packaging/LANDING.md.
   appleWebApp: {
     capable: true,
     title: "Marula",

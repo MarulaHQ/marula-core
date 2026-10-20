@@ -8,8 +8,8 @@ bottom. This page itself is the audit record, wired into the site so the gap
 stays visible until it is filled.
 
 Method: every scheduled product surface was captured and reviewed in a real
-running stack (76 screenshots, `design/qa-p27-docs-audit-ia/captures/`,
-verdicts in `design/qa-p27-docs-audit-ia/REVIEW.md`), then cross-checked
+running stack (76 screenshots, `internal/design/qa-p27-docs-audit-ia/captures/`,
+verdicts in `internal/design/qa-p27-docs-audit-ia/REVIEW.md`), then cross-checked
 against this site's existing pages and the self-host doc sources
 (`deploy/README.md`, `deploy/docker-compose.yml` comments,
 `deploy/runbooks/README.md` scaffold, `docs/desktop-release.md`,
@@ -181,4 +181,4 @@ menu:
   It runs inside `check-docs-site.mjs`, so the existing gate covers it.
 
 The measured audit, the gaps it found and what was left open are recorded in
-`design/qa-p52-docs-ia/REVIEW.md` in the repository.
+`internal/design/qa-p52-docs-ia/REVIEW.md` in the repository.

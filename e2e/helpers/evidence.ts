@@ -17,6 +17,11 @@
 //   3. design/qa-<run id>    — detached HEAD with a stack from e2e/.e2e-stack.env
 //   4. design/qa-<short sha> — detached HEAD, nothing else
 //
+// The root `design/` is local and git-ignored: `.gitignore` ignores `/design/`
+// because that path held the private design corpus before it moved out. Capture
+// output still lands there, because it is scratch a run rewrites and never a
+// file this repository ships.
+//
 // The pure rule lives in evidence-core.cjs (one implementation, tested by
 // `node scripts/check-evidence-writes.mjs --self-test` without a browser or a
 // stack).  This module adds the git/run-id lookup and creates the directory.

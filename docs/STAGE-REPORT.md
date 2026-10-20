@@ -335,7 +335,7 @@ staff UI per the close-out doctrine — quotes/catalog/pipeline, inventory +
 CI merge queue, workflow-overrides, FX surfaces (base currency, rate book,
 reconciliation), vector search in unified search, DMS connector admin,
 ticket email timeline rows, N-A tri-state, greeting/sign-off editors,
-pod-visibility matrix; screenshot evidence under `design/qa-t3-closeout/`;
+pod-visibility matrix; screenshot evidence under `internal/design/qa-t3-closeout/`;
 SDK at 320 paths (DX12 pin gate active).
 
 **In flight:** `p12-realtime` (lane 12, user-added) — SSE fan-out off the

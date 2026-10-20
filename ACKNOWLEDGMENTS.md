@@ -108,7 +108,7 @@ standardizing on the Valkey fork.
   documented in [`docs/theme.md`](docs/theme.md). tweakcn is MIT.
 - Visual references in the internal design corpus and markup drafts are first-party
   or internal research records (lazyweb citations live with each lane's
-  `design/qa-*` evidence).
+  `internal/design/qa-*` evidence).
 
 ## 7. Keeping this honest
 

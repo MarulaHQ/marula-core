@@ -658,7 +658,7 @@ async fn document_events_index_the_current_version() {
 //   * one batch of all N ops in a single call — the floor the seam can reach;
 //   * one `flush` per target — the per-row shape the row fears.
 //
-// Run it with the exact command in design/qa-p52-internal-seam-batching/GATES.md.
+// Run it with the exact command in internal/design/qa-p52-internal-seam-batching/GATES.md.
 
 /// A stub for core-api's internal search surface that counts the POSTs
 /// `HttpIndexSink` makes. The real route answers a JSON body the sink
@@ -728,7 +728,7 @@ fn elapsed_ms(start: std::time::Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1_000.0
 }
 
-#[ignore = "measurement (P12 seam share): needs MARULA_TEST_DATABASE_URL; see design/qa-p52-internal-seam-batching/GATES.md"]
+#[ignore = "measurement (P12 seam share): needs MARULA_TEST_DATABASE_URL; see internal/design/qa-p52-internal-seam-batching/GATES.md"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn seam_share_over_a_bulk_seed() {
     use worker::search_indexer::{flush as flush_batch, HttpIndexSink, IndexSink};

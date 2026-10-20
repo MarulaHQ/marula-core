@@ -335,4 +335,4 @@ printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 printf 'Light checks clean. The heavy legs (a real caddy validate per mode,\n'
 printf 'the image build, and an edge boot in front of a running stack) are\n'
-printf 'recorded in design/qa-p47-edge-tls/ and are re-runnable from there.\n'
+printf 'recorded in internal/design/qa-p47-edge-tls/ and are re-runnable from there.\n'

@@ -230,7 +230,7 @@ async fn pathological_refresh_throttle_is_a_typed_429() {
 /// is a race, which is how the first version of this test failed). The
 /// handler-side wiring — `handlers::refresh` calling `record_success` after
 /// the rotation commits — is what the E2E acceptance criterion in
-/// `design/qa-p47-gate-truth/GATES.md` checks end to end.
+/// `internal/design/qa-p47-gate-truth/GATES.md` checks end to end.
 #[tokio::test]
 async fn a_successful_rotation_clears_the_refresh_gate() {
     let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")

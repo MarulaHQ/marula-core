@@ -555,7 +555,7 @@ records — built from existing machinery, no parallel audit store:
 
 - [ ] Up-arrow trigger adjacent to the workbar note input; `⌘⇧N` opens. A11y states verified
 - [ ] Panel rise: translateY+opacity, ≤120ms, reduced-motion collapse, transform-only (CI motion audit / manual verify in both themes)
-- [ ] Skeuomorph: ruled lines aligned to row rhythm, paper layer, margin rule, overlay shadow — light AND dark parity screenshots in `design/qa-workbar-notes/`
+- [ ] Skeuomorph: ruled lines aligned to row rhythm, paper layer, margin rule, overlay shadow — light AND dark parity screenshots in `internal/design/qa-workbar-notes/`
 - [ ] Notes list: divider-separated ledger, initials avatars (ramp-picked), session ring on tracked-session notes, machine avatar on auto notes
 - [ ] Keyboard: Enter=new line, Shift+Enter=soft break (no submit), ⌘/Ctrl+Enter=submit. Verified in composer + tasks reason prompt
 - [ ] Auto-format: every submitted line is a bullet per B1–B6 (unit tests incl. idempotence). Numbered lists preserved. Links survive verbatim. L3 protocol-fill

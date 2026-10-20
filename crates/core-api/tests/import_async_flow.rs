@@ -680,9 +680,9 @@ async fn board_ticket_time_entry_families_import_end_to_end() {
 // measurement ("measure the import path first"). It stages a bulk batch and
 // times only the worker replay — the route that commits rows and emits one
 // outbox event per row. Staging is upload, not import, so it stays outside the
-// clock. Exact command lives in design/qa-p52-internal-seam-batching/GATES.md.
+// clock. Exact command lives in internal/design/qa-p52-internal-seam-batching/GATES.md.
 
-#[ignore = "measurement (P12 import wall clock): needs MARULA_TEST_DATABASE_URL; see design/qa-p52-internal-seam-batching/GATES.md"]
+#[ignore = "measurement (P12 import wall clock): needs MARULA_TEST_DATABASE_URL; see internal/design/qa-p52-internal-seam-batching/GATES.md"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn import_wall_clock_over_a_bulk_batch() {
     let rows: usize = std::env::var("SEAM_ROWS")

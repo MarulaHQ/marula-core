@@ -9,6 +9,10 @@
 // Keep this rule in step with the comment at the top of evidence.ts.
 
 /** Directory prefix every lane evidence dir shares: design/qa-<lane>. */
+// The root is `design/`, a local and git-ignored scratch tree (`.gitignore`
+// ignores `/design/`). The private design corpus used to live at that path and
+// now lives in the private sibling repository, but capture output still lands
+// here: it is scratch that a run rewrites, not a record this repository ships.
 const EVIDENCE_PREFIX = "qa-";
 
 /** A branch name / run id / sha is usable as a directory name only if safe. */

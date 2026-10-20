@@ -2,7 +2,7 @@
 
 **Status:** Accepted · 2026-10-13
 **Scope:** the cookie session CSRF contract in `crates/core-api/src/auth/cookies.rs`, the four gated POST surfaces (staff refresh, staff logout, magic link confirm, portal refresh), and the web and SDK clients that echo the header
-**Origin:** Wave 47 lane A1 (`p47-portal-session-hardening`), closing BUILD-PROMPT follow-up 11b (`docs/BUILD-PROMPT-VERDICTS.md:270`, evidence `design/qa-p34-spec-verdict-sweep/REVIEW.md` batch 5)
+**Origin:** Wave 47 lane A1 (`p47-portal-session-hardening`), closing BUILD-PROMPT follow-up 11b (`docs/BUILD-PROMPT-VERDICTS.md:270`, evidence `internal/design/qa-p34-spec-verdict-sweep/REVIEW.md` batch 5)
 
 ## Context
 

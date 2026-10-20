@@ -21,7 +21,7 @@
  * right-aligned"). So the right cluster reads `columns`, `filter`, `export`,
  * not `filter`, `columns`, `export`: the pack draws the chooser first and the
  * builder second, and every audited surface had them transposed
- * (`design/qa-p47-vision-captures/REMEDIATION.md` item 1). That is why `chips`
+ * (`internal/design/qa-p47-vision-captures/REMEDIATION.md` item 1). That is why `chips`
  * and `filter` are two slots: a surface with both gets the pack's arrangement,
  * and the older `filters` slot still renders one element in the middle for the
  * surfaces that have not split their FilterBar yet.

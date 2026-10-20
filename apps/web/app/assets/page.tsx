@@ -1,5 +1,5 @@
 // /assets — the device ledger, the Marula data-surface template applied to
-// the assets area (Wave 41 lane 9, design/qa-p41-ui-assets-stock).
+// the assets area (Wave 41 lane 9, internal/design/qa-p41-ui-assets-stock).
 //
 // Purpose: the device ledger the pack's derivation guide routes here —
 // "Config ledger with a merge queue side by side", with the templates fixed

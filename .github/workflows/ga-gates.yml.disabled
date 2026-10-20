@@ -8,7 +8,7 @@
 # TRIGGERS INTENTIONALLY DISABLED (file carries .disabled, mirror of ci.yml):
 # main's workflow triggers were disabled repo-wide at commit f00cdb3; this
 # lane lands the JOB DEFINITIONS only. Re-enabling is a user-approved
-# landing-time decision recorded in design/qa-p19-ga-readiness/LANDING.md —
+# landing-time decision recorded in internal/design/qa-p19-ga-readiness/LANDING.md —
 # rename to ci-ga-gates.yml (and ci.yml.disabled → ci.yml) in one commit.
 #
 # Jobs:

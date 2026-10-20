@@ -19,7 +19,7 @@ scratch Postgres:
 
 The knee is 384 concurrent sessions at 695 requests/second and 93ms p95, so the
 anchor is **695 requests/second, 25.9ms p50, 500ms think-time**. The source run
-is `design/qa-p49-perf-journey/journey-50k-u384.json`.
+is `internal/design/qa-p49-perf-journey/journey-50k-u384.json`.
 
 ## The arithmetic
 
@@ -48,7 +48,7 @@ Regenerate it, or size another point, with the calculator:
 
 ```sh
 perf-harness capacity \
-  --report design/qa-p49-perf-journey/journey-50k-u384.json \
+  --report internal/design/qa-p49-perf-journey/journey-50k-u384.json \
   --target-users 1000
 ```
 
@@ -79,7 +79,7 @@ instance. A consumer does not guess these. It reads them.
   to 1.30 times (an exponent of about 0.2 to 0.4), concentrated in the board
   list. Since users-per-instance reads the median, it is unchanged between 50k
   and 100k. `docs/perf.md` §7 has the run and the raw reports are in
-  `design/qa-p49-100k-penalty/`.
+  `internal/design/qa-p49-100k-penalty/`.
 
 ## Limits
 

@@ -169,6 +169,10 @@ apps/web/.harness/in.css
 # repository must never contain the design corpus, the security audit, the
 # strategy and commercial documents, or per-agent configs. The tracker
 # (TASKLIST*.md) is deliberately NOT here — see the note above.
+#
+# /design/ also absorbs lane capture output: e2e helpers and the capture scripts
+# write design/qa-<lane>/, which is local scratch a run rewrites and never a
+# record this repository ships. One ignore rule covers both uses.
 /design/
 /website/
 /meridian-ci/

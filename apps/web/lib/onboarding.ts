@@ -58,7 +58,7 @@ export const USER_STEP_ORDER = ["profile", "mfa", "orientation", "defaults"] as 
  * labels and the MFA headline and blurb are verbatim from
  * `auth/neutral/states/11-onboarding-second-step.png`. The remaining card
  * headlines are this lane's wording and are recorded as unverified in
- * `design/qa-p41-ui-portal-auth/PARITY-LEDGER.md` until those states are
+ * `internal/design/qa-p41-ui-portal-auth/PARITY-LEDGER.md` until those states are
  * opened.
  */
 export const ORG_STEP_LABELS: Record<

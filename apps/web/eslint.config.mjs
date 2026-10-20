@@ -17,7 +17,7 @@
  * Node 24 ≥ 20.19 minimum.
  *
  * Posture history (WARN BASELINE preserved at
- * design/qa-p25-shadcn-lint/eslint.config.warn-baseline.mjs):
+ * internal/design/qa-p25-shadcn-lint/eslint.config.warn-baseline.mjs):
  *   warn run over apps/web = 4270 findings (no-inline-styles 2310 / 135 files,
  *   no-arbitrary-values 1649, no-restyle 229, no-unknown-classes 51).
  *   Triage classified the backlog (details in landing record):
@@ -145,7 +145,7 @@ export default defineConfig([
         // token-driven values, motion) deliberately does not cover. Flipping
         // requires the sweep to classes, not an allowlist widening; adding
         // those props to `allow` would silence the rule instead of enforcing
-        // it. Recorded in design/qa-p41-leftovers-closeout/LANDING.md.
+        // it. Recorded in internal/design/qa-p41-leftovers-closeout/LANDING.md.
         "warn",
         // token-driven + motion-law carve-outs in one mechanical allowlist
         { allow: ["color", "background", "background-color", "background-image", "border-color", "border", "border-bottom", "border-top", "border-left", "border-right", "fill", "stroke", "grid-template-columns", "grid-template-rows", "grid-template-areas", "grid-column", "grid-row", "transform", "transition-duration", "animation-delay", "transition-delay", "width", "height", "max-height", "max-width", "top", "left", "right", "bottom", "position", "opacity", "z-index"] },

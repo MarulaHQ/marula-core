@@ -9,10 +9,10 @@
  * Non-purpose: no state, no React, no app knowledge. The account's zone lives
  * in `useTimeFormat()` (`apps/web/lib/use-time-format.ts`), not here.
  *
- * The defect this closes is recorded in `design/qa-p50-tz-display-foundation/`:
+ * The defect this closes is recorded in `internal/design/qa-p50-tz-display-foundation/`:
  * 157 non-test `toLocale*` sites formatted in the viewer's OS zone, and one
  * passed a hardcoded `"UTC"`. The sweep that removed them
- * (`design/qa-p50-tz-surface-rollout/`) found the pinned one was right — it read
+ * (`internal/design/qa-p50-tz-surface-rollout/`) found the pinned one was right — it read
  * a day key, which has no zone to inherit — and kept the pin as
  * {@link formatDayKey}.
  */

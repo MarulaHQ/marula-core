@@ -6,7 +6,7 @@
 -- is not stored as "an attachment that happens to be a scribble" — the
 -- attachment is the payload, the sign_offs row is the fact.
 --
--- Shape decisions, all recorded in design/qa-p43-signature-pad/LANDING.md:
+-- Shape decisions, all recorded in internal/design/qa-p43-signature-pad/LANDING.md:
 --
 -- (1) ATTACHMENT vs ENTITY. `attachment_kind` gains `sign_off`. A sign-off
 --     attachment always carries ticket_id (the subject being signed off) and

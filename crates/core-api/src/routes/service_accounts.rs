@@ -11,7 +11,7 @@
 //! another. Enrollment, rotation and revocation are admin-only
 //! ([`Permission::ManageApiKeys`]) and RLS-scoped.
 //!
-//! v1 posture (see design/qa-p47-client-cert-auth/LANDING.md): the
+//! v1 posture (see internal/design/qa-p47-client-cert-auth/LANDING.md): the
 //! fingerprint is presented via a header a trusted edge proxy forwards;
 //! the binding is fingerprint-PINNED (re-pin = create + revoke). Full
 //! CA-chain validation and per-org CA bundles are documented follow-ups.

@@ -10,7 +10,7 @@ typed refusal that names the step you skipped, which is the design working
 ([AI: deny-by-default](../explanation/ai-deny-by-default.md)).
 
 Screenshots of this page in both themes are in the lane evidence record,
-`design/qa-p47-byok-runbook/captures/`.
+`internal/design/qa-p47-byok-runbook/captures/`.
 
 ## Prerequisites
 

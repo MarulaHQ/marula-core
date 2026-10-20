@@ -72,7 +72,8 @@ The day surface is captured at phone and tablet widths, light and dark, with
 `node native/scripts/capture-web-tech-day.mjs` once Expo web runs against the
 stack (the header of the script carries the full boot sequence). The script
 signs in through the API, seeds the session into browser storage, and writes
-to `design/qa-p33-rn-tech-day/captures`.
+to `design/qa-p33-rn-tech-day/captures`. That root is local and git-ignored, so
+a capture run never adds a file to the repository.
 
 ## Code map
 

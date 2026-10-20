@@ -78,7 +78,7 @@ pub fn resolve_permissions(roles: &[core_domain::entities::Role]) -> Vec<Permiss
 /// label the machine actor `api-key:<id>` / `created_by_kind = "api_key"`
 /// while the service-account module's own audit rows label it
 /// `service-account:<id>`. That label split is intentional and recorded in
-/// design/qa-p47-client-cert-auth/LANDING.md (a dedicated machine-kind
+/// internal/design/qa-p47-client-cert-auth/LANDING.md (a dedicated machine-kind
 /// discriminator is a follow-up).
 pub async fn require_auth(
     State(state): State<crate::state::AppState>,

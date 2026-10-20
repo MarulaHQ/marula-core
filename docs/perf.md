@@ -366,7 +366,7 @@ concurrency 32, 61.1ms to 92.4ms at 64). The other endpoints stay flat. So at
 this scale the dataset cost is sub-linear and lives in the tail, and the
 Little's-law users-per-instance figure, which reads the median, is
 dataset-insensitive between 50k and 100k. The method and the raw reports are in
-`design/qa-p49-100k-penalty/`.
+`internal/design/qa-p49-100k-penalty/`.
 
 The full model, with the sizing table, the calculator and the limits, is
 `docs/capacity-model.md`.

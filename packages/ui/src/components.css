@@ -1812,7 +1812,7 @@
    row. `data-current` was emitted by the kit and read by no stylesheet, so a
    cursored row had no row rule to match it and the two surfaces that wanted a
    cursor invented their own — approvals a cell ring, the ticket workspace the
-   `selected` prop (design/qa-p47-rendered-states/ROWS.md). It lands on the row
+   `selected` prop (internal/design/qa-p47-rendered-states/ROWS.md). It lands on the row
    here; the combined state keeps the gold bar `.tr.sel.cur` holds. */
 .m-table tbody tr[data-current="true"] {
   box-shadow: inset 0 0 0 2px var(--m-focus-ring);
