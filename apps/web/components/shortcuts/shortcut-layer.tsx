@@ -19,13 +19,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { chordFromEvent, modIsMeta } from "@/lib/commands/chords";
-import {
-  CLOSE_CONTROL,
-  commandForChord,
-  commandsForSurface,
-  metaRows,
-} from "@/lib/commands/registry";
-import type { ShortcutProfile } from "@/lib/commands/types";
+import { reportCommandOutcome } from "@/lib/commands/outcome";
+import { commandForChord, commandsForSurface, metaRows } from "@/lib/commands/registry";
+import type { CommandOutcome, ShortcutProfile } from "@/lib/commands/types";
 import { CheatSheetDialog } from "./cheat-sheet-dialog";
 import { ShortcutOverlay } from "./shortcut-overlay";
 
@@ -106,11 +102,13 @@ export function ShortcutLayer({ authed }: { authed: boolean }) {
     () => ({
       pathname,
       navigate: (href: string) => router.push(href),
+      // Typed, not boolean: the miss carries the selector that produced it,
+      // so a renamed control can name itself (Wave 47 lane A25).
       click: (selector: string) => {
         const el = document.querySelector<HTMLElement>(selector);
-        if (!el) return false;
+        if (!el) return { kind: "absent" as const, selector };
         el.click();
-        return true;
+        return { kind: "clicked" as const };
       },
       copy: (text: string) => {
         const done = () => true;
@@ -119,6 +117,12 @@ export function ShortcutLayer({ authed }: { authed: boolean }) {
       },
     }),
     [pathname, router],
+  );
+
+  /** The last press, so a debugger can read what a chord did without a
+   * console: rendered as `[data-testid="shortcut-last-outcome"]`. */
+  const [lastOutcome, setLastOutcome] = useState<{ command: string; outcome: CommandOutcome } | null>(
+    null,
   );
 
   const dispatchChord = useCallback(
@@ -133,7 +137,13 @@ export function ShortcutLayer({ authed }: { authed: boolean }) {
       if (command) {
         event.preventDefault();
         event.stopPropagation();
-        command.run(ctx);
+        // One place turns a press into a trace: the outcome is reported
+        // (console + DOM event + failure memory) and mirrored into the DOM,
+        // so a dead chord is loud where it happens instead of in a
+        // downstream timeout. Reporting never throws — see outcome.ts.
+        const outcome = command.run(ctx);
+        setLastOutcome({ command: command.id, outcome });
+        reportCommandOutcome({ command: command.id, pathname, outcome });
       }
     },
     [ctx, pathname],
@@ -179,6 +189,23 @@ export function ShortcutLayer({ authed }: { authed: boolean }) {
     <>
       {authed && profile !== null && (
         <span data-testid="shortcut-profile-ready" data-profile={profile} hidden aria-hidden="true" />
+      )}
+      {/* Last press, readable from the DOM. `data-status` is the policy line:
+          "ran" | "inapplicable" (declared absence) | "failed" (a promised
+          control was missing, with the selector attached). */}
+      {lastOutcome !== null && (
+        <span
+          data-testid="shortcut-last-outcome"
+          data-command={lastOutcome.command}
+          data-status={lastOutcome.outcome.status}
+          data-selector={
+            lastOutcome.outcome.status === "ran" ? undefined : lastOutcome.outcome.selector
+          }
+          hidden
+          aria-hidden="true"
+        >
+          {lastOutcome.outcome.status === "ran" ? "" : lastOutcome.outcome.reason}
+        </span>
       )}
       {overlayOpen && <ShortcutOverlay commands={surfaceCommands} metaRows={metaRowsList} />}
       <CheatSheetDialog
