@@ -11,11 +11,18 @@
 //!   per-frame uuid. The JSON `data:` contract is unchanged.
 //! * **Last-Event-ID resume** — reconnecting with the last seen id
 //!   replays the missed events from the outbox (bounded replay buffer),
-//!   each with its `id:` field, before live delivery resumes.
+//!   each with its `id:` field, before live delivery resumes. The bound is
+//!   counted on frames this caller would receive, and the scan itself is
+//!   bounded to four pages of raw rows; past either bound the stream says
+//!   so instead of replaying a partial history.
 //! * **Cutoff** — a cursor further back than the replay buffer gets NO
 //!   replay (an explicit comment marks it); the client falls back to
 //!   full snapshot rehydration. Unknown/presence uuids degrade the same
 //!   way, without the cutoff comment.
+//! * **Per-user replay** — a replayed frame from a per-user family
+//!   (`notification.*`, `timer.*`) carries its `recipient_user_id` and is
+//!   served only to that user; a row addressed to another member of the
+//!   same org is skipped, exactly as the live hub would have skipped it.
 //! * **Presence relay** — a heartbeat publishes a `marula_presence`
 //!   NOTIFY (cross-replica relay); applying a relayed heartbeat (what
 //!   another replica's listener does) fans out the IDENTICAL presence
@@ -290,6 +297,61 @@ async fn open_stream(
         "SSE content type"
     );
     response.into_body()
+}
+
+/// Opens the ORG-WIDE stream (no `?ticket=` scope) with an optional resume
+/// cursor — the shape the notification and timer hooks consume.
+async fn open_org_stream(
+    app: &Router,
+    token: &str,
+    last_event_id: Option<&str>,
+) -> axum::body::Body {
+    let mut headers: Vec<(&str, &str)> = Vec::new();
+    if let Some(id) = last_event_id {
+        headers.push(("last-event-id", id));
+    }
+    let response = send(
+        app,
+        axum::http::Method::GET,
+        "/api/events/stream",
+        Some(token),
+        &headers,
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200, "org stream subscribe must succeed");
+    response.into_body()
+}
+
+/// Seeds one outbox row with an explicit `occurred_at`, so the replay cursor
+/// and the rows after it have a deterministic order. This is the authoritative
+/// trail the resume path reads; the commit also fires the NOTIFY trigger but
+/// no subscriber is open at seed time.
+async fn seed_outbox_row(
+    pool: &PgPool,
+    org_id: Uuid,
+    event_type: &str,
+    entity: &str,
+    entity_id: &str,
+    payload: Value,
+    occurred_at: chrono::DateTime<chrono::Utc>,
+) -> Uuid {
+    let id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO outbox_events (id, org_id, event_type, entity, entity_id, payload, occurred_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+    )
+    .bind(id)
+    .bind(org_id)
+    .bind(event_type)
+    .bind(entity)
+    .bind(entity_id)
+    .bind(payload)
+    .bind(occurred_at)
+    .execute(pool)
+    .await
+    .expect("seed outbox row");
+    id
 }
 
 /// Reads complete SSE frames until one's data matches `predicate`
@@ -797,5 +859,210 @@ async fn remote_editing_flip_should_relay_as_a_transition_frame() {
     assert!(
         !collected.contains("\"type\":\"presence\""),
         "a no-op relayed heartbeat must not duplicate the transition frame: {collected}"
+    );
+}
+
+#[tokio::test]
+async fn replay_should_deliver_a_per_user_frame_only_to_its_recipient() {
+    let _serial = SERIAL.lock().await;
+    let (state, app, admin_url) = test_state().await;
+    tokio::spawn(core_api::realtime::run_listener(admin_url));
+
+    let org = register_org(&app, format!("rr-recipient-{}", Uuid::now_v7().simple())).await;
+    let peer_token = add_same_org_user(&app, &state, &org, "peer").await;
+    let peer = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/me",
+            Some(&peer_token),
+            &[],
+            None,
+        )
+        .await,
+    )
+    .await;
+    let peer_id: Uuid = peer["user_id"].as_str().unwrap().parse().unwrap();
+
+    // A cursor row, then two per-user notifications committed after it: one
+    // for the connecting user, one for their colleague. Both are in the
+    // replay window, so only the recipient predicate separates them.
+    let now = chrono::Utc::now();
+    let cursor = seed_outbox_row(
+        &state.pool,
+        org.org_id,
+        "ticket.updated",
+        "ticket",
+        &Uuid::now_v7().to_string(),
+        json!({}),
+        now - chrono::Duration::seconds(10),
+    )
+    .await;
+    seed_outbox_row(
+        &state.pool,
+        org.org_id,
+        "notification.created",
+        "notification",
+        &Uuid::now_v7().to_string(),
+        json!({"user_id": org.user_id, "kind": "mention"}),
+        now - chrono::Duration::seconds(5),
+    )
+    .await;
+    let theirs = seed_outbox_row(
+        &state.pool,
+        org.org_id,
+        "notification.created",
+        "notification",
+        &Uuid::now_v7().to_string(),
+        json!({"user_id": peer_id, "kind": "mention"}),
+        now - chrono::Duration::seconds(4),
+    )
+    .await;
+
+    // Resume as the owner: the own notification replays WITH its recipient,
+    // and the colleague's notification never leaves the server.
+    let mut resumed = open_org_stream(&app, &org.token, Some(&cursor.to_string()))
+        .await
+        .into_data_stream();
+    let frame = next_frame_matching(&mut resumed, |v| v["type"] == "notification.created").await;
+    assert_eq!(
+        frame.data.as_ref().unwrap()["recipient_user_id"],
+        org.user_id.to_string(),
+        "the replayed frame names the same recipient the live path would: {frame:?}"
+    );
+
+    let collected = drain(&mut resumed, Duration::from_millis(800)).await;
+    assert!(
+        !collected.contains(&theirs.to_string()),
+        "a notification addressed to another member must not replay: {collected}"
+    );
+    assert!(
+        !collected.contains(&peer_id.to_string()),
+        "not even the other member's id may leak onto this stream: {collected}"
+    );
+}
+
+/// The replay bound used to be counted on RAW outbox rows. Now that a frame
+/// carries a recipient, the bound has to be counted on the frames this caller
+/// would receive, or another member's traffic can either bury the caller's own
+/// events or force a snapshot rehydrate on everyone. The scan pages until the
+/// gap ends or `REPLAY_SCAN_FACTOR * replay_buffer()` raw rows are read. Past
+/// that budget the honest answer is `past_buffer = true`, which the client
+/// already handles by rehydrating.
+#[tokio::test]
+async fn replay_should_scan_past_other_users_traffic_and_admit_when_it_cannot_finish() {
+    let _serial = SERIAL.lock().await;
+    let (state, app, _admin_url) = test_state().await;
+
+    let org = register_org(&app, format!("rr-scan-{}", Uuid::now_v7().simple())).await;
+    let other = Uuid::new_v4();
+    let now = chrono::Utc::now();
+    let cursor = seed_outbox_row(
+        &state.pool,
+        org.org_id,
+        "ticket.updated",
+        "ticket",
+        &Uuid::now_v7().to_string(),
+        json!({}),
+        now - chrono::Duration::seconds(600),
+    )
+    .await;
+
+    // 20 other-user rows, then the caller's one addressed row: more raw rows
+    // than the 8-frame buffer, but inside the 32-row scan budget. The replay
+    // must reach the addressed row and report completeness.
+    let addressed_id = Uuid::now_v7().to_string();
+    for i in 0..20 {
+        seed_outbox_row(
+            &state.pool,
+            org.org_id,
+            "notification.created",
+            "notification",
+            &Uuid::now_v7().to_string(),
+            json!({"user_id": other, "kind": "mention"}),
+            now - chrono::Duration::seconds(500) + chrono::Duration::seconds(i),
+        )
+        .await;
+    }
+    seed_outbox_row(
+        &state.pool,
+        org.org_id,
+        "notification.created",
+        "notification",
+        &addressed_id,
+        json!({"user_id": org.user_id, "kind": "assignment"}),
+        now - chrono::Duration::seconds(490),
+    )
+    .await;
+
+    let mut tx = state.pool.begin().await.expect("replay tx");
+    core_db::set_org_and_user(&mut tx, org.org_id, org.user_id)
+        .await
+        .expect("org-bound tx");
+    let (frames, past) = core_api::realtime::replay_after(
+        &mut tx,
+        org.org_id,
+        org.user_id,
+        None,
+        &cursor.to_string(),
+    )
+    .await;
+    let _ = tx.rollback().await;
+
+    assert!(
+        frames
+            .iter()
+            .any(|f| f.entity_id.as_deref() == Some(addressed_id.as_str())),
+        "the caller's frame behind other members' traffic must replay"
+    );
+    assert!(!past, "a gap scanned to its end is not a cutoff");
+    // Org-scoped frames in the gap (the org's own bootstrap events) are
+    // legitimately visible; the invariant is that nothing ADDRESSED to the
+    // other member replays.
+    assert!(
+        frames.iter().all(|f| f.recipient_user_id != Some(other)),
+        "no frame addressed to another member may replay"
+    );
+
+    // Push the gap past the raw budget and ask again: the scan cannot prove
+    // completeness, so the caller must see `past_buffer = true`, never an
+    // empty delta that reads as "nothing was missed".
+    for i in 0..40 {
+        seed_outbox_row(
+            &state.pool,
+            org.org_id,
+            "notification.created",
+            "notification",
+            &Uuid::now_v7().to_string(),
+            json!({"user_id": other, "kind": "mention"}),
+            now - chrono::Duration::seconds(480) + chrono::Duration::seconds(i),
+        )
+        .await;
+    }
+    let mut tx = state.pool.begin().await.expect("replay tx");
+    core_db::set_org_and_user(&mut tx, org.org_id, org.user_id)
+        .await
+        .expect("org-bound tx");
+    let (frames, past) = core_api::realtime::replay_after(
+        &mut tx,
+        org.org_id,
+        org.user_id,
+        None,
+        &cursor.to_string(),
+    )
+    .await;
+    let _ = tx.rollback().await;
+
+    let replayed = frames
+        .iter()
+        .any(|f| f.entity_id.as_deref() == Some(addressed_id.as_str()));
+    assert!(
+        replayed || past,
+        "the addressed frame must replay or be reported as past_buffer, \
+         never dropped with past_buffer = false"
+    );
+    assert!(
+        past,
+        "61 raw rows cannot be proven complete inside a 32-row budget"
     );
 }

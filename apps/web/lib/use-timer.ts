@@ -66,13 +66,21 @@ export function useTimer() {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
 
-  // Live leg: any timer.* event on the org-wide SSE stream reconciles the
-  // set. The stream owns reconnection and gap replay.
+  // Live leg: the stream delivers this caller's own timer.* frames (the server
+  // filters a per-user frame to its recipient), and the check against
+  // `me.user_id` is the assertion that the contract held. Each one reconciles
+  // the working set by refetch: the frame is identity-only — it says which
+  // session moved, not what the session now holds — so a refetch is the only
+  // honest update, and the server stays the single source of truth (§4.4).
+  // The stream owns reconnection and gap replay.
   const runtime = instantRuntime();
   useEffect(() => {
     if (auth.status !== "authed" || !auth.me) return;
+    const meId = auth.me.user_id;
     const offEvents = runtime.bus.subscribe((event) => {
-      if (event.type.startsWith("timer.")) void refresh();
+      if (!event.type.startsWith("timer.")) return;
+      if (event.recipient_user_id !== meId) return;
+      void refresh();
     });
     const offScope = runtime.stream.subscribeOrg();
     return () => {

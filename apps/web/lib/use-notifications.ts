@@ -12,7 +12,7 @@
 
 import { api, useAuth } from "./api";
 import { instantRuntime } from "./instant/runtime";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface NotificationItem {
   id: string;
@@ -49,6 +49,11 @@ export function kindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? kind;
 }
 
+/** How many created-notification ids the live leg remembers to ignore a
+ * re-delivered frame. Frames are at-least-once; the window only has to cover
+ * a reconnect replay, not a session. */
+const SEEN_CREATED_LIMIT = 200;
+
 export function useNotifications() {
   const auth = useAuth();
   const [unread, setUnread] = useState(0);
@@ -80,20 +85,43 @@ export function useNotifications() {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
 
-  // Live leg: the org-wide SSE stream carries every notification in the
-  // org, and a frame holds only the event type, never the recipient. So the
-  // badge is not bumped optimistically here — another member's notification
-  // would raise this one's count. Both event types trigger a REST refresh,
-  // which answers with the caller's own unread count. The stream owns
-  // reconnection and replays the bounded gap, so reopening it self-heals
-  // missed events through that same refresh.
+  // Live leg: the SSE stream delivers this caller's own notification frames,
+  // because the server filters a per-user frame to its recipient. The check
+  // against `me.user_id` is the assertion that the contract held — never the
+  // routing itself.
+  //
+  // `notification.created` bumps the badge optimistically: the frame reached
+  // this connection, so the row is this user's. `notification.read` does not,
+  // because it is the caller marking something read and raising the count
+  // there would show an unread badge after a read. Both then refetch, and the
+  // refetch stays authoritative: it runs after the row committed, so it
+  // settles on the same number the bump predicted. A re-delivered frame for a
+  // notification already counted is ignored by its `entity_id`, and the seen
+  // set is bounded so a long-lived tab does not hoard ids.
   const runtime = instantRuntime();
+  const seenCreated = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (auth.status !== "authed" || !auth.me) return;
+    const meId = auth.me.user_id;
     const offEvents = runtime.bus.subscribe((event) => {
-      if (event.type === "notification.created" || event.type === "notification.read") {
+      const created = event.type === "notification.created";
+      if (!created && event.type !== "notification.read") return;
+      if (event.recipient_user_id !== meId) return;
+      if (!created) {
         void refresh();
+        return;
       }
+      const id = event.entity_id;
+      if (id !== null) {
+        if (seenCreated.current.has(id)) return;
+        seenCreated.current.add(id);
+        if (seenCreated.current.size > SEEN_CREATED_LIMIT) {
+          const oldest = seenCreated.current.values().next().value;
+          if (oldest !== undefined) seenCreated.current.delete(oldest);
+        }
+      }
+      setUnread((n) => n + 1);
+      void refresh();
     });
     const offStatus = runtime.stream.onStatus((status) => {
       if (status === "open") void refresh();

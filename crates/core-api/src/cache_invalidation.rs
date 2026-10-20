@@ -102,6 +102,7 @@ mod tests {
             entity_id: entity_id.map(|s| s.to_string()),
             seq: Some(1),
             at: Utc::now(),
+            recipient_user_id: None,
             viewers: None,
             id: Some(Uuid::new_v4()),
         }

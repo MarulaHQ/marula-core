@@ -45,15 +45,22 @@ interface SyncContextValue {
 const SyncContext = createContext<SyncContextValue>({ engine: null, revision: 0 });
 
 export function SyncProvider({ children }: { children: ReactNode }) {
-  const { client, status, ensureToken, accessToken } = useAuth();
+  const { client, status, ensureToken, accessToken, me } = useAuth();
   const { online } = useConnectivity();
   const [engine, setEngine] = useState<SyncEngine | null>(null);
   const engineRef = useRef<SyncEngine | null>(null);
   const onlineRef = useRef(online);
+  // Read at engine construction, never a dependency: a profile edit must not
+  // rebuild the engine (and drop the queue with it).
+  const meRef = useRef(me);
 
   useEffect(() => {
     onlineRef.current = online;
   }, [online]);
+
+  useEffect(() => {
+    meRef.current = me;
+  }, [me]);
 
   // The engine is an external system bound to the auth lifecycle; creating it
   // and publishing it to context is exactly an effect-owned side effect.
@@ -83,6 +90,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         factory: (url) => createSseSource(url),
       },
       isOnline: () => onlineRef.current,
+      userId: () => meRef.current?.user_id ?? null,
       ensureToken,
       uuid: () => Crypto.randomUUID(),
     });

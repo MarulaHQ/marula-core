@@ -131,7 +131,10 @@ MCP server.
 Live delivery is one leg: the SSE stream at `GET /api/events/stream`, served by
 `crates/core-api`. `crates/core-api/src/realtime.rs` listens to the Postgres
 `marula_events` NOTIFY channel and fans contract-event frames out to org-scoped
-subscribers; presence is in-process memory with a TTL, relayed between replicas on
+subscribers. The per-user families (`notification.*`, `notification_prefs.*`,
+`timer.*`) carry a `recipient_user_id` and reach only their addressee. That holds
+for live delivery and for resume replay. Every other family stays org-wide.
+Presence is in-process memory with a TTL, relayed between replicas on
 the `marula_presence` NOTIFY channel and emitted as `type: "presence"` frames on
 the same stream. `crates/core-api/src/routes/events.rs` serves the stream, and
 `routes/presence.rs` serves the roster read and the heartbeat write. There is no

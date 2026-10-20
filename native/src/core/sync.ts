@@ -75,6 +75,10 @@ export interface SyncEngineDeps {
     factory: EventSourceFactory;
   };
   isOnline: () => boolean;
+  /** The signed-in user, whose `user:<id>` channel carries the per-user
+   * families (notifications, timers). Absent in harnesses that never receive
+   * those frames. */
+  userId?: () => string | null;
   /** Refresh the access token before a wire call (single-flight upstream). */
   ensureToken?: () => Promise<void>;
   uuid: UuidFn;
@@ -170,6 +174,10 @@ export class SyncEngine {
       this.orgChannel = `org:${orgId}`;
       this.realtime.subscribe(this.orgChannel);
     });
+    // The stream pages per-user families on `user:<id>`; without this the
+    // caller's own notification and timer frames reach no listener.
+    const userId = this.deps.userId?.() ?? null;
+    if (userId !== null && userId !== "") this.realtime.subscribe(`user:${userId}`);
     this.realtime.onStatus((status) => this.handleRealtimeStatus(status));
     void this.realtime.connect();
   }
