@@ -48,6 +48,35 @@ WHAT IT IS NOT
   makes the next `check` catch it (see `stale-stamp`), and it is recorded as an
   open shape in `design/qa-p47-lane-env-hygiene/REVIEW.md`.
 
+BUILD TOOLS ARE RECORDED, NOT JUDGED (Wave 52 P13)
+--------------------------------------------------
+The build gained two optional levers in P13: a machine-local overlay
+(`.cargo/p13-fast.local.toml`, included by `.cargo/config.toml` with
+`optional = true`) that can name a faster linker, and sccache as rustc's
+wrapper.  Neither belongs in `env_identity()`, and neither changes a verdict:
+
+* A missing linker on one lane and lld on another does not make either lane's
+  artifacts STALE.  Cache freshness is cargo's fingerprint plus this stamp; a
+  linker choice decides how a final binary is assembled, not whether an rlib
+  matches the sources it will be linked with.
+* sccache is content-addressed on the compilation inputs, so a hit is an
+  artifact for byte-identical inputs, and cargo writes its fingerprints as if
+  it had compiled.  Making the wrapper part of the identity would turn every
+  `cargo binstall sccache` into a `foreign-env` report for the whole workspace,
+  which is friction with nothing behind it.
+
+What the guard does instead is `mark()` them into the stamp (`build_tools`:
+overlay presence, linker, wrapper, and any remote-cache variable exported in the
+shell) and print them in `status`.  When a link or a compile looks wrong, the
+first question is which of these built it, and the stamp answers it per profile.
+
+A REMOTE sccache is the one configuration the guard cannot vouch for, so nothing
+in this repo writes one: `SCCACHE_REDIS`, `SCCACHE_BUCKET`, `SCCACHE_S3_BUCKET`,
+`SCCACHE_GCS_BUCKET`, `SCCACHE_AZURE_CONNECTION_STRING` and
+`SCCACHE_WEBDAV_ENDPOINT` are reported by `status` when a shell exports them,
+never configured.  If a remote cache is ever wanted, the lane that adds it owes
+this guard a fingerprint over the cache's key inputs first.
+
 THE RELEASE TRAP (do not regress this)
 --------------------------------------
 `cargo clean -p core-domain -p core-events` WITHOUT `--release` removes ~120MiB
@@ -335,6 +364,53 @@ def env_identity() -> dict[str, str]:
 def env_digest(ident: dict[str, str]) -> str:
     blob = json.dumps(ident, sort_keys=True).encode()
     return "sha256:" + hashlib.sha256(blob).hexdigest()[:32]
+
+
+# The machine-local overlay P13 introduced.  Machine-local by design (the
+# committed config includes it optionally), so a peer lane's copy is not this
+# lane's copy: recorded in the stamp, never folded into a verdict.  See "BUILD
+# TOOLS ARE RECORDED, NOT JUDGED" in the module docstring.
+OVERLAY_REL = Path(".cargo") / "p13-fast.local.toml"
+REMOTE_SCCACHE_VARS = (
+    "SCCACHE_REDIS",
+    "SCCACHE_BUCKET",
+    "SCCACHE_S3_BUCKET",
+    "SCCACHE_GCS_BUCKET",
+    "SCCACHE_AZURE_CONNECTION_STRING",
+    "SCCACHE_WEBDAV_ENDPOINT",
+)
+
+
+def build_tools(repo: Path) -> dict:
+    """Which optional build levers this tree would use, for the stamp only.
+
+    Reads the overlay the lane actually has plus the wrapper/cache variables in
+    the calling shell.  Absent overlay, absent wrapper, no remote: the
+    documented stock configuration.
+    """
+    overlay = repo / OVERLAY_REL
+    text = ""
+    try:
+        if overlay.is_file():
+            text = overlay.read_text()
+    except OSError:
+        text = ""
+    linker = None
+    m = re.search(r"-fuse-ld=([^\s\"']+)", text)
+    if m:
+        linker = m.group(1)
+    wrapper = None
+    m = re.search(r'(?m)^\s*rustc-wrapper\s*=\s*"([^"]+)"', text)
+    if m:
+        wrapper = m.group(1)
+    if not wrapper:
+        wrapper = os.environ.get("RUSTC_WRAPPER") or os.environ.get("CARGO_BUILD_RUSTC_WRAPPER") or None
+    return {
+        "overlay": str(OVERLAY_REL) if overlay.is_file() else None,
+        "linker": linker,
+        "rustc_wrapper": wrapper,
+        "remote_cache_vars": [v for v in REMOTE_SCCACHE_VARS if os.environ.get(v)],
+    }
 
 
 def worktree_id(repo: Path) -> str:
@@ -724,6 +800,7 @@ def mark(repo: Path, target: Path, profile: str, note: str) -> int:
         "env_identity": env_digest(env_identity()),
         "members": len(members),
         "note": note,
+        "build_tools": build_tools(repo),
     }
     try:
         save_stamp(target, stamp)
@@ -856,6 +933,17 @@ def cmd_status(args: argparse.Namespace) -> int:
     if unresolved:
         print(f"  WARN        no [package] name readable for: {', '.join(unresolved)}")
     print(f"  stamp       {stamp_path(target)}")
+    tools = build_tools(repo)
+    print(
+        "  build tools linker={} wrapper={} overlay={}{}".format(
+            tools["linker"] or "stock",
+            tools["rustc_wrapper"] or "none",
+            tools["overlay"] or "absent",
+            ("  REMOTE CACHE: " + ", ".join(tools["remote_cache_vars"]))
+            if tools["remote_cache_vars"]
+            else "",
+        )
+    )
     for profile, entry in sorted((stamp.get("profiles") or {}).items()):
         state = profile_build_state(target, profile)
         now = "a build holds it — a reset would refuse" if state != "free" else "free"
@@ -999,6 +1087,49 @@ def self_test() -> int:
 
         # profile independence: a release-only stamp must not vouch for debug
         expect("debug separate from release", verdict(root, target, "debug")["status"], "empty")
+
+        # ---- (E) P13 build tools: recorded in the stamp, never judged -----
+        # An overlay naming a linker and a wrapper is what a fast machine has.
+        # It must reach the stamp and must NOT perturb the verdict: a lane with
+        # lld and a lane without still share artifacts.
+        (root / ".cargo/p13-fast.local.toml").write_text(
+            '[build]\nrustc-wrapper = "sccache"\n\n'
+            "[target.'cfg(target_os = \"macos\")']\n"
+            'rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/lld/bin/ld64.lld"]\n'
+        )
+        tools = build_tools(root)
+        expect("overlay recorded", tools["overlay"], ".cargo/p13-fast.local.toml")
+        expect("linker recorded", tools["linker"], "/opt/homebrew/opt/lld/bin/ld64.lld")
+        expect("wrapper recorded", tools["rustc_wrapper"], "sccache")
+        expect("no remote cache by default", tools["remote_cache_vars"], [])
+        os.environ["SCCACHE_REDIS"] = "redis://example:6379"
+        expect(
+            "an exported remote cache is reported",
+            build_tools(root)["remote_cache_vars"],
+            ["SCCACHE_REDIS"],
+        )
+        del os.environ["SCCACHE_REDIS"]
+        mark(root, target, "release", "self-test tools")
+        entry = load_stamp(target)["profiles"]["release"]
+        expect(
+            "the stamp carries the tools",
+            (entry.get("build_tools") or {}).get("linker"),
+            "/opt/homebrew/opt/lld/bin/ld64.lld",
+        )
+        # The verdict with the tools must equal the verdict without them: that
+        # is the whole "recorded, never judged" claim.
+        with_tools = verdict(root, target, "release")["status"]
+        (root / ".cargo/p13-fast.local.toml").unlink()
+        mark(root, target, "release", "self-test stock")
+        without_tools = verdict(root, target, "release")["status"]
+        expect("tools do not change the verdict", with_tools, without_tools)
+        # And the overlay is not part of the source fingerprint, so a peer with
+        # the same sources and a different overlay is safe-shared, not foreign.
+        expect(
+            "the overlay is not source",
+            "p13-fast" in source_fingerprint(root, workspace_members(root)),
+            False,
+        )
 
         # The reset commands carry the whole repair, so assert their shape.
         # Two invariants matter:

@@ -9,6 +9,38 @@
 # --profile release --fix` before a release build (scripts/e2e-stack.sh already
 # does), `mark` after. Evidence and the release-profile trap:
 # design/qa-p47-lane-env-hygiene/REVIEW.md.
+
+# ---------------------------------------------------------------------------
+# Build throughput (Wave 52 lane P13). Evidence: design/qa-p52-build-throughput/.
+#
+# This file keeps only settings that cannot be missing, and adds one key. A TOML
+# config has no `if`, so an unconditional `linker` or `rustc-wrapper` would turn
+# a tool a fresh machine does not have into a build that cannot start. Instead
+# `include` loads an overlay written by `scripts/p13-build-env.sh` from what THIS
+# host actually has, and `optional = true` means no overlay is not an error: with
+# the file absent, cargo reads this file alone and behaves exactly as it did
+# before.
+#
+#   scripts/p13-build-env.sh info      what this machine can accelerate with
+#   scripts/p13-build-env.sh enable    write the overlay for the tools present
+#   scripts/p13-build-env.sh disable   delete it; stock behaviour, byte for byte
+#
+# The overlay carries, only when the tool is present:
+#   * ld64.lld (macOS) / lld / mold (Linux) as the linker, through
+#     `target.'cfg(...)'.rustflags` — link time;
+#   * sccache as `build.rustc-wrapper` — recompile time, including after a
+#     branch switch, which is the case `incremental = false` below gives up.
+# sccache is local disk, beside the shared target dir, and nothing here points
+# it at a remote. See the guard's docstring for why that matters.
+#
+# Cargo before 1.94 does not know the key and ignores it (the same silent
+# "unused config key" path this file already records for `cargo-incremental`
+# below), so an old toolchain builds and only loses the speedup. The overlay
+# content is derived from the host alone, so every worktree on one machine
+# writes byte-identical fingerprints and no lane invalidates another's
+# artifacts in the shared target dir.
+include = [{ path = ".cargo/p13-fast.local.toml", optional = true }]
+
 [build]
 target-dir = "/Users/iordn/Documents/GitHub/Marula/marula-core/.kilo/target-shared"
 
@@ -20,6 +52,11 @@ target-dir = "/Users/iordn/Documents/GitHub/Marula/marula-core/.kilo/target-shar
 # 2026-09-24 fix: `cargo-incremental` was not a real cargo key (silently
 # ignored, so incremental stayed ON and the caches kept regrowing). The
 # correct `build.incremental` key is used below.
+#
+# Kept off by P13. The disk argument has not changed, and the case incremental
+# was carrying — the second build after a small edit — is what sccache covers
+# without leaving 12GB of session state behind. A developer on a private
+# target dir can still opt in with CARGO_INCREMENTAL=1 for one command.
 incremental = false
 
 [env]
@@ -27,4 +64,3 @@ incremental = false
 # inside `marula-desktop`'s build script never fails when full Xcode.app has a
 # pending license prompt (`xcrun --sdk macosx --show-sdk-path` exit 69).
 DEVELOPER_DIR = { value = "/Library/Developer/CommandLineTools", force = false }
-
