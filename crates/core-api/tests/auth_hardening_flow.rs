@@ -204,6 +204,147 @@ async fn pathological_refresh_throttle_is_a_typed_429() {
 }
 
 // ---------------------------------------------------------------------------
+// (2b) a success pays the refresh curve back down
+// ---------------------------------------------------------------------------
+
+/// The refresh curve reacts to a RUN of failures; it is not a permanent
+/// penalty for one. A rotation that succeeds clears this caller's refresh
+/// counters, so the ladder restarts at its first rung.
+///
+/// This is the invariant behind the red sweeps A16 left to this lane (Wave
+/// 47 lane A26). The refresh key is per-IP and the app never called
+/// `record_success` on it, so one revoked-cookie refresh after a logout
+/// armed 30s and nothing could pay it back down: every later failure
+/// doubled it (60, 120, 240, 480 …) and everyone behind that egress — a
+/// whole E2E run included — inherited the growing window as "the app
+/// cannot rotate, so it bounces to /login".
+#[tokio::test]
+async fn a_successful_rotation_clears_the_refresh_gate() {
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
+    let app = core_api::router(test_state(&admin_url).await);
+    // Under `oneshot` there is no connect info, so every case in this file
+    // resolves to the same per-IP key. Start from a clean curve on this
+    // surface instead of inheriting a neighbour's (see the reuse test's
+    // "fresh caller ip" note for the same hazard).
+    let pool: PgPool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&admin_url)
+        .await
+        .expect("pool");
+    sqlx::query("DELETE FROM auth_lockouts WHERE kind = 'refresh'")
+        .execute(&pool)
+        .await
+        .expect("clear the refresh curve");
+
+    let slug = format!("rotate-clear-{}", Uuid::now_v7().simple());
+    let seeded = register_org(&app, &slug).await;
+    let refresh = seeded["refresh_token"].as_str().unwrap().to_string();
+    let session = Uuid::parse_str(seeded["session_id"].as_str().unwrap()).unwrap();
+    let bad = |secret: String| {
+        Some(json!({ "refresh_token": secret, "session_id": session.to_string() }))
+    };
+
+    // Rung 1: one bad secret arms the first window, and the next caller
+    // inside it gets the typed 429 (proof the curve is engaged at all).
+    let armed = send(
+        &app,
+        Method::POST,
+        "/api/auth/refresh",
+        None,
+        &[],
+        bad("0".repeat(64)),
+    )
+    .await;
+    assert_eq!(armed.status(), axum::http::StatusCode::UNAUTHORIZED);
+    let throttled = send(
+        &app,
+        Method::POST,
+        "/api/auth/refresh",
+        None,
+        &[],
+        bad("1".repeat(64)),
+    )
+    .await;
+    assert_eq!(
+        throttled.status(),
+        axum::http::StatusCode::TOO_MANY_REQUESTS
+    );
+    let first_rung = body_json(throttled).await["error"]["retry_after_secs"]
+        .as_i64()
+        .expect("retry_after_secs");
+    assert!(first_rung <= 30, "first rung is 30s, got {first_rung}s");
+
+    // The window is time-driven (`locked_until` in the past unlocks), so
+    // move the clock instead of sleeping 30s.
+    sqlx::query(
+        "UPDATE auth_lockouts SET locked_until = now() - interval '1 second'
+          WHERE kind = 'refresh'",
+    )
+    .execute(&pool)
+    .await
+    .expect("expire the window");
+
+    // A real rotation gets through …
+    let rotated = send(
+        &app,
+        Method::POST,
+        "/api/auth/refresh",
+        None,
+        &[],
+        bad(refresh),
+    )
+    .await;
+    assert_eq!(rotated.status(), axum::http::StatusCode::OK);
+
+    // … and clears the curve outright, rather than leaving the failure
+    // count standing for the next failure to double.
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM auth_lockouts WHERE kind = 'refresh'")
+        .fetch_one(&pool)
+        .await
+        .expect("read the curve");
+    assert_eq!(rows, 0, "a successful rotation must clear the refresh gate");
+
+    // Consequence check: the next failure costs rung 1 again.
+    let rearmed = send(
+        &app,
+        Method::POST,
+        "/api/auth/refresh",
+        None,
+        &[],
+        bad("2".repeat(64)),
+    )
+    .await;
+    assert_eq!(rearmed.status(), axum::http::StatusCode::UNAUTHORIZED);
+    let next = send(
+        &app,
+        Method::POST,
+        "/api/auth/refresh",
+        None,
+        &[],
+        bad("3".repeat(64)),
+    )
+    .await;
+    assert_eq!(next.status(), axum::http::StatusCode::TOO_MANY_REQUESTS);
+    let secs = body_json(next).await["error"]["retry_after_secs"]
+        .as_i64()
+        .expect("retry_after_secs");
+    assert!(
+        secs <= 30,
+        "the ladder restarts at its first rung after a success, got {secs}s"
+    );
+
+    // Leave the bucket as this test found it: it drove the gate through two
+    // full arms, and a later case that omits `x-forwarded-for` shares the
+    // same key.
+    sqlx::query("DELETE FROM auth_lockouts WHERE kind = 'refresh'")
+        .execute(&pool)
+        .await
+        .expect("clean up the refresh curve");
+}
+
+// ---------------------------------------------------------------------------
 // (3) refresh reuse after rotation
 // ---------------------------------------------------------------------------
 
