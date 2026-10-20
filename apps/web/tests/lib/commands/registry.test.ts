@@ -149,6 +149,15 @@ describe("dispatch resolution", () => {
     expect(commandForChord("alt+n", "/reports")).toBeNull();
   });
 
+  it("does not advertise a list-page command on a record subroute (Wave 47 lane A25)", () => {
+    // "/clients" is the list page. The detail page renders no create control,
+    // so prefix matching used to offer Alt+N where it could only fail.
+    expect(commandForChord("alt+n", "/clients/abc")).toBeNull();
+    expect(commandsForSurface("/clients/abc").some((c) => c.id === "new.clients")).toBe(false);
+    // A declared [id] surface still covers a real record path.
+    expect(commandForChord("alt+c", "/clients/abc")?.id).toBe("copy-link.record");
+  });
+
   it("copy-link rides record detail surfaces only", () => {
     expect(commandForChord("alt+c", "/tickets/30000000-0000-4000-8000-000000000001")?.id).toBe(
       "copy-link.record",
