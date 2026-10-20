@@ -4,7 +4,9 @@
 //! stream via a durable consumer group, matches each envelope against the
 //! org's enabled webhook subscriptions, and enqueues one durable
 //! `webhook.deliver` job per (webhook, event) — ACKing only after the job
-//! is durably queued (at-least-once, retries belong to the queue). The
+//! is durably queued (at-least-once, retries belong to the queue). A restart
+//! recovers the entries that were delivered and never acked (the group's
+//! pending list), never the stream's history. The
 //! DELIVERY half performs one signed HTTP POST per claimed job
 //! (`t=<ts>,v1=<hex>` HMAC-SHA256 over `"{ts}.{body}"`), records every
 //! attempt through core-api's internal surface (§4.1: only core-api
@@ -23,7 +25,7 @@ use crate::effects::{EffectApi, EffectOutcome};
 use core_db::webhooks::NewDeliveryAttempt;
 use core_domain::webhooks::{backoff_secs, signature_value, MAX_DELIVERY_ATTEMPTS};
 use core_events::{Envelope, EVENT_STREAM};
-use redis::streams::{StreamReadOptions, StreamReadReply};
+use redis::streams::{StreamId, StreamReadOptions, StreamReadReply};
 use redis::AsyncCommands;
 use serde_json::Value;
 use sqlx::PgPool;
@@ -32,9 +34,16 @@ use tokio::sync::watch;
 /// Durable group; `$` starts at the live tail on first creation so a new
 /// deployment never replays history from before it existed.
 const CONSUMER_GROUP: &str = "webhooks-out";
+/// Shared by every replica, so the group has one pending list (PEL) rather
+/// than one per process. [`replay_pending`] says what that means for a drain.
 const CONSUMER_NAME: &str = "worker";
 const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 50;
+/// Pages one pending drain will read before it hands control back to the
+/// reconnect loop. A crash leaves at most the batch that was in flight — far
+/// below this — so the cap only bites when a peer replica keeps adding to the
+/// shared PEL while this one drains it.
+const MAX_DRAIN_PAGES: usize = 20;
 
 /// Job kind dispatched by the queue runner to [`process_delivery_job`].
 pub const JOB_KIND: &str = "webhook.deliver";
@@ -128,6 +137,93 @@ impl DeliverySink for ReqwestSink {
 
 // --- stream consumer ---------------------------------------------------------
 
+/// The stream operations this consumer needs, behind a trait so the replay
+/// path can be exercised without a Redis server in unit tests. Production is
+/// [`RedisEventStream`].
+///
+/// The trait deliberately has no "read the stream from an id" operation. The
+/// only reads are [`pending`](EventStream::pending), the consumer's own PEL,
+/// and [`live`](EventStream::live), `">"`. A group-less read from `"0"` is the
+/// bug this seam exists to make unrepresentable.
+pub trait EventStream: Send {
+    /// Entries already delivered to this consumer and not yet acked —
+    /// `XREADGROUP` with id `"0"`. Never reads entries this group has not
+    /// delivered.
+    fn pending(
+        &mut self,
+        count: usize,
+    ) -> impl std::future::Future<Output = Result<Vec<StreamId>, String>> + Send;
+
+    /// Entries never delivered to this group — `XREADGROUP` with id `">"`,
+    /// blocking up to `block_ms`.
+    fn live(
+        &mut self,
+        count: usize,
+        block_ms: usize,
+    ) -> impl std::future::Future<Output = Result<Vec<StreamId>, String>> + Send;
+
+    /// Removes one entry from the PEL. True when the ack was accepted, which
+    /// is the only progress signal [`replay_pending`] trusts.
+    fn ack(&mut self, id: &str) -> impl std::future::Future<Output = bool> + Send;
+}
+
+/// Production stream: one multiplexed connection against the durable group.
+pub struct RedisEventStream {
+    conn: redis::aio::MultiplexedConnection,
+}
+
+impl RedisEventStream {
+    async fn from_client(client: &redis::Client) -> Result<Self, redis::RedisError> {
+        Ok(Self {
+            conn: client.get_multiplexed_async_connection().await?,
+        })
+    }
+
+    /// Creates the group at `$` on first use. `BUSYGROUP` is not a failure:
+    /// the group outlives every process, which is the point of it.
+    async fn ensure_group(&mut self) -> Result<(), redis::RedisError> {
+        self.conn
+            .xgroup_create_mkstream::<&str, &str, &str, ()>(EVENT_STREAM, CONSUMER_GROUP, "$")
+            .await
+    }
+}
+
+impl EventStream for RedisEventStream {
+    async fn pending(&mut self, count: usize) -> Result<Vec<StreamId>, String> {
+        let options = StreamReadOptions::default()
+            .count(count)
+            .group(CONSUMER_GROUP, CONSUMER_NAME);
+        let reply: StreamReadReply = self
+            .conn
+            .xread_options(&[EVENT_STREAM], &["0"], &options)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(entries(reply))
+    }
+
+    async fn live(&mut self, count: usize, block_ms: usize) -> Result<Vec<StreamId>, String> {
+        let options = StreamReadOptions::default()
+            .block(block_ms)
+            .count(count)
+            .group(CONSUMER_GROUP, CONSUMER_NAME);
+        let reply: StreamReadReply = self
+            .conn
+            .xread_options(&[EVENT_STREAM], &[">"], &options)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(entries(reply))
+    }
+
+    async fn ack(&mut self, id: &str) -> bool {
+        let result: Result<i64, _> = self.conn.xack(EVENT_STREAM, CONSUMER_GROUP, &[id]).await;
+        result.is_ok()
+    }
+}
+
+fn entries(reply: StreamReadReply) -> Vec<StreamId> {
+    reply.keys.into_iter().flat_map(|key| key.ids).collect()
+}
+
 /// Runs the webhooks-out consumer until shutdown. Redis errors reconnect
 /// with backoff; malformed entries are logged, ACKed and skipped.
 pub async fn run_webhook_out(pool: PgPool, redis_url: String, mut shutdown: watch::Receiver<bool>) {
@@ -143,17 +239,10 @@ pub async fn run_webhook_out(pool: PgPool, redis_url: String, mut shutdown: watc
         if *shutdown.borrow() {
             return;
         }
-        match client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
+        match RedisEventStream::from_client(&client).await {
+            Ok(mut stream) => {
                 backoff_ms = 100;
-                if let Err(error) = conn
-                    .xgroup_create_mkstream::<&str, &str, &str, ()>(
-                        EVENT_STREAM,
-                        CONSUMER_GROUP,
-                        "$",
-                    )
-                    .await
-                {
+                if let Err(error) = stream.ensure_group().await {
                     let msg = error.to_string();
                     if !msg.contains("BUSYGROUP") {
                         tracing::error!(%error, "xgroup create failed");
@@ -162,7 +251,7 @@ pub async fn run_webhook_out(pool: PgPool, redis_url: String, mut shutdown: watc
                         continue;
                     }
                 }
-                follow_stream(&pool, &mut conn, &mut shutdown).await;
+                follow_stream(&pool, &mut stream, &mut shutdown).await;
                 tracing::warn!("webhooks-out stream connection ended; reconnecting");
             }
             Err(error) => {
@@ -174,62 +263,116 @@ pub async fn run_webhook_out(pool: PgPool, redis_url: String, mut shutdown: watc
     }
 }
 
-/// Drains this consumer's pending entries first (crash recovery), then
-/// follows the live tail under the group.
-async fn follow_stream(
+/// Recovers this consumer's pending entries first, then follows the live tail
+/// under the group.
+async fn follow_stream<S: EventStream>(
     pool: &PgPool,
-    conn: &mut redis::aio::MultiplexedConnection,
+    stream: &mut S,
     shutdown: &mut watch::Receiver<bool>,
 ) {
-    let options = StreamReadOptions::default().count(COUNT);
-    if let Ok(reply) = conn
-        .xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &["0"], &options)
-        .await
-    {
-        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-            handle_entry(pool, conn, &entry).await;
-        }
+    if !replay_pending(pool, stream).await {
+        return;
     }
-    let options = StreamReadOptions::default()
-        .block(BLOCK_MS)
-        .count(COUNT)
-        .group(CONSUMER_GROUP, CONSUMER_NAME);
     loop {
         if *shutdown.borrow() {
             return;
         }
-        tokio::select! {
-            _ = shutdown.changed() => return,
-            result = conn.xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &[">"], &options) => {
-                match result {
-                    Ok(reply) => {
-                        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-                            handle_entry(pool, conn, &entry).await;
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "webhooks-out xreadgroup failed");
-                        return;
-                    }
+        // The read owns `stream` for its lifetime. Keep it in an inner block
+        // so the borrow ends before the batch is handled.
+        let result = {
+            let mut read = std::pin::pin!(stream.live(COUNT, BLOCK_MS));
+            tokio::select! {
+                _ = shutdown.changed() => return,
+                result = &mut read => result,
+            }
+        };
+        match result {
+            Ok(batch) => {
+                for entry in &batch {
+                    handle_entry(pool, stream, entry).await;
                 }
+            }
+            Err(error) => {
+                tracing::error!(%error, "webhooks-out xreadgroup failed");
+                return;
             }
         }
     }
 }
 
-async fn handle_entry(
-    pool: &PgPool,
-    conn: &mut redis::aio::MultiplexedConnection,
-    entry: &redis::streams::StreamId,
-) {
+/// Crash recovery: re-delivers entries this consumer took delivery of and
+/// never acked.
+///
+/// `XREADGROUP ... "0"` answers with the consumer's pending entries (the PEL),
+/// which is exactly the set a crash, a dropped connection or a failed DB write
+/// can leave behind. It does not return entries the group has not delivered,
+/// and it cannot return the stream's history — the group-less read from `"0"`
+/// that this replaces meant "every entry the stream still holds", so every
+/// restart re-enqueued a delivery for every resident event.
+///
+/// Every replica uses [`CONSUMER_NAME`], so they share one PEL rather than
+/// owning one each. A drain therefore sees entries a sibling is still working
+/// on, and can hand the same entry to two replicas at once; both enqueue a
+/// `webhook.deliver` job, and the jobs table has no uniqueness on
+/// `(webhook, event)`, so the receiver can see that event twice. What is
+/// idempotent is the ledger write after the POST: `webhook_deliveries` is
+/// unique on `(webhook_id, event_id, attempt)` and its insert is
+/// `ON CONFLICT DO NOTHING`. Giving each replica a unique consumer name and
+/// claiming with `XAUTOCLAIM` would remove the duplicate enqueue; that is a
+/// separate change and not this lane.
+///
+/// Returns false when no entry could leave the PEL, which tells
+/// [`follow_stream`] to return so [`run_webhook_out`] backs off instead of
+/// spinning against a database that is down.
+async fn replay_pending<S: EventStream>(pool: &PgPool, stream: &mut S) -> bool {
+    for _ in 0..MAX_DRAIN_PAGES {
+        let batch = match stream.pending(COUNT).await {
+            Ok(batch) => batch,
+            Err(error) => {
+                tracing::error!(%error, "webhooks-out pending read failed; reconnecting");
+                return false;
+            }
+        };
+        if batch.is_empty() {
+            return true;
+        }
+        let mut acked = 0_usize;
+        for entry in &batch {
+            if handle_entry(pool, stream, entry).await {
+                acked += 1;
+            }
+        }
+        if acked == 0 {
+            // Nothing left the PEL: Postgres is down, or every entry in the
+            // page fails the same way. Reading it again would spin.
+            tracing::error!(
+                pending = batch.len(),
+                "webhooks-out pending drain made no progress; backing off"
+            );
+            return false;
+        }
+    }
+    // The page cap only trips when a peer replica keeps feeding the shared
+    // PEL. Reconnect to continue from where this pass stopped.
+    tracing::warn!(
+        pages = MAX_DRAIN_PAGES,
+        "webhooks-out pending drain hit its page cap; reconnecting to continue"
+    );
+    false
+}
+
+/// Handles one stream entry. Returns true when the entry left the PEL, which
+/// is what [`replay_pending`] counts as progress.
+async fn handle_entry<S: EventStream>(pool: &PgPool, stream: &mut S, entry: &StreamId) -> bool {
     let Some(raw) = entry.get::<String>("data") else {
-        tracing::warn!(entry_id = %entry.id, "stream entry missing data field");
-        return;
+        // No `data` field can never become valid. Leaving it unacked would
+        // replay it on every reconnect, so skip it like an unparseable event.
+        tracing::warn!(entry_id = %entry.id, "stream entry missing data field; acking to skip");
+        return stream.ack(&entry.id).await;
     };
     let Ok(envelope) = serde_json::from_str::<Envelope>(&raw) else {
         tracing::warn!(entry_id = %entry.id, "unparseable event; acking to skip");
-        ack(conn, &entry.id).await;
-        return;
+        return stream.ack(&entry.id).await;
     };
     let subscriptions = match core_db::webhooks::find_enabled_for_event(
         pool,
@@ -243,7 +386,7 @@ async fn handle_entry(
             // NOT acking: the group redelivers after restart, so a DB
             // hiccup retries matching instead of dropping the event.
             tracing::error!(%error, entry_id = %entry.id, "webhook match failed; leaving unacked");
-            return;
+            return false;
         }
     };
     for sub in subscriptions {
@@ -265,16 +408,12 @@ async fn handle_entry(
             }
             Err(error) => {
                 tracing::error!(%error, entry_id = %entry.id, "enqueue failed; leaving unacked");
-                return;
+                return false;
             }
         }
     }
     // Durably queued (or nothing subscribed) — safe to settle.
-    ack(conn, &entry.id).await;
-}
-
-async fn ack(conn: &mut redis::aio::MultiplexedConnection, id: &str) {
-    let _: Result<i64, _> = conn.xack(EVENT_STREAM, CONSUMER_GROUP, &[id]).await;
+    stream.ack(&entry.id).await
 }
 
 // --- delivery processing -------------------------------------------------------
@@ -476,6 +615,125 @@ impl DeliveryPayload {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+
+    /// A stream stand-in that models a consumer group: `pending` returns the
+    /// scripted PEL pages in order, `live` returns its scripted pages and then
+    /// fails so the follow loop returns instead of blocking, and `ack` records
+    /// what it was asked to settle.
+    struct FakeStream {
+        pending_pages: VecDeque<Vec<StreamId>>,
+        live_pages: VecDeque<Vec<StreamId>>,
+        ack_succeeds: bool,
+        calls: Vec<String>,
+    }
+
+    impl FakeStream {
+        fn new(pending_pages: Vec<Vec<StreamId>>, live_pages: Vec<Vec<StreamId>>) -> Self {
+            Self {
+                pending_pages: pending_pages.into(),
+                live_pages: live_pages.into(),
+                ack_succeeds: true,
+                calls: Vec::new(),
+            }
+        }
+    }
+
+    impl EventStream for FakeStream {
+        async fn pending(&mut self, _count: usize) -> Result<Vec<StreamId>, String> {
+            self.calls.push("pending".to_string());
+            Ok(self.pending_pages.pop_front().unwrap_or_default())
+        }
+
+        async fn live(&mut self, _count: usize, _block_ms: usize) -> Result<Vec<StreamId>, String> {
+            self.calls.push("live".to_string());
+            self.live_pages
+                .pop_front()
+                .ok_or_else(|| "fake: connection closed".to_string())
+        }
+
+        async fn ack(&mut self, id: &str) -> bool {
+            self.calls.push(format!("ack:{id}"));
+            self.ack_succeeds
+        }
+    }
+
+    /// An entry whose payload does not parse: [`handle_entry`] acks it without
+    /// touching Postgres, which is what keeps these tests database-free.
+    fn unparseable(id: &str) -> StreamId {
+        let mut map = std::collections::HashMap::new();
+        map.insert(
+            "data".to_string(),
+            redis::Value::BulkString(b"not-json".to_vec()),
+        );
+        StreamId {
+            id: id.to_string(),
+            map,
+        }
+    }
+
+    /// Never connected: these tests must not open a socket.
+    fn lazy_pool() -> PgPool {
+        sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://lazy:lazy@127.0.0.1:1/lazy")
+            .expect("lazy pool")
+    }
+
+    #[tokio::test]
+    async fn the_pending_list_is_drained_in_pages_before_the_tail() {
+        let pool = lazy_pool();
+        let mut stream = FakeStream::new(
+            vec![
+                vec![unparseable("1-0"), unparseable("2-0")],
+                vec![unparseable("3-0")],
+            ],
+            Vec::new(),
+        );
+        let (_shutdown_tx, mut shutdown) = watch::channel(false);
+
+        follow_stream(&pool, &mut stream, &mut shutdown).await;
+
+        assert_eq!(
+            stream.calls,
+            vec![
+                "pending", "ack:1-0", "ack:2-0", "pending", "ack:3-0",
+                // A third read is what proves the drain stops on an empty
+                // page rather than on a page count.
+                "pending", "live",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_drain_that_cannot_ack_stops_before_the_tail() {
+        let pool = lazy_pool();
+        let mut stream = FakeStream::new(vec![vec![unparseable("1-0")]], Vec::new());
+        stream.ack_succeeds = false;
+        let (_shutdown_tx, mut shutdown) = watch::channel(false);
+
+        follow_stream(&pool, &mut stream, &mut shutdown).await;
+
+        // No second `pending` (that would be the spin) and no `live` read:
+        // the loop returned so the caller can back off.
+        assert_eq!(stream.calls, vec!["pending", "ack:1-0"]);
+    }
+
+    #[tokio::test]
+    async fn the_live_tail_under_the_group_is_acked_too() {
+        let pool = lazy_pool();
+        let mut stream = FakeStream::new(
+            vec![Vec::new()],
+            vec![vec![unparseable("9-0")], vec![unparseable("10-0")]],
+        );
+        let (_shutdown_tx, mut shutdown) = watch::channel(false);
+
+        follow_stream(&pool, &mut stream, &mut shutdown).await;
+
+        assert_eq!(
+            stream.calls,
+            vec!["pending", "live", "ack:9-0", "live", "ack:10-0", "live",]
+        );
+    }
 
     #[test]
     fn settle_rule_covers_the_matrix() {
