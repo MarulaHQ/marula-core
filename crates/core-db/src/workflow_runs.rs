@@ -335,6 +335,46 @@ pub async fn list_waiting_on_event(
     Ok(rows.iter().map(|r| run_from_row(r).0).collect())
 }
 
+/// The parked-run picture, process-wide: how many runs are waiting to be
+/// woken and how long the oldest has been waiting.
+///
+/// Cross-org on purpose — this feeds an operator gauge, not a tenant read, so
+/// the caller is the worker's owner pool (the same pool the sweeps use). RLS
+/// still applies to the connection it borrows, which is why the worker's
+/// queue loop is the caller rather than a request handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParkedStats {
+    /// Runs in `status = 'waiting'`.
+    pub parked: i64,
+    /// Seconds the oldest parked run has been waiting, or `None` when none
+    /// are parked. `updated_at` is set by [`park_run`], so this is the park
+    /// instant — a run parked four days ago reports four days, even if its
+    /// `created_at` is older.
+    pub oldest_age_secs: Option<i64>,
+}
+
+/// Reads [`ParkedStats`] in one aggregate pass.
+///
+/// Runtime query rather than `sqlx::query!`: new statement, no `.sqlx` entry,
+/// and the cache is re-prepared by a lane that can run `cargo sqlx prepare`.
+pub async fn parked_stats<'e, E>(executor: E) -> DbResult<ParkedStats>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row: (i64, Option<i64>) = sqlx::query_as(
+        r#"SELECT COUNT(*),
+                  EXTRACT(EPOCH FROM (now() - MIN(updated_at)))::bigint
+             FROM workflow_runs
+            WHERE status = 'waiting'"#,
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(ParkedStats {
+        parked: row.0,
+        oldest_age_secs: row.1,
+    })
+}
+
 /// The run's whole trace, in execution order. A run's steps are bounded by
 /// its graph and its fan-out caps, so the detail read takes them in one
 /// shot rather than paging a trace an operator is reading top to bottom.

@@ -21,11 +21,14 @@
 //! migration 0131 computes from recorded rows. Two facts a shared database
 //! cannot attribute per org are REPORTED AS UNAVAILABLE with the reason
 //! beside them rather than filled in with an estimate: API-call volume in
-//! the last 24h (no per-org request-counter surface exists — telemetry
-//! leaves through OTLP, never into a queryable table) and per-org database
-//! bytes (a shared table's pages belong to every org sharing them). The
-//! unavailable list is DATA, not an apology: a monitoring surface can
-//! render it, and a future lane can fill the gap honestly.
+//! the last 24h (requests ARE counted — as the OTLP metric
+//! `marula.org.requests`, emitted at the auth boundary by
+//! `crate::otel_http::record_org` — but a metric series cannot be read back
+//! into this endpoint's recorded-row answer, so it is named here rather than
+//! estimated) and per-org database bytes (a shared table's pages belong to
+//! every org sharing them). The unavailable list is DATA, not an apology: a
+//! monitoring surface can render it, and a future lane can fill the gap
+//! honestly.
 //!
 //! AUTHORIZATION (TASKLIST A6 (D)):
 //!   * A human member reads their OWN org. The org id in the path must be
@@ -262,9 +265,12 @@ fn unavailable_metrics() -> Vec<UnavailableMetric> {
     vec![
         UnavailableMetric {
             metric: "api_calls_last_24h".into(),
-            reason: "no per-org request-counter surface exists in the core: telemetry \
-                     leaves through OTLP metrics and is never written to a queryable \
-                     per-org table, so there is nothing to count"
+            reason: "this endpoint reports RECORDED rows, and per-org request volume \
+                     is not recorded in one: requests are counted as the OTLP metric \
+                     `marula.org.requests` (org_id × status class) at the auth \
+                     boundary, and metric series cannot be read back out of the \
+                     export pipeline into a query. Chart it from the metrics store \
+                     with increase(...[24h]); it is deliberately not estimated here"
                 .into(),
         },
         UnavailableMetric {

@@ -145,3 +145,60 @@ where
     .await?;
     Ok(rows.into_iter().map(event_from_row).collect())
 }
+
+/// Forward (oldest-first) listing for an external export consumer, keyed on
+/// `(occurred_at, id)` ASCENDING and resumable from an opaque cursor.
+///
+/// Why this is a separate statement rather than a flag on [`list_filtered`]:
+/// the two directions are different contracts. The admin listing walks
+/// BACKWARDS in time and a page is allowed to shift when new rows arrive; an
+/// exporter walks FORWARDS from a stored position and must never skip a row
+/// or repeat one it already delivered. Expressing both as one SQL string with
+/// a `$10 = 'asc'` branch makes the skip-safety property depend on a bind
+/// value, which is exactly the kind of thing a later edit gets wrong.
+///
+/// Skip-safety, stated plainly: `audit_events.occurred_at` is set at insert,
+/// so a concurrently inserted row is always `> cursor` and lands in a later
+/// page. Ties on `occurred_at` are broken by `id`, and the comparison is a
+/// row comparison (`(occurred_at, id) > ($7, $8)`), so a page boundary that
+/// lands mid-timestamp neither repeats nor drops the remaining rows of that
+/// timestamp.
+///
+/// `after` is `None` for the first call: the exporter starts at the oldest
+/// row this org has.
+pub async fn list_forward<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    filter: AuditFilter,
+    after: Option<(chrono::DateTime<chrono::Utc>, Uuid)>,
+    limit: i64,
+) -> DbResult<Vec<AuditEvent>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query(
+        r#"SELECT id, org_id, actor_kind, actor_id, action, entity_type, entity_id,
+                  detail, ip, occurred_at
+           FROM audit_events
+           WHERE org_id = $1
+             AND ($2::text IS NULL OR actor_id = $2 OR ($2 = 'system' AND actor_kind = 'system'))
+             AND ($3::text IS NULL OR action LIKE $3 || '%')
+             AND ($4::timestamptz IS NULL OR occurred_at >= $4)
+             AND ($5::timestamptz IS NULL OR occurred_at <= $5)
+             AND ($6::timestamptz IS NULL OR $7::uuid IS NULL OR
+                  (occurred_at, id) > ($6::timestamptz, $7::uuid))
+           ORDER BY occurred_at ASC, id ASC
+           LIMIT $8"#,
+    )
+    .bind(org_id)
+    .bind(filter.actor.as_deref())
+    .bind(filter.action.as_deref())
+    .bind(filter.from)
+    .bind(filter.to)
+    .bind(after.map(|a| a.0))
+    .bind(after.map(|a| a.1))
+    .bind(limit.clamp(1, 500))
+    .fetch_all(executor)
+    .await?;
+    Ok(rows.into_iter().map(event_from_row).collect())
+}

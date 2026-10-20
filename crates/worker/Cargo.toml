@@ -34,3 +34,4 @@ sha2 = { workspace = true }
 
 [dev-dependencies]
 chrono = { workspace = true }
+serial_test = "3"

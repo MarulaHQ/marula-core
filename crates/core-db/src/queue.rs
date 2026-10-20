@@ -293,3 +293,30 @@ where
         dead: row.dead.unwrap_or(0),
     })
 }
+
+/// Age in seconds of the OLDEST dead-lettered job, or `None` when nothing is
+/// dead.
+///
+/// `jobs.updated_at` is set by the same UPDATE that flips a row to `dead`
+/// (see [`mark_dead`]), so it is the moment the job was abandoned — not when it
+/// was enqueued. That is the number an operator cares about: "the oldest
+/// thing nobody is going to retry has been sitting there for four days".
+///
+/// Runtime query rather than `sqlx::query!` on purpose: this statement is new,
+/// it has no entry in the committed `.sqlx` cache, and re-preparing that cache
+/// belongs to a lane that can run `cargo sqlx prepare`. The gate that keeps it
+/// honest is the integration test in `tests/`, which runs it against a
+/// migrated database.
+pub async fn oldest_dead_age_secs<'e, E>(executor: E) -> DbResult<Option<i64>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let age: Option<i64> = sqlx::query_scalar(
+        r#"SELECT EXTRACT(EPOCH FROM (now() - MIN(updated_at)))::bigint
+             FROM jobs
+            WHERE status = 'dead'"#,
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(age)
+}

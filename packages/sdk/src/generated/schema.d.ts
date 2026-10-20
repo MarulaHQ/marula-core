@@ -836,8 +836,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/audit-events — append-only audit trail, newest first, filterable
-         *     by actor / action prefix / time range with opaque cursor pagination.
+         * GET /api/audit-events — append-only audit trail. Newest first by default;
+         *     `order=asc` + `after` turns it into a forward-only export tail.
          */
         get: operations["audit_list"];
         put?: never;
@@ -14174,7 +14174,10 @@ export interface components {
         };
         AuditPage: {
             events: components["schemas"]["AuditEvent"][];
-            /** @description Opaque cursor for the next page; absent when exhausted. */
+            /**
+             * @description Opaque cursor for the next page; absent when exhausted. In ascending
+             *     mode pass it back as `after` to resume the export exactly here.
+             */
             next_cursor?: string | null;
         };
         /** @description The registry provenance the draft was validated against. */
@@ -33057,8 +33060,23 @@ export interface operations {
             query?: {
                 /** @description Legacy cursor (kept for compatibility): strictly older than this. */
                 before?: string | null;
-                /** @description Keyset cursor from a previous page's `next_cursor`. */
+                /**
+                 * @description Keyset cursor from a previous page's `next_cursor`; strictly older
+                 *     than this position (newest-first mode).
+                 */
                 cursor?: string | null;
+                /**
+                 * @description EXPORT cursor: a previous page's `next_cursor` in ascending mode.
+                 *     Rows strictly AFTER this position, oldest first, so an external
+                 *     consumer can resume exactly where it stopped. Mutually exclusive with
+                 *     `cursor`.
+                 */
+                after?: string | null;
+                /**
+                 * @description `desc` (default) for a human list, `asc` for an export tail. `after`
+                 *     implies `asc`.
+                 */
+                order?: string | null;
                 /** @description Actor filter: user uuid or "system". */
                 actor?: string | null;
                 /** @description Action prefix filter, e.g. "auth" matches every auth.* event. */
@@ -33082,6 +33100,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AuditPage"];
                 };
+            };
+            /** @description cursor and after are mutually exclusive, order is not asc|desc, or a cursor does not decode */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
