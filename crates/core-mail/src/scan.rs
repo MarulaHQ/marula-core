@@ -86,18 +86,48 @@ impl ScanProvider for NoopScan {
 /// ClamAV clamd TCP adapter speaking the INSTREAM protocol: `zINSTREAM\0`
 /// then length-prefixed chunks terminated by a zero-length chunk; the
 /// reply is `stream: OK\0` or `stream: <signature> FOUND\0`.
+///
+/// A third reply exists and is not a verdict: a stream past the daemon's
+/// `StreamMaxLength` comes back as `INSTREAM size limit exceeded. ERROR`.
+/// It ends in neither `OK` nor `FOUND`, so it fails closed to
+/// [`ScanError::Unavailable`] and the gate refuses the upload. Those bytes
+/// are refused rather than scanned, which is the safe direction and is not
+/// the same thing as a clean scan. The live leg in
+/// `tests/clamd_live.rs` pins the daemon's actual words.
 #[derive(Debug, Clone)]
 pub struct ClamdScan {
     pub addr: String,
+    /// Whole-exchange deadline. See [`RESPONSE_TIMEOUT`]; [`Self::with_timeout`]
+    /// exists for tests and for a deployment whose scanner is remote.
+    timeout: std::time::Duration,
 }
 
 const CHUNK_SIZE: usize = 4096;
+
+/// One deadline for the WHOLE exchange: connect, every chunk write, and the
+/// reply read share it.
+///
+/// Bounding only the ends is not a bound. The writes were outside it, so a
+/// clamd that accepted the connection and stopped reading filled the socket
+/// buffer, `write_all` never returned, and the upload task parked until the
+/// client gave up. `crates/core-api` has no request-level `TimeoutLayer` to
+/// catch that either, so the bound has to live here.
 const RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl ClamdScan {
     #[must_use]
     pub fn new(addr: impl Into<String>) -> Self {
-        Self { addr: addr.into() }
+        Self {
+            addr: addr.into(),
+            timeout: RESPONSE_TIMEOUT,
+        }
+    }
+
+    /// Same adapter, different whole-exchange deadline.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 }
 
@@ -112,11 +142,25 @@ impl ScanProvider for ClamdScan {
     }
 
     async fn scan_bytes(&self, bytes: &[u8]) -> Result<ScanVerdict, ScanError> {
-        let mut stream =
-            tokio::time::timeout(RESPONSE_TIMEOUT, tokio::net::TcpStream::connect(&self.addr))
-                .await
-                .map_err(|_| ScanError::Unavailable("connect timeout".into()))?
-                .map_err(|e| ScanError::Unavailable(format!("{}: {e}", self.addr)))?;
+        // ONE deadline over the whole exchange. See `RESPONSE_TIMEOUT`.
+        tokio::time::timeout(self.timeout, self.exchange(bytes))
+            .await
+            .unwrap_or_else(|_| {
+                Err(ScanError::Unavailable(format!(
+                    "no verdict within {:?}: connect, stream writes and reply share one deadline",
+                    self.timeout
+                )))
+            })
+    }
+}
+
+impl ClamdScan {
+    /// Connect, ship the INSTREAM frame, read the reply. Unbounded on its
+    /// own: [`ScanProvider::scan_bytes`] is the only caller and wraps it.
+    async fn exchange(&self, bytes: &[u8]) -> Result<ScanVerdict, ScanError> {
+        let mut stream = tokio::net::TcpStream::connect(&self.addr)
+            .await
+            .map_err(|e| ScanError::Unavailable(format!("{}: {e}", self.addr)))?;
 
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         stream
@@ -139,9 +183,9 @@ impl ScanProvider for ClamdScan {
             .map_err(|e| ScanError::Unavailable(format!("write: {e}")))?;
 
         let mut response = Vec::new();
-        tokio::time::timeout(RESPONSE_TIMEOUT, stream.read_to_end(&mut response))
+        stream
+            .read_to_end(&mut response)
             .await
-            .map_err(|_| ScanError::Unavailable("response timeout".into()))?
             .map_err(|e| ScanError::Unavailable(format!("read: {e}")))?;
         let text = String::from_utf8_lossy(&response);
         let text = text.trim_end_matches('\0').trim();
@@ -216,6 +260,144 @@ mod tests {
         let scanner = ClamdScan::new("127.0.0.1:1");
         let err = scanner.scan("x").await.expect_err("unavailable");
         assert!(matches!(err, ScanError::Unavailable(_)));
+    }
+
+    /// A daemon that accepts the connection and then stops reading must not
+    /// park the caller. The socket buffer fills, `write_all` blocks, and only
+    /// the deadline returns control. Before the whole exchange shared one
+    /// deadline, this test never finished: the connect and the final
+    /// `read_to_end` were bounded and the writes between them were not.
+    ///
+    /// The timeout is shortened so the test stays fast, and the payload is
+    /// larger than any socket buffer so the write genuinely blocks rather
+    /// than fitting in the kernel's send queue.
+    #[tokio::test]
+    async fn stalled_clamd_returns_by_the_deadline_instead_of_parking() {
+        use std::time::{Duration, Instant};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut header = [0u8; 10];
+            sock.read_exact(&mut header).await.unwrap();
+            // Read the first length prefix, then never read again and never
+            // reply: the connection stays open and the peer goes quiet,
+            // which is the shape of a clamd that has stopped draining.
+            let mut len = [0u8; 4];
+            sock.read_exact(&mut len).await.unwrap();
+            std::future::pending::<()>().await;
+        });
+
+        let scanner = ClamdScan::new(addr.to_string()).with_timeout(Duration::from_millis(250));
+        let payload = vec![0u8; 8 * 1024 * 1024];
+        let started = Instant::now();
+        let err = scanner
+            .scan_bytes(&payload)
+            .await
+            .expect_err("a silent daemon is no verdict");
+        let elapsed = started.elapsed();
+        server.abort();
+
+        assert!(matches!(err, ScanError::Unavailable(_)), "{err:?}");
+        assert!(
+            elapsed >= Duration::from_millis(200),
+            "the deadline is what returned: {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "bounded, not parked: {elapsed:?}"
+        );
+    }
+
+    /// A real clamd answers a stream past `StreamMaxLength` with
+    /// `INSTREAM size limit exceeded. ERROR` and closes the connection. That
+    /// reply ends in neither `OK` nor `FOUND`, so the adapter fails closed —
+    /// those bytes are refused, not reported clean. The daemon's exact bytes
+    /// are pinned by the live leg (`tests/clamd_live.rs`); this test pins the
+    /// branch that has to keep failing closed.
+    #[tokio::test]
+    async fn stream_limit_error_reply_is_unavailable_never_clean() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut header = [0u8; 10];
+            sock.read_exact(&mut header).await.unwrap();
+            // Drain the frame up to the zero-length terminator, then answer
+            // the way the daemon does when the limit trips.
+            loop {
+                let mut len_buf = [0u8; 4];
+                sock.read_exact(&mut len_buf).await.unwrap();
+                let len = u32::from_be_bytes(len_buf) as usize;
+                if len == 0 {
+                    break;
+                }
+                let mut chunk = vec![0u8; len];
+                sock.read_exact(&mut chunk).await.unwrap();
+            }
+            sock.write_all(b"INSTREAM size limit exceeded. ERROR\0")
+                .await
+                .unwrap();
+        });
+
+        let scanner = ClamdScan::new(addr.to_string());
+        let verdict = scanner.scan_bytes(b"%PDF-1.7 oversized").await;
+        server.await.unwrap();
+
+        let err = verdict.expect_err("a size-limit reply is not a verdict");
+        match err {
+            ScanError::Unavailable(detail) => {
+                assert!(detail.contains("size limit"), "{detail}");
+            }
+        }
+    }
+
+    /// `scan_bytes` has to ship the frame clamd expects for a payload bigger
+    /// than one chunk: length-prefixed 4096-byte pieces, then a zero-length
+    /// terminator. A single-chunk-only framing would pass every small test and
+    /// split real attachments wrong.
+    #[tokio::test]
+    async fn large_payload_is_split_into_length_prefixed_chunks() {
+        let payload: Vec<u8> = (0..10_000u32).map(|i| (i % 251) as u8).collect();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let expected = payload.clone();
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut header = [0u8; 10];
+            sock.read_exact(&mut header).await.unwrap();
+            assert_eq!(&header, b"zINSTREAM\0");
+            let mut assembled = Vec::new();
+            let mut chunk_sizes = Vec::new();
+            loop {
+                let mut len_buf = [0u8; 4];
+                sock.read_exact(&mut len_buf).await.unwrap();
+                let len = u32::from_be_bytes(len_buf) as usize;
+                if len == 0 {
+                    break;
+                }
+                assert!(
+                    len <= CHUNK_SIZE,
+                    "chunk of {len} bytes exceeds the chunk size"
+                );
+                let mut chunk = vec![0u8; len];
+                sock.read_exact(&mut chunk).await.unwrap();
+                chunk_sizes.push(len);
+                assembled.extend_from_slice(&chunk);
+            }
+            assert_eq!(assembled, expected, "every octet arrives, in order");
+            assert_eq!(chunk_sizes, vec![4096, 4096, 1808]);
+            sock.write_all(b"stream: OK\0").await.unwrap();
+        });
+
+        let scanner = ClamdScan::new(addr.to_string());
+        let verdict = scanner.scan_bytes(&payload).await.expect("verdict");
+        server.await.unwrap();
+        assert!(!verdict.infected);
     }
 
     /// The bytes leg must ship the OCTETS. An attachment is binary, and the
