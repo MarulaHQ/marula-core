@@ -19,6 +19,12 @@
 # remote keeps serving it until someone force-pushes a rewritten history and
 # every clone re-clones. Rotation is the control that actually revokes access;
 # this is hygiene for an export or a fresh clone.
+#
+# LIMIT: dropping the files does not drop the literal from every blob. The
+# security audit's own evidence quoted the token and is redacted in the tree
+# as of 2026-10-20, but the old blobs still hold it. A full content scrub needs
+#   git filter-repo --replace-text scripts/purge-secrets-expressions.txt
+# (filter-repo is not installed here; filter-branch cannot replace text).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
