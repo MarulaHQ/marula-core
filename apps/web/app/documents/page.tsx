@@ -52,7 +52,6 @@ import type { components } from "@marula-core/sdk";
 import {
   BlushNote,
   HEAD_CELL_CLASS,
-  KeyHint,
   LedgerFooter,
   PageFrame,
   PlusIcon,
@@ -424,13 +423,6 @@ export default function DocumentsPage() {
           total={stats?.total ?? 0}
           noun="documents"
           density={<DensitySwitch value={density} onChange={applyDensity} />}
-          hints={
-            <>
-              <KeyHint keys="J K" label="move" />
-              <KeyHint keys="↵" label="open" />
-              <KeyHint keys="F" label="filter" />
-            </>
-          }
         />
       </div>
 

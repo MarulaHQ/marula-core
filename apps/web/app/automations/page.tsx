@@ -70,7 +70,6 @@ import {
   BlushNote,
   HEAD_CELL_CLASS,
   InlineVerdict,
-  KeyHint,
   LedgerFooter,
   NoMatches,
   PageFrame,
@@ -1174,13 +1173,6 @@ export default function AutomationsPage() {
           total={rulesSorted.length}
           noun="rules"
           density={<DensitySwitch value={density} onChange={applyDensity} />}
-          hints={
-            <>
-              <KeyHint keys="J K" label="move" />
-              <KeyHint keys="↵" label="edit" />
-              <KeyHint keys="F" label="filter" />
-            </>
-          }
         />
       </div>
 

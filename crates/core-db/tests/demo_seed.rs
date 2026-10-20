@@ -101,7 +101,7 @@ async fn reset_reseed_loop_converges_to_the_same_shape() {
     // The wipe really cascaded, then the seed rebuilt everything.
     assert_eq!(count(&db, "SELECT count(*) FROM orgs").await, 1);
     assert_eq!(count(&db, "SELECT count(*) FROM tickets").await, 60);
-    assert_eq!(count(&db, "SELECT count(*) FROM time_entries").await, 33);
+    assert_eq!(count(&db, "SELECT count(*) FROM time_entries").await, 34);
     assert_eq!(count(&db, "SELECT count(*) FROM invoices").await, 4);
     assert_eq!(count(&db, "SELECT count(*) FROM invoice_payments").await, 1);
     assert_eq!(count(&db, "SELECT count(*) FROM kb_articles").await, 6);

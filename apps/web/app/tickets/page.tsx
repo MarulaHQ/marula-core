@@ -29,6 +29,9 @@ import {
   ColumnChooser,
   DataToolbar,
   DensitySwitch,
+  Dialog,
+  DialogActions,
+  DialogContent,
   EmptyState,
   ExportControl,
   FilterChips,
@@ -208,6 +211,9 @@ export default function TicketsListPage() {
    *  all live on one board (a status id is board-scoped). */
   const [bulkBoardStatuses, setBulkBoardStatuses] = useState<{ id: string; name: string }[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
+  /** The merge dialog's survivor: the selected ticket the others fold into. */
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeSurvivor, setMergeSurvivor] = useState("");
   /** Whether another page exists. A full page means there may be more — the
    *  same rule the server uses for its own `x-next-cursor` header, but decided
    *  from the row count, because a cross-origin response's custom headers are
@@ -744,6 +750,54 @@ export default function TicketsListPage() {
     [selected],
   );
 
+  /** The selected rows themselves, in table order. The merge dialog needs the
+   *  number and title of each, not only the id. */
+  const selectedRows = useMemo(
+    () => shown.filter((r) => selected.has(r.id)),
+    [shown, selected],
+  );
+  /** The selection's rows that can still take a bulk act. A merged row's work
+   *  already folded into a survivor, so the dialog leaves it out. */
+  const mergeableRows = useMemo(
+    () => selectedRows.filter((r) => r.merged_into_ticket_id == null),
+    [selectedRows],
+  );
+
+  /** Fold every other selected ticket into the chosen survivor. The endpoint
+   *  refuses a board mismatch, a closed survivor or a second merge, so each
+   *  source is sent on its own and a refusal is named rather than swallowed. */
+  const runMerge = useCallback(async () => {
+    const survivorId = mergeSurvivor;
+    const sources = mergeableRows.filter((r) => r.id !== survivorId).map((r) => r.id);
+    if (survivorId === "" || sources.length === 0) return;
+    setBulkBusy(true);
+    setNotice(null);
+    let ok = 0;
+    const failed: string[] = [];
+    for (const id of sources) {
+      try {
+        const res = await api.api.POST("/api/v1/tickets/{id}/merge", {
+          params: { path: { id } },
+          body: { survivor_id: survivorId, resolve: {} },
+        });
+        if (res.error === undefined) ok += 1;
+        else failed.push(numbersById[id] ?? id.slice(0, 8));
+      } catch {
+        failed.push(numbersById[id] ?? id.slice(0, 8));
+      }
+    }
+    setBulkBusy(false);
+    setMergeOpen(false);
+    setSelected(new Set());
+    const survivor = numbersById[survivorId] ?? "the survivor";
+    setNotice(
+      failed.length === 0
+        ? `Merged ${ok} ${ok === 1 ? "ticket" : "tickets"} into ${survivor}.`
+        : `Merged ${ok} of ${sources.length} into ${survivor}. ${failed.join(", ")} could not merge — already merged, closed, or on another board.`,
+    );
+    setReloadKey((k) => k + 1);
+  }, [mergeableRows, mergeSurvivor, numbersById]);
+
   // The target board list for the bulk move, read once while a selection
   // exists (one org-scoped read, then the bar owns the pick).
   const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
@@ -862,6 +916,9 @@ export default function TicketsListPage() {
           <span className="tabular-nums">{mergedCount} merged</span>
         )
       }
+      /* The pack prints J/K, X, enter and F on this strip. This surface has no
+         keyboard model yet, so the strip stays quiet: keycaps that nothing
+         listens for are worse than a missing hint. Add them with the keys. */
     />
   );
 
@@ -950,6 +1007,7 @@ export default function TicketsListPage() {
             columns={visible.map((c) => c.key)}
             rowCount={shown.length}
             sort={sort}
+            sortLabel={visibleDefs.find((c) => c.key === sort.field)?.label}
             filters={clauses}
             onExport={onExport}
           />
@@ -1159,6 +1217,18 @@ export default function TicketsListPage() {
                         >
                           Move
                         </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={bulkBusy || mergeableRows.length < 2}
+                          onClick={() => {
+                            setMergeSurvivor(mergeableRows[0]?.id ?? "");
+                            setMergeOpen(true);
+                          }}
+                          data-testid="bulk-merge"
+                        >
+                          Merge…
+                        </Button>
                         <Button size="sm" variant="secondary" disabled={bulkBusy} onClick={onExportSelected}>
                           Export {selected.size}
                         </Button>
@@ -1171,6 +1241,53 @@ export default function TicketsListPage() {
           {surfaceFooter}
         </Card>
       )}
+
+      <Dialog open={mergeOpen} onOpenChange={setMergeOpen}>
+        <DialogContent
+          title="Merge selected tickets"
+          description="The other rows close and their comments, time and expenses move to the survivor. Pick the row that should survive."
+        >
+          <div className="flex flex-col gap-2" role="radiogroup" aria-label="Surviving ticket">
+            {mergeableRows.map((row) => {
+              const id = row.id;
+              const label = numbersById[id] ?? id.slice(0, 8);
+              return (
+                <label
+                  key={id}
+                  className="flex cursor-pointer items-start gap-2 rounded-md border p-2 text-[13px]"
+                  style={{ borderColor: "var(--m-border)" }}
+                >
+                  <input
+                    type="radio"
+                    name="merge-survivor"
+                    value={id}
+                    checked={mergeSurvivor === id}
+                    onChange={() => setMergeSurvivor(id)}
+                    className="mt-0.5"
+                  />
+                  <span className="min-w-0">
+                    <span className="font-medium tabular-nums">{label}</span>{" "}
+                    <span style={{ color: "var(--m-text-secondary)" }}>{row.title}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <DialogActions>
+            <Button variant="secondary" onClick={() => setMergeOpen(false)} disabled={bulkBusy}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => void runMerge()}
+              disabled={bulkBusy || mergeSurvivor === "" || mergeableRows.length < 2}
+              data-testid="merge-confirm"
+            >
+              {bulkBusy ? "Merging…" : `Merge ${mergeableRows.length - 1} into this one`}
+            </Button>
+          </DialogActions>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

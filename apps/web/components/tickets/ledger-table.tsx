@@ -117,7 +117,11 @@ export function TicketTable({
   /** Offered per row on unassigned rows: the one-click Take it. */
   onTake?: (row: TicketRow) => void;
 }): React.JSX.Element {
-  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  /* A merged row is terminal: its work folded into a survivor, so a bulk
+     assign, status or second merge has nothing left to act on. Selection skips
+     those rows rather than offering an action the endpoint will refuse. */
+  const selectableRows = rows.filter((r) => r.merged_into_ticket_id == null);
+  const allSelected = selectableRows.length > 0 && selectableRows.every((r) => selected.has(r.id));
   /* Stored widths are the user's proportion, not a floor. Turned into
      percentages of the whole table, selection column included, they sum to
      100% and fill the container instead of adding up to 1182px inside a 1104px
@@ -169,9 +173,9 @@ export function TicketTable({
                 <Checkbox
                   checked={allSelected}
                   onCheckedChange={(on) => {
-                    for (const row of rows) onToggleRow(row.id, on === true);
+                    for (const row of selectableRows) onToggleRow(row.id, on === true);
                   }}
-                  aria-label={allSelected ? "Clear selection" : `Select all ${rows.length} tickets`}
+                  aria-label={allSelected ? "Clear selection" : `Select all ${selectableRows.length} tickets`}
                 />
               </Th>
               {columns.map((column, index) => {
@@ -279,8 +283,10 @@ export function TicketRowView({
         <Td>
           <Checkbox
             checked={selected}
+            disabled={row.merged_into_ticket_id != null}
             onCheckedChange={(on) => onToggle(on === true)}
             aria-label={`Select ${row.number}`}
+            title={row.merged_into_ticket_id != null ? "Merged tickets cannot be selected" : undefined}
           />
         </Td>
         {columns.map((column) => (

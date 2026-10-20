@@ -62,7 +62,6 @@ import type { ReactNode } from "react";
 import {
   AlertIcon,
   HEAD_CELL_CLASS,
-  KeyHint,
   LedgerFooter,
   LockIcon,
   NoMatches,
@@ -653,13 +652,6 @@ export default function SecretsVaultPage() {
             total={records?.length ?? 0}
             noun="records"
             density={<DensitySwitch value={density} onChange={applyDensity} />}
-            hints={
-              <>
-                <KeyHint keys="J K" label="move" />
-                <KeyHint keys="↵" label="open" />
-                <KeyHint keys="F" label="filter" />
-              </>
-            }
           />
         </div>
       </div>

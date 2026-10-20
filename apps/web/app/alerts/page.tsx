@@ -54,7 +54,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BlushNote,
   HEAD_CELL_CLASS,
-  KeyHint,
   LedgerFooter,
   PageFrame,
   SkeletonRows,
@@ -674,13 +673,6 @@ export default function AlertsPage() {
             total={counts.all}
             noun="alerts"
             density={<DensitySwitch value={density} onChange={applyDensity} />}
-            hints={
-              <>
-                <KeyHint keys="J K" label="move" />
-                <KeyHint keys="A" label="acknowledge" />
-                <KeyHint keys="F" label="filter" />
-              </>
-            }
           />
           </div>
         </div>
