@@ -492,3 +492,61 @@ pub async fn org_defaults_put(
     .await?;
     Ok(Json(view))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The preference surface is driven by `NotificationKind::ALL` on GET and
+    /// by the wire string a row sends back on PUT. Both request types must
+    /// accept the kinds the notifier writes: `stock_low` was missing from
+    /// `ALL`, so the screen skipped it silently while the migration admits it.
+    #[test]
+    fn the_preference_surface_accepts_every_kind_the_notifier_writes() {
+        let user_row: UpdatePreferenceRequest = serde_json::from_value(serde_json::json!({
+            "kind": "stock_low",
+            "in_app": false,
+            "email": false,
+            "quiet_from": null,
+            "quiet_until": null,
+        }))
+        .expect("stock_low is a user preference row");
+        assert_eq!(user_row.kind, NotificationKind::StockLow);
+
+        let org_row: UpdateOrgDefaultRequest = serde_json::from_value(serde_json::json!({
+            "kind": "stock_low",
+            "in_app": true,
+            "email": true,
+            "quiet_from": null,
+            "quiet_until": null,
+        }))
+        .expect("stock_low is an org default row");
+        assert_eq!(org_row.kind, NotificationKind::StockLow);
+
+        // Every kind GET returns must also parse on the way back, and the
+        // response must carry the same snake_case string the request used.
+        for kind in NotificationKind::ALL {
+            let req: UpdatePreferenceRequest = serde_json::from_value(serde_json::json!({
+                "kind": kind.as_str(),
+                "in_app": true,
+                "email": false,
+                "quiet_from": null,
+                "quiet_until": null,
+            }))
+            .expect("kind parses");
+            assert_eq!(req.kind, kind);
+
+            let view = PreferenceView {
+                kind,
+                source: "builtin".into(),
+                in_app: true,
+                email: false,
+                quiet_from: None,
+                quiet_until: None,
+                timezone: "UTC".into(),
+            };
+            let value = serde_json::to_value(&view).expect("view serializes");
+            assert_eq!(value["kind"], kind.as_str());
+        }
+    }
+}

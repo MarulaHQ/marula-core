@@ -48,7 +48,7 @@ pub enum NotificationKind {
 
 impl NotificationKind {
     /// Every kind, stable order — drives preference screens and defaults.
-    pub const ALL: [NotificationKind; 12] = [
+    pub const ALL: [NotificationKind; 13] = [
         NotificationKind::Mention,
         NotificationKind::Assignment,
         NotificationKind::SlaRisk,
@@ -59,6 +59,7 @@ impl NotificationKind {
         NotificationKind::ReportDelivery,
         NotificationKind::AiCapWarn,
         NotificationKind::SecretRotation,
+        NotificationKind::StockLow,
         NotificationKind::DedupeReport,
         NotificationKind::ScanDetection,
     ];
@@ -160,4 +161,74 @@ pub struct NotificationPreference {
 
 fn default_timezone() -> String {
     "UTC".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// One stable index per variant. The match is exhaustive on purpose: a new
+    /// `NotificationKind` fails to compile here until it gets an index, which
+    /// is the reminder that `ALL` has to grow with it. `ALL` is a fixed-length
+    /// array, so its length cannot drift without an edit either.
+    const fn variant_index(kind: NotificationKind) -> u8 {
+        match kind {
+            NotificationKind::Mention => 0,
+            NotificationKind::Assignment => 1,
+            NotificationKind::SlaRisk => 2,
+            NotificationKind::SlaBreach => 3,
+            NotificationKind::Escalation => 4,
+            NotificationKind::MissingTime => 5,
+            NotificationKind::TicketUpdate => 6,
+            NotificationKind::ReportDelivery => 7,
+            NotificationKind::AiCapWarn => 8,
+            NotificationKind::SecretRotation => 9,
+            NotificationKind::StockLow => 10,
+            NotificationKind::DedupeReport => 11,
+            NotificationKind::ScanDetection => 12,
+        }
+    }
+
+    /// Bumped by hand when a variant or a match arm is added. The equality
+    /// checks below fail loudly if it is not.
+    const VARIANT_COUNT: u8 = 13;
+
+    #[test]
+    fn all_lists_every_kind_exactly_once() {
+        let indices: BTreeSet<u8> = NotificationKind::ALL
+            .iter()
+            .copied()
+            .map(variant_index)
+            .collect();
+        assert_eq!(
+            NotificationKind::ALL.len(),
+            VARIANT_COUNT as usize,
+            "ALL length disagrees with the variant count"
+        );
+        assert_eq!(
+            indices.len(),
+            VARIANT_COUNT as usize,
+            "ALL repeats a kind or omits one"
+        );
+        assert_eq!(
+            indices,
+            (0..VARIANT_COUNT).collect(),
+            "ALL does not cover every variant index"
+        );
+    }
+
+    #[test]
+    fn stock_low_is_offerable_and_every_kind_round_trips_its_string() {
+        // The preference screens iterate `ALL`; an omission is invisible to
+        // them even though the notifier writes the kind and the migration
+        // accepts it.
+        assert!(
+            NotificationKind::ALL.contains(&NotificationKind::StockLow),
+            "stock_low must be in ALL so preferences can turn it off"
+        );
+        for kind in NotificationKind::ALL {
+            assert_eq!(kind.as_str().parse::<NotificationKind>().unwrap(), kind);
+        }
+    }
 }
