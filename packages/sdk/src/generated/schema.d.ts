@@ -1,4 +1,70 @@
 export interface paths {
+    "/api/v1/admin/quarantine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/admin/quarantine — the org's quarantined objects, newest first.
+         * @description `pending` are still held; `released` were admitted by an operator and keep
+         *     their row so the override stays visible.
+         */
+        get: operations["quarantine_admin_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/quarantine/{sha256}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/admin/quarantine/{sha256} — one held or released object. */
+        get: operations["quarantine_admin_get"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/admin/quarantine/{sha256} — remove the held bytes.
+         * @description The row goes with them and the fact stays in the audit trail. A released
+         *     object is refused (409): its bytes are admitted and its trail is evidence.
+         */
+        delete: operations["quarantine_admin_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/quarantine/{sha256}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/admin/quarantine/{sha256}/release — admit the object anyway.
+         * @description The bytes move from the quarantine key to the canonical attachment key,
+         *     the row records actor + reason + timestamp, and an `audit_events` row is
+         *     written in the same transaction. Repeating the call returns the first
+         *     release unchanged and writes no second audit row.
+         */
+        post: operations["quarantine_admin_release"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent-proposals": {
         parameters: {
             query?: never;
@@ -25138,6 +25204,74 @@ export interface components {
             transport: string;
         };
         /**
+         * @description One quarantined object as the operator surface reads it.
+         *
+         *     The digest is the identity: `attachment_scans` is keyed by
+         *     `(org_id, sha256)` because the verdict belongs to the BYTES, not to the
+         *     upload that brought them in.
+         */
+        QuarantineItemView: {
+            content_type: string;
+            /** @description The scanner's own words — usually a signature name. */
+            detail?: string | null;
+            filename: string;
+            /** Format: date-time */
+            quarantined_at: string;
+            release_reason?: string | null;
+            /** Format: date-time */
+            released_at?: string | null;
+            /** Format: uuid */
+            released_by_user_id?: string | null;
+            /** Format: date-time */
+            scanned_at: string;
+            /** @description Adapter that produced the verdict (`clamd`, `none`). */
+            scanner: string;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+            state: components["schemas"]["QuarantineState"];
+            /**
+             * @description Where the bytes live now: the quarantine key while held, the canonical
+             *     key after a release.
+             */
+            storage_key: string;
+            /**
+             * Format: uuid
+             * @description The ticket the upload was aimed at, when there was one. The row is
+             *     `ON DELETE SET NULL`, so a deleted ticket leaves the record intact.
+             */
+            ticket_id?: string | null;
+            /** Format: uuid */
+            uploaded_by_portal_user_id?: string | null;
+            /** Format: uuid */
+            uploaded_by_user_id?: string | null;
+        };
+        /** @description One page of the quarantine list, with the org-wide counts beside it. */
+        QuarantinePage: {
+            /** @description Newest first. Released rows stay listed: the trail is the point. */
+            items: components["schemas"]["QuarantineItemView"][];
+            /**
+             * Format: int64
+             * @description Offset for the next page; absent when this page is the last.
+             */
+            next_offset?: number | null;
+            /**
+             * Format: int64
+             * @description Objects still held, across the whole org.
+             */
+            pending: number;
+            /**
+             * Format: int64
+             * @description Objects released anyway, across the whole org.
+             */
+            released: number;
+        };
+        /**
+         * @description Where one object sits in the quarantine: still held, or released anyway.
+         * @enum {string}
+         */
+        QuarantineState: "pending" | "released";
+        /**
          * @description Queue mutation envelope (set + clear share the shape; clears carry
          *     `cleared: true` and null note).
          */
@@ -25837,6 +25971,17 @@ export interface components {
         };
         RegistryResponse: {
             settings: components["schemas"]["DeclarationView"][];
+        };
+        /**
+         * @description The reason is the whole point of the override, so it is a required field
+         *     rather than an optional one with a default.
+         */
+        ReleaseQuarantineRequest: {
+            /**
+             * @description Why these bytes are being admitted despite the scanner's verdict.
+             *     Recorded verbatim on the row and in the audit trail.
+             */
+            reason: string;
         };
         /**
          * @description Release lifecycle: `pending` (released, not yet invoiced), `billed`
@@ -31201,6 +31346,101 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    quarantine_admin_list: {
+        parameters: {
+            query?: {
+                /** @description Page size. Clamped to 1..=200. */
+                limit?: number | null;
+                /** @description Rows to skip, from a previous page's `next_offset`. */
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuarantinePage"];
+                };
+            };
+        };
+    };
+    quarantine_admin_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuarantineItemView"];
+                };
+            };
+        };
+    };
+    quarantine_admin_delete: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Optional note for the audit trail. The default sentence names the
+                 *     action when the operator does not add one.
+                 */
+                reason?: string | null;
+            };
+            header?: never;
+            path: {
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    quarantine_admin_release: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseQuarantineRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuarantineItemView"];
+                };
+            };
+        };
+    };
     agent_proposals_list: {
         parameters: {
             query?: {

@@ -157,8 +157,8 @@ pub async fn upload(
             .map_err(ApiError::from)?;
 
         if status == core_domain::entities::ScanStatus::Infected {
-            crate::scan_gate::quarantine(
-                &mut ctx.tx,
+            let held = crate::scan_gate::quarantine(
+                &mut ctx,
                 store.as_ref(),
                 crate::scan_gate::Rejection {
                     org_id,
@@ -167,14 +167,33 @@ pub async fn upload(
                     content_type: &content_type,
                     size_bytes: body.len() as i64,
                     bytes: body.clone(),
-                    // A document upload has no ticket target to record.
+                    // Documents live in the org key space, not on a ticket.
                     ticket_id: None,
                     uploaded_by_user_id: Some(user_id),
                     verdict: &verdict,
                 },
             )
             .await?;
-            return Ok((ctx, crate::scan_gate::Gated::Quarantined { detail }));
+            // The same event the ticket door emits, so an operator watching
+            // the stream sees every held object whichever door it arrived at.
+            ctx.emit(
+                core_domain::events::types::ATTACHMENT_QUARANTINED,
+                "attachment",
+                Some(sha256_hex.as_str()),
+                &serde_json::to_value(core_domain::events::AttachmentQuarantined {
+                    sha256: sha256_hex.clone(),
+                    filename: filename.clone(),
+                    content_type: content_type.clone(),
+                    size_bytes: body.len() as i64,
+                    scanner: scanner_name.to_string(),
+                    detail: detail.clone(),
+                    ticket_id: None,
+                    uploaded_by_user_id: Some(user_id),
+                })
+                .unwrap_or_default(),
+            )
+            .await?;
+            return Ok((ctx, crate::scan_gate::Gated::Quarantined(held)));
         }
 
         // Content-addressed dedup on the shared key space: consult BOTH
@@ -272,9 +291,7 @@ pub async fn upload(
     .await?;
     match gated {
         crate::scan_gate::Gated::Admitted(row) => Ok(Json(row.into())),
-        crate::scan_gate::Gated::Quarantined { detail } => {
-            Err(ApiError::UploadQuarantined { detail })
-        }
+        crate::scan_gate::Gated::Quarantined(held) => Err(held.refusal()),
     }
 }
 

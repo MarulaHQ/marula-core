@@ -14,11 +14,19 @@
 //! deployment with no scanner says `skipped` out loud instead of failing.
 //! The distinction is the whole point: unreachable ≠ disabled.
 //!
-//! Non-purpose: no store access, no transaction, no policy about what to do
-//! with a verdict (each surface owns its rows, its event, and its refusal
-//! shape — P6b gives every one of them a user-facing outcome).
+//! A rejection is not a silent drop (lane P6b). [`quarantine`] writes three
+//! things in the caller's transaction: the held bytes, the verdict row, and
+//! a notification for the uploader plus the org's scan-detection recipients.
+//! It also returns the [`QuarantinedUpload`] the surface refuses with, so the
+//! 422, the notification, and the record all describe the same object.
+//!
+//! Non-purpose: no store access beyond the quarantine copy, no admission
+//! policy, no transaction of its own. The caller owns its rows, its
+//! `attachment.quarantined` event, and the point at which it returns the
+//! refusal.
 
 use crate::error::{ApiError, ApiResult};
+use crate::org_tx::OrgTx;
 use crate::state::AppState;
 use core_domain::entities::ScanStatus;
 
@@ -85,7 +93,9 @@ pub enum Gated<T> {
     /// Admitted: the surface's own row exists.
     Admitted(T),
     /// Refused by the scan: bytes held under the quarantine key, no row.
-    Quarantined { detail: Option<String> },
+    /// The payload is what the surface refuses the request with, built by
+    /// [`quarantine`] from the same values it wrote down.
+    Quarantined(QuarantinedUpload),
 }
 
 /// One rejected upload, as the quarantine record needs to describe it.
@@ -98,35 +108,72 @@ pub struct Rejection<'a> {
     pub size_bytes: i64,
     pub bytes: bytes::Bytes,
     /// The ticket this upload was aimed at, when there was one. Non-ticket
-    /// surfaces (documents, drawn marks) record no target here.
+    /// surfaces (documents) record no target here.
     pub ticket_id: Option<uuid::Uuid>,
     pub uploaded_by_user_id: Option<uuid::Uuid>,
     pub verdict: &'a GateVerdict,
 }
 
-/// Holds rejected bytes and writes their verdict row, inside the caller's
-/// transaction. The bytes keep their digest under the quarantine namespace:
-/// a later release can admit them at their canonical key without re-hashing,
-/// and a key alone still says which side of the gate the object is on.
+/// A held object, described in the terms a client renders: which object,
+/// what it was called, what decided, what it found. [`Self::refusal`] turns
+/// that into the typed 422, so the response and the record cannot disagree.
+pub struct QuarantinedUpload {
+    /// Lowercase hex sha256 of the held bytes.
+    pub sha256: String,
+    pub filename: String,
+    /// Adapter that called it (`clamd`, `none`, a test double).
+    pub scanner: String,
+    /// Scanner detail (usually the signature name).
+    pub detail: Option<String>,
+}
+
+impl QuarantinedUpload {
+    /// The typed refusal this rejection answers with.
+    #[must_use]
+    pub fn refusal(self) -> ApiError {
+        ApiError::UploadQuarantined {
+            sha256: self.sha256,
+            filename: self.filename,
+            scanner: self.scanner,
+            detail: self.detail,
+        }
+    }
+}
+
+/// Holds rejected bytes, writes their verdict row, and tells the people who
+/// need to know — all inside the caller's transaction, so the notification
+/// can never describe a quarantine the database does not hold.
 ///
+/// The bytes keep their digest under the quarantine namespace: a later
+/// release can admit them at their canonical key without re-hashing, and a
+/// key alone still says which side of the gate the object is on.
 /// Re-uploading an object already quarantined does not copy it again.
 pub async fn quarantine(
-    conn: &mut sqlx::PgConnection,
+    ctx: &mut OrgTx<'_>,
     store: &dyn core_store::ObjectStore,
     r: Rejection<'_>,
-) -> ApiResult<()> {
+) -> ApiResult<QuarantinedUpload> {
     let key = core_store::quarantine_key(r.org_id, r.sha256);
-    let already = core_db::attachment_scans::get(&mut *conn, r.org_id, r.sha256)
+    let already = core_db::attachment_scans::get(&mut ctx.tx, r.org_id, r.sha256)
         .await?
         .is_some_and(|scan| scan.is_quarantined());
     if !already {
+        // Cheap Arc bump on `Bytes`, and it keeps `r` borrowable for the
+        // notification below.
+        let bytes = r.bytes.clone();
         store
-            .put(&key, r.content_type, r.bytes)
+            .put(&key, r.content_type, bytes)
             .await
             .map_err(crate::routes::attachments::store_error)?;
     }
-    core_db::attachment_scans::record_quarantine(
-        conn,
+    // The verdict row is first-wins on an infection: `record_quarantine`
+    // refuses to rewrite a row that already reads `infected`, so a repeat
+    // upload of the same held object returns no row. That is the rule
+    // working, not a missing record — the refusal and the notification below
+    // still describe the object that is already held, and the uploader of a
+    // second attempt gets the same typed answer as the first.
+    match core_db::attachment_scans::record_quarantine(
+        &mut ctx.tx,
         core_db::attachment_scans::NewScan {
             org_id: r.org_id,
             sha256: r.sha256,
@@ -142,6 +189,120 @@ pub async fn quarantine(
             uploaded_by_portal_user_id: None,
         },
     )
-    .await?;
+    .await
+    .map_err(core_db::DbError::normalized)
+    {
+        Ok(_) => {}
+        Err(core_db::DbError::NotFound) => {
+            tracing::debug!(
+                sha256 = r.sha256,
+                "object was already quarantined; the verdict row keeps its first record"
+            );
+        }
+        Err(e) => return Err(e.into()),
+    }
+
+    notify_quarantine(ctx, &r).await?;
+
+    Ok(QuarantinedUpload {
+        sha256: r.sha256.to_string(),
+        filename: r.filename.to_string(),
+        scanner: r.verdict.scanner.to_string(),
+        detail: r.verdict.detail.clone(),
+    })
+}
+
+/// Who hears about a held upload, and how.
+///
+/// TWO AUDIENCES, deduped: the uploader, whose file did not land, and the
+/// org's owners/admins — a held object is an operator's problem, and the
+/// admin surface that releases or deletes it is where they act on it. An
+/// uploader who is also an owner/admin gets one row, not two.
+///
+/// The `scan_detection` preference governs both, the same chain the
+/// inbound-email quarantine notice uses: a recipient with in-app switched off
+/// is skipped before any row exists. The uploader is not exempt from that
+/// preference, because the typed 422 already told them in-band; the row is
+/// the durable copy, and honouring the switch is what keeps one preference
+/// meaning one thing.
+async fn notify_quarantine(ctx: &mut OrgTx<'_>, r: &Rejection<'_>) -> ApiResult<()> {
+    let kind = core_domain::entities::NotificationKind::ScanDetection;
+    let mut recipients: Vec<uuid::Uuid> = Vec::new();
+    if let Some(user_id) = r.uploaded_by_user_id {
+        recipients.push(user_id);
+    }
+    for user_id in core_db::notifications::scan_detection_recipients(&mut *ctx.tx, r.org_id).await?
+    {
+        if !recipients.contains(&user_id) {
+            recipients.push(user_id);
+        }
+    }
+    if recipients.is_empty() {
+        return Ok(());
+    }
+
+    // The title names the outcome; the body names the file and the finding,
+    // because "an upload failed" without them is a message the uploader
+    // cannot act on.
+    let title = "An upload was held by the malware scan";
+    let body = format!(
+        "{} ({} bytes) was not attached: {} found {}. The bytes are quarantined for an \
+         operator, so the same file is refused again.",
+        clip(r.filename, 120),
+        r.size_bytes,
+        r.verdict.scanner,
+        clip(
+            r.verdict.detail.as_deref().unwrap_or("no scanner detail"),
+            160
+        ),
+    );
+
+    for user_id in recipients {
+        let pref = core_db::notifications::effective_preference(
+            &mut *ctx.tx,
+            r.org_id,
+            user_id,
+            kind.as_str(),
+        )
+        .await?;
+        if !pref.in_app {
+            continue;
+        }
+        let notification = core_db::notifications::insert(
+            &mut *ctx.tx,
+            uuid::Uuid::now_v7(),
+            r.org_id,
+            user_id,
+            kind.as_str(),
+            r.ticket_id,
+            title,
+            Some(&body),
+        )
+        .await?;
+        ctx.emit(
+            core_domain::events::types::NOTIFICATION_CREATED,
+            "notification",
+            Some(notification.id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::NotificationCreated {
+                user_id,
+                kind: notification.kind.as_str().to_string(),
+                ticket_id: r.ticket_id,
+                title: notification.title.clone(),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+    }
     Ok(())
+}
+
+/// Trims to `max_chars` on a char boundary, marking the cut, so a filename
+/// or scanner string can never push the body past sensible bounds.
+fn clip(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max_chars.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
