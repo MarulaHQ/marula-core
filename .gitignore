@@ -173,7 +173,12 @@ apps/web/.harness/in.css
 # /design/ also absorbs lane capture output: e2e helpers and the capture scripts
 # write design/qa-<lane>/, which is local scratch a run rewrites and never a
 # record this repository ships. One ignore rule covers both uses.
-/design/
+/design/*
+!/design/qa-*/
+# Lane evidence still lands in design/qa-<lane>/ and is tracked, because the convention
+# predates the extraction and the publish filter excludes design/ entirely. The negation
+# works only because the parent is /design/* rather than /design/ — a fully excluded
+# directory cannot have a child re-included.
 /website/
 /meridian-ci/
 /.claude/

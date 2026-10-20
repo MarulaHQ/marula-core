@@ -2020,7 +2020,7 @@
 | <a id="schema-manifestclientworkflowoverride"></a>`ManifestClientWorkflowOverride` | object | One per-client workflow override row, verbatim. `state` is `set` (value overrides the org default) or `disabled` (explicit deny); an absent row means the client inherits and exports nothing. |
 | <a id="schema-manifestcustomfield"></a>`ManifestCustomField` | object | One custom field definition. `config` is the kind-specific document (select options, validation bounds, …) exactly as stored. |
 | <a id="schema-manifestescalationstep"></a>`ManifestEscalationStep` | object | One escalation ladder step. |
-| <a id="schema-manifestreportdefinition"></a>`ManifestReportDefinition` | object | One stored report definition (the private build tracker R3). The spec body rides as its stored jsonb document (`{filters, group_by, measures}`) exactly like custom-field `config` — the registry-validated view/viz slug |
+| <a id="schema-manifestreportdefinition"></a>`ManifestReportDefinition` | object | One stored report definition (the private build tracker R3). The spec body rides as its stored jsonb document (`{filters, group_by, measures}`) exactly like custom-field `config` — the registry-valida |
 | <a id="schema-manifestrole"></a>`ManifestRole` | object | One org-owned role row of the manifest (a custom role or a forked copy). |
 | <a id="schema-manifestsections"></a>`ManifestSections` | object | Section container. All fields are always present; empty org state is an empty array, never an absent key. New sections append here. |
 | <a id="schema-manifestsetting"></a>`ManifestSetting` | object | One org-scope settings-registry override. |
