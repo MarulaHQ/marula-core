@@ -51,8 +51,8 @@ async fn insert_audit(
     audit::insert(
         &mut *tx,
         &AuditEvent {
-            id: id.into(),
-            org_id: org.into(),
+            id,
+            org_id: org,
             actor: Actor::System,
             action: action.into(),
             entity_type: Some("ticket".into()),
@@ -137,10 +137,20 @@ async fn parked_stats_counts_waiting_runs_and_the_oldest_idle_age() {
         (fixed_uuid(9_104), "succeeded", 5),
     ] {
         sqlx::query(
+            // `workflow_runs_status_shape` is a real constraint: a waiting run
+            // carries a resume cursor and a wake condition and no finish, a
+            // finished one carries a finish and neither wake field.
             "INSERT INTO workflow_runs (
                  id, org_id, rule_name, rule_definition, catalogue_version, status,
+                 trigger_kind, resume_cursor, wake_at, finished_at,
                  created_at, updated_at
              ) VALUES ($1, $2, 'probe rule', '{}'::jsonb, 'probe', $3,
+                       'event',
+                       CASE WHEN $3 = 'waiting' THEN '{}'::jsonb END,
+                       CASE WHEN $3 = 'waiting'
+                            THEN now() - make_interval(mins => $4) END,
+                       CASE WHEN $3 <> 'waiting'
+                            THEN now() - make_interval(mins => $4) END,
                        now() - make_interval(mins => $4),
                        now() - make_interval(mins => $4))",
         )

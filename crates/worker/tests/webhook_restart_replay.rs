@@ -484,7 +484,7 @@ async fn consumer_names_split_the_pending_list_and_idle_entries_are_claimed() {
             GROUP,
             CONSUMER_B,
             0_u64,
-            &[delivered_id.clone()],
+            std::slice::from_ref(&delivered_id),
             StreamClaimOptions::default().idle(120_000).with_force(),
         )
         .await

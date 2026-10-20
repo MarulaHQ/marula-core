@@ -72,7 +72,7 @@ pub const NODE_ENDPOINT: &str = "/api/internal/workflow/node";
 /// (`crate::queue_runner::queue_max_attempts`): a run that cannot move is
 /// visible, not silently stuck, and the number is the same one every other
 /// queued job gets.
-
+///
 /// How a `workflow.resume` job settled. The queue runner maps these 1:1
 /// onto done / retry / dead so the executor owns its own classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

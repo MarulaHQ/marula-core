@@ -11,7 +11,7 @@
 //! [`core_domain::retry`]'s `effects` policy, so a 408 or 429 asks for a retry
 //! while a 400 refuses one.
 
-use core_domain::retry::{self, ErrorClass, Subsystem};
+use core_domain::retry::{self, Subsystem};
 use serde_json::Value;
 
 /// Outcome classes the queue runner maps to done/retry/dead decisions.
@@ -201,6 +201,7 @@ impl EffectApi for RecordingEffectApi {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core_domain::retry::ErrorClass;
     use serde_json::json;
 
     #[tokio::test]

@@ -249,9 +249,10 @@ pub fn dead_letter_age(age_seconds: Option<u64>) {
 pub fn consumer_group_health(group: &str, depth: u64, lag: Option<u64>, oldest_age_seconds: u64) {
     let i = instruments();
     let group_attr = KeyValue::new("group", group.to_string());
-    i.consumer_pel_depth.record(depth, &[group_attr.clone()]);
+    i.consumer_pel_depth
+        .record(depth, std::slice::from_ref(&group_attr));
     i.consumer_oldest_pending_age_seconds
-        .record(oldest_age_seconds, &[group_attr.clone()]);
+        .record(oldest_age_seconds, std::slice::from_ref(&group_attr));
     if let Some(lag) = lag {
         i.consumer_lag.record(lag, &[group_attr]);
     }

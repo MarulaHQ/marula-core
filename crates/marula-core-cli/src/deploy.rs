@@ -1678,9 +1678,7 @@ fn first_caps_literal(fragment: &str) -> Option<String> {
     let mut rest = fragment;
     while let Some(open) = rest.find('"') {
         let after = &rest[open + 1..];
-        let Some(close) = after.find('"') else {
-            return None;
-        };
+        let close = after.find('"')?;
         let candidate = &after[..close];
         let looks_like_env = candidate.len() >= 3
             && candidate.starts_with(|c: char| c.is_ascii_uppercase())

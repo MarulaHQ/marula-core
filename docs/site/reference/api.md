@@ -116,7 +116,7 @@
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
-| `GET` | `/api/v1/audit-events` <a id="audit_list"></a> | GET /api/audit-events — append-only audit trail, newest first, filterable by actor / action prefix / time range with opaque cursor pagination. | — |
+| `GET` | `/api/v1/audit-events` <a id="audit_list"></a> | GET /api/audit-events — append-only audit trail. Newest first by default; `order=asc` + `after` turns it into a forward-only export tail. | — |
 
 ## auth
 
