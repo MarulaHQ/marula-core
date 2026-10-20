@@ -1,0 +1,54 @@
+# DCO enforcement for pull-request commits.
+#
+# Disabled by the repo-wide convention: every workflow here ships as
+# *.yml.disabled. Rename to dco.yml to enable it. The alternative is the `dco`
+# GitHub App, which enforces the same rule with no workflow file and nothing to
+# maintain — pick one, not both.
+#
+# The rule: every commit in the PR carries a `Signed-off-by: Name <email>`
+# trailer whose identity matches that commit's author, exactly. That sign-off is
+# what the Developer Certificate of Origin certifies:
+# https://developercertificate.org
+#
+# Bot commits are exempted explicitly below rather than implicitly, so the
+# exemption is a decision somebody made and can point at.
+
+name: DCO
+
+on:
+  pull_request:
+
+jobs:
+  sign-off:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Every commit carries a Signed-off-by matching its author
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="origin/${{ github.base_ref }}"
+          status=0
+          checked=0
+
+          while read -r sha; do
+            [ -n "$sha" ] || continue
+            author="$(git show -s --format='%an <%ae>' "$sha")"
+
+            if printf '%s' "$author" | grep -qE '\[bot\]|^github-actions '; then
+              echo "skip $sha — bot commit ($author)"
+              continue
+            fi
+
+            checked=$((checked + 1))
+            if ! git show -s --format=%B "$sha" | grep -qxF "Signed-off-by: ${author}"; then
+              echo "::error::$sha is missing the trailer 'Signed-off-by: ${author}'"
+              status=1
+            fi
+          done < <(git rev-list "${base}..HEAD")
+
+          echo "checked ${checked} commit(s)"
+          exit "${status}"
