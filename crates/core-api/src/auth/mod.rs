@@ -6,6 +6,7 @@ pub mod cookies;
 pub mod federation;
 pub mod handlers;
 pub mod hardening;
+pub mod identity_bundle_service;
 pub mod jwt;
 pub mod mfa_handlers;
 pub mod middleware;

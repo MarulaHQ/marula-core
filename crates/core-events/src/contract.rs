@@ -483,10 +483,11 @@ use core_domain::events::{
     CreditNoteRefunded, DirectoryGroupCreated, DirectoryGroupDeleted, DirectoryGroupMemberAdded,
     DirectoryGroupMemberRemoved, DirectoryGroupRoleMapped, DirectoryGroupRoleUnmapped,
     DirectoryGroupUpdated, DispatchQueueUpdated, DispatchStatusUpdated, DocumentAttachmentAdded,
-    DocumentAttachmentDeleted, FxBaseCurrencyChanged, FxRateRecorded, ImportBatchFinished,
-    ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged, InvoicePaymentRecorded,
-    InvoiceRunCompleted, InvoiceVoided, LabelTemplateCreated, LabelTemplateUpdated, LoanIssued,
-    LoanReturned, MeetingTypeDeleted, MigrationPushSessionFinished, MigrationPushSessionStarted,
+    DocumentAttachmentDeleted, FxBaseCurrencyChanged, FxRateRecorded, IdentityBundleInstalled,
+    IdentityBundleRevoked, IdentityBundleUpdated, ImportBatchFinished, ImportBatchStarted,
+    InvoiceCreated, InvoiceDunningChanged, InvoicePaymentRecorded, InvoiceRunCompleted,
+    InvoiceVoided, LabelTemplateCreated, LabelTemplateUpdated, LoanIssued, LoanReturned,
+    MeetingTypeDeleted, MigrationPushSessionFinished, MigrationPushSessionStarted,
     NotificationCreated, OnCallChanged, PipelineDealCreated, PipelineDealStageChanged,
     PipelineDealUpdated, PipelineStageCreated, PipelineStageUpdated, PluginCatalogEntryCreated,
     PluginInstallRevoked, PluginInstallUpdated, PluginInstalled, PluginPublisherRevoked,
@@ -2480,6 +2481,58 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 slug: "ticket-summarizer".into(),
                 reason: Some("upstream vulnerability".into()),
                 revoked_at: st(21),
+            }
+        ),
+    },
+    // -- the identity-bundle artifact lifecycle (lane p52-identity-bundle) ----
+    PublishedEvent {
+        event_type: types::IDENTITY_BUNDLE_INSTALLED,
+        entity: "identity_bundle_install",
+        variant: "default",
+        shape: typed_shape!(
+            IdentityBundleInstalled,
+            IdentityBundleInstalled {
+                install_id: su(55),
+                name: "corp-okta".into(),
+                version: "1.4.0".into(),
+                interface_version: 1,
+                provider_kinds: vec!["oidc".into()],
+                artifact_digest: "ab".repeat(32),
+                // Installs land DISABLED; the sample says so, because a
+                // consumer must not assume approval switched anything on.
+                status: "disabled".into(),
+                occurred_at: st(22),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::IDENTITY_BUNDLE_UPDATED,
+        entity: "identity_bundle_install",
+        variant: "default",
+        shape: typed_shape!(
+            IdentityBundleUpdated,
+            IdentityBundleUpdated {
+                install_id: su(55),
+                name: "corp-okta".into(),
+                version: "1.4.0".into(),
+                status: "enabled".into(),
+                jit_enabled: false,
+                occurred_at: st(23),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::IDENTITY_BUNDLE_REVOKED,
+        entity: "identity_bundle_install",
+        variant: "default",
+        shape: typed_shape!(
+            IdentityBundleRevoked,
+            IdentityBundleRevoked {
+                install_id: su(55),
+                name: "corp-okta".into(),
+                version: "1.4.0".into(),
+                reason: Some("tenant decommissioned the IdP".into()),
+                revoked_at: st(24),
             }
         ),
     },
