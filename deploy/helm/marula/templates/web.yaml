@@ -40,13 +40,37 @@ spec:
           ports:
             - name: http
               containerPort: 3000
+          {{- with .Values.web.probes.startup }}
+          startupProbe:
+            {{- include "marula.probe" (dict "spec" . "port" 3000) | nindent 12 }}
+          {{- end }}
+          {{- with .Values.web.probes.liveness }}
+          livenessProbe:
+            {{- include "marula.probe" (dict "spec" . "port" 3000) | nindent 12 }}
+          {{- end }}
+          {{- with .Values.web.probes.readiness }}
           readinessProbe:
-            httpGet:
-              path: /
-              port: 3000
-            initialDelaySeconds: 5
-            periodSeconds: 5
+            {{- include "marula.probe" (dict "spec" . "port" 3000) | nindent 12 }}
+          {{- end }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", {{ .Values.web.preStopSleepSeconds | quote }}]
           resources: {{- toYaml (default .Values.resources .Values.web.resources) | nindent 12 }}
+      terminationGracePeriodSeconds: {{ .Values.web.terminationGracePeriodSeconds }}
+      {{- with .Values.topologySpread }}
+      {{- if .enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .maxSkew }}
+          topologyKey: {{ .topologyKey }}
+          whenUnsatisfiable: {{ .whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "marula.name" $ }}
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+              app.kubernetes.io/component: web
+      {{- end }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}

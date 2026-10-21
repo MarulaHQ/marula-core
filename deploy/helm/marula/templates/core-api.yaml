@@ -133,6 +133,10 @@ spec:
             {{- end }}
             - name: MARULA_MAX_UPLOAD_MB
               value: {{ .Values.coreApi.maxUploadMb | quote }}
+            # Bounded drain window (lane R5): the same number the chart's
+            # terminationGracePeriodSeconds leaves room for.
+            - name: MARULA_SHUTDOWN_GRACE_SECS
+              value: {{ .Values.coreApi.shutdownGraceSeconds | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.otel.exporterOtlpEndpoint | quote }}
             {{- with .Values.coreApi.extraEnv }}
@@ -140,14 +144,43 @@ spec:
             {{- end }}
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: {{ include "marula.portFromBind" .Values.coreApi.bindAddr }}
+          # Startup, liveness and readiness answer different questions (lane R5);
+          # the paths live in values so an operator can read them beside the
+          # grace window they interact with.
+          {{- with .Values.coreApi.probes.startup }}
+          startupProbe:
+            {{- include "marula.probe" (dict "spec" . "port" (include "marula.portFromBind" $.Values.coreApi.bindAddr)) | nindent 12 }}
+          {{- end }}
+          {{- with .Values.coreApi.probes.liveness }}
+          livenessProbe:
+            {{- include "marula.probe" (dict "spec" . "port" (include "marula.portFromBind" $.Values.coreApi.bindAddr)) | nindent 12 }}
+          {{- end }}
+          {{- with .Values.coreApi.probes.readiness }}
           readinessProbe:
-            httpGet:
-              path: /api/v1/health
-              port: {{ .Values.coreApi.bindAddr | regexFind ":\\d+$" | trimPrefix ":" }}
-            initialDelaySeconds: 5
-            periodSeconds: 5
+            {{- include "marula.probe" (dict "spec" . "port" (include "marula.portFromBind" $.Values.coreApi.bindAddr)) | nindent 12 }}
+          {{- end }}
+          lifecycle:
+            preStop:
+              exec:
+                # Endpoint removal propagates while requests already pointed at
+                # this pod still get answered; then SIGTERM starts the drain.
+                command: ["sleep", {{ .Values.coreApi.preStopSleepSeconds | quote }}]
           resources: {{- toYaml (default .Values.resources .Values.coreApi.resources) | nindent 12 }}
+      terminationGracePeriodSeconds: {{ .Values.coreApi.terminationGracePeriodSeconds }}
+      {{- with .Values.topologySpread }}
+      {{- if .enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .maxSkew }}
+          topologyKey: {{ .topologyKey }}
+          whenUnsatisfiable: {{ .whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "marula.name" $ }}
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+              app.kubernetes.io/component: core-api
+      {{- end }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -174,4 +207,4 @@ spec:
   ports:
     - name: http
       port: {{ .Values.service.coreApi.port }}
-      targetPort: {{ .Values.coreApi.bindAddr | regexFind ":\\d+$" | trimPrefix ":" }}
+      targetPort: {{ include "marula.portFromBind" .Values.coreApi.bindAddr }}

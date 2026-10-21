@@ -1,0 +1,116 @@
+{{- /*
+NetworkPolicy (lane R5) — OPT-IN, ingress-only.
+
+Why opt-in: enabling this makes the chart the only authority for who may reach
+the app pods. A scraper, a mesh sidecar, or a debug pod in another namespace
+stops being able to connect, and the failure is silent from the pod's side
+(requests never arrive; nothing logs a refusal). Operators who want the
+restriction ask for it and list what else may connect in
+`networkPolicy.extraIngress`.
+
+Why ingress-only: the apps need DNS, the object store, and whatever mail relay
+the operator configured. A wrong egress rule reads as an application hang, not
+as a policy, so this chart does not shape egress.
+
+One thing to check on the cluster: kubelet probes originate from the NODE, not
+from a pod, and CNIs differ on whether that source is implicitly allowed. If
+liveness/readiness start failing after enabling this, add the node CIDR to
+`networkPolicy.extraIngress` (an `ipBlock` rule on the probe port).
+*/ -}}
+{{- if .Values.networkPolicy.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "marula.fullname" . }}-core-api
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: core-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "marula.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: core-api
+  policyTypes: ["Ingress"]
+  ingress:
+    # web, worker, and anything else in the release namespace: the API is the
+    # only way a pod reaches data, so in-namespace callers stay allowed.
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ include "marula.portFromBind" .Values.coreApi.bindAddr }}
+    {{- if .Values.ingress.enabled }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressControllerNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ include "marula.portFromBind" .Values.coreApi.bindAddr }}
+    {{- end }}
+    {{- with .Values.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "marula.fullname" . }}-worker
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "marula.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: worker
+  policyTypes: ["Ingress"]
+  ingress:
+    # Only the health port: core-api's Self-host pane probes the worker there,
+    # and nothing else has business reaching it.
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ include "marula.portFromBind" .Values.worker.bindAddr }}
+    {{- with .Values.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- if .Values.web.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "marula.fullname" . }}-web
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "marula.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: web
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.web.port }}
+    {{- if .Values.ingress.enabled }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressControllerNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.web.port }}
+    {{- end }}
+    {{- with .Values.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+{{- end }}

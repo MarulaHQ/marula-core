@@ -47,3 +47,16 @@ The operator runbook is
 Grafana, status page), `ai` (local model runtime), `backup` (WAL-G +
 restic), and `edge` (the TLS proxy) are all opt-in. `docker compose up`
 without a `--profile` flag boots the same stack it always did.
+
+## Stopping the stack
+
+`core-api`, `worker` and `web` run with `restart: unless-stopped` and a 30s
+`stop_grace_period`. A crash brings the container back; a `docker compose
+stop` or `down` sends SIGTERM, and the process drains for up to
+`MARULA_SHUTDOWN_GRACE_SECS` (20s by default) before exiting. The binaries
+log what finished and what they cut.
+
+The compose stack has no container healthcheck for those three services: the
+runtime image carries no shell and no `curl`, so a `HEALTHCHECK` could not
+exec anything. The Helm chart is where HTTP probes live (`/livez`, `/readyz`,
+`/healthz`).

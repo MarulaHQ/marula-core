@@ -6,14 +6,37 @@
 //!
 //! With `MARULA_ALL_IN_ONE=1` this same process also hosts the worker
 //! loops (Wave 49 lane R4); see `core_api::all_in_one`.
+//!
+//! Shutdown (lane R5): one `worker::shutdown` contract for both topologies —
+//! SIGINT or SIGTERM stops the listener, refuses new requests with 503, and
+//! gives in-flight requests a bounded window to finish. The split topology
+//! used to serve with no graceful shutdown at all while all-in-one had one, so
+//! a rolling deploy cut live requests.
 
 use anyhow::Context;
+use axum::http::StatusCode;
+use axum::routing::get;
+use sqlx::PgPool;
+use std::sync::Arc;
+use std::time::Duration;
+use worker::shutdown::{self, Tracker};
+
+/// How long `/readyz` waits for its own `SELECT 1` before calling the database
+/// unreachable. Short on purpose: a probe that outlives its period is a probe
+/// that reports the wrong thing.
+const READINESS_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Shared telemetry (the private build tracker 2.18): none-mode unless
     // OTEL_EXPORTER_OTLP_ENDPOINT is set; guard lives for `main`.
     let _telemetry = core_otel::init("core-api");
+
+    // Installed before anything that can block: a stop during boot (a slow
+    // migration, a database still coming up) must exit cleanly instead of
+    // waiting for the runtime's kill.
+    let shutdown = shutdown::install();
+    let tracker = Tracker::new();
 
     let config = std::sync::Arc::new(
         core_api::config::Config::from_env()
@@ -124,6 +147,9 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(core_api::realtime::run_listener(
         config.database_url.clone(),
     ));
+    // The readiness probe needs the pool after the router takes ownership of
+    // the state.
+    let readiness_pool = state.pool.clone();
     let mut app = core_api::router(state);
 
     // Browser clients (apps/web) need CORS when served from another origin.
@@ -158,6 +184,27 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(origin = %origin, "CORS enabled");
     }
 
+    // Liveness and readiness, unmounted from the API generations on purpose: a
+    // probe is not an API route, so it answers on the same path in every
+    // version and never appears in the pinned OpenAPI document.
+    //
+    // `/livez` says only that this process is answering. `/readyz` checks the
+    // database (a bounded `SELECT 1`) and the shutdown flag — before this,
+    // readiness pointed at `/api/v1/health`, which is a constant "ok", so a
+    // replica with an unreachable database stayed Ready and kept receiving
+    // traffic.
+    app = app
+        .route("/livez", get(livez))
+        .route("/readyz", get(readyz))
+        .layer(axum::Extension(readiness_pool))
+        .layer(axum::Extension(Arc::clone(&tracker)))
+        // Outermost: a request that arrives inside the shutdown window is
+        // refused here, before any handler or middleware does work for it.
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&tracker),
+            shutdown::track_and_refuse,
+        ));
+
     // Served WITH connect info so every request carries its direct peer
     // address: real-client-IP resolution (Wave 47 lane A10) keys off the
     // peer, never off the caller-supplied `X-Forwarded-For` first hop.
@@ -168,36 +215,112 @@ async fn main() -> anyhow::Result<()> {
     .context("binding listener")?;
     tracing::info!("core-api listening");
 
-    // All-in-one (Wave 49 lane R4): run the worker loops in THIS process,
-    // and let one Ctrl-C stop both together. The split topology (the
-    // default) skips this branch entirely.
-    if config.all_in_one {
-        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-        core_api::all_in_one::spawn_worker(std::sync::Arc::clone(&config), shutdown_rx.clone());
+    // All-in-one (Wave 49 lane R4): run the worker loops in THIS process. Both
+    // topologies now share one stop path — the embedded worker watches the same
+    // flag the HTTP server does, so a single SIGTERM drains the request queue
+    // and the loops inside one grace window.
+    let embedded_worker = if config.all_in_one {
+        let handle =
+            core_api::all_in_one::spawn_worker(std::sync::Arc::clone(&config), shutdown.clone());
         tracing::info!(
             worker = %config.worker_bind_addr,
             "all-in-one: worker loops hosted in-process"
         );
-        // This process owns the signal: the embedded worker installs no
-        // handler of its own, so one Ctrl-C drives the shared flag, which
-        // drains the loops and (below) the HTTP server.
-        tokio::spawn(async move {
-            let _ = tokio::signal::ctrl_c().await;
-            let _ = shutdown_tx.send(true);
-        });
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .with_graceful_shutdown(core_api::all_in_one::wait_for_shutdown(shutdown_rx))
-        .await?;
-        return Ok(());
-    }
+        Some(handle)
+    } else {
+        None
+    };
 
-    axum::serve(
+    let window = shutdown::grace_window();
+    let serving = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .await?;
+    .with_graceful_shutdown(shutdown::wait(shutdown.clone()));
+    shutdown::serve_and_drain("core-api", serving, shutdown, tracker, window).await?;
+    if let Some(handle) = embedded_worker {
+        // The API has drained its requests; the loops in this process drain
+        // against the same window before the process leaves.
+        shutdown::wait_for_task(handle, window).await;
+    }
     Ok(())
+}
+
+/// `GET /livez` — the process answers; nothing else is asked.
+async fn livez() -> StatusCode {
+    StatusCode::OK
+}
+
+/// `GET /readyz` — 200 only when this replica is not draining and its database
+/// answers inside [`READINESS_QUERY_TIMEOUT`].
+async fn readyz(
+    axum::Extension(pool): axum::Extension<PgPool>,
+    axum::Extension(tracker): axum::Extension<Arc<Tracker>>,
+) -> (StatusCode, &'static str) {
+    if tracker.closing() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "draining");
+    }
+    match tokio::time::timeout(
+        READINESS_QUERY_TIMEOUT,
+        sqlx::query("SELECT 1").execute(&pool),
+    )
+    .await
+    {
+        Ok(Ok(_)) => (StatusCode::OK, "ready"),
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "readiness probe: the database refused a connection");
+            (StatusCode::SERVICE_UNAVAILABLE, "database unreachable")
+        }
+        Err(_) => {
+            tracing::warn!(
+                timeout_ms = READINESS_QUERY_TIMEOUT.as_millis() as u64,
+                "readiness probe: the database did not answer in time"
+            );
+            (StatusCode::SERVICE_UNAVAILABLE, "database timed out")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::Extension;
+    use sqlx::postgres::PgPoolOptions;
+
+    /// Nothing listens on port 1, so the pool fails to connect: the state a
+    /// replica with a broken database is in, and the state the old constant
+    /// `/api/v1/health` reported as Ready.
+    fn unreachable_pool() -> PgPool {
+        PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy("postgres://marula:marula@127.0.0.1:1/marula")
+            .expect("lazy pool")
+    }
+
+    #[tokio::test]
+    async fn readiness_fails_when_the_database_does_not_answer() {
+        let (status, reason) =
+            readyz(Extension(unreachable_pool()), Extension(Tracker::new())).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            reason == "database unreachable" || reason == "database timed out",
+            "unexpected readiness reason: {reason}"
+        );
+    }
+
+    #[tokio::test]
+    async fn readiness_fails_while_draining() {
+        let tracker = Tracker::new();
+        tracker.close();
+        let (status, reason) = readyz(Extension(unreachable_pool()), Extension(tracker)).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(reason, "draining");
+    }
+
+    /// Liveness answers with no state at all: a probe that needs the database
+    /// restarts the fleet when the database is the thing that is down.
+    #[tokio::test]
+    async fn liveness_asks_nothing_of_the_database() {
+        assert_eq!(livez().await, StatusCode::OK);
+    }
 }
