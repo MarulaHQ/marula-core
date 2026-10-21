@@ -85,6 +85,11 @@ pub fn permission_from_key(key: &str) -> Option<Permission> {
         "org_custom_domain:manage" => return Some(Permission::ManageOrgCustomDomain),
         // Wave 47 lane A7: the suspension notice read grant.
         "org_suspension:read" => return Some(Permission::ViewOrgSuspension),
+        // Wave 52 lane R12: the observability reader grant. A machine key with
+        // this scope reads the org's audit trail (and its export cursor) and
+        // still cannot write one, which is what makes it a reader and not the
+        // `special:view_audit_log` an admin holds.
+        "observability:read" => return Some(Permission::ViewObservability),
         // Wave 45 lane 1 (ADR 0020): RAG capability aliases resolve onto the
         // Kb matrix (`kb:view` / `kb:edit`), matching `PluginCapability::RagRead`
         // and `PluginCapability::RagWrite`.

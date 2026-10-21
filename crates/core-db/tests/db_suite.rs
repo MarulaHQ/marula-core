@@ -259,7 +259,7 @@ async fn org_registration_seeds_default_roles_board_and_sla_policy() {
 // --- users / roles / sessions -------------------------------------------------
 
 #[tokio::test]
-async fn user_create_role_assign_and_roles_for_user() {
+async fn user_create_role_assign_and_direct_roles_for_user() {
     let db = test_db().await;
     let s = seed_org(&db.app, 2).await;
     let user = fixed_uuid(200);
@@ -294,7 +294,7 @@ async fn user_create_role_assign_and_roles_for_user() {
         .await
         .expect("re-assign is conflict-safe");
 
-    let roles = users::roles_for_user(&mut *tx, user, s.org)
+    let roles = users::direct_roles_for_user(&mut *tx, user, s.org)
         .await
         .expect("roles");
     assert_eq!(roles.len(), 1, "idempotent re-assign must not duplicate");

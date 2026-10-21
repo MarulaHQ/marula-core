@@ -29,6 +29,25 @@ pub mod types {
     /// A shipped preset role row was restored to its canonical permission
     /// set (RB1, ADR 0004) — the presets stay canonical, orgs fork.
     pub const ROLE_RESTORED: &str = "role.restored";
+    /// A directory group was created (Wave 52 lane R10). The group itself
+    /// grants nothing until a role is mapped onto it.
+    pub const DIRECTORY_GROUP_CREATED: &str = "directory_group.created";
+    /// A directory group's name, description or external id changed.
+    pub const DIRECTORY_GROUP_UPDATED: &str = "directory_group.updated";
+    /// A directory group was removed; its memberships and role mappings
+    /// went with it, so every member loses whatever that group alone granted.
+    pub const DIRECTORY_GROUP_DELETED: &str = "directory_group.deleted";
+    /// A user joined a directory group, and therefore holds that group's
+    /// roles from now on (additive union with `user_roles`).
+    pub const DIRECTORY_GROUP_MEMBER_ADDED: &str = "directory_group.member_added";
+    /// A user left a directory group: the roles that group carried for them
+    /// are gone, and every other grant survives.
+    pub const DIRECTORY_GROUP_MEMBER_REMOVED: &str = "directory_group.member_removed";
+    /// A role was mapped onto a directory group: every current and future
+    /// member of the group holds it.
+    pub const DIRECTORY_GROUP_ROLE_MAPPED: &str = "directory_group.role_mapped";
+    /// A role was unmapped from a directory group.
+    pub const DIRECTORY_GROUP_ROLE_UNMAPPED: &str = "directory_group.role_unmapped";
     /// A template was created (org-created, or a fork of a shipped
     /// default — KB3/KB4, ADR 0004 template registry).
     pub const TEMPLATE_CREATED: &str = "template.created";
@@ -204,6 +223,20 @@ pub mod types {
     pub const PLUGIN_STAGED_IMPORT_REFUSED: &str = "plugin.staged_import_refused";
     pub const PLUGIN_UPDATE_PENDING: &str = "plugin.update_pending";
     pub const PLUGIN_SETTINGS_UPDATED: &str = "plugin.settings_updated";
+    /// The identity-bundle artifact lifecycle (this lane). A bundle is a
+    /// distribution artifact like a plugin or theme pack — staged,
+    /// consented, digest-pinned, adopted DISABLED — but its subject is an
+    /// identity SOURCE, so it reports under its own namespace rather than
+    /// borrowing `plugin.*`: a consumer watching identity should not have
+    /// to filter plugin traffic to find it.
+    /// `identity_bundle.installed` — an approved artifact minted the
+    /// install; `identity_bundle.updated` — enable/disable; and
+    /// `identity_bundle.revoked` — terminal withdrawal. Staging itself
+    /// rides the shared `plugin.staged_import_*` events, whose
+    /// `artifact_kind` field names `identity_bundle`.
+    pub const IDENTITY_BUNDLE_INSTALLED: &str = "identity_bundle.installed";
+    pub const IDENTITY_BUNDLE_UPDATED: &str = "identity_bundle.updated";
+    pub const IDENTITY_BUNDLE_REVOKED: &str = "identity_bundle.revoked";
     /// Emitted when an org- or user-scoped setting changes through the
     /// typed settings registry.
     pub const SETTING_UPDATED: &str = "setting.updated";
@@ -869,6 +902,68 @@ pub struct RoleRestored {
     pub builtin: String,
 }
 
+/// A directory group was created (payload for `directory_group.created`).
+/// `external_id` is the directory's identifier, `None` for a group created in
+/// Marula.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupCreated {
+    pub group_id: Uuid,
+    pub name: String,
+    pub external_id: Option<String>,
+}
+
+/// A directory group's mutable fields changed (payload for
+/// `directory_group.updated`). `previous_name` is the name before the write,
+/// so a consumer holding the old label can match the row it just saw.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupUpdated {
+    pub group_id: Uuid,
+    pub name: String,
+    pub previous_name: String,
+    pub external_id: Option<String>,
+}
+
+/// A directory group was removed (payload for `directory_group.deleted`). The
+/// membership and role-mapping rows are gone with it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupDeleted {
+    pub group_id: Uuid,
+    pub name: String,
+    pub external_id: Option<String>,
+}
+
+/// A user joined a directory group (payload for
+/// `directory_group.member_added`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupMemberAdded {
+    pub group_id: Uuid,
+    pub user_id: Uuid,
+}
+
+/// A user left a directory group (payload for
+/// `directory_group.member_removed`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupMemberRemoved {
+    pub group_id: Uuid,
+    pub user_id: Uuid,
+}
+
+/// A role was mapped onto a directory group (payload for
+/// `directory_group.role_mapped`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupRoleMapped {
+    pub group_id: Uuid,
+    pub role_id: Uuid,
+}
+
+/// A role was unmapped from a directory group (payload for
+/// `directory_group.role_unmapped`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupRoleUnmapped {
+    pub group_id: Uuid,
+    pub role_id: Uuid,
+}
+
 /// A template row was created (payload for `template.created`) — an
 /// org-created template or a fork of a shipped default (KB3/KB4, ADR
 /// 0004). `from_builtin` names the shipped default the row was forked
@@ -1416,6 +1511,67 @@ pub struct PluginInstallRevoked {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub catalog_id: crate::ids::PluginCatalogEntryId,
     pub slug: String,
+    pub reason: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub revoked_at: DateTime<Utc>,
+}
+
+// --- identity-bundle artifact lifecycle (this lane) --------------------------
+
+/// `identity_bundle.installed` — an owner/admin approved a staged
+/// `identity_bundle` artifact and the install row was minted. The row
+/// lands DISABLED: adoption is not activation. The payload carries the
+/// pinned digest and the declared transports only — never settings
+/// values, which can hold a discovery URL or client id.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct IdentityBundleInstalled {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: Uuid,
+    pub name: String,
+    pub version: String,
+    pub interface_version: u32,
+    /// The transports the bundle's executable half attaches
+    /// (`oidc`, `edge_assertion`) — never a vendor.
+    pub provider_kinds: Vec<String>,
+    /// sha256 of the verified artifact, pinned at approval.
+    pub artifact_digest: String,
+    /// `disabled` at install; the event states it so a consumer need not
+    /// assume the deny-by-default posture.
+    pub status: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// `identity_bundle.updated` — enable or disable. Identity source
+/// attached or detached from the login path; nothing about sessions,
+/// tokens or MFA changes, because those are core and not the bundle's.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct IdentityBundleUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: Uuid,
+    pub name: String,
+    pub version: String,
+    /// `disabled` | `enabled`.
+    pub status: String,
+    /// Whether JIT provisioning is on for this install (always
+    /// accompanied by the core's verified-email rule).
+    pub jit_enabled: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// `identity_bundle.revoked` — TERMINAL. The bundle is dead: its
+/// registration is withdrawn, no re-enable exists, and the only path
+/// back is a fresh install through a new consent diff.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct IdentityBundleRevoked {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: Uuid,
+    pub name: String,
+    pub version: String,
     pub reason: Option<String>,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
     pub revoked_at: DateTime<Utc>,

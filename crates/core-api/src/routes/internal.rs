@@ -2547,6 +2547,11 @@ async fn workflow_ticket(
 /// `Principal` (user + roles + permissions) — the same shape a session
 /// builds. Reusing it means a `ticket.transition` authored by a technician
 /// refuses on the board matrix exactly as their own session would.
+///
+/// The roles come from the same union read the session uses
+/// (`users::effective_roles_for_user`), so a run authored by someone whose
+/// authority comes from a directory group is evaluated identically to that
+/// person clicking the same button.
 async fn workflow_principal(
     ctx: &mut org_tx::OrgTx<'_>,
     org_id: Uuid,
@@ -2560,13 +2565,8 @@ async fn workflow_principal(
             "the run's author is no longer active".into(),
         ));
     }
-    let roles = core_db::users::roles_for_user(&mut *ctx.tx, actor, org_id).await?;
-    let permissions = crate::auth::middleware::resolve_permissions(&roles);
-    Ok(core_domain::entities::Principal {
-        user,
-        roles,
-        permissions,
-    })
+    let roles = core_db::users::effective_roles_for_user(&mut *ctx.tx, actor, org_id).await?;
+    Ok(crate::auth::middleware::principal_for(user, roles))
 }
 
 /// The ticket id from the run context: `event.ticket_id` (the triggering

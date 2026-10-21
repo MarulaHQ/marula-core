@@ -123,6 +123,15 @@ pub async fn webhook_ingest(
         return Err(ApiError::Unauthorized("invalid webhook signature".into()));
     }
 
+    // Per-org ingest volume (Wave 52 lane R12). Counted HERE, not on the
+    // response: the signature just proved which org this request belongs to,
+    // and every later exit — rate limit, replay fence, a malformed envelope —
+    // is still that org's traffic, which is what a metering consumer wants to
+    // see. A request with a bad signature is deliberately not counted: nothing
+    // about it names a tenant, so counting it would let a stranger add to any
+    // org's number by guessing a source ref.
+    core_otel::metrics::org_ingest(&source.r_org_id.to_string(), "webhook");
+
     // 5. Parse the generic envelope document.
     let req: WebhookIngestRequest = serde_json::from_slice(&body).map_err(|e| {
         tracing::debug!(error = %e, "webhook payload failed to parse");

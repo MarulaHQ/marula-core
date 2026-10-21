@@ -12,3 +12,4 @@ Wave planning and decision records:
 
 | Doc | What it is |
 |---|---|
+| [extension-points.md](extension-points.md) | Every seam a premium pack, connector, federation bundle or auth provider builds on: what it may do, what it may not, and the core file that owns it. Tested so it cannot drift. |

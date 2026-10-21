@@ -268,6 +268,12 @@ pub async fn ingest(
         return Err(ApiError::Unauthorized("invalid webhook signature".into()));
     }
 
+    // Per-org ingest volume (Wave 52 lane R12). Same point and same reasoning
+    // as the generic receiver: the signature is the proof of the tenant, and
+    // every rejection after this line is still that tenant's request. An
+    // unauthenticated request proves no org, so it is not counted.
+    core_otel::metrics::org_ingest(&source.r_org_id.to_string(), "alert");
+
     let req: IngestAlertRequest = serde_json::from_slice(&body).map_err(|e| {
         // Raw serde text stays server-side (Wave 13 lane 1).
         tracing::debug!(error = %e, "alert payload failed to parse");

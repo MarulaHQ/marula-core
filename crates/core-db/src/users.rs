@@ -198,32 +198,90 @@ where
     Ok(())
 }
 
-pub async fn roles_for_user<'e, E>(executor: E, user_id: Uuid, org_id: Uuid) -> DbResult<Vec<Role>>
+/// One `roles` row as the entity type. Shared by both role reads below so the
+/// two can never disagree about how a row becomes a `Role`.
+pub fn role_from_row(row: sqlx::postgres::PgRow) -> DbResult<Role> {
+    use sqlx::Row;
+    Ok(Role {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        name: row.get("name"),
+        builtin: parse_builtin(row.get::<Option<String>, _>("builtin").as_deref()),
+        permissions: serde_json::from_value(row.get("permissions")).unwrap_or_default(),
+        is_system: row.get("is_system"),
+    })
+}
+
+const ROLE_COLS: &str = "r.id, r.org_id, r.name, r.builtin, r.permissions, r.is_system";
+
+/// The roles assigned to the user DIRECTLY, by a `user_roles` row. This is the
+/// editorial view — what the org-users surface shows and edits — and it is NOT
+/// what authorization reads. Use [`effective_roles_for_user`] for that.
+pub async fn direct_roles_for_user<'e, E>(
+    executor: E,
+    user_id: Uuid,
+    org_id: Uuid,
+) -> DbResult<Vec<Role>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let rows = sqlx::query!(
-        r#"SELECT r.id, r.org_id, r.name, r.builtin, r.permissions, r.is_system
-           FROM roles r
-           JOIN user_roles ur ON ur.role_id = r.id
-           WHERE ur.user_id = $1 AND r.org_id = $2
-           ORDER BY r.name"#,
-        user_id,
-        org_id
-    )
-    .fetch_all(executor)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| Role {
-            id: row.id,
-            org_id: row.org_id,
-            name: row.name,
-            builtin: parse_builtin(row.builtin.as_deref()),
-            permissions: serde_json::from_value(row.permissions).unwrap_or_default(),
-            is_system: row.is_system,
-        })
-        .collect())
+    let sql = format!(
+        "SELECT {ROLE_COLS} FROM roles r \
+         JOIN user_roles ur ON ur.role_id = r.id \
+         WHERE ur.user_id = $1 AND r.org_id = $2 \
+         ORDER BY r.name"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(user_id)
+        .bind(org_id)
+        .fetch_all(executor)
+        .await?;
+    rows.into_iter().map(role_from_row).collect()
+}
+
+/// The roles a principal actually holds: the ADDITIVE UNION of the roles
+/// assigned to them directly and the roles granted by every directory group
+/// they belong to.
+///
+/// This and [`direct_roles_for_user`] are the only two answers to "which roles
+/// does this user have", and the names say which question each answers. Every
+/// principal the API builds goes through this one, so a group-granted role is
+/// not a second authorization path — it is the same path with more rows.
+///
+/// Why a union and not a precedence rule: there is no deny grant, so there is
+/// no conflict to resolve. A directory administrator who removes a person from
+/// a group expects exactly the roles that group carried to disappear, and every
+/// other grant to survive.
+///
+/// The org is pinned in the SQL on all three legs rather than left to RLS, so
+/// this read stays correct on an executor that carries no `app.org_id` scope
+/// (the same reason `direct_roles_for_user` pins `r.org_id`).
+pub async fn effective_roles_for_user<'e, E>(
+    executor: E,
+    user_id: Uuid,
+    org_id: Uuid,
+) -> DbResult<Vec<Role>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "SELECT {ROLE_COLS} FROM roles r \
+         WHERE r.org_id = $2 AND ( \
+           EXISTS (SELECT 1 FROM user_roles ur \
+                    WHERE ur.user_id = $1 AND ur.role_id = r.id) \
+           OR EXISTS (SELECT 1 FROM directory_group_roles dgr \
+                        JOIN directory_group_members dgm ON dgm.group_id = dgr.group_id \
+                        JOIN directory_groups g ON g.id = dgr.group_id \
+                       WHERE dgr.role_id = r.id AND dgm.user_id = $1 AND g.org_id = $2) \
+         ) \
+         ORDER BY r.name"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(user_id)
+        .bind(org_id)
+        .fetch_all(executor)
+        .await?;
+    rows.into_iter().map(role_from_row).collect()
 }
 
 pub fn parse_builtin(s: Option<&str>) -> Option<core_domain::policy::BuiltinRole> {

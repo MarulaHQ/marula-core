@@ -58,6 +58,27 @@ pub fn resolve_permissions(roles: &[core_domain::entities::Role]) -> Vec<Permiss
     out
 }
 
+/// The one place a session principal is assembled, and therefore the one place
+/// that answers "what may this principal do": the user row, the effective roles
+/// it holds, and the permission union those roles expand to.
+///
+/// `roles` must come from `core_db::users::effective_roles_for_user` — the
+/// additive union of `user_roles` and the roles granted by the directory groups
+/// the user belongs to — not from the direct-assignment read. Both the request
+/// middleware and the workflow-run seam build their principal here, so an
+/// authorization path cannot exist that misses a group-granted role.
+pub fn principal_for(
+    user: core_domain::entities::User,
+    roles: Vec<core_domain::entities::Role>,
+) -> core_domain::entities::Principal {
+    let permissions = resolve_permissions(&roles);
+    core_domain::entities::Principal {
+        user,
+        roles,
+        permissions,
+    }
+}
+
 /// Axum middleware: `Authorization: Bearer <jwt>` for humans, a scoped
 /// machine path via `x-api-key` (the private build tracker 2.15), and client-certificate
 /// authentication for service accounts (Wave 47 A9).
@@ -222,16 +243,12 @@ pub async fn require_auth(
             if !user.is_active {
                 return Err(ApiError::Unauthorized("account disabled".into()));
             }
-            let roles = core_db::users::roles_for_user(&mut *tx, claims.sub, claims.org).await?;
+            let roles =
+                core_db::users::effective_roles_for_user(&mut *tx, claims.sub, claims.org).await?;
             tx.commit()
                 .await
                 .map_err(|_| ApiError::Unauthorized("user not found or inactive".into()))?;
-            let permissions = resolve_permissions(&roles);
-            let principal = core_domain::entities::Principal {
-                user,
-                roles,
-                permissions,
-            };
+            let principal = principal_for(user, roles);
             if caches.enabled() {
                 caches.principal.insert(cache_key, principal.clone());
             }
@@ -290,6 +307,12 @@ const API_KEY_PATHS: &[&str] = &[
     // (`/api/v1/rag`) gated by `rag:read` (`kb:view`) and `rag:write`
     // (`kb:edit`).
     "/api/rag",
+    // The audit trail (Wave 52 lane R12): a premium pack that exports or
+    // forwards the trail calls `GET /api/audit-events` with an
+    // `observability:read` key and the ascending `after` cursor. An allowance
+    // is not a grant — the handler's own gate still runs, and that gate is what
+    // refuses a key holding only matrix reads.
+    "/api/audit-events",
 ];
 
 /// Maps capability scopes onto the permission matrix. Unknown scopes are
@@ -332,6 +355,13 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
         && !out.contains(&Permission::ViewOrgSuspension)
     {
         out.push(Permission::ViewOrgSuspension);
+    }
+    // Wave 52 lane R12: the observability reader. Read-only by construction —
+    // the audit trail is append-only and this grant reaches no other route.
+    if scopes.iter().any(|s| s.as_str() == "observability:read")
+        && !out.contains(&Permission::ViewObservability)
+    {
+        out.push(Permission::ViewObservability);
     }
     let mut push = |module: Module, actions: &[Action]| {
         for a in actions {
@@ -605,5 +635,73 @@ fn service_account_user(
         mfa_totp_secret: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::principal_for;
+    use core_domain::entities::{Role, User};
+    use core_domain::policy::{BuiltinRole, Permission};
+
+    fn user() -> User {
+        let now = chrono::Utc::now();
+        User {
+            id: uuid::Uuid::now_v7(),
+            org_id: uuid::Uuid::now_v7(),
+            email: "union@acme.test".into(),
+            display_name: "Union Test".into(),
+            timezone: "UTC".into(),
+            is_active: true,
+            mfa_totp_secret: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn role(name: &str, builtin: Option<BuiltinRole>, permissions: Vec<Permission>) -> Role {
+        Role {
+            id: uuid::Uuid::now_v7(),
+            org_id: uuid::Uuid::now_v7(),
+            name: name.into(),
+            builtin,
+            permissions,
+            is_system: builtin.is_some(),
+        }
+    }
+
+    /// The assembly point is the union's only consumer: whatever roles the
+    /// caller loaded — direct, group-derived, or both — become the permission
+    /// list every route check reads. A group-granted role is not a second
+    /// authorization path, so it must not need one here either.
+    #[test]
+    fn a_group_granted_role_reaches_the_permission_union() {
+        let direct = role("Technician", None, vec![Permission::ManageUsers]);
+        let via_group = role("Admin", None, vec![Permission::ManageRoles]);
+
+        let principal = principal_for(user(), vec![direct, via_group]);
+
+        assert_eq!(principal.roles.len(), 2);
+        assert!(principal.permissions.contains(&Permission::ManageUsers));
+        assert!(
+            principal.permissions.contains(&Permission::ManageRoles),
+            "a role reached through a group contributes exactly like a direct one"
+        );
+    }
+
+    /// A builtin role expands from its shipped matrix, not from a drifted row.
+    #[test]
+    fn a_builtin_role_expands_from_the_canonical_matrix() {
+        use core_domain::policy::{Action, Module};
+
+        let owner = role("Owner", Some(BuiltinRole::Owner), vec![]);
+        let principal = principal_for(user(), vec![owner]);
+
+        assert!(principal.is_owner_or_admin());
+        assert!(principal.permissions.contains(&Permission::ManageBilling));
+        assert!(principal.permissions.contains(&Permission::Matrix {
+            module: Module::Tickets,
+            action: Action::Delete,
+        }));
     }
 }

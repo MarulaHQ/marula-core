@@ -3,7 +3,7 @@
 
 **Marula Core API 0.1.0** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**647 paths · 863 operations · 1360 schemas.**
+**651 paths · 872 operations · 1368 schemas.**
 
 ## admin
 
@@ -407,6 +407,20 @@
 | `GET` | `/api/v1/dedupe/workflow` <a id="dedupe_get_workflow"></a> | GET /api/dedupe/workflow — the org's workflow + the honest gate state. | — |
 | `PUT` | `/api/v1/dedupe/workflow` <a id="dedupe_put_workflow"></a> | PUT /api/dedupe/workflow — configure the intelligent dedupe workflow. The gate is the ADR 0011 §3 posture: enabling requires the org's decision model to be configured — the typed refusal is `dedupe_decision_not_configured`, never a silent turn-on. | [DedupeWorkflowRequest](#schema-dedupeworkflowrequest) |
 | `POST` | `/api/v1/dedupe/workflow/run` <a id="dedupe_run_workflow"></a> | POST /api/dedupe/workflow/run — the manual run (and the workbench's "run intelligent dedupe" trigger). Report-first: every suggestion is recorded suggestion-grade and visible in the workbench; in auto_merge mode ONLY the at/above-threshold folds apply (audited, undoable). | [DedupeRunRequest](#schema-deduperunrequest) |
+
+## directory-groups
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/directory-groups` <a id="directory_groups_list"></a> | GET /api/directory-groups — every group in the org (manager+). | — |
+| `POST` | `/api/v1/directory-groups` <a id="directory_groups_create"></a> | POST /api/directory-groups — create a group. The group grants nothing until a role is mapped onto it. | [CreateDirectoryGroupRequest](#schema-createdirectorygrouprequest) |
+| `DELETE` | `/api/v1/directory-groups/{id}` <a id="directory_groups_delete"></a> | DELETE /api/directory-groups/{id} — remove the group. Its memberships and role mappings go with it, so every member loses exactly what this group granted. | — |
+| `GET` | `/api/v1/directory-groups/{id}` <a id="directory_groups_detail"></a> | GET /api/directory-groups/{id} — the group with its members and role mappings (manager+). | — |
+| `PATCH` | `/api/v1/directory-groups/{id}` <a id="directory_groups_update"></a> | PATCH /api/directory-groups/{id} — rename, re-describe, or re-point the external id. Absent fields keep their values. | [UpdateDirectoryGroupRequest](#schema-updatedirectorygrouprequest) |
+| `DELETE` | `/api/v1/directory-groups/{id}/members/{userId}` <a id="directory_groups_remove_member"></a> | DELETE /api/directory-groups/{id}/members/{userId} — take a user out of the group. The roles that group carried for them are gone; every other grant survives. | — |
+| `PUT` | `/api/v1/directory-groups/{id}/members/{userId}` <a id="directory_groups_add_member"></a> | PUT /api/directory-groups/{id}/members/{userId} — put a user in the group. Idempotent; a repeated call reports the same membership and emits nothing. | — |
+| `DELETE` | `/api/v1/directory-groups/{id}/roles/{roleId}` <a id="directory_groups_unmap_role"></a> | DELETE /api/directory-groups/{id}/roles/{roleId} — drop a role from the group. Members lose exactly that role where the group was its only source. | — |
+| `PUT` | `/api/v1/directory-groups/{id}/roles/{roleId}` <a id="directory_groups_map_role"></a> | PUT /api/directory-groups/{id}/roles/{roleId} — map a role onto the group. Every current and future member holds it from now on (additive union with their directly assigned roles). Idempotent. | — |
 
 ## dispatch
 
@@ -1700,6 +1714,7 @@
 | <a id="schema-createcontractrequest"></a>`CreateContractRequest` | composite |  |
 | <a id="schema-createcostlinerequest"></a>`CreateCostLineRequest` | composite |  |
 | <a id="schema-createdealrequest"></a>`CreateDealRequest` | composite | POST /api/pipeline/deals body. |
+| <a id="schema-createdirectorygrouprequest"></a>`CreateDirectoryGroupRequest` | composite |  |
 | <a id="schema-createdlink"></a>`CreatedLink` | object | The create response. `token` is the RAW shareable token — shown ONCE, never stored server-side (only its SHA-256 hash). |
 | <a id="schema-createdocumentrequest"></a>`CreateDocumentRequest` | composite |  |
 | <a id="schema-createedgelinkrequest"></a>`CreateEdgeLinkRequest` | object |  |
@@ -1838,6 +1853,12 @@
 | <a id="schema-detectionview"></a>`DetectionView` | object |  |
 | <a id="schema-deviceasset"></a>`DeviceAsset` | object |  |
 | <a id="schema-diffentry"></a>`DiffEntry` | object | One structural change between the current document and the draft. The caller renders these as the review diff; nothing is applied here. |
+| <a id="schema-directorygroupdetailresponse"></a>`DirectoryGroupDetailResponse` | object | One group with its current members and role mappings. |
+| <a id="schema-directorygroupmemberview"></a>`DirectoryGroupMemberView` | object | One member of a group. |
+| <a id="schema-directorygroupmutationresponse"></a>`DirectoryGroupMutationResponse` | composite | Instant-first mutation response (IF2): the group fields at the top level plus the additive `mutation` metadata. |
+| <a id="schema-directorygrouproleview"></a>`DirectoryGroupRoleView` | object | One role a group carries. |
+| <a id="schema-directorygroupslistresponse"></a>`DirectoryGroupsListResponse` | object |  |
+| <a id="schema-directorygroupview"></a>`DirectoryGroupView` | object | One directory group, with the counts a listing shows. |
 | <a id="schema-dispatchappointment"></a>`DispatchAppointment` | object | One booking block on the dispatch board: the appointment plus the ticket number and client name the block face renders. |
 | <a id="schema-dispatchdayquery"></a>`DispatchDayQuery` | object | One dispatch-path query: `date` is a LOCAL date interpreted as the UTC day window (documented UTC scope). |
 | <a id="schema-dispatchdayview"></a>`DispatchDayView` | object | The assembled day-view payload: one request, one render. |
@@ -2689,6 +2710,7 @@
 | <a id="schema-updateconnectionrequest"></a>`UpdateConnectionRequest` | object |  |
 | <a id="schema-updatecostlinerequest"></a>`UpdateCostLineRequest` | composite |  |
 | <a id="schema-updatedealrequest"></a>`UpdateDealRequest` | composite | PATCH /api/pipeline/deals/{id} body — editable fields only; the stage moves via the /stage leg. |
+| <a id="schema-updatedirectorygrouprequest"></a>`UpdateDirectoryGroupRequest` | composite |  |
 | <a id="schema-updatedocumentrequest"></a>`UpdateDocumentRequest` | composite |  |
 | <a id="schema-updateexpenserequest"></a>`UpdateExpenseRequest` | composite |  |
 | <a id="schema-updateexternaldocumentrequest"></a>`UpdateExternalDocumentRequest` | composite |  |
@@ -2788,4 +2810,4 @@
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 31 operation groups; schema count 1360 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 31 operation groups; schema count 1368 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
