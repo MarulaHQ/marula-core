@@ -11,6 +11,8 @@
 // and the native pad (SVG) reduce their strokes through these helpers so the
 // two platforms disagree about nothing.
 
+import { TOKEN } from "@marula-core/ui";
+
 /** One sample of one stroke. `t` is the device clock in ms — evidence about
  *  the device, not a trusted server timestamp. */
 export interface StrokePoint {
@@ -131,7 +133,11 @@ export interface RasterTarget extends TrimOptions {
 
 export const DEFAULT_RASTER: RasterTarget = {
   ...TRIM_BOX,
-  inkColor: "#2B2A33",
+  // The dusk ink from the token set (`--m-ink` / `TOKEN.ink`). A canvas cannot
+  // resolve a CSS custom property, so the value has to be a string here — but
+  // it is the token's value, not a colour authored in this module. The pad
+  // reads the live `--m-text` first and falls back to this.
+  inkColor: TOKEN.ink,
 };
 
 /**

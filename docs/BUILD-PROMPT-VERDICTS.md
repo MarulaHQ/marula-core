@@ -28,7 +28,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | OpenAPI utoipa → Scalar → generated TS SDK | shipped | Scalar at `/openapi.json`, `packages/sdk` generated client, 578 pinned paths (`packages/sdk/openapi.json`) |
 | meridian-theme tokens, light+dark from one set, no hardcoded hex | shipped | `packages/ui` Workbench tokens, CI brand-distinctness scan, per-theme gate `check-theme-packs.mjs` (Wave 24 theming) |
 | Mockups in `internal/design/mockups/` light+dark | shipped | app mockups (workbench v2 is the canonical aesthetic reference) + website mockups `website-*.html` light+dark |
-| CI brand-distinctness check | shipped | `ci.yml.disabled` "Brand distinctness — Workbench tokens only" job (definitions-only, triggers user-gated, see `ga-gates.yml.disabled`) |
+| CI brand-distinctness check | shipped | `scripts/check-token-conformance.sh`, wired per push in `ci.yml` (Wave 52 lane `p52-ci-gates-restore`). The Workbench-era brand job it replaced is gone with the theme it guarded |
 | hello-world ticket CRUD: API → DB → event → WS → web | shipped | Stage-0/1 acceptance harness (`scripts/acceptance.ts`, 18 live checks incl. the WS push chain) — `docs/STAGE-REPORT.md` Stage 0/1 sections |
 | Generated SDK compiles in a scratch TS project | shipped | SDK typechecks against the live spec on every gate run (openapi pin + regen ritual) |
 | Licensing files Stage 0 | shipped | LICENSE (AGPL-3.0), SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md; Apache-2.0 on `packages/sdk`, `packages/plugin-kit`, `plugins/`, `connectors/` |
@@ -38,7 +38,7 @@ citation. Where it is code, the citation names the module or endpoint.
 
 | Spec item | Verdict | Evidence / gap |
 | --- | --- | --- |
-| Core entity migrations + RLS from day one | shipped | migrations to head 0109 and the `assert_rls_coverage` gate fails CI on a policy-less table (enforced by the RLS-coverage job in `ci.yml.disabled` definitions) |
+| Core entity migrations + RLS from day one | shipped | migrations to head 0109 and the `assert_rls_coverage` gate fails CI on a policy-less table (enforced by the `rls-coverage` job in `ci.yml`, enabled 2026-10-21) |
 | argon2id, JWT+refresh rotation, policy module, org/user/role | shipped | `core-api` auth (`crates/core-api/src/routes/auth.rs`, `core-domain/src/policy.rs`) with hardening in Wave 19 lanes 1–4 |
 | Multi-timer + time entries | shipped | `/api/v1/timers/*` (start/pause/resume/stop/active/working-set), `time-entries` CRUD |
 | WS events for tickets/timers | shipped | realtime hub :8081, per-user/per-board routing, presence |
@@ -116,7 +116,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | CSAT surveys + canned responses/snippets + ticket templates | shipped | Wave 34 lane 2 (CSAT on resolution, none-mode honest) + lane 3 (reply-snippets) + `/api/v1/templates` |
 | Tauri 2 desktop shell GA | shipped | Wave 20 lane 1 GA packaging + updater + multi-window (Wave 38 lane 1 web popouts, desktop lane 2 in roadmap) |
 | Accept: perf budgets met | shipped | ticket-list budget met and WS delivery p95 within budget (Stage 1 harness + perf docs baselines) |
-| Accept: self-host upgrade path tested in CI (v0.9→v1.0) | shipped-with-honest-gap | U9 cross-check landed (record in TASKLIST_COMPLETED). The N−2 upgrade matrix job is defined in `ci.yml.disabled`/`nightly.yml.disabled`, but CI triggers are user-gated, so the in-CI run has not happened continuously |
+| Accept: self-host upgrade path tested in CI (v0.9→v1.0) | shipped-with-honest-gap | U9 cross-check landed (record in TASKLIST_COMPLETED). The N−2 upgrade matrix job is in `nightly.yml` and its triggers are on since 2026-10-21; the in-CI run has not happened yet, because enabling a workflow starts nothing until the first push or scheduled date |
 | Accept: accessibility audit clean at AA on 10 core flows | shipped | Wave 29 lane 2 re-verified ALL shipped (grown) surfaces at AA |
 
 ## Stage 5 — Ecosystem (MER-P4, stretch)
@@ -177,7 +177,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | Routing/geocoding: RoutingProvider trait, OSRM/ORS default, Mapbox adapter | shipped | + TravelTime/Geoapify as relays (ADR 0014) |
 | Observability: OTel, Grafana/Loki/Tempo, GlitchTip, Uptime Kuma | shipped | OTel + Grafana/Loki/Tempo + GlitchTip all in compose and visible to the operator (Wave 36 lane 3). Uptime Kuma landed on the `observability` profile (p34-verdicts-closeout row 7: digest-pinned 2.5.5, verified with `docker compose --profile observability config`) |
 | Docs/API: Starlight in-repo, generated API docs → Scalar | shipped | Diátaxis `docs/site/` (68+ pages, check-docs gate), generated `reference/api.md`, Scalar UI |
-| Tooling: cargo workspace + pnpm + Turborepo, Changesets + conventional commits, GHCR digest-pinned + SBOM + provenance | shipped-with-honest-gap | cargo+pnpm+turbo live. Changesets is configured but unused (`changesets.yml.disabled`). GHCR+SBOM+provenance are `release.yml.disabled` definitions awaiting the user-gated trigger + Wave 38 hardening |
+| Tooling: cargo workspace + pnpm + Turborepo, Changesets + conventional commits, GHCR digest-pinned + SBOM + provenance | shipped-with-honest-gap | cargo+pnpm+turbo live. Changesets is configured and wired to `push: main` (`changesets.yml`, enabled 2026-10-21); the first version PR waits for the first push. GHCR+SBOM+provenance are `release.yml.disabled` definitions awaiting the user-gated trigger + Wave 38 hardening |
 
 ## §7/§8 gate rows (records the phase checklist already tracks)
 
@@ -185,7 +185,7 @@ citation. Where it is code, the citation names the module or endpoint.
 | --- | --- |
 | Playwright E2E 10 core flows × light+dark | shipped (25 flow files incl. plugin surfaces, multi-window; both themes) |
 | RLS coverage test | shipped (`assert_rls_coverage` in the migration+flow tests) |
-| Domain coverage ≥80% | definition exists in `ga-gates.yml.disabled`. Measured coverage is not recorded on main and rides the same user-gated re-enable |
+| Domain coverage ≥80% | the job is in `nightly.yml` (`domain-coverage`, `cargo llvm-cov --fail-under-lines 80`) and runs on the schedule. No measured number is recorded on main yet: the first scheduled run produces it |
 | Perf smoke on every merge | definition exists (`perf-smoke.sh` + job), trigger user-gated |
 | Migration-diff check (`--breaking` lint) | shipped (`scripts/check-migrations.sh` in the gate set) |
 | Preview environment per PR | **definition landed, activation user-gated** — `preview.yml.disabled` + `deploy/preview/compose.preview.yml` (sizing, three published interfaces, mandatory per-run secrets, teardown on PR close) shipped with the Wave 34 claims close-out. The trigger rename stays USER-GATED with the rest of the disabled set, and two steps remain owner work by nature: provisioning the host, and the wildcard DNS/TLS. Both are `exit 1` with a message rather than a plausible guess. See `deploy/preview/README.md` |
@@ -298,29 +298,31 @@ citation. Where it is code, the citation names the module or endpoint.
 
 Deliberate documented decisions (NOT follow-ups): optional client
 approvals on time entries stay manager-only (owner decision recorded
-above). GA-gates re-enable stays USER-GATED (below).
+above). The workflow posture is below: enabled 2026-10-21, except preview and
+release.
 
-## `ga-gates.yml.disabled` re-enable list — USER-GATED
+## Workflow posture — the split landed 2026-10-21
 
-The disabled workflow set (`ci.yml.disabled`, `ga-gates.yml.disabled`,
-`nightly.yml.disabled`, `release.yml.disabled`, `native.yml.disabled`,
-`changesets.yml.disabled`) carries complete gate DEFINITIONS. Re-enabling
-any trigger is a USER decision — never lane-owned (committed posture
-`f00cdb3`, re-affirmed by Wave 34 lane 6 and the Phase-4 checklist).
-What each file would enable:
+Wave 52 lane `p52-ci-gates-restore` split the `.disabled` set into a per-push
+half and a nightly half. `ga-gates.yml` was folded into those two and no longer
+exists: its `on:` block had been commented out, so it was a job list with no
+owner. `.github/workflows/README.md` is the index and carries the per-file
+reason.
 
-| Workflow | Gates inside |
-| --- | --- |
-| `ci.yml.disabled` | fmt/clippy/test matrix, web lint+types+tests, migration safety, OpenAPI pin format, RLS pool-read gate, RLS coverage, brand distinctness, deprecation clock, golden OpenAPI, E2E 10 flows light+dark, perf smoke, N−2 upgrade matrix |
-| `ga-gates.yml.disabled` | API contract tests from the pin, domain-layer coverage ≥80%, U9 customization cross-check, perf smoke |
-| `nightly.yml.disabled` | 100k tickets/org seed+load, deep-page tripwires |
-| `release.yml.disabled` | digest-pinned GHCR images, SBOM (syft), provenance attestation, changeset notes |
-| `native.yml.disabled` | native typecheck/lint/tests, macOS runner Maestro matrix |
-| `changesets.yml.disabled` | changeset version PR automation |
-| `preview.yml.disabled` | not a gate — the per-PR preview environment (Wave 34 claims close-out, claim 4). Boots a sized stack, seeds the demo org, comments the URL, tears down on PR close |
+| Workflow | State | What runs |
+| --- | --- | --- |
+| `ci.yml` | enabled — every pull request and every push to `main` | boundary, Rust fmt/clippy/test plus the sqlx offline-cache check, web lint/types/tests, shared-chrome, theme-pack and evidence-write ratchets, token conformance, migration safety and the U9 customization cross-check, OpenAPI pin format, hadolint, RLS pool reads, RLS coverage, deprecation clock, API contract and golden OpenAPI |
+| `nightly.yml` | enabled — 05:30 UTC daily | perf smoke, the 50k HTTP load budget, the 100k scale measurement, Playwright in both themes with the axe baseline, the live-server golden OpenAPI layer, the N−2 upgrade matrix, domain coverage ≥80%, trivy config scan, and the ClamAV daemon leg |
+| `native.yml` | enabled — 05:45 UTC daily | native typecheck/lint/tests and the macOS Maestro matrix |
+| `changesets.yml` | enabled — push to `main` | changeset version PR |
+| `dco.yml` | enabled — every pull request | `Signed-off-by` trailer on every commit, matched to its author |
+| `preview.yml.disabled` | disabled | not a gate: a per-PR preview needs a host, wildcard DNS, TLS and deploy credentials. The file says so at the top; its steps fail on purpose rather than pretend |
+| `release.yml.disabled` | disabled | digest-pinned GHCR images, SBOM (syft), provenance attestation, Helm chart. Pushing artifacts to a registry and a release page is the maintainer's publishing decision |
 
-Re-enabling is a checkbox on the user's side. The definitions are kept
-byte-current by the gates that run them in CI-parity locally.
+Enabling these was a lane decision this time, on the user's instruction that the
+wave's last act puts the gates back. A green workflow is still only proven by a
+run: the per-push commands were executed locally against the same commit, which
+is evidence about the commands, not about the runner.
 
 ## Lane record
 

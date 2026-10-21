@@ -41,7 +41,7 @@ none of them belongs on the published docs site. Product vocabulary lives in
 | **Typed outcome with no consumer** | A result value or error variant that nothing reads. Treated as a defect, because it looks handled and is not. |
 | **Metric with no reader** | A counter or gauge nothing scrapes or alerts on. Same verdict as above. |
 | **Premise** | The claim in a tracker row that the lane exists to test. A stale premise is a reason to stop the lane, not to invent adjacent work. |
-| **Stale row** | A tracker row whose work is already merged, or whose cited path no longer exists. `scripts/check-tracker-freshness.mjs` reports these; a human decides. |
+| **Stale row** | A tracker row whose work is already merged, or whose cited path no longer exists. The private tracker tooling reports these (the check left this repository with the tracker); a human decides. |
 
 ## Tooling
 

@@ -61,17 +61,16 @@ install, which is how a lane ends up editing `main`'s working tree.
 
 ## Lane preflight — the row's premise comes first (BINDING, added 2026-10-18)
 
-A lane's first act is to test the premise it was launched on, not to start building:
+A lane's first act is to test the premise it was launched on, not to start building.
 
-```
-node scripts/check-tracker-freshness.mjs --row <ID>
-```
-
-It reports what git can prove about that row: the row's own branch merged into `main`, a
-claimed merge sha that is not in `main`'s history, a cited path that no longer exists, a
-gate the row quotes that already passes, fire-order prose that still calls a merged lane
-"in flight". If it flags the row, read the code the row cites and decide before writing
-anything — the check reports, it does not rule.
+The tracker and its freshness check are part of the private half, not this
+repository. The check reads `TASKLIST.md` and compares it against this checkout:
+run it from the private tracker tooling, pointing at the worktree you are in
+(`MARULA_CORE_REPO=<worktree>`). It reports what git can prove about a row: the row's own
+branch merged into `main`, a claimed merge sha that is not in `main`'s history, a cited
+path that no longer exists, a gate the row quotes that already passes, fire-order prose
+that still calls a merged lane "in flight". If it flags the row, read the code the row
+cites and decide before writing anything — the check reports, it does not rule.
 
 When the premise is already satisfied — the work is on `main`, or the file the row points
 at was deleted by the lane that closed it — STOP. Report `STALE ROW <ID> — <evidence>` to

@@ -15,7 +15,6 @@
     "alerts:check": "node scripts/check-alert-rules.mjs",
     "levers:check": "node scripts/generate-reliability-levers.mjs --check",
     "agents:check": "node scripts/check-agent-manifest.mjs",
-    "tracker:check": "node scripts/check-tracker-freshness.mjs",
     "rows:check": "node scripts/p47-row-effect-check.mjs --strict",
     "shortcuts:check": "tsx --tsconfig apps/web/tsconfig.json scripts/check-command-targets.ts",
     "hooks:check": "node scripts/check-hook-paths.mjs",

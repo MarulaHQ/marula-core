@@ -1,9 +1,10 @@
 # DCO enforcement for pull-request commits.
 #
-# Disabled by the repo-wide convention: every workflow here ships as
-# *.yml.disabled. Rename to dco.yml to enable it. The alternative is the `dco`
-# GitHub App, which enforces the same rule with no workflow file and nothing to
-# maintain — pick one, not both.
+# Wave 52 lane `p52-ci-gates-restore` enabled this file: it is a per-PR check,
+# it needs nothing but the checkout and git, and it uses the workflow's own
+# `GITHUB_TOKEN` (fetch-only, no write scope, no remote-only secret of its own).
+# The alternative is the `dco` GitHub App, which enforces the same rule with no
+# workflow file and nothing to maintain — pick one, not both.
 #
 # The rule: every commit in the PR carries a `Signed-off-by: Name <email>`
 # trailer whose identity matches that commit's author, exactly. That sign-off is

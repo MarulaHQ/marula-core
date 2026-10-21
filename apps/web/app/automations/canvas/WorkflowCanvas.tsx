@@ -404,7 +404,7 @@ export default function WorkflowCanvas({ ruleId }: WorkflowCanvasProps) {
 
   // Reflect validation onto the cards without a re-layout. Returns the SAME
   // array when nothing changed, so the effect that recomputes `issues` from
-  // `nodes` cannot ping-pong with this one (React error #185).
+  // `nodes` cannot ping-pong with this one (React error 185).
   useEffect(() => {
     setNodes((current) => {
       let changed = false;

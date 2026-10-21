@@ -9,7 +9,7 @@
  *
  * This component exists for what comes after. When React's hydration
  * recovery re-creates the <html> element on an authed route (hydration
- * error #418 recovery), the script-set attribute goes with it and the page
+ * error 418 recovery), the script-set attribute goes with it and the page
  * repaints light until something writes again — the wrong-mode flash this
  * lane kills. `useLayoutEffect` runs after hydration but BEFORE the browser
  * paints that DOM, so re-applying the resolved attribute here closes the gap

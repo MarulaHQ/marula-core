@@ -302,8 +302,11 @@ Every compose image is pinned by digest, and services drop all capabilities with
 `scripts/e2e-stack.sh` is the only supported way to boot the stack: it creates a
 per-run database, picks random high ports, names containers by run id, and writes
 `e2e/.e2e-stack.env` for Playwright and the web build to read. `scripts/dev-status.sh`
-lists registered runs. The GitHub workflow files in `.github/workflows/` are all
-`.disabled`; the checks run through `scripts/`.
+lists registered runs. The GitHub workflows in `.github/workflows/` run per push
+(`ci.yml`, `dco.yml`), on a push to `main` (`changesets.yml`) or nightly
+(`nightly.yml`, `native.yml`); `.github/workflows/README.md` is the index. Two files
+stay `.disabled` on purpose: `preview.yml.disabled` needs a host and credentials, and
+`release.yml.disabled` is a publishing decision.
 
 ## 17. Version summary
 

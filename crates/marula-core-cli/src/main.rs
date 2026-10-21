@@ -78,9 +78,9 @@ enum Command {
         #[command(subcommand)]
         action: PluginKeyAction,
     },
-    /// Deployment descriptor tooling (Wave 49 lane R7): the interface
-    /// marula-hq consumes. Emits the machine-readable descriptor and keeps
-    /// the checked-in profile files in step with it.
+    /// Deployment descriptor tooling (Wave 49 lane R7): the interface a
+    /// commercial control plane consumes. Emits the machine-readable
+    /// descriptor and keeps the checked-in profile files in step with it.
     Deploy {
         #[command(subcommand)]
         action: DeployAction,

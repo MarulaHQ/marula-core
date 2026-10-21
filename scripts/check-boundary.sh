@@ -11,8 +11,8 @@
 #   3. The core has no dependency on any repository outside itself.
 #
 # They are the evidence for the "enforced by CI" claim. If a rule has no check
-# here, the claim is not being made for it. The enforcing job lives in
-# .github/workflows/ci.yml.disabled and is enabled at the public launch.
+# here, the claim is not being made for it. The enforcing job is `boundary` in
+# .github/workflows/ci.yml, on every pull request and push to main.
 #
 # A line may opt out with a trailing marker:
 #     // boundary-allow: reason

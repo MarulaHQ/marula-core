@@ -1,5 +1,18 @@
 # Release pipeline (the private build tracker U10b + Wave 38 p38-container-hardening).
 #
+# ─────────────────────────────────────────────────────────────────────────────
+# STAYS DISABLED (`.disabled` suffix), by decision of Wave 52 lane
+# `p52-ci-gates-restore`. The reason, in one line: a release moves artifacts to
+# a remote and that is a publishing decision, which belongs to the maintainer —
+# not a gate a lane may switch on.
+#
+# Concretely, enabling it would need: a `vX.Y.Z` tag this repository does not
+# cut by automation, a push to GHCR with `packages: write` plus OIDC for the
+# provenance attestations, and a decision about which registry and which release
+# page the artifacts land on. The definition is complete and reviewed against
+# p38 (every action SHA-pinned, digest manifest printed for the chart's
+# `digestPinningEnforced` gate); the switch is a person's.
+# ─────────────────────────────────────────────────────────────────────────────
 # On a vX.Y.Z tag:
 #   1. Build + push four images to GHCR, pinned by digest, with provenance
 #      attestations (buildx) and SBOMs (syft), both uploaded as artifacts

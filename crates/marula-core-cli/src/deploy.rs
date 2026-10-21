@@ -1,4 +1,5 @@
-//! The deploy descriptor (Wave 49 lane R7) — the interface marula-hq consumes.
+//! The deploy descriptor (Wave 49 lane R7) — the interface a commercial
+//! control plane consumes.
 //!
 //! One image runs every role, and a deployment is parameterized by runtime env
 //! vars. This module is the machine-readable description of that contract: the
@@ -6,12 +7,13 @@
 //! runtime parameters with their kinds, defaults and grouping.
 //!
 //! Rust is the single source of truth. `marula deploy describe --json` emits
-//! the descriptor for hq to pin; `marula deploy profiles --write` regenerates
-//! `deploy/profiles/*.yaml`, and a test asserts the checked-in files match this
-//! code so the human-readable copy cannot drift from the contract.
+//! the descriptor for that consumer to pin; `marula deploy profiles --write`
+//! regenerates `deploy/profiles/*.yaml`, and a test asserts the checked-in
+//! files match this code so the human-readable copy cannot drift from the
+//! contract.
 //!
-//! No hq logic lives here. marula-core states the interface; hq decides what to
-//! render from it.
+//! No control-plane logic lives here. marula-core states the interface; the
+//! consumer decides what to render from it.
 
 use std::path::{Path, PathBuf};
 
