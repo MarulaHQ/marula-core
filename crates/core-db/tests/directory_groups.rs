@@ -281,6 +281,118 @@ async fn unmapping_or_deleting_a_group_revokes_without_touching_direct_roles() {
 
 // --- 3. cross-org isolation ---------------------------------------------------
 
+/// Wave 52 lane R12: the two reads an identity bundle expands with. A sync
+/// pass asks "do I already have this external group?" before it writes, and a
+/// bundle expanding a person asks "which groups put these roles here?" after.
+/// Both are org-pinned, so the same external id in two orgs stays two rows.
+#[tokio::test]
+async fn an_external_group_is_found_by_its_provider_id_and_a_users_groups_by_user() {
+    let db = test_db().await;
+    let a = seed_org(&db.app, 750).await;
+    let b = seed_org(&db.app, 751).await;
+    let user_a = seed_user(&db.app, a.org, 7501).await;
+    let other_a = seed_user(&db.app, a.org, 7502).await;
+
+    // Org A adopted "9f32"; org B adopted a different provider group, so a
+    // lookup in one org for the other's id has to come back empty.
+    for (org, group, external) in [
+        (a.org, fixed_uuid(7503), "entra-group-9f32"),
+        (b.org, fixed_uuid(7504), "entra-group-b-only"),
+    ] {
+        let mut tx = org_tx(&db.app, org).await;
+        insert_group(
+            &mut tx,
+            &NewDirectoryGroup {
+                id: group,
+                org_id: org,
+                name: "Tier 2",
+                description: None,
+                external_id: Some(external),
+            },
+        )
+        .await
+        .expect("insert group with an external id");
+        tx.commit().await.expect("commit");
+    }
+
+    {
+        let mut tx = org_tx(&db.app, a.org).await;
+        let found = core_db::directory_groups::get_group_by_external_id(
+            &mut *tx,
+            a.org,
+            "entra-group-9f32",
+        )
+        .await
+        .expect("lookup")
+        .expect("org A adopted that group");
+        assert_eq!(
+            found.id,
+            fixed_uuid(7503),
+            "the lookup returns THIS org's row"
+        );
+        assert_eq!(found.external_id.as_deref(), Some("entra-group-9f32"));
+
+        // "Not yet adopted" is `None`, not an error: the first pass of a sync
+        // creates the group, and a `NotFound` there would be an error path for
+        // the ordinary case.
+        assert!(core_db::directory_groups::get_group_by_external_id(
+            &mut *tx,
+            a.org,
+            "entra-group-never-seen"
+        )
+        .await
+        .expect("lookup")
+        .is_none());
+
+        // Another org's provider id resolves to nothing here even though that
+        // row exists — the read is org-pinned, not RLS-dependent.
+        assert!(core_db::directory_groups::get_group_by_external_id(
+            &mut *tx,
+            a.org,
+            "entra-group-b-only"
+        )
+        .await
+        .expect("lookup")
+        .is_none());
+        tx.commit().await.expect("commit");
+    }
+
+    // Which groups put this person's roles there, and only their own.
+    {
+        let mut tx = org_tx(&db.app, a.org).await;
+        add_member(&mut tx, a.org, fixed_uuid(7503), user_a, None)
+            .await
+            .expect("membership");
+        tx.commit().await.expect("commit");
+    }
+    {
+        let mut tx = org_tx(&db.app, a.org).await;
+        let mine = core_db::directory_groups::list_groups_for_user(&mut *tx, a.org, user_a)
+            .await
+            .expect("groups read");
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].id, fixed_uuid(7503));
+        assert_eq!(mine[0].member_count, 1, "the listing counts members");
+
+        assert!(
+            core_db::directory_groups::list_groups_for_user(&mut *tx, a.org, other_a)
+                .await
+                .expect("groups read")
+                .is_empty(),
+            "a user who joined nothing belongs to no group"
+        );
+        // A foreign org's user id reads nothing in this org.
+        assert!(
+            core_db::directory_groups::list_groups_for_user(&mut *tx, b.org, user_a)
+                .await
+                .expect("groups read")
+                .is_empty(),
+            "membership does not cross an org"
+        );
+        tx.commit().await.expect("commit");
+    }
+}
+
 #[tokio::test]
 async fn groups_cannot_cross_an_org_boundary() {
     let db = test_db().await;

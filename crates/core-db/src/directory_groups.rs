@@ -104,6 +104,71 @@ where
     row.map(group_from_row).unwrap_or(Err(DbError::NotFound))
 }
 
+/// One group by the identity provider's identifier for it, or `None` when this
+/// org has not adopted that external group yet.
+///
+/// This is the lookup an identity sync performs on every pass ("do I already
+/// have this external group, or do I create it?"), and the reason
+/// `idx_directory_groups_external` exists (migration 0148). It returns
+/// `Option` rather than `NotFound` because "not yet" is the ordinary first
+/// answer for a new group, not an error a caller has to translate.
+///
+/// The org is pinned in the SQL rather than left to RLS: the same external
+/// group id in two orgs resolves to two different local rows, and an executor
+/// with no `app.org_id` scope must still answer correctly.
+pub async fn get_group_by_external_id<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    external_id: &str,
+) -> DbResult<Option<DirectoryGroup>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "SELECT {GROUP_COLS} FROM directory_groups g \
+          WHERE g.org_id = $1 AND g.external_id = $2"
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(external_id)
+        .fetch_optional(executor)
+        .await?;
+    row.map(group_from_row).transpose()
+}
+
+/// The groups one user belongs to, by name.
+///
+/// The companion read to [`crate::users::effective_roles_for_user`]: that one
+/// answers "what does this person hold", this one answers "which groups put it
+/// there". An identity bundle expanding a directory user needs both — the
+/// roles to write into the principal path it does not own, the groups to show
+/// an administrator why the roles are what they are.
+///
+/// Inactive users are included: a sync pass has to see the membership of a
+/// person it may be about to deactivate, and dropping them here would make a
+/// revoked member look like a member of nothing.
+pub async fn list_groups_for_user<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    user_id: Uuid,
+) -> DbResult<Vec<DirectoryGroup>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!(
+        "SELECT {GROUP_COLS} FROM directory_groups g \
+           JOIN directory_group_members mem ON mem.group_id = g.id \
+          WHERE g.org_id = $1 AND mem.user_id = $2 \
+          ORDER BY g.name"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(user_id)
+        .fetch_all(executor)
+        .await?;
+    rows.into_iter().map(group_from_row).collect()
+}
+
 /// Creates the group. A duplicate name inside the org surfaces as the SQL
 /// unique violation, which the API maps to a typed conflict.
 pub async fn insert_group(conn: &mut PgConnection, group: &NewDirectoryGroup<'_>) -> DbResult<()> {
