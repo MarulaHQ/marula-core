@@ -130,6 +130,20 @@ async fn the_maintainer_drops_an_expired_partition_and_creates_the_months_ahead(
     .await
     .expect("seed an expired partition");
 
+    // The migration pre-creates the ahead window, so a plain maintainer pass
+    // has nothing to create. Drop next month to exercise the step that matters
+    // when the calendar moves rather than to assert an empty no-op.
+    let ahead: String = sqlx::query_scalar(
+        "SELECT to_char(date_trunc('month', now()) + interval '1 month', 'YYYY_MM')",
+    )
+    .fetch_one(&db.admin)
+    .await
+    .expect("next month");
+    sqlx::query(&format!("DROP TABLE IF EXISTS auth_attempt_log_p{ahead}"))
+        .execute(&db.admin)
+        .await
+        .expect("drop next month's partition");
+
     let outcomes = core_db::partitions::maintain(&db.admin, &plan)
         .await
         .expect("maintain");
@@ -151,8 +165,12 @@ async fn the_maintainer_drops_an_expired_partition_and_creates_the_months_ahead(
         attempts.dropped
     );
     assert!(
-        !attempts.created.is_empty(),
-        "the maintainer must create the months it is about to need"
+        attempts
+            .created
+            .iter()
+            .any(|c| c == &format!("auth_attempt_log_p{ahead}")),
+        "the maintainer must create the months it is about to need: {:?}",
+        attempts.created
     );
 
     let still_there: bool = sqlx::query_scalar(

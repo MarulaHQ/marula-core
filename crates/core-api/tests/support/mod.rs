@@ -89,7 +89,9 @@ async fn connect_with_retry(url: &str) -> PgPool {
 }
 
 async fn reset_schema(admin: &PgPool) {
-    sqlx::query("DROP SCHEMA public CASCADE")
+    sqlx::query(
+            "DO $$ BEGIN DROP SCHEMA IF EXISTS ops CASCADE; DROP SCHEMA IF EXISTS public CASCADE; END $$",
+        )
         .execute(admin)
         .await
         .expect("drop");

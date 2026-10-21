@@ -470,7 +470,7 @@ mod tests {
         assert_eq!(PAGE1_BUDGET_MS, 150.0);
         assert_eq!(PAGE1_TRIGGER_MS, 100.0);
         assert!((PAGE1_BUDGET_MS * PAGE1_TRIGGER_RATIO - PAGE1_TRIGGER_MS).abs() < 0.001);
-        assert!(PAGE1_TRIGGER_MS < PAGE1_BUDGET_MS);
+        const { assert!(PAGE1_TRIGGER_MS < PAGE1_BUDGET_MS) };
     }
 
     #[test]

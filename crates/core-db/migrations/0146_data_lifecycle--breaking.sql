@@ -408,3 +408,31 @@ CREATE TABLE ops.backup_drill_runs (
 
 CREATE INDEX idx_backup_drill_runs_time
   ON ops.backup_drill_runs (started_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Erasure completeness: three tables carried `org_id` with no path to `orgs`,
+-- so erasing a tenant left its delivery, dead-letter and webhook-dedup rows
+-- behind. Found by the gate, which asserts that every table with an org_id
+-- cascades from the org row.
+--
+-- NOT VALID on purpose: an install that deleted a tenant before this migration
+-- carries rows whose org is already gone, and adding a validated constraint
+-- would fail on them. The constraint governs every row written from here on
+-- and cascades on delete; the legacy orphans age out through the retention
+-- matrix above instead of being destroyed silently here.
+-- ---------------------------------------------------------------------------
+ALTER TABLE consumer_deliveries
+  ADD CONSTRAINT consumer_deliveries_org_fk
+  FOREIGN KEY (org_id) REFERENCES orgs(id) ON DELETE CASCADE NOT VALID;
+
+ALTER TABLE dead_events
+  ADD CONSTRAINT dead_events_org_fk
+  FOREIGN KEY (org_id) REFERENCES orgs(id) ON DELETE CASCADE NOT VALID;
+
+ALTER TABLE webhook_ingest_dedup
+  ADD CONSTRAINT webhook_ingest_dedup_org_fk
+  FOREIGN KEY (org_id) REFERENCES orgs(id) ON DELETE CASCADE NOT VALID;
+
+-- The cascade is a delete by org_id; without these it is a scan per erased org.
+CREATE INDEX IF NOT EXISTS idx_consumer_deliveries_org ON consumer_deliveries (org_id);
+CREATE INDEX IF NOT EXISTS idx_dead_events_org ON dead_events (org_id);

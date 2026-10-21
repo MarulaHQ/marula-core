@@ -61,7 +61,9 @@ async fn test_state(rate_limit_per_min: u32) -> (AppState, Router) {
                 .or_else(|_| std::env::var("DATABASE_URL"))
                 .expect("connector e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
             let boot = connect_admin(&admin_url).await;
-            sqlx::query("DROP SCHEMA public CASCADE")
+            sqlx::query(
+            "DO $$ BEGIN DROP SCHEMA IF EXISTS ops CASCADE; DROP SCHEMA IF EXISTS public CASCADE; END $$",
+        )
                 .execute(&boot)
                 .await
                 .expect("drop schema");

@@ -38,9 +38,9 @@ pub const DEFAULT_INTERVAL_SECS: u64 = 60 * 60;
 pub const DEFAULT_BATCH: i64 = 1_000;
 
 /// Pause after a pass that hit a table's batch ceiling. The same shape P1's
-/// outbox sweep uses, and for the same reason: at one hour per pass, a backlog
-/// of ten million rows would take months while every log line said the sweep was
-/// working.
+/// outbox sweep uses, and for the same reason: without a catch-up pause a
+/// backlog of ten million rows drains only as fast as the interval allows,
+/// while every log line says the sweep is working.
 pub const CATCH_UP_PAUSE_SECS: u64 = 30;
 
 /// Settings for the loop.
@@ -216,19 +216,21 @@ mod tests {
 
     #[test]
     fn the_report_sums_what_each_table_deleted() {
-        let mut report = PassReport::default();
-        report.tables = vec![
-            TableSweep {
-                table: "jobs",
-                deleted: 3,
-                saturated: false,
-            },
-            TableSweep {
-                table: "audit_events",
-                deleted: 4,
-                saturated: true,
-            },
-        ];
+        let report = PassReport {
+            tables: vec![
+                TableSweep {
+                    table: "jobs",
+                    deleted: 3,
+                    saturated: false,
+                },
+                TableSweep {
+                    table: "audit_events",
+                    deleted: 4,
+                    saturated: true,
+                },
+            ],
+            ..PassReport::default()
+        };
         assert_eq!(report.deleted(), 7);
     }
 }
