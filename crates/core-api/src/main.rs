@@ -127,8 +127,18 @@ async fn main() -> anyhow::Result<()> {
             registry
         },
     };
-    // Reference cache (Wave 52 lane P3): one in-process cache per replica,
-    // invalidated by the same `marula_events` listener that fans frames out.
+    // The instance's embedding space (Wave 52 lane R14): record what this
+    // process writes, and open a re-index window when the model changed. A
+    // failure here is loud but not fatal — search keeps working on its lexical
+    // leg — because the alternative (refusing to boot) would take the whole
+    // product down for a vector that is an enhancement to it.
+    if let Err(error) = core_api::ai::ensure_instance_embedding_space(&state).await {
+        tracing::error!(
+            %error,
+            "embedding space not recorded: the vector leg stays dark until this succeeds"
+        );
+    }
+    // Reference cache (Wave 52 lane P3): one in-process cache per replica,    // invalidated by the same `marula_events` listener that fans frames out.
     // Initialised before the listener starts so the first event already has
     // something to invalidate.
     let cache = core_api::cache::init(

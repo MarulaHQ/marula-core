@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE embedding_space_state\n              SET target_space = $2,\n                  previous_space = $3,\n                  switch_id = $4,\n                  switched_at = now(),\n                  updated_at = now()\n            WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "55fb0154c851488a303d97396e351d05cd11acbf40350ff8bae9ecf5ea4ba2b1"
+}

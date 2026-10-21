@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT space FROM search_embeddings WHERE org_id = $1 ORDER BY space",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "space",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1c8c5d9514f65326ab70d3346a53b74774b34dcbe48a6dc272c90380f8ba1d13"
+}

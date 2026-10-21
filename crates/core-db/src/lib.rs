@@ -47,6 +47,7 @@ pub mod document_layouts;
 pub mod document_links;
 pub mod documents;
 pub mod emails;
+pub mod embedding_space;
 pub mod entity_dedupe;
 pub mod erasure;
 pub mod event_types;

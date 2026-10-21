@@ -94,6 +94,11 @@ pub struct DeployDescriptor {
     /// consumer renders from it. The numbers are `core_domain::retry`'s — this
     /// is a projection, not a second copy.
     pub retries: RetrySpec,
+    /// The embedding catalogue, the selection this environment resolves to, and
+    /// the re-index pace (Wave 52 lane R14). Projected from
+    /// `core_domain::embedding`, so a descriptor reader and the process that
+    /// boots see the same table, the same floors and the same refusal wording.
+    pub embedding: EmbeddingSpec,
 }
 
 /// Every retry preset and the budgets it sets, one entry per subsystem.
@@ -161,6 +166,160 @@ pub fn retry_spec() -> RetrySpec {
     }
 }
 
+/// The embedding section: what can be selected, what this environment selected,
+/// and how fast the re-index may run.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EmbeddingSpec {
+    pub tier_env: &'static str,
+    pub model_env: &'static str,
+    pub provider_env: &'static str,
+    pub api_key_env: &'static str,
+    pub custom_models_env: &'static str,
+    pub host_memory_env: &'static str,
+    /// Every selectable model, shipped and custom, in catalogue order.
+    pub models: Vec<EmbeddingModelSpec>,
+    /// What this environment resolves to, and whether this host can host it.
+    pub resolved: EmbeddingResolved,
+    /// The re-index pace and window.
+    pub reindex: EmbeddingReindexSpec,
+}
+
+/// One catalogue entry.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EmbeddingModelSpec {
+    pub id: String,
+    pub display_name: String,
+    pub dimensions: u16,
+    /// `text`, or the modalities a multimodal build accepts.
+    pub modality: String,
+    pub license: String,
+    pub provider: String,
+    /// Build version recorded in the space tag.
+    pub version: String,
+    pub tier: &'static str,
+    /// Local capacity required. Zero cores and zero megabytes means the model
+    /// runs elsewhere and has no floor here.
+    pub cores: u16,
+    pub ram_mb: u32,
+    /// `model@version/dimensions`: the tag every vector from this entry carries.
+    pub space: String,
+    pub quality_note: String,
+    pub platform_note: String,
+}
+
+/// The selection this environment makes, or the reason it makes none.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EmbeddingResolved {
+    pub tier: Option<&'static str>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub space: Option<String>,
+    /// `None` when this host can host the selection or the host publishes no
+    /// memory reading. Otherwise the exact refusal the boot path prints.
+    pub refusal: Option<String>,
+    pub host_cores: u16,
+    pub host_ram_mb: Option<u32>,
+}
+
+/// The re-index sweep, as it would run.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct EmbeddingReindexSpec {
+    pub batch: i64,
+    pub rows_per_min: u32,
+    /// How often an idle sweep looks again; a tick with work is paced instead.
+    pub idle_secs: u64,
+    /// Inclusive start and exclusive end hour, UTC. `None` runs any hour.
+    pub window: Option<(u8, u8)>,
+}
+
+/// The embedding section of the descriptor, resolved against this environment.
+///
+/// Resolution runs the same functions the processes run, which is the point: a
+/// descriptor that restated the table by hand would drift from the selection a
+/// boot makes, and the drift would be invisible until a search returned nothing.
+#[must_use]
+pub fn embedding_spec() -> EmbeddingSpec {
+    use core_domain::embedding::{Catalogue, ReindexPolicy};
+
+    let lookup = |key: &str| std::env::var(key).ok();
+    let catalogue = Catalogue::from_lookup(&lookup);
+    let models = catalogue
+        .entries()
+        .iter()
+        .map(|entry| EmbeddingModelSpec {
+            id: entry.id.to_string(),
+            display_name: entry.display_name.to_string(),
+            dimensions: entry.dimensions,
+            modality: entry.modality.to_string(),
+            license: entry.license.to_string(),
+            provider: entry.provider.to_string(),
+            version: entry.version.to_string(),
+            tier: entry.tier.as_str(),
+            cores: entry.floor.cores,
+            ram_mb: entry.floor.ram_mb,
+            space: entry.space().id(),
+            quality_note: entry.quality_note.to_string(),
+            platform_note: entry.platform_note.to_string(),
+        })
+        .collect();
+    let resolved = match core_domain::embedding::resolve_instance(&lookup) {
+        Ok((selection, host)) => EmbeddingResolved {
+            tier: Some(selection.entry.tier.as_str()),
+            provider: Some(selection.provider.clone()),
+            model: Some(selection.entry.id.to_string()),
+            space: Some(selection.space_id()),
+            refusal: None,
+            host_cores: host.cores,
+            host_ram_mb: host.ram_mb,
+        },
+        Err(error) => {
+            // A refused selection still reports what it resolved to, so the
+            // reader can see the model whose floor is not met.
+            let host = core_domain::embedding::detect_host_capacity(&lookup);
+            let (tier, provider, model, space) = match core_domain::embedding::select_instance(
+                &catalogue,
+                lookup(core_domain::embedding::TIER_ENV).as_deref(),
+                lookup(core_domain::embedding::MODEL_ENV).as_deref(),
+                lookup(core_domain::embedding::PROVIDER_ENV).as_deref(),
+            ) {
+                Ok(selection) => (
+                    Some(selection.entry.tier.as_str()),
+                    Some(selection.provider.clone()),
+                    Some(selection.entry.id.to_string()),
+                    Some(selection.space_id()),
+                ),
+                Err(_) => (None, None, None, None),
+            };
+            EmbeddingResolved {
+                tier,
+                provider,
+                model,
+                space,
+                refusal: Some(error.to_string()),
+                host_cores: host.cores,
+                host_ram_mb: host.ram_mb,
+            }
+        }
+    };
+    let policy = ReindexPolicy::from_lookup(&lookup);
+    EmbeddingSpec {
+        tier_env: core_domain::embedding::TIER_ENV,
+        model_env: core_domain::embedding::MODEL_ENV,
+        provider_env: core_domain::embedding::PROVIDER_ENV,
+        api_key_env: core_domain::embedding::API_KEY_ENV,
+        custom_models_env: core_domain::embedding::CUSTOM_MODELS_ENV,
+        host_memory_env: core_domain::embedding::HOST_MEMORY_ENV,
+        models,
+        resolved,
+        reindex: EmbeddingReindexSpec {
+            batch: policy.batch,
+            rows_per_min: policy.rows_per_min,
+            idle_secs: policy.interval_secs,
+            window: policy.window,
+        },
+    }
+}
+
 fn param(
     name: &'static str,
     group: &'static str,
@@ -214,6 +373,7 @@ pub fn descriptor() -> DeployDescriptor {
         profiles: profiles(),
         params: params(),
         retries: retry_spec(),
+        embedding: embedding_spec(),
     }
 }
 
@@ -1353,12 +1513,52 @@ fn params() -> Vec<Param> {
             "Ollama base URL for the local model option.",
         ),
         param(
+            "MARULA_EMBEDDING_TIER",
+            "ai",
+            String,
+            Some("standard"),
+            false,
+            "Embedding tier this instance ships: minimal, standard or advanced. Sets the default model and its capacity floor.",
+        ),
+        param(
             "MARULA_EMBEDDING_MODEL",
             "ai",
             String,
             Some("embeddinggemma-2:270m-q8_0-text"),
             false,
-            "Embedding model this instance runs when no org names one. Must return 768 dimensions.",
+            "Embedding model this instance runs. Set per instance, not per org; the tier picks the default.",
+        ),
+        param(
+            "MARULA_EMBEDDING_PROVIDER",
+            "ai",
+            String,
+            Some("ollama"),
+            false,
+            "Where embeddings are computed: ollama for a local model, or openai for an OpenAI-compatible endpoint.",
+        ),
+        param(
+            "MARULA_EMBEDDING_API_KEY",
+            "ai",
+            Secret,
+            None,
+            true,
+            "Instance-wide key for a cloud embedding provider. Checked before an org's own credential.",
+        ),
+        param(
+            "MARULA_EMBEDDING_CUSTOM_MODELS",
+            "ai",
+            String,
+            None,
+            false,
+            "Extra catalogue entries as `id|display|dimensions|modality|license|provider|version|tier|cores|ram_mb`, semicolon separated. A shipped id is replaced, not duplicated.",
+        ),
+        param(
+            "MARULA_HOST_MEMORY_MB",
+            "ai",
+            Integer,
+            None,
+            false,
+            "Host memory the capacity floor is checked against. Unset reads the host, and a host that publishes no reading is not refused.",
         ),
         param(
             "MARULA_EMBEDDING_KEEP_ALIVE",
@@ -1367,6 +1567,38 @@ fn params() -> Vec<Param> {
             Some("5m"),
             false,
             "How long the local embedding model stays resident after its last request (Ollama duration syntax).",
+        ),
+        param(
+            "MARULA_EMBEDDING_REINDEX_BATCH",
+            "ai",
+            Integer,
+            Some("128"),
+            false,
+            "Rows embedded per pass while re-indexing into a new space.",
+        ),
+        param(
+            "MARULA_EMBEDDING_REINDEX_ROWS_PER_MIN",
+            "ai",
+            Integer,
+            Some("600"),
+            false,
+            "Ceiling on rows embedded per minute during a re-index; the sweep pauses between batches to hold it.",
+        ),
+        param(
+            "MARULA_EMBEDDING_REINDEX_SECS",
+            "ai",
+            Integer,
+            Some("60"),
+            false,
+            "How often an idle re-index sweep looks for work, in seconds. A tick with work is paced by the ceiling instead.",
+        ),
+        param(
+            "MARULA_EMBEDDING_REINDEX_WINDOW",
+            "ai",
+            String,
+            None,
+            false,
+            "UTC hours a re-index may run, as `HH-HH` such as 22-06 (end exclusive, a start after the end wraps midnight). Unset runs any hour.",
         ),
 
         // --- retries (Wave 52 lane R1) ---

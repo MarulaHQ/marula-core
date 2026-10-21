@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT target_space, previous_space, switch_id, switched_at\n           FROM embedding_space_state WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "target_space",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "previous_space",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "switch_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "switched_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "878b1f9fb7ef9a3a4d5c92ea44d9e308aa8de9b2fd2d690ae20960ef1027410a"
+}

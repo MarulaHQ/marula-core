@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) AS \"count!\"\n           FROM search_index s\n           LEFT JOIN search_embeddings e\n             ON e.org_id = s.org_id\n            AND e.entity_kind = s.entity_kind\n            AND e.entity_id = s.entity_id\n            AND e.space = $2\n           WHERE s.org_id = $1\n             AND (\n                   e.id IS NULL\n                OR e.content_hash <> md5(s.title || E'\\x1f' || s.body)\n              )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8cc4537143b20c432d7c678a21e8cdff445bc1d72a264c37fce1e08b4b508ca7"
+}

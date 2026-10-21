@@ -13,6 +13,17 @@ use core_domain::SEARCH_EMBEDDING_DIM;
 use serde_json::json;
 use uuid::Uuid;
 
+/// The space tag the test's chunks were stored under: a model id the catalogue
+/// does not know, so `space_for_model` gives it the `custom` version. Kept in
+/// one place so a query and its seed can never disagree.
+fn rag_spaces(model: &str) -> Vec<String> {
+    vec![core_domain::embedding::space_for_model(
+        &core_domain::embedding::Catalogue::builtin(),
+        model,
+    )
+    .id()]
+}
+
 async fn seed_org(db: &common::TestDb, n: u64) -> Uuid {
     let org = fixed_uuid(n);
     let mut tx = org_tx(&db.app, org).await;
@@ -231,6 +242,7 @@ async fn hybrid_bm25_vector_rrf_and_cross_modal_retrieval() {
             source_ids: &[],
             query_text: Some("firewall packet drop"),
             query_vector: Some(&q_vec),
+            spaces: &rag_spaces("embeddinggemma-2-768"),
             limit: 10,
         },
     )
@@ -261,6 +273,7 @@ async fn hybrid_bm25_vector_rrf_and_cross_modal_retrieval() {
             source_ids: &[],
             query_text: None,
             query_vector: Some(&q_vec),
+            spaces: &rag_spaces("embeddinggemma-2-768"),
             limit: 5,
         },
     )
@@ -281,6 +294,7 @@ async fn hybrid_bm25_vector_rrf_and_cross_modal_retrieval() {
             source_ids: &[],
             query_text: None,
             query_vector: Some(&q_vec),
+            spaces: &rag_spaces("embeddinggemma-2-768"),
             limit: 5,
         },
     )
@@ -348,6 +362,7 @@ async fn hostile_cross_tenant_rls_and_cross_namespace_isolation() {
                 source_ids: &[],
                 query_text: Some("Secret merger runbook"),
                 query_vector: Some(&vec_shared),
+                spaces: &rag_spaces("bge-base"),
                 limit: 10,
             },
         )
@@ -373,6 +388,7 @@ async fn hostile_cross_tenant_rls_and_cross_namespace_isolation() {
                 source_ids: &[],
                 query_text: Some("Secret merger runbook"),
                 query_vector: Some(&vec_shared),
+                spaces: &rag_spaces("bge-base"),
                 limit: 10,
             },
         )

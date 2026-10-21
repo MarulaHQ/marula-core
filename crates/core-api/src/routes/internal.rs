@@ -1394,15 +1394,22 @@ pub async fn upsert(
                 .ok_or_else(|| ApiError::Validation("unknown entity_kind".into()))?,
         );
     }
-    // Vector leg: one provider resolution + one batch call for the whole
-    // request; None mode short-circuits to None without any network.
-    let provider = crate::ai::resolve_org_completion_provider(&state, req.org_id).await;
-    let texts: Vec<String> = req
-        .entries
-        .iter()
-        .map(|entry| crate::ai::search_embed_text(&entry.title, &entry.body))
-        .collect();
-    let embeddings = crate::ai::embed_batch(&provider, texts).await;
+    // Vector leg: one resolution and one batch call for the whole request. A
+    // dark leg names no space, so nothing is embedded and nothing is written —
+    // the rows keep their lexical entry only.
+    let (space, model, embeddings) = match crate::ai::resolve_vector_leg(&state, req.org_id).await {
+        crate::ai::VectorLeg::Ready { provider, space } => {
+            let texts: Vec<String> = req
+                .entries
+                .iter()
+                .map(|entry| crate::ai::search_embed_text(&entry.title, &entry.body))
+                .collect();
+            let model = provider_model(&provider);
+            let embeddings = crate::ai::embed_batch(&provider, texts).await;
+            (Some(space), Some(model), embeddings)
+        }
+        crate::ai::VectorLeg::Dark { .. } => (None, None, None),
+    };
     let applied = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
         let mut applied = 0_usize;
         for (index, (entry, kind)) in req.entries.iter().zip(kinds).enumerate() {
@@ -1417,14 +1424,15 @@ pub async fn upsert(
                 entry.client_scope,
             )
             .await?;
-            if let Some(vectors) = &embeddings {
+            if let (Some(space), Some(model), Some(vectors)) = (&space, &model, &embeddings) {
                 if let Some(vector) = vectors.get(index) {
                     core_db::search::upsert_embedding(
                         &mut *ctx.tx,
                         ctx.org_id,
                         kind,
                         entry.entity_id,
-                        &provider_model(&provider),
+                        space,
+                        model,
                         vector,
                     )
                     .await?;
@@ -1489,13 +1497,20 @@ pub struct SearchBackfillRequest {
     /// `EMBEDDING_BATCH` rows); the endpoint is idempotent and re-runnable.
     #[serde(default)]
     pub max_batches: Option<i64>,
+    /// The re-index run this pass advances (Wave 52 lane R14). The worker's
+    /// sweep claims a run, then asks for one pass; the pass marks the run
+    /// complete — and drops the org's previous-space rows — in the same
+    /// transaction. Absent for an ad-hoc operator backfill.
+    #[serde(default)]
+    pub run_id: Option<Uuid>,
 }
 
 /// POST /internal/search/backfill — idempotent sweep embedding existing
-/// `search_index` rows (migration 0062 backfill). Only rows whose vector is
-/// missing, was produced by a different model, or whose content hash moved
-/// on are embedded, so re-running is free. None mode reports a typed reason
-/// and embeds nothing.
+/// `search_index` rows (migration 0062 backfill). Only rows with no fresh
+/// vector in the instance's target space, or whose content hash moved on, are
+/// embedded, so re-running is free. A dark leg reports its typed reason and
+/// embeds nothing; the row counts come back either way, so the sweep's gauge
+/// keeps reporting a backlog an operator can act on.
 pub async fn search_backfill(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1503,7 +1518,8 @@ pub async fn search_backfill(
 ) -> ApiResult<Json<crate::ai::BackfillReport>> {
     guard(&state, &headers)?;
     let max_batches = req.max_batches.unwrap_or(40).clamp(1, 200);
-    let report = crate::ai::backfill_org_embeddings(&state, req.org_id, max_batches).await?;
+    let report =
+        crate::ai::backfill_org_embeddings(&state, req.org_id, max_batches, req.run_id).await?;
     Ok(Json(report))
 }
 

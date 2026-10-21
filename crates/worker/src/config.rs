@@ -250,6 +250,12 @@ pub struct WorkerConfig {
     /// consumers, the webhook sender and the mail backoff all read the same
     /// numbers.
     pub retry: RetryResolution,
+    /// The embedding re-index sweep (Wave 52 lane R14): rows per pass, the
+    /// per-minute ceiling that paces it, the idle cadence and the optional UTC
+    /// window. The same [`core_domain::embedding::ReindexPolicy`] core-api
+    /// describes in its boot log and the CLI prints, so the three cannot
+    /// disagree about the rate.
+    pub embedding_reindex: core_domain::embedding::ReindexPolicy,
 }
 
 /// Which loop groups a worker process runs.
@@ -496,6 +502,9 @@ impl WorkerConfig {
             }),
             reconcile: crate::reconcile::ReconcileConfig::from_lookup(|key| lookup(key)),
             object_gc: crate::object_gc_sweep::ObjectGcConfig::from_lookup(|key| lookup(key)),
+            embedding_reindex: core_domain::embedding::ReindexPolicy::from_lookup(&|key| {
+                lookup(key)
+            }),
             object_store: core_store::StoreChoice::from_lookup(|key| lookup(key)),
             outbox_retention: crate::outbox_retention_sweep::OutboxRetentionConfig::from_values(
                 lookup("OUTBOX_SWEEP_SECS").and_then(|v| v.parse().ok()),

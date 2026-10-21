@@ -230,6 +230,24 @@ pub struct Config {
     /// reasons: it sends outbound mail (whose backoff is an email policy
     /// decision) and, in all-in-one mode, it hosts every worker loop.
     pub retry: core_domain::retry::RetryResolution,
+    /// The instance's embedding model (Wave 52 lane R14). Resolved once at
+    /// boot from `MARULA_EMBEDDING_TIER` / `_MODEL` / `_PROVIDER` against the
+    /// catalogue, and refused HERE when the host cannot host it: a floor
+    /// refusal at boot is the fail-fast, and the wording is the same one the
+    /// CLI prints for `marula-core config describe`.
+    ///
+    /// One instance, one model. It is not an org setting, and no org can
+    /// substitute another: two models in one table produce two incomparable
+    /// spaces, and the ranking that follows is plausible and meaningless.
+    pub embedding: core_domain::embedding::InstanceEmbedding,
+    /// What this host offered when the floor was checked. Kept for the boot
+    /// log and the descriptor, so an operator can see the headroom without
+    /// re-deriving it.
+    pub embedding_host: core_domain::embedding::HostCapacity,
+    /// Instance-level credential for a cloud embeddings override
+    /// (`MARULA_EMBEDDING_API_KEY`). Consulted before an org's BYOK key, and
+    /// only for the provider this instance selected. Never logged.
+    pub embedding_api_key: Option<String>,
 }
 
 /// Which distance/duration provider the process registers (Wave 32 lane 7).
@@ -259,6 +277,62 @@ pub enum RoutingChoice {
         base_url: String,
         token: Option<String>,
     },
+}
+
+/// Resolves the instance's embedding model and proves the host can host it
+/// (Wave 52 lane R14).
+///
+/// The refusal is boot's, not the first search's: a model that cannot fit is a
+/// silent vector leg otherwise, and the message an operator needs at that point
+/// is the floor's — model, tier, required cores and megabytes, offered cores and
+/// megabytes, and the two levers that fix it. Refused records from
+/// `MARULA_EMBEDDING_CUSTOM_MODELS` are logged one per line and never stop a boot
+/// that would otherwise run on the shipped table.
+fn embedding_from_env() -> Result<
+    (
+        core_domain::embedding::InstanceEmbedding,
+        core_domain::embedding::HostCapacity,
+    ),
+    String,
+> {
+    let lookup = |key: &str| std::env::var(key).ok();
+    let (catalogue, selection, host) =
+        core_domain::embedding::resolve_instance_with_catalogue(&lookup)
+            .map_err(|error| error.to_string())?;
+    for warning in catalogue.warnings() {
+        tracing::warn!(%warning, "embedding catalogue record refused");
+    }
+    tracing::info!(
+        model = %selection.entry.id,
+        tier = %selection.entry.tier,
+        provider = %selection.provider,
+        space = %selection.space_id(),
+        local = selection.is_local(),
+        cores = host.cores,
+        ram_mb = ?host.ram_mb,
+        "embedding model resolved"
+    );
+    Ok((selection, host))
+}
+
+/// The shipped selection, measured against this host, for the two constructors
+/// that must not refuse: `from_local` (the desktop profile cannot hand the user
+/// a boot error for a model choice they never made) and the unit-test profile
+/// (no env reads, no host floor). The real boot path refuses instead.
+pub(crate) fn shipped_embedding() -> (
+    core_domain::embedding::InstanceEmbedding,
+    core_domain::embedding::HostCapacity,
+) {
+    use core_domain::embedding::{detect_host_capacity, select_instance, Catalogue};
+    let host = detect_host_capacity(&|key: &str| std::env::var(key).ok());
+    let selection = select_instance(
+        &Catalogue::builtin(),
+        Some("standard"),
+        None,
+        Some("ollama"),
+    )
+    .expect("the shipped table carries a standard local entry");
+    (selection, host)
 }
 
 /// Parses OBJECT_STORE plus its companion vars. Unknown values degrade to
@@ -369,6 +443,7 @@ impl Config {
     /// Postgres URL, API port, and object-store directory.
     pub fn from_local(database_url: String, api_port: u16, object_dir: std::path::PathBuf) -> Self {
         let jwt_secret = Config::DEV_JWT_SECRET.to_string();
+        let (embedding, embedding_host) = shipped_embedding();
         Self {
             database_url,
             // The local profile has no pooler; the single LISTEN connection
@@ -426,6 +501,9 @@ impl Config {
             // Desktop/test profile: no environment consulted, so the shipped
             // preset. The mail backoff it drives is the balanced one.
             retry: core_domain::retry::RetryMatrix::from_lookup(|_| None),
+            embedding,
+            embedding_host,
+            embedding_api_key: None,
         }
     }
 
@@ -624,6 +702,9 @@ impl Config {
             }
         };
         let jwt_signing = jwt_signing_from_env()?;
+        // Resolved before the struct so a floor refusal fails boot with the
+        // numbers, not on the first search after a green health check.
+        let (embedding, embedding_host) = embedding_from_env()?;
         let cfg = Self {
             database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
                 "postgres://marula_app:marula_app@localhost:15432/marula".into()
@@ -750,6 +831,12 @@ impl Config {
                 }
                 resolved
             },
+            embedding,
+            embedding_host,
+            embedding_api_key: std::env::var("MARULA_EMBEDDING_API_KEY")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
         };
         // Fail-closed at the parse step, so the binary and any test that
         // goes through `from_env` inherit the all-in-one preconditions.
@@ -1057,6 +1144,11 @@ impl Config {
             // Resolved from env like the rest of this test fixture, so a test
             // that exercises an override sees it.
             retry: core_domain::retry::RetryMatrix::from_lookup(|key| std::env::var(key).ok()),
+            // The shipped model, not an env read: a unit test must not depend
+            // on which tier the machine running it was configured for.
+            embedding: shipped_embedding().0,
+            embedding_host: shipped_embedding().1,
+            embedding_api_key: None,
         }
     }
 }
@@ -1138,6 +1230,14 @@ mod hardening_tests {
                 "MARULA_JWT_EDDSA_PUBLIC_KEY",
                 "MARULA_JWT_EDDSA_PUBLIC_KEY_FILE",
                 "MARULA_JWT_KID",
+                // The embedding selection is read from the environment at
+                // boot, so the floor-refusal test below must restore it too.
+                "MARULA_EMBEDDING_TIER",
+                "MARULA_EMBEDDING_MODEL",
+                "MARULA_EMBEDDING_PROVIDER",
+                "MARULA_EMBEDDING_API_KEY",
+                "MARULA_EMBEDDING_CUSTOM_MODELS",
+                "MARULA_HOST_MEMORY_MB",
             ] {
                 state.push((key.to_string(), std::env::var(key).ok()));
             }
@@ -1220,6 +1320,34 @@ mod hardening_tests {
         std::env::remove_var("MARULA_DEV_TOOLS");
         let cfg = Config::from_env_allow_dev_fallback().expect("test alias boots");
         assert_eq!(cfg.jwt_secret, Config::DEV_JWT_SECRET);
+    }
+
+    /// The floor refusal is the boot path's, and its wording is the operator's
+    /// only clue: it has to name the model, the tier, both numbers and the two
+    /// levers that fix the situation (Wave 52 lane R14).
+    #[test]
+    fn the_boot_refuses_a_model_this_host_cannot_host_and_names_the_numbers() {
+        let _guard = CleanEnv::snapshot();
+        std::env::set_var("JWT_SECRET", "f".repeat(64));
+        std::env::set_var("MARULA_SECRET_KEY", "e".repeat(64));
+        std::env::remove_var("MARULA_DEV_TOOLS");
+        std::env::set_var("MARULA_EMBEDDING_TIER", "advanced");
+        std::env::set_var("MARULA_HOST_MEMORY_MB", "512");
+        std::env::remove_var("MARULA_EMBEDDING_MODEL");
+        let err = Config::from_env().expect_err("512 MB cannot host the multimodal build");
+        assert!(
+            err.contains("embeddinggemma-2:740m-q8_0")
+                && err.contains("needs at least 4 cores and 2048 MB of RAM (tier `advanced`)"),
+            "the refusal names the model, the tier and both requirements: {err}"
+        );
+        assert!(
+            err.contains("512 MB") && err.contains("MARULA_EMBEDDING_TIER"),
+            "the refusal names what the host offers and the lever that fixes it: {err}"
+        );
+        assert!(
+            err.contains("MARULA_EMBEDDING_PROVIDER=openai"),
+            "the cloud escape hatch is named too: {err}"
+        );
     }
 
     // --- EdDSA signing upgrade env contract (Wave 34 lane 6) -------------

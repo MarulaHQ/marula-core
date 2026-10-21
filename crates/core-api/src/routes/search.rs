@@ -325,15 +325,24 @@ pub async fn search(
         _ => None,
     };
     let fused_anchor = matches!(anchor, Some(SearchAnchor::Fused(_)));
-    let query_embedding = if lexical_anchor.is_some() {
+    // Which spaces a vector leg may rank in right now: the instance's target
+    // space, plus the previous one while a re-index is unfinished. Read outside
+    // the RLS transaction — the state row is instance-scoped and has no org.
+    // An empty list is the dark vector leg, and the honest answer then is the
+    // lexical path: ranking a query vector against a space nobody wrote would
+    // be a ranking made of nothing.
+    let spaces = core_db::embedding_space::read_spaces(&state.pool)
+        .await
+        .map_err(ApiError::from)?;
+    let query_embedding = if lexical_anchor.is_some() || spaces.is_empty() {
         None
     } else {
         crate::ai::embed_search_query(&state, authed.principal.user.org_id, &trimmed).await
     };
     if fused_anchor && query_embedding.is_none() {
         return Err(ApiError::Validation(
-            "the fused search cannot be resumed right now (the embedding provider is \
-             unavailable); re-run the search"
+            "the fused search cannot be resumed right now (the vector leg is unavailable, or \
+             the embedding model changed since the cursor was issued); re-run the search"
                 .to_string(),
         ));
     }
@@ -386,6 +395,7 @@ pub async fn search(
                     &trimmed,
                     trigram,
                     q.client_id,
+                    &spaces,
                     embedding,
                     limit,
                     Some(anchor.clone()),
@@ -403,6 +413,7 @@ pub async fn search(
                     &trimmed,
                     trigram,
                     q.client_id,
+                    &spaces,
                     embedding,
                     limit,
                     offset,
@@ -417,6 +428,7 @@ pub async fn search(
             &trimmed,
             trigram,
             q.client_id,
+            &spaces,
             core_db::search::SEARCH_COUNT_CAP,
         )
         .await?;

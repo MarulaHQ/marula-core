@@ -20,6 +20,7 @@ Reference pages give you exact endpoints, database view columns, environment var
 
 - [The local stack](self-host-local-stack.md) — Docker Compose services, ports, optional profiles, the PostgreSQL migration-owner vs. RLS app-role split, container hardening, and required secrets.
 - [Local AI: transcription and embeddings on your own hardware](self-host-local-ai.md) — Why model weights stay outside the core container image and how the local `ollama` profile runs Whisper and 768-dimension embeddings.
+- [Embedding model catalogue](embedding-model-catalogue.md) — The selectable embedding models, their capacity floors, the `model@version/dimensions` space tag, custom entries, and the instance-versus-organization credential rule.
 - [Observability](self-host-observability.md) — Optional OpenTelemetry export (`Tempo`, `Loki`, `Grafana`) plus `Uptime Kuma` status monitoring.
 - [Backup & restore runbook](backup-restore.md) — How to back up PostgreSQL and Garage object storage using `pg_dump`, `restic`, or `WAL-G` point-in-time recovery, and how to rehearse restores with `deploy/backup/restore.sh`.
 - [Postgres 17 to 18 upgrade](pg18-upgrade.md) — One-time data migration guide for deployments created before the PostgreSQL 18 transition.

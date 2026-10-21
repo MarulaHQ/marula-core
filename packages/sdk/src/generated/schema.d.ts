@@ -26073,6 +26073,15 @@ export interface components {
              */
             namespace: string;
             /**
+             * @description The embedding space a caller-supplied `query_vector` belongs to
+             *     (`model@version/dimensions`, migration 0152). Optional: without it the
+             *     vector leg ranks in the instance's space, which is the right answer when
+             *     Core embedded the query itself. A connector that produced the vector
+             *     with its own model names that space here; naming a space nothing carries
+             *     is a miss, never a comparison against vectors from another model.
+             */
+            query_space?: string | null;
+            /**
              * @description Optional lexical query string. When supplied without `query_vector`,
              *     Core also embeds `query_text` via the org's configured embedding
              *     provider so both the BM25 and vector legs run and fuse via RRF.

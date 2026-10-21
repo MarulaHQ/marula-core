@@ -7577,6 +7577,7 @@ async fn search_vector_rls_isolates_orgs_and_default_denies() {
             search::SearchKind::Ticket,
             entity,
             "test-model",
+            "test-model",
             &embedding(seed),
         )
         .await
@@ -7635,6 +7636,7 @@ async fn search_embedding_upsert_is_idempotent_and_backfill_excludes_current() {
         search::SearchKind::Ticket,
         entity,
         model,
+        model,
         &embedding(0.5),
     )
     .await
@@ -7653,6 +7655,7 @@ async fn search_embedding_upsert_is_idempotent_and_backfill_excludes_current() {
         s.org,
         search::SearchKind::Ticket,
         entity,
+        model,
         model,
         &embedding(0.5),
     )
@@ -7690,6 +7693,7 @@ async fn search_embedding_upsert_is_idempotent_and_backfill_excludes_current() {
         s.org,
         search::SearchKind::Ticket,
         entity,
+        "other-model",
         "other-model",
         &embedding(0.6),
     )
@@ -7753,6 +7757,7 @@ async fn search_hybrid_fuses_fts_and_vector_legs_by_rrf() {
         search::SearchKind::Ticket,
         both,
         "bge-base-test",
+        "bge-base-test",
         &near,
     )
     .await
@@ -7764,6 +7769,7 @@ async fn search_hybrid_fuses_fts_and_vector_legs_by_rrf() {
         s.org,
         search::SearchKind::Ticket,
         semantic,
+        "bge-base-test",
         "bge-base-test",
         &orthogonal,
     )
@@ -7777,6 +7783,7 @@ async fn search_hybrid_fuses_fts_and_vector_legs_by_rrf() {
         search::SearchKind::Ticket,
         lexical,
         "bge-base-test",
+        "bge-base-test",
         &far,
     )
     .await
@@ -7789,6 +7796,7 @@ async fn search_hybrid_fuses_fts_and_vector_legs_by_rrf() {
         "relay",
         false,
         None,
+        &["bge-base-test".to_string()],
         &near,
         10,
         0,
@@ -7836,6 +7844,7 @@ async fn search_hybrid_fuses_fts_and_vector_legs_by_rrf() {
         "relay",
         false,
         None,
+        &["bge-base-test".to_string()],
         search::SEARCH_COUNT_CAP,
     )
     .await
@@ -7881,6 +7890,7 @@ async fn search_hybrid_vector_leg_respects_kind_allow_list() {
         search::SearchKind::Ticket,
         ticket,
         "bge-base-test",
+        "bge-base-test",
         &embedding(0.3),
     )
     .await
@@ -7890,6 +7900,7 @@ async fn search_hybrid_vector_leg_respects_kind_allow_list() {
         s.org,
         search::SearchKind::Client,
         client,
+        "bge-base-test",
         "bge-base-test",
         &embedding(0.3),
     )
@@ -7905,6 +7916,7 @@ async fn search_hybrid_vector_leg_respects_kind_allow_list() {
         "unmatched-token",
         false,
         None,
+        &["bge-base-test".to_string()],
         &embedding(0.3),
         10,
         0,
@@ -7921,6 +7933,7 @@ async fn search_hybrid_vector_leg_respects_kind_allow_list() {
         "unmatched-token",
         false,
         None,
+        &["bge-base-test".to_string()],
         search::SEARCH_COUNT_CAP,
     )
     .await
@@ -7961,6 +7974,7 @@ async fn search_hybrid_walk_matches_the_offset_walk_and_ends_honestly() {
             search::SearchKind::Ticket,
             fixed_uuid(180 + i),
             "bge-base-test",
+            "bge-base-test",
             &v,
         )
         .await
@@ -7979,6 +7993,7 @@ async fn search_hybrid_walk_matches_the_offset_walk_and_ends_honestly() {
             "relay",
             false,
             None,
+            &["bge-base-test".to_string()],
             &query,
             3,
             page * 3,
@@ -7993,7 +8008,16 @@ async fn search_hybrid_walk_matches_the_offset_walk_and_ends_honestly() {
     let mut pages = 0;
     loop {
         let page = search::search_hybrid_page_after(
-            &mut tx, s.org, &kinds, "relay", false, None, &query, 3, cursor,
+            &mut tx,
+            s.org,
+            &kinds,
+            "relay",
+            false,
+            None,
+            &["bge-base-test".to_string()],
+            &query,
+            3,
+            cursor,
         )
         .await
         .expect("fused page");

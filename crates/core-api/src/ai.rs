@@ -25,17 +25,13 @@
 use crate::error::ApiError;
 use crate::state::AppState;
 use core_domain::completion::{
-    resolve_embedding_config, CompletionError, CompletionProvider, CompletionRequest,
-    CompletionResponse, CompletionUsage, EmbeddingRequest, EmbeddingResponse,
-    NoneCompletionProvider, BUNDLED_EMBEDDING_MODEL, SEARCH_EMBEDDING_DIM,
+    CompletionError, CompletionProvider, CompletionRequest, CompletionResponse, CompletionUsage,
+    EmbeddingRequest, EmbeddingResponse, NoneCompletionProvider, SEARCH_EMBEDDING_DIM,
 };
 use uuid::Uuid;
 
 /// Base URL of the OpenAI embeddings API (override for tests/gateways).
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
-/// Model used when the org has not set `ai.completion_model` (or set it to
-/// the "none" placeholder): the cheapest OpenAI-compatible text embedder.
-const OPENAI_DEFAULT_MODEL: &str = "text-embedding-3-small";
 /// Ollama's endpoint. The bundled embedder talks to its native `/api/embed`
 /// (which carries `keep_alive`), and an operator who points the cloud adapter
 /// at Ollama's OpenAI compatibility layer still gets `/v1` handled.
@@ -74,6 +70,11 @@ pub struct OpenAiEmbeddings {
     base_url: String,
     api_key: Option<String>,
     model: String,
+    /// The space this adapter's vectors belong to (Wave 52 lane R14):
+    /// `model@version/dimensions`. Carried on the adapter so the writer and the
+    /// reader cannot disagree about which model made a vector — the space is
+    /// stamped beside the vector, in the same statement that writes it.
+    space: String,
     send_dimensions: bool,
     transport: EmbedTransport,
     keep_alive: String,
@@ -85,6 +86,11 @@ impl OpenAiEmbeddings {
     /// every vector as provenance; a change re-embeds on the next sweep).
     pub fn model_name(&self) -> &str {
         &self.model
+    }
+
+    /// The space tag this adapter writes into.
+    pub fn space(&self) -> &str {
+        &self.space
     }
 
     /// Root of the native Ollama API: the configured base with any OpenAI
@@ -335,79 +341,185 @@ impl CompletionProvider for OrgCompletionProvider {
     }
 }
 
-/// Resolves the org's provider from the typed settings registry + the sealed
-/// BYOK store. Every failure mode — none mode, unsupported embeddings
-/// provider, missing or undecryptable key — degrades to none mode with a
-/// warning, never an error: the vector leg stays dark, search keeps working.
+/// Why the vector leg is dark for an org. Typed rather than a string because two
+/// of these are fixed by an operator and one of them is not: a search that
+/// reports "no results" cannot tell them apart, and the re-index gauge has to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DarkReason {
+    /// The org's own AI switch (`ai.completion_provider = none`).
+    AiOff,
+    /// The instance selected a cloud provider and no credential serves it.
+    MissingCredential,
+    /// The provider answered, and not with vectors.
+    ProviderFailed,
+    /// The org master switch (`ai.features_enabled`) is off (ADR 0010 §4).
+    FeaturesDisabled,
+}
+
+impl DarkReason {
+    /// Stable id for logs and the report.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AiOff => "ai_off",
+            Self::MissingCredential => "missing_credential",
+            Self::ProviderFailed => "provider_failed",
+            Self::FeaturesDisabled => "features_disabled",
+        }
+    }
+}
+
+/// What serves one org's vector leg right now.
+pub enum VectorLeg {
+    /// The instance's model, and the space its vectors live in.
+    Ready {
+        provider: OrgCompletionProvider,
+        space: String,
+    },
+    /// Nothing serves it, and this is the reason an operator can act on.
+    Dark { reason: DarkReason, detail: String },
+}
+
+impl VectorLeg {
+    /// The provider when the leg is ready.
+    #[must_use]
+    pub fn provider(self) -> Option<OrgCompletionProvider> {
+        match self {
+            Self::Ready { provider, .. } => Some(provider),
+            Self::Dark { .. } => None,
+        }
+    }
+}
+
+/// Resolves the org's vector leg from the INSTANCE's selection plus the
+/// credential that serves it (Wave 52 lane R14).
 ///
-/// An org that configured nothing gets the bundled local embedder rather than
-/// a dark vector leg. That is the default the product ships: EmbeddingGemma 2
-/// on the `ollama` runtime, loaded on demand. `ai.features_enabled` still
-/// gates whether any AI edge runs at all, so this does not turn AI on for an
-/// org that left it off.
+/// The order is the ruling, in this order:
+///
+/// 1. An org that set `ai.completion_provider = none` is dark. That is the off
+///    switch and it stays one.
+/// 2. The model and provider are the instance's, never the org's: two models in
+///    one index are two incomparable spaces, and the ranking that compares them
+///    is plausible and meaningless. `MARULA_EMBEDDING_TIER` / `_MODEL` /
+///    `_PROVIDER` chose it at boot, and the catalogue validated it there.
+/// 3. The local default needs no credential at all, which is why every org
+///    reaches it on a fresh install. A cloud override is instance-wide and is
+///    served by `MARULA_EMBEDDING_API_KEY` first, then by the org's own BYOK key
+///    — and only for the provider the instance chose. An org key for some other
+///    provider is not a second model; it is unused, and the leg stays dark
+///    rather than quietly embedding with something else.
+pub async fn resolve_vector_leg(state: &AppState, org_id: Uuid) -> VectorLeg {
+    let instance = &state.config.embedding;
+    let Ok((provider_setting, secret)) = read_org_ai_switch(state, org_id).await else {
+        return VectorLeg::Dark {
+            reason: DarkReason::AiOff,
+            detail: "the organization's AI settings could not be read: vector leg stays dark"
+                .to_string(),
+        };
+    };
+    if provider_setting
+        .as_deref()
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("none"))
+    {
+        return VectorLeg::Dark {
+            reason: DarkReason::AiOff,
+            detail: "AI is switched off for this organization (ai.completion_provider = none): \
+                     vector leg stays dark"
+                .to_string(),
+        };
+    }
+
+    let api_key = match &state.config.embedding_api_key {
+        Some(key) => Some(key.clone()),
+        None => match &secret {
+            Some(ciphertext) => match crate::crypto::open(&state.config.secret_key, ciphertext) {
+                Ok(bytes) => Some(String::from_utf8_lossy(&bytes).to_string()),
+                Err(error) => {
+                    tracing::warn!(
+                        %org_id,
+                        provider = %instance.provider,
+                        %error,
+                        "byok secret failed to decrypt; vector leg degraded"
+                    );
+                    return VectorLeg::Dark {
+                        reason: DarkReason::MissingCredential,
+                        detail: format!(
+                            "the organization's stored key for `{}` could not be decrypted; \
+                             store it again in Settings → AI",
+                            instance.provider
+                        ),
+                    };
+                }
+            },
+            None => None,
+        },
+    };
+
+    let transport = transport_for(&instance.provider);
+    let local = transport == EmbedTransport::Ollama;
+    if !local && api_key.is_none() {
+        return VectorLeg::Dark {
+            reason: DarkReason::MissingCredential,
+            detail: format!(
+                "the instance runs `{}` on `{}`, which needs a credential: set \
+                 MARULA_EMBEDDING_API_KEY on the instance, or store a key for `{}` in this \
+                 organization's settings — the vector leg stays dark until one exists",
+                instance.entry.id, instance.provider, instance.provider
+            ),
+        };
+    }
+    VectorLeg::Ready {
+        space: instance.space_id(),
+        provider: OrgCompletionProvider::Embeddings(OpenAiEmbeddings {
+            http: reqwest::Client::new(),
+            base_url: base_url_for(&instance.provider),
+            api_key,
+            model: instance.entry.id.to_string(),
+            space: instance.space_id(),
+            send_dimensions: !local,
+            transport,
+            keep_alive: embedding_keep_alive(),
+            timeout: std::time::Duration::from_secs(if local {
+                LOCAL_EMBED_TIMEOUT_SECS
+            } else {
+                CLOUD_EMBED_TIMEOUT_SECS
+            }),
+        }),
+    }
+}
+
+/// The org's provider, when the leg is ready. Kept for the call sites that only
+/// want "is there a provider" — the reason a leg is dark lives in
+/// [`resolve_vector_leg`], which is what a report should carry.
 pub async fn resolve_org_completion_provider(
     state: &AppState,
     org_id: Uuid,
 ) -> OrgCompletionProvider {
-    let Ok((provider_setting, model_setting, secret)) = read_provider_config(state, org_id).await
-    else {
-        return OrgCompletionProvider::None(NoneCompletionProvider);
-    };
-    let config = resolve_embedding_config(provider_setting.as_deref(), model_setting.as_deref());
-    let (base_url, default_model, send_dimensions, transport) = match config.provider.as_str() {
-        "openai" => (
-            std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| OPENAI_BASE_URL.to_string()),
-            OPENAI_DEFAULT_MODEL.to_string(),
-            true,
-            EmbedTransport::OpenAiCompatible,
-        ),
-        "ollama" => (
-            std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| OLLAMA_DEFAULT_BASE.to_string()),
-            bundled_embedding_model(),
-            false,
-            EmbedTransport::Ollama,
-        ),
-        // "none" is the documented off switch. anthropic has no embeddings
-        // API and "custom" has no base-URL setting yet, so both stay none
-        // mode rather than guess an endpoint.
-        _ => return OrgCompletionProvider::None(NoneCompletionProvider),
-    };
-    let api_key = match &secret {
-        Some(ciphertext) => match crate::crypto::open(&state.config.secret_key, ciphertext) {
-            Ok(bytes) => Some(String::from_utf8_lossy(&bytes).to_string()),
-            Err(error) => {
-                tracing::warn!(%org_id, %error, "byok secret failed to decrypt; vector leg degraded");
-                return OrgCompletionProvider::None(NoneCompletionProvider);
-            }
-        },
-        None => None,
-    };
-    let local = transport == EmbedTransport::Ollama;
-    OrgCompletionProvider::Embeddings(OpenAiEmbeddings {
-        http: reqwest::Client::new(),
-        base_url,
-        api_key,
-        model: config.model.unwrap_or(default_model),
-        send_dimensions,
-        transport,
-        keep_alive: embedding_keep_alive(),
-        timeout: std::time::Duration::from_secs(if local {
-            LOCAL_EMBED_TIMEOUT_SECS
-        } else {
-            CLOUD_EMBED_TIMEOUT_SECS
-        }),
-    })
+    resolve_vector_leg(state, org_id)
+        .await
+        .provider()
+        .unwrap_or(OrgCompletionProvider::None(NoneCompletionProvider))
 }
 
-/// The model an install runs when no org names one. `MARULA_EMBEDDING_MODEL`
-/// is the instance-level lever; the catalogue lane owns the selection surface
-/// that replaces it.
-fn bundled_embedding_model() -> String {
-    std::env::var("MARULA_EMBEDDING_MODEL")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| BUNDLED_EMBEDDING_MODEL.to_string())
+/// Whether a provider id means the local runtime. Every other id speaks the
+/// OpenAI wire shape: a custom catalogue entry names its provider and the
+/// operator who added it pointed `OPENAI_BASE_URL` at something that does.
+fn transport_for(provider: &str) -> EmbedTransport {
+    if provider.eq_ignore_ascii_case("ollama") {
+        EmbedTransport::Ollama
+    } else {
+        EmbedTransport::OpenAiCompatible
+    }
+}
+
+/// The endpoint a provider id resolves to.
+fn base_url_for(provider: &str) -> String {
+    if provider.eq_ignore_ascii_case("ollama") {
+        std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| OLLAMA_DEFAULT_BASE.to_string())
+    } else {
+        std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| OPENAI_BASE_URL.to_string())
+    }
 }
 
 /// How long the local model stays resident after its last request.
@@ -422,29 +534,29 @@ fn embedding_keep_alive() -> String {
 }
 
 /// What the settings surface should report: the provider and model that would
-/// actually serve the vector leg, not the raw override. Without this the card
-/// shows "none (none)" while the bundled embedder is the thing running.
+/// actually serve the vector leg.
+///
+/// That is the instance's selection, and the org's setting can do exactly one
+/// thing to it — switch it off. Reporting an org's `ai.completion_model` here
+/// would tell the operator their model is serving when the instance's is, which
+/// is the shape of bug this lane exists to remove.
 pub fn effective_embedding_labels(
+    instance: &core_domain::embedding::InstanceEmbedding,
     provider_setting: Option<&str>,
-    model_setting: Option<&str>,
 ) -> (String, String) {
-    let config = resolve_embedding_config(provider_setting, model_setting);
-    let model = match config.provider.as_str() {
-        "openai" => config
-            .model
-            .unwrap_or_else(|| OPENAI_DEFAULT_MODEL.to_string()),
-        "ollama" => config.model.unwrap_or_else(bundled_embedding_model),
-        _ => return ("none".to_string(), "none".to_string()),
-    };
-    (config.provider, model)
+    if provider_setting.is_some_and(|value| value.trim().eq_ignore_ascii_case("none")) {
+        return ("none".to_string(), "none".to_string());
+    }
+    (instance.provider.clone(), instance.entry.id.to_string())
 }
 
-/// Reads the org's raw provider and model settings. `None` means the org
-/// never set the key, which is different from setting it to "none".
-async fn read_provider_config(
+/// Reads the org's AI switch and the sealed key for the INSTANCE's provider.
+/// `None` for the provider means the org never set the key, which is different
+/// from setting it to "none".
+async fn read_org_ai_switch(
     state: &AppState,
     org_id: Uuid,
-) -> core_db::DbResult<(Option<String>, Option<String>, Option<Vec<u8>>)> {
+) -> core_db::DbResult<(Option<String>, Option<Vec<u8>>)> {
     let mut tx = state.pool.begin().await?;
     core_db::set_org(&mut tx, org_id).await?;
     let overrides = core_db::settings::list_org_overrides(&mut *tx, org_id).await?;
@@ -454,18 +566,13 @@ async fn read_provider_config(
         .and_then(|o| o.value.as_str())
         .map(|value| value.trim().to_ascii_lowercase())
         .filter(|value| !value.is_empty());
-    let model = overrides
-        .iter()
-        .find(|o| o.key == core_domain::settings::AI_COMPLETION_MODEL)
-        .and_then(|o| o.value.as_str())
-        .map(str::to_string);
-    // The sealed key is looked up for the provider that will actually run:
-    // an unconfigured org looks up the bundled provider and finds nothing,
-    // which is correct — the local runtime needs no credential.
-    let secret_provider = resolve_embedding_config(provider.as_deref(), model.as_deref()).provider;
-    let secret = core_db::byok::get_secret(&mut *tx, org_id, &secret_provider).await?;
+    // The key is looked up for the provider that will actually run. An
+    // unconfigured org on the local default finds nothing, which is correct:
+    // the local runtime needs no credential.
+    let secret =
+        core_db::byok::get_secret(&mut *tx, org_id, &state.config.embedding.provider).await?;
     tx.commit().await?;
-    Ok((provider, model, secret))
+    Ok((provider, secret))
 }
 
 /// Embeds one batch of texts through the org's provider. `None` means "the
@@ -541,49 +648,110 @@ pub async fn embed_search_query(state: &AppState, org_id: Uuid, query: &str) -> 
 pub struct BackfillReport {
     /// Rows that now carry a fresh vector.
     pub embedded: usize,
-    /// False when the sweep hit its iteration budget — re-run to continue.
+    /// False when the sweep hit its iteration budget or the provider failed —
+    /// re-run to continue. Resumption is the selection predicate, not a cursor:
+    /// rows already written in `space` are simply not selected again.
     pub complete: bool,
-    /// Why nothing was embedded (none mode / provider error), for operators.
+    /// Why nothing was embedded, for operators.
     pub reason: Option<String>,
+    /// The typed reason, when the leg is dark.
+    pub dark: Option<DarkReason>,
+    /// The space this pass wrote into.
+    pub space: String,
+    /// Rows still lacking a fresh vector in `space`. The gauge's value.
+    pub remaining: i64,
+    /// Every index row this org has: the gauge's denominator.
+    pub total_rows: i64,
+    /// The run this pass advanced, when the sweep asked for one.
+    pub run_id: Option<Uuid>,
+}
+
+impl BackfillReport {
+    /// The counters before any embedding happened.
+    fn snapshot(space: String, remaining: i64, total_rows: i64, run_id: Option<Uuid>) -> Self {
+        Self {
+            embedded: 0,
+            complete: true,
+            reason: None,
+            dark: None,
+            space,
+            remaining,
+            total_rows,
+            run_id,
+        }
+    }
+
+    /// A dark leg: nothing will be embedded until the reason is addressed.
+    fn dark(mut self, reason: DarkReason, detail: impl Into<String>) -> Self {
+        self.dark = Some(reason);
+        self.reason = Some(detail.into());
+        self
+    }
 }
 
 /// Embeds at most `max_batches * core_db::search::EMBEDDING_BATCH` rows per
-/// call so one request cannot run for minutes. Idempotent by construction:
-/// the sweep only selects rows whose vector is missing, was produced by a
-/// different model, or whose content hash has moved on — re-running a
-/// completed sweep embeds nothing.
+/// call so one request cannot run for minutes. Idempotent by construction: the
+/// sweep only selects rows with no fresh vector in the instance's space, or
+/// whose content hash has moved on — re-running a completed sweep embeds
+/// nothing.
+///
+/// `run_id` is the re-index run this pass advances, when the worker's sweep
+/// asked for one. The run's completion is marked in the same transaction that
+/// deletes the previous space's rows for this org: a run that says "complete"
+/// while the old population is still readable would be a lie about what search
+/// can see.
 pub async fn backfill_org_embeddings(
     state: &AppState,
     org_id: Uuid,
     max_batches: i64,
+    run_id: Option<Uuid>,
 ) -> Result<BackfillReport, ApiError> {
-    let mut conn = state.pool.acquire().await.map_err(ApiError::from)?;
-    if !core_db::ai_policy::features_enabled(conn.as_mut(), org_id)
-        .await
-        .map_err(ApiError::from)?
-    {
-        return Ok(BackfillReport {
-            embedded: 0,
-            complete: true,
-            reason: Some(
-                "AI features are switched off for this organization: vector leg stays dark"
-                    .to_string(),
-            ),
-        });
+    let space = state.config.embedding.space_id();
+
+    // One read pass under RLS: the org switch, and the two counts the report
+    // and the gauge need. Cheap (two indexed counts) and honest even when the
+    // leg is dark — a dark leg still has a backlog, and that backlog is what an
+    // operator is looking at when they ask why search misses.
+    let (features_enabled, remaining, total_rows) = {
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        core_db::set_org(&mut tx, org_id)
+            .await
+            .map_err(ApiError::from)?;
+        let enabled = core_db::ai_policy::features_enabled(&mut *tx, org_id)
+            .await
+            .map_err(ApiError::from)?;
+        let remaining = core_db::search::count_remaining_embeddings(&mut *tx, org_id, &space)
+            .await
+            .map_err(ApiError::from)?;
+        let total = core_db::search::count_index_rows(&mut *tx, org_id)
+            .await
+            .map_err(ApiError::from)?;
+        tx.commit().await.map_err(ApiError::from)?;
+        (enabled, remaining, total)
+    };
+    let report = BackfillReport::snapshot(space.clone(), remaining, total_rows, run_id);
+    if !features_enabled {
+        return Ok(report.dark(
+            DarkReason::FeaturesDisabled,
+            "AI features are switched off for this organization: vector leg stays dark",
+        ));
     }
-    drop(conn);
-    let provider = resolve_org_completion_provider(state, org_id).await;
+    if remaining == 0 {
+        // Nothing to do — and if this pass belongs to a run, the run is done.
+        return finish_run_if_complete(state, org_id, &space, report).await;
+    }
+
+    let provider = match resolve_vector_leg(state, org_id).await {
+        VectorLeg::Ready { provider, .. } => provider,
+        VectorLeg::Dark { reason, detail } => return Ok(report.dark(reason, detail)),
+    };
     let model = match &provider {
-        OrgCompletionProvider::Embeddings(embeddings) => embeddings.model.clone(),
+        OrgCompletionProvider::Embeddings(embeddings) => embeddings.model_name().to_string(),
         OrgCompletionProvider::None(_) => {
-            return Ok(BackfillReport {
-                embedded: 0,
-                complete: true,
-                reason: Some(
-                    "no embedding provider configured (none mode): vector leg stays dark"
-                        .to_string(),
-                ),
-            })
+            return Ok(report.dark(
+                DarkReason::AiOff,
+                "no embedding provider configured (none mode): vector leg stays dark",
+            ))
         }
     };
 
@@ -599,7 +767,7 @@ pub async fn backfill_org_embeddings(
             let batch = core_db::search::rows_needing_embedding(
                 &mut *tx,
                 org_id,
-                &model,
+                &space,
                 core_db::search::EMBEDDING_BATCH,
             )
             .await
@@ -608,22 +776,22 @@ pub async fn backfill_org_embeddings(
             batch
         };
         if targets.is_empty() {
-            return Ok(BackfillReport {
-                embedded,
-                complete: true,
-                reason: None,
-            });
+            break;
         }
         let texts: Vec<String> = targets
             .iter()
             .map(|target| search_embed_text(&target.title, &target.body))
             .collect();
         let Some(vectors) = embed_batch(&provider, texts).await else {
-            return Ok(BackfillReport {
-                embedded,
-                complete: false,
-                reason: Some("embedding provider failed mid-sweep; re-run to resume".to_string()),
-            });
+            let remaining = count_remaining(state, org_id, &space).await?;
+            let mut failed = BackfillReport::snapshot(space, remaining, total_rows, run_id);
+            failed.embedded = embedded;
+            failed.complete = false;
+            return Ok(failed.dark(
+                DarkReason::ProviderFailed,
+                "embedding provider failed mid-sweep; the rows already written stay, \
+                 and re-running resumes at the first row without a fresh vector",
+            ));
         };
         let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
         core_db::set_org(&mut tx, org_id)
@@ -635,6 +803,7 @@ pub async fn backfill_org_embeddings(
                 org_id,
                 target.kind,
                 target.entity_id,
+                &space,
                 &model,
                 &vector,
             )
@@ -644,11 +813,132 @@ pub async fn backfill_org_embeddings(
         }
         tx.commit().await.map_err(ApiError::from)?;
     }
-    Ok(BackfillReport {
-        embedded,
-        complete: false,
-        reason: Some("iteration budget reached; re-run to continue".to_string()),
-    })
+
+    let remaining = count_remaining(state, org_id, &space).await?;
+    let mut report = BackfillReport::snapshot(space, remaining, total_rows, run_id);
+    report.embedded = embedded;
+    report.complete = remaining == 0;
+    if !report.complete {
+        report.reason = Some("iteration budget reached; re-run to continue".to_string());
+        return Ok(report);
+    }
+    let space = report.space.clone();
+    finish_run_if_complete(state, org_id, &space, report).await
+}
+
+/// Counts rows still missing a fresh vector in `space`.
+async fn count_remaining(state: &AppState, org_id: Uuid, space: &str) -> Result<i64, ApiError> {
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
+    let remaining = core_db::search::count_remaining_embeddings(&mut *tx, org_id, space)
+        .await
+        .map_err(ApiError::from)?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(remaining)
+}
+
+/// Closes out a run whose org now has nothing left to embed.
+///
+/// Three statements, one transaction: delete this org's rows in the previous
+/// space, mark the run complete, then clear `previous_space` once no run
+/// anywhere is unfinished. The delete comes first so a crash between the two
+/// repeats it (idempotent) rather than leaving orphan rows behind a closed run.
+async fn finish_run_if_complete(
+    state: &AppState,
+    org_id: Uuid,
+    space: &str,
+    mut report: BackfillReport,
+) -> Result<BackfillReport, ApiError> {
+    report.complete = true;
+    let Some(run_id) = report.run_id else {
+        return Ok(report);
+    };
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
+    let previous = core_db::embedding_space::read_state(&mut *tx)
+        .await
+        .map_err(ApiError::from)?
+        .previous_space;
+    if let Some(previous) = previous {
+        if previous != space {
+            let deleted = core_db::search::delete_space_embeddings(&mut *tx, org_id, &previous)
+                .await
+                .map_err(ApiError::from)?;
+            tracing::info!(
+                %org_id,
+                previous_space = %previous,
+                target_space = %space,
+                deleted,
+                "re-index complete for org; previous space rows removed"
+            );
+        }
+    }
+    core_db::embedding_space::record_progress(&mut *tx, run_id, report.total_rows, 0, None)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::embedding_space::clear_previous_when_done(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(report)
+}
+
+// --- boot: the instance's space -----------------------------------------------
+
+/// Records the space this instance writes and opens the one re-index window a
+/// model change needs (Wave 52 lane R14).
+///
+/// Three outcomes:
+/// - the recorded target is already this model's space: nothing happens, which
+///   is what makes a restart not a re-index;
+/// - the target changed to another BUILD of the same model id: the old rows stay
+///   readable beside the new ones, because their vectors are comparable at the
+///   ranking level the product measures (identical top-10 on 23 of 23 queries);
+/// - the target changed to another MODEL: the old rows stop being readable
+///   immediately. Search is under-filled until each org's run completes, and
+///   under-filled is the honest state — a ranking assembled from two
+///   incomparable spaces answers every query with noise.
+///
+/// The runs themselves are the worker's to create (its owner role is the one
+/// that may insert across orgs); this only records the switch they hang off.
+pub async fn ensure_instance_embedding_space(state: &AppState) -> Result<(), ApiError> {
+    use core_domain::embedding::EmbeddingSpace;
+
+    let target = state.config.embedding.space_id();
+    let mut conn = state.pool.acquire().await.map_err(ApiError::from)?;
+    let current = core_db::embedding_space::read_state(&mut *conn)
+        .await
+        .map_err(ApiError::from)?;
+    let previous_readable = match (
+        current.target_space.as_deref(),
+        EmbeddingSpace::parse(&target),
+    ) {
+        (Some(old), Some(new)) => {
+            EmbeddingSpace::parse(old).is_some_and(|old| old.same_model(&new))
+        }
+        _ => false,
+    };
+    let Some(switch) =
+        core_db::embedding_space::record_switch(&mut conn, &target, previous_readable)
+            .await
+            .map_err(ApiError::from)?
+    else {
+        tracing::debug!(space = %target, "embedding space unchanged");
+        return Ok(());
+    };
+    drop(conn);
+    tracing::info!(
+        switch_id = %switch.switch_id,
+        from_space = switch.from_space.as_deref().unwrap_or("<none recorded>"),
+        to_space = %switch.to_space,
+        previous_readable = switch.previous_readable,
+        "embedding space changed; the worker's sweep will queue one re-index run per org"
+    );
+    Ok(())
 }
 
 /// The exact text a vector is computed from for one index row — the same
@@ -728,57 +1018,111 @@ mod tests {
         assert_eq!(search_embed_text("Mail relay", "down"), "Mail relay\ndown");
     }
 
+    fn instance(
+        tier: Option<&str>,
+        model: Option<&str>,
+        provider: Option<&str>,
+    ) -> core_domain::embedding::InstanceEmbedding {
+        let catalogue = core_domain::embedding::Catalogue::builtin();
+        core_domain::embedding::select_instance(&catalogue, tier, model, provider)
+            .expect("selection resolves")
+    }
+
     #[test]
-    fn bundled_default_is_an_embeddinggemma_model() {
-        // The bundled default has to produce exactly the pinned width, or the
+    fn the_default_instance_is_embeddinggemma_text_only_on_the_local_path() {
+        // The instance model has to produce exactly the pinned width, or the
         // first search it serves would write vectors nothing can compare to.
         assert_eq!(core_domain::SEARCH_EMBEDDING_DIM, 768);
-        assert!(
-            BUNDLED_EMBEDDING_MODEL.starts_with("embeddinggemma-2:"),
-            "bundled default moved off EmbeddingGemma 2: {BUNDLED_EMBEDDING_MODEL}"
-        );
-        assert!(
-            BUNDLED_EMBEDDING_MODEL.contains("-text"),
-            "the default should be the text-only variant, which is the cheaper \
-             resident set for the same text vectors: {BUNDLED_EMBEDDING_MODEL}"
-        );
-    }
-
-    #[test]
-    fn unset_settings_report_the_bundled_local_default() {
-        let (provider, model) = effective_embedding_labels(None, None);
+        let selection = instance(None, None, None);
+        assert_eq!(selection.entry.id, "embeddinggemma-2:270m-q8_0-text");
+        assert_eq!(selection.provider, "ollama");
+        assert!(selection.is_local(), "the default runs on this host");
         assert_eq!(
-            provider,
-            core_domain::completion::BUNDLED_EMBEDDING_PROVIDER
+            selection.space_id(),
+            "embeddinggemma-2:270m-q8_0-text@1/768"
         );
-        assert_eq!(model, BUNDLED_EMBEDDING_MODEL);
     }
 
     #[test]
-    fn explicit_none_stays_off() {
+    fn the_settings_card_reports_the_instances_model_and_the_org_can_only_turn_it_off() {
+        let selection = instance(None, None, None);
         assert_eq!(
-            effective_embedding_labels(Some("none"), None),
-            ("none".to_string(), "none".to_string())
+            effective_embedding_labels(&selection, None),
+            ("ollama".to_string(), selection.entry.id.to_string())
         );
-    }
-
-    #[test]
-    fn cloud_override_is_reported_as_chosen() {
-        let (provider, model) = effective_embedding_labels(Some("openai"), None);
-        assert_eq!(provider, "openai");
-        assert_eq!(model, OPENAI_DEFAULT_MODEL);
-        let (provider, model) =
-            effective_embedding_labels(Some("openai"), Some("text-embedding-3-large"));
-        assert_eq!(provider, "openai");
-        assert_eq!(model, "text-embedding-3-large");
-    }
-
-    #[test]
-    fn a_provider_without_an_embeddings_api_reports_none() {
         assert_eq!(
-            effective_embedding_labels(Some("anthropic"), Some("claude")),
-            ("none".to_string(), "none".to_string())
+            effective_embedding_labels(&selection, Some("none")),
+            ("none".to_string(), "none".to_string()),
+            "the org's own switch is the one thing its setting still does"
         );
+        assert_eq!(
+            effective_embedding_labels(&selection, Some("openai")),
+            ("ollama".to_string(), selection.entry.id.to_string()),
+            "naming another provider does not move the org onto another model"
+        );
+    }
+
+    #[test]
+    fn a_cloud_instance_reports_its_catalogue_model_and_has_no_local_floor() {
+        let selection = instance(Some("standard"), None, Some("openai"));
+        assert_eq!(selection.entry.id, "text-embedding-3-large");
+        assert_eq!(
+            effective_embedding_labels(&selection, None),
+            ("openai".to_string(), "text-embedding-3-large".to_string())
+        );
+        assert!(!selection.is_local());
+        assert_eq!(
+            transport_for(&selection.provider),
+            EmbedTransport::OpenAiCompatible
+        );
+    }
+
+    #[test]
+    fn the_local_provider_id_picks_the_native_shape_and_every_other_id_the_wire_one() {
+        assert_eq!(transport_for("ollama"), EmbedTransport::Ollama);
+        assert_eq!(transport_for("OLLAMA"), EmbedTransport::Ollama);
+        assert_eq!(transport_for("openai"), EmbedTransport::OpenAiCompatible);
+        assert_eq!(
+            transport_for("acme-embeddings"),
+            EmbedTransport::OpenAiCompatible
+        );
+    }
+
+    #[test]
+    fn the_adapter_carries_the_space_it_writes() {
+        let selection = instance(Some("minimal"), None, None);
+        let adapter = OpenAiEmbeddings {
+            http: reqwest::Client::new(),
+            base_url: base_url_for(&selection.provider),
+            api_key: None,
+            model: selection.entry.id.to_string(),
+            space: selection.space_id(),
+            send_dimensions: false,
+            transport: EmbedTransport::Ollama,
+            keep_alive: LOCAL_EMBED_KEEP_ALIVE.to_string(),
+            timeout: std::time::Duration::from_secs(LOCAL_EMBED_TIMEOUT_SECS),
+        };
+        assert_eq!(adapter.space(), selection.space_id());
+        assert_eq!(
+            core_domain::embedding::EmbeddingSpace::parse(adapter.space())
+                .expect("a stored tag parses")
+                .model,
+            selection.entry.id
+        );
+    }
+
+    #[test]
+    fn a_dark_leg_names_a_reason_an_operator_can_act_on() {
+        let reasons = [
+            DarkReason::AiOff,
+            DarkReason::MissingCredential,
+            DarkReason::ProviderFailed,
+            DarkReason::FeaturesDisabled,
+        ];
+        let mut ids: Vec<&str> = reasons.iter().map(|r| r.as_str()).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), reasons.len(), "one stable id per reason");
     }
 
     #[test]
@@ -789,7 +1133,8 @@ mod tests {
             http: reqwest::Client::new(),
             base_url: "http://localhost:11434/v1".to_string(),
             api_key: None,
-            model: BUNDLED_EMBEDDING_MODEL.to_string(),
+            model: "embeddinggemma-2:270m-q8_0-text".to_string(),
+            space: "embeddinggemma-2:270m-q8_0-text@1/768".to_string(),
             send_dimensions: false,
             transport: EmbedTransport::Ollama,
             keep_alive: LOCAL_EMBED_KEEP_ALIVE.to_string(),
@@ -806,12 +1151,12 @@ mod tests {
     #[test]
     fn parse_reads_ollama_native_embeddings_in_input_order() {
         let body = json!({
-            "model": BUNDLED_EMBEDDING_MODEL,
+            "model": "embeddinggemma-2:270m-q8_0-text",
             "embeddings": [vector(1.0), vector(2.0)],
             "prompt_eval_count": 11
         });
         let parsed = parse_ollama_embed_response("fallback", &body).expect("parse");
-        assert_eq!(parsed.model, BUNDLED_EMBEDDING_MODEL);
+        assert_eq!(parsed.model, "embeddinggemma-2:270m-q8_0-text");
         assert_eq!(parsed.embeddings.len(), 2);
         assert_eq!(parsed.embeddings[1][0], 2.0);
         assert_eq!(parsed.usage.expect("usage").prompt_tokens, 11);

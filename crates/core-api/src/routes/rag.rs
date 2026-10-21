@@ -404,6 +404,14 @@ pub struct RagQueryRequest {
     /// 768-dimension space.
     #[serde(default)]
     pub query_vector: Option<Vec<f32>>,
+    /// The embedding space a caller-supplied `query_vector` belongs to
+    /// (`model@version/dimensions`, migration 0152). Optional: without it the
+    /// vector leg ranks in the instance's space, which is the right answer when
+    /// Core embedded the query itself. A connector that produced the vector
+    /// with its own model names that space here; naming a space nothing carries
+    /// is a miss, never a comparison against vectors from another model.
+    #[serde(default)]
+    pub query_space: Option<String>,
     /// Optional modality filter (`text | image | video | audio`). When empty
     /// or omitted, all modalities in the namespace participate (cross-modal
     /// retrieval).
@@ -510,6 +518,23 @@ pub async fn query_namespace(
     let lexical_leg_active = trimmed_text.is_some();
     let vector_leg_active = resolved_vector.is_some();
 
+    // Exactly one space for the vector leg (Wave 52 lane R14). Two spaces are
+    // never ordered together, and a RAG namespace can legitimately hold chunks
+    // from more than one model — so the query's own space says which population
+    // it may rank in. Absent an assertion, that is the instance's space, which
+    // is where Core put the query vector it embedded itself.
+    let query_space = match req.query_space.as_deref() {
+        Some(raw) => core_domain::embedding::EmbeddingSpace::parse(raw)
+            .map(|space| space.id())
+            .ok_or_else(|| {
+                ApiError::Validation(format!(
+                    "query_space must be `model@version/dimensions`, got {raw:?}"
+                ))
+            })?,
+        None => state.config.embedding.space_id(),
+    };
+    let spaces = [query_space];
+
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, user_id)
         .await
@@ -525,6 +550,7 @@ pub async fn query_namespace(
             source_ids: &source_ids,
             query_text: trimmed_text.as_deref(),
             query_vector: resolved_vector.as_deref(),
+            spaces: &spaces,
             limit,
         },
     )

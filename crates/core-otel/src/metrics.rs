@@ -39,6 +39,9 @@
 //! | `marula.reconcile.report_retry_exhausted` | gauge | –      | report slots out of delivery attempts |
 //! | `marula.consumer.gap_entries` | gauge       | group               | entries after the group's position still in the stream |
 //! | `marula.consumer.gap_lost`   | gauge       | group               | 1 when the group's position is under the stream floor |
+//! | `marula.embedding.reindex.remaining` | gauge | org      | rows still lacking a vector in the target embedding space, per org |
+//! | `marula.embedding.reindex.runs_pending` | gauge | –     | unfinished per-org re-index runs on the whole install |
+//! | `marula.embedding.reindex.embedded` | counter | org    | rows embedded by the re-index job since this process started |
 //!
 //! The table above is the human view; [`crate::contract::METRICS`] is the
 //! machine view and the one an external consumer depends on. A metric that is
@@ -87,6 +90,9 @@ struct Instruments {
     reconcile_report_retry_exhausted: Gauge<u64>,
     consumer_gap_entries: Gauge<u64>,
     consumer_gap_lost: Gauge<u64>,
+    embedding_reindex_remaining: Gauge<u64>,
+    embedding_reindex_runs_pending: Gauge<u64>,
+    embedding_reindex_embedded: Counter<u64>,
 }
 
 static INSTRUMENTS: OnceLock<Instruments> = OnceLock::new();
@@ -226,6 +232,23 @@ fn instruments() -> &'static Instruments {
                 .u64_gauge("marula.consumer.gap_entries")
                 .with_unit("{entry}")
                 .with_description("Entries after a consumer group's position still in the stream")
+                .build(),
+            embedding_reindex_remaining: meter
+                .u64_gauge("marula.embedding.reindex.remaining")
+                .with_unit("{row}")
+                .with_description(
+                    "Rows still lacking a vector in the instance's target embedding space, by org",
+                )
+                .build(),
+            embedding_reindex_runs_pending: meter
+                .u64_gauge("marula.embedding.reindex.runs_pending")
+                .with_unit("{run}")
+                .with_description("Per-org re-index runs that have not completed")
+                .build(),
+            embedding_reindex_embedded: meter
+                .u64_counter("marula.embedding.reindex.embedded")
+                .with_unit("{row}")
+                .with_description("Rows the re-index job embedded, by org")
                 .build(),
             consumer_gap_lost: meter
                 .u64_gauge("marula.consumer.gap_lost")
@@ -529,6 +552,31 @@ pub fn capacity_page1_sort_index_scan(index_scan: bool) {
         .record(u64::from(index_scan), &[]);
 }
 
+/// Rows still missing a vector in the target space, for one org.
+///
+/// Per org on purpose: "the re-index is 80% done" is not an answer an operator
+/// can act on when one tenant holds the missing 20%. Zero is the caught-up
+/// value, which is what makes this the evidence the job finishes.
+pub fn embedding_reindex_remaining(org_id: &str, rows: u64) {
+    instruments()
+        .embedding_reindex_remaining
+        .record(rows, &[KeyValue::new("org", org_id.to_string())]);
+}
+
+/// Unfinished re-index runs across the install.
+pub fn embedding_reindex_runs_pending(runs: u64) {
+    instruments()
+        .embedding_reindex_runs_pending
+        .record(runs, &[]);
+}
+
+/// Rows one pass embedded, attributed to the org they belong to.
+pub fn embedding_reindex_embedded(org_id: &str, rows: u64) {
+    instruments()
+        .embedding_reindex_embedded
+        .add(rows, &[KeyValue::new("org", org_id.to_string())]);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -609,6 +657,9 @@ mod tests {
             "marula.reconcile.report_retry_exhausted",
             "marula.consumer.gap_entries",
             "marula.consumer.gap_lost",
+            "marula.embedding.reindex.remaining",
+            "marula.embedding.reindex.runs_pending",
+            "marula.embedding.reindex.embedded",
         ];
         let published: std::collections::BTreeSet<&str> =
             crate::contract::METRICS.iter().map(|m| m.name).collect();

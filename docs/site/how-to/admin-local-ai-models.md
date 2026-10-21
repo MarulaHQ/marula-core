@@ -69,11 +69,13 @@ In **Settings → AI**, add a provider:
 | Base URL | `http://ollama:11434` |
 | API key | leave empty — a local runtime does not check one |
 | Transcription model | `whisper` (or empty, which means the same thing) |
-| Embedding model | empty — the bundled default applies |
 
-An install that never opens this page already has the local embedder: an
-unset provider means the bundled model, loaded on first use and dropped
-after five idle minutes. Naming a provider here is how you replace it.
+An install that never opens this page already has the local embedder: the
+instance-wide selection is the local `standard` model, loaded on first use and
+dropped after five idle minutes. This page's provider row covers transcription
+and the completion models an organization calls. It does not choose the
+embedding model: that is one instance setting, documented in
+[How to change the embedding model](operator-embedding-model.md).
 
 `http://ollama:11434` is the compose **service name**, and it has to be:
 it is the address that resolves inside the compose network, where Marula
@@ -91,9 +93,10 @@ embeddings each have their own switch:
   switch, surface enabled, per-user grant, catalog allowlist, all of it.
   A user without the grant gets a visibly-absent state, not a silent
   empty transcript.
-- **Knowledge search** fills its vector column once the embedding provider
-  is configured. Existing articles are embedded on the next indexing pass,
-  and new ones as they are saved.
+- **Knowledge search** fills its vector column from the instance's embedding
+  model. New and edited rows are embedded as they are indexed; an existing
+  population is re-indexed when the model changes, which is a deployment
+  setting rather than a setting on this page.
 
 ## 5. What not to do
 
@@ -107,15 +110,15 @@ a laptop, tunnel it the same way you would a database.
 **Do not point Marula at a public Ollama instance you do not run.**
 Whatever it can reach, it can send.
 
-**Do not skip the dimension check on embeddings.** If you swap in a
-different embedding model, confirm it returns 768 dimensions first. The
-multimodal build of the same model (`embeddinggemma-2:740m-q8_0`) is 768 as
-well, and it is the one to choose if you need image or audio chunks
-embedded, at a larger resident set.
-Marula refuses to store a wrong-width vector. The column stays dark and
-search falls back to full-text, so a dimension mismatch shows up as
-"search got worse" rather than as an error. That is an annoying way to
-find out.
+**Do not swap the embedding model without the re-index.** If you change it,
+do it through the instance levers in
+[How to change the embedding model](operator-embedding-model.md), which records
+the new space and re-embeds the population. A model of another width is refused
+when a vector is stored: the column stays dark and search falls back to
+full-text, so a dimension mismatch shows up as "search got worse" rather than
+as an error. The multimodal build of the same model
+(`embeddinggemma-2:740m-q8_0`) is 768 as well, and it is the one to choose if
+you need image or audio chunks embedded, at a larger resident set.
 
 ## What you learned
 
@@ -133,5 +136,7 @@ find out.
 
 - [How to manage AI access](admin-ai-access.md), which covers the switches
   and what a denied call looks like
+- [How to change the embedding model](operator-embedding-model.md) — the
+  instance-wide model choice and its re-index
 - [Local AI: transcription and embeddings on your own hardware](../reference/self-host-local-ai.md)
   — the decision behind operator-run models

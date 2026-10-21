@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) AS \"count!\"\n           FROM embedding_reindex_runs\n          WHERE status IN ('queued', 'running')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c7c2c3b865b5d984f3d4ce7ba08571a317bb29d748dfb6c09820810d510a4ef2"
+}

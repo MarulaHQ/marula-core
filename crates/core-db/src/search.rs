@@ -461,14 +461,19 @@ pub struct EmbeddingTarget {
     pub body: String,
 }
 
-/// Rows whose vector is absent, was produced by a different model, or whose
-/// searchable text has moved on (content hash mismatch). Deterministic
-/// order (oldest first); running the backfill twice is a no-op the second
-/// time — the predicate excludes freshly embedded rows by construction.
+/// Rows with no vector in `space`, or whose searchable text has moved on since
+/// the one they have (content hash mismatch). Deterministic order (oldest
+/// first); running the sweep twice is a no-op the second time — the predicate
+/// excludes freshly embedded rows by construction.
+///
+/// `space` (Wave 52 lane R14) replaced `model` as the predicate. A row embedded
+/// under the previous space is selected — which is what makes the re-index job
+/// resumable without a cursor: the rows already written are simply no longer
+/// selected, so a crash repeats at most one batch and cannot skip a row.
 pub async fn rows_needing_embedding<'e, E>(
     executor: E,
     org_id: Uuid,
-    model: &str,
+    space: &str,
     limit: i64,
 ) -> DbResult<Vec<EmbeddingTarget>>
 where
@@ -481,16 +486,16 @@ where
              ON e.org_id = s.org_id
             AND e.entity_kind = s.entity_kind
             AND e.entity_id = s.entity_id
+            AND e.space = $2
            WHERE s.org_id = $1
              AND (
                    e.id IS NULL
-                OR e.model <> $2
                 OR e.content_hash <> md5(s.title || E'\x1f' || s.body)
               )
            ORDER BY s.indexed_at, s.entity_id
            LIMIT $3"#,
         org_id,
-        model,
+        space,
         limit
     )
     .fetch_all(executor)
@@ -509,16 +514,23 @@ where
         .collect())
 }
 
-/// Upserts one vector. The content hash is computed from the index row's
-/// ACTUAL title/body via the same SQL-side definition the needs-embedding
-/// sweep compares against — the caller can never store a hash that drifts
-/// from the text. Replaying the same (org, kind, entity) re-upserts one
-/// row; a row with no index entry (deleted mid-flight) stores nothing.
+/// Upserts one vector into one space. The content hash is computed from the
+/// index row's ACTUAL title/body via the same SQL-side definition the
+/// needs-embedding sweep compares against — the caller can never store a hash
+/// that drifts from the text. Replaying the same (org, kind, entity, space)
+/// re-upserts one row; a row with no index entry (deleted mid-flight) stores
+/// nothing.
+///
+/// `space` is part of the conflict target because a re-index writes the target
+/// space beside the previous one for the same entity. One row per space is one
+/// vector per space, which is what keeps the two rankings separate.
+#[allow(clippy::too_many_arguments)]
 pub async fn upsert_embedding<'e, E>(
     executor: E,
     org_id: Uuid,
     kind: SearchKind,
     entity_id: Uuid,
+    space: &str,
     model: &str,
     embedding: &[f32],
 ) -> DbResult<bool>
@@ -527,13 +539,13 @@ where
 {
     let result = sqlx::query!(
         r#"INSERT INTO search_embeddings
-             (id, org_id, entity_kind, entity_id, model, content_hash, embedding)
-           SELECT $1, $2, $3, $4, $5,
+             (id, org_id, entity_kind, entity_id, space, model, content_hash, embedding)
+           SELECT $1, $2, $3, $4, $5, $6,
                   md5(s.title || E'\x1f' || s.body),
-                  $6::text::vector
+                  $7::text::vector
            FROM search_index s
            WHERE s.org_id = $2 AND s.entity_kind = $3 AND s.entity_id = $4
-           ON CONFLICT (org_id, entity_kind, entity_id) DO UPDATE SET
+           ON CONFLICT (org_id, entity_kind, entity_id, space) DO UPDATE SET
              model = EXCLUDED.model,
              content_hash = EXCLUDED.content_hash,
              embedding = EXCLUDED.embedding,
@@ -542,12 +554,77 @@ where
         org_id,
         kind.as_str(),
         entity_id,
+        space,
         model,
         embedding_to_pg(embedding)
     )
     .execute(executor)
     .await?;
     Ok(result.rows_affected() > 0)
+}
+
+/// How many index rows still have no fresh vector in `space`. The progress
+/// gauge's value, and the reason a slow org is visible instead of silent.
+pub async fn count_remaining_embeddings<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    space: &str,
+) -> DbResult<i64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let count = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "count!"
+           FROM search_index s
+           LEFT JOIN search_embeddings e
+             ON e.org_id = s.org_id
+            AND e.entity_kind = s.entity_kind
+            AND e.entity_id = s.entity_id
+            AND e.space = $2
+           WHERE s.org_id = $1
+             AND (
+                   e.id IS NULL
+                OR e.content_hash <> md5(s.title || E'\x1f' || s.body)
+              )"#,
+        org_id,
+        space
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(count)
+}
+
+/// How many index rows the org has at all — the denominator of the re-index
+/// gauge's `done` figure.
+pub async fn count_index_rows<'e, E>(executor: E, org_id: Uuid) -> DbResult<i64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let count = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "count!" FROM search_index WHERE org_id = $1"#,
+        org_id
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(count)
+}
+
+/// Deletes every vector this org holds in `space`. Called once a re-index
+/// finishes for the org, so the previous space's rows stop occupying the table
+/// (and stop being readable if a stale `previous_space` ever survives a
+/// restart).
+pub async fn delete_space_embeddings<'e, E>(executor: E, org_id: Uuid, space: &str) -> DbResult<u64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let result = sqlx::query!(
+        "DELETE FROM search_embeddings WHERE org_id = $1 AND space = $2",
+        org_id,
+        space
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 /// Removes one vector (the source row is gone — the delete leg).
@@ -629,14 +706,22 @@ where
         .collect())
 }
 
-/// Vector leg: cosine-distance nearest neighbors within the org's rows
-/// (RLS applies on top — reads are tenant-scoped by the policy, and the
-/// explicit org filter keeps the exact-KNN scan bounded). Exact search, no
-/// ANN index: see migration 0062 for why that is deliberate in v1.
+/// Vector leg: cosine-distance nearest neighbors within the org's rows and ONE
+/// embedding space (RLS applies on top — reads are tenant-scoped by the policy,
+/// and the explicit org filter keeps the exact-KNN scan bounded). Exact search,
+/// no ANN index: see migration 0062 for why that is deliberate in v1.
+///
+/// The `space` predicate is the fix for the mixed-space hazard (Wave 52 lane
+/// R14): a model switch leaves old-space vectors in this table, and ranking
+/// them against a query vector from the new model returns a plausible order
+/// made of two incomparable spaces rather than a miss. Callers pass the spaces
+/// they may read — the target space, plus the previous one while a re-index is
+/// unfinished — and each space is ranked in its own call.
 pub async fn vector_candidates<'e, E>(
     executor: E,
     org_id: Uuid,
     kinds: &[String],
+    space: &str,
     embedding: &[f32],
     client_id: Option<Uuid>,
     limit: i64,
@@ -652,21 +737,23 @@ where
            FROM search_embeddings e
            WHERE e.org_id = $1
              AND e.entity_kind = ANY($2)
+             AND e.space = $3
              AND (
                e.entity_kind <> 'document'
-               OR $4::uuid IS NULL
+               OR $5::uuid IS NULL
                OR EXISTS (
                  SELECT 1 FROM search_index s
                   WHERE s.org_id = e.org_id
                     AND s.entity_kind = e.entity_kind
                     AND s.entity_id = e.entity_id
-                    AND (s.client_scope IS NULL OR s.client_scope = $4)
+                    AND (s.client_scope IS NULL OR s.client_scope = $5)
                )
              )
-           ORDER BY e.embedding <=> $3::text::vector, e.entity_kind, e.entity_id
-           LIMIT $5"#,
+           ORDER BY e.embedding <=> $4::text::vector, e.entity_kind, e.entity_id
+           LIMIT $6"#,
         org_id,
         kinds,
+        space,
         embedding_to_pg(embedding),
         client_id,
         limit
@@ -768,13 +855,18 @@ fn fused_after(score: f64, key: &SearchKey, anchor: &FusedCursor) -> bool {
     (&key.entity_kind, key.entity_id) > (&anchor.entity_kind, anchor.entity_id)
 }
 
-/// The hybrid page: both legs ranked independently, fused by RRF in
+/// The hybrid page: the legs ranked independently, fused by RRF in
 /// core-domain, paginated, then hydrated. Score scale differs from the
 /// legacy FTS path (RRF shares, higher is better) — same response shape.
 /// `client_id` scopes the `document` kind in BOTH legs (0089), exactly as
 /// the legacy FTS path documents it. Runs over one connection
 /// (`&mut PgConnection`) because it issues several queries; callers pass
 /// an RLS-scoped transaction exactly as elsewhere.
+///
+/// `spaces` are the embedding spaces this read may rank in (Wave 52 lane R14):
+/// the instance's target space, plus the previous space while a re-index is
+/// unfinished. Each space is its own ranked leg; an empty slice means no vector
+/// leg at all, which is the honest answer when the vector leg is dark.
 #[allow(clippy::too_many_arguments)]
 pub async fn search_hybrid_page(
     tx: &mut PgConnection,
@@ -783,12 +875,13 @@ pub async fn search_hybrid_page(
     q: &str,
     trigram: bool,
     client_id: Option<Uuid>,
+    spaces: &[String],
     embedding: &[f32],
     limit: i64,
     offset: i64,
 ) -> DbResult<Vec<SearchHit>> {
     Ok(hybrid_page_inner(
-        tx, org_id, kinds, q, trigram, client_id, embedding, limit, offset, None,
+        tx, org_id, kinds, q, trigram, client_id, spaces, embedding, limit, offset, None,
     )
     .await?
     .hits)
@@ -807,12 +900,13 @@ pub async fn search_hybrid_page_paged(
     q: &str,
     trigram: bool,
     client_id: Option<Uuid>,
+    spaces: &[String],
     embedding: &[f32],
     limit: i64,
     offset: i64,
 ) -> DbResult<FusedPage> {
     hybrid_page_inner(
-        tx, org_id, kinds, q, trigram, client_id, embedding, limit, offset, None,
+        tx, org_id, kinds, q, trigram, client_id, spaces, embedding, limit, offset, None,
     )
     .await
 }
@@ -830,12 +924,13 @@ pub async fn search_hybrid_page_after(
     q: &str,
     trigram: bool,
     client_id: Option<Uuid>,
+    spaces: &[String],
     embedding: &[f32],
     limit: i64,
     cursor: Option<FusedCursor>,
 ) -> DbResult<FusedPage> {
     hybrid_page_inner(
-        tx, org_id, kinds, q, trigram, client_id, embedding, limit, 0, cursor,
+        tx, org_id, kinds, q, trigram, client_id, spaces, embedding, limit, 0, cursor,
     )
     .await
 }
@@ -848,6 +943,7 @@ async fn hybrid_page_inner(
     q: &str,
     trigram: bool,
     client_id: Option<Uuid>,
+    spaces: &[String],
     embedding: &[f32],
     limit: i64,
     offset: i64,
@@ -858,8 +954,22 @@ async fn hybrid_page_inner(
     // carried. The legacy offset path keeps the historical widening window.
     let depth = candidate_limit(limit, if cursor.is_some() { 0 } else { offset });
     let lexical = fts_candidates(&mut *tx, org_id, kinds, q, trigram, client_id, depth).await?;
-    let vector = vector_candidates(&mut *tx, org_id, kinds, embedding, client_id, depth).await?;
-    let fused = reciprocal_rank_fusion(&[&lexical, &vector]);
+    // One ranked leg per readable space. Two spaces are never ordered in one
+    // `ORDER BY`: their distances are not comparable, and RRF only needs each
+    // leg's ranks. During a re-index that is three legs — lexical, target
+    // space, previous space — and the fusion is the same function it always was.
+    let mut vector_legs: Vec<Vec<SearchKey>> = Vec::with_capacity(spaces.len());
+    for space in spaces {
+        vector_legs.push(
+            vector_candidates(&mut *tx, org_id, kinds, space, embedding, client_id, depth).await?,
+        );
+    }
+    let mut legs: Vec<&[SearchKey]> = Vec::with_capacity(vector_legs.len() + 1);
+    legs.push(&lexical);
+    for leg in &vector_legs {
+        legs.push(leg);
+    }
+    let fused = reciprocal_rank_fusion(&legs);
 
     let want = usize::try_from(limit.max(0)).unwrap_or(0);
     let page: Vec<(SearchKey, f64)> = match &cursor {
@@ -898,6 +1008,7 @@ async fn hybrid_page_inner(
 /// scopes the `document` kind on BOTH union legs (0089 — the embeddings
 /// leg re-derives the scope from the mirrored index row, so an embedded
 /// out-of-scope document never inflates the count).
+#[allow(clippy::too_many_arguments)]
 pub async fn search_hybrid_count<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -905,15 +1016,18 @@ pub async fn search_hybrid_count<'e, E>(
     q: &str,
     trigram: bool,
     client_id: Option<Uuid>,
+    spaces: &[String],
     cap: i64,
 ) -> DbResult<SearchCount>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     // The vector leg has no text predicate — every embedded row of the
-    // permitted kinds is a vector candidate — so the union is exactly:
-    // lexical matches ∪ embedded rows of those kinds. The cap bounds the
-    // union scan the same way `search_count` bounds the lexical one.
+    // permitted kinds and a readable space is a vector candidate — so the
+    // union is exactly: lexical matches ∪ embedded rows of those kinds. An
+    // empty `spaces` list contributes nothing, which is the dark vector leg.
+    // The cap bounds the union scan the same way `search_count` bounds the
+    // lexical one.
     let row = sqlx::query!(
         r#"SELECT COUNT(*) AS total FROM (
              SELECT entity_kind, entity_id FROM search_index
@@ -931,6 +1045,7 @@ where
              UNION
              SELECT e.entity_kind, e.entity_id FROM search_embeddings e
               WHERE e.org_id = $1 AND e.entity_kind = ANY($2)
+                AND e.space = ANY($7)
                 AND (
                   e.entity_kind <> 'document'
                   OR $5::uuid IS NULL
@@ -949,7 +1064,8 @@ where
         q,
         trigram,
         client_id,
-        cap.saturating_add(1)
+        cap.saturating_add(1),
+        spaces
     )
     .fetch_one(executor)
     .await?;

@@ -39,6 +39,7 @@ pub mod delivery;
 pub mod digest;
 pub mod effects;
 pub mod email;
+pub mod embedding_reindex;
 pub mod health;
 pub mod mail_config;
 pub mod notifier;
@@ -103,6 +104,31 @@ pub async fn run(
     shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     install_retry(&config);
+    // The embedding model is an instance choice (Wave 52 lane R14). Resolving it
+    // here is not the worker's job — core-api embeds — but both processes read
+    // the same levers, and a worker that disagrees with the API about the model
+    // would queue re-index runs into a space nobody writes. A broken selection
+    // therefore refuses boot; a floor shortfall only warns, because in a split
+    // deployment the model runs on the API's host and this box's memory says
+    // nothing about whether it fits there.
+    match core_domain::embedding::resolve_instance(&|key: &str| std::env::var(key).ok()) {
+        Ok((selection, host)) => tracing::info!(
+            model = %selection.entry.id,
+            space = %selection.space_id(),
+            provider = %selection.provider,
+            cores = host.cores,
+            ram_mb = ?host.ram_mb,
+            "embedding model resolved (the worker never calls it; core-api does)"
+        ),
+        Err(core_domain::embedding::InstanceError::Selection(error)) => {
+            return Err(anyhow::Error::msg(error.to_string()));
+        }
+        Err(error @ core_domain::embedding::InstanceError::Floor(_)) => tracing::warn!(
+            %error,
+            "this host cannot host the selected embedding model; expected when the model \
+             runs on another host, and core-api refuses its own boot if it does not fit"
+        ),
+    }
     let pool = core_db::connect_with(
         &config.database_url,
         core_db::PoolConfig {
@@ -586,6 +612,31 @@ pub async fn run(
                 alive.store(false, Ordering::Relaxed);
                 tracing::error!("data retention sweep exited; reporting unhealthy");
             });
+        }
+
+        // Embedding re-index (Wave 52 lane R14): the clock behind an embedding
+        // model change. Housekeeping only — two sweeps would lease the same runs
+        // — and it needs core-api's internal surface, because core-api owns every
+        // vector write. Without a token the job is skipped rather than failed:
+        // search keeps working, and the runs stay queued for when it is set.
+        match &config.internal_token {
+            Some(token) => {
+                let client: std::sync::Arc<dyn embedding_reindex::BackfillClient> =
+                    std::sync::Arc::new(embedding_reindex::HttpBackfillClient::new(
+                        &config.internal_api_url,
+                        token,
+                    ));
+                let reindex_pool = pool.clone();
+                let reindex_shutdown = shutdown.clone();
+                let policy = config.embedding_reindex;
+                tokio::spawn(async move {
+                    embedding_reindex::run(reindex_pool, policy, client, reindex_shutdown).await;
+                });
+            }
+            None => tracing::info!(
+                "embedding re-index disabled: MARULA_INTERNAL_TOKEN is unset, so the worker \
+                 cannot reach core-api's backfill surface"
+            ),
         }
 
         // Object-store integrity (Wave 52 lane R6): off unless
