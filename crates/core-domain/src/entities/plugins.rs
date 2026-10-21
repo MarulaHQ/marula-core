@@ -162,10 +162,33 @@ pub enum PluginCapability {
     /// (`/api/v1/health` is public), and metrics have no read path in core —
     /// they leave by OTLP and `core_otel::contract` describes them.
     ObservabilityRead,
+    /// Wave 52 lane R16 (`p52-directory-read-scope`): the DIRECTORY read
+    /// scope. The identity pack's SCIM connector and directory-admin plugin
+    /// run outside core, and the group surface was reachable only through
+    /// `special:manage_users` / `special:manage_roles`. Holding this reads the
+    /// group list and one group with its members and role mappings
+    /// (`GET /api/directory-groups`, `GET /api/directory-groups/{id}`) through
+    /// the same scope path a machine API key uses. It resolves onto
+    /// `directory_groups:read`, carried by no preset.
+    ///
+    /// What it does NOT reach: any write, and no other route.
+    DirectoryGroupsRead,
+    /// Wave 52 lane R16: the DIRECTORY write scope. A connector whose job is
+    /// to mirror a directory writes groups, members and role mappings
+    /// (`POST`/`PATCH`/`DELETE /api/directory-groups…`, the member and role
+    /// `PUT`/`DELETE` routes). It resolves onto `directory_groups:write`,
+    /// carried by no preset.
+    ///
+    /// Why this is not `special:manage_roles`: that special is the role
+    /// administration gate itself (role CRUD at `/api/roles` sits behind it),
+    /// and a plugin may never hold an admin special. This grant reaches the
+    /// directory surface and nothing else, so a connector can attach an
+    /// existing role to a group and cannot create, edit or delete a role.
+    DirectoryGroupsWrite,
 }
 
 impl PluginCapability {
-    pub const ALL: [PluginCapability; 33] = [
+    pub const ALL: [PluginCapability; 35] = [
         PluginCapability::TicketsRead,
         PluginCapability::TicketsWrite,
         PluginCapability::ClientsRead,
@@ -199,6 +222,8 @@ impl PluginCapability {
         PluginCapability::OrgCustomDomainManage,
         PluginCapability::OrgSuspensionRead,
         PluginCapability::ObservabilityRead,
+        PluginCapability::DirectoryGroupsRead,
+        PluginCapability::DirectoryGroupsWrite,
     ];
 
     /// The capability key as declared in a manifest / grant list.
@@ -241,6 +266,8 @@ impl PluginCapability {
             PluginCapability::OrgCustomDomainManage => "org_custom_domain.manage",
             PluginCapability::OrgSuspensionRead => "org_suspension.read",
             PluginCapability::ObservabilityRead => "observability.read",
+            PluginCapability::DirectoryGroupsRead => "directory_groups.read",
+            PluginCapability::DirectoryGroupsWrite => "directory_groups.write",
         }
     }
 
@@ -414,6 +441,14 @@ impl PluginCapability {
             // hold an admin special, and widening that gate for every plugin
             // would be the fork this vocabulary exists to prevent.
             PluginCapability::ObservabilityRead => Permission::ViewObservability,
+            // Wave 52 lane R16: the directory pair resolves onto its OWN
+            // permissions, the same posture as `observability.read`. The
+            // write half deliberately does not resolve onto
+            // `special:manage_roles`: a plugin may never hold an admin
+            // special, and that special is the role-administration gate for
+            // the whole product.
+            PluginCapability::DirectoryGroupsRead => Permission::ViewDirectoryGroups,
+            PluginCapability::DirectoryGroupsWrite => Permission::ManageDirectoryGroups,
         }
     }
 }
@@ -3133,6 +3168,56 @@ mod tests {
             PluginCapability::parse("observability.read"),
             Some(PluginCapability::ObservabilityRead)
         );
+    }
+
+    /// Wave 52 lane R16: the directory pair resolves onto its own permissions
+    /// and never onto an admin special. The read and the write are separate
+    /// capabilities, so a groups-only mirror of a directory can be granted
+    /// without role mapping — and the write half is the one that has to be
+    /// checked hardest, because the obvious shortcut (resolve it onto
+    /// `special:manage_roles`) would hand a connector role administration and
+    /// pass every other test in this file.
+    #[test]
+    fn directory_capabilities_resolve_onto_their_own_grants_not_a_special() {
+        use crate::policy::Permission;
+
+        assert_eq!(
+            PluginCapability::DirectoryGroupsRead.as_str(),
+            "directory_groups.read"
+        );
+        assert_eq!(
+            PluginCapability::DirectoryGroupsWrite.as_str(),
+            "directory_groups.write"
+        );
+        assert_eq!(
+            PluginCapability::DirectoryGroupsRead.permission(),
+            Permission::ViewDirectoryGroups
+        );
+        assert_eq!(
+            PluginCapability::DirectoryGroupsWrite.permission(),
+            Permission::ManageDirectoryGroups
+        );
+        assert_ne!(
+            PluginCapability::DirectoryGroupsWrite.permission(),
+            Permission::ManageRoles
+        );
+        assert_ne!(
+            PluginCapability::DirectoryGroupsWrite.permission(),
+            Permission::ManageUsers
+        );
+        // The read capability opens no write, so a mirror that only lists
+        // groups cannot change one.
+        assert_ne!(
+            PluginCapability::DirectoryGroupsRead.permission(),
+            PluginCapability::DirectoryGroupsWrite.permission()
+        );
+        for key in ["directory_groups.read", "directory_groups.write"] {
+            assert_eq!(
+                PluginCapability::parse(key).map(PluginCapability::as_str),
+                Some(key),
+                "{key} must round-trip through the closed vocabulary"
+            );
+        }
     }
 
     /// Wave 47 lane A8: the custom-domain-manage capability resolves onto

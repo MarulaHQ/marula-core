@@ -90,6 +90,13 @@ pub fn permission_from_key(key: &str) -> Option<Permission> {
         // still cannot write one, which is what makes it a reader and not the
         // `special:view_audit_log` an admin holds.
         "observability:read" => return Some(Permission::ViewObservability),
+        // Wave 52 lane R16: the directory pair. A machine credential holding
+        // the read lists groups and their members; the write adds group,
+        // membership and role-mapping writes. Neither is a `special:`, so a
+        // service account carries them like any matrix grant, and neither
+        // reaches role CRUD, which stays behind `special:manage_roles`.
+        "directory_groups:read" => return Some(Permission::ViewDirectoryGroups),
+        "directory_groups:write" => return Some(Permission::ManageDirectoryGroups),
         // Wave 45 lane 1 (ADR 0020): RAG capability aliases resolve onto the
         // Kb matrix (`kb:view` / `kb:edit`), matching `PluginCapability::RagRead`
         // and `PluginCapability::RagWrite`.

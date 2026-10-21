@@ -173,6 +173,36 @@ pub enum Permission {
     /// What it does NOT grant: nothing writes the trail, nothing leaves the
     /// org, and it opens no other route.
     ViewObservability,
+    /// Wave 52 lane R16 (`p52-directory-read-scope`): read the org's directory
+    /// groups — the group list, and one group with its members and the roles
+    /// mapped onto it.
+    ///
+    /// It exists for the identity pack, whose SCIM connector and directory
+    /// admin run as separate processes. Both reach core over HTTP, and the
+    /// only gates on the group surface were `special:manage_users` and
+    /// `special:manage_roles`, which a plugin may never hold. The wire key
+    /// follows the `org_usage:read` / `observability:read` shape: module-
+    /// namespaced, not `special:`-prefixed, so a service account or a custom
+    /// role carries it, and no shipped preset carries it because a human
+    /// manager already reads the roster through the specials.
+    ///
+    /// What it does NOT grant: no write of any kind, and no other route. The
+    /// read it opens is org-pinned exactly as a human manager's read is.
+    ViewDirectoryGroups,
+    /// Wave 52 lane R16: manage the org's directory groups — create, rename,
+    /// re-point the external id, delete, add and remove members, and map or
+    /// unmap a role onto a group.
+    ///
+    /// It exists for the same reason as the read half: a SCIM connector's job
+    /// is to write what the directory says, and `special:manage_roles` is an
+    /// admin special a plugin may never hold. No shipped preset carries it.
+    ///
+    /// What it does NOT grant: role CRUD (`/api/roles` still demands the
+    /// special), user administration, API keys, org settings, or any other
+    /// route. It is the smallest grant that lets an external identity service
+    /// mirror a directory into this org, and an org granting it is delegating
+    /// role assignment for its users — which is what the mirror does.
+    ManageDirectoryGroups,
 }
 
 impl Permission {
@@ -225,6 +255,11 @@ impl Permission {
                 // no preset carries it and a human auditor keeps reading the
                 // trail through `special:view_audit_log`.
                 Permission::ViewObservability => "observability:read".into(),
+                // Wave 52 lane R16: the directory pair, same shape again. A
+                // service account or custom role holds these; a human manager
+                // keeps using `special:manage_users` / `special:manage_roles`.
+                Permission::ViewDirectoryGroups => "directory_groups:read".into(),
+                Permission::ManageDirectoryGroups => "directory_groups:write".into(),
                 Permission::Matrix { .. } => unreachable!(),
             },
         }
@@ -1141,6 +1176,56 @@ mod tests {
                 !role.permissions().contains(&Permission::ViewObservability),
                 "{role:?} must not carry observability:read by default"
             );
+        }
+    }
+
+    /// Wave 52 lane R16: the directory pair is the same shape as R12's
+    /// observability reader, with a write half. Both wire keys are module
+    /// namespaced, both exist for machine principals and custom roles, and no
+    /// shipped preset carries either one — a human manager reads the roster
+    /// through `special:manage_users` and writes it through
+    /// `special:manage_roles`, exactly as before this lane.
+    ///
+    /// The negative half is the point: if a preset carried the write grant,
+    /// every org in the product would be delegating role assignment on the day
+    /// it upgraded, without anyone deciding to.
+    #[test]
+    fn directory_group_grants_are_machine_grants_that_no_preset_carries() {
+        assert_eq!(
+            Permission::ViewDirectoryGroups.key(),
+            "directory_groups:read"
+        );
+        assert_eq!(
+            Permission::ManageDirectoryGroups.key(),
+            "directory_groups:write"
+        );
+        assert_ne!(
+            Permission::ViewDirectoryGroups,
+            Permission::ManageDirectoryGroups
+        );
+        // Neither is any admin special, by identity rather than by name: the
+        // specials are their own variants and a plugin vocabulary that named
+        // one would be the fork this lane exists to avoid.
+        for special in [
+            Permission::ManageUsers,
+            Permission::ManageRoles,
+            Permission::ManagePlugins,
+            Permission::ManageApiKeys,
+        ] {
+            assert_ne!(Permission::ViewDirectoryGroups, special);
+            assert_ne!(Permission::ManageDirectoryGroups, special);
+        }
+        for role in BuiltinRole::PRESETS {
+            for grant in [
+                Permission::ViewDirectoryGroups,
+                Permission::ManageDirectoryGroups,
+            ] {
+                assert!(
+                    !role.permissions().contains(&grant),
+                    "{role:?} must not carry {} by default",
+                    grant.key()
+                );
+            }
         }
     }
 

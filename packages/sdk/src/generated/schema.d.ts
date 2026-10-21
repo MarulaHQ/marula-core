@@ -23620,7 +23620,7 @@ export interface components {
          *     no key for them).
          * @enum {string}
          */
-        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate" | "AutomationTriggers" | "AutomationReads" | "EventsEmit" | "ServiceAccountManage" | "OrgUsageRead" | "RagRead" | "RagWrite" | "OrgCustomDomainManage" | "OrgSuspensionRead" | "ObservabilityRead";
+        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate" | "AutomationTriggers" | "AutomationReads" | "EventsEmit" | "ServiceAccountManage" | "OrgUsageRead" | "RagRead" | "RagWrite" | "OrgCustomDomainManage" | "OrgSuspensionRead" | "ObservabilityRead" | "DirectoryGroupsRead" | "DirectoryGroupsWrite";
         /**
          * @description Install lifecycle. Deny-by-default: `Disabled` until an explicit
          *     admin enable; `Revoked` is terminal (registry revocation or explicit
@@ -38967,7 +38967,7 @@ export interface operations {
                     "application/json": components["schemas"]["DirectoryGroupsListResponse"];
                 };
             };
-            /** @description requires manage_users or manage_roles */
+            /** @description requires manage_users, manage_roles, directory_groups:read or directory_groups:write */
             403: {
                 headers: {
                     [name: string]: unknown;
