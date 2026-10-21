@@ -26,6 +26,7 @@
 //! | `marula.workflow.parked_run_age_seconds` | gauge (s) | –       | how long the oldest parked run has waited |
 //! | `marula.backup.age_seconds`  | gauge (s)   | –                   | age of the last successful backup |
 //! | `marula.org.requests`        | counter     | org_id, status_class=1xx…5xx | per-org request rate and error ratio |
+//! | `marula.org.ingest_requests` | counter     | org_id, source=webhook\|alert | per-org machine-ingest rate (the traffic a connector or pack generates) |
 //! | `marula.sla.sweep.duration`  | histogram (ms) | –                | sweep cost over time |
 //! | `marula.sla.verdicts`        | counter     | trigger=risk\|breach\|escalation | SLA breach counters (trigger="breach") |
 //!
@@ -35,10 +36,11 @@
 //! both, and the contract test fails when the two disagree across a version.
 //!
 //! Cardinality rules: `route` is always the axum TEMPLATE (see
-//! [`crate::redact::route_template`]); `kind`/`outcome`/`status` come from
-//! small closed enums. Nothing user-derived ever becomes a label. `org_id` is
-//! the one per-tenant label, and it is only ever paired with the five-value
-//! `status_class` so per-org series stay bounded by orgs × 5.
+//! [`crate::redact::route_template`]); `kind`/`outcome`/`status`/`source` come
+//! from small closed enums. Nothing user-derived ever becomes a label. `org_id`
+//! is the one per-tenant label, and it is only ever paired with the five-value
+//! `status_class` or the two-value `source` set, so per-org series stay
+//! bounded by orgs × 5 and orgs × 2.
 
 use opentelemetry::global;
 use opentelemetry::metrics::{Counter, Gauge, Histogram, UpDownCounter};
@@ -49,6 +51,7 @@ struct Instruments {
     http_requests: Counter<u64>,
     http_duration: Histogram<f64>,
     org_requests: Counter<u64>,
+    org_ingest_requests: Counter<u64>,
     live_sessions: UpDownCounter<i64>,
     outbox_lag_ms: Gauge<u64>,
     relay_batch: Histogram<u64>,
@@ -84,6 +87,10 @@ fn instruments() -> &'static Instruments {
             org_requests: meter
                 .u64_counter("marula.org.requests")
                 .with_description("Authenticated requests attributed to an org, by status class")
+                .build(),
+            org_ingest_requests: meter
+                .u64_counter("marula.org.ingest_requests")
+                .with_description("Authenticated machine ingest attributed to an org, by source")
                 .build(),
             live_sessions: meter
                 .i64_up_down_counter("marula.live.sessions")
@@ -191,6 +198,42 @@ pub fn org_request(org_id: &str, status: u16) {
         &[
             KeyValue::new("org_id", org_id.to_string()),
             KeyValue::new("status_class", class),
+        ],
+    );
+}
+
+/// The closed set of machine-ingest surfaces that report per-org volume.
+///
+/// A token here is a PROPERTY OF THE CORE, not of the caller: the ingest
+/// handler picks its own constant, so a pack cannot invent a series by
+/// sending a name. That is what keeps `source` bounded at two values while
+/// the whole point of the metric is traffic the core does not otherwise see.
+pub const INGEST_SOURCES: &[&str] = &["webhook", "alert"];
+
+/// One authenticated machine-ingest request attributed to an org.
+///
+/// Why this exists next to [`org_request`] rather than as another attribute on
+/// it: the two are counted at different boundaries. `org_request` runs in
+/// middleware on the authenticated router and answers "what did this tenant's
+/// people and API keys do". The ingest endpoints are mounted OUTSIDE that
+/// router because they authenticate with an HMAC over the body and a
+/// `source_ref` in the path, so no `AuthedUser` extension ever exists for them
+/// and their traffic lands in neither series. This is the one seam where a
+/// connector's own work becomes visible to a per-org consumer.
+///
+/// Emit it only once the source has AUTHENTICATED. A request with a bad
+/// signature proves nothing about which tenant it belongs to, and counting it
+/// would let anyone add to any org's number by guessing a ref.
+pub fn org_ingest(org_id: &str, source: &str) {
+    debug_assert!(
+        INGEST_SOURCES.contains(&source),
+        "{source} is not an ingest source token"
+    );
+    instruments().org_ingest_requests.add(
+        1,
+        &[
+            KeyValue::new("org_id", org_id.to_string()),
+            KeyValue::new("source", source.to_string()),
         ],
     );
 }
@@ -339,6 +382,8 @@ mod tests {
         http_request("unmatched", "POST", 500, 3.0);
         org_request("00000000-0000-0000-0000-000000000001", 200);
         org_request("00000000-0000-0000-0000-000000000001", 503);
+        org_ingest("00000000-0000-0000-0000-000000000001", "webhook");
+        org_ingest("00000000-0000-0000-0000-000000000001", "alert");
         live_session_opened();
         live_session_closed();
         relay_pass(7, Some(150));
@@ -367,6 +412,7 @@ mod tests {
             "marula.http.requests",
             "marula.http.request.duration",
             "marula.org.requests",
+            "marula.org.ingest_requests",
             "marula.live.sessions",
             "marula.outbox.lag_ms",
             "marula.relay.batch_size",
@@ -400,6 +446,27 @@ mod tests {
                 .filter(|name| !EMITTED.contains(name))
                 .collect::<Vec<_>>()
         );
+    }
+
+    /// The ingest counter's `source` label is a core constant, not a caller
+    /// string, and the published contract must describe the same two-attribute
+    /// shape. Renaming a token here without touching the descriptor (or the
+    /// other way round) fails this test, which is the pair that a dashboard and
+    /// a premium pack's query both depend on.
+    #[test]
+    fn ingest_sources_are_a_closed_pair_the_contract_describes() {
+        assert_eq!(
+            INGEST_SOURCES,
+            &["webhook", "alert"],
+            "the ingest source vocabulary is closed: one token per ingest endpoint"
+        );
+        let descriptor = crate::contract::METRICS
+            .iter()
+            .find(|m| m.name == "marula.org.ingest_requests")
+            .expect("marula.org.ingest_requests is in the contract");
+        assert_eq!(descriptor.attributes, &["org_id", "source"]);
+        assert_eq!(descriptor.kind, crate::contract::MetricKind::Counter);
+        assert_eq!(descriptor.unit, "{request}");
     }
 
     #[test]

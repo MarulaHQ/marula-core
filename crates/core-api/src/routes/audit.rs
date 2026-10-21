@@ -20,7 +20,7 @@
 //! prefix existed (`<rfc3339>|<uuid>`) still decode, so a stored checkpoint
 //! from an older build keeps working.
 
-use crate::auth::middleware::{authed, require_permission};
+use crate::auth::middleware::authed;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 use axum::{
@@ -34,6 +34,25 @@ use core_db::audit::AuditFilter;
 use serde::Deserialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
+
+/// The two grants that can read the audit trail.
+///
+/// `special:view_audit_log` is the human grant (the auditor preset and org
+/// admins). `observability:read` is the machine grant (Wave 52 lane R12): a
+/// premium pack that forwards or exports the trail holds a reader scope, never
+/// an admin special, because the plugin capability vocabulary has no key that
+/// resolves onto one. Both are read-only on an append-only table — neither can
+/// write a row, delete one, or widen what a caller sees past the org RLS scope.
+const AUDIT_READERS: [core_domain::policy::Permission; 2] = [
+    core_domain::policy::Permission::ViewAuditLog,
+    core_domain::policy::Permission::ViewObservability,
+];
+
+fn require_audit_read(principal: &core_domain::entities::Principal) -> ApiResult<()> {
+    core_domain::policy::check_any(&principal.permissions, &AUDIT_READERS)
+        .expect()
+        .map_err(ApiError::Forbidden)
+}
 
 /// The cursor format revision. Bump when the payload inside the token
 /// changes shape; the decoder accepts every revision it still understands.
@@ -105,10 +124,7 @@ pub async fn list(
     Query(q): Query<AuditQuery>,
 ) -> ApiResult<Json<AuditPage>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(
-        &authed.principal,
-        core_domain::policy::Permission::ViewAuditLog,
-    )?;
+    require_audit_read(&authed.principal)?;
     // Two cursor params ask for two different walks of the same trail; taking
     // one and ignoring the other would silently re-deliver rows an exporter
     // already handled, so it is a 400 rather than a precedence rule.
@@ -195,6 +211,41 @@ mod tests {
 
     fn at(secs: i64) -> chrono::DateTime<Utc> {
         Utc.timestamp_opt(1_700_000_000 + secs, 0).unwrap()
+    }
+
+    /// The audit read gate, in the two directions that matter for a pack: the
+    /// machine reader grant opens it without an admin special, and a principal
+    /// holding neither grant is refused. A gate that admits the pack but also
+    /// admits everything else would pass the first half of this test, so both
+    /// halves are asserted here.
+    #[test]
+    fn the_observability_scope_reads_the_trail_and_nothing_does_by_default() {
+        use core_domain::policy::{check_any, Permission, PolicyDecision};
+
+        assert_eq!(
+            check_any(&[Permission::ViewObservability], &AUDIT_READERS),
+            PolicyDecision::Allowed
+        );
+        assert_eq!(
+            check_any(&[Permission::ViewAuditLog], &AUDIT_READERS),
+            PolicyDecision::Allowed
+        );
+        assert!(matches!(
+            check_any(&[], &AUDIT_READERS),
+            PolicyDecision::Denied { .. }
+        ));
+        // A read of some other module does not open the trail: the gateway is
+        // these two grants, not "any read permission".
+        assert!(matches!(
+            check_any(
+                &[Permission::Matrix {
+                    module: core_domain::policy::Module::Reporting,
+                    action: core_domain::policy::Action::View,
+                }],
+                &AUDIT_READERS
+            ),
+            PolicyDecision::Denied { .. }
+        ));
     }
 
     #[test]

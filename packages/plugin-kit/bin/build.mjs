@@ -40,9 +40,11 @@ const KNOWN_CAPABILITIES = new Set([
   "ui.widgets", "automation.actions", "reports.render", "fields.validate",
   "automation.triggers", "automation.reads", "events.emit",
   "service_accounts.manage", "org_usage.read",
-  // Wave 45 RAG namespace, the Wave 47 A8 domain surface, and the Wave 47 A7
-  // suspension notice. All 32 wire strings must be here.
+  // Wave 45 RAG namespace, the Wave 47 A8 domain surface, the Wave 47 A7
+  // suspension notice, and the Wave 52 R12 observability read scope. All 33
+  // wire strings must be here.
   "rag.read", "rag.write", "org_custom_domain.manage", "org_suspension.read",
+  "observability.read",
 ]);
 const SLOTS = new Set(["dashboard", "ticket_pane"]);
 const WIDGET_KINDS = new Set(["stat", "metric", "list"]);

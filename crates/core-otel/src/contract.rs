@@ -35,7 +35,14 @@
 
 /// The contract revision. Bump on ANY change to [`METRICS`], [`LOG_FIELDS`]
 /// or [`HEALTH_SURFACES`] — the test in this module fails otherwise.
-pub const CONTRACT_VERSION: u32 = 1;
+///
+/// v2 (Wave 52 lane R12): `marula.org.ingest_requests` added, and the worker's
+/// `/livez` and `/readyz` probes plus the `draining` field joined
+/// [`HEALTH_SURFACES`]. The process-lifecycle lane introduced them in code
+/// without the contract noticing, which is the drift this artifact exists to
+/// catch. `contract/metrics.v1.json` stays in the tree: it is what a consumer
+/// built against before this revision.
+pub const CONTRACT_VERSION: u32 = 2;
 
 /// The OTel instrument kind a metric is recorded with. This is part of the
 /// contract: a counter read as a gauge produces nonsense, so a kind change is
@@ -135,6 +142,15 @@ pub const METRICS: &[MetricDescriptor] = &[
         stability: Stability::Stable,
         producer: "core-api otel_http::record_org",
         summary: "Authenticated requests attributed to an org, by status class",
+    },
+    MetricDescriptor {
+        name: "marula.org.ingest_requests",
+        kind: MetricKind::Counter,
+        unit: "{request}",
+        attributes: &["org_id", "source"],
+        stability: Stability::Stable,
+        producer: "core-api routes::{webhook_receiver,alerts}::ingest",
+        summary: "Authenticated machine-ingest requests attributed to an org, by source",
     },
     MetricDescriptor {
         name: "marula.live.sessions",
@@ -310,7 +326,13 @@ pub struct HealthSurface {
     pub stability: Stability,
 }
 
-/// Every health surface. Two processes, two shapes, both versioned here.
+/// Every health surface. Two processes, five paths, all versioned here.
+///
+/// The worker's three paths answer three different questions and an
+/// orchestrator uses each one differently: `/livez` decides whether to restart
+/// the process, `/readyz` decides whether to send it traffic, and `/healthz`
+/// is the human/dashboard view with one key per loop. A consumer that polls
+/// only the last one cannot tell a drain from a crash.
 pub const HEALTH_SURFACES: &[HealthSurface] = &[
     HealthSurface {
         path: "/api/v1/health",
@@ -319,10 +341,25 @@ pub const HEALTH_SURFACES: &[HealthSurface] = &[
         stability: Stability::Stable,
     },
     HealthSurface {
+        path: "/livez",
+        process: "worker",
+        shape: "empty body: 200 while the process answers, nothing else is checked",
+        stability: Stability::Stable,
+    },
+    HealthSurface {
+        path: "/readyz",
+        process: "worker",
+        shape: "application/json: status (ready|not_ready), draining (bool), \
+                down (array of loop labels), roles (label); 503 unless ready",
+        stability: Stability::Stable,
+    },
+    HealthSurface {
         path: "/healthz",
         process: "worker",
         shape: "application/json: status (ok|unhealthy), glitchtip (configured|unset), \
-                roles (label), and one key per loop whose value is alive|down|disabled",
+                roles (label), draining (bool), and one key per loop whose value is \
+                alive|down|disabled; 503 when a loop this process owns is down \
+                and it is not draining",
         stability: Stability::Stable,
     },
 ];
@@ -516,6 +553,38 @@ mod tests {
             assert!(
                 !field.is_empty() && field.len() <= 32,
                 "log field {field:?} is not a bounded token"
+            );
+        }
+    }
+
+    /// Every worker path the contract publishes must still be ROUTED by the
+    /// worker binary. The artifact comparison above cannot catch a probe path
+    /// that was renamed in code, because the table and the artifact would move
+    /// together on the next write; this reads the router instead. It caught
+    /// exactly that in v2: `/livez` and `/readyz` existed in the worker for a
+    /// whole lane before the contract knew their names.
+    #[test]
+    fn published_worker_health_paths_are_routed_by_the_worker() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../worker/src/lib.rs");
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let worker: Vec<&HealthSurface> = HEALTH_SURFACES
+            .iter()
+            .filter(|h| h.process == "worker")
+            .collect();
+        assert!(
+            !worker.is_empty(),
+            "the contract must describe at least one worker surface"
+        );
+        for surface in worker {
+            let routed = format!(".route(\"{}\"", surface.path);
+            assert!(
+                src.contains(&routed),
+                "the contract publishes the worker path {} but {} has no {} route — \
+                 update HEALTH_SURFACES (and bump CONTRACT_VERSION) when a probe moves",
+                surface.path,
+                path.display(),
+                routed
             );
         }
     }

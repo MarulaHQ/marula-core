@@ -105,9 +105,14 @@ CREATE POLICY identity_bundle_installs_org ON identity_bundle_installs
 -- 3. The staged state machine learns the new kind.
 -- ---------------------------------------------------------------------------
 
--- The 0079/0097 source-coherence and approved-adoption checks are INLINE
--- unnamed constraints; drop them dynamically (match by definition text)
--- and re-create the named shape with `identity_bundle` added.
+-- The 0079/0097 source-coherence and approved-adoption checks are NAMED
+-- constraints, and `pg_get_constraintdef` renders their string literals with a
+-- `::text` cast (`source_kind::text IN ('skill_community'::text, …)`). A
+-- pattern anchored on `source_kind IN ('skill_community'` therefore matches
+-- NOTHING and the loop below becomes a no-op, which makes the ADD fail with
+-- "constraint … already exists" on a schema built from scratch. Match on the
+-- tokens instead of on the rendered syntax, so the cast (and any future OID
+-- re-print of the same constraint) cannot break the drop.
 DO $$
 DECLARE c text;
 BEGIN
@@ -115,7 +120,7 @@ BEGIN
     SELECT conname FROM pg_constraint
      WHERE conrelid = 'plugin_staged_items'::regclass
        AND contype = 'c'
-       AND (pg_get_constraintdef(oid) LIKE '%source_kind IN (''skill_community''%'
+       AND (pg_get_constraintdef(oid) LIKE '%source_kind%skill_community%'
             OR pg_get_constraintdef(oid) LIKE '%adopted_install_id IS NOT NULL%')
   LOOP
     EXECUTE format('ALTER TABLE plugin_staged_items DROP CONSTRAINT %I', c);

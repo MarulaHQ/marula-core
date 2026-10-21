@@ -156,6 +156,23 @@ pub enum Permission {
     /// rejects or degrades a flagged org, so this grant widens what a machine
     /// may OBSERVE and nothing else.
     ViewOrgSuspension,
+    /// Wave 52 lane R12 (`p52-extension-hooks`): the observability READ grant a
+    /// machine principal presents to read the org's own operational evidence —
+    /// today the audit trail through `GET /api/audit-events`, including its
+    /// ascending export cursor.
+    ///
+    /// It exists because the only other gate on that trail is
+    /// `special:view_audit_log`, an admin special no plugin may ever hold
+    /// (`admin_specials_should_never_be_grantable`), so a premium pack that
+    /// exports or forwards the trail had no principal that could read it at
+    /// all. The wire key follows the `org_usage:read` precedent: module-
+    /// namespaced, not `special:`-prefixed, so a custom role or a service
+    /// account carries it like any matrix peer, and no shipped preset carries
+    /// it because a human auditor already reads the trail through the special.
+    ///
+    /// What it does NOT grant: nothing writes the trail, nothing leaves the
+    /// org, and it opens no other route.
+    ViewObservability,
 }
 
 impl Permission {
@@ -203,6 +220,11 @@ impl Permission {
                 // permission exists for SERVICE ACCOUNTS and custom roles, so
                 // no shipped preset carries it.
                 Permission::ViewOrgSuspension => "org_suspension:read".into(),
+                // Wave 52 lane R12: the same module-namespaced read-only shape.
+                // The observability reader is a machine/custom-role grant, so
+                // no preset carries it and a human auditor keeps reading the
+                // trail through `special:view_audit_log`.
+                Permission::ViewObservability => "observability:read".into(),
                 Permission::Matrix { .. } => unreachable!(),
             },
         }
@@ -1103,6 +1125,22 @@ mod tests {
                     perm.key()
                 );
             }
+        }
+    }
+
+    /// Wave 52 lane R12: the observability reader follows the A6/A8 precedent —
+    /// a module-namespaced read grant that exists for machine principals and
+    /// custom roles, carried by no shipped preset (a human auditor already
+    /// reads the trail through `special:view_audit_log`, and a preset grant
+    /// would read as "humans need a permission to see their own audit log").
+    #[test]
+    fn observability_read_is_a_machine_grant_no_preset_carries_it() {
+        assert_eq!(Permission::ViewObservability.key(), "observability:read");
+        for role in BuiltinRole::PRESETS {
+            assert!(
+                !role.permissions().contains(&Permission::ViewObservability),
+                "{role:?} must not carry observability:read by default"
+            );
         }
     }
 

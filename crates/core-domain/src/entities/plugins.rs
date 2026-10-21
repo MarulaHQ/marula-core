@@ -147,10 +147,25 @@ pub enum PluginCapability {
     /// Holding it changes what a plugin may OBSERVE: the flag never gates a
     /// request, a feature, or a write anywhere in the core.
     OrgSuspensionRead,
+    /// Wave 52 lane R12 (`p52-extension-hooks`): the OBSERVABILITY read scope.
+    /// A plugin or connector holding it reads the org's own operational
+    /// evidence through the same scoped read path a machine API key uses —
+    /// today the audit trail and its ascending export cursor
+    /// (`GET /api/audit-events?order=asc&after=…`). It resolves onto the new
+    /// `observability:read` permission, which no shipped preset carries, so a
+    /// grant is always an org's explicit decision.
+    ///
+    /// Why this is not `special:view_audit_log`: that is an admin special, and
+    /// the closed vocabulary deliberately has no key for any of them. A pack
+    /// that forwards the trail to a SIEM is a reader, not an administrator, and
+    /// this scope is the reader's grant. Health needs no scope at all
+    /// (`/api/v1/health` is public), and metrics have no read path in core —
+    /// they leave by OTLP and `core_otel::contract` describes them.
+    ObservabilityRead,
 }
 
 impl PluginCapability {
-    pub const ALL: [PluginCapability; 32] = [
+    pub const ALL: [PluginCapability; 33] = [
         PluginCapability::TicketsRead,
         PluginCapability::TicketsWrite,
         PluginCapability::ClientsRead,
@@ -183,6 +198,7 @@ impl PluginCapability {
         PluginCapability::RagWrite,
         PluginCapability::OrgCustomDomainManage,
         PluginCapability::OrgSuspensionRead,
+        PluginCapability::ObservabilityRead,
     ];
 
     /// The capability key as declared in a manifest / grant list.
@@ -224,6 +240,7 @@ impl PluginCapability {
             PluginCapability::RagWrite => "rag.write",
             PluginCapability::OrgCustomDomainManage => "org_custom_domain.manage",
             PluginCapability::OrgSuspensionRead => "org_suspension.read",
+            PluginCapability::ObservabilityRead => "observability.read",
         }
     }
 
@@ -391,6 +408,12 @@ impl PluginCapability {
             // (`admin:edit`, the gate org settings use), exactly as the private build tracker
             // A7 (D) specifies.
             PluginCapability::OrgSuspensionRead => Permission::ViewOrgSuspension,
+            // Wave 52 lane R12: the observability reader resolves onto its OWN
+            // read-only permission — the same posture as `org_usage.read`.
+            // Deliberately NOT `special:view_audit_log`: a plugin may never
+            // hold an admin special, and widening that gate for every plugin
+            // would be the fork this vocabulary exists to prevent.
+            PluginCapability::ObservabilityRead => Permission::ViewObservability,
         }
     }
 }
@@ -3080,6 +3103,35 @@ mod tests {
         assert_eq!(
             PluginCapability::parse("org_usage.read"),
             Some(PluginCapability::OrgUsageRead)
+        );
+    }
+
+    /// Wave 52 lane R12: the observability scope resolves onto its OWN
+    /// read-only permission, never onto `special:view_audit_log`. The property
+    /// that matters is the negative: a pack granted observability reads the
+    /// trail and stays unable to do anything an administrator does. Pinned
+    /// because the obvious shortcut (widen the admin special) would pass every
+    /// other test in this file while quietly handing packs an admin gate.
+    #[test]
+    fn observability_capability_resolves_onto_a_read_grant_not_an_admin_special() {
+        use crate::policy::Permission;
+        assert_eq!(
+            PluginCapability::ObservabilityRead.as_str(),
+            "observability.read"
+        );
+        assert_eq!(
+            PluginCapability::ObservabilityRead.permission(),
+            Permission::ViewObservability
+        );
+        assert_ne!(
+            PluginCapability::ObservabilityRead.permission(),
+            Permission::ViewAuditLog
+        );
+        // The wire key round-trips, so a manifest naming it resolves rather
+        // than being rejected as unknown at the data boundary.
+        assert_eq!(
+            PluginCapability::parse("observability.read"),
+            Some(PluginCapability::ObservabilityRead)
         );
     }
 
