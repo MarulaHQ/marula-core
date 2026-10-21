@@ -97,6 +97,7 @@ impl ObjectStore for MemoryStore {
             key: key.to_string(),
             size_bytes: size,
             content_type: content_type.to_string(),
+            last_modified: std::time::SystemTime::now().into(),
         })
     }
 
@@ -135,6 +136,29 @@ impl ObjectStore for MemoryStore {
     async fn presign_get(&self, _key: &str, _ttl: Duration) -> Result<Option<String>, StoreError> {
         Ok(None)
     }
+
+    async fn list(&self, prefix: &str) -> Result<Vec<ObjectMeta>, StoreError> {
+        if !prefix.is_empty() {
+            validate_key(prefix.trim_end_matches('/'))?;
+        }
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| StoreError::Unavailable("poisoned".into()))?;
+        let mut out: Vec<ObjectMeta> = guard
+            .objects
+            .iter()
+            .filter(|(key, _)| key.starts_with(prefix))
+            .map(|(key, (content_type, body))| ObjectMeta {
+                key: key.clone(),
+                size_bytes: body.len() as u64,
+                content_type: content_type.clone(),
+                last_modified: None,
+            })
+            .collect();
+        out.sort_by(|a, b| a.key.cmp(&b.key));
+        Ok(out)
+    }
 }
 
 /// Wrapper recording every forwarded call — wraps ANY implementation so
@@ -166,6 +190,10 @@ impl<T: ObjectStore> ObjectStore for RecordingStore<T> {
 
     async fn presign_get(&self, key: &str, ttl: Duration) -> Result<Option<String>, StoreError> {
         self.0.presign_get(key, ttl).await
+    }
+
+    async fn list(&self, prefix: &str) -> Result<Vec<ObjectMeta>, StoreError> {
+        self.0.list(prefix).await
     }
 }
 
@@ -217,6 +245,10 @@ impl<T: ObjectStore> ObjectStore for PresigningStore<T> {
         // presign" and should not be faked.
         self.0.get(key).await?;
         Ok(Some(Self::url_for(key, ttl)))
+    }
+
+    async fn list(&self, prefix: &str) -> Result<Vec<ObjectMeta>, StoreError> {
+        self.0.list(prefix).await
     }
 }
 

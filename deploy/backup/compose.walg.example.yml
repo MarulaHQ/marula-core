@@ -12,5 +12,12 @@ services:
       - wal_level=replica
       - -c
       - archive_mode=on
+      # Without this, a WAL segment is archived only when it fills (16 MB), so a
+      # quiet install ships nothing for hours and the PITR tier's real RPO is
+      # "whenever 16 MB of writes happened", not one minute. 60 s caps that wait;
+      # the cost is a partially-filled segment per idle minute, which is the
+      # price of an RPO you can quote. See docs/reference/rpo-rto.md §2.
+      - -c
+      - archive_timeout=60
       - -c
       - archive_command=test ! -f /pgarch/skip && wal-g wal-push %p

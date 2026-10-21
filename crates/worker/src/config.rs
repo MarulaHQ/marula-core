@@ -167,6 +167,18 @@ pub struct WorkerConfig {
     /// seconds: a usage row is a report an operator reads, and the per-org
     /// work is one aggregate.
     pub usage_refresh_secs: u64,
+    /// The retention matrix (Wave 52 lane R6): the nine windowed tables, the
+    /// profile and any per-table overrides, plus the pass cadence. One
+    /// resolution point so the boot log can name the windows this process will
+    /// enforce instead of an operator having to read nine modules.
+    pub data_retention: crate::data_retention_sweep::DataRetentionConfig,
+    /// The object-store integrity pass (Wave 52 lane R6). Off unless
+    /// `MARULA_OBJECT_GC` says otherwise: a pass that deletes bytes should
+    /// never be something an operator discovers they enabled.
+    pub object_gc: crate::object_gc_sweep::ObjectGcConfig,
+    /// Which object store this process walks (`OBJECT_STORE` / `S3_*`, the same
+    /// resolution core-api uses). Only read by the integrity pass.
+    pub object_store: core_store::StoreChoice,
     /// Event-outbox retention (Wave 52 lane P1): how long a PUBLISHED
     /// `outbox_events` row is kept (`OUTBOX_RETENTION_DAYS`) and how often
     /// the window is enforced (`OUTBOX_SWEEP_SECS`). Deliberately separate
@@ -430,6 +442,11 @@ impl WorkerConfig {
             usage_refresh_secs: lookup("USAGE_REFRESH_SECS")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(crate::usage_refresh_sweep::DEFAULT_INTERVAL_SECS),
+            data_retention: crate::data_retention_sweep::DataRetentionConfig::from_lookup(|key| {
+                lookup(key)
+            }),
+            object_gc: crate::object_gc_sweep::ObjectGcConfig::from_lookup(|key| lookup(key)),
+            object_store: core_store::StoreChoice::from_lookup(|key| lookup(key)),
             outbox_retention: crate::outbox_retention_sweep::OutboxRetentionConfig::from_values(
                 lookup("OUTBOX_SWEEP_SECS").and_then(|v| v.parse().ok()),
                 lookup("OUTBOX_RETENTION_DAYS").and_then(|v| v.parse().ok()),
@@ -506,6 +523,17 @@ mod tests {
         assert_eq!(cfg.email.poll_secs, 2);
         // Fail-closed none mode: no key ⇒ webhook delivery stays dead.
         assert!(cfg.webhook_secret_key.is_none());
+        // Retention ships the standard profile, and the object pass is OFF: a
+        // process that deletes bytes has to be asked to.
+        assert_eq!(
+            cfg.data_retention.plan.profile,
+            core_db::retention::RetentionProfile::Standard
+        );
+        assert_eq!(cfg.object_gc.mode, crate::object_gc_sweep::GcMode::Off);
+        assert_eq!(
+            cfg.object_store,
+            core_store::StoreChoice::Local("./data/objects".into())
+        );
         // No SES variables ⇒ none mode, not a half-configured adapter.
         assert_eq!(cfg.email.transport_kind, TransportKind::None);
     }

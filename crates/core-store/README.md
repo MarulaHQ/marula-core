@@ -6,34 +6,42 @@ several adapters, zero vendor leakage.
 ## Purpose
 
 - **`ObjectStore` trait** — `put` / streamed `get` / idempotent `delete` /
-  `presign_get` (presign-or-stream), with content type and byte size
-  first-class on every object.
+  `presign_get` (presign-or-stream) / `list`, with content type and byte size
+  first-class on every object. `list` exists for one consumer: the worker's
+  object-integrity pass, which is the only code that walks a store instead of
+  addressing one key. A backend that cannot enumerate returns `Unavailable`
+  rather than an empty list, because "cannot see" must not read as "nothing
+  there" in a pass that deletes.
 - **Adapters**
   - `local::LocalFsStore` — the documented **filesystem none mode**: a
-    self-hosted Marula needs NO object store service; attachments land
+    self-hosted Marula needs NO object store service. Attachments land
     under a data directory with atomic publishes and `.meta.json`
     sidecars.
   - `s3::S3Store` — any S3-compatible endpoint (MinIO in the compose
     stage2 profile, AWS S3, Cloudflare R2) via the Apache Arrow
     `object_store` crate (chosen over hand-rolled SigV4 for reviewed
-    crypto and over `aws-sdk-s3` for dependency weight; its types never
+    crypto and over `aws-sdk-s3` for dependency weight. Its types never
     escape this crate).
   - `memory::MemoryStore` / `memory::RecordingStore` — test doubles with
-    an operation log; `MemoryStore::arm_write_failures()` drives
+    an operation log. `MemoryStore::arm_write_failures()` drives
     fail-closed outage tests.
 - Shared key validation: keys are `[A-Za-z0-9/._-]`, no empty/`.`/`..`
   segments — traversal is structurally impossible on every adapter.
 - Attachment keys are content-addressed:
   `org/<org_id>/attachments/<sha256>` — dedup is a pure lookup, integrity
-  is checkable by re-hashing bytes on read.
+  is checkable by re-hashing bytes on read. The org prefix is also what makes
+  a tenant erasure (`marula data purge-org`) and the orphan pass able to work
+  one tenant's objects at a time.
+- `StoreChoice::from_lookup` is the one parser for `OBJECT_STORE` / `S3_*`, used
+  by core-api, the worker and the CLI, so all three address the same store.
 
 ## None modes (standalone-first doctrine)
 
 | Capability | Selection | Behavior |
 |---|---|---|
-| Object storage | `OBJECT_STORE=local` (default) | Bytes persist under `OBJECT_STORE_LOCAL_DIR`; fully functional single-node deployments. |
-| Object storage | unset store env (`none`) | Upload/download endpoints degrade cleanly; nothing durable is written. |
-| Object storage | `OBJECT_STORE=s3` | Requires `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`; `S3_ENDPOINT` selects MinIO/R2 (empty = real AWS). |
+| Object storage | `OBJECT_STORE=local` (default) | Bytes persist under `OBJECT_STORE_LOCAL_DIR`, so a single-node deployment is fully functional. |
+| Object storage | unset store env (`none`) | Upload and download endpoints degrade cleanly. Nothing durable is written. |
+| Object storage | `OBJECT_STORE=s3` | Requires `S3_BUCKET`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`. `S3_ENDPOINT` selects MinIO/R2 (empty = real AWS). |
 
 ## Non-purpose
 

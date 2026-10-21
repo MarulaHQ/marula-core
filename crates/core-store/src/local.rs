@@ -112,6 +112,7 @@ impl ObjectStore for LocalFsStore {
             key: key.to_string(),
             size_bytes: sidecar.size_bytes,
             content_type: sidecar.content_type,
+            last_modified: std::time::SystemTime::now().into(),
         })
     }
 
@@ -178,6 +179,89 @@ impl ObjectStore for LocalFsStore {
     ) -> Result<Option<String>, StoreError> {
         // A filesystem cannot hand out URLs; callers must stream.
         Ok(None)
+    }
+
+    async fn list(&self, prefix: &str) -> Result<Vec<ObjectMeta>, StoreError> {
+        // A prefix is a key fragment, not an absolute path: validate it with
+        // the same rule every other call uses (an empty prefix means "all").
+        if !prefix.is_empty() {
+            validate_key(prefix.trim_end_matches('/'))?;
+        }
+        let start = if prefix.is_empty() {
+            self.root.clone()
+        } else {
+            self.root.join(prefix.trim_end_matches('/'))
+        };
+        let mut out = Vec::new();
+        let mut stack = vec![start];
+        while let Some(dir) = stack.pop() {
+            let mut entries = match tokio::fs::read_dir(&dir).await {
+                Ok(entries) => entries,
+                // A prefix that names no directory is an empty listing, not
+                // a failure: the sweep asks per org prefix and most stores
+                // have no such tree.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => {
+                    return Err(StoreError::Unavailable(format!("local fs list: {e}")));
+                }
+            };
+            while let Some(entry) = entries
+                .next_entry()
+                .await
+                .map_err(|e| StoreError::Unavailable(format!("local fs list: {e}")))?
+            {
+                let path = entry.path();
+                let file_type = entry
+                    .file_type()
+                    .await
+                    .map_err(|e| StoreError::Unavailable(format!("local fs list: {e}")))?;
+                if file_type.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                // Staging files and metadata sidecars are not objects. The
+                // sidecar is suffixed, so this is how they are told apart.
+                if name.ends_with(".meta.json") || name.contains(".tmp-") {
+                    continue;
+                }
+                let key = match path.strip_prefix(&self.root) {
+                    Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+                    Err(_) => continue,
+                };
+                if validate_key(&key).is_err() {
+                    continue;
+                }
+                // Content type and size come from the sidecar when it is
+                // readable; the sweep only really needs size and age.
+                let sidecar = match tokio::fs::read(Self::suffixed(&path, ".meta.json")).await {
+                    Ok(raw) => serde_json::from_slice::<SidecarMeta>(&raw).ok(),
+                    Err(_) => None,
+                };
+                let size_bytes = match &sidecar {
+                    Some(meta) => meta.size_bytes,
+                    None => tokio::fs::metadata(&path)
+                        .await
+                        .map(|m| m.len())
+                        .unwrap_or(0),
+                };
+                let last_modified = tokio::fs::metadata(&path)
+                    .await
+                    .ok()
+                    .and_then(|m| m.modified().ok());
+                out.push(ObjectMeta {
+                    key,
+                    size_bytes,
+                    content_type: sidecar
+                        .map(|s| s.content_type)
+                        .unwrap_or_else(|| "application/octet-stream".to_string()),
+                    last_modified,
+                });
+            }
+        }
+        out.sort_by(|a, b| a.key.cmp(&b.key));
+        Ok(out)
     }
 }
 
@@ -259,6 +343,37 @@ mod tests {
         st.delete("k/one").await.expect("delete");
         st.delete("k/one").await.expect("delete again");
         assert!(st.get("k/one").await.is_err());
+    }
+
+    /// The integrity sweep walks the store; a listing that returned sidecars or
+    /// staging files would report objects that no row can ever reference, and
+    /// the sweep would delete them by definition of "orphan".
+    #[tokio::test]
+    async fn list_returns_objects_only_under_the_prefix() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let st = store(dir.path());
+        for key in [
+            "org/a/attachments/one",
+            "org/a/quarantine/two",
+            "org/b/attachments/three",
+        ] {
+            st.put(key, "text/plain", Bytes::from_static(b"xy"))
+                .await
+                .expect("put");
+        }
+        let all = st.list("").await.expect("list all");
+        assert_eq!(all.len(), 3, "{all:?}");
+        assert!(all.iter().all(|m| m.last_modified.is_some()));
+        let org_a = st.list("org/a").await.expect("list org a");
+        assert_eq!(
+            org_a.iter().map(|m| m.key.as_str()).collect::<Vec<_>>(),
+            vec!["org/a/attachments/one", "org/a/quarantine/two"]
+        );
+        assert!(st
+            .list("org/absent")
+            .await
+            .expect("absent prefix")
+            .is_empty());
     }
     #[tokio::test]
     async fn traversal_keys_rejected_before_io() {
