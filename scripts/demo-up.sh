@@ -357,7 +357,8 @@ EOF
                      compose publishes nothing, on purpose)
   pull the models (the first inference after a pull is slow — it loads them):
     docker compose -f $COMPOSE_FILE --profile ai exec ollama ollama pull whisper
-    docker compose -f $COMPOSE_FILE --profile ai exec ollama ollama pull nomic-embed-text
+  the embedding model is fetched by the profile's ollama-model job; the
+  bundled default is embeddinggemma-2:270m-q8_0-text
   then in $WEB_URL/settings/ai set the base URL to http://127.0.0.1:11434
   walkthrough: docs/site/how-to/local-demo-stack.md
 EOF

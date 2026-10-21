@@ -202,20 +202,22 @@ A demo does not have to send anything to a vendor. The `ai` compose profile
 runs a local model runtime on the box:
 
 ```sh
-docker compose -f deploy/docker-compose.yml --profile ai up -d ollama
+docker compose -f deploy/docker-compose.yml --profile ai up -d
 docker compose -f deploy/docker-compose.yml exec ollama ollama pull whisper
-docker compose -f deploy/docker-compose.yml exec ollama ollama pull nomic-embed-text
 ```
 
-`nomic-embed-text` returns 768 dimensions natively, which is the width the
-search vector leg requires. `whisper` covers transcription on the
-OpenAI-compatible seam. Then set `OLLAMA_BASE_URL=http://ollama:11434`,
-pick `ollama` as the provider, and leave the key empty. A local runtime
-checks no credential, so an empty one is accepted.
+The profile pulls the embedding model as part of coming up: EmbeddingGemma 2,
+text-only build, which returns 768 dimensions natively, the width the search
+vector leg requires. `whisper` covers transcription on the OpenAI-compatible
+seam and is the only model you fetch by hand. Then set
+`OLLAMA_BASE_URL=http://ollama:11434`, pick `ollama` as the provider, and
+leave the key empty. A local runtime checks no credential, so an empty one is
+accepted. An install that has not set a provider at all already resolves to
+this embedder, so the settings step is only needed to override it.
 
 Use this when the demo machine is air-gapped, or when the customer cannot
 hand over a vendor key for policy reasons. It is slower on CPU and it
-borrows memory, since the slot is capped at 4 GB and 2 CPUs. For a normal
+borrows memory, since the slot is capped at 4 GB and 4 CPUs. For a normal
 hosted demo a vendor key is the better trade. The runtime publishes no host
 port on purpose. Core-api reaches it by service name inside the compose
 network, and nothing else can. The full local-AI posture, including why no

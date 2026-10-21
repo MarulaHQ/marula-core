@@ -785,15 +785,21 @@ services:
   # exactly what is on disk.
   ollama:
     mem_limit: 4g
-    cpus: 2.0
+    # Four cores, not two. The bundled embedder is the default path now, and a
+    # backfill batch is 128 inputs: measured on the 4-core reference profile it
+    # takes single-digit seconds, and on two cores it takes roughly twice that,
+    # which turns a 50k-chunk first index into an all-night job. The resident
+    # set for the text-only model measured under a gigabyte, so the memory
+    # ceiling is unchanged.
+    cpus: 4.0
     logging: *default-logging
-    image: ollama/ollama:0.35.0@sha256:2a6e883b917fc543389599dae79918f5cac9e1438890506982f44aa4f5625d01
+    # 0.40.7 serves EmbeddingGemma 2; the previous 0.35.0 pin refuses the model
+    # with a version notice, so the bundled default could not run on it at all.
+    # Digest is the multi-arch manifest list (linux/amd64 + linux/arm64), one
+    # value for both.
+    image: ollama/ollama:0.40.7@sha256:2e6cc92ffa43b4b1a2e70e315407e00ac97ec125afc71277d73c7efe01c4f31b
     profiles: ["ai"]
     <<: *cap-common
-    # 0.35.0 is the audited pin (2026-09-30, registry digest resolved against
-    # the linux/amd64 + linux/arm64 manifests, so one value serves both —
-    # this repo's stack is multi-arch by construction, see the digests above).
-    #
     # The image sets no `User:` and its documented model path is under
     # /root, which a non-root uid cannot write. So the identity is pinned
     # explicitly AND the model directory is moved to a mounted volume, which
@@ -823,12 +829,38 @@ services:
       # Refuses to pull a model on first use, so a mistyped model name fails
       # as a typed error instead of a multi-gigabyte surprise download.
       OLLAMA_NO_CLOUD: "1"
+      # How long a model stays resident after its last request. Core asks for
+      # this per request as well; the server default is set here so an operator
+      # reading the compose file sees the idle behaviour without reading code.
+      OLLAMA_KEEP_ALIVE: "5m"
     volumes:
       - ollamadata:/models
     # Deliberately NOT published. To reach it from the host, use the
     # network the operator already trusts:
     #   docker compose -f deploy/docker-compose.yml --profile ai up -d ollama
-    #   docker compose -f deploy/docker-compose.yml exec ollama ollama pull nomic-embed-text
+    #   docker compose -f deploy/docker-compose.yml exec ollama ollama pull embeddinggemma-2:270m-q8_0-text
+
+  # One-shot model fetch for the AI profile: the bundled embedder is the
+  # default path, so a fresh `--profile ai up` should end with a working vector
+  # leg rather than a dark one plus a command to run. It runs `ollama pull`,
+  # then exits; `OLLAMA_NO_CLOUD=1` above only refuses pulls the *server*
+  # would start behind an inference request.
+  ollama-model:
+    image: ollama/ollama:0.40.7@sha256:2e6cc92ffa43b4b1a2e70e315407e00ac97ec125afc71277d73c7efe01c4f31b
+    profiles: ["ai"]
+    logging: *default-logging
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until ollama list >/dev/null 2>&1; do
+          echo "waiting for ollama"; sleep 2;
+        done
+        ollama pull "$${MARULA_EMBEDDING_MODEL:-embeddinggemma-2:270m-q8_0-text}"
+    restart: "no"
 
   # ClamAV daemon (2026-09 decision; --profile stage2): attachment/file
   # scanning boundary (secrets file records, staged imports). Code-side

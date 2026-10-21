@@ -11,10 +11,12 @@ or embeddings to happen on your own hardware, this page is how.
 ## The short version
 
 ```sh
-docker compose -f deploy/docker-compose.yml --profile ai up -d ollama
+docker compose -f deploy/docker-compose.yml --profile ai up -d
 docker compose -f deploy/docker-compose.yml exec ollama ollama pull whisper
-docker compose -f deploy/docker-compose.yml exec ollama ollama pull nomic-embed-text
 ```
+
+The profile pulls the embedding model itself. Transcription is the one
+model you fetch by hand.
 
 Then point Marula at `http://ollama:11434` in the AI settings, enable the
 surfaces you want, and supply a credential if the provider asks for one.
@@ -68,7 +70,7 @@ transcription never downloads a byte of them.
 | Feature | Contract | Model | Why this one |
 | --- | --- | --- | --- |
 | Transcription | OpenAI-compatible `audio/transcriptions` | `whisper` | Marula's own default model name for the `ollama` provider. The call is a plain multipart POST. |
-| Embeddings | exactly 768 dimensions | `nomic-embed-text` | 768 is its native width, so it satisfies the contract with no truncation. |
+| Embeddings | exactly 768 dimensions | `embeddinggemma-2:270m-q8_0-text` | The bundled default. 768 is its native width, so it satisfies the contract with no truncation, and it is Apache 2.0. |
 
 A smaller Whisper variant works too — Marula sends whatever model name
 you configure and falls back to `whisper` when the field is empty or
@@ -78,12 +80,40 @@ differences are several hundred megabytes.
 
 ## What this costs you
 
-Nothing runs on your CPU until you pull a model, and the first request
-after a pull is slow while the model loads. The slot is capped at 4 GB of
-memory and 2 CPUs, which is enough for `whisper` and `nomic-embed-text`
-on CPU. If you have a GPU, this slot will not use it — the image is
-pinned without a GPU runtime, and adding one is your call to make in your
-own override rather than something the shipped compose guesses at.
+The embedding model arrives with the profile: a one-shot `ollama-model`
+service pulls it, and the `ai` profile is complete when that job exits.
+Nothing runs on your CPU until a request needs it — the model loads on the
+first search and is dropped again after five idle minutes, so an idle
+install holds no weights in memory.
+
+The slot is capped at 4 GB of memory and 4 CPUs. On the 4-core reference
+profile the text-only model embeds about 16 ticket-sized chunks a second and
+holds roughly half a gigabyte resident, which backfills a 50,000-chunk
+install in under an hour. The first request after an idle period pays the
+model load, about two seconds. If you have a GPU, this slot will not use it —
+the image is pinned without a GPU runtime, and adding one is your call to
+make in your own override rather than something the shipped compose guesses
+at.
+
+If your host is smaller than that, keep the vector leg on a cloud embedder
+(see the BYOK setting) or point the model field at a bge-base-class model
+instead. A two-core host embeds at roughly ten chunks a second, which turns a
+first index into an overnight job.
+
+### The bf16 build is faster on Apple Silicon, and slower on some x86 hosts
+
+The default is the `q8_0` tag because it is the one that behaves the same on
+every architecture. On an M-series Mac it is not the fast one: measured on a
+10-core M1 Pro, the same model as `embeddinggemma-2:270m-bf16-text` embedded
+49 chunks a second against the `q8_0` build's 16, and answered a search query
+in 20 ms against 47 ms, for the same ranking. The bf16 build holds about
+700 MB resident instead of 500 MB and takes 574 MB of disk instead of 304 MB.
+
+So if you run Marula on arm64 and the vector leg is in the hot path, set
+`MARULA_EMBEDDING_MODEL=embeddinggemma-2:270m-bf16-text` and keep the tag you
+measured. On an x86 host without bf16 vector instructions, the quantized tag
+is the safer bet. These numbers are arm64 only; nothing in this page claims
+them for x86.
 
 ## What this does not do
 
@@ -93,9 +123,10 @@ own override rather than something the shipped compose guesses at.
   expose it, you are exposing an unauthenticated endpoint that loads and
   executes a native model format. Do not.
 - **It does not leave your network.** With `OLLAMA_NO_CLOUD=1` set, the
-  runtime does not phone out to fetch models. Every model comes from the
-  `docker compose exec … ollama pull` you ran, into the `ollamadata`
-  volume, which you can inspect and delete.
+  runtime does not phone out to fetch models behind an inference request.
+  Every model arrives through the profile's `ollama-model` job or a
+  `docker compose exec … ollama pull` you ran, into the `ollamadata` volume,
+  which you can inspect and delete.
 - **It does not disable the BYOK posture.** A network provider is still a
   first-class choice, and still the right one for a lot of deployments.
   Nothing here pushes you toward running models locally.

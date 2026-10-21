@@ -64,11 +64,71 @@ pub struct CompletionUsage {
 }
 
 /// Fixed width of the unified-search embedding vectors (migration 0062
-/// stores `vector(768)`): the bundled bge-base-class default, nomic-embed-
-/// text's native width, and the OpenAI text-embedding-3 truncated width.
-/// A provider that cannot produce this width leaves the vector leg dark —
+/// stores `vector(768)`): [`BUNDLED_EMBEDDING_MODEL`]'s native width, and the
+/// width a cloud embedder is asked for (OpenAI text-embedding-3 truncates to
+/// it). A provider that cannot produce this width leaves the vector leg dark —
 /// search degrades to FTS, never stores a wrong-width vector.
 pub const SEARCH_EMBEDDING_DIM: usize = 768;
+
+/// Provider the bundled embedding model runs behind: the local `ollama`
+/// runtime the `ai` compose profile starts. It is local on purpose. A host
+/// that is too small for the model, or a re-index that has to beat the
+/// overnight window, names a cloud provider instead — the override, not the
+/// default.
+pub const BUNDLED_EMBEDDING_PROVIDER: &str = "ollama";
+
+/// The embedding model an install gets when nobody configured one:
+/// EmbeddingGemma 2, text-only variant, 271M parameters, Apache 2.0. It is
+/// 768 dimensions native and Matryoshka to 512 / 256 / 128, so it fills
+/// [`SEARCH_EMBEDDING_DIM`] with no schema change and no truncation.
+///
+/// The multimodal build of the same model (`embeddinggemma-2:740m-q8_0`) is
+/// the text tower plus a 473M projector for images and audio. It costs the
+/// same text throughput and a larger resident set, so it is the override for
+/// an install that needs media chunks, not the default. An instance names a
+/// different model with `MARULA_EMBEDDING_MODEL`; the catalogue lane owns the
+/// selection surface that replaces that variable.
+pub const BUNDLED_EMBEDDING_MODEL: &str = "embeddinggemma-2:270m-q8_0-text";
+
+/// One org's embedding configuration after its settings are read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddingConfig {
+    /// Provider id: `ollama` for the bundled local path, `openai` for the
+    /// cloud override, `none` for the documented none mode, which makes no
+    /// outgoing embedding call at all.
+    pub provider: String,
+    /// The model this org named, if any. `None` means the provider's own
+    /// default applies, which is [`BUNDLED_EMBEDDING_MODEL`] locally.
+    pub model: Option<String>,
+    /// True when no provider was configured and this is the bundled default.
+    pub provider_is_default: bool,
+}
+
+/// Resolve an org's embedding configuration from its raw settings values.
+///
+/// Unset is not the same as off. An install that never touched
+/// `ai.completion_provider` gets the bundled local embedder. An org that set
+/// it to `none` asked for the vector leg to stay dark and keeps it, which is
+/// the documented none mode rather than a degraded default.
+pub fn resolve_embedding_config(provider: Option<&str>, model: Option<&str>) -> EmbeddingConfig {
+    let provider = provider.unwrap_or("").trim();
+    let model = model
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("none"))
+        .map(str::to_string);
+    if provider.is_empty() {
+        return EmbeddingConfig {
+            provider: BUNDLED_EMBEDDING_PROVIDER.to_string(),
+            model,
+            provider_is_default: true,
+        };
+    }
+    EmbeddingConfig {
+        provider: provider.to_ascii_lowercase(),
+        model,
+        provider_is_default: false,
+    }
+}
 
 /// A request sent to a [`CompletionProvider::embed`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -230,6 +290,43 @@ mod tests {
     fn search_embedding_dim_is_stable() {
         assert_eq!(SEARCH_EMBEDDING_DIM, 768);
         assert_eq!(crate::completion::SEARCH_EMBEDDING_DIM, 768);
+    }
+
+    #[test]
+    fn unset_settings_resolve_to_the_bundled_local_embedder() {
+        let config = resolve_embedding_config(None, None);
+        assert_eq!(config.provider, BUNDLED_EMBEDDING_PROVIDER);
+        assert_eq!(config.provider, "ollama");
+        assert!(config.provider_is_default);
+        assert_eq!(
+            config.model, None,
+            "no model named means the provider default"
+        );
+
+        let blank = resolve_embedding_config(Some("   "), Some("   "));
+        assert_eq!(blank, config, "whitespace is not a configuration");
+    }
+
+    #[test]
+    fn explicit_none_keeps_the_vector_leg_dark() {
+        let config = resolve_embedding_config(Some("none"), None);
+        assert_eq!(config.provider, "none");
+        assert!(!config.provider_is_default);
+    }
+
+    #[test]
+    fn a_named_provider_and_model_survive_resolution() {
+        let config = resolve_embedding_config(Some("OpenAI"), Some(" text-embedding-3-small "));
+        assert_eq!(config.provider, "openai");
+        assert_eq!(config.model.as_deref(), Some("text-embedding-3-small"));
+        assert!(!config.provider_is_default);
+    }
+
+    #[test]
+    fn a_none_model_falls_back_to_the_provider_default() {
+        let config = resolve_embedding_config(Some("ollama"), Some("none"));
+        assert_eq!(config.provider, "ollama");
+        assert_eq!(config.model, None);
     }
 
     #[test]

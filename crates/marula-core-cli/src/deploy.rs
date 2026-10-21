@@ -1352,6 +1352,22 @@ fn params() -> Vec<Param> {
             false,
             "Ollama base URL for the local model option.",
         ),
+        param(
+            "MARULA_EMBEDDING_MODEL",
+            "ai",
+            String,
+            Some("embeddinggemma-2:270m-q8_0-text"),
+            false,
+            "Embedding model this instance runs when no org names one. Must return 768 dimensions.",
+        ),
+        param(
+            "MARULA_EMBEDDING_KEEP_ALIVE",
+            "ai",
+            String,
+            Some("5m"),
+            false,
+            "How long the local embedding model stays resident after its last request (Ollama duration syntax).",
+        ),
 
         // --- retries (Wave 52 lane R1) ---
         //
