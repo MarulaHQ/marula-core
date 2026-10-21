@@ -105,6 +105,11 @@ pub struct DeliveryLoopConfig {
     /// Ceiling on the lazy reporting pool this loop opens for delivery
     /// reads (`DELIVERY_POOL_MAX`, default 5; Wave 49 lane R1).
     pub pool_max: u32,
+    /// Statement-cache capacity for that pool (Wave 52 lane P9). It is a
+    /// THIRD pool in the worker process, so it inherits neither the app
+    /// pool's capacity nor its assumptions; the default matches the app
+    /// pool's pooler-safe value.
+    pub statement_cache_capacity: u32,
 }
 
 /// Runtime settings for the worker process.
@@ -112,6 +117,25 @@ pub struct DeliveryLoopConfig {
 pub struct WorkerConfig {
     /// Postgres URL; the only database this process touches.
     pub database_url: String,
+    /// Direct Postgres URL for this process's ONE `LISTEN` connection
+    /// (`MARULA_LISTEN_DATABASE_URL`, Wave 52 lane P9). Unset ⇒
+    /// `database_url`.
+    ///
+    /// A transaction pooler returns a server connection to its pool after
+    /// every transaction, so a subscription made through one is attached to
+    /// a connection nobody holds: the relay would fall back to its safety
+    /// poll with no error anywhere. Point this at Postgres directly whenever
+    /// `database_url` names a pooler
+    /// (`docs/reference/connection-pooling.md`).
+    pub listen_database_url: Option<String>,
+    /// sqlx's per-connection prepared-statement cache capacity
+    /// (`MARULA_DB_STATEMENT_CACHE`, default 0 = disabled; Wave 52 lane P9).
+    /// The worker's owner-role pool runs through the same pooler as
+    /// core-api's, so it takes the same answer. A value that does not parse
+    /// falls back to 0 rather than refusing boot: 0 is the safe direction
+    /// here, unlike a pool ceiling where a silent default is a capacity
+    /// incident.
+    pub statement_cache_capacity: u32,
     /// Redis URL the outbox relay publishes into.
     pub redis_url: String,
     /// Health-endpoint listen address (`BIND_ADDR`, default
@@ -309,6 +333,17 @@ impl WorkerConfig {
         Self::from_lookup(|key| std::env::var(key).ok())
     }
 
+    /// The URL the relay's ONE `LISTEN` connection dials (Wave 52 lane P9).
+    ///
+    /// `MARULA_LISTEN_DATABASE_URL` when set, otherwise the pool's URL. A
+    /// transaction pooler cannot hold a subscription, so a pooled deployment
+    /// must set it; unset keeps the single-box behaviour.
+    pub fn listen_url(&self) -> &str {
+        self.listen_database_url
+            .as_deref()
+            .unwrap_or(&self.database_url)
+    }
+
     /// Same resolution against any key lookup; keeps tests free of global
     /// environment mutation.
     pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Self {
@@ -357,6 +392,12 @@ impl WorkerConfig {
             // erroring and nothing is ever published or evaluated.
             database_url: env("DATABASE_URL")
                 .unwrap_or_else(|| "postgres://marula:marula@localhost:15432/marula".to_string()),
+            listen_database_url: env("MARULA_LISTEN_DATABASE_URL")
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty()),
+            statement_cache_capacity: env("MARULA_DB_STATEMENT_CACHE")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(core_db::DEFAULT_STATEMENT_CACHE_CAPACITY),
             redis_url: env("REDIS_URL").unwrap_or_else(|| "redis://localhost:16379/0".to_string()),
             bind_addr: env("BIND_ADDR").unwrap_or_else(|| "0.0.0.0:8082".to_string()),
             relay_batch: env("RELAY_BATCH")
@@ -405,6 +446,9 @@ impl WorkerConfig {
                 pool_max: env("DELIVERY_POOL_MAX")
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(5),
+                statement_cache_capacity: env("MARULA_DB_STATEMENT_CACHE")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(core_db::DEFAULT_STATEMENT_CACHE_CAPACITY),
             },
             webhook_secret_key: AtRestKey::from_env_value(lookup("MARULA_SECRET_KEY").as_deref()),
             internal_api_url: lookup("INTERNAL_API_URL")

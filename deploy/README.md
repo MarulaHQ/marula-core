@@ -7,7 +7,8 @@
 
 | Directory | What it is |
 |---|---|
-| `docker-compose.yml` | The local stack: Postgres, Valkey, migrations, core-api, worker, web, plus the `stage2`, `observability`, `ai` and `backup` profiles. No TLS, no published-proxy boundary — it targets development. |
+| `docker-compose.yml` | The local stack: Postgres, Valkey, **PgBouncer**, migrations, core-api, worker, web, plus the `stage2`, `observability`, `ai` and `backup` profiles. No TLS, no published-proxy boundary — it targets development. |
+| `pooler/` | The PgBouncer config every application pool dials: transaction mode, `DISCARD ALL` after every transaction, no prepared-statement cache. `docs/reference/connection-pooling.md` says why each setting is load-bearing. |
 | `Dockerfile.rust` / `Dockerfile.web` | The workspace images. `NEXT_PUBLIC_API_URL` is baked into the web bundle at build time. |
 | `edge/` | **The public front door.** A Caddy proxy that terminates TLS, the three TLS modes (Direct ACME, Cloudflare Origin CA, Cloudflare DNS-01), and the origin firewall helper. |
 | `preview/` | The per-PR preview environment: sizing overlay, publishing options, and the CI definition for it. |
@@ -40,6 +41,19 @@ only applies that replacement when the file carrying it comes last.
 Cloudflare dashboard steps behind the edge one, and the origin lockdown.
 The operator runbook is
 [`docs/site/reference/reverse-proxy-tls.md`](../docs/site/reference/reverse-proxy-tls.md).
+
+## Connections
+
+The application pools dial PgBouncer (`pgbouncer:6432`), not Postgres, and the
+`migrate` job plus each process's one `LISTEN` connection dial Postgres
+directly. That split is what keeps the connection count flat as instances
+are added: 54 client connections per instance, 15 server connections per
+(database, user) pair. `pooler/README.md` is how to run and inspect it;
+[`docs/reference/connection-pooling.md`](../docs/reference/connection-pooling.md)
+is the reasoning and the measurements. To go back to a direct connection, set
+`MARULA_APP_DATABASE_URL` / `MARULA_WORKER_APP_DATABASE_URL` at Postgres and
+raise `MARULA_DB_STATEMENT_CACHE`, then accept the 100-connection ceiling that
+comes with it.
 
 ## Profiles
 

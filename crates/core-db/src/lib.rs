@@ -123,7 +123,11 @@ pub mod webhooks;
 pub mod workflow_overrides;
 pub mod workflow_runs;
 
-use sqlx::{postgres::PgPoolOptions, PgPool, Postgres, Transaction};
+use sqlx::{
+    postgres::{PgConnectOptions, PgPoolOptions},
+    PgPool, Postgres, Transaction,
+};
+use std::str::FromStr;
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
@@ -164,6 +168,16 @@ pub const DEFAULT_POOL_MAX: u32 = 20;
 /// Acquire timeout the app pool shipped with (`docs/perf.md` §5).
 pub const DEFAULT_ACQUIRE_TIMEOUT_SECS: u64 = 10;
 
+/// Prepared-statement cache capacity per connection default.
+///
+/// `0` disables sqlx's statement cache, which is what a transaction pooler
+/// needs: sqlx then parses a statement and executes it inside the same
+/// transaction under a fresh name, and never asks a later transaction to
+/// reuse a name that a different server connection may never have seen.
+/// `docs/reference/connection-pooling.md` carries the measurement and the
+/// alternative (bounded cache) for a deployment that runs without a pooler.
+pub const DEFAULT_STATEMENT_CACHE_CAPACITY: u32 = 0;
+
 /// App-pool sizing knobs (Wave 49 lane R1).
 ///
 /// Purpose: carry the pool ceiling and acquire timeout as data instead of
@@ -181,6 +195,9 @@ pub struct PoolConfig {
     pub max_connections: u32,
     /// How long a caller waits for a free connection before erroring.
     pub acquire_timeout: std::time::Duration,
+    /// sqlx's per-connection prepared-statement cache capacity (Wave 52 lane
+    /// P9). `0` disables it; see [`DEFAULT_STATEMENT_CACHE_CAPACITY`].
+    pub statement_cache_capacity: u32,
 }
 
 impl Default for PoolConfig {
@@ -188,18 +205,34 @@ impl Default for PoolConfig {
         Self {
             max_connections: DEFAULT_POOL_MAX,
             acquire_timeout: std::time::Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECS),
+            statement_cache_capacity: DEFAULT_STATEMENT_CACHE_CAPACITY,
         }
     }
 }
 
 /// Connects a pool with an explicit ceiling and timeout.
+///
+/// The URL is parsed into connect options rather than handed to
+/// `PgPoolOptions::connect(&str)` so the statement-cache capacity travels
+/// with the pool: a transaction pooler in front (`docs/reference/connection-pooling.md`)
+/// makes a cross-transaction statement name unsafe.
 pub async fn connect_with(url: &str, config: PoolConfig) -> DbResult<PgPool> {
+    let options = connect_options(url, config.statement_cache_capacity)?;
     let pool = PgPoolOptions::new()
         .max_connections(config.max_connections)
         .acquire_timeout(config.acquire_timeout)
-        .connect(url)
+        .connect_with(options)
         .await?;
     Ok(pool)
+}
+
+/// Parses a Postgres URL and applies the statement-cache capacity.
+///
+/// Shared with the reporting pool so every pool this crate can build reads
+/// the same knob from the same place.
+pub fn connect_options(url: &str, statement_cache_capacity: u32) -> DbResult<PgConnectOptions> {
+    let options = PgConnectOptions::from_str(url)?;
+    Ok(options.statement_cache_capacity(statement_cache_capacity as usize))
 }
 
 /// Connects the app pool with the historical defaults ([`PoolConfig::default`]).
@@ -337,9 +370,41 @@ mod pool_config_tests {
         let cfg = PoolConfig {
             max_connections: 5,
             acquire_timeout: std::time::Duration::from_secs(2),
+            statement_cache_capacity: 64,
         };
         assert_eq!(cfg.max_connections, 5);
         assert_eq!(cfg.acquire_timeout.as_secs(), 2);
+        assert_eq!(cfg.statement_cache_capacity, 64);
         assert_ne!(cfg.max_connections, DEFAULT_POOL_MAX);
+    }
+
+    /// The shipped default has to be the pooler-safe one, or every deployment
+    /// that puts PgBouncer in front of the pools takes the cross-transaction
+    /// statement-name failure in `docs/reference/connection-pooling.md`.
+    #[test]
+    fn default_pool_config_disables_the_statement_cache() {
+        assert_eq!(PoolConfig::default().statement_cache_capacity, 0);
+        assert_eq!(DEFAULT_STATEMENT_CACHE_CAPACITY, 0);
+    }
+
+    /// The knob has to reach sqlx's connect options, not just sit in the
+    /// struct: this is the value a transaction pooler's
+    /// `max_prepared_statements` is compared against.
+    #[test]
+    fn statement_cache_capacity_reaches_the_connect_options() {
+        use sqlx::ConnectOptions;
+
+        let capacity_of = |url: &str, capacity: u32| -> String {
+            let options = connect_options(url, capacity).expect("parse");
+            options
+                .to_url_lossy()
+                .query_pairs()
+                .find(|(k, _)| k == "statement-cache-capacity")
+                .map(|(_, v)| v.into_owned())
+                .expect("connect options carry the capacity")
+        };
+
+        assert_eq!(capacity_of("postgres://u:p@127.0.0.1:1/db", 0), "0");
+        assert_eq!(capacity_of("postgres://u:p@127.0.0.1:1/db", 64), "64");
     }
 }

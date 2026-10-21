@@ -52,6 +52,7 @@ upgrade and observability.
 | [`auth-hardening.md`](auth-hardening.md) | MFA, SSO, refresh-token reuse detection and audit completion |
 | [`reference/auth-provider-contract.md`](reference/auth-provider-contract.md) | What an auth provider may implement |
 | [`reference/plugin-runtime.md`](reference/plugin-runtime.md) | The plugin host and its capability model, plus the distribution contract |
+| [`reference/connection-pooling.md`](reference/connection-pooling.md) | PgBouncer in transaction mode: the connection ceiling, the two settings that make it safe, and the cross-tenant probe that verifies RLS through it |
 | [`reference/workflow-node-catalogue.md`](reference/workflow-node-catalogue.md) | Every workflow node the builder offers |
 | [`reference/read-model.md`](reference/read-model.md) | The reporting view contract, with per-view pages in [`reference/read-model/`](reference/read-model/) |
 | [`reference/engineering-glossary.md`](reference/engineering-glossary.md) | Wave, lane, merge group, gate, honest gap — the shorthand in tracker rows and evidence directories |

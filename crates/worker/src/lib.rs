@@ -104,6 +104,7 @@ pub async fn run(
         core_db::PoolConfig {
             max_connections: config.db_pool_max,
             acquire_timeout: std::time::Duration::from_secs(core_db::DEFAULT_ACQUIRE_TIMEOUT_SECS),
+            statement_cache_capacity: config.statement_cache_capacity,
         },
     )
     .await
@@ -179,8 +180,11 @@ pub async fn run(
         // the reconnect window, not the delivery path.
         let pacing = if config.relay_wakeup {
             let wakeup = Arc::new(tokio::sync::Notify::new());
+            // Direct connection on purpose (Wave 52 lane P9): a LISTEN is
+            // session state, and a transaction pooler hands the server
+            // connection to the next client after every transaction.
             tokio::spawn(core_events::run_wakeup_listener(
-                config.database_url.clone(),
+                config.listen_url().to_string(),
                 Arc::clone(&wakeup),
             ));
             tracing::info!(

@@ -37,6 +37,14 @@ spec:
             # orgs and must not be constrained by RLS (compose parity).
             - name: DATABASE_URL
               value: {{ include "marula.dbUrl" . | quote }}
+            {{- if .Values.pooler.enabled }}
+            # Lane P9: the relay's wakeup subscription and the statement cache
+            # take the same answer core-api does — direct LISTEN, no cache.
+            - name: MARULA_LISTEN_DATABASE_URL
+              value: {{ include "marula.directOwnerUrl" . | quote }}
+            - name: MARULA_DB_STATEMENT_CACHE
+              value: "0"
+            {{- end }}
             - name: REDIS_URL
               value: {{ include "marula.redisUrl" . | quote }}
             - name: BIND_ADDR
