@@ -149,6 +149,15 @@ impl SmtpConn {
     }
 
     /// Reads a (possibly multiline) reply and asserts its final code.
+    ///
+    /// A reply that is not a reply (missing, truncated, no numeric code) is the
+    /// server misbehaving, not the message being refused, so it takes the
+    /// unavailable path and retries. A well-formed refusal is classified by the
+    /// reply code: RFC 5321 §4.2.1 makes `4yz` a transient negative completion
+    /// ("try again later") and `5yz` a permanent one. That is a different
+    /// alphabet from HTTP's 4xx/5xx split — a 421 here means "come back", not
+    /// "bad request" — so the classification is written here, beside the
+    /// protocol that defines it, rather than borrowed from the HTTP helper.
     async fn expect_code(&mut self, want: u16, step: &str) -> Result<(), TransportError> {
         let code = loop {
             let mut line = String::new();
@@ -158,26 +167,39 @@ impl SmtpConn {
                 .map_err(|e| TransportError::Unavailable(format!("read {step}: {e}")))?;
             let line = line.trim_end();
             if line.len() < 3 {
-                return Err(TransportError::Rejected(format!(
+                return Err(TransportError::Unavailable(format!(
                     "{step}: malformed reply {line:?}"
                 )));
             }
             let code: u16 = line
                 .get(..3)
                 .and_then(|c| c.parse().ok())
-                .ok_or_else(|| TransportError::Rejected(format!("{step}: bad code {line:?}")))?;
+                .ok_or_else(|| TransportError::Unavailable(format!("{step}: bad code {line:?}")))?;
             // Fourth char '-' means continuation lines follow.
             if line.as_bytes().get(3) != Some(&b'-') {
                 break code;
             }
         };
         if code == want {
-            Ok(())
-        } else {
-            Err(TransportError::Rejected(format!(
-                "{step}: expected {want}, got {code}"
-            )))
+            return Ok(());
         }
+        Err(smtp_reply_error(step, want, code))
+    }
+}
+
+/// Classifies a well-formed SMTP negative reply.
+fn smtp_reply_error(step: &str, want: u16, code: u16) -> TransportError {
+    let detail = format!("{step}: expected {want}, got {code}");
+    match code {
+        // 4yz: transient negative completion — the server is asking us to come
+        // back later (greylisting, a full queue, a closing connection).
+        400..=499 => TransportError::Throttled(detail),
+        // 5yz: permanent negative completion — the server will not accept this
+        // message from this sender to this recipient, however often we ask.
+        500..=599 => TransportError::Rejected(detail),
+        // Anything else is a protocol surprise: retry rather than declare a
+        // permanent verdict on the strength of a code we do not understand.
+        _ => TransportError::Unavailable(detail),
     }
 }
 

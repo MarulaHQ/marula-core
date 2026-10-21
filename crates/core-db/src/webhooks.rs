@@ -36,13 +36,24 @@ pub struct WebhookRow {
     /// status flip in `revoke_catalog_entry` on revoke — so a connector's
     /// outbound posture cannot outlive the consent that created it.
     pub owner_install_id: Option<Uuid>,
+    /// Retryable delivery failures since the last delivery this destination
+    /// accepted (or last refused on its merits). Migration 0144. The pause
+    /// decision reads this against
+    /// [`core_domain::webhooks::pause_after_failures`].
+    pub consecutive_failures: i32,
+    /// Set when the counter crossed the threshold; a paused destination is not
+    /// matched for new events, so its dead set stops growing.
+    pub paused_at: Option<DateTime<Utc>>,
+    /// Why it paused, in the words an operator will read next month.
+    pub paused_reason: Option<String>,
 }
 
 /// The SELECT shape of a subscription row, in the order the map helper
 /// expects. Kept as one const because four queries share it and a
 /// disagreement between them is a silent type error.
 const WEBHOOK_COLS: &str = "id, org_id, url, secret_encrypted, event_types, enabled, \
-                            created_by, created_at, owner_install_id";
+                            created_by, created_at, owner_install_id, \
+                            consecutive_failures, paused_at, paused_reason";
 
 fn webhook_from(r: &sqlx::postgres::PgRow) -> DbResult<WebhookRow> {
     Ok(WebhookRow {
@@ -55,6 +66,9 @@ fn webhook_from(r: &sqlx::postgres::PgRow) -> DbResult<WebhookRow> {
         created_by: r.get("created_by"),
         created_at: r.get("created_at"),
         owner_install_id: r.get("owner_install_id"),
+        consecutive_failures: r.get("consecutive_failures"),
+        paused_at: r.get("paused_at"),
+        paused_reason: r.get("paused_reason"),
     })
 }
 
@@ -212,6 +226,12 @@ where
 }
 
 /// Patches mutable fields; NULL leaves a field untouched.
+///
+/// A changed `url` is a different destination, so it also clears a pause: the
+/// operator who points the subscription at a receiver that works has fixed the
+/// thing the pause was about, and requiring a second call to resume would leave
+/// deliveries suppressed after the fix. Rewriting the same URL is not a change
+/// and does not clear anything.
 pub async fn update_webhook<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -225,6 +245,15 @@ where
 {
     let row = sqlx::query(&format!(
         "UPDATE webhooks SET
+            consecutive_failures = CASE
+              WHEN $3::text IS NOT NULL AND $3::text IS DISTINCT FROM url THEN 0
+              ELSE consecutive_failures END,
+            paused_at = CASE
+              WHEN $3::text IS NOT NULL AND $3::text IS DISTINCT FROM url THEN NULL
+              ELSE paused_at END,
+            paused_reason = CASE
+              WHEN $3::text IS NOT NULL AND $3::text IS DISTINCT FROM url THEN NULL
+              ELSE paused_reason END,
             url = COALESCE($3, url),
             event_types = COALESCE($4, event_types),
             enabled = COALESCE($5, enabled),
@@ -241,6 +270,132 @@ where
     .await?
     .ok_or(DbError::NotFound)?;
     webhook_from(&row)
+}
+
+/// How one recorded delivery attempt counts against its destination.
+///
+/// Three outcomes, and only one of them is the destination's fault:
+///
+/// * `Accepted` — a 2xx. Resets the counter.
+/// * `RefusedOnMerits` — the endpoint answered, and answered that it will not
+///   take THIS request (a 404, a 422, a 410 unsubscribe). Counts as a healthy
+///   round trip: an endpoint refusing one event is not an endpoint that is
+///   down, and pausing it would stop the events it does want.
+/// * `Failed` — transport failure, 5xx, 408, 429, or anything else the webhook
+///   [`RetryPolicy`] retries. Increments the counter, and pauses at the
+///   threshold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DestinationOutcome {
+    Accepted,
+    RefusedOnMerits,
+    Failed,
+}
+
+impl DestinationOutcome {
+    /// Whether this attempt proves the destination is answering.
+    #[must_use]
+    pub const fn healthy(self) -> bool {
+        !matches!(self, Self::Failed)
+    }
+
+    /// Classifies a recorded attempt from what the delivery ledger stores.
+    ///
+    /// The classification is the webhook policy's, not a status list here: a
+    /// status the policy would retry is a destination failure, and one it would
+    /// not retry is the request's fault. A record with neither a status nor a
+    /// delivery time is a transport failure, which the policy always retries.
+    #[must_use]
+    pub fn from_attempt(delivered: bool, response_status: Option<i32>) -> Self {
+        use core_domain::retry::{self, Subsystem};
+        if delivered {
+            return Self::Accepted;
+        }
+        match response_status {
+            Some(status) => {
+                let status = u16::try_from(status).unwrap_or(0);
+                if retry::policy(Subsystem::Webhook).retries_status(status) {
+                    Self::Failed
+                } else {
+                    Self::RefusedOnMerits
+                }
+            }
+            None => Self::Failed,
+        }
+    }
+}
+
+/// Records one attempt against the destination's consecutive-failure counter
+/// and pauses it at the threshold.
+///
+/// Returns the destination's `paused_at` after the write, so the caller can log
+/// a pause as it happens. Runs inside the same transaction as the attempt-log
+/// insert: a counter that moves while the attempt row it counted rolled back
+/// would pause a destination for a delivery the ledger does not show.
+///
+/// The threshold arrives as an argument rather than being read here so this
+/// crate does not depend on the retry matrix: the caller resolves
+/// [`core_domain::webhooks::pause_after_failures`] in the environment it is
+/// running in.
+pub async fn record_destination_outcome(
+    tx: &mut sqlx::Transaction<'static, sqlx::Postgres>,
+    org_id: Uuid,
+    webhook_id: Uuid,
+    outcome: DestinationOutcome,
+    threshold: i32,
+) -> DbResult<Option<DateTime<Utc>>> {
+    let healthy = outcome.healthy();
+    let threshold = threshold.max(1);
+    let paused: Option<Option<DateTime<Utc>>> = sqlx::query_scalar(
+        r#"WITH next AS (
+             SELECT id,
+                    CASE WHEN $3 THEN 0 ELSE consecutive_failures + 1 END AS failures
+               FROM webhooks
+              WHERE id = $1 AND org_id = $2
+           )
+           UPDATE webhooks w
+              SET consecutive_failures = n.failures,
+                  paused_at = CASE
+                    WHEN NOT $3 AND n.failures >= $4 AND w.paused_at IS NULL THEN now()
+                    ELSE w.paused_at END,
+                  paused_reason = CASE
+                    WHEN NOT $3 AND n.failures >= $4 AND w.paused_at IS NULL
+                    THEN format('%s consecutive delivery failures', n.failures)
+                    ELSE w.paused_reason END,
+                  updated_at = now()
+             FROM next n
+            WHERE w.id = n.id
+           RETURNING w.paused_at"#,
+    )
+    .bind(webhook_id)
+    .bind(org_id)
+    .bind(healthy)
+    .bind(threshold)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(paused.flatten())
+}
+
+/// Clears a pause and its counter — the operator's resume verb.
+///
+/// Returns false when the subscription does not exist in this org; a resume of
+/// a destination that was never paused is a no-op that returns true, because
+/// the caller's intent (this endpoint may receive events) is already satisfied
+/// and a second resume must not write a second audit row.
+pub async fn resume_destination<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let res = sqlx::query(
+        r#"UPDATE webhooks
+              SET consecutive_failures = 0, paused_at = NULL, paused_reason = NULL,
+                  updated_at = now()
+            WHERE id = $1 AND org_id = $2"#,
+    )
+    .bind(id)
+    .bind(org_id)
+    .execute(executor)
+    .await?;
+    Ok(res.rows_affected() > 0)
 }
 
 pub async fn delete_webhook<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
@@ -264,6 +419,16 @@ where
 /// `event_types` array is a wildcard. Called by the worker with the owner
 /// role (cross-org loop), so no RLS scope is set here by design.
 ///
+/// A PAUSED destination is not matched (migration 0144). Pause is how a
+/// receiver that has stopped working stops accumulating dead deliveries: the
+/// event is not queued for it at all, so the dead set stops growing while an
+/// operator fixes the endpoint or cancels the subscription. The alternative —
+/// queueing the job and suppressing the POST at delivery time — would either
+/// burn the job's attempt budget or silently mark a delivery done that never
+/// happened. Events that occur during a pause are not replayed on resume; R4's
+/// reconciliation owns gap detection, and this predicate is the boundary that
+/// makes a resume a clean "from now on" rather than a backfill of unknown size.
+///
 /// Wave 43 lane 4 (A): an install-attributed row is live only while its
 /// install is ENABLED and not revoked. This is the gate that keeps a
 /// connector's outbound posture honest through the install lifecycle —
@@ -285,23 +450,33 @@ pub async fn find_enabled_for_event<'e, E>(
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let rows = sqlx::query(
-        "SELECT w.id, w.org_id, w.url, w.secret_encrypted, w.event_types, w.enabled,
-                w.created_by, w.created_at, w.owner_install_id
+    let rows = sqlx::query(&format!(
+        "SELECT w.{cols}
          FROM webhooks w
          LEFT JOIN plugin_installs i
                 ON i.id = w.owner_install_id AND i.org_id = w.org_id
-         WHERE w.org_id = $1 AND w.enabled
-           AND (w.event_types = '{}' OR $2 = ANY(w.event_types))
+         WHERE w.org_id = $1 AND w.enabled AND w.paused_at IS NULL
+           AND (w.event_types = '{{}}' OR $2 = ANY(w.event_types))
            AND (w.owner_install_id IS NULL
                 OR (i.status = 'enabled' AND i.revoked_at IS NULL))
          ORDER BY w.created_at",
-    )
+        cols = webhook_cols_aliased()
+    ))
     .bind(org_id)
     .bind(event_type)
     .fetch_all(executor)
     .await?;
     rows.iter().map(webhook_from).collect()
+}
+
+/// [`WEBHOOK_COLS`] with every column qualified, for the one query that joins.
+///
+/// Derived from the one const rather than written out again: a second list is a
+/// second thing to forget when a column is added, and the failure would be a
+/// silent `column does not exist` at runtime. Built once per process.
+fn webhook_cols_aliased() -> &'static str {
+    static COLS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    COLS.get_or_init(|| WEBHOOK_COLS.replace(", ", ", w."))
 }
 
 // --- delivery ledger ----------------------------------------------------------
@@ -681,4 +856,74 @@ where
         return Err(DbError::NotFound);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The counter only moves for failures that are the destination's fault.
+    /// These are the three answers a delivery can produce, and the point of the
+    /// classification is that a receiver refusing ONE event does not take the
+    /// destination offline for the events it does want.
+    #[test]
+    fn a_destination_counts_failures_not_refusals() {
+        // 2xx: the endpoint answered and accepted.
+        assert_eq!(
+            DestinationOutcome::from_attempt(true, Some(202)),
+            DestinationOutcome::Accepted
+        );
+        // Transport failure: no answer at all.
+        assert_eq!(
+            DestinationOutcome::from_attempt(false, None),
+            DestinationOutcome::Failed
+        );
+        // 5xx / 429 / 408: the endpoint is not accepting right now.
+        for status in [500, 502, 503, 504, 429, 408] {
+            assert_eq!(
+                DestinationOutcome::from_attempt(false, Some(status)),
+                DestinationOutcome::Failed,
+                "{status} must count against the destination"
+            );
+        }
+        // A refusal on the request's merits: the endpoint is alive.
+        for status in [400, 401, 403, 404, 405, 410, 413, 422] {
+            assert_eq!(
+                DestinationOutcome::from_attempt(false, Some(status)),
+                DestinationOutcome::RefusedOnMerits,
+                "{status} must not count against the destination"
+            );
+        }
+    }
+
+    /// The three outcomes have exactly two behaviours: reset, or increment.
+    #[test]
+    fn only_a_failure_is_unhealthy() {
+        assert!(DestinationOutcome::Accepted.healthy());
+        assert!(DestinationOutcome::RefusedOnMerits.healthy());
+        assert!(!DestinationOutcome::Failed.healthy());
+    }
+
+    /// The classification is the webhook policy's, so a policy that stops
+    /// retrying a status also stops counting it against the destination — one
+    /// decision, one place.
+    #[test]
+    fn the_classification_follows_the_webhook_policy() {
+        use core_domain::retry::{policy, Subsystem};
+        let webhook = policy(Subsystem::Webhook);
+        for status in [408_u16, 429, 500, 503] {
+            assert!(webhook.retries_status(status));
+            assert_eq!(
+                DestinationOutcome::from_attempt(false, Some(i32::from(status))),
+                DestinationOutcome::Failed
+            );
+        }
+        for status in [400_u16, 404, 410, 422] {
+            assert!(!webhook.retries_status(status));
+            assert_eq!(
+                DestinationOutcome::from_attempt(false, Some(i32::from(status))),
+                DestinationOutcome::RefusedOnMerits
+            );
+        }
+    }
 }

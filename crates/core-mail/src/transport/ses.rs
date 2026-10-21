@@ -252,10 +252,11 @@ impl MailTransport for SesV2Transport {
                 .or_else(|| body["Code"].as_str())
                 .unwrap_or("Unknown");
             let msg = body["Message"].as_str().unwrap_or("no message");
-            return Err(TransportError::Rejected(format!(
-                "ses {} {code}: {msg}",
-                status.as_u16()
-            )));
+            return Err(crate::transport::http_status_error(
+                "ses",
+                status.as_u16(),
+                &format!("{code}: {msg}"),
+            ));
         }
         Ok(SendReceipt {
             provider_message_id: body["MessageId"].as_str().map(str::to_string),

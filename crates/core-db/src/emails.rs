@@ -447,13 +447,14 @@ pub async fn apply_send_outcome_for_app(
     o: &SendOutcome,
 ) -> DbResult<bool> {
     let applied: Option<bool> = sqlx::query_scalar(
-        "SELECT apply_email_send_result($1, $2, $3, $4, make_interval(secs => $5))",
+        "SELECT apply_email_send_result($1, $2, $3, $4, make_interval(secs => $5), $6)",
     )
     .bind(o.id)
     .bind(o.ok)
     .bind(o.provider_message_id.clone())
     .bind(o.error.clone())
     .bind(o.retry_delay_secs as f64)
+    .bind(o.permanent)
     .fetch_one(conn)
     .await?;
     Ok(applied.unwrap_or(false))
@@ -979,6 +980,12 @@ pub struct SendOutcome {
     /// Backoff before the next attempt when re-queueing (computed by the
     /// caller via `core_mail::outbound::backoff_delay`).
     pub retry_delay_secs: i64,
+    /// The transport says retrying this identical message cannot succeed —
+    /// a bad address, an inactive recipient, a refused sender. The ledger
+    /// dead-letters it on this report instead of spending the rest of its
+    /// attempt budget proving the same thing, which is what used to happen and
+    /// is why a dead email showed up an hour late with eight identical errors.
+    pub permanent: bool,
 }
 
 /// Owner-connection result application with injectable clock — the test/
@@ -994,31 +1001,37 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     let res = if o.ok {
-        sqlx::query!(
+        // Runtime statement, not `query!`: the workspace builds with
+        // `SQLX_OFFLINE=true` against the committed `.sqlx` cache, and this
+        // lane cannot run `cargo sqlx prepare`. The DB suite
+        // (`tests/email_queries.rs`) executes both arms against a migrated
+        // database, which is what proves they parse and bind.
+        sqlx::query(
             r#"UPDATE email_outbound
                SET status = 'sent', provider_message_id = $2, last_error = NULL,
                    claimed_at = NULL, updated_at = $3
                WHERE id = $1 AND status = 'sending'"#,
-            o.id,
-            o.provider_message_id,
-            as_of,
         )
+        .bind(o.id)
+        .bind(o.provider_message_id.clone())
+        .bind(as_of)
         .execute(executor)
         .await?
     } else {
-        sqlx::query!(
+        sqlx::query(
             r#"UPDATE email_outbound
-               SET status = CASE WHEN attempts >= max_attempts THEN 'dead' ELSE 'queued' END,
-                   next_attempt_at = CASE WHEN attempts >= max_attempts THEN next_attempt_at
+               SET status = CASE WHEN $5 OR attempts >= max_attempts THEN 'dead' ELSE 'queued' END,
+                   next_attempt_at = CASE WHEN $5 OR attempts >= max_attempts THEN next_attempt_at
                                           ELSE ($4::timestamptz + make_interval(secs => $3)) END,
                    last_error = $2, provider_message_id = NULL,
                    claimed_at = NULL, updated_at = $4
                WHERE id = $1 AND status = 'sending'"#,
-            o.id,
-            o.error,
-            o.retry_delay_secs as f64,
-            as_of,
         )
+        .bind(o.id)
+        .bind(o.error.clone())
+        .bind(o.retry_delay_secs as f64)
+        .bind(as_of)
+        .bind(o.permanent)
         .execute(executor)
         .await?
     };

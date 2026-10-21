@@ -35,7 +35,7 @@ use crate::config::DeliveryLoopConfig;
 use chrono::{DateTime, Duration, Utc};
 use core_domain::entities::{NotificationKind, User};
 use core_domain::notifications::{decide_channel, Decision, DeliveryChannel, QuietHours};
-use core_mail::{OutboundEmail, TransportError, TransportKind};
+use core_mail::{OutboundEmail, TransportKind};
 use core_reports::{Bind, ReportSpec, Scope};
 use sqlx::{Column, PgPool, Row};
 use std::sync::Arc;
@@ -465,9 +465,21 @@ async fn run_one(
                 };
                 match transport.send(&message).await {
                     Ok(_) => delivered += 1,
-                    Err(TransportError::Rejected(reason) | TransportError::Unavailable(reason)) => {
-                        tracing::warn!(schedule = %row.name, user = %user_id, %reason, "delivery transport refused message");
-                        failures.push(serde_json::json!({ "user_id": user_id, "error": reason }));
+                    // Every failure class is recorded the same way here: a
+                    // report delivery is at-most-once by slot (R4 owns its
+                    // retry), so the permanent/transient distinction changes
+                    // which box an operator reads it in, not what happens next.
+                    Err(error) => {
+                        tracing::warn!(
+                            schedule = %row.name,
+                            user = %user_id,
+                            permanent = error.permanent(),
+                            %error,
+                            "delivery transport refused message"
+                        );
+                        failures.push(
+                            serde_json::json!({ "user_id": user_id, "error": error.to_string() }),
+                        );
                     }
                 }
             }
