@@ -1,5 +1,17 @@
 name: Nightly
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PARKED (`.disabled` suffix), by user direction 2026-10-21: "keep any CI that
+# will take a lot of minutes disabled for now — keep it light." This is the
+# scheduled set, and it is the heavy one: perf smoke and the load budget build
+# release binaries, the 100k scale run seeds a large tenant, e2e boots the stack
+# for both themes, and the security and scanner legs pull containers and a
+# signature database. Rename the file back to enable it; nothing else in it
+# needs to change. The per-push and pull-request gates in `ci.yml` are the ones
+# that decide whether a change may merge, and they stay on.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 # The slow half of the split (Wave 52 lane `p52-ci-gates-restore`): a schedule,
 # not a merge. Everything here needs one of four things a per-push job cannot
 # afford — a long clock (a saturated load loop, a 50k-row seed), a simulator or
