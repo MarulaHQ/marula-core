@@ -259,6 +259,7 @@ MCowBQYDK2VwAyEACifTR92KS0nfpnia/3uCznrkBrmzfHxV+nqX3Xhxw0w=
     fn test_config() -> Config {
         Config {
             database_url: String::new(),
+            listen_database_url: None,
             redis_url: String::new(),
             bind_addr: String::new(),
             jwt_secret: "test-secret".into(),
@@ -296,7 +297,8 @@ MCowBQYDK2VwAyEACifTR92KS0nfpnia/3uCznrkBrmzfHxV+nqX3Xhxw0w=
             // No env reads here either: the shipped retry preset.
             retry: core_domain::retry::RetryMatrix::from_lookup(|_| None),
             db_pool_max: core_db::DEFAULT_POOL_MAX,
-            reporting_pool_max: 25,
+            reporting_pool_max: crate::state::DEFAULT_REPORTING_POOL_MAX,
+            statement_cache_capacity: core_db::DEFAULT_STATEMENT_CACHE_CAPACITY,
             ref_cache_ttl_secs: crate::cache::DEFAULT_TTL_SECS,
             ref_cache_max_entries: crate::cache::DEFAULT_MAX_ENTRIES as u32,
             all_in_one: false,

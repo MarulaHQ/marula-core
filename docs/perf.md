@@ -44,8 +44,8 @@ Test-infra crate, AGPL, not part of the API surface. Four pieces:
   mixes (page 1, priority p1, assignee, client, deep page), 5 warmups +
   40 timed runs, p50/p95/p99/max per mix, plus `EXPLAIN (ANALYZE,
   BUFFERS)` for the page-1 mix. Since Wave 52 lane P5 it also runs the search
-  path (`search_page` / `search_page_after`) over three mixes — page 1, the
-  legacy deep offset, and the keyset walk at the same depth — against one
+  path (`search_page` / `search_page_after`) over three mixes (page 1, the
+  legacy deep offset, and the keyset walk at the same depth) against one
   indexed row per seeded ticket. `perf-harness smoke` = seed + measure +
   budget assert (what CI runs).
 - **HTTP load runner** (`perf-harness load`): logs the seeded harness user
@@ -228,30 +228,42 @@ fix: p95 49.2ms, 259 rps @50k — **the 150ms product budget holds at
 saturation with ~3× headroom**. The pre-keyset 218ms reading was the
 offset deep-page leg, not queueing capacity.
 
-**Pool sizing / connection count (explicit; corrected 2026-10-17 by Wave 49 lane R1).**
+**Pool sizing / connection count (explicit; corrected 2026-10-17 by Wave 49 lane R1,
+resolved 2026-10-21 by Wave 52 lane P9).**
 A default stack, by process, opens:
 
 | Process | Pool | Ceiling | Env knob |
 | --- | --- | --- | --- |
 | core-api | app | 20 | `MARULA_DB_POOL_MAX` |
-| core-api | reporting (RLS role) | 25 | `MARULA_REPORTING_POOL_MAX` |
-| core-api | LISTEN (event trail + presence NOTIFY) | 1 | — |
+| core-api | reporting (RLS role) | 8 | `MARULA_REPORTING_POOL_MAX` |
+| core-api | LISTEN (event trail + presence NOTIFY) | 1, direct | `MARULA_LISTEN_DATABASE_URL` |
 | worker | app (owner role) | 20 | `MARULA_DB_POOL_MAX` |
 | worker | delivery reporting | 5 | `DELIVERY_POOL_MAX` |
 
-That is **46 (core-api) + 25 (worker) = 71 connections**
-for the default one-box stack against the Postgres default
-`max_connections = 100` — thinner headroom than the earlier "51" figure,
-which counted a webhooks pool that only exists in a test fixture, not in
-production. Every production ceiling is an env knob since lane R1; a
-present-but-invalid value (0, non-numeric, or above 1024) refuses boot
-rather than silently reverting to the default, because a wrong pool size
-is a capacity incident and not a cosmetic one. Deploying more instances
-multiplies the floor, so the decision is unchanged and now enforceable:
-**either raise PG `max_connections` with the instance count, or front the
-pools with a session pooler (PgBouncer/pgcat) before the second instance
-ships.** Acquire timeouts are 10s (app) / 30s (reporting). Saturation at
-c8 keeps the queue in the axum worker pool, never in the pool acquire path.
+That is **54 client connections per instance**, and PgBouncer holds the server
+side at **15 per (database, user) pair**: 30 across the app role and the owner
+role, however many instances are added. The arithmetic that forced this:
+71 per instance meant a second instance asked for 142 against Postgres's default
+`max_connections = 100`, so the pool ceiling was the first limit hit, not the
+last.
+
+Two of those numbers moved in lane P9 and each has its own reason.
+`MARULA_REPORTING_POOL_MAX` was 25, a quarter of the budget spent on reports, a
+surface a user opens occasionally; the hot path saturates at concurrency 8, so
+the reporting ceiling is 8. The LISTEN connection is dialled directly at
+`MARULA_LISTEN_DATABASE_URL` because a subscription cannot survive a connection
+the pooler hands to the next client. `docs/reference/connection-pooling.md`
+carries the measurements, including the two settings a transaction pooler needs
+(`server_reset_query = DISCARD ALL` after every transaction, and the statement
+cache off) and the cross-tenant probe that verifies RLS still holds through it.
+
+Every production ceiling is an env knob since lane R1; a present-but-invalid
+value (0, non-numeric, or above 1024) refuses boot rather than silently
+reverting to the default, because a wrong pool size is a capacity incident and
+not a cosmetic one. `MARULA_DB_STATEMENT_CACHE` takes 0 (the default, and what
+a pooler requires) through 4096. Acquire timeouts are 10s (app) / 30s
+(reporting). Saturation at c8 keeps the queue in the axum worker pool, never in
+the pool acquire path.
 
 **Enforcement:** the nightly `Nightly perf` workflow gates the c8 @50k
 run at 150ms (`--budget-ms 150`) and surfaces the JSON report as a step

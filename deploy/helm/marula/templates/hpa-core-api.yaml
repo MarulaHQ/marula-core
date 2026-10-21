@@ -3,7 +3,8 @@ CPU-utilization HPA for core-api (Wave 49 lane R2). Rendered only when
 coreApi.autoscaling.enabled is true; the Deployment omits .spec.replicas in
 that case, so the HPA owns the count. Scaling core-api multiplies its
 Postgres connections — see docs/perf.md §5 and the note in values.yaml before
-raising maxReplicas past what the database (or a session pooler) can hold.
+raising maxReplicas past what the database (or the pooler's max_db_connections)
+can hold.
 */}}
 {{- if .Values.coreApi.autoscaling.enabled }}
 apiVersion: autoscaling/v2

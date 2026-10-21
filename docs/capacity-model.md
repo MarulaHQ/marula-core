@@ -37,12 +37,12 @@ its request takes. On the anchor that is `695 × (500 + 25.9) / 1000`, about
 
 From the anchor, at the same 500ms think-time:
 
-| target users | instances | Postgres connections |
+| target users | instances | Client connections |
 |---|---|---|
-| 250 | 1 | 71 |
-| 500 | 2 | 142 |
-| 1000 | 3 | 213 |
-| 2000 | 6 | 426 |
+| 250 | 1 | 54 |
+| 500 | 2 | 108 |
+| 1000 | 3 | 162 |
+| 2000 | 6 | 324 |
 
 Regenerate it, or size another point, with the calculator:
 
@@ -54,12 +54,16 @@ perf-harness capacity \
 
 ## Connections
 
-Each instance opens about 71 Postgres connections at the default pool ceilings:
-core-api app 20 and reporting 25, worker 20 and delivery 5, and one LISTEN
-connection. `docs/perf.md` §5 has the full table. Postgres defaults to 100, so
-the second instance needs either a raised `max_connections` or a session pooler
-in front of the pools. The pool ceilings are deployment parameters. The
-descriptor names them.
+Each instance opens about 54 client connections at the default pool ceilings:
+core-api app 20 and reporting 8, worker 20 and delivery 5, and one direct LISTEN
+connection. That number grows with instances, and it is no longer what Postgres
+sees: PgBouncer runs in transaction mode between the pools and the database and
+holds the server side at 15 per (database, user) pair, so 30 across the app role
+and the owner role. Postgres's default `max_connections` of 100 stays clear at
+every instance count in the table above. `docs/perf.md` §5 has the per-process
+table, and `docs/reference/connection-pooling.md` has the settings that make the
+pooler safe plus the measurements behind them. The pool ceilings are deployment
+parameters. The descriptor names them.
 
 ## Where the knobs come from
 
@@ -86,7 +90,8 @@ instance. A consumer does not guess these. It reads them.
 - The anchor is one machine under contention (a parallel lane's stack shared the
   box). Absolute throughput is hardware-bound. The shape is what travels.
 - The model scales linearly with instances, which holds until Postgres saturates
-  or the pooler becomes the bottleneck. The connection table is the first limit
-  to hit, not the last.
+  or the pooler becomes the bottleneck. With the pooler in front, the first
+  ceiling is `max_db_connections` (40 in the shipped config) rather than each
+  instance's pool arithmetic.
 - The think-time is a model knob, not a measurement. Every quoted
   users-per-instance figure states it, because halving it halves the user count.

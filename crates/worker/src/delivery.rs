@@ -257,12 +257,17 @@ pub async fn run_delivery_loop(
 ) {
     // The reporting pool is built lazily: a deployment whose app role is
     // absent (minimal standalone installs) still gets claiming + skips.
-    let reporting = match sqlx::postgres::PgPoolOptions::new()
-        .max_connections(config.pool_max)
-        .acquire_timeout(StdDuration::from_secs(30))
-        .connect_lazy(&reporting_target(&database_url))
-    {
-        Ok(p) => p,
+    // The capacity travels with the pool (Wave 52 lane P9): this is the
+    // worker's third pool, and the pooler-safe value is not inherited from
+    // the app pool just because both live in one process.
+    let reporting = match core_db::connect_options(
+        &reporting_target(&database_url),
+        config.statement_cache_capacity,
+    ) {
+        Ok(options) => sqlx::postgres::PgPoolOptions::new()
+            .max_connections(config.pool_max)
+            .acquire_timeout(StdDuration::from_secs(30))
+            .connect_lazy_with(options),
         Err(error) => {
             tracing::error!(%error, "invalid reporting pool config; delivery loop exiting");
             return;

@@ -35,6 +35,16 @@ spec:
           env:
             - name: DATABASE_URL
               value: {{ include "marula.dbAppUrl" . | quote }}
+            {{- if .Values.pooler.enabled }}
+            # Lane P9: a LISTEN cannot ride a transaction-pooled connection,
+            # so this one connection goes straight at Postgres.
+            - name: MARULA_LISTEN_DATABASE_URL
+              value: {{ include "marula.directAppUrl" . | quote }}
+            # And a cached statement name cannot survive the pooler's reset
+            # between transactions.
+            - name: MARULA_DB_STATEMENT_CACHE
+              value: "0"
+            {{- end }}
             - name: REDIS_URL
               value: {{ include "marula.redisUrl" . | quote }}
             - name: BIND_ADDR

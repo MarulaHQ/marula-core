@@ -187,6 +187,54 @@ services:
       timeout: 3s
       retries: 20
 
+  # Transaction pooler (Wave 52 lane P9). Every application pool dials this,
+  # not Postgres: one instance opens 54 client connections and two instances
+  # took the fleet past Postgres's default `max_connections = 100`
+  # (docs/capacity-model.md). The pooler holds the server side at 15 per
+  # (database, user) pair however many instances appear.
+  #
+  # The three settings that make transaction pooling safe are in
+  # deploy/pooler/pgbouncer.ini, not here: `pool_mode = transaction`,
+  # `server_reset_query = DISCARD ALL` with `server_reset_query_always = 1`,
+  # and `max_prepared_statements = 0` to match this stack's
+  # MARULA_DB_STATEMENT_CACHE=0. docs/reference/connection-pooling.md carries
+  # the measurement behind each one.
+  #
+  # Two things deliberately do NOT come through it:
+  #   * the `migrate` job (DDL and the migration advisory lock want a direct,
+  #     long-lived session, and it runs before the pooler is useful);
+  #   * each process's ONE LISTEN connection (`MARULA_LISTEN_DATABASE_URL`) —
+  #     a subscription cannot survive a connection that changes hands after
+  #     every transaction.
+  #
+  # No healthcheck: DHI's hardened image carries the pooler binary and no
+  # shell or client, so there is nothing for compose to exec — same reason
+  # core-api has none. The dependants below wait for `service_started` and
+  # their `restart: unless-stopped` closes the sub-second gap.
+  pgbouncer:
+    mem_limit: 128m
+    cpus: 1.0
+    logging: *default-logging
+    image: dhi.io/pgbouncer:1.26@sha256:17157120154cd111541281b39e9ad846e567e7fc1ea2e964abdc8c4bf4547fff
+    <<: *cap-common
+    # DHI nonroot 65532. Config and password file are read-only bind mounts;
+    # the pidfile and unix socket are the only writes, and both are tmpfs.
+    read_only: true
+    user: "65532:65532"
+    tmpfs:
+      - /tmp
+      - /run/pgbouncer
+    volumes:
+      - ./pooler/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pooler/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    # Reachable from the host for SHOW POOLS / SHOW STATS during triage, and
+    # only on loopback. Postgres keeps the published 15432.
+    ports:
+      - "127.0.0.1:6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   migrate:
     mem_limit: 256m
     cpus: 1.0
@@ -230,7 +278,14 @@ services:
       args: { BIN: core-api }
     # Entrypoint is pinned to core-api in the Dockerfile; see deploy note.
     environment:
-      DATABASE_URL: postgres://marula_app:marula_app@postgres:5432/marula
+      # Pooled by default (Wave 52 lane P9): the API's two pools dial the
+      # transaction pooler, not Postgres. Override with
+      # MARULA_APP_DATABASE_URL to go direct — and then raise
+      # MARULA_DB_STATEMENT_CACHE and accept the connection ceiling back.
+      DATABASE_URL: ${MARULA_APP_DATABASE_URL:-postgres://marula_app:marula_app@pgbouncer:6432/marula}
+      # The ONE LISTEN connection goes straight to Postgres: a subscription
+      # cannot ride a connection the pooler hands to the next client.
+      MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula_app:marula_app@postgres:5432/marula}
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8080
       JWT_SECRET: ${JWT_SECRET:-5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e}
@@ -264,11 +319,18 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-marula}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-marula-dev-garage}
       MARULA_MAX_UPLOAD_MB: ${MARULA_MAX_UPLOAD_MB:-25}
-      # Pool ceilings (Wave 49 lane R1). Defaults match the historical
-      # compile-time constants; see docs/perf.md §5 for the connection
-      # math and the pooler decision before a second instance ships.
+      # Pool ceilings (Wave 49 lane R1, resized by Wave 52 lane P9). See
+      # docs/perf.md §5 for the per-process table: 20 app + 8 reporting +
+      # 1 LISTEN = 29 client connections for this process. The pooler holds
+      # the server side at 15 per role, so the ceiling no longer decides
+      # what Postgres sees.
       MARULA_DB_POOL_MAX: ${MARULA_DB_POOL_MAX:-20}
-      MARULA_REPORTING_POOL_MAX: ${MARULA_REPORTING_POOL_MAX:-25}
+      MARULA_REPORTING_POOL_MAX: ${MARULA_REPORTING_POOL_MAX:-8}
+      # Prepared-statement cache capacity. 0 = off, which transaction
+      # pooling requires: a cached name cannot survive the pooler's
+      # DISCARD ALL between transactions. See
+      # docs/reference/connection-pooling.md before raising it.
+      MARULA_DB_STATEMENT_CACHE: ${MARULA_DB_STATEMENT_CACHE:-0}
       # Bounded drain window (lane R5): how long in-flight requests may take
       # after SIGTERM. Keep it under stop_grace_period above.
       MARULA_SHUTDOWN_GRACE_SECS: ${MARULA_SHUTDOWN_GRACE_SECS:-20}
@@ -324,7 +386,10 @@ services:
     # Owner role on purpose: the relay reads outbox rows across ALL orgs
     # and must not be constrained by RLS (see crates/worker config notes).
     environment:
-      DATABASE_URL: postgres://marula:marula@postgres:5432/marula
+      # Pooled by default (Wave 52 lane P9); the relay's LISTEN connection
+      # goes direct so the wakeup it subscribes to actually arrives.
+      DATABASE_URL: ${MARULA_WORKER_APP_DATABASE_URL:-postgres://marula:marula@pgbouncer:6432/marula}
+      MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula:marula@postgres:5432/marula}
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8082
       # Must match core-api's MARULA_SECRET_KEY or sealed webhook secrets
@@ -334,6 +399,8 @@ services:
       # Pool ceilings (Wave 49 lane R1); see docs/perf.md §5.
       MARULA_DB_POOL_MAX: ${MARULA_DB_POOL_MAX:-20}
       DELIVERY_POOL_MAX: ${DELIVERY_POOL_MAX:-5}
+      # Same answer as core-api: no cached statement names behind the pooler.
+      MARULA_DB_STATEMENT_CACHE: ${MARULA_DB_STATEMENT_CACHE:-0}
       # Bounded drain window (lane R5): how long the loops get to finish what
       # they hold after SIGTERM. Keep it under stop_grace_period above.
       MARULA_SHUTDOWN_GRACE_SECS: ${MARULA_SHUTDOWN_GRACE_SECS:-20}
@@ -354,6 +421,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      pgbouncer:
+        condition: service_started
 
   web:
     mem_limit: 512m

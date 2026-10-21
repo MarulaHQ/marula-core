@@ -40,6 +40,16 @@ use core_mail::{TransportCredentials, TransportKind};
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
+    /// Direct Postgres URL for the process's ONE `LISTEN` connection (Wave 52
+    /// lane P9). Env `MARULA_LISTEN_DATABASE_URL`; unset ⇒ `database_url`.
+    ///
+    /// A `LISTEN` is session state, and a transaction pooler returns the
+    /// server connection to its pool after every transaction, so a listener
+    /// pointed at the pooler subscribes on a connection nobody keeps. Live
+    /// delivery would fail silently: no error, no notifications. Set this to
+    /// a direct URL whenever `DATABASE_URL` names a pooler
+    /// (`docs/reference/connection-pooling.md`).
+    pub listen_database_url: Option<String>,
     pub redis_url: String,
     pub bind_addr: String,
     pub jwt_secret: String,
@@ -175,11 +185,21 @@ pub struct Config {
     /// (default 20). A present-but-invalid value refuses boot; see
     /// [`parse_pool_max`].
     pub db_pool_max: u32,
-    /// Reporting-pool ceiling (Wave 49 lane R1). Env
-    /// `MARULA_REPORTING_POOL_MAX` (default 25). The reporting pool runs
+    /// Reporting-pool ceiling (Wave 49 lane R1, resized by Wave 52 lane P9).
+    /// Env `MARULA_REPORTING_POOL_MAX` (default
+    /// [`crate::state::DEFAULT_REPORTING_POOL_MAX`]). The reporting pool runs
     /// the app role under RLS, a different privilege profile from the app
     /// pool, so it carries its own ceiling.
     pub reporting_pool_max: u32,
+    /// sqlx's per-connection prepared-statement cache capacity (Wave 52 lane
+    /// P9). Env `MARULA_DB_STATEMENT_CACHE`, default
+    /// [`core_db::DEFAULT_STATEMENT_CACHE_CAPACITY`] (0, disabled), which is
+    /// what a transaction pooler requires. Raise it only up to the pooler's
+    /// `max_prepared_statements` and only with the pooler's reset query
+    /// switched off — the trade is written down in
+    /// `docs/reference/connection-pooling.md`. Applies to both the app pool
+    /// and the reporting pool.
+    pub statement_cache_capacity: u32,
     /// All-in-one hosting (Wave 49 lane R4): env `MARULA_ALL_IN_ONE=1` runs
     /// the worker loops inside THIS process, so a demo/tiny install needs
     /// one container instead of two. Unset keeps the split topology the
@@ -358,6 +378,9 @@ impl Config {
         let jwt_secret = Config::DEV_JWT_SECRET.to_string();
         Self {
             database_url,
+            // The local profile has no pooler; the single LISTEN connection
+            // dials the same database the pool does.
+            listen_database_url: None,
             // core-api never connects to Redis in-process (its live event
             // stream rides Postgres LISTEN); the field exists for compose
             // wiring, so an unreachable placeholder documents that.
@@ -384,7 +407,8 @@ impl Config {
             object_store: core_store::StoreChoice::Local(object_dir.to_string_lossy().into_owned()),
             max_upload_bytes: core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
             db_pool_max: core_db::DEFAULT_POOL_MAX,
-            reporting_pool_max: 25,
+            reporting_pool_max: crate::state::DEFAULT_REPORTING_POOL_MAX,
+            statement_cache_capacity: core_db::DEFAULT_STATEMENT_CACHE_CAPACITY,
             ref_cache_ttl_secs: crate::cache::DEFAULT_TTL_SECS,
             ref_cache_max_entries: crate::cache::DEFAULT_MAX_ENTRIES as u32,
             // Desktop shell is the API only; the worker still runs as its
@@ -426,7 +450,21 @@ impl Config {
         core_db::PoolConfig {
             max_connections: self.db_pool_max,
             acquire_timeout: std::time::Duration::from_secs(core_db::DEFAULT_ACQUIRE_TIMEOUT_SECS),
+            statement_cache_capacity: self.statement_cache_capacity,
         }
+    }
+
+    /// The URL the ONE `LISTEN` connection dials (Wave 52 lane P9).
+    ///
+    /// `MARULA_LISTEN_DATABASE_URL` when set, otherwise the app pool's URL.
+    /// A transaction pooler cannot hold a subscription, so a deployment that
+    /// fronts the pools must set this to a direct URL; unset keeps the
+    /// single-box behaviour.
+    #[must_use]
+    pub fn listen_url(&self) -> &str {
+        self.listen_database_url
+            .as_deref()
+            .unwrap_or(&self.database_url)
     }
 
     /// All-in-one preconditions (Wave 49 lane R4). Runs at boot from
@@ -597,6 +635,10 @@ impl Config {
             database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
                 "postgres://marula_app:marula_app@localhost:15432/marula".into()
             }),
+            listen_database_url: std::env::var("MARULA_LISTEN_DATABASE_URL")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty()),
             redis_url: std::env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://localhost:16379/0".into()),
             bind_addr: std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
@@ -650,7 +692,11 @@ impl Config {
                 .map(|mb| mb * 1024 * 1024)
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
             db_pool_max: parse_pool_max("MARULA_DB_POOL_MAX", core_db::DEFAULT_POOL_MAX)?,
-            reporting_pool_max: parse_pool_max("MARULA_REPORTING_POOL_MAX", 25)?,
+            reporting_pool_max: parse_pool_max(
+                "MARULA_REPORTING_POOL_MAX",
+                crate::state::DEFAULT_REPORTING_POOL_MAX,
+            )?,
+            statement_cache_capacity: parse_statement_cache("MARULA_DB_STATEMENT_CACHE")?,
             ref_cache_ttl_secs: parse_bounded_u64(
                 "MARULA_REF_CACHE_TTL_SECS",
                 crate::cache::DEFAULT_TTL_SECS,
@@ -911,6 +957,28 @@ fn parse_pool_max_value(raw: Option<String>, default: u32, var: &str) -> Result<
     }
 }
 
+/// Parses the statement-cache capacity (Wave 52 lane P9).
+///
+/// Unlike a pool ceiling, ZERO is a meaningful value here — it is the
+/// pooler-safe default — so the floor is 0, not 1. The ceiling is sqlx's own
+/// order of magnitude, not a capacity decision: a cache above a few hundred
+/// statements per connection costs memory on both sides and is not what a
+/// pooler deployment wants anyway.
+fn parse_statement_cache(var: &str) -> Result<u32, String> {
+    parse_statement_cache_value(std::env::var(var).ok(), var)
+}
+
+fn parse_statement_cache_value(raw: Option<String>, var: &str) -> Result<u32, String> {
+    match raw {
+        None => Ok(core_db::DEFAULT_STATEMENT_CACHE_CAPACITY),
+        Some(v) => match v.trim().parse::<u32>() {
+            Ok(n) if n <= 4096 => Ok(n),
+            Ok(n) => Err(format!("{var} must be between 0 and 4096 (got {n})")),
+            Err(_) => Err(format!("{var} must be a non-negative integer (got {v:?})")),
+        },
+    }
+}
+
 /// Parses a bounded count/seconds knob. Fail-closed on a present-but-invalid
 /// value, the same posture `parse_pool_max` takes: a wrong cache ceiling is a
 /// capacity decision, not a cosmetic one.
@@ -935,6 +1003,7 @@ impl Config {
     pub fn test_with_secret(secret: &str) -> Self {
         Self {
             database_url: String::new(),
+            listen_database_url: None,
             redis_url: String::new(),
             bind_addr: String::new(),
             jwt_secret: secret.to_string(),
@@ -975,7 +1044,8 @@ impl Config {
                 .map(|mb| mb * 1024 * 1024)
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
             db_pool_max: core_db::DEFAULT_POOL_MAX,
-            reporting_pool_max: 25,
+            reporting_pool_max: crate::state::DEFAULT_REPORTING_POOL_MAX,
+            statement_cache_capacity: core_db::DEFAULT_STATEMENT_CACHE_CAPACITY,
             ref_cache_ttl_secs: crate::cache::DEFAULT_TTL_SECS,
             ref_cache_max_entries: crate::cache::DEFAULT_MAX_ENTRIES as u32,
             all_in_one: false,
@@ -1237,6 +1307,43 @@ mod pool_max_tests {
                 "operator copy names the variable: {err}"
             );
         }
+    }
+
+    /// The statement-cache capacity takes zero, which is the pooler-safe
+    /// default (Wave 52 lane P9), and refuses anything absurd or unparseable.
+    #[test]
+    fn statement_cache_parsing_takes_zero_and_refuses_garbage() {
+        assert_eq!(
+            parse_statement_cache_value(None, "MARULA_DB_STATEMENT_CACHE").unwrap(),
+            core_db::DEFAULT_STATEMENT_CACHE_CAPACITY
+        );
+        assert_eq!(
+            parse_statement_cache_value(Some("0".into()), "MARULA_DB_STATEMENT_CACHE").unwrap(),
+            0
+        );
+        assert_eq!(
+            parse_statement_cache_value(Some(" 64 ".into()), "MARULA_DB_STATEMENT_CACHE").unwrap(),
+            64
+        );
+        for bad in ["4097", "abc", "-1"] {
+            let err = parse_statement_cache_value(Some(bad.into()), "MARULA_DB_STATEMENT_CACHE")
+                .expect_err("invalid cache capacity must refuse");
+            assert!(
+                err.contains("MARULA_DB_STATEMENT_CACHE"),
+                "operator copy names the variable: {err}"
+            );
+        }
+    }
+
+    /// `MARULA_LISTEN_DATABASE_URL` is optional; unset means the pool's URL,
+    /// which keeps every single-box deployment unchanged.
+    #[test]
+    fn the_listen_url_falls_back_to_the_pool_url() {
+        let mut c = Config::test_with_secret("s");
+        c.database_url = "postgres://app@postgres:5432/marula".into();
+        assert_eq!(c.listen_url(), "postgres://app@postgres:5432/marula");
+        c.listen_database_url = Some("postgres://app@direct:5432/marula".into());
+        assert_eq!(c.listen_url(), "postgres://app@direct:5432/marula");
     }
 }
 

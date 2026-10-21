@@ -84,9 +84,24 @@ impl HealthFlags {
         let realtime = self.roles.realtime();
         let housekeeping = self.roles.housekeeping();
         [
-            ("relay", self.relay_alive.load(Ordering::Relaxed), realtime, true),
-            ("email", self.email_alive.load(Ordering::Relaxed), realtime, self.email_enabled),
-            ("queue", self.queue_alive.load(Ordering::Relaxed), realtime, true),
+            (
+                "relay",
+                self.relay_alive.load(Ordering::Relaxed),
+                realtime,
+                true,
+            ),
+            (
+                "email",
+                self.email_alive.load(Ordering::Relaxed),
+                realtime,
+                self.email_enabled,
+            ),
+            (
+                "queue",
+                self.queue_alive.load(Ordering::Relaxed),
+                realtime,
+                true,
+            ),
             (
                 "automations",
                 self.automations_alive.load(Ordering::Relaxed),
@@ -105,14 +120,24 @@ impl HealthFlags {
                 realtime,
                 true,
             ),
-            ("sla", self.sla_alive.load(Ordering::Relaxed), housekeeping, true),
+            (
+                "sla",
+                self.sla_alive.load(Ordering::Relaxed),
+                housekeeping,
+                true,
+            ),
             (
                 "delivery",
                 self.delivery_alive.load(Ordering::Relaxed),
                 housekeeping,
                 true,
             ),
-            ("pm", self.pm_alive.load(Ordering::Relaxed), housekeeping, true),
+            (
+                "pm",
+                self.pm_alive.load(Ordering::Relaxed),
+                housekeeping,
+                true,
+            ),
             (
                 "rotation",
                 self.rotation_alive.load(Ordering::Relaxed),
